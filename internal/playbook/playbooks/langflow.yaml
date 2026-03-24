@@ -1,0 +1,42 @@
+name: langflow
+description: >
+  Asset is a Langflow AI pipeline orchestration platform. Langflow is an
+  open-source tool for building LangChain-based AI pipelines with a visual
+  drag-and-drop interface. Risks include: CVE-2026-33017 (pre-auth Remote Code
+  Execution via the code execution node — CVSS 9.8, affects Langflow < 1.3.0),
+  unauthenticated access to the /api/v1/flows endpoint exposing all configured
+  AI pipelines and embedded API keys, and API key leakage through the flows
+  export feature. Internet-accessible Langflow instances grant full control
+  over AI pipelines and any API keys or credentials embedded in them.
+match:
+  any:
+    - path_responds: "/api/v1/version"
+    - path_responds: "/api/v1/flows"
+    - title_contains: "Langflow"
+    - body_contains: "Langflow"
+    - body_contains: "langflow"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - langflow
+    - exposure
+    - ai
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - langflow
+    - cves
+    - rce
+    - ai
+  dictionary:
+    - /api/v1/version
+    - /api/v1/flows
+    - /api/v1/users
+    - /api/v1/api_key
+    - /api/v1/config
+    - /api/v1/components
+    - /api/v1/validate/code
+    - /api/v1/custom_component

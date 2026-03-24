@@ -1,0 +1,55 @@
+name: n8n
+description: >
+  Asset is an n8n workflow automation platform. n8n exposes a powerful
+  node-based automation engine that can connect to internal services, databases,
+  and external APIs. Risks include: unauthenticated workflow execution on
+  community editions, credential leakage through exported workflows, and
+  CVE-2026-21858 / CVE-2025-68613 (pre-auth Server-Side Template Injection /
+  RCE on n8n < 1.67.1 — CVSS 9.8, KEV-listed). Any internet-accessible n8n
+  instance should be treated as a critical finding: the webhook execution
+  surface alone allows arbitrary HTTP callbacks and internal network pivoting.
+match:
+  any:
+    - title_contains: "n8n"
+    - path_responds: "/healthz"
+    - path_responds: "/api/v1/settings"
+    - body_contains: "n8n"
+    - header_value:
+        name: "x-powered-by"
+        contains: "n8n"
+surface:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - n8n
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "n8n.{domain}"
+      - "automation.{domain}"
+      - "workflows.{domain}"
+      - "integrations.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - n8n
+    - cves
+    - rce
+    - default-logins
+  dictionary:
+    - /healthz
+    - /api/v1/settings
+    - /api/v1/workflows
+    - /api/v1/executions
+    - /api/v1/credentials
+    - /api/v1/users
+    - /webhook/
+    - /webhook-test/
+    - /rest/login
+    - /rest/settings

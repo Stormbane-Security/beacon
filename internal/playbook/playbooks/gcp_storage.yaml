@@ -1,0 +1,46 @@
+name: gcp_storage
+description: >
+  Asset resolves to a Google Cloud Storage (GCS) bucket. Risks mirror those of
+  AWS S3: publicly readable buckets may expose sensitive files, credentials,
+  backups, or PII. Misconfigured IAM policies (allUsers or allAuthenticatedUsers
+  granted storage.objects.list or storage.objects.get) are a frequent finding.
+  Bucket takeover is possible when a DNS CNAME points to a bucket that no longer
+  exists in GCS. Writable buckets can be abused to host malicious content or
+  exfiltrate data. The GCS JSON and XML APIs may also reveal metadata about
+  object permissions even when objects themselves are not directly listed.
+match:
+  any:
+    - cname_contains: ".storage.googleapis.com"
+    - cname_contains: "storage.googleapis.com"
+    - cert_san_contains: ".storage.googleapis.com"
+    - header_value:
+        name: "server"
+        contains: "UploadServer"
+    - header_present: "x-goog-generation"
+    - header_present: "x-goog-metageneration"
+    - header_present: "x-guploader-uploadid"
+surface:
+  nuclei_tags:
+    - gcp
+    - gcs
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "assets.{domain}"
+      - "static.{domain}"
+      - "media.{domain}"
+      - "uploads.{domain}"
+      - "backup.{domain}"
+      - "files.{domain}"
+      - "cdn.{domain}"
+deep:
+  nuclei_tags:
+    - gcp
+    - gcs
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers

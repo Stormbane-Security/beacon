@@ -1,0 +1,46 @@
+name: azure_blob
+description: >
+  Asset resolves to Azure Blob Storage. Risks include: publicly accessible
+  containers exposing sensitive data (backups, credentials, PII, source code
+  archives), anonymous read access granted at container level allowing full
+  enumeration of blobs, storage account key exposure leading to full account
+  compromise, SAS token leakage granting time-limited but broad access, and
+  subdomain takeover when a custom domain CNAME points to a deleted storage
+  account. Azure Blob Storage with Static Website enabled can additionally be
+  misconfigured to serve arbitrary content or act as a phishing vector.
+match:
+  any:
+    - cname_contains: ".blob.core.windows.net"
+    - cname_contains: ".web.core.windows.net"
+    - cname_contains: ".dfs.core.windows.net"
+    - cert_san_contains: ".blob.core.windows.net"
+    - header_value:
+        name: "server"
+        contains: "Windows-Azure-Blob"
+    - header_present: "x-ms-blob-type"
+    - header_present: "x-ms-lease-status"
+    - header_present: "x-ms-version"
+surface:
+  nuclei_tags:
+    - azure
+    - azure-blob
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "assets.{domain}"
+      - "static.{domain}"
+      - "media.{domain}"
+      - "backup.{domain}"
+      - "files.{domain}"
+      - "uploads.{domain}"
+deep:
+  nuclei_tags:
+    - azure
+    - azure-blob
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers

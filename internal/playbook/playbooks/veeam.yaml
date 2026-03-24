@@ -1,0 +1,44 @@
+name: veeam
+description: >
+  Asset is a Veeam Backup & Replication server or Enterprise Manager.
+  Veeam is the most widely deployed enterprise backup solution. Risks include:
+  CVE-2025-23120 (CVSS 9.9, KEV-listed, unauthenticated remote code execution
+  via .NET deserialization — affects Veeam Backup & Replication 12.x on
+  domain-joined machines); CVE-2024-40711 (CVSS 9.8, KEV, unauthenticated RCE
+  via deserialization — chained with CVE-2024-29212 for full compromise);
+  CVE-2023-27532 (CVSS 7.5, credential extraction from configuration database
+  without authentication); and CVE-2022-26500/26501 (KEV, RCE via Veeam
+  Distribution Service). Veeam servers store credentials for every protected
+  workload — compromise of the backup server is effectively compromise of the
+  entire infrastructure. The Enterprise Manager listens on port 9443, the
+  Backup Service on port 9401, and the Catalog Service on port 9419. These ports
+  should never be internet-facing.
+match:
+  any:
+    - check_id: "cve.veeam_backup_exposed"
+    - path_responds: "/api/v1/serverInfo"
+    - title_contains: "Veeam"
+    - body_contains: "Veeam"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - veeam
+    - backup
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - veeam
+    - backup
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /api/v1/serverInfo
+    - /api/v1/sessions
+    - /api/v1/backupInfrastructure/backupServers
+    - /swagger/index.html

@@ -1,0 +1,42 @@
+name: cisco_asa
+description: >
+  Asset is a Cisco Adaptive Security Appliance (ASA) or Firewall Threat Defense
+  (FTD) device with AnyConnect SSL VPN. Cisco ASA/FTD is one of the most widely
+  deployed enterprise firewall and VPN platforms. Risks include: CVE-2025-20333
+  (buffer overflow in the VPN web server) chained with CVE-2025-20362
+  (unauthenticated access to restricted URLs) enabling pre-auth RCE — both
+  KEV-listed; CVE-2018-0101 (Cisco ASA remote code execution, widely exploited);
+  and CVE-2020-3187 (unauthenticated directory traversal via VPN paths).
+  An internet-accessible Cisco ASA/FTD is a tier-1 target for network
+  infrastructure attackers. Patch to current ASA 9.x / FTD 7.x releases immediately.
+match:
+  any:
+    - path_responds: "/+CSCOE+/logon.html"
+    - body_contains: "webvpn"
+    - body_contains: "AnyConnect"
+    - title_contains: "AnyConnect"
+    - title_contains: "Cisco ASA"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - cisco
+    - cisco-asa
+    - exposure
+    - vpn
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - cisco
+    - cisco-asa
+    - cves
+    - rce
+  dictionary:
+    - /+CSCOE+/logon.html
+    - /+CSCOE+/files/
+    - /+CSCOE+/win.js
+    - /+webvpn+/index.html
+    - /admin/
+    - /ASDM/index.html

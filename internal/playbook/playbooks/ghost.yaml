@@ -1,0 +1,42 @@
+name: ghost
+description: >
+  Asset is running Ghost CMS, a Node.js-based publishing platform. Risks include:
+  exposed Ghost admin panel at /ghost allowing brute force of admin credentials,
+  CVE-2023-40028 (arbitrary file read in Ghost versions before 5.59.1 allowing
+  unauthenticated theme file traversal), the Ghost Admin API (/ghost/api/admin)
+  potentially accessible with leaked API keys or weak authentication, member
+  subscription data exposure, and content API key leakage granting read access
+  to all published and draft content. Ghost installations on misconfigured hosts
+  may also expose the underlying Node.js error stack or environment details.
+  The /ghost/api/content/settings endpoint can leak site configuration including
+  third-party service keys.
+match:
+  any:
+    - header_present: "x-ghost-cache-status"
+    - header_present: "x-cache-invalidate"
+    - body_contains: "Ghost"
+    - body_contains: "ghost.io"
+    - path_responds: "/ghost/api"
+    - path_responds: "/ghost"
+surface:
+  nuclei_tags:
+    - ghost
+    - cms
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "blog.{domain}"
+      - "news.{domain}"
+      - "cms.{domain}"
+      - "ghost.{domain}"
+deep:
+  nuclei_tags:
+    - ghost
+    - cms
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins

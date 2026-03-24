@@ -1,0 +1,79 @@
+name: jupyter
+description: >
+  Asset is running Jupyter Notebook or JupyterLab, an interactive computing
+  environment primarily used for data science and machine learning workflows.
+  Jupyter is frequently misconfigured to run without authentication, making it
+  trivially exploitable. Risks include: unauthenticated access to the /api/kernels
+  endpoint allowing arbitrary code execution by spawning a kernel and sending
+  execute_request messages over WebSocket, the /api/contents endpoint exposing the
+  full notebook filesystem tree and file contents (including credential files, SSH
+  keys, and source code), /api/terminals providing direct shell access, notebook
+  files (.ipynb) containing embedded output with secrets and sensitive data,
+  CVE-2022-24758 (open redirect), CVE-2023-39968 (path traversal on Windows), and
+  token-based authentication bypassed when the token is left at the default empty
+  string or is embedded in the URL. Internet-exposed Jupyter instances are regularly
+  used as cryptocurrency miners and lateral-movement footholds. The /lab interface
+  also exposes extension management which can install malicious server extensions.
+match:
+  any:
+    - path_responds: "/api/kernels"
+    - title_contains: "Jupyter"
+    - body_contains: "jupyter"
+    - path_responds: "/api/contents"
+    - path_responds: "/lab"
+surface:
+  scanners:
+    - httpmethods
+    - exposedfiles
+    - apiversions
+  nuclei_tags:
+    - jupyter
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "jupyter.{domain}"
+      - "notebook.{domain}"
+      - "notebooks.{domain}"
+      - "lab.{domain}"
+      - "ds.{domain}"
+      - "datascience.{domain}"
+      - "ml.{domain}"
+deep:
+  scanners:
+    - cors
+    - ratelimit
+    - httpmethods
+  nuclei_tags:
+    - jupyter
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce
+  dictionary:
+    # Kernel API — arbitrary code execution if unauthenticated
+    - /api/kernels
+    - /api/kernelspecs
+    # Filesystem enumeration
+    - /api/contents
+    - /api/contents/
+    # Terminal access (direct shell)
+    - /api/terminals
+    # Session listing (reveals active notebooks)
+    - /api/sessions
+    # Server config and status
+    - /api/status
+    - /api/config
+    - /api/nbconvert
+    # Classic notebook UI
+    - /tree
+    - /notebooks
+    # JupyterLab UI
+    - /lab
+    # Credential files commonly present in home/work directories
+    - /api/contents/.env
+    - /api/contents/secrets.json
+    - /api/contents/.aws/credentials

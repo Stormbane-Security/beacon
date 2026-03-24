@@ -1,0 +1,69 @@
+name: gitlab
+description: >
+  Asset is a GitLab instance (self-hosted). GitLab hosts source code, CI/CD
+  pipelines, container registries, and often holds the keys to the entire
+  development and deployment infrastructure. Risks include: public repository
+  exposure disclosing source code and secrets, open user registration on
+  self-hosted instances allowing account creation and repository access, CI/CD
+  pipeline variable leakage (GITLAB_TOKEN, cloud credentials), CVE-2021-22205
+  (unauthenticated RCE via image parsing), CVE-2023-7028 (account takeover via
+  password reset), personal access token and deploy key mismanagement, and
+  the GraphQL or REST API exposing project metadata to unauthenticated users
+  when public visibility is misconfigured. GitLab Runner misconfigurations can
+  allow arbitrary code execution on runner infrastructure.
+match:
+  any:
+    - title_contains: "GitLab"
+    - header_present: "x-gitlab-meta"
+    - header_present: "x-request-id"
+    - path_responds: "/-/health"
+    - path_responds: "/-/readiness"
+    - body_contains: "GitLab"
+    - header_value:
+        name: "x-content-type-options"
+        contains: "nosniff"
+surface:
+  nuclei_tags:
+    - gitlab
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "gitlab.{domain}"
+      - "git.{domain}"
+      - "code.{domain}"
+      - "scm.{domain}"
+      - "vcs.{domain}"
+      - "registry.{domain}"
+deep:
+  nuclei_tags:
+    - gitlab
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce
+  dictionary:
+    # Health & version
+    - /-/health
+    - /-/readiness
+    - /-/liveness
+    - /-/metrics
+    # User & group enumeration
+    - /explore
+    - /explore/projects
+    - /explore/groups
+    - /users
+    # API
+    - /api/v4/projects
+    - /api/v4/users
+    - /api/v4/groups
+    # Admin panel
+    - /admin
+    - /admin/users
+    - /admin/projects
+    # Registry & artifacts
+    - /-/registry
+    - /jwt/auth

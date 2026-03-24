@@ -1,0 +1,32 @@
+# Beacon — Deep Scan Template List
+# Includes all surface templates plus active probing templates.
+# Requires --deep --permission-confirmed.
+# Only run against targets you own or have explicit permission to test.
+
+# Include all surface templates
+@surface.txt
+
+# Active Web Vulnerability Probes
+xss
+sqli
+open-redirect
+ssrf
+path-traversal
+default-login
+default-credentials
+
+# CVE Templates — Known Exploited Vulnerabilities
+# High-signal, actively exploited CVEs. Updated regularly.
+cves/
+
+# Extended Misconfiguration Detection
+heapdump
+spring-actuator-env
+grafana-default-credentials
+jenkins-login
+gitlab-unauth
+
+# Active TLS Checks (testssl.sh handles cipher/protocol depth;
+# these nuclei templates catch additional web-layer TLS issues)
+tls-sni-mismatch
+http-to-https

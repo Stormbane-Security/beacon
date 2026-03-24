@@ -1,0 +1,49 @@
+name: f5_bigip
+description: >
+  Asset is an F5 BIG-IP load balancer or application delivery controller.
+  F5 BIG-IP is widely deployed for enterprise load balancing, WAF, and SSL
+  termination. Risks include: CVE-2022-1388 (CVSS 9.8, KEV-listed, iControl
+  REST authentication bypass allowing unauthenticated remote code execution
+  via POST to /mgmt/tm/util/bash — chained to deploy web shells in thousands
+  of compromises); CVE-2021-22986 (CVSS 9.8, iControl REST unauth RCE);
+  CVE-2020-5902 (CVSS 10.0, TMUI RCE via path traversal in
+  /tmui/login.jsp?..;/tmui/locallb/workspace/tmshCmd.jsp — one of the most
+  widely exploited vulnerabilities of 2020); and CVE-2023-46747 (CVSS 9.8,
+  Configuration Utility auth bypass + RCE). The TMUI path /tmui/login.jsp
+  is the definitive F5 BIG-IP fingerprint. The iControl REST API at
+  /mgmt/shared/authn/login provides administrative access to all traffic
+  management configuration. Both should be restricted to management networks.
+match:
+  any:
+    - check_id: "netdev.f5_detected"
+    - path_responds: "/tmui/login.jsp"
+    - path_responds: "/mgmt/shared/authn/login"
+    - title_contains: "BIG-IP"
+    - body_contains: "BIG-IP"
+    - body_contains: "F5 Networks"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - f5
+    - bigip
+    - network
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - f5
+    - bigip
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /tmui/login.jsp
+    - /mgmt/shared/authn/login
+    - /mgmt/tm/util/bash
+    - /mgmt/shared/echo
+    - /robots.txt
+    - /mgmt/tm/ltm/virtual

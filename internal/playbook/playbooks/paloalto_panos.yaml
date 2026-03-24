@@ -1,0 +1,58 @@
+name: paloalto_panos
+description: >
+  Asset is a Palo Alto Networks PAN-OS firewall or GlobalProtect VPN gateway.
+  Palo Alto PAN-OS is widely deployed as enterprise perimeter firewalls and
+  VPN gateways. Risks include: CVE-2025-0108 (CVSS 9.3, KEV-listed, PHP
+  authentication bypass allowing unauthenticated access to management interface
+  — "PAN-OS Authentication Bypass"); CVE-2025-0111 (CVSS 7.1, file read chained
+  with 0108); CVE-2024-3400 (CVSS 10.0, KEV, OS command injection via
+  GlobalProtect — "Operation MidnightEclipse"); CVE-2024-0012 (CVSS 9.3, KEV,
+  PAN-OS management interface authentication bypass); and CVE-2023-0009
+  (GlobalProtect local privilege escalation). CISA KEV lists multiple PAN-OS
+  vulnerabilities. The GlobalProtect login page (/global-protect/login.esp) and
+  the management portal login (/php/login.php) are the primary entry points.
+  Palo Alto recommends restricting management interface access to trusted IPs.
+match:
+  any:
+    - check_id: "netdev.paloalto_detected"
+    - path_responds: "/global-protect/login.esp"
+    - path_responds: "/php/login.php"
+    - title_contains: "GlobalProtect"
+    - title_contains: "Palo Alto"
+    - body_contains: "GlobalProtect"
+    - body_contains: "paloaltonetworks"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - paloalto
+    - pan-os
+    - globalprotect
+    - vpn
+    - exposure
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "vpn.{domain}"
+      - "gp.{domain}"
+      - "globalprotect.{domain}"
+      - "firewall.{domain}"
+      - "fw.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - paloalto
+    - pan-os
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /global-protect/login.esp
+    - /php/login.php
+    - /api/?type=version
+    - /global-protect/portal/css/login.css
+    - /esp/main.html
+    - /SAML20/SP/ACS

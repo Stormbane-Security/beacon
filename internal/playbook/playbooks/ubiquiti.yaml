@@ -1,0 +1,50 @@
+name: ubiquiti
+description: >
+  Asset is a Ubiquiti Networks device (UniFi controller, AirOS wireless AP,
+  EdgeRouter, or UniFi Dream Machine). Ubiquiti equipment is widely used in
+  enterprise and ISP deployments. Risks include: CVE-2021-22909 (UniFi Network
+  application redirect vulnerability allowing SSRF); default credential
+  "ubnt/ubnt" on AirOS devices; CVE-2020-8232 (information disclosure via
+  UniFi controller); and the March 2021 Ubiquiti data breach exposing customer
+  credentials. The UniFi controller (port 8443) manages the entire network
+  infrastructure including access points, switches, and security gateways.
+  Exposed UniFi controllers without 2FA are high-value targets.
+match:
+  any:
+    - check_id: "netdev.ubiquiti_detected"
+    - title_contains: "UniFi"
+    - title_contains: "Ubiquiti"
+    - body_contains: "UniFi"
+    - body_contains: "Ubiquiti"
+    - path_responds: "/manage/account/login"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - ubiquiti
+    - unifi
+    - network
+    - exposure
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "unifi.{domain}"
+      - "controller.{domain}"
+      - "network.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - ubiquiti
+    - unifi
+    - network
+    - default-logins
+    - cves
+  dictionary:
+    - /manage/account/login
+    - /api/self
+    - /api/s/default/stat/device
+    - /status
+    - /system.cfg

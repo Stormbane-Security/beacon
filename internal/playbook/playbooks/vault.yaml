@@ -1,0 +1,78 @@
+name: vault
+description: >
+  Asset is running HashiCorp Vault, a secrets management and encryption-as-a-service
+  platform. Vault is an extremely high-value target because it centralises all secrets
+  in an organisation — database credentials, API keys, TLS certificates, cloud IAM
+  tokens, and more. Risks include: unauthenticated access to the /v1/sys/health and
+  /v1/sys/seal-status endpoints leaking cluster state and version, unseal key or root
+  token disclosure, the /v1/sys/mounts endpoint revealing all enabled secret backends
+  and their paths, the /v1/auth endpoint listing all authentication methods, token
+  enumeration via the token accessor API, overly-permissive ACL policies granting
+  broad read access, the /v1/sys/init endpoint revealing initialisation state, and
+  /v1/sys/config/state/sanitized exposing non-sensitive configuration. Vault running
+  in dev mode (default listener on 0.0.0.0) is unauthenticated. JWT and CORS
+  misconfigurations can allow cross-origin secret theft. Compromise of Vault typically
+  results in full credential exposure across every connected system.
+match:
+  any:
+    - path_responds: "/v1/sys/health"
+    - title_contains: "Vault"
+    - body_contains: "initialized"
+    - body_contains: "Vault"
+    - path_responds: "/v1/sys/seal-status"
+surface:
+  scanners:
+    - httpmethods
+    - exposedfiles
+    - apiversions
+  nuclei_tags:
+    - vault
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "vault.{domain}"
+      - "secrets.{domain}"
+      - "secret.{domain}"
+      - "hsm.{domain}"
+      - "pki.{domain}"
+      - "creds.{domain}"
+deep:
+  scanners:
+    - cors
+    - ratelimit
+    - jwt
+  nuclei_tags:
+    - vault
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - token
+  dictionary:
+    # Health & status (unauthenticated by default)
+    - /v1/sys/health
+    - /v1/sys/seal-status
+    - /v1/sys/init
+    # Secret backend enumeration
+    - /v1/sys/mounts
+    - /v1/sys/auth
+    # Auth method listing
+    - /v1/auth
+    # Configuration state (sanitized — may still leak topology)
+    - /v1/sys/config/state/sanitized
+    # Token self-lookup (tests for overly-permissive anon tokens)
+    - /v1/auth/token/lookup-self
+    # Policy enumeration
+    - /v1/sys/policies/acl
+    # KV secret engines (common default mounts)
+    - /v1/secret/
+    - /v1/kv/
+    - /v1/cubbyhole/
+    # PKI engine
+    - /v1/pki/ca/pem
+    - /v1/pki/crl
+    # AWS secret engine (common)
+    - /v1/aws/roles

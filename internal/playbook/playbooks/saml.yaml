@@ -1,0 +1,51 @@
+name: saml
+description: >
+  Asset exposes a SAML 2.0 Service Provider (SP) or Identity Provider (IdP)
+  endpoint. SAML is commonly used for enterprise SSO and is a high-value attack
+  target due to the complexity of its XML signature validation.
+  Risks include: XML Signature Wrapping (XSW) attacks where a valid signature
+  is wrapped around a forged assertion; missing signature validation where the
+  SP trusts unsigned assertions; assertion replay attacks; XXE injection in SAML
+  XML documents; open redirect via RelayState manipulation; issuer and audience
+  validation bypass. A SAML bypass typically grants attacker-controlled
+  identity claims to all applications in the SSO environment.
+match:
+  any:
+    - path_responds: "/saml/metadata"
+    - path_responds: "/saml2/metadata"
+    - path_responds: "/auth/saml"
+    - path_responds: "/sso/saml"
+    - path_responds: "/saml"
+    - path_responds: "/.well-known/saml-configuration"
+    - body_contains: "EntityDescriptor"
+    - body_contains: "SAMLResponse"
+    - body_contains: "saml2:"
+    - header_contains: "saml"
+surface:
+  scanners:
+    - saml
+  nuclei_tags:
+    - saml
+    - sso
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "sso.{domain}"
+      - "auth.{domain}"
+      - "idp.{domain}"
+      - "saml.{domain}"
+      - "login.{domain}"
+      - "sp.{domain}"
+deep:
+  scanners:
+    - saml
+    - iam
+    - authfuzz
+  nuclei_tags:
+    - saml
+    - sso
+    - cves
+    - injection
+    - misconfiguration

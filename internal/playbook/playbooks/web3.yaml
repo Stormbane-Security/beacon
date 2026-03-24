@@ -1,0 +1,48 @@
+name: web3
+description: >
+  Triggered when Web3/blockchain signals are detected — wallet integration
+  libraries, contract addresses, or RPC provider references found in page
+  source or JavaScript bundles. Runs CORS, header, and DLP checks relevant
+  to decentralized finance and blockchain applications.
+
+match:
+  any:
+    - has_contract_addresses: true
+    # EVM wallet signals
+    - web3_signal_contains: "ethers"
+    - web3_signal_contains: "wagmi"
+    - web3_signal_contains: "web3.js"
+    - web3_signal_contains: "viem"
+    - web3_signal_contains: "walletconnect"
+    - web3_signal_contains: "window.ethereum"
+    - web3_signal_contains: "infura.io"
+    - web3_signal_contains: "alchemyapi.io"
+    - web3_signal_contains: "metamask"
+    - web3_signal_contains: "rainbow"
+    # Solana / Phantom wallet signals
+    - web3_signal_contains: "window.solana"
+    - web3_signal_contains: "@solana/wallet-adapter"
+    - web3_signal_contains: "solflare"
+    - web3_signal_contains: "phantom"
+    - web3_signal_contains: "backpack"
+    # Auth system signals from classify
+    - auth_system_contains: "web3_wallet"
+    - auth_system_contains: "solana_wallet"
+
+surface:
+  scanners:
+    - web3detect
+    - webcontent  # scan JS bundles for hardcoded private keys / mnemonics / RPC keys
+    - dlp         # detect mnemonic phrases, private keys, RPC API keys in page content
+    - cors        # web3 apps often have broad CORS for wallet connections
+    - headers     # check CSP — web3 apps often have weak CSP
+  nuclei_tags:
+    - web3
+    - blockchain
+    - ethereum
+
+deep:
+  scanners:
+    - web3auth    # SIWE login flow + domain bypass, nonce reuse, replay, escalation probes
+    - cors
+    - httpmethods

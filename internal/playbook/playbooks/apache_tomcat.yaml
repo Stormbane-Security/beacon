@@ -1,0 +1,45 @@
+name: apache_tomcat
+description: >
+  Asset is an Apache Tomcat Java application server. Tomcat is one of the
+  most widely deployed Java servlet containers. Risks include: CVE-2025-24813
+  (CVSS 9.8, KEV-listed, partial PUT deserialization leading to RCE — affects
+  Tomcat 11.x < 11.0.3, 10.x < 10.1.35, 9.x < 9.0.99); CVE-2020-1938
+  (CVSS 9.8, "Ghostcat" — AJP protocol file inclusion, KEV-listed); CVE-2019-0232
+  (CVSS 9.8, CGI servlet RCE on Windows, KEV-listed); and the default
+  manager application (/manager/html) with weak credentials "tomcat/tomcat"
+  or "admin/admin" enabling WAR deployment and arbitrary code execution.
+  The /manager/html upload endpoint has been exploited in ransomware campaigns.
+  Restrict manager access to localhost, change default credentials, and
+  disable the default manager application on public-facing instances.
+match:
+  any:
+    - title_contains: "Apache Tomcat"
+    - body_contains: "Apache Tomcat"
+    - path_responds: "/manager/html"
+    - path_responds: "/host-manager/html"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - tomcat
+    - apache
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - tomcat
+    - apache
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /manager/html
+    - /manager/status
+    - /host-manager/html
+    - /manager/text/list
+    - /examples/jsp/
+    - /examples/servlets/
+    - /docs/

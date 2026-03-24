@@ -1,0 +1,192 @@
+// Package apiversions discovers undocumented or unprotected API versions.
+// Older API versions are frequently less protected than the current version —
+// missing auth middleware, weaker rate limiting, or unpatched endpoints.
+//
+// The scanner probes common version prefixes and compares responses to detect
+// active API versions the operator may not know are still accessible.
+package apiversions
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
+)
+
+const scannerName = "apiversions"
+
+// versionPaths are candidate API version prefixes to probe.
+var versionPaths = []struct {
+	path    string
+	version string
+}{
+	{"/api/v1/", "v1"},
+	{"/api/v2/", "v2"},
+	{"/api/v3/", "v3"},
+	{"/api/v4/", "v4"},
+	{"/api/v5/", "v5"},
+	{"/v1/", "v1"},
+	{"/v2/", "v2"},
+	{"/v3/", "v3"},
+	{"/v4/", "v4"},
+	{"/api/1/", "1"},
+	{"/api/2/", "2"},
+	{"/api/2.0/", "2.0"},
+	{"/api/beta/", "beta"},
+	{"/api/alpha/", "alpha"},
+	{"/api/internal/", "internal"},
+	{"/api/dev/", "dev"},
+	{"/api/staging/", "staging"},
+	{"/rest/v1/", "v1"},
+	{"/rest/v2/", "v2"},
+	{"/services/v1/", "v1"},
+	{"/services/v2/", "v2"},
+}
+
+// Scanner probes for active API version endpoints.
+type Scanner struct{}
+
+func New() *Scanner { return &Scanner{} }
+
+func (s *Scanner) Name() string { return scannerName }
+
+func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// Surface mode: probe only — no deep fuzzing of discovered endpoints.
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	scheme := detectScheme(ctx, client, asset)
+	base := scheme + "://" + asset
+
+	// Collect active versions.
+	type activeVersion struct {
+		path    string
+		version string
+		status  int
+		ct      string
+		bodyLen int
+	}
+	var active []activeVersion
+
+	for _, v := range versionPaths {
+		u := base + v.path
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
+
+		// Skip 404 and method-not-allowed.
+		if resp.StatusCode == 404 || resp.StatusCode == 405 {
+			continue
+		}
+		// Skip redirects — a 3xx means the path doesn't serve API content here;
+		// it's almost always a catch-all that forwards unknown paths to the root
+		// or login page, not an actual staging/dev environment.
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			continue
+		}
+		// Skip HTML responses — almost certainly a catch-all redirect/landing page.
+		ct := resp.Header.Get("Content-Type")
+		if strings.Contains(ct, "text/html") {
+			continue
+		}
+
+		active = append(active, activeVersion{
+			path:    v.path,
+			version: v.version,
+			status:  resp.StatusCode,
+			ct:      ct,
+			bodyLen: len(body),
+		})
+	}
+
+	if len(active) == 0 {
+		return nil, nil
+	}
+
+	// Separate dev/internal/staging versions from numbered versions —
+	// these are higher severity because they're more likely unintentionally exposed.
+	var findings []finding.Finding
+	devKeywords := map[string]bool{"beta": true, "alpha": true, "internal": true, "dev": true, "staging": true}
+
+	for _, av := range active {
+		sev := finding.SeverityLow
+		if devKeywords[av.version] {
+			sev = finding.SeverityHigh
+		}
+
+		title := fmt.Sprintf("API version %s is accessible", av.version)
+		if devKeywords[av.version] {
+			title = fmt.Sprintf("Non-production API endpoint accessible (%s)", av.version)
+		}
+
+		desc := fmt.Sprintf(
+			"The API endpoint %s%s returned HTTP %d. Legacy API versions often lack the "+
+				"security controls (authentication, rate limiting, input validation) applied to current versions. "+
+				"Verify this version is intentionally public and has the same security posture as the primary API.",
+			base, av.path, av.status)
+		if devKeywords[av.version] {
+			desc = fmt.Sprintf(
+				"A non-production API endpoint (%s) is publicly accessible and returned HTTP %d. "+
+					"Development and staging endpoints typically have weaker authentication, broader CORS policies, "+
+					"debug features enabled, or access to non-production data. This should not be reachable from the internet.",
+				av.version, av.status)
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:      "exposure.api_version",
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     sev,
+			Title:        title,
+			Description:  desc,
+			Asset:        asset,
+			ProofCommand: fmt.Sprintf("curl -si -H 'Accept: application/json' %s%s", base, av.path),
+			Evidence: map[string]any{
+				"url":          base + av.path,
+				"path":         av.path,
+				"version":      av.version,
+				"status_code":  av.status,
+				"content_type": av.ct,
+			},
+		})
+	}
+
+	return findings, nil
+}
+
+func detectScheme(ctx context.Context, client *http.Client, asset string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	if err != nil {
+		return "http"
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "http"
+	}
+	resp.Body.Close()
+	return "https"
+}

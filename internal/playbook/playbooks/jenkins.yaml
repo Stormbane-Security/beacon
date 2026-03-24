@@ -1,0 +1,81 @@
+name: jenkins
+description: >
+  Asset is a Jenkins CI/CD server. Jenkins is one of the most frequently exploited
+  internet-exposed tools due to its prevalence and historically weak default security.
+  Risks include: unauthenticated access to the Jenkins UI and Script Console
+  (which provides direct Groovy execution and therefore full OS-level RCE),
+  credential store exposure via the Jenkins API (/credentials/store/system/api/json),
+  build log leakage containing secrets and internal hostnames, arbitrary job
+  creation by authenticated users, CVE-2024-23897 (unauthenticated file read via
+  CLI), CVE-2019-1003000 series (sandbox escapes in Pipeline), and many older RCE
+  CVEs. Jenkins agents and build environments often have broad network access,
+  making Jenkins a critical pivot point in attacks on CI/CD supply chains.
+match:
+  any:
+    # Header-based signals are the most reliable Jenkins indicators.
+    # x-jenkins and x-hudson are set by Jenkins on every response.
+    - header_present: "x-jenkins"
+    - header_present: "x-hudson"
+    - header_value:
+        name: "x-jenkins"
+        contains: ""
+    # Title and body matches are Jenkins-specific strings unlikely elsewhere.
+    - title_contains: "Jenkins"
+    - body_contains: "Jenkins"
+    # j_spring_security_check is a Jenkins-specific Spring Security endpoint.
+    - path_responds: "/j_spring_security_check"
+    # /api/json is Jenkins-specific when combined with Jenkins headers/title —
+    # used here as a fallback since generic /login is far too broad.
+surface:
+  nuclei_tags:
+    - jenkins
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "jenkins.{domain}"
+      - "ci.{domain}"
+      - "build.{domain}"
+      - "cicd.{domain}"
+      - "builds.{domain}"
+      - "pipeline.{domain}"
+      - "automation.{domain}"
+deep:
+  scanners:
+    - jenkins   # active Groovy execution probe — deep/confirmed only
+  nuclei_tags:
+    - jenkins
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce
+  dictionary:
+    # Core UI & auth
+    - /login
+    - /j_spring_security_check
+    - /logout
+    # Script console (Groovy RCE)
+    - /script
+    - /scriptText
+    # API & credential exposure
+    - /api/json
+    - /api/json?pretty=true
+    - /credentials/store/system/api/json
+    - /credentials/store/system/domain/_/api/json
+    # Build artifacts & logs
+    - /job/
+    - /view/all/
+    - /asynchPeople/
+    - /userContent/
+    # Management
+    - /manage
+    - /configure
+    - /pluginManager/
+    - /updateCenter/
+    - /systemInfo
+    - /log/all/rss
+    # Agent / node info
+    - /computer/api/json

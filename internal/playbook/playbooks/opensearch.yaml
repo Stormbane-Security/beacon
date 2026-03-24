@@ -1,0 +1,44 @@
+name: opensearch
+description: >
+  Asset is an exposed OpenSearch node or cluster HTTP API. OpenSearch is the
+  AWS-maintained fork of Elasticsearch and shares much of its attack surface.
+  Risks include: unauthenticated access to indices and cluster metadata, data
+  exfiltration via the search and scroll APIs, index deletion or data tampering,
+  cluster configuration exposure, snapshot repository access, and OpenSearch
+  Dashboards (formerly Kibana) misconfigurations. AWS-managed OpenSearch Service
+  domains may be misconfigured with open access policies (Principal: "*") allowing
+  unauthenticated API calls from any IP. The /_cat/indices, /_cluster/health, and
+  /_nodes endpoints are key reconnaissance targets. OpenSearch Security plugin
+  misconfigurations can allow privilege escalation within the cluster.
+match:
+  any:
+    - path_responds: "/_cat/indices"
+    - path_responds: "/_cluster/health"
+    - body_contains: "opensearch"
+    - body_contains: "OpenSearch"
+    - header_value:
+        name: "x-opensearch-product"
+        contains: "OpenSearch"
+surface:
+  nuclei_tags:
+    - opensearch
+    - elastic
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "opensearch.{domain}"
+      - "search.{domain}"
+      - "elastic.{domain}"
+      - "logging.{domain}"
+      - "logs.{domain}"
+      - "es.{domain}"
+deep:
+  nuclei_tags:
+    - opensearch
+    - elastic
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins

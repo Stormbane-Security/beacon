@@ -1,0 +1,44 @@
+name: cisco_network_device
+description: >
+  Asset is a Cisco network device (IOS router, Catalyst switch, NX-OS data
+  center switch, or ASR/ISR platform). Cisco is the dominant enterprise
+  network vendor. Risks include: management interface exposure (SSH, Telnet,
+  SNMP, HTTP/HTTPS), SNMP with default community strings ("public"/"private"),
+  Telnet transmitting credentials in cleartext, CVE-2023-20198 (IOS XE web UI
+  authentication bypass — CVSS 10.0, KEV-listed), CVE-2022-20821 (NX-OS health
+  check RCE), and legacy Cisco Smart Install vulnerabilities enabling unauthenticated
+  configuration read/write via TCP 4786. Cisco management interfaces are primary
+  targets for nation-state actors and ransomware operators targeting network
+  infrastructure. Restrict management access to out-of-band networks.
+match:
+  any:
+    - check_id: "netdev.cisco_detected"
+    - title_contains: "Cisco"
+    - body_contains: "Cisco IOS"
+    - body_contains: "Cisco NX-OS"
+    - body_contains: "Catalyst"
+    - path_responds: "/level/15/exec/-/show/version"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - cisco
+    - network
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - cisco
+    - network
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /level/15/exec/-/show/version
+    - /level/15/exec/-/show/running-config
+    - /exec/show/version/CR
+    - /
+    - /index.html

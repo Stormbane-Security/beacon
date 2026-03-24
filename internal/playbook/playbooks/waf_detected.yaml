@@ -1,0 +1,58 @@
+name: waf_detected
+description: >
+  Asset is protected by a WAF or CDN with WAF capabilities. Key risks:
+  origin IP exposure (bypasses WAF entirely), insecure SSL mode, IP-header
+  bypass, and gaps in WAF rule coverage. The most critical finding is a
+  directly-accessible origin IP — if found, all WAF protections are void.
+  Also checks for WAF-protected paths that remain vulnerable behind the edge.
+match:
+  any:
+    # Cloudflare
+    - header_present: "cf-ray"
+    - header_present: "cf-cache-status"
+    # AWS WAF / CloudFront
+    - header_present: "x-amzn-requestid"
+    - header_present: "x-amz-cf-id"
+    # Imperva / Incapsula
+    - header_present: "x-iinfo"
+    # Sucuri
+    - header_present: "x-sucuri-id"
+    # Fastly
+    - header_present: "x-fastly-request-id"
+    # Akamai
+    - header_present: "x-check-cacheable"
+    # ASN-based CDN/WAF detection
+    - asn_org_contains: "CLOUDFLARE"
+    - asn_org_contains: "AKAMAI"
+    - asn_org_contains: "FASTLY"
+    - asn_org_contains: "IMPERVA"
+    - asn_org_contains: "SUCURI"
+surface:
+  scanners:
+    - wafdetect
+    - cdnbypass
+  nuclei_tags:
+    - waf-bypass
+    - cdn-bypass
+discovery:
+  # Try to find origin IPs that bypass WAF protection
+  - type: probe_subdomains
+    patterns:
+      - "direct.{domain}"
+      - "origin.{domain}"
+      - "backend.{domain}"
+      - "direct-{domain}"
+      - "smtp.{domain}"
+      - "mail.{domain}"
+      - "ftp.{domain}"
+      - "cpanel.{domain}"
+      - "webmail.{domain}"
+      - "stage.{domain}"
+      - "staging.{domain}"
+  - type: historical_dns
+deep:
+  scanners:
+    - wafdetect
+  nuclei_tags:
+    - cloudflare-bypass
+    - waf-bypass

@@ -1,0 +1,122 @@
+name: api_generic
+description: >
+  Asset appears to be an API server of unknown framework. Matches when the asset
+  responds to common API paths (/api/, /graphql, /v1/, etc.) or returns JSON
+  content-type but does not match a more specific framework playbook (Spring Boot,
+  Django, Rails, etc.). Runs the full API-focused scanner set: OAuth/OIDC probes,
+  rate limit testing, JWT analysis, GraphQL introspection, and a targeted dirbust
+  dictionary covering REST API conventions. The baseline playbook runs alongside
+  this for universal checks.
+match:
+  any:
+    - path_responds: "/api/v1/"
+    - path_responds: "/api/v2/"
+    - path_responds: "/api/v3/"
+    - path_responds: "/api/"
+    - path_responds: "/v1/"
+    - path_responds: "/v2/"
+    - path_responds: "/graphql"
+    - path_responds: "/openapi.json"
+    - path_responds: "/swagger.json"
+    - path_responds: "/.well-known/openid-configuration"
+    - path_responds: "/oauth/authorize"
+    - path_responds: "/oauth2/authorize"
+    - header_value:
+        name: "content-type"
+        contains: "application/json"
+surface:
+  scanners:
+    - jwt
+    - graphql
+    - oauth
+  nuclei_tags:
+    - api
+    - exposure
+    - misconfiguration
+    - token
+    - oauth
+    - jwt
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "api2.{domain}"
+      - "api-v2.{domain}"
+      - "auth.{domain}"
+      - "oauth.{domain}"
+      - "gateway.{domain}"
+      - "edge.{domain}"
+      - "backend.{domain}"
+      - "service.{domain}"
+deep:
+  scanners:
+    - cors
+    - hostheader
+    - ratelimit
+  nuclei_tags:
+    - api
+    - cves
+    - exposure
+    - misconfiguration
+    - injection
+    - token
+    - oauth
+    - jwt
+  dictionary:
+    # Auth / token endpoints
+    - /oauth/authorize
+    - /oauth/token
+    - /oauth/revoke
+    - /oauth/introspect
+    - /oauth2/authorize
+    - /oauth2/token
+    - /auth/token
+    - /auth/login
+    - /auth/logout
+    - /auth/refresh
+    - /connect/token
+    - /connect/authorize
+    # OIDC / JWKS discovery
+    - /.well-known/openid-configuration
+    - /.well-known/oauth-authorization-server
+    - /.well-known/jwks.json
+    - /oauth/discovery/keys
+    # REST API versioned roots
+    - /api/
+    - /api/v1/
+    - /api/v2/
+    - /api/v3/
+    - /v1/
+    - /v2/
+    - /v3/
+    # API schema / docs
+    - /openapi.json
+    - /openapi.yaml
+    - /swagger.json
+    - /swagger.yaml
+    - /api-docs
+    - /v2/api-docs
+    - /api/swagger.json
+    # GraphQL
+    - /graphql
+    - /graphiql
+    - /graphql/console
+    # Admin / internal
+    - /api/admin/
+    - /api/internal/
+    - /api/debug/
+    - /internal/
+    # Health / metadata
+    - /health
+    - /healthz
+    - /ping
+    - /status
+    - /version
+    - /info
+    # User / identity
+    - /api/v1/users
+    - /api/v1/user
+    - /api/v1/me
+    - /me
+    - /userinfo
+    - /profile

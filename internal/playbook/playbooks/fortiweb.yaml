@@ -1,0 +1,43 @@
+name: fortiweb
+description: >
+  Asset is a Fortinet FortiWeb Web Application Firewall (WAF). FortiWeb is
+  deployed to protect web applications and APIs from external threats. Risks
+  include: CVE-2025-64446 (path traversal in the management API enables
+  unauthenticated admin access and remote code execution — CVSS 9.8, KEV-listed
+  Nov 2025; the attack path POST /api/v2.0/cmd/system/admin?/../../../../../cgi-bin/fwbcgi
+  with a crafted CGIINFO header grants full administrative access); and
+  CVE-2021-22123 (unauthenticated OS command injection — KEV-listed, Metasploit
+  module available). A compromised FortiWeb device allows attackers to disable
+  WAF protection for all downstream applications and pivot to the internal network.
+  Apply patches to current FortiWeb version immediately.
+match:
+  any:
+    - path_responds: "/api/v2.0/"
+    - title_contains: "FortiWeb"
+    - body_contains: "FortiWeb"
+    - header_value:
+        name: "server"
+        contains: "FortiWeb"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - fortinet
+    - fortiweb
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - fortinet
+    - fortiweb
+    - cves
+    - rce
+    - auth-bypass
+  dictionary:
+    - /api/v2.0/
+    - /api/v2.0/cmdb/system/admin
+    - /cgi-bin/fwbcgi
+    - /login
+    - /system/

@@ -1,0 +1,39 @@
+name: fly_io
+description: >
+  Asset is deployed on Fly.io, a container-based application platform. Risks
+  include: subdomain takeover when a custom domain is removed from a Fly app
+  but DNS records remain, exposed internal Fly.io metrics or health endpoints,
+  misconfigured Fly.io Machines with public network access to services intended
+  to be private, secrets leakage via exposed environment in error pages or debug
+  output, and overly permissive Fly.io organization tokens committed to
+  application repositories. Fly.io apps running databases with public listeners
+  (Postgres, Redis) are a common misconfiguration vector.
+match:
+  any:
+    - cname_contains: ".fly.dev"
+    - cname_contains: ".flycast.dev"
+    - cert_san_contains: ".fly.dev"
+    - header_value:
+        name: "server"
+        contains: "Fly"
+    - header_present: "fly-request-id"
+surface:
+  nuclei_tags:
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "staging.{domain}"
+      - "dev.{domain}"
+      - "db.{domain}"
+      - "metrics.{domain}"
+deep:
+  nuclei_tags:
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers
+    - default-logins

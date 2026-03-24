@@ -1,0 +1,51 @@
+name: akamai
+description: >
+  Asset is served through Akamai CDN and edge security infrastructure. Akamai
+  is one of the largest CDN and security platform providers. Risks include:
+  origin IP exposure that bypasses Akamai's Web Application Firewall (WAF) and
+  DDoS protection, misconfigured Akamai Property Manager rules creating open
+  redirects or caching of sensitive responses, stale Akamai SureRoute or
+  offload configurations serving outdated content, Akamai mPulse or RUM
+  beaconing endpoints revealing internal application performance data, and edge
+  side include (ESI) injection if ESI is enabled in Akamai configuration. As
+  with all CDN-fronted assets, the primary investigation focus is finding the
+  true origin IP via historical DNS, mail records, or non-CDN subdomains to
+  bypass edge protections entirely.
+match:
+  any:
+    - header_present: "x-akamai-transformed"
+    - header_present: "x-check-cacheable"
+    - header_present: "x-akamai-request-id"
+    - header_present: "x-akamai-ssl-client-sid"
+    - header_value:
+        name: "server"
+        contains: "AkamaiGHost"
+    - asn_org_contains: "AKAMAI"
+    - cname_contains: ".akamaiedge.net"
+    - cname_contains: ".akamaized.net"
+    - cname_contains: ".akamai.net"
+    - cname_contains: ".edgesuite.net"
+    - cname_contains: ".edgekey.net"
+surface:
+  nuclei_tags:
+    - akamai
+    - cdn
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "origin.{domain}"
+      - "direct.{domain}"
+      - "backend.{domain}"
+      - "mail.{domain}"
+      - "smtp.{domain}"
+      - "ftp.{domain}"
+  - type: historical_dns
+deep:
+  nuclei_tags:
+    - akamai
+    - cdn
+    - cves
+    - exposure
+    - misconfiguration

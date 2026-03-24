@@ -1,0 +1,40 @@
+name: vercel
+description: >
+  Asset is deployed on Vercel (formerly ZEIT). Risks include: exposed preview
+  deployment URLs (*.vercel.app) that bypass access controls on production,
+  environment variable leakage via Vercel's edge functions or misconfigured
+  builds, insecure API routes deployed alongside frontend code, overly permissive
+  CORS on serverless functions, and subdomain takeover when a custom domain is
+  removed from a Vercel project but DNS is not cleaned up. Preview deployments
+  in particular often have debug information, staging credentials, or reduced
+  security controls compared to production.
+match:
+  any:
+    - header_present: "x-vercel-id"
+    - header_present: "x-vercel-cache"
+    - header_present: "x-vercel-deployment-url"
+    - cname_contains: ".vercel.app"
+    - cname_contains: ".now.sh"
+    - cname_contains: ".vercel-dns.com"
+    - cert_san_contains: ".vercel.app"
+surface:
+  nuclei_tags:
+    - vercel
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "preview.{domain}"
+      - "staging.{domain}"
+      - "dev.{domain}"
+      - "beta.{domain}"
+deep:
+  nuclei_tags:
+    - vercel
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers

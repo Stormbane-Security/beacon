@@ -1,0 +1,75 @@
+name: spring_boot
+description: >
+  Asset is running a Spring Boot Java application with the Actuator management
+  endpoints exposed. Spring Boot Actuator provides operational endpoints for
+  health, metrics, environment, and management. Risks include: the /actuator/env
+  endpoint exposing all environment variables and configuration properties
+  including database credentials, API keys, and secrets; /actuator/heapdump
+  allowing download of the full JVM heap (containing decrypted secrets, session
+  tokens, and in-memory data); /actuator/logfile exposing application logs;
+  /actuator/mappings revealing all URL routes; /actuator/beans listing all Spring
+  beans and their dependencies; /actuator/shutdown allowing remote application
+  termination; and CVE-2022-22965 (Spring4Shell RCE) and CVE-2022-22963
+  (Spring Cloud Function RCE). Pre-Spring-Boot-2.x versions exposed all actuator
+  endpoints unauthenticated by default.
+match:
+  any:
+    # Actuator paths are Spring Boot-specific — match on these primarily.
+    - path_responds: "/actuator"
+    - path_responds: "/actuator/health"
+    - body_contains: "Spring Boot"
+    - header_present: "x-application-context"
+    - header_value:
+        name: "x-powered-by"
+        contains: "Spring"
+    # /health and /env are intentionally excluded — too broad, used by
+    # Django, Rails, k8s liveness probes, and many non-Spring services.
+surface:
+  nuclei_tags:
+    - spring
+    - java
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "app.{domain}"
+      - "admin.{domain}"
+      - "actuator.{domain}"
+      - "management.{domain}"
+      - "internal.{domain}"
+deep:
+  nuclei_tags:
+    - spring
+    - java
+    - cves
+    - exposure
+    - misconfiguration
+    - rce
+  dictionary:
+    # Actuator endpoints
+    - /actuator
+    - /actuator/env
+    - /actuator/heapdump
+    - /actuator/threaddump
+    - /actuator/logfile
+    - /actuator/mappings
+    - /actuator/beans
+    - /actuator/configprops
+    - /actuator/httptrace
+    - /actuator/sessions
+    - /actuator/shutdown
+    - /actuator/flyway
+    - /actuator/jolokia    # JMX bridge — known RCE vector in older Spring stacks
+    - /actuator/gateway/routes  # Spring Cloud Gateway route enumeration
+    # Legacy Spring Boot 1.x (no /actuator prefix)
+    - /env
+    - /dump
+    - /trace
+    - /logfile
+    - /beans
+    - /configprops
+    # Spring Boot Admin
+    - /manage/
+    - /management/

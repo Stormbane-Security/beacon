@@ -1,0 +1,68 @@
+name: hasura
+description: >
+  Asset is running Hasura GraphQL Engine, an automatic GraphQL API layer over
+  databases. Hasura is a high-value target because it provides direct, often
+  unauthenticated, query access to underlying databases. Risks include: the
+  Hasura console exposed at /console allowing unrestricted schema introspection
+  and query execution, unauthenticated GraphQL introspection revealing the full
+  database schema, missing role-based access controls allowing arbitrary queries
+  across all tables, the metadata API at /v1/metadata exposing database
+  connection strings and secrets, CVE-2022-29272 (SSRF via remote schema
+  configuration), insecure admin secret defaults or absent admin secret
+  configuration, and the REST endpoint layer at /api/rest exposing business
+  logic endpoints without authentication. Compromise of an exposed Hasura
+  console typically grants full read/write access to all connected databases.
+match:
+  any:
+    - path_responds: "/v1/graphql"
+    - path_responds: "/healthz"
+    - path_responds: "/v1/metadata"
+    - path_responds: "/console"
+    - header_value:
+        name: "x-hasura-role"
+        contains: ""
+surface:
+  scanners:
+    - graphql
+    - httpmethods
+    - exposedfiles
+    - apiversions
+    - webcontent
+  nuclei_tags:
+    - hasura
+    - graphql
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "hasura.{domain}"
+      - "graphql.{domain}"
+      - "api.{domain}"
+      - "data.{domain}"
+      - "db.{domain}"
+deep:
+  scanners:
+    - graphql
+    - cors
+    - ratelimit
+    - jwt
+  nuclei_tags:
+    - hasura
+    - graphql
+    - cves
+    - exposure
+    - misconfiguration
+  dictionary:
+    # GraphQL endpoints
+    - /v1/graphql
+    - /v1alpha1/graphql
+    # Metadata & admin API (exposes DB credentials)
+    - /v1/metadata
+    - /v1/query
+    # Health check
+    - /healthz
+    # REST endpoint layer
+    - /api/rest
+    # Console UI
+    - /console

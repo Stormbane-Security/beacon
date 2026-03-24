@@ -1,0 +1,53 @@
+name: ip_camera
+description: >
+  Asset is an internet-exposed IP camera or video surveillance system.
+  IP cameras are widely deployed with default credentials and expose
+  live video feeds, recorded footage, and device management. Risks include:
+  default credential "admin/admin" or "admin/<blank>" common across most vendors;
+  CVE-2021-36260 (Hikvision RCE via /SDK/webLanguage — CVSS 9.8, KEV-listed);
+  CVE-2017-7921 (Hikvision authentication bypass — KEV-listed);
+  CVE-2022-30525 (Zyxel firewall/camera OS command injection — KEV-listed);
+  and RTSP stream access without authentication. The Mirai botnet exploited
+  mass default credentials on IP cameras. Exposed cameras violate privacy
+  laws (GDPR, CCPA) in addition to the security risk. Change default credentials
+  and restrict access to management interfaces immediately.
+match:
+  any:
+    - check_id: "port.rtsp_exposed"
+    - title_contains: "IP Camera"
+    - title_contains: "Network Camera"
+    - title_contains: "Hikvision"
+    - title_contains: "Dahua"
+    - title_contains: "Axis"
+    - body_contains: "HIKVISION"
+    - body_contains: "Dahua"
+    - path_responds: "/ISAPI/System/deviceInfo"
+    - path_responds: "/cgi-bin/snapshot.cgi"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - camera
+    - hikvision
+    - dahua
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - camera
+    - hikvision
+    - dahua
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /ISAPI/System/deviceInfo
+    - /ISAPI/Security/userCheck
+    - /doc/page/login.asp
+    - /cgi-bin/snapshot.cgi
+    - /cgi-bin/hi3510/param.cgi
+    - /onvif/device_service
+    - /axis-cgi/admin/param.cgi

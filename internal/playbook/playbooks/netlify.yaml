@@ -1,0 +1,40 @@
+name: netlify
+description: >
+  Asset is deployed on Netlify. Risks include: exposed deploy previews and
+  branch deploys that bypass authentication configured only on production,
+  Netlify Functions (serverless) with insecure logic or exposed secrets,
+  misconfigured redirects and rewrites creating open redirects or proxy abuse,
+  environment variables accessible in client-side bundles, and subdomain takeover
+  when a custom domain is detached from a Netlify site but the DNS CNAME record
+  remains. Netlify's identity and form features can also be misconfigured to
+  allow spam or data exfiltration.
+match:
+  any:
+    - header_present: "x-nf-request-id"
+    - header_present: "x-netlify-original-pathname"
+    - cname_contains: ".netlify.app"
+    - cname_contains: ".netlify.com"
+    - cname_contains: ".netlify-staging.com"
+    - cert_san_contains: ".netlify.app"
+surface:
+  nuclei_tags:
+    - netlify
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "preview.{domain}"
+      - "staging.{domain}"
+      - "dev.{domain}"
+      - "beta.{domain}"
+      - "app.{domain}"
+deep:
+  nuclei_tags:
+    - netlify
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers

@@ -1,0 +1,126 @@
+name: baseline
+description: >
+  Runs on every discovered asset regardless of what it is.
+  Contains all checks that are universally applicable and safe to run
+  without specific knowledge of the technology stack.
+match:
+  always: true
+surface:
+  scanners:
+    - email
+    - whois
+    - tls
+    - assetintel
+    - webcontent
+    - cloudbuckets
+    - historicalurls
+    - crawler
+    - screenshot
+    - typosquat
+    - dlp
+    - portscan
+    - graphql
+    - depconf
+    - dns
+    - httpmethods
+    - takeover
+    - wafdetect
+    - harvester
+    - clickjacking   # header check — no payloads, safe on every asset
+    - exposedfiles   # high-confidence sensitive file probes (.env, .git, etc.)
+    - apiversions    # probe for active API version endpoints
+    - aidetect       # passive LLM/AI endpoint discovery — no prompt payloads, safe on every asset
+    - saml           # SAML/SSO endpoint discovery — passive path probes, no payloads
+    - iam            # IAM surface: SCIM, OAuth device/introspect/dynamic-reg, IdP admin panels
+    - web3detect     # Web3 wallet lib + RPC endpoint detection in page source
+    - log4shell      # Log4Shell surface: detect Java signals (JSESSIONID, Tomcat headers)
+    - nginx          # Nginx alias traversal + IIS short-name probes — safe GET-only path probes
+    - tlscheck       # native Go TLS: key strength, OCSP, CT logs, PFS, HSTS policy
+    # vhost is deep-only: crafted Host headers sent to a shared IP could probe
+    # virtual hosts belonging to other tenants on shared infrastructure.
+  nuclei_tags:
+    - ssl
+    - dns
+    - http-headers
+    - exposure
+    - misconfiguration
+    - takeovers
+    - technologies
+    - kafka
+    - zookeeper
+    - influxdb
+    - cassandra
+    - splunk
+    - winrm
+    - rabbitmq
+deep:
+  scanners:
+    - testssl
+    - smuggling
+    - vhost
+    - cors        # every asset may expose a CORS API — runs 2 probes
+    - ratelimit   # universally applicable rate-limit check
+    - hostheader  # host header injection is possible on any HTTP service
+    - jwt         # JWTs can appear on any authenticated endpoint
+    - oauth       # OAuth endpoints can exist on any service
+    - autoprobe   # username enumeration + lockout (uses synthetic accounts, no real creds)
+    - websocket   # Cross-Site WebSocket Hijacking (CSWSH) — forged Origin probe
+    - aillm       # active LLM prompt injection + system leak probes (deep-only, crafted payloads)
+    - ssti           # server-side template injection (Jinja2/FreeMarker/ERB/EL) — active payloads
+    - crlf           # CRLF/HTTP response splitting via redirect params — active payloads
+    - ssrf           # SSRF via cloud metadata injection in URL params — active payloads
+    - hpp            # HTTP parameter pollution — duplicate param probes
+    - protopollution # Node.js prototype pollution in JSON API endpoints
+    - authfuzz       # dynamic auth flow mutation: redirect_uri abuse, alg:none JWT, code re-use
+    - xxe            # XML external entity injection in XML-accepting endpoints
+    - deserial       # insecure deserialization fingerprinting (Java/PHP magic bytes + exception probing)
+    - fileupload     # file upload bypass: double extension, MIME confusion, null byte
+  nuclei_tags:
+    - cves
+    - network
+    - injection
+    - default-logins
+  dictionary:
+    # Universal high-value paths — probed on every asset in deep mode
+    - /.env
+    - /.env.local
+    - /.env.production
+    - /.git/config
+    - /.git/HEAD
+    - /api/v1/
+    - /api/v2/
+    - /graphql
+    - /swagger.json
+    - /openapi.json
+    - /api-docs
+    - /v2/api-docs
+    - /actuator/health
+    - /actuator/env
+    - /actuator/mappings
+    - /admin
+    - /admin/
+    - /wp-admin/
+    - /phpmyadmin/
+    - /debug
+    - /debug/vars
+    - /metrics
+    - /healthz
+    - /readyz
+    - /robots.txt
+    - /sitemap.xml
+    - /config.json
+    - /config.yaml
+    - /backup.zip
+    - /backup.tar.gz
+    - /dump.sql
+    - /server-status
+    - /server-info
+    - /WEB-INF/web.xml
+    - /.aws/credentials
+    # .well-known paths — information disclosure and misconfiguration
+    - /.well-known/security.txt
+    - /.well-known/openid-configuration
+    - /.well-known/oauth-authorization-server
+    - /.well-known/apple-app-site-association
+    - /.well-known/assetlinks.json
+    - /.well-known/change-password

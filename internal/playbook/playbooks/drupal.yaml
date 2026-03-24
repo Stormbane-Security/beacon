@@ -1,0 +1,76 @@
+name: drupal
+description: >
+  Asset is running Drupal CMS. Drupal has historically been the target of highly
+  impactful vulnerabilities, most notably Drupalgeddon (CVE-2014-3704), Drupalgeddon2
+  (CVE-2018-7600), and Drupalgeddon3 (CVE-2018-7602), all of which allowed
+  unauthenticated remote code execution and were widely exploited in the wild.
+  Risks include: unpatched RCE vulnerabilities in outdated installations, admin
+  interface exposure at /user/login or /admin, PHP filter and eval module misuse
+  enabling code execution, update manager exposing version information, exposed
+  configuration files (settings.php with database credentials), user enumeration
+  via predictable paths, and file upload functionality in misconfigured modules
+  allowing webshell upload. The CHANGELOG.txt or INSTALL.txt files often reveal
+  the exact Drupal version, facilitating targeted exploitation.
+match:
+  any:
+    - body_contains: "Drupal"
+    - header_present: "x-drupal-cache"
+    - header_present: "x-drupal-dynamic-cache"
+    - header_value:
+        name: "x-generator"
+        contains: "Drupal"
+    - header_value:
+        name: "x-powered-by"
+        contains: "Drupal"
+    - path_responds: "/sites/default"
+    - body_contains: "sites/all"
+surface:
+  scanners:
+    - cms-plugins
+  nuclei_tags:
+    - drupal
+    - cms
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "cms.{domain}"
+      - "www.{domain}"
+      - "blog.{domain}"
+      - "portal.{domain}"
+deep:
+  nuclei_tags:
+    - drupal
+    - cms
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce
+  dictionary:
+    # Admin / auth
+    - /user/login
+    - /admin
+    - /admin/config
+    - /admin/people
+    - /admin/modules
+    # Version disclosure
+    - /CHANGELOG.txt
+    - /INSTALL.txt
+    - /README.txt
+    - /core/CHANGELOG.txt
+    - /update.php
+    # Configuration / credentials
+    - /sites/default/settings.php
+    - /sites/default/default.settings.php
+    - /sites/default/files/
+    # PHP filter / eval risk paths
+    - /filter/tips
+    - /node/add
+    - /admin/reports/status
+    # REST & views API
+    - /api/
+    - /jsonapi/
+    - /views/

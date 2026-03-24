@@ -1,0 +1,55 @@
+name: ivanti_connect_secure
+description: >
+  Asset is an Ivanti Connect Secure (formerly Pulse Secure) SSL VPN appliance.
+  Ivanti Connect Secure is one of the most exploited enterprise VPN products.
+  Risks include: CVE-2025-22457 (CVSS 9.0, KEV-listed, stack-based buffer overflow
+  enabling pre-auth RCE — actively exploited by China-nexus threat actors UNC5221
+  and UNC5337); CVE-2023-46805 (CVSS 8.2, KEV, auth bypass); CVE-2024-21887
+  (CVSS 9.1, KEV, OS command injection chained with 46805); and CVE-2024-21893
+  (SSRF). CISA issued Emergency Directive 24-01 mandating immediate patching.
+  The /dana-na/ path prefix is the diagnostic gateway characteristic of Ivanti
+  Connect Secure and is not present on other VPN products. Exposed VPN appliances
+  without current patches should be treated as compromised until proven otherwise.
+match:
+  any:
+    - path_responds: "/dana-na/auth/url_default/welcome.cgi"
+    - path_responds: "/dana-na/"
+    - title_contains: "Ivanti"
+    - title_contains: "Pulse Connect Secure"
+    - title_contains: "Pulse Secure"
+    - body_contains: "dana-na"
+    - body_contains: "Pulse Secure"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - ivanti
+    - pulse-secure
+    - vpn
+    - exposure
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "vpn.{domain}"
+      - "sslvpn.{domain}"
+      - "remote.{domain}"
+      - "pulse.{domain}"
+      - "connect.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - ivanti
+    - pulse-secure
+    - vpn
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /dana-na/auth/url_default/welcome.cgi
+    - /dana-na/
+    - /dana/home/index.cgi
+    - /dana-cached/hc/HostCheckerInstaller.osx
+    - /api/v1/totp/user-backup-code/administrator/keys

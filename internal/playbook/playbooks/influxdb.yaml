@@ -1,0 +1,33 @@
+name: influxdb
+description: >
+  InfluxDB time-series database is accessible. InfluxDB stores metrics,
+  telemetry, and time-series data — unauthenticated access exposes all stored
+  measurements. InfluxDB 1.x had no authentication by default. CVE-2019-20933
+  (authentication bypass via JWT with empty secret) affects InfluxDB 1.x and
+  allows full database access without credentials.
+match:
+  any:
+    - path_responds: "/ping"
+    - path_responds: "/query"
+    - path_responds: "/health"
+    - title_contains: "InfluxDB"
+    - service_version_contains: "influxdb"
+surface:
+  scanners:
+    - exposedfiles
+  paths:
+    - /ping
+    - /query?q=SHOW+DATABASES
+    - /health
+    - /api/v2/query
+    - /api/v2/buckets
+    - /metrics
+  nuclei_tags:
+    - influxdb
+    - exposure
+deep:
+  nuclei_tags:
+    - influxdb
+    - cves
+    - default-logins
+    - misconfiguration

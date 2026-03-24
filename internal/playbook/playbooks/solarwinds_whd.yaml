@@ -1,0 +1,39 @@
+name: solarwinds_whd
+description: >
+  Asset is a SolarWinds Web Help Desk (WHD) instance. SolarWinds WHD is an
+  IT service management platform commonly used by enterprises and government
+  agencies. Risks include: CVE-2025-26399 (unauthenticated Java deserialization
+  RCE in the AjaxProxy component — CVSS 9.8, KEV-listed Mar 2026, affects WHD
+  < 12.8.7 HF1), CVE-2024-28986 (RCE via Java deserialization, KEV-listed), and
+  CVE-2024-28987 (hardcoded credential backdoor). SolarWinds products have been
+  the target of major supply chain attacks. Upgrade to WHD 12.8.7 HF1 or
+  WHD 2026.1 immediately if exposed.
+match:
+  any:
+    - path_responds: "/helpdesk/WebObjects/Helpdesk.woa/"
+    - title_contains: "Web Help Desk"
+    - title_contains: "SolarWinds"
+    - body_contains: "Web Help Desk"
+    - body_contains: "SolarWinds"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - solarwinds
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - solarwinds
+    - cves
+    - rce
+    - default-logins
+  dictionary:
+    - /helpdesk/WebObjects/Helpdesk.woa/
+    - /helpdesk/WebObjects/Helpdesk.woa/wo/
+    - /helpdesk/
+    - /helpdesk/login.jsp
+    - /helpdesk/AJAXProxy

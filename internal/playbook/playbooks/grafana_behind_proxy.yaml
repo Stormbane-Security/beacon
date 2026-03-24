@@ -1,0 +1,63 @@
+name: grafana_behind_proxy
+description: >
+  Asset appears to be a Grafana instance sitting behind a reverse proxy (nginx,
+  Traefik, Envoy, etc.). The presence of proxy forwarding headers (x-forwarded-for,
+  x-forwarded-proto, x-real-ip, via) combined with Grafana page content suggests
+  the Grafana process is not directly internet-facing but is proxied. Risks
+  include: proxy misconfiguration that inadvertently exposes Grafana's admin API
+  or plugin endpoints without authentication, header injection attacks against
+  the proxy-to-Grafana path, authentication bypass via Host header manipulation
+  when the proxy performs auth routing by hostname, and data source credential
+  leakage via the Grafana API if proxy auth is the only control. The proxy layer
+  may also strip security response headers, weakening the browser-side posture.
+match:
+  # The match engine evaluates 'all' or 'any' — not both simultaneously.
+  # To require Grafana content AND proxy headers, we put all conditions in
+  # 'all'. We use body_contains: "grafana" as the Grafana detector because
+  # Grafana reliably injects "grafana" into every page body.
+  all:
+    - body_contains: "grafana"
+    - header_present: "x-forwarded-for"
+surface:
+  nuclei_tags:
+    - grafana
+    - proxy
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "grafana.{domain}"
+      - "metrics.{domain}"
+      - "monitoring.{domain}"
+      - "internal.{domain}"
+      - "ops.{domain}"
+deep:
+  nuclei_tags:
+    - grafana
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - ssrf
+  dictionary:
+    # Auth & user management
+    - /login
+    - /api/user
+    - /api/users
+    - /api/org/users
+    # Data source credential extraction
+    - /api/datasources
+    - /api/datasources/proxy/
+    # Dashboard enumeration
+    - /api/dashboards/home
+    - /api/search
+    - /api/folders
+    # Plugin list
+    - /api/plugins
+    # Admin
+    - /api/admin/settings
+    - /api/admin/stats
+    # Path traversal (CVE-2021-43798)
+    - /public/plugins/alertlist/../../../../../../../../etc/passwd

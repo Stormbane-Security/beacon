@@ -1,0 +1,533 @@
+// Package webcontent performs passive analysis of web page content:
+// JavaScript file scanning, cookie security, CSP quality, and WAF detection.
+// All checks are unauthenticated HTTP requests — no login required.
+package webcontent
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
+)
+
+const scannerName = "webcontent"
+
+// secretPatterns matches common hardcoded secrets in JavaScript source.
+// Keys are a human-readable label; values are the compiled regex.
+// cspWildcardRe matches a wildcard (*) in script-src or default-src directives.
+var cspWildcardRe = regexp.MustCompile(`(?i)(script-src|default-src)[^;]*\*`)
+
+// genericPwdValueRe extracts the quoted value from a Generic Password match
+// so we can filter out non-secret values like HTML attribute values and i18n keys.
+var genericPwdValueRe = regexp.MustCompile(`[=:]\s*['` + "`" + `"]([^'"` + "`" + `\s]+)`)
+
+// genericPwdFalsePositives is the set of values that look like a password
+// assignment but are not credentials: HTML input type/autocomplete hints,
+// the keyword itself used as an i18n label, etc.
+var genericPwdFalsePositives = map[string]bool{
+	"password":         true,
+	"Password":         true,
+	"passwd":           true,
+	"pwd":              true,
+	"current-password": true,
+	"new-password":     true,
+	"one-time-code":    true,
+	"off":              true,
+	"username,password": true,
+}
+
+var secretPatterns = map[string]*regexp.Regexp{
+	"AWS Access Key":           regexp.MustCompile(`(?i)AKIA[0-9A-Z]{16}`),
+	"AWS Secret Key":           regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `][0-9a-zA-Z/+]{40}`),
+	"GitHub Token":             regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
+	"Stripe Secret Key":        regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`),
+	"Stripe Publishable Key":   regexp.MustCompile(`pk_live_[0-9a-zA-Z]{24,}`),
+	"Slack Token":              regexp.MustCompile(`xox[baprs]-[0-9]{12}-[0-9]{12}-[0-9a-zA-Z]{24}`),
+	"SendGrid API Key":         regexp.MustCompile(`SG\.[0-9a-zA-Z\-_]{22}\.[0-9a-zA-Z\-_]{43}`),
+	"Twilio Account SID":       regexp.MustCompile(`AC[a-f0-9]{32}`),
+	"Google API Key":           regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`),
+	"Private Key":              regexp.MustCompile(`-----BEGIN (RSA |EC )?PRIVATE KEY-----`),
+	"Generic API Key":          regexp.MustCompile(`(?i)(api[_-]?key|apikey|api[_-]?secret)['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][0-9a-zA-Z\-_]{20,}`),
+	"Generic Password":         regexp.MustCompile(`(?i)(password|passwd|pwd)['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][^'"` + "`" + `\s]{8,}['"` + "`" + `]`),
+	"OpenAI API Key":           regexp.MustCompile(`sk-[A-Za-z0-9]{48}`),
+	"Anthropic API Key":        regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`),
+	"Firebase API Key":         regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
+	"Mailgun API Key":          regexp.MustCompile(`key-[a-f0-9]{32}`),
+}
+
+// internalEndpointPatterns matches internal/development API endpoints in JS.
+var internalEndpointPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`https?://(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)[/\w.-]*`),
+	regexp.MustCompile(`https?://[\w-]+\.internal[/\w.-]*`),
+	regexp.MustCompile(`https?://[\w-]+\.local(?:host)?[/\w.-]*`),
+	regexp.MustCompile(`https?://(?:dev|staging|test|uat|qa)[\w.-]+\.[a-z]{2,}[/\w.-]*`),
+}
+
+// wafSignatures maps WAF/CDN vendor names to header patterns.
+var wafSignatures = map[string][]string{
+	"Cloudflare":    {"cf-ray", "cf-cache-status", "server:cloudflare"},
+	"AWS CloudFront": {"x-amz-cf-id", "x-amz-cf-pop", "via:cloudfront"},
+	"Akamai":        {"x-akamai-transformed", "akamai-origin-hop"},
+	"Fastly":        {"x-served-by", "x-cache:hit, miss", "fastly-restarts"},
+	"Sucuri":        {"x-sucuri-id", "x-sucuri-cache"},
+	"Imperva":       {"x-iinfo", "incap-ses"},
+	"Nginx WAF":     {"x-nginx-cache", "server:nginx"},
+	"AWS WAF":       {"x-amzn-requestid", "x-amzn-trace-id"},
+}
+
+type Scanner struct{}
+
+func New() *Scanner { return &Scanner{} }
+
+func (s *Scanner) Name() string { return scannerName }
+
+func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	var findings []finding.Finding
+
+	// Fetch the main page to analyze headers and discover JS files
+	targetURL := "https://" + asset
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// Try HTTP fallback
+		req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+asset, nil)
+		if err2 != nil {
+			return nil, nil // invalid URL — unreachable
+		}
+		resp, err = client.Do(req2)
+		if err != nil {
+			return nil, nil // unreachable, not a finding
+		}
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB
+	if err != nil {
+		return nil, err
+	}
+
+	// Cookie security analysis
+	findings = append(findings, analyzeCookies(asset, resp)...)
+
+	// CSP quality analysis
+	findings = append(findings, analyzeCSP(asset, resp)...)
+
+	// Response header secret detection
+	findings = append(findings, analyzeResponseHeaders(asset, resp)...)
+
+	// WAF detection
+	if wafFinding := detectWAF(asset, resp); wafFinding != nil {
+		findings = append(findings, *wafFinding)
+	}
+
+	// JavaScript analysis: find script src URLs and scan each
+	jsURLs := extractJSURLs(targetURL, string(body))
+	for _, jsURL := range jsURLs {
+		jsFindings := analyzeJS(ctx, client, asset, jsURL)
+		findings = append(findings, jsFindings...)
+	}
+
+	return findings, nil
+}
+
+// headerSecretPatterns matches API keys or tokens that should never appear in
+// HTTP response headers (e.g., echoed back from the server or misconfigured proxy).
+var headerSecretPatterns = map[string]*regexp.Regexp{
+	"AWS Access Key":    regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+	"GitHub Token":      regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
+	"Stripe Secret Key": regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`),
+	"Generic API Key":   regexp.MustCompile(`(?i)(api[_-]?key|apikey)[=:\s]+[0-9a-zA-Z\-_]{20,}`),
+}
+
+// analyzeResponseHeaders scans HTTP response headers for leaked secrets or
+// API keys that should never appear in server responses.
+func analyzeResponseHeaders(asset string, resp *http.Response) []finding.Finding {
+	var findings []finding.Finding
+	now := time.Now()
+
+	for name, values := range resp.Header {
+		for _, val := range values {
+			for label, pattern := range headerSecretPatterns {
+				if match := pattern.FindString(val); match != "" {
+					findings = append(findings, finding.Finding{
+						CheckID:  finding.CheckSecretInResponseHeader,
+						Module:   "surface",
+						Scanner:  scannerName,
+						Severity: finding.SeverityHigh,
+						Asset:    asset,
+						Title:    fmt.Sprintf("Secret leaked in HTTP response header: %s (%s)", name, label),
+						Description: fmt.Sprintf(
+							"The HTTP response header %q contains what appears to be a %s. "+
+								"Secrets in response headers are visible to any browser, proxy, or CDN "+
+								"that handles the response. Rotate the credential immediately.",
+							name, label,
+						),
+						Evidence: map[string]any{
+							"header_name":  name,
+							"secret_type":  label,
+							"redacted_val": redactHeader(val, match),
+						},
+						DiscoveredAt: now,
+					})
+				}
+			}
+		}
+	}
+	return findings
+}
+
+// redactHeader returns the header value with the matched secret partially masked.
+func redactHeader(val, match string) string {
+	if len(match) <= 8 {
+		return strings.Repeat("*", len(match))
+	}
+	return match[:4] + strings.Repeat("*", len(match)-8) + match[len(match)-4:]
+}
+
+func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
+	var findings []finding.Finding
+	now := time.Now()
+
+	for _, cookie := range resp.Cookies() {
+		// Only care about likely session/auth cookies
+		name := strings.ToLower(cookie.Name)
+		isSession := strings.Contains(name, "session") ||
+			strings.Contains(name, "auth") ||
+			strings.Contains(name, "token") ||
+			strings.Contains(name, "sid") ||
+			name == "remember_me" || name == "_session_id"
+
+		if !isSession {
+			continue // only check cookies that look like session/auth tokens
+		}
+
+		if !cookie.Secure {
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckCookieMissingSecure,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Title:        fmt.Sprintf("Cookie '%s' missing Secure flag", cookie.Name),
+				Description:  fmt.Sprintf("The cookie '%s' on %s does not have the Secure flag set. It can be transmitted over unencrypted HTTP connections, exposing session data.", cookie.Name, asset),
+				Asset:        asset,
+				Evidence:     map[string]any{"cookie_name": cookie.Name},
+				DiscoveredAt: now,
+			})
+		}
+
+		if !cookie.HttpOnly {
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckCookieMissingHTTPOnly,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Title:        fmt.Sprintf("Cookie '%s' missing HttpOnly flag", cookie.Name),
+				Description:  fmt.Sprintf("The cookie '%s' on %s does not have the HttpOnly flag. JavaScript can read it, making session hijacking via XSS easier.", cookie.Name, asset),
+				Asset:        asset,
+				Evidence:     map[string]any{"cookie_name": cookie.Name},
+				DiscoveredAt: now,
+			})
+		}
+
+		if cookie.SameSite == http.SameSiteDefaultMode || cookie.SameSite == http.SameSiteNoneMode {
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckCookieMissingSameSite,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityLow,
+				Title:        fmt.Sprintf("Cookie '%s' missing SameSite attribute", cookie.Name),
+				Description:  fmt.Sprintf("The cookie '%s' on %s has no SameSite attribute or is set to None. This increases CSRF attack risk.", cookie.Name, asset),
+				Asset:        asset,
+				Evidence:     map[string]any{"cookie_name": cookie.Name, "samesite": cookie.SameSite},
+				DiscoveredAt: now,
+			})
+		}
+	}
+
+	return findings
+}
+
+func analyzeCSP(asset string, resp *http.Response) []finding.Finding {
+	csp := resp.Header.Get("Content-Security-Policy")
+	if csp == "" {
+		return nil // missing CSP is covered by nuclei headers check
+	}
+
+	var findings []finding.Finding
+	now := time.Now()
+	cspLower := strings.ToLower(csp)
+
+	if strings.Contains(cspLower, "unsafe-inline") {
+		findings = append(findings, finding.Finding{
+			CheckID:      finding.CheckCSPUnsafeInline,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityMedium,
+			Title:        "Content Security Policy allows 'unsafe-inline'",
+			Description:  fmt.Sprintf("The CSP on %s includes 'unsafe-inline', which allows inline JavaScript and CSS. This defeats the primary purpose of CSP as an XSS mitigation.", asset),
+			Asset:        asset,
+			Evidence:     map[string]any{"csp": csp},
+			DiscoveredAt: now,
+		})
+	}
+
+	if strings.Contains(cspLower, "unsafe-eval") {
+		findings = append(findings, finding.Finding{
+			CheckID:      finding.CheckCSPUnsafeEval,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityMedium,
+			Title:        "Content Security Policy allows 'unsafe-eval'",
+			Description:  fmt.Sprintf("The CSP on %s includes 'unsafe-eval', allowing dynamic code execution via eval(). This can be exploited in XSS attacks.", asset),
+			Asset:        asset,
+			Evidence:     map[string]any{"csp": csp},
+			DiscoveredAt: now,
+		})
+	}
+
+	// Check for wildcard sources in script-src or default-src
+	if cspWildcardRe.MatchString(csp) {
+		findings = append(findings, finding.Finding{
+			CheckID:      finding.CheckCSPWildcardSource,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityHigh,
+			Title:        "Content Security Policy uses wildcard source",
+			Description:  fmt.Sprintf("The CSP on %s uses a wildcard (*) in script-src or default-src. This allows scripts to be loaded from any origin, making the CSP effectively useless.", asset),
+			Asset:        asset,
+			Evidence:     map[string]any{"csp": csp},
+			DiscoveredAt: now,
+		})
+	}
+
+	return findings
+}
+
+func detectWAF(asset string, resp *http.Response) *finding.Finding {
+	// Collect all header key:value pairs in lowercase for matching
+	var headers []string
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			headers = append(headers, strings.ToLower(k)+":"+strings.ToLower(v))
+		}
+	}
+	headerStr := strings.Join(headers, "\n")
+
+	for _, sigs := range wafSignatures {
+		for _, sig := range sigs {
+			if strings.Contains(headerStr, strings.ToLower(sig)) {
+				// WAF detected — this is informational, not a finding
+				return nil
+			}
+		}
+	}
+
+	// No WAF signature found
+	return &finding.Finding{
+		CheckID:      finding.CheckWAFNotDetected,
+		Module:       "surface",
+		Scanner:      scannerName,
+		Severity:     finding.SeverityMedium,
+		Title:        "No WAF or CDN detected",
+		Description:  fmt.Sprintf("%s does not appear to have a Web Application Firewall or CDN in front of it. This means malicious traffic reaches your servers directly with no filtering layer.", asset),
+		Asset:        asset,
+		Evidence:     map[string]any{"headers_checked": len(resp.Header)},
+		DiscoveredAt: time.Now(),
+	}
+}
+
+func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []finding.Finding {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jsURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	if resp.StatusCode != 200 {
+		resp.Body.Close()
+		return nil
+	}
+	defer resp.Body.Close()
+
+	src, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10)) // 512KB max per file
+	if err != nil {
+		return nil
+	}
+
+	srcStr := string(src)
+	var findings []finding.Finding
+	now := time.Now()
+
+	// Check for hardcoded secrets
+	for label, pattern := range secretPatterns {
+		match := pattern.FindString(srcStr)
+		if match == "" {
+			continue
+		}
+		// Generic Password: filter out common non-secret values — the keyword
+		// "password" itself (as an i18n label or HTML attribute), autocomplete
+		// hints like "current-password", field type specifiers, etc.
+		if label == "Generic Password" {
+			if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
+				if genericPwdFalsePositives[sub[1]] {
+					continue
+				}
+			}
+		}
+		{
+			// Redact the actual value in the finding
+			redacted := match
+			if len(redacted) > 12 {
+				redacted = redacted[:8] + "..." + redacted[len(redacted)-4:]
+			}
+			// Use the exact regex that matched so grep reproduces the same result.
+			// This is far more reliable than a generic keyword-before-value pattern.
+			proofRegex := pattern.String()
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckJSHardcodedSecret,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityCritical,
+				Title:        fmt.Sprintf("Hardcoded %s found in JavaScript", label),
+				Description:  fmt.Sprintf("A %s appears to be hardcoded in a JavaScript file at %s. This credential is exposed to anyone who visits the site.", label, jsURL),
+				Asset:        asset,
+				Evidence:     map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted},
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE '%s'", jsURL, proofRegex),
+				DiscoveredAt: now,
+			})
+		}
+	}
+
+	// Check for exposed source maps — //# sourceMappingURL= in JS reveals original source
+	if f := checkSourceMapExposed(ctx, client, asset, jsURL, srcStr); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// Check for internal endpoints
+	for _, pattern := range internalEndpointPatterns {
+		if match := pattern.FindString(srcStr); match != "" {
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckJSInternalEndpoint,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Title:        "Internal API endpoint exposed in JavaScript",
+				Description:  fmt.Sprintf("An internal or development API endpoint (%s) is referenced in a publicly accessible JavaScript file at %s.", match, jsURL),
+				Asset:        asset,
+				Evidence:     map[string]any{"js_url": jsURL, "endpoint": match},
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE 'https?://[a-zA-Z0-9._/-]+'", jsURL),
+				DiscoveredAt: now,
+			})
+		}
+	}
+
+	return findings
+}
+
+// checkSourceMapExposed looks for a //# sourceMappingURL= comment in JS source
+// and probes the referenced .js.map URL. If the map file is publicly accessible,
+// it exposes original (pre-minified) source code including comments, variable names,
+// and internal paths — significantly aiding an attacker's reverse engineering.
+func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsURL, src string) *finding.Finding {
+	const marker = "//# sourceMappingURL="
+	idx := strings.LastIndex(src, marker)
+	if idx == -1 {
+		return nil
+	}
+	mapRef := strings.TrimSpace(src[idx+len(marker):])
+	// Trim any trailing newline or comment
+	if nl := strings.IndexAny(mapRef, "\r\n"); nl >= 0 {
+		mapRef = mapRef[:nl]
+	}
+	if mapRef == "" || strings.HasPrefix(mapRef, "data:") {
+		return nil // inline data URI — not an external file
+	}
+
+	// Resolve to absolute URL
+	mapURL := mapRef
+	if !strings.HasPrefix(mapURL, "http") {
+		// Relative to the JS file's URL
+		if slash := strings.LastIndex(jsURL, "/"); slash >= 0 {
+			mapURL = jsURL[:slash+1] + mapRef
+		} else {
+			mapURL = jsURL + ".map"
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, mapURL, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckJSSourceMapExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("JavaScript source map publicly accessible: %s", mapURL),
+		Description: fmt.Sprintf(
+			"The source map file at %s is publicly accessible. Source maps contain the original "+
+				"(pre-minification) JavaScript source code, including original variable names, "+
+				"comments, internal file paths, and business logic. This significantly reduces "+
+				"the effort required for an attacker to reverse-engineer the application. "+
+				"Remove source map files from production or restrict access to them.",
+			mapURL,
+		),
+		Evidence:     map[string]any{"js_url": jsURL, "map_url": mapURL},
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// extractJSURLs finds script src URLs in HTML.
+func extractJSURLs(baseURL, html string) []string {
+	pattern := regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
+	matches := pattern.FindAllStringSubmatch(html, 50) // cap at 50 JS files
+
+	seen := make(map[string]struct{})
+	var urls []string
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		url := m[1]
+		if strings.HasPrefix(url, "//") {
+			url = "https:" + url
+		} else if strings.HasPrefix(url, "/") {
+			// relative path — prepend base
+			if idx := strings.Index(baseURL[8:], "/"); idx >= 0 {
+				url = baseURL[:8+idx] + url
+			} else {
+				url = baseURL + url
+			}
+		}
+		if _, ok := seen[url]; !ok && strings.HasPrefix(url, "http") {
+			seen[url] = struct{}{}
+			urls = append(urls, url)
+		}
+	}
+	return urls
+}

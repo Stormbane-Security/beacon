@@ -1,0 +1,49 @@
+name: sap_netweaver
+description: >
+  Asset is an SAP NetWeaver application server or SAP S/4HANA system.
+  SAP NetWeaver is the core platform underlying SAP ERP, S/4HANA, and
+  Business Suite. Risks include: CVE-2025-31324 (CVSS 10.0, KEV-listed,
+  unauthenticated file upload in SAP NetWeaver Visual Composer
+  Metadata Uploader — allows uploading malicious JSP shells to
+  /developmentserver/metadatauploader without any authentication; actively
+  exploited in mass attacks starting April 2025); CVE-2020-6287 (CVSS 10.0,
+  "RECON" — unauthenticated admin creation in SAP NetWeaver Application
+  Server Java); and CVE-2025-42999 (SAP Visual Composer deserialization).
+  SAP systems store the most sensitive business data in the enterprise —
+  financial records, HR data, supply chain — making them prime APT targets.
+  The /irj/portal path is the SAP Enterprise Portal login page. Any
+  internet-exposed SAP system warrants immediate investigation.
+match:
+  any:
+    - path_responds: "/developmentserver/metadatauploader"
+    - path_responds: "/irj/portal"
+    - title_contains: "SAP"
+    - body_contains: "SAP NetWeaver"
+    - body_contains: "sap-client"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - sap
+    - netweaver
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - sap
+    - netweaver
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /developmentserver/metadatauploader
+    - /irj/portal
+    - /irj/go/km/navigation/
+    - /nwa
+    - /nwa/index.html
+    - /sap/bc/gui/sap/its/webgui
+    - /sap/hana/iam/idp/saml2/idp/metadata.xml
+    - /webdynpro/dispatcher/sap.com/tc~wd~tools/

@@ -1,0 +1,57 @@
+name: fortinet_fortigate
+description: >
+  Asset is a Fortinet FortiGate firewall or FortiOS SSL VPN device.
+  FortiGate is one of the most widely deployed enterprise firewalls and VPN
+  concentrators. Risks include: CVE-2026-24858 (FortiCloud SSO authentication
+  bypass — CVSS 9.4, KEV-listed Jan 2026; bypasses the patch for CVE-2025-59718/59719);
+  CVE-2024-55591 (authentication bypass via crafted requests to Node.js WebSocket
+  module — CVSS 9.6, KEV-listed); CVE-2024-21762 (out-of-bounds write in SSL VPN
+  — CVSS 9.6, KEV-listed); and CVE-2023-27997 (heap buffer overflow in SSL-VPN —
+  CVSS 9.8, KEV-listed). FortiGate SSL VPN has been the most exploited network
+  device category in 2024-2026, used as initial access in numerous ransomware
+  campaigns. Apply all current FortiOS patches immediately.
+match:
+  any:
+    - path_responds: "/remote/login"
+    - path_responds: "/login"
+    - title_contains: "FortiGate"
+    - title_contains: "FortiNet"
+    - body_contains: "FortiGate"
+    - header_value:
+        name: "server"
+        contains: "xxxxxxxx-xxxxx"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - fortinet
+    - fortigate
+    - exposure
+    - vpn
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "vpn.{domain}"
+      - "ssl-vpn.{domain}"
+      - "sslvpn.{domain}"
+      - "remote.{domain}"
+      - "gateway.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - fortinet
+    - fortigate
+    - cves
+    - rce
+    - auth-bypass
+  dictionary:
+    - /remote/login
+    - /login
+    - /remote/saml/
+    - /remote/hostcheck_install/
+    - /fgt_lang
+    - /logout
+    - /remote/info
+    - /api/v2/

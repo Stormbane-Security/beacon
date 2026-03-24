@@ -1,0 +1,31 @@
+name: github_pages
+description: >
+  Asset is served via GitHub Pages. Risks include: subdomain takeover when a
+  custom domain CNAME points to a GitHub Pages site that has been deleted or
+  unclaimed (a well-documented and frequently exploited vulnerability), sensitive
+  files committed to the public repository backing the site (API keys, tokens,
+  internal documentation), exposure of staging or internal tooling accidentally
+  published via Pages, and Jekyll or other static site generator build artifacts
+  containing debug information. The takeover risk is particularly significant
+  because claiming an abandoned GitHub Pages domain only requires creating a
+  repository with the matching name.
+match:
+  any:
+    - cname_contains: ".github.io"
+    - cert_san_contains: ".github.io"
+    - header_value:
+        name: "server"
+        contains: "GitHub.com"
+    - header_present: "x-github-request-id"
+surface:
+  nuclei_tags:
+    - github
+    - takeovers
+    - exposure
+    - misconfiguration
+deep:
+  nuclei_tags:
+    - github
+    - cves
+    - takeovers
+    - exposure

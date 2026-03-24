@@ -1,0 +1,38 @@
+name: render
+description: >
+  Asset is deployed on Render.com, a cloud application platform. Risks include:
+  subdomain takeover when a custom domain is removed from a Render service but
+  the DNS CNAME to .onrender.com persists, exposed health check or metrics
+  endpoints on internal services made public, environment variable leakage via
+  debug pages or error output, insecure default configurations on Render-hosted
+  databases or Redis instances, and staging or preview services with reduced
+  security controls accessible publicly. Render's free tier services that
+  spin down on inactivity may also be vulnerable to DNS takeover during
+  the period before a new service is claimed on the same subdomain.
+match:
+  any:
+    - cname_contains: ".onrender.com"
+    - cert_san_contains: ".onrender.com"
+    - header_value:
+        name: "server"
+        contains: "Render"
+surface:
+  nuclei_tags:
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "staging.{domain}"
+      - "dev.{domain}"
+      - "preview.{domain}"
+      - "admin.{domain}"
+deep:
+  nuclei_tags:
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers
+    - default-logins

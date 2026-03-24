@@ -1,0 +1,49 @@
+name: active_directory
+description: >
+  Asset is an Active Directory domain controller directly accessible from the
+  internet. Internet-exposed DCs are a critical security misconfiguration.
+  Risks include: AS-REP roasting (enumerate accounts without Kerberos pre-auth
+  requirement and crack offline), Kerberoasting (SPN enumeration + TGS ticket
+  cracking), NTLM relay attacks, LDAP injection, pass-the-hash, and brute-force
+  of domain accounts. CVE-2025-26663 (CVSS 9.8, Windows LDAP unauthenticated
+  RCE) affects all Windows Server versions. CVE-2024-49113 (CVSS 7.5, LDAP
+  denial-of-service via malformed packet) is KEV-listed. Active Directory domain
+  controllers must never be internet-accessible — access should be restricted to
+  internal networks and VPN-connected hosts exclusively.
+match:
+  any:
+    - check_id: "port.active_directory_exposed"
+    - check_id: "port.kerberos_exposed"
+    - check_id: "port.global_catalog_exposed"
+    - check_id: "port.ldap_exposed"
+surface:
+  scanners:
+    - portscan
+    - dns
+  nuclei_tags:
+    - active-directory
+    - ldap
+    - kerberos
+    - exposure
+    - windows
+deep:
+  scanners:
+    - portscan
+    - dns
+    - exposedfiles
+  nuclei_tags:
+    - active-directory
+    - ldap
+    - kerberos
+    - cves
+    - exposure
+    - windows
+  dictionary:
+    - /certsrv/
+    - /certsrv/certfnsh.asp
+    - /adfs/ls/
+    - /FederationMetadata/2007-06/FederationMetadata.xml
+    - /EWS/Exchange.asmx
+    - /autodiscover/autodiscover.xml
+    - /owa/
+    - /Microsoft-Server-ActiveSync

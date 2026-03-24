@@ -1,0 +1,46 @@
+name: hpe_oneview
+description: >
+  Asset is an HPE OneView infrastructure management console. HPE OneView
+  manages HPE server, storage, and networking infrastructure and holds
+  credentials and configuration for the entire data center footprint.
+  Risks include: CVE-2025-37164 (pre-authentication remote code execution
+  via the /rest/id-pools/executeCommand REST API — CVSS 10.0, KEV-listed
+  Jan 2026; a Metasploit module was available within days of disclosure);
+  and numerous historical HPE OneView authentication bypass and information
+  disclosure vulnerabilities. The /rest/version API endpoint is accessible
+  without authentication and identifies the product. An internet-accessible
+  HPE OneView instance represents complete data center infrastructure compromise.
+  Upgrade to HPE OneView 11.00 or later immediately.
+match:
+  any:
+    - path_responds: "/rest/version"
+    - title_contains: "HPE OneView"
+    - title_contains: "OneView"
+    - body_contains: "currentVersion"
+    - body_contains: "HPE OneView"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - hpe
+    - oneview
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - hpe
+    - oneview
+    - cves
+    - rce
+  dictionary:
+    - /rest/version
+    - /rest/logindomains
+    - /rest/users
+    - /rest/servers
+    - /rest/server-hardware
+    - /rest/enclosures
+    - /rest/id-pools/executeCommand
+    - /ui/

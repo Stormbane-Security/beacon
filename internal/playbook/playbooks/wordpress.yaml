@@ -1,0 +1,81 @@
+name: wordpress
+description: >
+  Asset is running WordPress, the world's most widely deployed CMS. WordPress's
+  ubiquity and plugin ecosystem make it a major target. Risks include: xmlrpc.php
+  enabling brute force amplification and SSRF, wp-login.php brute force without
+  lockout, user enumeration via the REST API (/wp-json/wp/v2/users) and author
+  archives, vulnerable plugins and themes (the vast majority of WordPress CVEs
+  are in plugins), wp-config.php exposure revealing database credentials, the
+  wp-json API disclosing post content, draft posts, and user metadata, and
+  default admin username "admin". Unauthenticated attackers can frequently
+  enumerate users, identify plugin versions, and target known vulnerable plugin
+  CVEs to achieve full RCE via PHP webshell upload.
+match:
+  any:
+    - body_contains: "wp-content"
+    - body_contains: "wp-includes"
+    - body_contains: "wp-login"
+    - path_responds: "/wp-login.php"
+    - path_responds: "/wp-admin"
+    - path_responds: "/wp-json"
+    - header_value:
+        name: "link"
+        contains: "wp-json"
+surface:
+  scanners:
+    - cms-plugins
+  nuclei_tags:
+    - wordpress
+    - cms
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "blog.{domain}"
+      - "wp.{domain}"
+      - "news.{domain}"
+      - "cms.{domain}"
+      - "www.{domain}"
+deep:
+  nuclei_tags:
+    - wordpress
+    - cms
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    # Core admin / auth
+    - /wp-login.php
+    - /wp-admin/
+    - /wp-admin/admin-ajax.php
+    - /wp-admin/admin-post.php
+    - /wp-cron.php
+    # Configuration & credential leakage
+    - /wp-config.php
+    - /wp-config.php.bak
+    - /wp-config.php~
+    - /wp-config-sample.php
+    - /.wp-config.php.swp
+    # API & data exposure
+    - /wp-json/wp/v2/users
+    - /wp-json/wp/v2/posts?status=draft
+    - /wp-json/
+    - /?author=1
+    - /?author=2
+    # XML-RPC (brute-force / SSRF amplification)
+    - /xmlrpc.php
+    # Upload / file exposure
+    - /wp-content/uploads/
+    - /wp-content/debug.log
+    - /wp-content/backup-db/
+    # Plugin / theme paths (probed by cms-plugins, but explicit coverage here)
+    - /wp-content/plugins/
+    - /wp-content/themes/
+    # WooCommerce REST API — frequently unauthenticated on misconfigured stores
+    - /wp-json/wc/v3/orders
+    - /wp-json/wc/v3/customers
+    - /wp-json/wc/v3/products
+    - /wp-json/wc/v3/system_status

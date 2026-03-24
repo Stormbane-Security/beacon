@@ -1,0 +1,76 @@
+name: strapi
+description: >
+  Asset is running Strapi, a popular open-source headless CMS. Strapi instances
+  exposed to the internet are frequently misconfigured, providing unauthenticated
+  access to the admin panel and content APIs. Risks include: the Strapi admin
+  console at /admin allowing account registration on first-launch deployments
+  that were never properly initialised, unauthenticated access to the Users &
+  Permissions plugin REST API at /api/users exposing personal data, the
+  /api/users/me endpoint leaking the authenticated user's full profile including
+  password hash in misconfigured instances, unrestricted file upload via the
+  Media Library leading to arbitrary file storage and potential RCE, JWT secret
+  exposure via public configuration files, the Content-Type Builder API at
+  /api/content-type-builder allowing schema modification, and CVE-2023-22621
+  (remote code execution via prototype pollution). Strapi deployments with
+  default or weak JWT secrets allow forging admin tokens and achieving full
+  administrative access.
+match:
+  any:
+    - title_contains: "Strapi"
+    - body_contains: "Strapi"
+    - header_value:
+        name: "x-powered-by"
+        contains: "strapi"
+surface:
+  scanners:
+    - httpmethods
+    - exposedfiles
+    - apiversions
+    - webcontent
+    - dlp
+  nuclei_tags:
+    - strapi
+    - cms
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "cms.{domain}"
+      - "strapi.{domain}"
+      - "api.{domain}"
+      - "content.{domain}"
+      - "admin.{domain}"
+deep:
+  scanners:
+    - autoprobe
+    - cors
+    - ratelimit
+    - jwt
+  nuclei_tags:
+    - strapi
+    - cms
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    # Admin console
+    - /admin
+    - /admin/auth/login
+    - /admin/auth/register-admin
+    # User & auth API
+    - /api/users
+    - /api/users/me
+    - /api/auth/local
+    - /api/auth/local/register
+    # Content-Type Builder (schema manipulation)
+    - /api/content-type-builder
+    - /api/content-type-builder/content-types
+    # Health check
+    - /_health
+    # Media / file uploads
+    - /uploads
+    - /api/upload
+    - /api/upload/files

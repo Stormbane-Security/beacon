@@ -1,0 +1,47 @@
+name: sonicwall
+description: >
+  Asset is a SonicWall firewall or SSL-VPN appliance. SonicWall is widely
+  deployed in SMB and enterprise perimeter security. Risks include:
+  CVE-2024-40766 (CVSS 9.3, KEV-listed, authentication bypass on SSLVPN
+  and management interface — exploited in ransomware campaigns within days of
+  disclosure; Akira and Fog ransomware groups targeted SonicWall appliances);
+  CVE-2023-0656 (CVSS 7.5, heap-based buffer overflow in SonicOS SSL-VPN);
+  CVE-2021-20016 (CVSS 9.8, SMA 100/200/400 series SQL injection + auth
+  bypass — actively exploited as zero-day); and CVE-2020-5135 (CVSS 9.8,
+  stack buffer overflow in SSL-VPN HTTP/HTTPS service). The SonicWall
+  management interface and SSL-VPN share port 443 on the same IP. An attacker
+  who compromises the SonicWall management interface gains full visibility
+  into all firewall rules and VPN configurations.
+match:
+  any:
+    - check_id: "netdev.sonicwall_detected"
+    - path_responds: "/auth.html"
+    - title_contains: "SonicWall"
+    - title_contains: "SonicWALL"
+    - body_contains: "sonicwall"
+    - body_contains: "SonicWALL"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - sonicwall
+    - vpn
+    - network
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - sonicwall
+    - vpn
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /auth.html
+    - /cgi-bin/welcome.exe
+    - /cgi-bin/userlogin.cgi
+    - /cgi-bin/aboutData.cgi
+    - /api/sonicos/auth

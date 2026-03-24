@@ -1,0 +1,32 @@
+name: kafka
+description: >
+  Apache Kafka broker is accessible. Kafka without authentication exposes all
+  topic data to reads and writes. Risks include data exfiltration from event
+  streams, topic manipulation (poisoning queued messages), and consumer group
+  disruption. Kafka's admin API also exposes broker configuration and cluster
+  topology. CVE-2023-25194 (JNDI injection via SASL JAAS config) and
+  CVE-2024-27309 (authorization bypass) are relevant for exposed instances.
+match:
+  any:
+    - service_version_contains: "kafka"
+    - path_responds: "/topics"           # Confluent REST Proxy
+    - path_responds: "/v3/clusters"      # Confluent REST Proxy v3
+    - title_contains: "Kafka"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  paths:
+    - /topics
+    - /v3/clusters
+    - /v3/topics
+    - /consumers
+  nuclei_tags:
+    - kafka
+    - exposure
+deep:
+  nuclei_tags:
+    - kafka
+    - cves
+    - default-logins
+    - misconfiguration

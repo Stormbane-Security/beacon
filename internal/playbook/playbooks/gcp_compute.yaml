@@ -1,0 +1,44 @@
+name: gcp_compute
+description: >
+  Asset is hosted on Google Cloud Compute Engine or served via Google's network
+  infrastructure. Risks include: GCE instance metadata endpoint exposure at
+  169.254.169.254 (which can yield service account tokens and project metadata
+  via SSRF), overly permissive firewall rules, default service accounts with
+  excessive IAM permissions, and publicly exposed GCE instances without adequate
+  network controls. Compute Engine workloads often have access to broader GCP
+  resources via attached service accounts, making SSRF and metadata exposure
+  particularly impactful.
+match:
+  any:
+    - asn_org_contains: "GOOGLE"
+    - cname_contains: ".googleusercontent.com"
+    - cname_contains: ".compute.googleapis.com"
+    - cname_contains: ".googlehosted.com"
+    - cert_san_contains: ".googleusercontent.com"
+    - header_value:
+        name: "server"
+        contains: "Google Frontend"
+    - header_present: "x-goog-generation"
+surface:
+  nuclei_tags:
+    - gcp
+    - exposure
+    - misconfiguration
+    - ssrf
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "internal.{domain}"
+      - "dev.{domain}"
+      - "staging.{domain}"
+      # Note: "metadata.{domain}" was removed — GCP metadata is at the link-local
+      # address 169.254.169.254, not at a subdomain. This entry would only find
+      # a legitimate subdomain named "metadata", not the GCE metadata service.
+deep:
+  nuclei_tags:
+    - gcp
+    - cves
+    - ssrf
+    - misconfiguration
+    - exposure

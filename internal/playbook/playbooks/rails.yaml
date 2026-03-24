@@ -1,0 +1,70 @@
+name: rails
+description: >
+  Asset is running a Ruby on Rails application. Rails has well-known security
+  patterns and antipatterns. Risks include: Rails development mode or debug
+  pages exposing stack traces with local variable values and configuration;
+  exposed /rails/info endpoint (enabled by default in development) showing
+  all routes and properties; CVE-2019-5420 (RCE via file content disclosure in
+  development mode), CVE-2020-8165 and CVE-2021-22885 (various injection and
+  exposure issues); insecure deserialization via the Rails cookie store when
+  the secret_key_base is known or weak; mass assignment vulnerabilities in older
+  apps; exposed ActiveStorage blob URLs; and SQL injection in improperly
+  parameterized queries. The /cable endpoint for ActionCable WebSockets may
+  expose internal message channels.
+match:
+  any:
+    - body_contains: "rails"
+    - body_contains: "Ruby on Rails"
+    - path_responds: "/rails/info"
+    - path_responds: "/rails/info/properties"
+    - path_responds: "/cable"
+    - header_value:
+        name: "x-powered-by"
+        contains: "Phusion Passenger"
+    - header_value:
+        name: "x-powered-by"
+        contains: "Puma"
+    - header_value:
+        name: "server"
+        contains: "Puma"
+    - header_value:
+        name: "set-cookie"
+        contains: "_session"
+surface:
+  nuclei_tags:
+    - rails
+    - ruby
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "app.{domain}"
+      - "admin.{domain}"
+      - "dev.{domain}"
+      - "staging.{domain}"
+deep:
+  nuclei_tags:
+    - rails
+    - ruby
+    - cves
+    - exposure
+    - misconfiguration
+  dictionary:
+    # Rails info / debug
+    - /rails/info/properties
+    - /rails/info/routes
+    - /rails/mailers
+    - /rails/db/
+    # ActiveAdmin / Administrate
+    - /admin
+    - /admin/login
+    # Letter Opener (email preview in dev)
+    - /letter_opener
+    # Sidekiq web UI
+    - /sidekiq
+    - /queues
+    # API
+    - /api/v1/
+    - /graphql

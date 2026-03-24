@@ -1,0 +1,40 @@
+name: beyondtrust
+description: >
+  Asset is a BeyondTrust Remote Support or Privileged Remote Access (PRA)
+  instance. BeyondTrust is an enterprise remote access and privileged access
+  management platform used extensively in corporate and government environments.
+  Risks include: CVE-2026-1731 (pre-auth OS command injection — CVSS 9.9,
+  KEV-listed Feb 2026, affects RS ≤ 25.3.1 and PRA ≤ 24.3.4), and CVE-2024-12356
+  (critical command injection, also KEV-listed). The /appliance/api/info endpoint
+  discloses version without authentication — compare against patched builds.
+  BeyondTrust compromise gives attackers direct access to all privileged sessions
+  and credentials stored in the vault.
+match:
+  any:
+    - path_responds: "/appliance/api/info"
+    - title_contains: "BeyondTrust"
+    - title_contains: "Remote Support"
+    - title_contains: "Privileged Remote Access"
+    - body_contains: "BeyondTrust"
+    - path_responds: "/login"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - beyondtrust
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - beyondtrust
+    - cves
+    - rce
+  dictionary:
+    - /appliance/api/info
+    - /appliance/
+    - /login
+    - /api/info
+    - /api/

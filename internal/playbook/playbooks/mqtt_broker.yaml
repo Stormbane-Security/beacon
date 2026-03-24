@@ -1,0 +1,31 @@
+name: mqtt_broker
+description: >
+  Asset is an MQTT message broker. MQTT (Message Queuing Telemetry Transport)
+  is a lightweight publish/subscribe protocol widely used in IoT deployments,
+  home automation (Home Assistant, OpenHAB), industrial monitoring, and
+  real-time messaging. Risks include: unauthenticated access allowing any
+  client to subscribe to all topics ("#") and receive all messages including
+  sensor data, device commands, and credentials; unauthenticated publish
+  enabling attackers to inject commands to connected devices; CVE-2023-28366
+  (Eclipse Mosquitto heap overflow — CVSS 9.8); and CVE-2021-34434 (Mosquitto
+  authentication bypass). An unauthenticated MQTT broker can expose home
+  automation commands, industrial sensor data, and provide a pivot point into
+  connected IoT device networks.
+match:
+  any:
+    - check_id: "port.mqtt_exposed"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - mqtt
+    - iot
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - mqtt
+    - iot
+    - default-logins
+    - cves

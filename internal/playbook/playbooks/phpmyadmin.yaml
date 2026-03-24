@@ -1,0 +1,51 @@
+name: phpmyadmin
+description: >
+  Asset is running phpMyAdmin, a web-based MySQL/MariaDB administration interface.
+  phpMyAdmin is a high-value target due to its direct database access and
+  historically large number of vulnerabilities. Risks include: default or weak
+  credentials granting full MySQL access (including reading all databases,
+  executing SQL, and reading files from the server filesystem via LOAD DATA INFILE),
+  unauthenticated access on misconfigured deployments, CVE-2018-12613 and other
+  file inclusion vulnerabilities, brute-forceable login with no lockout, and
+  the ability to write PHP webshells to the server via SELECT INTO OUTFILE if
+  MySQL file privileges are granted. Exposed phpMyAdmin frequently leads directly
+  to full server compromise via SQL-based file write or existing CVEs.
+match:
+  any:
+    - title_contains: "phpMyAdmin"
+    - path_responds: "/phpmyadmin"
+    - path_responds: "/phpmyadmin/"
+    - path_responds: "/pma"
+    - path_responds: "/mysql"
+    - body_contains: "phpMyAdmin"
+    - body_contains: "pma_"
+surface:
+  nuclei_tags:
+    - phpmyadmin
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "db.{domain}"
+      - "mysql.{domain}"
+      - "phpmyadmin.{domain}"
+      - "pma.{domain}"
+      - "admin.{domain}"
+      - "database.{domain}"
+deep:
+  nuclei_tags:
+    - phpmyadmin
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    - /index.php
+    - /setup/
+    - /setup/index.php
+    - /config.inc.php
+    - /sql.php
+    - /db_structure.php
+    - /tbl_structure.php

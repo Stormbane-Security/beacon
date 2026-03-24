@@ -1,0 +1,49 @@
+name: keycloak
+description: >
+  Asset is running Keycloak, an open-source Identity and Access Management (IAM)
+  solution. Keycloak is a high-value target because it is the authentication
+  and authorization hub for all applications in an environment. Risks include:
+  exposed Keycloak admin console at /auth/admin or /admin (default credentials
+  admin/admin on new deployments), realm enumeration via the well-known OIDC
+  endpoints, CVE-2023-6927 and CVE-2020-10770 (open redirect and SSRF in
+  Keycloak), CVE-2021-20323 (HTML injection in error pages), master realm admin
+  access granting control over all configured realms and clients, token endpoint
+  abuse for credential stuffing, and client secret exposure via the admin API.
+  Compromise of the Keycloak admin console typically results in full SSO
+  infrastructure takeover affecting every connected application.
+match:
+  any:
+    - title_contains: "Keycloak"
+    - path_responds: "/auth/realms"
+    - path_responds: "/realms"
+    - path_responds: "/auth"
+    - body_contains: "keycloak"
+    - body_contains: "Keycloak"
+    - path_responds: "/auth/admin"
+surface:
+  nuclei_tags:
+    - keycloak
+    - sso
+    - iam
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "auth.{domain}"
+      - "sso.{domain}"
+      - "keycloak.{domain}"
+      - "iam.{domain}"
+      - "identity.{domain}"
+      - "login.{domain}"
+      - "idp.{domain}"
+deep:
+  nuclei_tags:
+    - keycloak
+    - sso
+    - iam
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins

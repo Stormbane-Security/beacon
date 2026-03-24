@@ -1,0 +1,32 @@
+name: cloudflare
+description: >
+  Asset is behind Cloudflare CDN/proxy. Key risks: origin IP exposure that
+  bypasses Cloudflare protections, misconfigured SSL modes (flexible vs full),
+  and Cloudflare-specific header injection. The most valuable finding here is
+  discovering the real origin IP — if found, the WAF/DDoS protection is bypassed.
+match:
+  any:
+    - header_present: "cf-ray"
+    - header_present: "cf-cache-status"
+    - header_present: "cf-request-id"
+    - asn_org_contains: "CLOUDFLARE"
+    - cname_contains: ".cloudflare.com"
+surface:
+  nuclei_tags:
+    - cloudflare
+discovery:
+  # Try to find origin IP that bypasses Cloudflare
+  - type: probe_subdomains
+    patterns:
+      - "direct.{domain}"
+      - "origin.{domain}"
+      - "backup.{domain}"
+      - "smtp.{domain}"
+      - "mail.{domain}"
+      - "ftp.{domain}"
+      - "cpanel.{domain}"
+      - "webmail.{domain}"
+  - type: historical_dns
+deep:
+  nuclei_tags:
+    - cloudflare-bypass

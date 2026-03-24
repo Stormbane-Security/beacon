@@ -1,0 +1,27 @@
+name: ai_llm
+description: >
+  Triggered when aidetect finds AI/LLM-powered endpoints on an asset.
+  Runs targeted prompt injection, system prompt extraction, SSRF, and
+  tool-abuse probes. All active tests require deep mode (--permission-confirmed).
+match:
+  any:
+    - ai_endpoint_present: true
+    - path_responds: /v1/chat/completions
+    - path_responds: /v1/models
+    - path_responds: /api/tags
+    - path_responds: /api/generate
+    - body_contains: '"finish_reason"'
+    - body_contains: '"choices":['
+surface:
+  scanners:
+    - aidetect
+  nuclei_tags:
+    - ai
+    - llm
+    - openai
+deep:
+  scanners:
+    - aillm
+    - cors         # LLM APIs often have misconfigured CORS
+    - ratelimit    # LLM APIs must rate-limit to prevent abuse
+    - jwt          # LLM APIs frequently use JWT auth

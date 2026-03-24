@@ -1,0 +1,40 @@
+name: adminer
+description: >
+  Asset is running Adminer (formerly phpMinAdmin), a single-file PHP database
+  management tool that supports MySQL, PostgreSQL, SQLite, MS SQL, Oracle, and
+  others. Risks include: default deployment without authentication allowing any
+  visitor to connect to databases with supplied credentials, CVE-2021-21311
+  (SSRF via redirect on login page in versions before 4.7.9 allowing internal
+  network probing and cloud metadata access), CVE-2023-45195 (file disclosure),
+  the ability to connect to any database server reachable from the host (not
+  just localhost), and exposure of sensitive data across all supported database
+  types. Adminer's broad database protocol support makes it a particularly
+  versatile pivot point for reaching internal database services.
+match:
+  any:
+    - title_contains: "Adminer"
+    - body_contains: "adminer"
+    - path_responds: "/adminer.php"
+    - path_responds: "/adminer"
+    - body_contains: "adminer.org"
+surface:
+  nuclei_tags:
+    - adminer
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "db.{domain}"
+      - "admin.{domain}"
+      - "database.{domain}"
+      - "adminer.{domain}"
+deep:
+  nuclei_tags:
+    - adminer
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - ssrf

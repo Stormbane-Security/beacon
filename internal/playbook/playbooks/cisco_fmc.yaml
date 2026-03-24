@@ -1,0 +1,44 @@
+name: cisco_fmc
+description: >
+  Asset is a Cisco Firepower Management Center (FMC) or Security Cloud Control
+  (SCC) — Cisco's central management plane for Firepower/NGFW devices.
+  FMC manages all firewall policies, intrusion rules, and network visibility
+  for an organization's entire Cisco security infrastructure. Risks include:
+  CVE-2026-20131 (pre-authentication Java deserialization RCE in the FMC
+  web management interface — CVSS 10.0, KEV-listed Mar 2026; exploited by
+  the Interlock ransomware group 36 days before public disclosure) and
+  CVE-2026-20079 (authentication bypass on the management plane — companion
+  to CVE-2026-20131). FMC compromise gives attackers policy control over
+  all managed firewalls, IDS/IPS rules, and network segmentation. Patch
+  to Cisco FMC 7.6.x or later immediately.
+match:
+  any:
+    - title_contains: "Firepower Management Center"
+    - title_contains: "Cisco Firepower"
+    - body_contains: "Firepower Management Center"
+    - body_contains: "FMC"
+    - path_responds: "/login"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - cisco
+    - firepower
+    - fmc
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - cisco
+    - firepower
+    - fmc
+    - cves
+    - rce
+  dictionary:
+    - /login
+    - /api/fmc_config/v1/domain/
+    - /api/fmc_platform/v1/info/
+    - /api/fmc_platform/v1/healthmonitor/
+    - /admin/

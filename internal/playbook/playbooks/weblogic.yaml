@@ -1,0 +1,46 @@
+name: weblogic
+description: >
+  Asset is an Oracle WebLogic Server or Oracle HTTP Server with the WebLogic
+  Proxy Plug-in. WebLogic is widely used in enterprise Java EE deployments.
+  Risks include: CVE-2026-21962 (improper access control in the WebLogic
+  Server Proxy Plug-in for Apache HTTP Server and IIS — CVSS 10.0, patched
+  in Oracle January 2026 CPU; allows unauthenticated access to protected
+  backend resources); CVE-2024-21182 (unauthenticated RCE via T3/IIOP protocol,
+  KEV-listed); CVE-2023-21839 (T3/IIOP protocol unauthenticated RCE — KEV-listed);
+  CVE-2020-14882 (console authentication bypass — KEV-listed). WebLogic T3
+  protocol on port 7001 enables unauthenticated Java deserialization attacks
+  even when the admin console is restricted. Apply Oracle Critical Patch Updates
+  immediately.
+match:
+  any:
+    - path_responds: "/console/"
+    - title_contains: "WebLogic"
+    - title_contains: "Oracle WebLogic"
+    - body_contains: "WebLogic"
+    - body_contains: "Oracle WebLogic"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - oracle
+    - weblogic
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - oracle
+    - weblogic
+    - cves
+    - rce
+    - default-logins
+  dictionary:
+    - /console/
+    - /console/login/LoginForm.jsp
+    - /wls-wsat/
+    - /ws_utc/begin.do
+    - /bea_wls_internal/
+    - /async/AsyncResponseService
+    - /_async/AsyncResponseService

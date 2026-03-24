@@ -1,0 +1,69 @@
+name: laravel
+description: >
+  Asset is running a Laravel PHP application. Laravel is one of the most popular
+  PHP frameworks and has several common misconfiguration patterns. Risks include:
+  debug mode enabled (APP_DEBUG=true) which triggers verbose error pages
+  disclosing full stack traces, environment variables (including APP_KEY, database
+  credentials, and API keys), and server paths; Laravel Telescope debug dashboard
+  exposed at /telescope revealing all application requests, queries, exceptions,
+  and logs; Laravel Horizon queue dashboard at /horizon with potential
+  unauthenticated access; CVE-2021-3129 (RCE via debug mode and ignition log
+  parsing) and CVE-2018-15133 (RCE via crafted X-XSRF-TOKEN header when APP_KEY
+  is known); .env file exposure at /.env leaking all configuration secrets; and
+  the _ignition/execute-solution endpoint in debug mode allowing arbitrary code
+  evaluation.
+match:
+  any:
+    - body_contains: "laravel"
+    - body_contains: "Laravel"
+    - path_responds: "/horizon"
+    - path_responds: "/_ignition"
+    - path_responds: "/telescope"
+    - header_value:
+        name: "x-powered-by"
+        contains: "PHP"
+    - header_value:
+        name: "set-cookie"
+        contains: "laravel_session"
+surface:
+  nuclei_tags:
+    - laravel
+    - php
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "app.{domain}"
+      - "admin.{domain}"
+      - "dev.{domain}"
+      - "staging.{domain}"
+deep:
+  nuclei_tags:
+    - laravel
+    - php
+    - cves
+    - exposure
+    - misconfiguration
+    - rce
+  dictionary:
+    # Debug dashboards
+    - /telescope
+    - /telescope/requests
+    - /horizon
+    - /horizon/dashboard
+    - /_ignition/health-check
+    - /_ignition/execute-solution
+    # Laravel log & config
+    - /storage/logs/laravel.log
+    - /.env
+    - /.env.example
+    - /storage/framework/
+    # API
+    - /api/user
+    - /api/v1/
+    # Admin
+    - /nova
+    - /admin
+    - /filament

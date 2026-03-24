@@ -1,0 +1,42 @@
+name: mikrotik
+description: >
+  Asset is a MikroTik RouterOS device (router, switch, or wireless AP).
+  MikroTik equipment is widely deployed in ISPs, enterprises, and home networks.
+  Risks include: CVE-2018-14847 (Winbox unauthenticated credential disclosure —
+  CVSS 9.1, exploited by the Slingshot APT and Mēris botnet; over 2 million
+  devices affected); CVE-2019-3977/3978 (Winbox authentication bypass); and
+  CVE-2023-30799 (privilege escalation from admin to root via Winbox or HTTP).
+  The Mēris botnet (2021-2022) compromised hundreds of thousands of MikroTik
+  devices to launch record-breaking DDoS attacks. MikroTik devices with
+  internet-facing Winbox (8291), API (8728/8729), or web management (80/8080)
+  should be treated as high-priority attack surface.
+match:
+  any:
+    - check_id: "netdev.mikrotik_detected"
+    - path_responds: "/webfig/"
+    - title_contains: "RouterOS"
+    - title_contains: "MikroTik"
+    - body_contains: "RouterOS"
+    - body_contains: "MikroTik"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - mikrotik
+    - network
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - mikrotik
+    - network
+    - cves
+    - default-logins
+  dictionary:
+    - /webfig/
+    - /
+    - /index.html
+    - /winbox/

@@ -1,0 +1,42 @@
+name: ivanti_epm
+description: >
+  Asset is an Ivanti Endpoint Manager (EPM) console. Ivanti EPM is used to
+  manage endpoints across enterprise environments and stores privileged
+  credentials for all managed devices. Risks include: CVE-2026-1603 (auth
+  bypass → credential theft from EPM Credential Vault — KEV-listed Mar 2026,
+  exposes Domain Administrator and service account credentials), CVE-2024-29824
+  (SQL injection RCE — KEV-listed), and CVE-2025-22457 (critical stack-based
+  buffer overflow, KEV-listed). Ivanti products are among the most actively
+  exploited enterprise software in recent CISA KEV additions. Immediately
+  update to EPM 2024 SU5 or later if the console is internet-accessible.
+match:
+  any:
+    - path_responds: "/ams/"
+    - title_contains: "Ivanti"
+    - title_contains: "Endpoint Manager"
+    - title_contains: "LANDESK"
+    - body_contains: "Ivanti"
+    - body_contains: "EPM"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - ivanti
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - ivanti
+    - cves
+    - rce
+    - auth-bypass
+  dictionary:
+    - /ams/
+    - /ams/console/
+    - /landesk/
+    - /ManageSoft/
+    - /ws/
+    - /config/

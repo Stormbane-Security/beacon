@@ -1,0 +1,50 @@
+name: omnissa_workspace
+description: >
+  Asset is an Omnissa (formerly VMware) Workspace ONE UEM or Access platform.
+  Workspace ONE is an enterprise unified endpoint management and identity
+  platform used to manage mobile devices, desktops, and provide single-sign-on
+  across enterprise apps. Risks include: CVE-2021-22054 (unauthenticated SSRF
+  via /catalog-portal/ui — CVSS 9.1, allows reading internal services and cloud
+  metadata), CVE-2022-22954 (RCE via SSTI — KEV-listed), CVE-2022-22972
+  (authentication bypass — KEV-listed), and CVE-2023-20138 (XSS with SAML
+  token theft). Workspace ONE Access compromise exposes all enterprise SSO
+  credentials and mobile device management capabilities. Upgrade to current
+  patched version immediately.
+match:
+  any:
+    - path_responds: "/catalog-portal/ui"
+    - title_contains: "Workspace ONE"
+    - title_contains: "VMware Identity"
+    - title_contains: "AirWatch"
+    - title_contains: "Omnissa"
+    - body_contains: "Workspace ONE"
+    - body_contains: "AirWatch"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - vmware
+    - workspace-one
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - vmware
+    - workspace-one
+    - cves
+    - ssrf
+    - rce
+    - auth-bypass
+  dictionary:
+    - /catalog-portal/ui
+    - /catalog-portal/
+    - /SAAS/API/1.0/GET/apps/launch
+    - /hc/API/1.0/
+    - /SAAS/t/
+    - /SAAS/auth/
+    - /AW/
+    - /DeviceManagement/
+    - /console/

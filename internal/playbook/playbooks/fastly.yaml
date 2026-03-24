@@ -1,0 +1,47 @@
+name: fastly
+description: >
+  Asset is served through Fastly CDN. Fastly is a major CDN and edge cloud
+  platform used for content delivery and edge compute. Risks include: origin
+  server IP exposure bypassing Fastly's DDoS protection and WAF capabilities,
+  Fastly configuration errors creating open redirects via VCL (Varnish
+  Configuration Language) misrules, cache poisoning vulnerabilities via
+  unkeyed inputs in Fastly's caching layer, Fastly Compute@Edge functions with
+  insecure logic, stale content serving when purge APIs are misconfigured,
+  and Fastly API key exposure leading to cache manipulation or configuration
+  access. The x-served-by and x-cache headers reveal the specific edge POP
+  and cache tier, which can be useful in characterizing the CDN topology.
+match:
+  any:
+    - header_present: "x-fastly-request-id"
+    - header_value:
+        name: "x-served-by"
+        contains: "cache"
+    - header_value:
+        name: "via"
+        contains: "varnish"
+    - asn_org_contains: "FASTLY"
+    - cname_contains: ".fastly.net"
+    - cname_contains: ".fastlylb.net"
+    - cname_contains: ".fastly.com"
+surface:
+  nuclei_tags:
+    - fastly
+    - cdn
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "origin.{domain}"
+      - "direct.{domain}"
+      - "backend.{domain}"
+      - "mail.{domain}"
+      - "smtp.{domain}"
+  - type: historical_dns
+deep:
+  nuclei_tags:
+    - fastly
+    - cdn
+    - cves
+    - exposure
+    - misconfiguration

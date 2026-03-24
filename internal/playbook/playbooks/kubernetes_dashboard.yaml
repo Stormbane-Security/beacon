@@ -1,0 +1,54 @@
+name: kubernetes_dashboard
+description: >
+  Asset is running the Kubernetes Dashboard, the official web UI for Kubernetes
+  cluster management. The Kubernetes Dashboard is one of the most dangerous
+  services to expose publicly. Risks include: unauthenticated access to full
+  cluster management (in older Dashboard versions with --enable-skip-login or
+  misconfigured RBAC), the ability to exec into pods giving container-level code
+  execution, secret and configmap enumeration exposing credentials and API keys,
+  deployment creation enabling workload injection, CVE-2018-18264 (authentication
+  bypass), node and namespace enumeration, and privilege escalation via service
+  account token theft. Access to the Kubernetes Dashboard with cluster-admin
+  privileges provides complete control over all workloads and infrastructure
+  managed by the cluster.
+match:
+  any:
+    - title_contains: "Kubernetes Dashboard"
+    - body_contains: "Kubernetes Dashboard"
+    - body_contains: "kubernetes-dashboard"
+    # Note: /api/v1/ and /api/v1/namespaces alone are NOT used as match conditions
+    # because any generic REST API would satisfy them. Only the Dashboard-specific
+    # UI strings (title, body) reliably identify this service.
+surface:
+  nuclei_tags:
+    - kubernetes
+    - k8s
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "k8s.{domain}"
+      - "kubernetes.{domain}"
+      - "dashboard.{domain}"
+      - "kube.{domain}"
+      - "cluster.{domain}"
+      - "infra.{domain}"
+deep:
+  nuclei_tags:
+    - kubernetes
+    - k8s
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    - /api/v1/namespaces
+    - /api/v1/pods
+    - /api/v1/secrets
+    - /api/v1/configmaps
+    - /api/v1/serviceaccounts
+    - /#/workloads
+    - /#/secret
+    - /token

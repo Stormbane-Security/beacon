@@ -1,0 +1,70 @@
+# Beacon — Surface Scan Template List
+# Safe, passive templates only. No active probing. No credentials.
+# Run without --permission-confirmed.
+#
+# Format: one template ID per line. Lines starting with # are comments.
+
+# TLS / SSL
+ssl-dns-names
+expired-ssl
+expiring-ssl-30d
+self-signed-ssl
+untrusted-root-certificate
+
+# DNS Security
+dns-zone-transfer
+missing-caa-record
+
+# HTTP Security Headers
+missing-csp
+missing-hsts
+missing-x-frame-options
+x-content-type-options
+referrer-policy
+permissions-policy
+http-missing-security-headers
+
+# Exposure & Misconfiguration (passive)
+git-config
+git-head
+ds-store
+swagger-api
+swagger-ui
+graphql-introspection
+openapi
+grafana-unauth
+prometheus-metrics
+kibana-unauth
+jupyter-unauth
+jenkins-unauth
+spring-actuator
+dotenv-file
+laravel-env
+backup-files
+db-backup-files
+admin-panel
+wp-login
+robots-txt-endpoint
+cors-misconfig
+s3-bucket-listing
+aws-bucket-service
+
+# Subdomain Takeover (72 service-specific templates)
+subdomain-takeover
+azure-takeover-detection
+aws-bucket-takeover
+github-pages-takeover
+netlify-takeover
+heroku-takeover
+
+# Technology Fingerprinting & Version Detection (passive)
+tech-detect
+wappalyzer-detect
+wordpress-detect
+drupal-detect
+joomla-detect
+
+# Web Information Disclosure (passive)
+debug-page-detect
+error-log-disclosure
+server-version-disclosure

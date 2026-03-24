@@ -1,0 +1,42 @@
+name: zabbix
+description: >
+  Asset is a Zabbix network monitoring server or proxy. Zabbix is widely
+  used for infrastructure monitoring in enterprises and ISPs. Risks include:
+  CVE-2024-22120 (CVSS 9.9, SQL injection in Zabbix server — allows unauthenticated
+  RCE via time-based blind SQL injection in the server-to-server API);
+  CVE-2022-23134 (CVSS 5.3, setup.php accessible after installation — can
+  overwrite Zabbix server configuration); CVE-2021-27927 (CVSS 8.8, CSRF
+  to RCE via malicious configuration file upload); and default credentials
+  "Admin/zabbix" on the web interface. Zabbix agents run on every monitored
+  host, so server compromise typically leads to lateral movement across the
+  entire monitored infrastructure. The /api_jsonrpc.php endpoint enables
+  unauthenticated API enumeration when auth is misconfigured.
+match:
+  any:
+    - title_contains: "Zabbix"
+    - body_contains: "Zabbix"
+    - path_responds: "/api_jsonrpc.php"
+    - path_responds: "/zabbix/"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - zabbix
+    - monitoring
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - zabbix
+    - monitoring
+    - cves
+    - default-logins
+    - rce
+  dictionary:
+    - /api_jsonrpc.php
+    - /zabbix/
+    - /setup.php
+    - /conf/zabbix.conf.php

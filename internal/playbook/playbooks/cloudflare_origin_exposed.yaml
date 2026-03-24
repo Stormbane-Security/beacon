@@ -1,0 +1,26 @@
+name: cloudflare_origin_exposed
+description: >
+  Origin server IP has been found and responds directly, bypassing Cloudflare.
+  This is a Critical finding: the WAF, DDoS protection, and rate limiting are
+  all ineffective. The origin server is directly attackable. Common causes:
+  old DNS records, MX records pointing to origin, or subdomains that bypass the CDN.
+  This playbook is triggered when an IP in a non-Cloudflare range responds to
+  the target hostname via direct IP probe.
+match:
+  any:
+    # Triggered programmatically by the origin-find scanner, not by header patterns.
+    # The classifier sets a synthetic evidence field when origin IP is confirmed.
+    - header_value:
+        name: "x-beacon-origin-confirmed"
+        contains: "true"
+surface:
+  nuclei_tags:
+    - ssl
+    - http-headers
+    - exposure
+    - misconfiguration
+deep:
+  nuclei_tags:
+    - cves
+    - injection
+    - default-logins

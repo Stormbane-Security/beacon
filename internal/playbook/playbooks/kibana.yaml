@@ -1,0 +1,54 @@
+name: kibana
+description: >
+  Asset is a Kibana instance, the visualization and management UI for the Elastic
+  Stack. Risks include: unauthenticated access to Kibana exposing all indexed
+  data (logs, events, metrics, potentially PII or credentials), default or absent
+  authentication on older deployments, Console plugin access allowing arbitrary
+  Elasticsearch API calls including index manipulation and data exfiltration,
+  Timelion/SIEM script injection vulnerabilities, and CVEs in older Kibana versions
+  (e.g., prototype pollution, RCE via Canvas or Lens). Kibana's access to the
+  Elasticsearch cluster means a compromise of Kibana frequently translates to full
+  Elasticsearch cluster access, including cluster settings manipulation.
+match:
+  any:
+    - title_contains: "Kibana"
+    - path_responds: "/app/kibana"
+    - path_responds: "/app/home"
+    - body_contains: "kibana"
+    - header_value:
+        name: "kbn-name"
+        contains: "kibana"
+    - header_present: "kbn-version"
+surface:
+  nuclei_tags:
+    - kibana
+    - elastic
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "kibana.{domain}"
+      - "elastic.{domain}"
+      - "elasticsearch.{domain}"
+      - "logs.{domain}"
+      - "siem.{domain}"
+      - "monitoring.{domain}"
+deep:
+  nuclei_tags:
+    - kibana
+    - elastic
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    - /api/status
+    - /api/saved_objects/_find
+    - /api/spaces/space
+    - /app/kibana
+    - /elasticsearch
+    - /api/console/proxy
+    - /api/security/logout
+    - /login

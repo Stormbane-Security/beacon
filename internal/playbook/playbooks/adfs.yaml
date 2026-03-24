@@ -1,0 +1,61 @@
+name: adfs
+description: >
+  Asset is running Microsoft Active Directory Federation Services (ADFS).
+  ADFS is a high-value target as it provides SSO authentication for Active
+  Directory users to web applications and cloud services (Office 365, Azure AD).
+  Risks include: CVE-2019-1126 (ADFS authentication bypass — MFA bypass via
+  direct ADFS endpoint access); CVE-2020-0761 (ADFS token signing key leakage);
+  /adfs/ls/idpinitiatedsignon endpoint enabled (allows unsolicited IdP-initiated
+  sign-on, facilitating phishing); exposed /adfs/portal/updatepassword
+  (password change without MFA); WS-Federation endpoint manipulation;
+  claims rule injection; verbose error messages leaking AD structure;
+  default ADFS service account misconfiguration. ADFS compromise leads to
+  full Windows domain and cloud tenancy takeover.
+match:
+  any:
+    - path_responds: "/adfs/ls"
+    - path_responds: "/adfs/services/trust"
+    - path_responds: "/FederationMetadata/2007-06/FederationMetadata.xml"
+    - path_responds: "/adfs/portal"
+    - path_responds: "/adfs/oauth2/authorize"
+    - body_contains: "adfs"
+    - body_contains: "ADFS"
+    - body_contains: "Active Directory Federation"
+    - body_contains: "FederationMetadata"
+    - header_contains: "X-MS-Server-Fqdn"
+surface:
+  scanners:
+    - saml
+    - oauth
+    - iam
+  nuclei_tags:
+    - adfs
+    - sso
+    - windows
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "adfs.{domain}"
+      - "sts.{domain}"
+      - "sso.{domain}"
+      - "auth.{domain}"
+      - "login.{domain}"
+      - "federation.{domain}"
+deep:
+  scanners:
+    - saml
+    - oauth
+    - iam
+    - authfuzz
+    - jwt
+  nuclei_tags:
+    - adfs
+    - sso
+    - windows
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins

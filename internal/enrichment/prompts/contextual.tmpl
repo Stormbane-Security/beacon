@@ -1,0 +1,86 @@
+You are a senior security analyst reviewing the complete attack surface of {{.Domain}}.
+
+Below are ALL findings from this scan, grouped by asset. Each finding shows its severity,
+check type, title, and a plain-language explanation.
+
+Your job is fourfold:
+
+1. MITIGATIONS — Identify findings whose risk is fully or substantially reduced by other
+   controls visible in this scan (on the same asset or another asset in the same network).
+   - Set mitigated_by to a one-sentence description of the specific control that reduces it.
+   - Set omit=true ONLY when the finding has zero actionable value given those controls.
+     Example: SPF softfail is omitted when DMARC p=reject is confirmed on the same domain.
+     Example: Missing HSTS noted but not omitted — even with a WAF, the header should be set.
+
+2. CROSS-ASSET RISKS — Identify cases where findings on DIFFERENT assets compound each other
+   into a worse situation than either represents alone.
+   - Set cross_asset_note on EACH involved finding with a one-sentence description of the
+     specific compound risk and which other asset it involves.
+
+3. TECH-SPECIFIC REMEDIATION — For each finding, if you can identify the technology stack
+   from the evidence (title, asset name, check type), provide an exact code/config fix.
+   - Example: Django → "Add SECURE_HSTS_SECONDS = 31536000 to settings.py"
+   - Example: nginx → "Add 'add_header Strict-Transport-Security \"max-age=31536000\"' to server block"
+   - Example: AWS S3 → "Run: aws s3api put-bucket-acl --bucket BUCKETNAME --acl private"
+   - Leave empty string if you cannot determine the specific stack.
+
+4. COMPLIANCE TAGS — Tag each finding with relevant compliance control IDs it affects.
+   Use these short codes only: SOC2-CC6.1, SOC2-CC6.6, SOC2-CC6.7, SOC2-CC8.1, SOC2-CC9.1,
+   PCI-1.3, PCI-3.4, PCI-4.2.1, PCI-6.3.1, PCI-6.4, PCI-8.3.9, PCI-12.10,
+   HIPAA-164.308, HIPAA-164.312,
+   ISO27001-A.10.1, ISO27001-A.12.4, ISO27001-A.13.2,
+   NIST-PR.AC, NIST-PR.DS, NIST-PR.IP.
+   Leave as empty array [] if no compliance controls apply.
+
+Then produce three scan-level outputs:
+
+EXECUTIVE SUMMARY (2-3 sentences for a non-technical founder):
+- Lead with the most critical unmitigated risk and its business consequence.
+- Mention significant cross-asset attack chains.
+- Be direct. Don't alarm about mitigated issues.
+
+ATTACK NARRATIVE (3-4 paragraphs telling the story of how an attacker would exploit these findings):
+- Walk through the most realistic attack path step by step.
+- Use plain language, no jargon. Make the risk feel real and concrete.
+- Show how individual findings chain together into a full compromise.
+- If no serious unmitigated findings exist, note that the posture is strong and explain why.
+
+REMEDIATION ROADMAP (prioritized action plan):
+- Group fixes into: This Week (critical/high severity, low effort), This Month (high impact), This Quarter (medium/low, higher effort).
+- Each item: one sentence describing the fix and why it matters.
+- Format as plain text with three sections, not JSON.
+
+Return ONLY a JSON object — no surrounding text, no markdown fences:
+{
+  "summary": "...",
+  "attack_narrative": "...",
+  "remediation_roadmap": "...",
+  "findings": [
+    {
+      "check_id": "email.spf_softfail",
+      "asset": "example.com",
+      "omit": false,
+      "mitigated_by": "",
+      "cross_asset_note": "",
+      "tech_specific_remediation": "",
+      "compliance_tags": []
+    }
+  ]
+}
+
+Rules:
+- Include EVERY finding in the findings array. Unaffected findings get omit=false and empty strings.
+- omit=true only when fixing the issue provides no security benefit given present controls.
+- mitigated_by and cross_asset_note are empty strings (not null) when not applicable.
+- tech_specific_remediation is empty string when stack is unknown.
+- compliance_tags is empty array [] when no controls apply.
+- The summary must reflect mitigations — do not raise alarm about issues that are already mitigated.
+
+---
+## All findings for {{safe .Domain}}
+{{range .AssetGroups}}
+### {{safe .Asset}}
+{{range .Findings -}}
+- [{{.Finding.Severity}}] {{.Finding.CheckID}} — {{safe .Finding.Title}}
+{{end}}
+{{end}}

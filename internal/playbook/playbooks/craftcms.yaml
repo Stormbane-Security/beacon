@@ -1,0 +1,49 @@
+name: craftcms
+description: >
+  Asset is a Craft CMS instance. Craft CMS is a popular PHP content management
+  system used for marketing sites, e-commerce, and web applications. Risks
+  include: CVE-2025-32432 (pre-auth Remote Code Execution via PHP object
+  injection in the asset transform pipeline — CVSS 10.0, KEV-listed Apr 2025),
+  admin panel exposure, and debug toolbar leaking environment variables and
+  database credentials in development configurations. Craft CMS exposes a
+  GraphQL API by default that may allow unauthenticated schema introspection.
+match:
+  any:
+    - path_responds: "/index.php?p=admin/login"
+    - path_responds: "/admin/login"
+    - body_contains: "Craft CMS"
+    - body_contains: "craftcms"
+    - header_value:
+        name: "x-powered-by"
+        contains: "Craft"
+    - path_responds: "/actions/users/login"
+surface:
+  scanners:
+    - exposedfiles
+    - graphql
+  nuclei_tags:
+    - craftcms
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+    - graphql
+    - httpmethods
+  nuclei_tags:
+    - craftcms
+    - cves
+    - rce
+    - default-logins
+  dictionary:
+    - /admin/login
+    - /index.php?p=admin/login
+    - /actions/users/login
+    - /api
+    - /graphql
+    - /actions/graphql/api
+    - /cpresources/
+    - /storage/logs/
+    - /config/db.php
+    - /composer.json
+    - /.env

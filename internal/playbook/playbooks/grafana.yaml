@@ -1,0 +1,59 @@
+name: grafana
+description: >
+  Asset is a directly exposed Grafana dashboard. Grafana is a widely used
+  metrics and observability platform that frequently holds sensitive operational
+  data. Risks include: unauthenticated access to dashboards (Grafana's anonymous
+  auth is enabled by default in some configurations), default admin/admin
+  credentials, data source credential leakage (Grafana stores credentials for
+  Prometheus, Elasticsearch, databases, etc. which can be extracted via the API),
+  SSRF via data source configuration, plugin vulnerabilities, and CVE-2021-43798
+  (path traversal allowing unauthenticated file read). Exposed Grafana instances
+  frequently reveal internal infrastructure topology, metric names, hostnames,
+  and service health — all valuable for an attacker mapping the environment.
+match:
+  any:
+    - title_contains: "Grafana"
+    - body_contains: "grafana"
+surface:
+  nuclei_tags:
+    - grafana
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "grafana.{domain}"
+      - "metrics.{domain}"
+      - "monitoring.{domain}"
+      - "observability.{domain}"
+      - "dashboards.{domain}"
+      - "ops.{domain}"
+deep:
+  nuclei_tags:
+    - grafana
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - ssrf
+  dictionary:
+    # Auth & user management
+    - /login
+    - /api/user
+    - /api/users
+    - /api/org/users
+    # Data source credential extraction
+    - /api/datasources
+    - /api/datasources/proxy/
+    # Dashboard enumeration
+    - /api/dashboards/home
+    - /api/search
+    - /api/folders
+    # Plugin list
+    - /api/plugins
+    # Admin
+    - /api/admin/settings
+    - /api/admin/stats
+    # Path traversal (CVE-2021-43798)
+    - /public/plugins/alertlist/../../../../../../../../etc/passwd

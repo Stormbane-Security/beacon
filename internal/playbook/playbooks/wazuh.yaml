@@ -1,0 +1,43 @@
+name: wazuh
+description: >
+  Asset is a Wazuh security monitoring platform (SIEM/XDR). Wazuh is an
+  open-source security platform used for threat detection, compliance, and
+  incident response across cloud and on-premise infrastructure. Risks include:
+  the Wazuh Manager REST API (port 55000) and the Wazuh Dashboard (port 443/5601)
+  can expose security alerts, agent configurations, compliance data, and
+  vulnerability assessment results without proper authentication. The API
+  uses JWT authentication but weak credentials or misconfigured access control
+  can allow unauthorized access. Wazuh agents are deployed on every monitored
+  endpoint — server compromise gives visibility into and potential control over
+  all monitored hosts. The default admin credentials are "admin/admin".
+  The ossec-authd service on port 1515 allows unauthenticated agent enrollment
+  on some configurations, enabling an attacker to register a rogue agent.
+match:
+  any:
+    - check_id: "port.wazuh_api_exposed"
+    - title_contains: "Wazuh"
+    - body_contains: "Wazuh"
+    - path_responds: "/api/v2/"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - wazuh
+    - siem
+    - monitoring
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - wazuh
+    - siem
+    - default-logins
+    - exposure
+  dictionary:
+    - /api/v2/
+    - /api/v2/manager/info
+    - /api/v2/agents
+    - /app/wazuh

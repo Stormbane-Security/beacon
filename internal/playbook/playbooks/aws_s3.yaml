@@ -1,0 +1,50 @@
+name: aws_s3
+description: >
+  Asset resolves to or is backed by an AWS S3 bucket, either directly or via
+  an S3 static website endpoint. Risks include: publicly readable or writable
+  buckets exposing sensitive files (credentials, backups, PII), bucket takeover
+  when a DNS CNAME points to a deleted bucket, directory listing leaking object
+  keys, and ACL misconfigurations granting unintended public or cross-account
+  access. S3 presigned URL abuse and object-level ACL inconsistencies are also
+  common findings in this category.
+match:
+  any:
+    - cname_contains: ".s3.amazonaws.com"
+    - cname_contains: ".s3-website"
+    - cname_contains: ".s3-accelerate.amazonaws.com"
+    - cname_contains: ".s3.us-east-1.amazonaws.com"
+    - cname_contains: ".s3.us-west-2.amazonaws.com"
+    - cname_contains: ".s3.eu-west-1.amazonaws.com"
+    - cert_san_contains: ".s3.amazonaws.com"
+    - header_value:
+        name: "server"
+        contains: "AmazonS3"
+    - header_present: "x-amz-request-id"
+    - header_present: "x-amz-id-2"
+surface:
+  nuclei_tags:
+    - aws
+    - aws-s3
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "assets.{domain}"
+      - "static.{domain}"
+      - "media.{domain}"
+      - "uploads.{domain}"
+      - "backup.{domain}"
+      - "backups.{domain}"
+      - "files.{domain}"
+      - "cdn.{domain}"
+      - "docs.{domain}"
+deep:
+  nuclei_tags:
+    - aws
+    - aws-s3
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers

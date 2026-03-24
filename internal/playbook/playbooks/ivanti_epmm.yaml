@@ -1,0 +1,54 @@
+name: ivanti_epmm
+description: >
+  Asset is an Ivanti Endpoint Manager Mobile (EPMM) mobile device management
+  platform (formerly MobileIron). EPMM manages mobile devices and enforces
+  enterprise security policy across iOS, Android, and Windows endpoints.
+  Risks include: CVE-2026-1281 and CVE-2026-1340 (pre-authentication OS command
+  injection via URL parameters passed to Bash arithmetic expansion in the
+  /mifs/c/appstore/fob/ endpoint — CVSS 9.8, KEV-listed Feb 2026; actively
+  exploited by ransomware operators); CVE-2023-35078 and CVE-2023-35082
+  (authentication bypass and path traversal — KEV-listed, Metasploit modules
+  available). Ivanti products are among the most KEV-listed enterprise software.
+  Apply all Ivanti EPMM patches released February 2026 immediately.
+match:
+  any:
+    - path_responds: "/mifs/c/appstore/fob/"
+    - path_responds: "/mifs/c/aftstore/fob/"
+    - title_contains: "MobileIron"
+    - title_contains: "Ivanti"
+    - body_contains: "MobileIron"
+    - body_contains: "EPMM"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - ivanti
+    - mobileiron
+    - epmm
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "mdm.{domain}"
+      - "mobile.{domain}"
+      - "epmm.{domain}"
+      - "mobileiron.{domain}"
+      - "ivanti.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - ivanti
+    - mobileiron
+    - cves
+    - rce
+    - auth-bypass
+  dictionary:
+    - /mifs/c/appstore/fob/
+    - /mifs/c/aftstore/fob/
+    - /mifs/
+    - /mics/services/
+    - /api/v1/
+    - /rs/api/v2/devmgmt/

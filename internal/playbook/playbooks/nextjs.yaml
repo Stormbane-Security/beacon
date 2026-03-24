@@ -1,0 +1,45 @@
+name: nextjs
+description: >
+  Asset is a Next.js application (React server-side rendering framework).
+  Next.js is one of the most popular web frameworks deployed at scale.
+  Risks include: CVE-2025-29927 (CVSS 9.1, auth bypass via the internal
+  x-middleware-subrequest header — allows bypassing middleware authentication
+  checks including Next.js auth guards; affects all versions before 15.2.3,
+  14.2.25, 13.5.9, and 12.3.5); and CVE-2024-34351 (SSRF via Host header
+  manipulation in Server Actions). The x-middleware-subrequest vulnerability
+  is particularly impactful as many Next.js deployments rely solely on
+  middleware for authentication (protecting /admin, /dashboard, /api/admin
+  routes). An attacker can bypass these controls with a single header.
+  Applications using next-auth, Clerk, or custom middleware JWT checks are
+  all potentially affected. Patch to the latest Next.js version immediately.
+match:
+  any:
+    - body_contains: "__NEXT_DATA__"
+    - body_contains: "_next/static"
+    - path_responds: "/_next/static/chunks/main.js"
+    - path_responds: "/_next/static/chunks/webpack.js"
+surface:
+  scanners:
+    - exposedfiles
+    - webcontent
+  nuclei_tags:
+    - nextjs
+    - react
+    - exposure
+    - cves
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - nextjs
+    - react
+    - cves
+    - auth-bypass
+  dictionary:
+    - /_next/static/chunks/main.js
+    - /_next/static/chunks/webpack.js
+    - /api/auth/session
+    - /api/auth/providers
+    - /api/auth/csrf
+    - /.next/server/app/page.js

@@ -1,0 +1,51 @@
+name: pgadmin
+description: >
+  Asset is running pgAdmin, the primary web-based and desktop GUI administration
+  tool for PostgreSQL. Risks include: default admin credentials (pgadmin4@pgadmin.org
+  / pgadmin4) on fresh deployments, unauthenticated access granting full PostgreSQL
+  management capability including arbitrary SQL execution, file system access via
+  PostgreSQL COPY TO/FROM commands if the underlying Postgres user has superuser
+  privileges, CVE-2022-4223 (unauthenticated remote code execution via pgAgent
+  job scheduling in some versions), and stored server connection passwords
+  accessible to anyone with pgAdmin access. pgAdmin also supports executing
+  OS-level commands via the pgAgent scheduler, which can escalate database access
+  to full host compromise.
+match:
+  any:
+    - title_contains: "pgAdmin"
+    - path_responds: "/pgadmin4"
+    - path_responds: "/pgadmin4/"
+    - path_responds: "/pgadmin"
+    - body_contains: "pgAdmin"
+    - body_contains: "pgadmin"
+surface:
+  nuclei_tags:
+    - pgadmin
+    - postgresql
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "db.{domain}"
+      - "postgres.{domain}"
+      - "pgadmin.{domain}"
+      - "postgresql.{domain}"
+      - "admin.{domain}"
+      - "database.{domain}"
+deep:
+  nuclei_tags:
+    - pgadmin
+    - postgresql
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    - /login
+    - /browser/
+    - /misc/ping
+    - /datagrid/
+    - /dashboard/
+    - /user_management

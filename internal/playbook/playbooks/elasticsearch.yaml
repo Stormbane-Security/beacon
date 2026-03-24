@@ -1,0 +1,61 @@
+name: elasticsearch
+description: >
+  Asset is an exposed Elasticsearch node or cluster HTTP API. Elasticsearch
+  has no authentication enabled by default in versions prior to 8.x and is
+  one of the most commonly found exposed databases on the internet. Risks include:
+  unauthenticated read and write access to all indices (including data exfiltration
+  and data destruction), cluster configuration exposure via /_cluster/settings,
+  index mapping disclosure, snapshot repository access allowing full data backup
+  exfiltration, and in older versions, remote code execution via Groovy or
+  dynamic scripting. The /_cat/indices endpoint reveals all index names, document
+  counts, and sizes without authentication. Exposed Elasticsearch clusters
+  frequently contain PII, application logs with credentials, audit events, and
+  customer data.
+match:
+  any:
+    - path_responds: "/_cat/indices"
+    - path_responds: "/_cluster/health"
+    - path_responds: "/_nodes"
+    - body_contains: "cluster_name"
+    - body_contains: "elasticsearch"
+    - header_value:
+        name: "x-elastic-product"
+        contains: "Elasticsearch"
+surface:
+  nuclei_tags:
+    - elasticsearch
+    - elastic
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "elastic.{domain}"
+      - "elasticsearch.{domain}"
+      - "search.{domain}"
+      - "es.{domain}"
+      - "logging.{domain}"
+      - "logs.{domain}"
+deep:
+  nuclei_tags:
+    - elasticsearch
+    - elastic
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    - /
+    - /_cat/indices
+    - /_cat/nodes
+    - /_cluster/health
+    - /_cluster/settings
+    - /_nodes
+    - /_nodes/stats
+    - /_snapshot
+    - /_aliases
+    - /_mapping
+    - /_security/user
+    - /_xpack/security/user
+    - /_search
+    - /_security/api_key

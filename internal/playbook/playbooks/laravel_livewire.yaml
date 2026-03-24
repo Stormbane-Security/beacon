@@ -1,0 +1,44 @@
+name: laravel_livewire
+description: >
+  Asset is a Laravel application using the Livewire component framework.
+  Laravel Livewire enables server-side component updates over HTTP. Risks
+  include: CVE-2025-54068 (pre-auth Remote Code Execution via the /livewire/update
+  endpoint — CVSS 9.8, affects Livewire < 3.6.2), Laravel debug mode exposing
+  full stack traces with environment variables and database credentials, and
+  .env file disclosure. The Livewire update endpoint accepts serialized component
+  snapshots — an attacker can craft a malicious snapshot to achieve arbitrary
+  code execution without authentication.
+match:
+  any:
+    - path_responds: "/livewire/update"
+    - path_responds: "/livewire/upload-file"
+    - body_contains: "livewire"
+    - body_contains: "wire:id"
+    - body_contains: "wire:snapshot"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - laravel
+    - livewire
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - laravel
+    - livewire
+    - cves
+    - rce
+  dictionary:
+    - /livewire/update
+    - /livewire/upload-file
+    - /.env
+    - /.env.production
+    - /storage/logs/laravel.log
+    - /laravel.log
+    - /config/app.php
+    - /telescope
+    - /horizon
+    - /debugbar

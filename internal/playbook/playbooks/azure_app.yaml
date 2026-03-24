@@ -1,0 +1,46 @@
+name: azure_app
+description: >
+  Asset is hosted on Azure App Service or another Azure web platform. Risks
+  include: exposed Kudu/SCM endpoints (*.scm.azurewebsites.net) which provide
+  debug consoles, file browsers, and deployment APIs; hardcoded credentials in
+  app settings accessible via the Kudu REST API; insecure CORS configurations;
+  managed identity SSRF via the Azure Instance Metadata Service (IMDS) at
+  169.254.169.254; and default authentication disabled on Azure App Service
+  exposing internal apps publicly. The SCM endpoint is a particularly high-value
+  target as it frequently allows unauthenticated access to the application
+  filesystem and environment variables.
+match:
+  any:
+    - cname_contains: ".azurewebsites.net"
+    - cname_contains: ".azure.com"
+    - cname_contains: ".azurefd.net"
+    - cname_contains: ".trafficmanager.net"
+    - cname_contains: ".azureedge.net"
+    - cert_san_contains: ".azurewebsites.net"
+    - header_present: "x-ms-request-id"
+    - header_present: "x-msedge-ref"
+    - header_value:
+        name: "x-powered-by"
+        contains: "ASP.NET"
+surface:
+  nuclei_tags:
+    - azure
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "dev.{domain}"
+      - "staging.{domain}"
+      - "test.{domain}"
+      - "admin.{domain}"
+      - "portal.{domain}"
+deep:
+  nuclei_tags:
+    - azure
+    - cves
+    - exposure
+    - misconfiguration
+    - ssrf
+    - default-logins

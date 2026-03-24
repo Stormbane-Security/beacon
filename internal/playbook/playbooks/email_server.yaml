@@ -1,0 +1,56 @@
+name: email_server
+description: >
+  Asset is an internet-facing email server (MTA, IMAP, or POP3). Internet-exposed
+  mail servers are a significant attack surface. Risks include: SMTP open relay
+  (allows spam/phishing amplification), credential brute-force on IMAP/POP3,
+  STARTTLS downgrade, user enumeration via VRFY/EXPN, and exploitation of
+  known CVEs in popular MTAs. CVE-2025-26794 (Exim SQL injection, CVSS 9.1)
+  allows unauthenticated code execution on Exim < 4.98.1. Email servers must
+  enforce TLS, disable open relay, block VRFY/EXPN, and restrict access to
+  known IP ranges where possible.
+match:
+  any:
+    - check_id: "port.smtp_exposed"
+    - check_id: "port.imap_exposed"
+    - check_id: "port.pop3_exposed"
+    - check_id: "port.smtp_open_relay"
+    - check_id: "port.exim_vulnerable"
+surface:
+  scanners:
+    - portscan
+    - dns
+    - tls
+  nuclei_tags:
+    - smtp
+    - imap
+    - pop3
+    - email
+    - exim
+    - postfix
+    - exposure
+deep:
+  scanners:
+    - portscan
+    - dns
+    - tls
+    - exposedfiles
+  nuclei_tags:
+    - smtp
+    - imap
+    - pop3
+    - email
+    - exim
+    - postfix
+    - cves
+    - exposure
+    - auth-bypass
+  dictionary:
+    - /mail/
+    - /webmail/
+    - /roundcube/
+    - /horde/
+    - /squirrelmail/
+    - /owa/
+    - /EWS/Exchange.asmx
+    - /autodiscover/autodiscover.xml
+    - /Microsoft-Server-ActiveSync

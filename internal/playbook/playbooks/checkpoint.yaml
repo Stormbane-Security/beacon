@@ -1,0 +1,45 @@
+name: checkpoint
+description: >
+  Asset is a Check Point firewall, VPN gateway, or management server.
+  Check Point is widely deployed in enterprise network security. Risks include:
+  CVE-2024-24919 (CVSS 8.6, KEV-listed, arbitrary file read on Check Point
+  CloudGuard Network Security and Quantum Security Gateways — allows reading
+  /etc/shadow and credential files without authentication; actively exploited
+  starting May 2024); CVE-2023-28467 (information disclosure); and the
+  Check Point FW-1 topology protocol on TCP port 264, which leaks firewall
+  cluster names and topology information. The Check Point Mobile Access Portal
+  at /clients/MyCRL is a reliable fingerprint. SmartConsole management (TCP
+  18190/19009) should never be internet-accessible. Exposure of port 264
+  (FW-1 topology) allows attackers to enumerate the firewall's cluster
+  configuration and version information without authentication.
+match:
+  any:
+    - check_id: "netdev.checkpoint_detected"
+    - check_id: "port.checkpoint_topology"
+    - path_responds: "/clients/MyCRL"
+    - title_contains: "Check Point"
+    - body_contains: "Check Point"
+    - body_contains: "cpvpn"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - checkpoint
+    - vpn
+    - network
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - checkpoint
+    - vpn
+    - cves
+    - exposure
+  dictionary:
+    - /clients/MyCRL
+    - /pkg/webvpn/
+    - /safeboot/
+    - /sslvpn/Login/Login
+    - /cgi-bin/Login

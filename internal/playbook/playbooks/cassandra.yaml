@@ -1,0 +1,24 @@
+name: cassandra
+description: >
+  Apache Cassandra database node is accessible on its native CQL port (9042).
+  Cassandra without authentication allows full keyspace and table access.
+  Risks include exfiltration of all stored data and schema enumeration.
+  Cassandra's JMX port (7199) and the Cassandra web UI (if deployed) are
+  additional attack surfaces. CVE-2021-44521 (RCE via user-defined functions
+  in CQL) affects Cassandra 3.x/4.x with UDFs enabled.
+match:
+  any:
+    - service_version_contains: "cassandra"
+    - path_responds: "/api/v0/ops/node/status"   # Cassandra Reaper
+    - title_contains: "Cassandra"
+surface:
+  scanners:
+    - portscan
+  nuclei_tags:
+    - cassandra
+    - exposure
+deep:
+  nuclei_tags:
+    - cassandra
+    - cves
+    - misconfiguration

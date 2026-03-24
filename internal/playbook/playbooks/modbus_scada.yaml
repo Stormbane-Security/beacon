@@ -1,0 +1,30 @@
+name: modbus_scada
+description: >
+  Asset has Modbus TCP exposed — a SCADA/ICS (Industrial Control System)
+  protocol for reading and writing data from PLCs (Programmable Logic
+  Controllers), RTUs (Remote Terminal Units), and HMIs (Human-Machine
+  Interfaces). Modbus has no built-in authentication, encryption, or
+  authorization. An attacker with network access can read all sensor and
+  process data, write control registers to change setpoints, and issue
+  commands to industrial equipment — potentially causing physical damage
+  or safety incidents. Modbus on the internet is extremely unusual and
+  almost always indicates a serious misconfiguration. CISA has repeatedly
+  warned about internet-exposed ICS/SCADA systems. Isolate the device behind
+  an air gap or firewalled DMZ immediately.
+match:
+  any:
+    - check_id: "port.modbus_exposed"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - modbus
+    - scada
+    - ics
+    - exposure
+deep:
+  scanners:
+  nuclei_tags:
+    - modbus
+    - scada
+    - ics

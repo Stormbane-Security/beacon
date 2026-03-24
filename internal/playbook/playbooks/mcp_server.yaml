@@ -1,0 +1,46 @@
+name: mcp_server
+description: >
+  Asset is a Model Context Protocol (MCP) server — a new class of AI tool
+  integration infrastructure that exposes tools and resources to LLM agents
+  via HTTP SSE or WebSocket transport. MCP servers provide LLMs with access
+  to files, databases, APIs, and code execution capabilities. Risks include:
+  CVE-2026-27825 (unauthenticated arbitrary file write via path traversal in
+  mcp-atlassian's Confluence attachment download, leading to RCE — CVSS 9.1)
+  and CVE-2026-27826 (SSRF via Atlassian URL header manipulation — CVSS 8.2).
+  MCP servers using streamable-http or SSE transport expose an /sse endpoint
+  identifiable by text/event-stream Content-Type responses. As of March 2026,
+  MCP server deployments are rapidly growing but largely unaudited for security.
+  DNS rebinding attacks against localhost-bound MCP servers (CVE-2025-66414/66416)
+  allow browser-based attackers to invoke any MCP tool without authentication.
+match:
+  any:
+    - path_responds: "/sse"
+    - body_contains: "text/event-stream"
+    - body_contains: "mcp"
+    - title_contains: "MCP"
+surface:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - mcp
+    - ai
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - mcp
+    - ai
+    - cves
+    - ssrf
+    - rce
+  dictionary:
+    - /sse
+    - /stream
+    - /mcp
+    - /tools
+    - /resources
+    - /prompts
+    - /initialize

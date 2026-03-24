@@ -1,0 +1,53 @@
+name: cloudfront
+description: >
+  Asset is served through AWS CloudFront CDN. CloudFront is Amazon's global
+  content delivery network and edge security platform. Risks include: origin
+  server exposure bypassing CloudFront's WAF (AWS WAF) and DDoS protection,
+  S3 origin bucket misconfiguration when CloudFront is used to front an S3 bucket
+  (the bucket itself may still be publicly accessible), CloudFront distribution
+  misconfiguration allowing origin bypass via direct requests with the correct
+  Host header, cache poisoning via unkeyed query strings or headers, CloudFront
+  function or Lambda@Edge code vulnerabilities, and origin access control (OAC)
+  misconfiguration leaving S3 buckets accessible without going through CloudFront.
+  Subdomain takeover via abandoned CloudFront distributions (CNAME points to a
+  deleted distribution) is a well-documented and exploitable misconfiguration.
+match:
+  any:
+    - cname_contains: ".cloudfront.net"
+    - header_present: "x-amz-cf-id"
+    - header_present: "x-amz-cf-pop"
+    - header_value:
+        name: "via"
+        contains: "CloudFront"
+    - header_value:
+        name: "server"
+        contains: "CloudFront"
+    - cert_san_contains: ".cloudfront.net"
+surface:
+  nuclei_tags:
+    - aws
+    - cloudfront
+    - cdn
+    - exposure
+    - misconfiguration
+    - takeovers
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "origin.{domain}"
+      - "direct.{domain}"
+      - "assets.{domain}"
+      - "static.{domain}"
+      - "media.{domain}"
+      - "mail.{domain}"
+      - "smtp.{domain}"
+  - type: historical_dns
+deep:
+  nuclei_tags:
+    - aws
+    - cloudfront
+    - cdn
+    - cves
+    - exposure
+    - misconfiguration
+    - takeovers

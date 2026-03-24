@@ -1,0 +1,161 @@
+{{define "report.html.tmpl"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beacon Security Report — {{.Domain}}</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3250;
+    --text: #e2e8f0;
+    --muted: #8892b0;
+    --accent: #7c6af7;
+    --critical: #ff4444;
+    --high: #ff8c00;
+    --medium: #f5c518;
+    --low: #4fc3f7;
+    --info: #78909c;
+    --green: #4caf50;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.6; }
+  a { color: var(--accent); }
+
+  .wrapper { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+
+  /* Header */
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .header-brand { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .header-domain { font-size: 26px; font-weight: 700; margin-top: 6px; }
+  .header-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .header-right { text-align: right; font-size: 13px; color: var(--muted); }
+
+  /* Severity summary bar */
+  .severity-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
+  .sev-badge { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; }
+  .sev-badge .count { font-size: 22px; font-weight: 700; }
+  .sev-badge .label { font-size: 12px; color: var(--muted); }
+  .sev-badge.critical .count { color: var(--critical); }
+  .sev-badge.high    .count { color: var(--high); }
+  .sev-badge.medium  .count { color: var(--medium); }
+  .sev-badge.low     .count { color: var(--low); }
+  .sev-badge.info    .count { color: var(--info); }
+
+  /* Executive summary */
+  .exec-summary { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 20px 24px; margin-bottom: 32px; }
+  .exec-summary h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
+  .exec-summary p { line-height: 1.7; }
+
+  /* Section headers */
+  h2.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+  /* Finding cards */
+  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin-bottom: 12px; }
+  .finding-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .finding-title { font-weight: 600; font-size: 16px; }
+  .finding-asset { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px; border-radius: 4px; }
+  .badge.critical { background: rgba(255,68,68,.15); color: var(--critical); }
+  .badge.high     { background: rgba(255,140,0,.15); color: var(--high); }
+  .badge.medium   { background: rgba(245,197,24,.15); color: var(--medium); }
+  .badge.low      { background: rgba(79,195,247,.15); color: var(--low); }
+  .badge.info     { background: rgba(120,144,156,.15); color: var(--info); }
+
+  .finding-body label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 12px 0 4px; }
+  .finding-body p { font-size: 14px; line-height: 1.6; }
+  .finding-body pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; font-size: 13px; overflow-x: auto; white-space: pre-wrap; margin-top: 4px; }
+
+  /* Teaser cards (free tier gated) */
+
+  /* Hidden count */
+  .hidden-count { text-align: center; padding: 20px; background: var(--surface); border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 14px; }
+
+  /* Footer */
+  .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="header-brand">Beacon by Stormbane Security</div>
+      <div class="header-domain">{{.Domain}}</div>
+      <div class="header-meta">
+        {{if eq (printf "%s" .ScanType) "deep"}}Deep Scan{{else}}Surface Scan{{end}}
+        &nbsp;·&nbsp; {{.StartedAt.Format "Jan 2, 2006 15:04 UTC"}}
+      </div>
+    </div>
+    <div class="header-right">
+      <div>{{len .View.VisibleFindings}} visible findings</div>
+      <div>{{len .View.SuppressedFindings}} suppressed</div>
+    </div>
+  </div>
+
+  <!-- Severity summary bar -->
+  <div class="severity-bar">
+    <div class="sev-badge critical"><span class="count">{{.SeverityCounts.Critical}}</span><span class="label">Critical</span></div>
+    <div class="sev-badge high"><span class="count">{{.SeverityCounts.High}}</span><span class="label">High</span></div>
+    <div class="sev-badge medium"><span class="count">{{.SeverityCounts.Medium}}</span><span class="label">Medium</span></div>
+    <div class="sev-badge low"><span class="count">{{.SeverityCounts.Low}}</span><span class="label">Low</span></div>
+    <div class="sev-badge info"><span class="count">{{.SeverityCounts.Info}}</span><span class="label">Info</span></div>
+  </div>
+
+  <!-- Executive summary -->
+  {{if .View.ExecutiveSummary}}
+  <div class="exec-summary">
+    <h2>Executive Summary</h2>
+    <p>{{.View.ExecutiveSummary}}</p>
+  </div>
+  {{end}}
+
+  <!-- Visible findings (full detail) -->
+  {{if .View.VisibleFindings}}
+  <h2 class="section-title">Findings</h2>
+  {{range .View.VisibleFindings}}
+  <div class="finding">
+    <div class="finding-header">
+      <div>
+        <div class="finding-title">{{.Finding.Title}}</div>
+        <div class="finding-asset">{{.Finding.Asset}}</div>
+      </div>
+      <span class="badge {{severityClass .Finding.Severity}}">{{severityLabel .Finding.Severity}}</span>
+    </div>
+    <div class="finding-body">
+      <label>What it means</label>
+      <p>{{if .Explanation}}{{.Explanation}}{{else}}{{.Finding.Description}}{{end}}</p>
+      {{if .Impact}}
+      <label>Impact</label>
+      <p>{{.Impact}}</p>
+      {{end}}
+      {{if .Remediation}}
+      <label>How to fix</label>
+      <pre>{{.Remediation}}</pre>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+  {{end}}
+
+  <!-- What was scanned -->
+  {{if .Modules}}
+  <h2 class="section-title">What Was Scanned</h2>
+  <div class="finding">
+    <ul style="padding-left:20px;font-size:14px;color:var(--muted);">
+      {{range .Modules}}<li>{{.}}</li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+
+  <div class="footer">
+    Generated by <strong>Beacon</strong> &mdash; Stormbane Security &mdash; {{.StartedAt.Format "2006"}}
+  </div>
+
+</div>
+</body>
+</html>
+{{end}}

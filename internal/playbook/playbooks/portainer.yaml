@@ -1,0 +1,44 @@
+name: portainer
+description: >
+  Asset is running Portainer, a container management UI for Docker and Kubernetes.
+  Portainer provides a full management interface over container infrastructure and
+  is an extremely high-value target when exposed. Risks include: unauthenticated
+  access to container management (create, start, stop, exec into containers),
+  CVE-2021-21315 and other RCE vulnerabilities, default admin password not set
+  (Portainer prompts for password on first visit but is unauthenticated until
+  configured, a window frequently exploited), direct Docker socket access enabling
+  host escape, Kubernetes cluster management exposure, environment variable and
+  secret extraction from running containers, and image pull/push to attacker-controlled
+  registries. Portainer access is effectively equivalent to root on the container
+  host.
+match:
+  any:
+    - title_contains: "Portainer"
+    - path_responds: "/api/status"
+    - path_responds: "/api/settings"
+    - body_contains: "Portainer"
+surface:
+  nuclei_tags:
+    - portainer
+    - docker
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "portainer.{domain}"
+      - "docker.{domain}"
+      - "containers.{domain}"
+      - "infra.{domain}"
+      - "ops.{domain}"
+      - "devops.{domain}"
+deep:
+  nuclei_tags:
+    - portainer
+    - docker
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce

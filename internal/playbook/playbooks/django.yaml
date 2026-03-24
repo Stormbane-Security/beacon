@@ -1,0 +1,68 @@
+name: django
+description: >
+  Asset is running a Django Python web application. Django applications carry
+  specific risks based on common misconfiguration patterns. Risks include:
+  DEBUG=True in production exposing the Django debug error page (yellow screen
+  of death) with full stack traces, source code snippets, local variable values,
+  and settings including SECRET_KEY and database credentials; exposed Django
+  admin interface at /admin (well-known path, frequently brute-forced); Django
+  REST Framework browsable API unintentionally enabled in production; SECRET_KEY
+  exposure enabling cookie forgery and CSRF token prediction; SQL injection in
+  raw query usage; and host header injection when ALLOWED_HOSTS is misconfigured
+  (set to "*"). The Django admin interface with default or weak credentials
+  frequently allows template upload leading to server-side template injection.
+match:
+  any:
+    - body_contains: "Django"
+    - body_contains: "DJANGO_SETTINGS_MODULE"
+    - header_value:
+        name: "x-frame-options"
+        contains: "SAMEORIGIN"
+    - header_value:
+        name: "set-cookie"
+        contains: "csrftoken"
+    - header_value:
+        name: "set-cookie"
+        contains: "sessionid"
+surface:
+  nuclei_tags:
+    - django
+    - python
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "app.{domain}"
+      - "admin.{domain}"
+      - "dev.{domain}"
+      - "staging.{domain}"
+deep:
+  nuclei_tags:
+    - django
+    - python
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    # Admin interface
+    - /admin/
+    - /admin/login/
+    - /admin/password_change/
+    # Debug & diagnostics
+    - /__debug__/
+    - /silk/
+    - /django-silk/
+    # DRF browsable API
+    - /api/schema/
+    - /api/swagger/
+    - /api/redoc/
+    # Static / media leakage
+    - /static/admin/
+    - /media/
+    # Common Django config exposure
+    - /settings.py
+    - /local_settings.py

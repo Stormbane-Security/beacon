@@ -1,0 +1,72 @@
+name: jenkins_behind_proxy
+description: >
+  Asset appears to be a Jenkins CI/CD instance operating behind a reverse proxy.
+  The combination of Jenkins page fingerprints with proxy forwarding headers
+  indicates a proxy sits in front of the Jenkins process. Risks include: proxy
+  path bypass attacks that expose Jenkins endpoints not intended for public access
+  (Script Console, /credentials, /cli), authentication bypass via header spoofing
+  if the proxy trusts upstream X-Forwarded-User or similar headers, Jenkins CLI
+  access via the proxy if the proxy does not block the CLI path, and the general
+  Jenkins risk profile (credential store, build log leakage, Groovy RCE via
+  Script Console) if any proxy path misconfiguration grants deeper access.
+  Proxy-fronted Jenkins instances are sometimes configured with IP allowlisting
+  that can be bypassed via X-Forwarded-For header injection.
+match:
+  # The match engine evaluates 'all' or 'any' — not both simultaneously.
+  # x-jenkins and x-hudson are the strongest indicators; body/title are
+  # fallbacks. We require proxy presence AND at least one Jenkins signal.
+  # Using 'all' with the most reliable Jenkins header; the jenkins playbook
+  # (any-based) will also fire if x-jenkins is absent but body/title match.
+  all:
+    - header_present: "x-forwarded-for"
+    - header_present: "x-jenkins"
+surface:
+  nuclei_tags:
+    - jenkins
+    - proxy
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "jenkins.{domain}"
+      - "ci.{domain}"
+      - "build.{domain}"
+      - "cicd.{domain}"
+      - "internal.{domain}"
+deep:
+  nuclei_tags:
+    - jenkins
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce
+  dictionary:
+    # Core UI & auth
+    - /login
+    - /j_spring_security_check
+    - /logout
+    # Script console (Groovy RCE)
+    - /script
+    - /scriptText
+    # API & credential exposure
+    - /api/json
+    - /api/json?pretty=true
+    - /credentials/store/system/api/json
+    - /credentials/store/system/domain/_/api/json
+    # Build artifacts & logs
+    - /job/
+    - /view/all/
+    - /asynchPeople/
+    - /userContent/
+    # Management
+    - /manage
+    - /configure
+    - /pluginManager/
+    - /updateCenter/
+    - /systemInfo
+    - /log/all/rss
+    # Agent / node info
+    - /computer/api/json

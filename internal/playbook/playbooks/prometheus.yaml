@@ -1,0 +1,53 @@
+name: prometheus
+description: >
+  Asset is an exposed Prometheus metrics server or Prometheus UI. Prometheus
+  has no authentication by default and exposes a significant amount of internal
+  infrastructure information. Risks include: unauthenticated access to the /metrics
+  endpoint leaking service names, internal hostnames, IP addresses, build versions,
+  and operational metrics; the /targets page revealing all scraped endpoints
+  including internal services; the /config endpoint exposing full scrape
+  configurations with potential credentials; and the /api/v1/query endpoint
+  allowing arbitrary PromQL execution to exfiltrate time-series data. Prometheus
+  federation endpoints (/federate) can expose cross-cluster metric data. The
+  exposed metric labels frequently contain hostnames, pod names, namespaces, and
+  cloud provider metadata useful for infrastructure reconnaissance.
+match:
+  any:
+    - title_contains: "Prometheus"
+    - path_responds: "/metrics"
+    - path_responds: "/-/healthy"
+    - path_responds: "/targets"
+    - body_contains: "# HELP"
+    - body_contains: "# TYPE"
+surface:
+  nuclei_tags:
+    - prometheus
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "prometheus.{domain}"
+      - "metrics.{domain}"
+      - "monitoring.{domain}"
+      - "prom.{domain}"
+      - "telemetry.{domain}"
+      - "ops.{domain}"
+deep:
+  nuclei_tags:
+    - prometheus
+    - cves
+    - exposure
+    - misconfiguration
+  dictionary:
+    - /-/healthy
+    - /-/ready
+    - /metrics
+    - /api/v1/targets
+    - /api/v1/label/__name__/values
+    - /api/v1/query?query=up
+    - /api/v1/rules
+    - /api/v1/alerts
+    - /config
+    - /flags
+    - /status

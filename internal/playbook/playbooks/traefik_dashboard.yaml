@@ -1,0 +1,52 @@
+name: traefik_dashboard
+description: >
+  Asset is serving the Traefik reverse proxy dashboard or API. Traefik is a
+  modern edge router commonly used in container environments. Risks include:
+  the Traefik API (/api/rawdata) exposing all configured routers, services,
+  middlewares, and entrypoints — effectively a complete map of internal services
+  and routing rules including backend URLs and health status; unauthenticated
+  dashboard access disclosing all backend service hostnames and ports; TLS
+  configuration details; and Traefik admin API endpoints allowing dynamic
+  configuration manipulation. In Docker or Kubernetes environments, Traefik API
+  exposure reveals the entire service mesh topology and may expose services
+  intended to be internal-only. CVE-2022-23632 (authorization bypass) is relevant
+  for unpatched instances.
+match:
+  any:
+    - title_contains: "Traefik"
+    - path_responds: "/api/rawdata"
+    - path_responds: "/dashboard"
+    - path_responds: "/api/overview"
+    - body_contains: "Traefik"
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "traefik.{domain}"
+      - "proxy.{domain}"
+      - "gateway.{domain}"
+      - "edge.{domain}"
+      - "ingress.{domain}"
+      - "infra.{domain}"
+surface:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  paths:
+    - /api/rawdata
+    - /api/overview
+    - /api/entrypoints
+    - /api/routers
+    - /api/services
+    - /api/middlewares
+    - /dashboard/
+    - /ping
+  nuclei_tags:
+    - traefik
+    - exposure
+deep:
+  nuclei_tags:
+    - traefik
+    - proxy
+    - cves
+    - exposure
+    - misconfiguration

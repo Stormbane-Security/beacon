@@ -1,0 +1,46 @@
+name: hp_aruba
+description: >
+  Asset is an HP ProCurve or Aruba Networks switch, access point, or
+  controller. HP ProCurve/Aruba is widely deployed in enterprise campus
+  and datacenter networks. Risks include: CVE-2024-26305 (CVSS 9.8,
+  Aruba ArubaOS heap overflow via PAPI UDP protocol — unauthenticated RCE);
+  CVE-2023-37434 (Aruba AOS-CX unauthenticated buffer overflow via web
+  management); CVE-2022-23677 (CVSS 9.0, Aruba Mobility Controller
+  command injection); and default credentials (admin/<blank> on HP
+  ProCurve, admin/admin on Aruba). HP ProCurve switches expose
+  management on HTTP (port 80) and HTTPS (port 443). The Server header
+  "HP-ChaiSOE" is a definitive HP ProCurve fingerprint. Aruba devices
+  serve the Aruba logo and product name in their login pages.
+match:
+  any:
+    - check_id: "netdev.hparuba_detected"
+    - title_contains: "HP ProCurve"
+    - title_contains: "HP Switch"
+    - title_contains: "Aruba"
+    - body_contains: "HP-ChaiSOE"
+    - body_contains: "ProCurve"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - hp
+    - aruba
+    - network
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - hp
+    - aruba
+    - network
+    - cves
+    - default-logins
+  dictionary:
+    - /
+    - /index.html
+    - /rest/v1/system
+    - /api/v1/login
+    - /screens/main.html

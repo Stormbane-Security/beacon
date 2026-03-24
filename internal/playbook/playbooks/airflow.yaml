@@ -1,0 +1,81 @@
+name: airflow
+description: >
+  Asset is running Apache Airflow, a workflow orchestration platform widely used
+  in data engineering and MLOps pipelines. Airflow is a high-value target because
+  it executes arbitrary Python code (operators and hooks) and holds credentials
+  for every system it connects to. Risks include: default admin/admin credentials
+  on new installations, the /api/v1/config endpoint exposing the full Airflow
+  configuration including fernet keys and SQL Alchemy connection strings, the
+  /api/v1/variables endpoint exposing key-value pairs used to store secrets in
+  DAGs, the /api/v1/connections endpoint exposing stored connection credentials
+  for databases, cloud providers, and APIs, unauthenticated REST API access when
+  auth_backend is set to airflow.api.auth.backend.default (pre-2.0 default),
+  DAG file enumeration and source code exposure, arbitrary code execution via the
+  Airflow test task endpoint, CVE-2020-11978 (command injection in Example DAGs),
+  CVE-2020-17526 (authentication bypass), and CVE-2023-22886 (SSRF via HTTP
+  operator). Compromise of Airflow typically grants access to all downstream data
+  systems and cloud environments the pipelines connect to.
+match:
+  any:
+    - path_responds: "/api/v1/health"
+    - title_contains: "Airflow"
+    - body_contains: "Airflow"
+    - body_contains: "airflow"
+surface:
+  scanners:
+    - httpmethods
+    - exposedfiles
+    - apiversions
+  nuclei_tags:
+    - airflow
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "airflow.{domain}"
+      - "workflow.{domain}"
+      - "workflows.{domain}"
+      - "scheduler.{domain}"
+      - "etl.{domain}"
+      - "pipeline.{domain}"
+      - "pipelines.{domain}"
+      - "orchestration.{domain}"
+deep:
+  scanners:
+    - autoprobe
+    - cors
+    - ratelimit
+  nuclei_tags:
+    - airflow
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+    - rce
+  dictionary:
+    # Health & readiness
+    - /api/v1/health
+    # DAG enumeration and source code
+    - /api/v1/dags
+    - /api/v1/dags/example_bash_operator
+    - /api/v1/dags/example_python_operator
+    # Connection credentials — critical
+    - /api/v1/connections
+    # Variable store — often contains secrets
+    - /api/v1/variables
+    # Full configuration including fernet key
+    - /api/v1/config
+    # Plugins
+    - /api/v1/plugins
+    # Providers (reveals installed integrations)
+    - /api/v1/providers
+    # Task instances and logs (leak operator output)
+    - /api/v1/eventLogs
+    # Admin UI (Flask-Admin, pre-2.0)
+    - /admin/
+    - /admin/airflow/
+    # Flower (Celery worker monitoring — often co-located)
+    - /flower
+    - /flower/workers

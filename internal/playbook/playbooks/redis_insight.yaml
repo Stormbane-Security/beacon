@@ -1,0 +1,42 @@
+name: redis_insight
+description: >
+  Asset is a RedisInsight instance, the official GUI management tool for Redis
+  databases. RedisInsight allows browsing key-value data, executing Redis commands,
+  managing multiple Redis connections, and monitoring performance — all of which
+  represent significant risk if exposed. Risks include: unauthenticated access
+  to RedisInsight allowing full read/write access to all connected Redis databases,
+  exposure of stored Redis connection configurations (including hostnames, ports,
+  and passwords for all managed Redis instances), direct Redis command execution
+  via the built-in CLI, and access to cached session data, tokens, or application
+  secrets stored in Redis. Exposed RedisInsight is effectively full Redis database
+  compromise for every configured connection.
+match:
+  any:
+    - title_contains: "RedisInsight"
+    - title_contains: "Redis Insight"
+    - path_responds: "/api/instance"
+    - path_responds: "/api/info"
+    - body_contains: "RedisInsight"
+surface:
+  nuclei_tags:
+    - redis
+    - redisinsight
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "redis.{domain}"
+      - "redisinsight.{domain}"
+      - "cache.{domain}"
+      - "db.{domain}"
+      - "admin.{domain}"
+deep:
+  nuclei_tags:
+    - redis
+    - redisinsight
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins

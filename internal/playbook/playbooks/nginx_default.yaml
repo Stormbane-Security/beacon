@@ -1,0 +1,32 @@
+name: nginx_default
+description: >
+  Asset is serving the default nginx welcome page, indicating the server has
+  been installed but not yet configured with an application. This is a significant
+  finding for several reasons: it confirms a live, reachable server that is not
+  serving its intended content (suggesting misconfiguration or incomplete deployment),
+  it reveals the nginx version when default pages are unmodified, and it may
+  indicate that other virtual hosts or services are running on the same server
+  without proper DNS routing. Risks include: version disclosure enabling targeted
+  CVE exploitation, other services accessible on the same IP via direct IP access
+  or other ports, misconfigured document root potentially exposing file listings,
+  and the possibility that this is an origin server behind a CDN that was
+  accidentally left accessible.
+match:
+  any:
+    - title_contains: "Welcome to nginx"
+    - body_contains: "Welcome to nginx"
+    - body_contains: "nginx/1."
+    - header_value:
+        name: "server"
+        contains: "nginx"
+surface:
+  nuclei_tags:
+    - nginx
+    - exposure
+    - misconfiguration
+deep:
+  nuclei_tags:
+    - nginx
+    - cves
+    - exposure
+    - misconfiguration

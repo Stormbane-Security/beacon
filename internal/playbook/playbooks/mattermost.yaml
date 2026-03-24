@@ -1,0 +1,86 @@
+name: mattermost
+description: >
+  Asset is running Mattermost, an open-source team messaging platform commonly
+  self-hosted by engineering and DevOps teams. Mattermost instances are high-value
+  targets because they aggregate internal communications, credentials shared in
+  channels, incident runbooks, and integration webhooks. Risks include: default
+  or weak admin credentials at /api/v4/users/login, unauthenticated access to
+  the system ping endpoint revealing server version at /api/v4/system/ping,
+  the /api/v4/config endpoint (admin-only but frequently exposed) containing
+  SMTP credentials, database connection strings, LDAP bind passwords, and S3
+  secrets, the /api/v4/logs endpoint leaking internal server errors and stack
+  traces, public team and channel enumeration via /api/v4/teams and
+  /api/v4/channels, integration webhook tokens embedded in shared channel
+  messages enabling replay attacks, and CVE-2023-40349 (SSRF via outgoing
+  webhooks) and CVE-2022-4019 (access control bypass). Exposed Mattermost
+  instances frequently contain direct links to internal services, VPN
+  configurations, and cloud credentials shared in operational channels.
+match:
+  any:
+    - path_responds: "/api/v4/system/ping"
+    - title_contains: "Mattermost"
+    - body_contains: "Mattermost"
+    - header_value:
+        name: "x-version-id"
+        contains: ""
+surface:
+  scanners:
+    - headers
+    - exposedfiles
+    - httpmethods
+    - apiversions
+  nuclei_tags:
+    - mattermost
+    - exposure
+    - misconfiguration
+    - default-logins
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "mattermost.{domain}"
+      - "chat.{domain}"
+      - "messaging.{domain}"
+      - "mm.{domain}"
+      - "team.{domain}"
+      - "comms.{domain}"
+deep:
+  scanners:
+    - autoprobe
+    - httpmethods
+    - cors
+    - ratelimit
+    - jwt
+  nuclei_tags:
+    - mattermost
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    # Health & version disclosure (unauthenticated)
+    - /api/v4/system/ping
+    - /api/v4/system/status
+    # Auth endpoints
+    - /api/v4/users/login
+    - /api/v4/users/me
+    # Team & channel enumeration
+    - /api/v4/teams
+    - /api/v4/teams/invite/
+    - /api/v4/channels
+    # Admin config — contains DB/SMTP/LDAP/S3 credentials
+    - /api/v4/config
+    - /api/v4/config/client
+    - /api/v4/config/environment
+    # Logs — may leak stack traces and internal paths
+    - /api/v4/logs
+    # Plugin management
+    - /api/v4/plugins
+    # Webhooks and integrations (may expose tokens)
+    - /api/v4/hooks/incoming
+    - /api/v4/hooks/outgoing
+    # Branding / site
+    - /api/v4/brand/image
+    # Classic UI
+    - /login
+    - /admin_console
+    - /admin_console/authentication/ldap

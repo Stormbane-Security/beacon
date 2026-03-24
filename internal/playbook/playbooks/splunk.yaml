@@ -1,0 +1,40 @@
+name: splunk
+description: >
+  Splunk Enterprise or Splunk Cloud instance detected. Splunk ingests and
+  indexes log data from across the infrastructure — exposure risks include
+  unauthenticated access to all indexed log data (which often contains
+  credentials, secrets, and PII), arbitrary search execution, and the Splunk
+  management REST API (port 8089) enabling configuration changes and forwarder
+  management. CVE-2023-46214 (RCE via XSLT), CVE-2022-32158 (universal
+  forwarder takeover), and CVE-2021-26919 (deserialization RCE) are critical
+  for unpatched instances.
+match:
+  any:
+    - title_contains: "Splunk"
+    - path_responds: "/en-US/account/login"
+    - path_responds: "/services/server/info"
+    - header_value:
+        header: "X-Splunk-Request-Id"
+    - service_version_contains: "splunk"
+surface:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  paths:
+    - /en-US/account/login
+    - /services/server/info
+    - /services/authentication/users
+    - /services/data/inputs
+    - /services/search/jobs
+    - /services/apps/local
+  nuclei_tags:
+    - splunk
+    - exposure
+deep:
+  scanners:
+    - autoprobe
+  nuclei_tags:
+    - splunk
+    - cves
+    - default-logins
+    - misconfiguration

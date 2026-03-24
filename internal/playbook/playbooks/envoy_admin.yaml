@@ -1,0 +1,43 @@
+name: envoy_admin
+description: >
+  Asset is serving the Envoy proxy admin interface. The Envoy admin API is a
+  powerful management and introspection interface that is explicitly not designed
+  to be internet-facing. Risks include: the /stats endpoint exposing detailed
+  internal performance and traffic statistics revealing backend service names,
+  upstream cluster configurations, and connection counts; /clusters listing all
+  configured upstream services with their IP addresses and health status; /config_dump
+  exposing the full Envoy configuration including all routes, listeners, clusters,
+  and TLS settings; /listeners revealing all proxy listener configurations; the
+  /quitquitquit and /reset-counters endpoints allowing denial of service; and
+  /logging allowing dynamic log level changes. In service mesh deployments
+  (Istio), Envoy admin exposure can reveal the entire service-to-service
+  communication topology.
+match:
+  any:
+    - title_contains: "Envoy Admin"
+    - path_responds: "/clusters"
+    - path_responds: "/config_dump"
+    - body_contains: "envoy"
+    - body_contains: "Envoy"
+surface:
+  nuclei_tags:
+    - envoy
+    - proxy
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "proxy.{domain}"
+      - "envoy.{domain}"
+      - "gateway.{domain}"
+      - "mesh.{domain}"
+      - "sidecar.{domain}"
+      - "infra.{domain}"
+deep:
+  nuclei_tags:
+    - envoy
+    - proxy
+    - cves
+    - exposure
+    - misconfiguration

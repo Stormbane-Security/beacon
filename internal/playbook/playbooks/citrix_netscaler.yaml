@@ -1,0 +1,55 @@
+name: citrix_netscaler
+description: >
+  Asset is a Citrix NetScaler ADC or NetScaler Gateway (formerly Citrix ADC).
+  NetScaler is widely deployed as a load balancer, SSL VPN, and application
+  delivery controller. Risks include: CVE-2025-5777 ("CitrixBleed 2", CVSS 9.3,
+  KEV-listed) — a pre-authentication memory leak that leaks session tokens and
+  stack contents from the authentication handler via a crafted POST to
+  /p/u/doAuthentication.do; CVE-2023-4966 ("CitrixBleed", KEV-listed) — similar
+  unauthenticated memory leak exploited by ransomware groups; CVE-2023-3519
+  (unauthenticated RCE via SAML, KEV-listed). NetScaler Gateway is consistently
+  among the top KEV-listed targets for ransomware initial access. Apply all
+  Citrix security patches immediately.
+match:
+  any:
+    - path_responds: "/vpn/index.html"
+    - path_responds: "/p/u/doAuthentication.do"
+    - body_contains: "Citrix"
+    - title_contains: "Citrix"
+    - title_contains: "NetScaler"
+    - body_contains: "NetScaler"
+surface:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - citrix
+    - netscaler
+    - exposure
+    - vpn
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "citrix.{domain}"
+      - "netscaler.{domain}"
+      - "vpn.{domain}"
+      - "gateway.{domain}"
+      - "remote.{domain}"
+deep:
+  scanners:
+    - exposedfiles
+    - httpmethods
+  nuclei_tags:
+    - citrix
+    - netscaler
+    - cves
+    - rce
+    - auth-bypass
+  dictionary:
+    - /vpn/index.html
+    - /p/u/doAuthentication.do
+    - /logon/LogonPoint/
+    - /cgi/login
+    - /saml/login
+    - /oauth/idp/
+    - /robots.txt
+    - /ns_gui/

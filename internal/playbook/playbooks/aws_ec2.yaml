@@ -1,0 +1,23 @@
+name: aws_ec2
+description: >
+  Asset resolves to an AWS EC2/ELB IP range. Risks include: instance metadata
+  endpoint exposure (169.254.169.254), IMDSv1 SSRF potential, ELB misconfigs,
+  and security group overpermissioning visible via open ports.
+match:
+  any:
+    - asn_org_contains: "AMAZON"
+    - asn_org_contains: "AWS"
+    - cname_contains: ".compute.amazonaws.com"
+    - cname_contains: ".elb.amazonaws.com"
+    - cname_contains: ".awsglobalaccelerator.com"
+    - cert_san_contains: ".compute.amazonaws.com"
+surface:
+  nuclei_tags:
+    - aws
+    - exposure
+    - misconfiguration
+deep:
+  nuclei_tags:
+    - aws
+    - cves
+    - ssrf
