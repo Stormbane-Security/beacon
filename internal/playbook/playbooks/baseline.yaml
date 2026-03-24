@@ -35,6 +35,7 @@ surface:
     - web3detect     # Web3 wallet lib + RPC endpoint detection in page source
     - log4shell      # Log4Shell surface: detect Java signals (JSESSIONID, Tomcat headers)
     - nginx          # Nginx alias traversal + IIS short-name probes — safe GET-only path probes
+    - gateway        # CDN/LB/API-gateway/mesh admin interface exposure — vendor-specific GET probes
     - tlscheck       # native Go TLS: key strength, OCSP, CT logs, PFS, HSTS policy
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.

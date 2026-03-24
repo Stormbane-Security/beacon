@@ -1,0 +1,44 @@
+name: varnish
+description: >
+  Asset is fronted by or is running Varnish Cache. Varnish is a widely used
+  HTTP accelerator and reverse proxy cache. Risks include: unauthenticated
+  cache invalidation via the HTTP PURGE method — an attacker can purge any
+  cached object, bypassing CDN protection or forcing cache poisoning attacks;
+  the X-Varnish header leaking internal cache hit/miss status and hit counts;
+  Via header disclosing the Varnish version; Age header confirming cache
+  behavior that can assist in cache deception attacks; and the debug header
+  mechanism (Pragma: akamai-x-cache-on style probes) exposing internal cache
+  key construction which aids cache poisoning. Varnish's VCL (Varnish
+  Configuration Language) misconfigurations are a common source of cache
+  poisoning and request smuggling vulnerabilities.
+match:
+  any:
+    - proxy_type_contains: "varnish"
+    - header_contains: "x-varnish"
+    - header_contains: "varnish"
+    - body_contains: "Varnish cache server"
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "cache.{domain}"
+      - "cdn.{domain}"
+      - "static.{domain}"
+      - "assets.{domain}"
+surface:
+  scanners:
+    - gateway
+    - wafdetect
+    - httpmethods
+  nuclei_tags:
+    - varnish
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - hostheader
+    - smuggling
+  nuclei_tags:
+    - varnish
+    - cves
+    - exposure
+    - misconfiguration

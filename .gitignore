@@ -1,0 +1,56 @@
+# ── Compiled binaries ──────────────────────────────────────────────────────────
+/beacon
+/beacond
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ── Test artifacts ─────────────────────────────────────────────────────────────
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# ── Runtime data ───────────────────────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+/data/
+~/.beacon/
+
+# ── Secrets & credentials (never commit these) ────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+config.local.yaml
+secrets.yaml
+credentials.json
+service-account*.json
+
+# ── Editor & IDE ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Go tooling ─────────────────────────────────────────────────────────────────
+vendor/
+
+# ── Security scan output ───────────────────────────────────────────────────────
+gosec.sarif
+trivy.sarif
+*.sarif
+
+# ── Release artifacts (built by CI, not committed) ────────────────────────────
+*.tar.gz
+*.zip

@@ -68,7 +68,8 @@ type Evidence struct {
 	// Technology fingerprinting — populated by classify scanner.
 	// Used for playbook matching and AI enrichment context.
 	CloudProvider  string   // "aws", "azure", "gcp", "cloudflare", "vercel", "heroku", "netlify", ""
-	ProxyType      string   // "envoy", "nginx", "traefik", "kong", "haproxy", "cloudflare", "caddy", ""
+	ProxyType      string   // vendor/product: "envoy", "nginx", "traefik", "kong", "haproxy", "caddy", "varnish", "squid", "ats", "akamai", "fastly", "aws_api_gateway", "azure_apim", "apigee", "linkerd", "f5", "citrix", ...
+	InfraLayer     string   // role of the infrastructure layer: "cdn_edge", "api_gateway", "load_balancer", "service_mesh", "reverse_proxy"
 	Framework      string   // "nextjs", "nuxt", "sveltekit", "rails", "django", "spring", "laravel", "express", ""
 	AuthSystem     string   // "okta", "auth0", "keycloak", "cognito", "saml", "ldap", ""
 	CookieNames    []string // session cookie names (fingerprint without values, e.g. ["JSESSIONID", "PHPSESSID"])

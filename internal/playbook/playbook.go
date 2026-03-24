@@ -73,6 +73,14 @@ type MatchRule struct {
 	VendorSignalContains   string            `yaml:"vendor_signal_contains"`   // substring match against any VendorSignals entry
 	Web3SignalContains     string            `yaml:"web3_signal_contains"`     // substring match against any Web3Signals entry
 	HasDMARC               *bool             `yaml:"has_dmarc"`                // true = DMARC record exists
+	// ProxyTypeContains matches when e.ProxyType contains the substring.
+	// Populated by classify from Server/Via/proxy-specific response headers.
+	// Examples: "nginx", "traefik", "envoy", "kong", "haproxy", "caddy", "varnish", "f5", "akamai".
+	ProxyTypeContains string `yaml:"proxy_type_contains"`
+	// InfraLayerContains matches when e.InfraLayer contains the substring.
+	// Populated by classify based on the role of the detected infrastructure.
+	// Values: "cdn_edge", "api_gateway", "load_balancer", "service_mesh", "reverse_proxy".
+	InfraLayerContains string `yaml:"infra_layer_contains"`
 	// CheckIDPresent matches when the given check ID string appears in
 	// Evidence.PhaseACheckIDs (populated from Phase A scanner findings before
 	// the second playbook-matching pass). Used by network-device playbooks to
@@ -311,6 +319,18 @@ func ruleMatches(r MatchRule, e Evidence) bool {
 			return false
 		}
 	}
+	if r.ProxyTypeContains != "" {
+		checked++
+		if !strings.Contains(strings.ToLower(e.ProxyType), strings.ToLower(r.ProxyTypeContains)) {
+			return false
+		}
+	}
+	if r.InfraLayerContains != "" {
+		checked++
+		if !strings.Contains(strings.ToLower(e.InfraLayer), strings.ToLower(r.InfraLayerContains)) {
+			return false
+		}
+	}
 	if r.CheckIDPresent != "" {
 		checked++
 		found := false
@@ -377,5 +397,7 @@ func isEmptyRule(r MatchRule) bool {
 		r.VendorSignalContains == "" &&
 		r.Web3SignalContains == "" &&
 		r.HasDMARC == nil &&
+		r.ProxyTypeContains == "" &&
+		r.InfraLayerContains == "" &&
 		r.CheckIDPresent == ""
 }

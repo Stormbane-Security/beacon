@@ -55,6 +55,7 @@ SCAN FLAGS:
   --domain <domain>          Target domain (required)
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
+  --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
   --format <fmt>             Output format: text (default), html, json, markdown
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
@@ -86,6 +87,10 @@ EXAMPLES:
   beacon playbook open-pr --id <suggestion-id>
 `
 
+// version is set at build time via -ldflags "-X main.version=vX.Y.Z".
+// It defaults to "dev" for local builds.
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		// No subcommand — open the interactive scan history browser.
@@ -103,6 +108,9 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Printf("beacon %s\n", version)
+		return
 	case "install":
 		cmdInstall()
 	case "scan":
@@ -168,6 +176,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		githubOrg           string
 		deep                bool
 		permissionConfirmed bool
+		authorized          bool
 		outPath             string
 		format              string
 		severityFlag        string
@@ -193,6 +202,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			deep = true
 		case "--permission-confirmed":
 			permissionConfirmed = true
+		case "--authorized":
+			authorized = true
 		case "--out":
 			i++
 			if i < len(args) {
@@ -267,6 +278,38 @@ By passing --permission-confirmed you confirm that:
   3. You accept full legal responsibility for your use of --deep mode.`, domain)
 	}
 
+	if authorized && (!deep || !permissionConfirmed) {
+		fatalf("--authorized requires --deep and --permission-confirmed")
+	}
+	if authorized {
+		// Interactive legal acknowledgment — cannot be bypassed with a flag.
+		fmt.Fprintf(os.Stderr, `
+AUTHORIZED / EXPLOITATION SCAN MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This mode enables active exploitation probes against %s, including:
+  • Payload injection (SSTI, XXE, SSRF, Log4Shell, CRLF, prototype pollution)
+  • Real authenticated sessions (SIWE/SIWS wallet login, OAuth flows)
+  • File upload bypass attempts (may leave files on the target server)
+  • Authorization flow mutation (token substitution, redirect_uri abuse)
+  • SAML/JWT forgery attacks against protected endpoints
+
+These actions constitute unauthorized computer access in most jurisdictions
+unless you have EXPLICIT WRITTEN AUTHORIZATION from the system owner.
+
+Applicable laws: US CFAA (18 U.S.C. §1030), UK CMA 1990, EU Dir. 2013/40/EU,
+and equivalent laws in all other jurisdictions.
+
+Type exactly: I have written authorization for %s
+> `, domain, domain)
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		expected := fmt.Sprintf("I have written authorization for %s", domain)
+		if strings.TrimSpace(line) != expected {
+			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+		}
+		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
+	}
+
 	// Resolve server URL: flag > env/config
 	if serverURL == "" {
 		serverURL = cfg.Server.URL
@@ -284,6 +327,9 @@ By passing --permission-confirmed you confirm that:
 	scanType := module.ScanSurface
 	if deep {
 		scanType = module.ScanDeep
+	}
+	if authorized {
+		scanType = module.ScanAuthorized
 	}
 
 
@@ -352,6 +398,7 @@ By passing --permission-confirmed you confirm that:
 		ProxyPool:            cfg.ProxyPool,
 		RequestJitterMs:      cfg.RequestJitterMs,
 		ClaudeModel:          cfg.ClaudeModel,
+		Auth:                 cfg.Auth,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -856,7 +903,7 @@ func cmdBrowse(cfg *config.Config) {
 // launchScanJob starts a scan as a background liveJob. The job is registered
 // in the global registry and unregistered automatically when it finishes.
 // st must stay open for the lifetime of the job.
-func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType module.ScanType, permissionConfirmed bool) *liveJob {
+func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType module.ScanType, permissionConfirmed bool, authorized bool) *liveJob {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bgCtx := context.Background()
@@ -917,6 +964,7 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		ProxyPool:            cfg.ProxyPool,
 		RequestJitterMs:      cfg.RequestJitterMs,
 		ClaudeModel:          cfg.ClaudeModel,
+		Auth:                 cfg.Auth,
 	})
 	if err != nil {
 		cancel()
@@ -1262,6 +1310,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 
 				scanType := module.ScanSurface
 				permConfirmed := false
+				authConfirmed := false
 				switch typeChoice {
 				case "2":
 					scanType = module.ScanDeep
@@ -1293,7 +1342,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 					continue
 				}
 
-				job := launchScanJob(cfg, st, domain, scanType, permConfirmed)
+				job := launchScanJob(cfg, st, domain, scanType, permConfirmed, authConfirmed)
 				if job != nil {
 					attachJob(bs, job)
 				}
@@ -2758,13 +2807,14 @@ type progressRenderer struct {
 	drawn             bool // true once the first frame has been written
 	drawnLines        int  // actual number of lines in the current block
 
-	// mode is one of: "progress", "findings", "assets", "asset_detail", "finding_detail", "topology"
+	// mode is one of: "progress", "findings", "assets", "asset_detail", "finding_detail", "topology", "topo_detail"
 	mode string
 
 	// Findings pager
 	findings       []finding.Finding
 	findingsOff    int // scroll offset (first visible row)
-	findingsCursor int // highlighted row (absolute index into findings)
+	findingsCursor  int              // highlighted row (index into filteredFindings)
+	filteredFindings []finding.Finding // findings after severity+text filter; rebuilt each render frame
 
 	// Asset roster
 	assets       []liveAsset
@@ -2790,9 +2840,13 @@ type progressRenderer struct {
 	findingFilterMode bool // true when user is actively typing a filter
 
 	// Topology map: asset → fingerprint evidence, built as fingerprint events arrive
-	topoEvidence  map[string]playbook.Evidence
-	topoServices  map[string][]liveService // asset → open TCP services (from port-scan findings)
-	topoOff       int                      // scroll offset for topology view
+	topoEvidence    map[string]playbook.Evidence
+	topoServices    map[string][]liveService // asset → open TCP services (from port-scan findings)
+	topoOff         int                      // scroll offset for topology view
+	topoCursor      int                      // index into topoHostOrder (selectable entries)
+	topoHostOrder   []string                 // ordered list of asset names as rendered (rebuilt each frame)
+	topoDetailAsset string                   // asset selected for topo_detail view
+	topoDetailOff   int                      // scroll offset for topo_detail view
 
 	stopOnce  sync.Once
 	stop      chan struct{}
@@ -3000,7 +3054,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.findingsCursor = 0
 				r.findingsOff = 0
 			case isDown:
-				if r.findingsCursor < len(r.findings)-1 {
+				if r.findingsCursor < len(r.filteredFindings)-1 {
 					r.findingsCursor++
 				}
 			case isUp:
@@ -3008,25 +3062,55 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 					r.findingsCursor--
 				}
 			case isEnter:
-				if len(r.findings) > 0 && r.findingsCursor < len(r.findings) {
-					f := r.findings[r.findingsCursor]
+				if len(r.filteredFindings) > 0 && r.findingsCursor < len(r.filteredFindings) {
+					f := r.filteredFindings[r.findingsCursor]
 					r.selectedFinding = &f
 					r.findingDetailOff = 0
 					r.findingDetailOrigin = "findings"
 					r.mode = "finding_detail"
 				}
+			case buf[0] >= '1' && buf[0] <= '5':
+				levels := []finding.Severity{
+					finding.SeverityInfo,
+					finding.SeverityLow,
+					finding.SeverityMedium,
+					finding.SeverityHigh,
+					finding.SeverityCritical,
+				}
+				r.minSeverity = levels[buf[0]-'1']
+				r.findingsOff = 0
+				r.findingsCursor = 0
 			}
 		}
 	case "topology":
 		switch {
 		case isDown:
-			r.topoOff++
+			if r.topoCursor < len(r.topoHostOrder)-1 {
+				r.topoCursor++
+			}
 		case isUp:
-			if r.topoOff > 0 {
-				r.topoOff--
+			if r.topoCursor > 0 {
+				r.topoCursor--
+			}
+		case isEnter:
+			if len(r.topoHostOrder) > 0 && r.topoCursor < len(r.topoHostOrder) {
+				r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+				r.topoDetailOff = 0
+				r.mode = "topo_detail"
 			}
 		case buf[0] == 'q' || buf[0] == 't':
 			r.mode = "progress"
+		}
+	case "topo_detail":
+		switch {
+		case isDown:
+			r.topoDetailOff++
+		case isUp:
+			if r.topoDetailOff > 0 {
+				r.topoDetailOff--
+			}
+		case buf[0] == 'q' || buf[0] == 'b':
+			r.mode = "topology"
 		}
 	case "assets":
 		switch {
@@ -3181,7 +3265,7 @@ func (r *progressRenderer) startInputLoop() {
 					r.mode = "topology"
 					r.topoOff = 0
 				case isDown:
-					if r.findingsCursor < len(r.findings)-1 {
+					if r.findingsCursor < len(r.filteredFindings)-1 {
 						r.findingsCursor++
 					}
 				case isUp:
@@ -3189,8 +3273,8 @@ func (r *progressRenderer) startInputLoop() {
 						r.findingsCursor--
 					}
 				case isEnter:
-					if len(r.findings) > 0 && r.findingsCursor < len(r.findings) {
-						f := r.findings[r.findingsCursor]
+					if len(r.filteredFindings) > 0 && r.findingsCursor < len(r.filteredFindings) {
+						f := r.filteredFindings[r.findingsCursor]
 						r.selectedFinding = &f
 						r.findingDetailOff = 0
 						r.findingDetailOrigin = "findings"
@@ -3388,12 +3472,13 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 		}
 
 	case "scanner_done":
-		// Accumulate findings into the live pager, filtered by minSeverity.
-		// Track filtered delta separately so asset roster shows drillable count.
+		// Accumulate ALL findings into the live pager (unfiltered). Severity
+		// filtering is applied at render time so the 1-5 key toggle works
+		// retroactively without losing data.
 		filteredDelta := 0
 		for _, f := range ev.NewFindings {
+			r.findings = append(r.findings, f)
 			if f.Severity >= r.minSeverity {
-				r.findings = append(r.findings, f)
 				filteredDelta++
 			}
 			if idx, ok := r.assetIdx[ev.ActiveAsset]; ok {
@@ -3540,6 +3625,8 @@ func (r *progressRenderer) render() {
 		lines = r.renderFindingDetail(&buf)
 	case "topology":
 		lines = r.renderTopology(&buf)
+	case "topo_detail":
+		lines = r.renderTopoDetail(&buf)
 	default:
 		lines = r.renderProgress(&buf)
 	}
@@ -3778,19 +3865,24 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 		bodyLines = 1
 	}
 
-	// Apply filter: build a filtered view of findings.
+	// Apply filter: build a filtered view of findings (severity + text filter).
+	// Store in r.filteredFindings so the key handler can look up the correct
+	// finding on Enter without re-deriving the filter independently.
 	var filtered []finding.Finding
-	if r.findingFilter == "" {
-		filtered = r.findings
-	} else {
-		needle := strings.ToLower(r.findingFilter)
-		for _, f := range r.findings {
+	needle := strings.ToLower(r.findingFilter)
+	for _, f := range r.findings {
+		if f.Severity < r.minSeverity {
+			continue
+		}
+		if needle != "" {
 			haystack := strings.ToLower(f.Title + f.Asset + string(f.CheckID))
-			if strings.Contains(haystack, needle) {
-				filtered = append(filtered, f)
+			if !strings.Contains(haystack, needle) {
+				continue
 			}
 		}
+		filtered = append(filtered, f)
 	}
+	r.filteredFindings = filtered
 	total := len(filtered)
 
 	// Clamp cursor.
@@ -3829,13 +3921,19 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 
 	lineCount := 0
 
+	// Build severity filter label shown in header (omit when showing all).
+	sevLabel := ""
+	if r.minSeverity > finding.SeverityInfo {
+		sevLabel = fmt.Sprintf("  \x1b[33m[min: %s]\x1b[0m\x1b[90m", strings.ToUpper(r.minSeverity.String()))
+	}
+
 	// Header — hints change depending on filter state.
 	if r.findingFilterMode {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  %d total\x1b[0m\n", len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  %d total\x1b[0m\n", sevLabel, len(r.findings))
 	} else if r.findingFilter != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  filter: %s  [Esc] clear  %d/%d\x1b[0m\n", r.findingFilter, total, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  filter: %s  [Esc] clear  %d/%d\x1b[0m\n", sevLabel, r.findingFilter, total, len(r.findings))
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [f/q] back  %d total\x1b[0m\n", len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [1-5] sev  [f/q] back  %d shown\x1b[0m\n", sevLabel, total)
 	}
 	lineCount++
 
@@ -4431,11 +4529,17 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 	}
 	sort.Strings(provOrder)
 
-	// Flatten into renderable lines.
-	var lines []string
+	// Flatten into renderable lines, tracking which lines correspond to host entries.
+	type lineEntry struct {
+		text      string
+		assetName string // non-empty for host lines (selectable)
+	}
+	var entries []lineEntry
+	var hostOrder []string // ordered asset names for cursor navigation
+
 	for pi, prov := range provOrder {
 		_ = pi
-		lines = append(lines, "\x1b[1m"+prov+"\x1b[0m")
+		entries = append(entries, lineEntry{text: "\x1b[1m" + prov + "\x1b[0m"})
 		var ipList []string
 		for ip := range provMap[prov] {
 			ipList = append(ipList, ip)
@@ -4455,7 +4559,7 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 			if len(hosts) > 1 {
 				shared = fmt.Sprintf("  \x1b[90m(%d virtual hosts)\x1b[0m", len(hosts))
 			}
-			lines = append(lines, fmt.Sprintf("%s\x1b[33m%s\x1b[0m%s", ipBranch, ip, shared))
+			entries = append(entries, lineEntry{text: fmt.Sprintf("%s\x1b[33m%s\x1b[0m%s", ipBranch, ip, shared)})
 			for hi, h := range hosts {
 				lastH := hi == len(hosts)-1
 				hBranch := hostPad + "├─ "
@@ -4467,17 +4571,12 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 				svcs := r.topoServices[h.name]
 				sort.Slice(svcs, func(a, b int) bool { return svcs[a].port < svcs[b].port })
 				var parts []string
-				// Show HTTP status only when it's interesting: 200 means live,
-				// 401/403 means access-controlled (something exists), 5xx means error.
-				// Skip 404 alone — root returning 404 is uninformative; responding
-				// paths below the root are more useful.
 				if h.status > 0 && h.status != 404 {
 					parts = append(parts, fmt.Sprintf("HTTP %d", h.status))
 				}
 				if h.tech != "" {
 					parts = append(parts, h.tech)
 				}
-				// Show up to 3 responding sub-paths found during fingerprinting.
 				if ev, ok := r.topoEvidence[h.name]; ok {
 					for i, p := range ev.RespondingPaths {
 						if i >= 3 {
@@ -4487,7 +4586,6 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 						parts = append(parts, "\x1b[90m"+p+"\x1b[0m")
 					}
 					if ev.Title != "" && h.status == 404 {
-						// Root is 404 but page has a title — show it for context.
 						title := ev.Title
 						if len(title) > 30 {
 							title = title[:29] + "…"
@@ -4510,23 +4608,68 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 				if len(name) > 38 {
 					name = "…" + name[len(name)-37:]
 				}
-				lines = append(lines, fmt.Sprintf("%s\x1b[36m%-38s\x1b[0m  %s", hBranch, name, detail))
+				hostIdx := len(hostOrder)
+				hostOrder = append(hostOrder, h.name)
+				// Cursor highlight on selected host.
+				cursor := "  "
+				if hostIdx == r.topoCursor {
+					cursor = "\x1b[7m▶\x1b[0m "
+				}
+				entries = append(entries, lineEntry{
+					text:      fmt.Sprintf("%s%s\x1b[36m%-38s\x1b[0m  %s", cursor, hBranch, name, detail),
+					assetName: h.name,
+				})
 				for si, svc := range svcs {
 					sBranch := svcPad + "├─ "
 					if si == len(svcs)-1 {
 						sBranch = svcPad + "└─ "
 					}
-					lines = append(lines, fmt.Sprintf("%s\x1b[90m%s:%d\x1b[0m", sBranch, svc.service, svc.port))
+					entries = append(entries, lineEntry{text: fmt.Sprintf("%s\x1b[90m%s:%d\x1b[0m", sBranch, svc.service, svc.port)})
 				}
 			}
 		}
-		lines = append(lines, "") // blank line between providers
+		entries = append(entries, lineEntry{}) // blank line between providers
 	}
-	if len(lines) == 0 {
-		lines = append(lines, "  \x1b[90mNo fingerprint data yet — waiting for assets to be scanned…\x1b[0m")
+	if len(entries) == 0 {
+		entries = append(entries, lineEntry{text: "  \x1b[90mNo fingerprint data yet — waiting for assets to be scanned…\x1b[0m"})
 	}
 
-	// Clamp scroll offset.
+	// Update host order so key handler has current list.
+	r.topoHostOrder = hostOrder
+	if r.topoCursor >= len(hostOrder) && len(hostOrder) > 0 {
+		r.topoCursor = len(hostOrder) - 1
+	}
+
+	// Find the line index of the cursor so we can auto-scroll to keep it visible.
+	cursorLine := -1
+	for i, e := range entries {
+		if e.assetName != "" {
+			idx := 0
+			for j := 0; j < i; j++ {
+				if entries[j].assetName != "" {
+					idx++
+				}
+			}
+			if idx == r.topoCursor {
+				cursorLine = i
+				break
+			}
+		}
+	}
+	// Auto-scroll: keep cursor line within visible window.
+	if cursorLine >= 0 {
+		if cursorLine < r.topoOff {
+			r.topoOff = cursorLine
+		} else if cursorLine >= r.topoOff+bodyLines {
+			r.topoOff = cursorLine - bodyLines + 1
+		}
+	}
+
+	lines := make([]string, len(entries))
+	for i, e := range entries {
+		lines[i] = e.text
+	}
+
 	maxOff := len(lines) - bodyLines
 	if maxOff < 0 {
 		maxOff = 0
@@ -4540,14 +4683,13 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 	}
 
 	drawn := 0
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mNETWORK TOPOLOGY\x1b[0m  \x1b[90m%d assets  [t/q] back  [j/k] scroll\x1b[0m\n",
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mNETWORK TOPOLOGY\x1b[0m  \x1b[90m%d assets  [↵] detail  [j/k] move  [t/q] back\x1b[0m\n",
 		len(r.topoEvidence))
 	drawn++
 	for _, l := range visible {
 		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
 		drawn++
 	}
-	// Pad to fill terminal so the block height is stable.
 	for drawn-1 < bodyLines {
 		buf.WriteString("\x1b[2K\r\n")
 		drawn++
@@ -4555,6 +4697,243 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 	pct := 0
 	if maxOff > 0 {
 		pct = r.topoOff * 100 / maxOff
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	drawn++
+	return drawn
+}
+
+// renderTopoDetail renders the full detail pane for a selected topology asset.
+func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
+	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || termH < 5 {
+		termH = 24
+	}
+	termW, _, _ := func() (int, int, error) { w, h, e := term.GetSize(int(os.Stderr.Fd())); return w, h, e }()
+	if termW < 40 {
+		termW = 80
+	}
+	bodyLines := termH - 2
+
+	asset := r.topoDetailAsset
+	ev, hasEv := r.topoEvidence[asset]
+	svcs := r.topoServices[asset]
+	sort.Slice(svcs, func(a, b int) bool { return svcs[a].port < svcs[b].port })
+
+	sep := strings.Repeat("─", termW-2)
+
+	var lines []string
+	add := func(format string, a ...any) {
+		lines = append(lines, fmt.Sprintf(format, a...))
+	}
+	section := func(title string) {
+		add("\x1b[90m%s\x1b[0m", sep)
+		add("\x1b[1m  %s\x1b[0m", title)
+	}
+
+	add("\x1b[1;36m  %s\x1b[0m", asset)
+
+	if hasEv {
+		// ── Network ──
+		section("NETWORK")
+		if ev.IP != "" {
+			add("  IP            %s", ev.IP)
+		}
+		if ev.ASNOrg != "" {
+			add("  ASN           %s %s", ev.ASNNum, ev.ASNOrg)
+		}
+		if len(ev.CNAMEChain) > 0 {
+			add("  CNAME chain   %s", strings.Join(ev.CNAMEChain, " → "))
+		}
+		if len(ev.AAAARecords) > 0 {
+			add("  IPv6          %s", strings.Join(ev.AAAARecords, ", "))
+		}
+
+		// ── HTTP ──
+		section("HTTP")
+		if ev.StatusCode > 0 {
+			add("  Status        %d", ev.StatusCode)
+		}
+		if ev.Title != "" {
+			add("  Page title    %s", ev.Title)
+		}
+		if ev.HTTP2Enabled {
+			add("  HTTP/2        enabled")
+		}
+		if ev.AuthScheme != "" {
+			add("  Auth scheme   %s", ev.AuthScheme)
+		}
+
+		// ── Responding paths ──
+		if len(ev.RespondingPaths) > 0 {
+			section(fmt.Sprintf("RESPONDING PATHS  (%d)", len(ev.RespondingPaths)))
+			for _, p := range ev.RespondingPaths {
+				add("  %s", p)
+			}
+		}
+		if len(ev.RobotsTxtPaths) > 0 {
+			section(fmt.Sprintf("ROBOTS.TXT PATHS  (%d)", len(ev.RobotsTxtPaths)))
+			for _, p := range ev.RobotsTxtPaths {
+				add("  %s", p)
+			}
+		}
+
+		// ── Technology stack ──
+		section("TECHNOLOGY")
+		if ev.Framework != "" {
+			add("  Framework     %s", ev.Framework)
+		}
+		if ev.CloudProvider != "" {
+			add("  Cloud         %s", ev.CloudProvider)
+		}
+		if ev.ProxyType != "" {
+			add("  Proxy/CDN     %s", ev.ProxyType)
+		}
+		if ev.IsKubernetes {
+			add("  Kubernetes    yes")
+		}
+		if ev.IsServerless {
+			add("  Serverless    yes")
+		}
+		if ev.IsReverseProxy {
+			add("  Reverse proxy yes")
+		}
+		for role, ver := range ev.ServiceVersions {
+			add("  %-14s%s", role, ver)
+		}
+		if len(ev.BackendServices) > 0 {
+			add("  Backends      %s", strings.Join(ev.BackendServices, ", "))
+		}
+		if len(ev.CookieNames) > 0 {
+			add("  Session cookies %s", strings.Join(ev.CookieNames, ", "))
+		}
+
+		// ── Auth ──
+		if ev.AuthSystem != "" || ev.AuthScheme != "" {
+			section("AUTHENTICATION")
+			if ev.AuthSystem != "" {
+				add("  Auth system   %s", ev.AuthSystem)
+			}
+		}
+
+		// ── TLS ──
+		if len(ev.CertSANs) > 0 || ev.CertIssuer != "" || ev.JARMFingerprint != "" {
+			section("TLS")
+			if ev.CertIssuer != "" {
+				add("  Issuer        %s", ev.CertIssuer)
+			}
+			if len(ev.CertSANs) > 0 {
+				// Wrap SANs to avoid very long single line.
+				const maxPerLine = 4
+				for i := 0; i < len(ev.CertSANs); i += maxPerLine {
+					end := i + maxPerLine
+					if end > len(ev.CertSANs) {
+						end = len(ev.CertSANs)
+					}
+					if i == 0 {
+						add("  SANs          %s", strings.Join(ev.CertSANs[i:end], "  "))
+					} else {
+						add("                %s", strings.Join(ev.CertSANs[i:end], "  "))
+					}
+				}
+			}
+			if ev.JARMFingerprint != "" {
+				add("  JARM          %s", ev.JARMFingerprint)
+			}
+		}
+
+		// ── DNS ──
+		section("DNS")
+		if ev.MXProvider != "" {
+			add("  Email         %s", ev.MXProvider)
+		}
+		if len(ev.MXRecords) > 0 {
+			add("  MX records    %s", strings.Join(ev.MXRecords, ", "))
+		}
+		if ev.HasDMARC {
+			add("  DMARC         p=%s", ev.DMARCPolicy)
+		}
+		if len(ev.NSRecords) > 0 {
+			add("  Nameservers   %s", strings.Join(ev.NSRecords, ", "))
+		}
+		if len(ev.TXTRecords) > 0 {
+			section(fmt.Sprintf("TXT RECORDS  (%d)", len(ev.TXTRecords)))
+			for _, t := range ev.TXTRecords {
+				if len(t) > termW-4 {
+					t = t[:termW-7] + "…"
+				}
+				add("  %s", t)
+			}
+		}
+
+		// ── AI / LLM ──
+		if len(ev.AIEndpoints) > 0 || ev.LLMProvider != "" {
+			section("AI / LLM")
+			if ev.LLMProvider != "" {
+				add("  Provider      %s", ev.LLMProvider)
+			}
+			for _, ep := range ev.AIEndpoints {
+				add("  Endpoint      %s", ep)
+			}
+		}
+
+		// ── Web3 ──
+		if len(ev.Web3Signals) > 0 || len(ev.ContractAddresses) > 0 {
+			section("WEB3")
+			if len(ev.Web3Signals) > 0 {
+				add("  Signals       %s", strings.Join(ev.Web3Signals, ", "))
+			}
+			for _, addr := range ev.ContractAddresses {
+				add("  Contract      %s", addr)
+			}
+		}
+
+		// ── Third-party vendors ──
+		if len(ev.VendorSignals) > 0 {
+			section("THIRD-PARTY VENDORS")
+			add("  %s", strings.Join(ev.VendorSignals, ", "))
+		}
+	}
+
+	// ── Open ports ──
+	if len(svcs) > 0 {
+		section(fmt.Sprintf("OPEN PORTS  (%d)", len(svcs)))
+		for _, svc := range svcs {
+			add("  %-6d %s", svc.port, svc.service)
+		}
+	}
+
+	if len(lines) == 0 {
+		lines = append(lines, "  \x1b[90mNo detail available yet.\x1b[0m")
+	}
+
+	// Clamp scroll.
+	maxOff := len(lines) - bodyLines
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if r.topoDetailOff > maxOff {
+		r.topoDetailOff = maxOff
+	}
+	visible := lines[r.topoDetailOff:]
+	if len(visible) > bodyLines {
+		visible = visible[:bodyLines]
+	}
+
+	drawn := 0
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m  \x1b[90m[j/k] scroll  [b/q] back to topology\x1b[0m\n")
+	drawn++
+	for _, l := range visible {
+		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
+		drawn++
+	}
+	for drawn-1 < bodyLines {
+		buf.WriteString("\x1b[2K\r\n")
+		drawn++
+	}
+	pct := 0
+	if maxOff > 0 {
+		pct = r.topoDetailOff * 100 / maxOff
 	}
 	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
 	drawn++

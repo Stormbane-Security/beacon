@@ -337,12 +337,37 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 			"window.solana", "@solana/wallet-adapter", "solflare",
 			"backpack", "phantom",
 		}
-		seen := map[string]bool{}
+		seenWeb3 := map[string]bool{}
 		for _, kw := range web3Keywords {
 			if strings.Contains(fullBodyLower, kw) {
-				e.Web3Signals = append(e.Web3Signals, kw)
+				if !seenWeb3[kw] {
+					seenWeb3[kw] = true
+					e.Web3Signals = append(e.Web3Signals, kw)
+				}
 			}
 		}
+		// Wallet library signals — map pattern → canonical label for Web3Signals.
+		// These use normalised label names and are deduped against already-appended values.
+		walletLibs := []struct{ pattern, label string }{
+			{"ethers", "ethers.js"},
+			{"viem", "viem"},
+			{"wagmi", "wagmi"},
+			{"web3.js", "web3.js"},
+			{"web3.min.js", "web3.js"},
+			{"@rainbow-me", "rainbowkit"},
+			{"connectkit", "connectkit"},
+		}
+		seenWalletLabel := map[string]bool{}
+		for _, sig := range e.Web3Signals {
+			seenWalletLabel[sig] = true
+		}
+		for _, wl := range walletLibs {
+			if strings.Contains(fullBodyLower, wl.pattern) && !seenWalletLabel[wl.label] {
+				seenWalletLabel[wl.label] = true
+				e.Web3Signals = append(e.Web3Signals, wl.label)
+			}
+		}
+		seen := map[string]bool{}
 		// EVM contract addresses — scan the full body for 0x-prefixed 40-hex addresses.
 		for _, m := range contractAddrRe.FindAllStringSubmatch(fullBody, -1) {
 			if len(m) >= 2 {
@@ -984,25 +1009,106 @@ func fingerprintTech(e *playbook.Evidence) {
 		}
 	}
 
-	// ── ProxyType ────────────────────────────────────────────────────────────
+	// ── ProxyType + InfraLayer ────────────────────────────────────────────────
+	// ProxyType is the vendor/product name of the detected infrastructure layer.
+	// InfraLayer is its role: cdn_edge | api_gateway | load_balancer | service_mesh | reverse_proxy.
+	// Detection priority: more-specific signals (unique headers) override less-specific (Server header).
 	serverLower := strings.ToLower(h["server"])
 	viaLower := strings.ToLower(h["via"])
 	xfwdSrvLower := strings.ToLower(h["x-forwarded-server"])
 	switch {
-	case serverLower == "envoy" || h["x-envoy-upstream-service-time"] != "":
+	// ── Service mesh sidecars ─────────────────────────────────────────────────
+	case serverLower == "envoy" || h["x-envoy-upstream-service-time"] != "" || h["x-envoy-decorator-operation"] != "":
 		e.ProxyType = "envoy"
-	case strings.Contains(viaLower, "traefik") || strings.Contains(xfwdSrvLower, "traefik"):
-		e.ProxyType = "traefik"
-	case h["x-kong-request-id"] != "" || h["x-kong-proxy-latency"] != "":
+		e.InfraLayer = "service_mesh"
+	case h["l5d-dst-canonical"] != "" || h["l5d-proxy-error"] != "" || strings.Contains(serverLower, "linkerd"):
+		// Linkerd service mesh: l5d-* headers are Linkerd-specific
+		e.ProxyType = "linkerd"
+		e.InfraLayer = "service_mesh"
+	case h["x-consul-index"] != "" || strings.Contains(serverLower, "consul"):
+		// Consul Connect / service mesh
+		e.ProxyType = "consul"
+		e.InfraLayer = "service_mesh"
+	// ── API gateways ──────────────────────────────────────────────────────────
+	case h["x-kong-request-id"] != "" || h["x-kong-proxy-latency"] != "" || h["x-kong-upstream-latency"] != "":
 		e.ProxyType = "kong"
-	case strings.Contains(serverLower, "haproxy"):
+		e.InfraLayer = "api_gateway"
+	case strings.Contains(viaLower, "traefik") || strings.Contains(xfwdSrvLower, "traefik") || strings.Contains(serverLower, "traefik"):
+		e.ProxyType = "traefik"
+		e.InfraLayer = "api_gateway"
+	case (h["x-amzn-requestid"] != "" || h["x-amzn-trace-id"] != "") && h["x-amz-apigw-id"] != "":
+		// AWS API Gateway: combination of x-amzn-requestid + x-amz-apigw-id is unique
+		e.ProxyType = "aws_api_gateway"
+		e.InfraLayer = "api_gateway"
+	case h["apim-request-id"] != "" || h["x-ms-gateway-service-instancid"] != "" || strings.Contains(serverLower, "api-management"):
+		// Azure API Management
+		e.ProxyType = "azure_apim"
+		e.InfraLayer = "api_gateway"
+	case h["x-apigee-fault-code"] != "" || h["x-apigee-fault-source"] != "" || strings.Contains(serverLower, "apigee"):
+		// Google Cloud Apigee
+		e.ProxyType = "apigee"
+		e.InfraLayer = "api_gateway"
+	case h["x-tyk-api-expires"] != "" || h["x-tyk-node-id"] != "":
+		// Tyk API Gateway
+		e.ProxyType = "tyk"
+		e.InfraLayer = "api_gateway"
+	// ── Load balancers ────────────────────────────────────────────────────────
+	case strings.Contains(serverLower, "haproxy") || haproxyHeader(h):
 		e.ProxyType = "haproxy"
-	case haproxyHeader(h):
-		e.ProxyType = "haproxy"
+		e.InfraLayer = "load_balancer"
+	case h["x-wa-info"] != "" || strings.Contains(serverLower, "bigip") || strings.Contains(h["set-cookie"], "BIGipServer"):
+		// F5 BIG-IP: X-WA-Info header or BIGipServer cookie name
+		e.ProxyType = "f5"
+		e.InfraLayer = "load_balancer"
+	case strings.Contains(serverLower, "netscaler") || h["ns_af_"] != "" || strings.Contains(viaLower, "netscaler"):
+		// Citrix NetScaler / ADC
+		e.ProxyType = "citrix_netscaler"
+		e.InfraLayer = "load_balancer"
+	case h["x-amz-lb-id"] != "" || strings.Contains(serverLower, "awselb") || strings.Contains(serverLower, "awsalb"):
+		// AWS Elastic/Application Load Balancer
+		e.ProxyType = "aws_elb"
+		e.InfraLayer = "load_balancer"
+	// ── CDN edges ─────────────────────────────────────────────────────────────
+	case h["x-varnish"] != "" || strings.Contains(viaLower, "varnish") || strings.Contains(serverLower, "varnish"):
+		e.ProxyType = "varnish"
+		e.InfraLayer = "cdn_edge"
+	case h["x-check-cacheable"] != "" || h["x-akamai-request-id"] != "" || strings.Contains(viaLower, "akamai"):
+		// Akamai CDN
+		e.ProxyType = "akamai"
+		e.InfraLayer = "cdn_edge"
+	case h["x-served-by"] != "" && (strings.Contains(strings.ToLower(h["x-served-by"]), "cache") || h["fastly-restarts"] != ""):
+		// Fastly CDN: x-served-by with cache node or fastly-restarts header
+		e.ProxyType = "fastly"
+		e.InfraLayer = "cdn_edge"
+	case strings.Contains(viaLower, "squid") || strings.Contains(serverLower, "squid"):
+		// Squid forward/reverse proxy / caching
+		e.ProxyType = "squid"
+		e.InfraLayer = "cdn_edge"
+	case strings.Contains(viaLower, "apache traffic server") || strings.Contains(serverLower, "ats"):
+		// Apache Traffic Server — used by Yahoo, LinkedIn, CDNs
+		e.ProxyType = "ats"
+		e.InfraLayer = "cdn_edge"
+	case strings.Contains(viaLower, "keycdn") || strings.Contains(serverLower, "keycdn"):
+		e.ProxyType = "keycdn"
+		e.InfraLayer = "cdn_edge"
+	case strings.Contains(serverLower, "bunnycdn") || h["bunny-request-id"] != "":
+		// BunnyCDN
+		e.ProxyType = "bunnycdn"
+		e.InfraLayer = "cdn_edge"
+	case strings.Contains(serverLower, "sucuri"):
+		e.ProxyType = "sucuri"
+		e.InfraLayer = "cdn_edge"
+	// ── Reverse proxies ───────────────────────────────────────────────────────
 	case strings.Contains(serverLower, "caddy"):
 		e.ProxyType = "caddy"
+		e.InfraLayer = "reverse_proxy"
 	case strings.Contains(serverLower, "nginx"):
 		e.ProxyType = "nginx"
+		e.InfraLayer = "reverse_proxy"
+	case strings.Contains(serverLower, "apache") && (h["x-forwarded-for"] != "" || h["x-real-ip"] != ""):
+		// Apache acting as reverse proxy (mod_proxy signals)
+		e.ProxyType = "apache"
+		e.InfraLayer = "reverse_proxy"
 	}
 
 	// ── Framework ────────────────────────────────────────────────────────────
@@ -1013,7 +1119,7 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.Framework = "nextjs"
 	case strings.Contains(body, "__nuxt__"):
 		e.Framework = "nuxt"
-	case strings.Contains(body, "__sveltekit"):
+	case strings.Contains(body, "__sveltekit") || strings.Contains(body, "_sveltekit"):
 		e.Framework = "sveltekit"
 	case strings.Contains(body, "astro.glob") || strings.Contains(body, "data-astro-"):
 		e.Framework = "astro"
@@ -1191,6 +1297,101 @@ func fingerprintTech(e *playbook.Evidence) {
 	// using the full 8 KB body. They are intentionally absent here because
 	// fingerprintTech operates on the truncated e.Body512 (512 bytes) which
 	// would miss almost all contract addresses and library references.
+
+	// ── BackendServices ───────────────────────────────────────────────────────
+	// Infer named backend services from RespondingPaths. Used by the AI enricher
+	// and topology renderer for richer service context. Each path prefix maps to
+	// a canonical service name; the first match per service wins.
+	e.BackendServices = inferBackendServices(e.RespondingPaths)
+}
+
+// pathServiceMap maps a responding path prefix/exact to a canonical service name.
+// Only paths that uniquely identify a specific product are included — generic
+// paths like /admin or /health that appear across many services are excluded.
+var pathServiceMap = []struct {
+	prefix  string
+	service string
+}{
+	{"/actuator", "Spring Boot"},
+	{"/v1/sys/health", "HashiCorp Vault"},
+	{"/v1/sys/seal-status", "HashiCorp Vault"},
+	{"/_cat/indices", "Elasticsearch"},
+	{"/_cluster/health", "Elasticsearch"},
+	{"/_nodes", "Elasticsearch"},
+	{"/api/health", "Grafana"},
+	{"/targets", "Prometheus"},
+	{"/metrics", "Prometheus"},
+	{"/api/v1/health", "Apache Airflow"},
+	{"/api/v1/dags", "Apache Airflow"},
+	{"/api/kernels", "Jupyter"},
+	{"/api/contents", "Jupyter"},
+	{"/v1/graphql", "Hasura"},
+	{"/v1/metadata", "Hasura"},
+	{"/api/rawdata", "Traefik"},
+	{"/api/overview", "Traefik"},
+	{"/api/entrypoints", "Traefik"},
+	{"/topics", "Kafka"},
+	{"/v3/clusters", "Kafka"},
+	{"/services/server/info", "Splunk"},
+	{"/-/health", "GitLab"},
+	{"/-/readiness", "GitLab"},
+	{"/api_jsonrpc.php", "Zabbix"},
+	{"/zabbix/", "Zabbix"},
+	{"/api/v2/manager/info", "Wazuh"},
+	{"/wp-login.php", "WordPress"},
+	{"/wp-json", "WordPress"},
+	{"/auth/realms", "Keycloak"},
+	{"/realms", "Keycloak"},
+	{"/telescope", "Laravel"},
+	{"/horizon", "Laravel"},
+	{"/rails/info", "Ruby on Rails"},
+	{"/cable", "Ruby on Rails"},
+	{"/ghost", "Ghost CMS"},
+	{"/pgadmin4", "pgAdmin"},
+	{"/pgadmin", "pgAdmin"},
+	{"/phpmyadmin", "phpMyAdmin"},
+	{"/adminer", "Adminer"},
+	{"/config_dump", "Envoy"},
+	{"/console", "Hasura"},
+	{"/api/v1/serverInfo", "Veeam"},
+	{"/manager/html", "Apache Tomcat"},
+	{"/manager/status", "Apache Tomcat"},
+	{"/host-manager/html", "Apache Tomcat"},
+	{"/api/settings", "Portainer"},
+	{"/api/status", "Portainer"},
+	{"/app/kibana", "Kibana"},
+	{"/app/home", "Kibana"},
+	{"/dashboard", "Traefik"},
+	{"/swagger.json", "OpenAPI"},
+	{"/openapi.json", "OpenAPI"},
+	{"/graphql", "GraphQL"},
+	{"/v1/models", "OpenAI-compatible API"},
+	{"/v1/chat/completions", "OpenAI-compatible API"},
+	{"/api/generate", "Ollama"},
+	{"/api/tags", "Ollama"},
+	{"/v1/flows", "Langflow"},
+	{"/api/v1/settings", "n8n"},
+}
+
+// inferBackendServices returns a deduplicated list of named backend services
+// inferred from the set of responding paths. Called by fingerprintTech after
+// probeFingerprintPaths populates e.RespondingPaths.
+func inferBackendServices(paths []string) []string {
+	seen := make(map[string]bool)
+	var services []string
+	for _, path := range paths {
+		pl := strings.ToLower(path)
+		for _, entry := range pathServiceMap {
+			if strings.HasPrefix(pl, strings.ToLower(entry.prefix)) {
+				if !seen[entry.service] {
+					seen[entry.service] = true
+					services = append(services, entry.service)
+				}
+				break
+			}
+		}
+	}
+	return services
 }
 
 // haproxyHeader returns true when any header key starts with "x-haproxy-".

@@ -59,6 +59,14 @@ make lint
 make smoke
 ```
 
+The canonical one-liner equivalents (no Makefile required):
+
+```sh
+go build ./...
+go test ./...
+go vet ./...
+```
+
 Individual test commands:
 
 ```sh
@@ -136,17 +144,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 ### 2. Add CheckID constants
 
-Every distinct finding type needs a stable `CheckID` constant. Add it to `internal/finding/normalize.go`:
+Every distinct finding type needs a stable `CheckID` constant. Add it to `internal/finding/checkids.go`:
 
 ```go
 const (
-    // ... existing constants ...
-    CheckMyCheckNoFoo finding.CheckID = "mycheck-no-foo"
-    CheckMyCheckBarExposed finding.CheckID = "mycheck-bar-exposed"
+    // ... existing constants in the appropriate section ...
+    CheckMyCheckNoFoo      CheckID = "mycheck.no_foo"
+    CheckMyCheckBarExposed CheckID = "mycheck.bar_exposed"
 )
 ```
 
-Use the format `<scanner-name>-<finding-description>`, lowercase, hyphen-separated.
+Use the dotted-namespace format `<scanner-name>.<finding_description>` to match the existing constants in that file. CheckIDs never change once defined — they are used for deduplication and delta comparison across scans.
 
 ### 3. Construct findings correctly
 
@@ -165,8 +173,11 @@ findings = append(findings, finding.Finding{
         "status_code": resp.StatusCode,
         "response":    excerpt,
     },
+    ProofCommand: fmt.Sprintf("curl -si %s", barURL),
 })
 ```
+
+**Always set `ProofCommand`** to a copy-paste shell command that an analyst can run to independently reproduce or confirm the finding. Every finding must have one — it is how we distinguish a real observation from a false positive. A `curl` command is usually sufficient; for more complex findings, use a multi-step `bash -c '...'` string.
 
 ### 4. Register the scanner in the surface module
 
@@ -346,14 +357,46 @@ Playbook match logic is tested in `internal/playbook/match_test.go`. When adding
 
 ---
 
+## Branch Model
+
+```
+main  ←── dev  ←── feat/scanner-name
+                ←── fix/bug-description
+                ←── chore/update-deps
+```
+
+| Branch | Purpose | Direct push |
+|--------|---------|-------------|
+| `main` | Production-ready, tagged releases | ❌ PRs only |
+| `dev` | Integration — all work merges here first | ❌ PRs only |
+| `feat/*` `fix/*` `chore/*` | Short-lived work branches | ✅ |
+
+**Workflow:**
+1. Branch off `dev`: `git checkout -b feat/my-scanner dev`
+2. Open a PR targeting `dev` — CI (build + vet + test) runs automatically.
+3. When `dev` is stable and ready for a release, open a PR from `dev` → `main`.
+4. The security scan pipeline (govulncheck + gosec + trivy) runs on PRs to `main`.
+5. Merging to `main` automatically creates a new semver tag and GitHub release.
+
+**Semver bump is determined from the PR title:**
+
+| PR title prefix | Version bump |
+|----------------|-------------|
+| `feat!:` `fix!:` (breaking change `!`) | MAJOR |
+| `feat:` | MINOR |
+| `fix:` `perf:` `test:` `refactor:` `docs:` `chore:` `security:` | PATCH |
+
+Use the same [Conventional Commits](https://www.conventionalcommits.org/) format described in `CLAUDE.md`.
+
 ## Submitting a Pull Request
 
-1. Fork the repository and create a feature branch from `main`.
+1. Branch off `dev` (not `main`): `git checkout -b feat/my-scanner dev`
 2. Make your changes following the conventions above.
 3. Run `make test` and `make lint` — both must pass cleanly.
-4. Fill out the pull request template completely. Pay particular attention to the scanner and playbook checklists.
-5. Keep PRs focused: one scanner or one playbook per PR is easiest to review. Refactors and scanner additions should generally be separate PRs.
-6. If your PR involves a new external API or binary dependency, explain in the PR description why it is warranted and what the fallback behaviour is when it is absent.
+4. Open a PR targeting **`dev`**.
+5. Fill out the pull request template completely. Pay particular attention to the scanner and playbook checklists.
+6. Keep PRs focused: one scanner or one playbook per PR is easiest to review. Refactors and scanner additions should generally be separate PRs.
+7. If your PR involves a new external API or binary dependency, explain in the PR description why it is warranted and what the fallback behaviour is when it is absent.
 
 We aim to review PRs within one week. Complex changes may take longer. If you have not heard back after two weeks, comment on the PR to request a review.
 

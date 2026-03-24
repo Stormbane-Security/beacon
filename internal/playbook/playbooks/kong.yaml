@@ -1,0 +1,45 @@
+name: kong_gateway
+description: >
+  Asset is an API gateway managed by Kong. Kong is a popular API gateway and
+  service layer that controls all API traffic. Risks include: the Kong Admin
+  API (default port 8001/8444) exposing full control of the gateway — routes,
+  services, consumers, plugins, and credentials; the ability to add plugins
+  that disable authentication or inject malicious responses; enumeration of all
+  upstream services and their internal addresses; exposure of API keys and JWTs
+  configured as Kong consumers; and CVEs in Kong's Lua/OpenResty engine or
+  bundled plugins. Kong admin API should never be internet-facing but is
+  frequently accidentally exposed on the same host as the proxy listeners.
+match:
+  any:
+    - proxy_type_contains: "kong"
+    - header_contains: "kong"
+    - body_contains: "Kong"
+    - path_responds: "/kong"
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "api.{domain}"
+      - "gateway.{domain}"
+      - "kong.{domain}"
+      - "apigw.{domain}"
+surface:
+  scanners:
+    - gateway
+    - exposedfiles
+    - httpmethods
+  dictionary:
+    - /kong
+    - /api/v1/
+    - /status
+  nuclei_tags:
+    - kong
+    - api-gateway
+    - exposure
+    - misconfiguration
+deep:
+  nuclei_tags:
+    - kong
+    - api-gateway
+    - cves
+    - exposure
+    - misconfiguration

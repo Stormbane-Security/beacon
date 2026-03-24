@@ -1,0 +1,50 @@
+name: haproxy
+description: >
+  Asset is fronted by or is running HAProxy. HAProxy is a high-performance
+  TCP/HTTP load balancer widely deployed at the edge and internally. Risks
+  include: the HAProxy stats page (/haproxy?stats, /stats) leaking all backend
+  server hostnames, IP addresses, port numbers, health status, active
+  connections, and request rates; stats pages that allow management actions
+  (disabling backends, setting drain mode) without authentication; PROXY
+  protocol header injection enabling source IP spoofing; request smuggling via
+  malformed Transfer-Encoding headers on older versions; and CVEs including the
+  HAProxy HTTP/2 memory corruption bugs. The stats endpoint is the most
+  commonly misconfigured — it is often left unauthenticated when enabled for
+  monitoring and directly exposes the internal network topology.
+match:
+  any:
+    - proxy_type_contains: "haproxy"
+    - header_contains: "haproxy"
+    - body_contains: "HAProxy"
+    - body_contains: "Statistics Report"
+    - path_responds: "/haproxy?stats"
+    - path_responds: "/stats"
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "lb.{domain}"
+      - "proxy.{domain}"
+      - "haproxy.{domain}"
+      - "gateway.{domain}"
+surface:
+  scanners:
+    - gateway
+    - exposedfiles
+    - httpmethods
+  dictionary:
+    - /haproxy?stats
+    - /stats
+    - /admin?stats
+    - /:stats
+  nuclei_tags:
+    - haproxy
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - smuggling
+  nuclei_tags:
+    - haproxy
+    - cves
+    - exposure
+    - misconfiguration

@@ -23,6 +23,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stormbane/beacon/internal/analyze"
+	"github.com/stormbane/beacon/internal/auth"
+	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
 	"github.com/stormbane/beacon/internal/playbook"
@@ -87,6 +89,7 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/xxe"
 	"github.com/stormbane/beacon/internal/scanner/deserial"
 	"github.com/stormbane/beacon/internal/scanner/fileupload"
+	"github.com/stormbane/beacon/internal/scanner/gateway"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/store"
@@ -151,6 +154,9 @@ type Module struct {
 
 	// claudeModel is the model used for profiling (defaults to claude-sonnet-4-6).
 	claudeModel string
+
+	// authCfgs holds per-asset credentials for authenticated scanning.
+	authCfgs []config.AuthConfig
 }
 
 // Config holds binary paths required to instantiate the module.
@@ -226,6 +232,11 @@ type Config struct {
 	// ClaudeModel overrides the Claude model used for profiling.
 	// Defaults to claude-sonnet-4-6 when empty.
 	ClaudeModel string
+
+	// Auth holds per-asset credentials for authenticated scanning.
+	// When a matching entry exists for the current asset (or asset == "*"),
+	// scanners run against content that is gated behind a login.
+	Auth []config.AuthConfig
 }
 
 const (
@@ -334,6 +345,7 @@ func New(cfg Config) (*Module, error) {
 		"xxe":              xxe.New(),
 		"deserial":         deserial.New(),
 		"fileupload":       fileupload.New(),
+		"gateway":          gateway.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.
@@ -392,12 +404,25 @@ func New(cfg Config) (*Module, error) {
 		evasionStrategy:   evasionStrat,
 		adaptiveRecon:     cfg.AdaptiveRecon,
 		claudeModel:       claudeModel,
+		authCfgs:          cfg.Auth,
 	}, nil
 }
 
 func (m *Module) Name() string                       { return "surface" }
 func (m *Module) Tier() module.PricingTier           { return module.TierFree }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputDomain} }
+
+// isDeepOrAuthorized returns true for ScanDeep and ScanAuthorized.
+// Use this to gate checks that need active probing but are not exploitation-class.
+func isDeepOrAuthorized(t module.ScanType) bool {
+	return t == module.ScanDeep || t == module.ScanAuthorized
+}
+
+// isAuthorized returns true only for ScanAuthorized.
+// Use this to gate exploitation-class checks.
+func isAuthorized(t module.ScanType) bool {
+	return t == module.ScanAuthorized
+}
 
 // Run executes the full surface scan pipeline driven by playbooks.
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
@@ -465,7 +490,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	go func() {
 		defer wgDiscover.Done()
 		subfinderFlags := "-silent -passive"
-		if subdomainScanType == module.ScanDeep {
+		if isDeepOrAuthorized(subdomainScanType) {
 			subfinderFlags = "-silent" // active: DNS resolution + all sources
 		}
 		discScanStart("subdomain", fmt.Sprintf("crt.sh *.%s  +  subfinder -d %s %s", rootDomain, rootDomain, subfinderFlags))
@@ -480,8 +505,13 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		discScanDone("passivedns", fs)
 		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
 	}()
-	wgDiscover.Wait()
-	close(batchResults)
+	// Close the channel when all discovery goroutines finish — in a separate
+	// goroutine so that processing of each batch can begin as soon as it
+	// arrives (e.g. passivedns completes in seconds; subfinder may take minutes).
+	go func() {
+		wgDiscover.Wait()
+		close(batchResults)
+	}()
 
 	assets := []string{rootDomain}
 	seen := map[string]struct{}{rootDomain: {}}
@@ -862,7 +892,7 @@ assetLoop:
 	//   • an API key is configured (advisor is non-nil)
 	//   • MaxDiscoveryDepth > 0 (disabled by default for free tier)
 	//   • total asset count is below MaxAssets
-	if scanType == module.ScanDeep && m.discoveryAdvisor != nil && m.maxDiscoveryDepth > 0 {
+	if isDeepOrAuthorized(scanType) && m.discoveryAdvisor != nil && m.maxDiscoveryDepth > 0 {
 		for round := 0; round < m.maxDiscoveryDepth; round++ {
 			if len(assets) >= m.maxAssets {
 				break // hard asset ceiling reached
@@ -979,6 +1009,21 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		})
 	}
 	ev := classify.Collect(ctx, asset)
+
+	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
+	// base http.Client to inject credentials into all scanner requests.
+	httpClient := &http.Client{}
+	if len(m.authCfgs) > 0 {
+		if authedClient, session, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
+			// Log but don't abort — fall back to unauthenticated scan.
+			_ = err
+		} else if authedClient != nil {
+			httpClient = authedClient
+			_ = session // session.Label available for logging if verbose
+		}
+	}
+	_ = httpClient // available for scanners that accept an http.Client in future
+
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
 		parts := []string{}
 		if ev.StatusCode > 0 {
@@ -1039,7 +1084,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 		mode := "surface"
-		if scanType == module.ScanDeep {
+		if isDeepOrAuthorized(scanType) {
 			mode = "deep"
 		}
 		suggestions, err := m.playbookAdvisor.Suggest(ctx, ev, plan.Scanners, available, mode)
@@ -1239,7 +1284,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// Compute dirbust paths before Phase B — depends only on classify evidence
 	// and playbook data, both available before any Phase B scanner runs.
 	dirbustPaths := plan.DirbustPaths
-	if scanType == module.ScanDeep && len(ev.RobotsTxtPaths) > 0 {
+	if isDeepOrAuthorized(scanType) && len(ev.RobotsTxtPaths) > 0 {
 		seenPaths := map[string]bool{}
 		for _, p := range dirbustPaths {
 			seenPaths[p] = true
@@ -1393,7 +1438,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Dirbust — concurrent with Phase B scanners.
 	// Depends only on classify evidence + playbook data (computed pre-Phase-B).
-	if scanType == module.ScanDeep && len(dirbustPaths) > 0 && !noHTTP {
+	if isDeepOrAuthorized(scanType) && len(dirbustPaths) > 0 && !noHTTP {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1448,7 +1493,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// Port-service tags (e.g. "redis","elasticsearch") fire service-specific CVE
 	// and misconfiguration templates that the playbook may not know to include.
 	tags := plan.NucleiTagsSurf
-	if scanType == module.ScanDeep {
+	if isDeepOrAuthorized(scanType) {
 		tags = append(tags, plan.NucleiTagsDeep...)
 	}
 	tags = append(tags, classify.VersionNucleiTags(ev)...)
@@ -1564,6 +1609,84 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		for _, expandedAsset := range expandedAssets {
 			if claimExpand(expandedAsset) {
 				expandCandidates = append(expandCandidates, expandedAsset)
+			}
+		}
+
+		// Source 5: OpenAPI/Swagger endpoint list feeds dirbust
+		// When an API docs finding carries an "endpoints" list (e.g. parsed from
+		// the spec by the exposedfiles or autoprobe scanner), add those paths to
+		// ev.RespondingPaths so the audit record and any subsequent tooling can
+		// reference them without re-parsing the spec.
+		for _, f := range findings {
+			if f.CheckID == finding.CheckExposureAPIDocs {
+				if paths, ok := f.Evidence["endpoints"].([]string); ok {
+					ev.RespondingPaths = append(ev.RespondingPaths, paths...)
+				}
+			}
+		}
+
+		// Source 6: CDN/WAF bypass origin IP → scan origin directly
+		// When wafdetect or cdnbypass confirms a reachable origin IP behind a CDN
+		// or WAF, scanning the origin directly is far more productive than scanning
+		// the edge node. Add the raw IP (with optional non-standard port) as an
+		// expand candidate so it gets its own full runAsset pass.
+		for _, f := range findings {
+			if f.CheckID == finding.CheckWAFOriginExposed || f.CheckID == finding.CheckCDNOriginFound {
+				if originIP, ok := f.Evidence["origin_ip"].(string); ok && originIP != "" {
+					originAsset := originIP
+					if portStr, ok := f.Evidence["origin_port"].(string); ok && portStr != "" && portStr != "443" && portStr != "80" {
+						originAsset = originIP + ":" + portStr
+					}
+					if claimExpand(originAsset) {
+						expandCandidates = append(expandCandidates, originAsset)
+					}
+				}
+			}
+		}
+
+		// Source 7: GraphQL confirmed endpoints → ensure in RespondingPaths
+		// GraphQL scanners confirm the exact endpoint path (e.g. "/graphql",
+		// "/v1/graphql"). Appending to RespondingPaths ensures the audit record
+		// reflects these paths and they participate in path-responds playbook
+		// matching on any follow-up scan.
+		for _, f := range findings {
+			if strings.HasPrefix(string(f.CheckID), "graphql.") {
+				if ep, ok := f.Evidence["endpoint"].(string); ok && ep != "" {
+					ev.RespondingPaths = append(ev.RespondingPaths, ep)
+				}
+			}
+		}
+
+		// Source 8: Cross-origin JS hosts that are subdomains of rootDomain
+		// The webcontent scanner records the hosting domain of external JS files
+		// in the "hosted_on" evidence field. When that domain is a subdomain of
+		// rootDomain it is in scope and warrants its own asset scan.
+		for _, f := range findings {
+			if f.CheckID != finding.CheckJSHardcodedSecret &&
+				f.CheckID != finding.CheckJSInternalEndpoint &&
+				f.CheckID != finding.CheckJSSourceMapExposed {
+				continue
+			}
+			if hostedOn, ok := f.Evidence["hosted_on"].(string); ok && hostedOn != "" {
+				if strings.HasSuffix(hostedOn, "."+rootDomain) && isValidHostname(hostedOn) {
+					if claimExpand(hostedOn) {
+						expandCandidates = append(expandCandidates, hostedOn)
+					}
+				}
+			}
+		}
+
+		// Source 9: API version paths discovered by apiversions scanner
+		// apiversions confirms that /v1/, /v2/, /api/beta/, etc. respond with
+		// non-404 API content. Adding them to RespondingPaths ensures the audit
+		// record reflects these paths and they participate in path_responds
+		// playbook matching on subsequent scans.
+		for _, f := range findings {
+			if f.CheckID != "exposure.api_version" {
+				continue
+			}
+			if path, ok := f.Evidence["path"].(string); ok && path != "" {
+				ev.RespondingPaths = append(ev.RespondingPaths, path)
 			}
 		}
 
@@ -2193,7 +2316,7 @@ func (m *Module) saveSkipMetric(
 // given asset, used for verbose progress output.
 func scannerCmd(name, asset string, scanType module.ScanType) string {
 	mode := "surface"
-	if scanType == module.ScanDeep {
+	if isDeepOrAuthorized(scanType) {
 		mode = "deep"
 	}
 	switch name {
