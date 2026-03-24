@@ -94,9 +94,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				resp, err := client.Do(req)
 				if err != nil {
-					if resp != nil {
-						resp.Body.Close()
-					}
 					continue
 				}
 				// Drain and discard body.
@@ -153,9 +150,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

@@ -8,6 +8,7 @@ package apiversions
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -111,9 +112,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 			resp, err := client.Do(req)
 			if err != nil {
-				if resp != nil {
-					resp.Body.Close()
-				}
 				return
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
@@ -220,27 +218,49 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()
 	return "https"
 }
 
-// isCatchAll returns true when the server responds HTTP 200 to a path that
-// cannot exist, indicating a wildcard/catch-all where all probes are noise.
+// isCatchAll returns true when two distinct nonsense paths return HTTP 200
+// with identical response bodies — a reliable signal that the server is a
+// wildcard/catch-all (SPA, reverse proxy, etc.) where every probe is noise.
+// A single-probe check has a high false-positive rate: some servers legitimately
+// return 200 for unknown paths but still have distinct, real API endpoints.
 func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
-	if err != nil {
+	probeA := base + "/beacon-probe-a1b2c3d4e5f6-doesnotexist"
+	probeB := base + "/beacon-probe-f6e5d4c3b2a1-alsonotreal"
+
+	hashOf := func(rawURL string) ([]byte, int) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, 0
+		}
+		req.Header.Set("Accept", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, 0
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, resp.StatusCode
+		}
+		h := sha256.Sum256(body)
+		return h[:], resp.StatusCode
+	}
+
+	hashA, statusA := hashOf(probeA)
+	hashB, statusB := hashOf(probeB)
+
+	// Both must be 200 and have identical bodies to be considered a catch-all.
+	if statusA != http.StatusOK || statusB != http.StatusOK {
 		return false
 	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
+	if hashA == nil || hashB == nil {
 		return false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return string(hashA) == string(hashB)
 }

@@ -240,9 +240,6 @@ func runProbe(ctx context.Context, client *http.Client, url, asset string, p pro
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -359,9 +356,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

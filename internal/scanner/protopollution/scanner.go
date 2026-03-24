@@ -177,9 +177,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

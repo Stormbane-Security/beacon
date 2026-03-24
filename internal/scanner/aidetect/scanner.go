@@ -269,9 +269,6 @@ func probeEndpoint(ctx context.Context, client *http.Client, url, method string)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
@@ -364,9 +361,6 @@ func checkKeyLeak(ctx context.Context, client *http.Client, base, asset string) 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	defer resp.Body.Close()
@@ -440,9 +434,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

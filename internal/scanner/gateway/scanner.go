@@ -93,9 +93,6 @@ func probeKongAdmin(ctx context.Context, client *http.Client, asset string) []fi
 
 		resp, err := client.Do(req)
 		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
-			}
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -160,9 +157,6 @@ func probeHAProxyStats(ctx context.Context, client *http.Client, base, asset str
 
 		resp, err := client.Do(req)
 		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
-			}
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -225,9 +219,6 @@ func probeNginxStatus(ctx context.Context, client *http.Client, base, asset stri
 
 		resp, err := client.Do(req)
 		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
-			}
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -291,9 +282,6 @@ func probeTraefikAPI(ctx context.Context, client *http.Client, base, asset strin
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -348,9 +336,6 @@ func probeEnvoyAdmin(ctx context.Context, client *http.Client, base, asset strin
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -410,9 +395,6 @@ func probeLinkerdViz(ctx context.Context, client *http.Client, base, asset strin
 
 		resp, err := client.Do(req)
 		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
-			}
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -540,9 +522,6 @@ func probeAkamaiDebug(ctx context.Context, client *http.Client, base, asset stri
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	resp.Body.Close()
@@ -596,9 +575,6 @@ func probeTykDashboard(ctx context.Context, client *http.Client, base, asset str
 
 		resp, err := client.Do(req)
 		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
-			}
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -649,9 +625,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()
