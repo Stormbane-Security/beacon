@@ -87,6 +87,15 @@ var dlpPatterns = []pattern{
 		"Possible crypto seed phrase",
 		regexp.MustCompile(`\b[a-z]{3,8}(?:\s+[a-z]{3,8}){11,23}\b`),
 	},
+	// EVM contract/wallet address — 0x followed by exactly 40 hex chars.
+	// Only flag when the address appears in a sensitive context (assigned to a
+	// variable or returned in a JSON field) to avoid matching benign hex values
+	// like SHA hashes or padding bytes.
+	{
+		finding.CheckWeb3ContractFound,
+		"EVM contract/wallet address",
+		regexp.MustCompile(`(?i)(?:address|contract|wallet|from|to)["\s]*[:=]\s*["']?(0x[0-9a-fA-F]{40})\b`),
+	},
 }
 
 // apiKeyPatterns are applied against high-value config/env dump paths.

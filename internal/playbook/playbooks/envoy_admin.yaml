@@ -19,6 +19,7 @@ match:
     - path_responds: "/config_dump"
     - body_contains: "envoy"
     - body_contains: "Envoy"
+    - proxy_type_contains: "envoy"
 surface:
   nuclei_tags:
     - envoy

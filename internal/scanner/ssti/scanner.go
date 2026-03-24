@@ -3,7 +3,8 @@
 // checks whether the server evaluates them — a reliable signal that user
 // input flows into a template engine without sanitisation.
 //
-// Deep mode only (active payloads).
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+// ScanAuthorized only (active payloads).
 package ssti
 
 import (
@@ -75,7 +76,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the SSTI scan. Only runs in deep mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -107,9 +109,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				resp, err := client.Do(req)
 				if err != nil {
-					if resp != nil {
-						resp.Body.Close()
-					}
 					continue
 				}
 
@@ -125,10 +124,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue
 				}
 
-				// Avoid flagging pages that already contained the number
-				// without injection (e.g. a page with "49 results").
-				// We do a separate baseline check: fetch without the param.
-				if baselineContains(ctx, client, base+path, p.expect) {
+				// Delta check: fetch the page without injection and count
+				// baseline occurrences. Only flag if the injected response
+				// has MORE occurrences — handles pages that naturally contain
+				// "49" (e.g. "49 results") without false-positive suppression.
+				baselineCount := baselineOccurrences(ctx, client, base+path, p.expect)
+				injectedCount := countOccurrences(p.expect, bodyStr)
+				if injectedCount <= baselineCount {
 					continue
 				}
 
@@ -189,32 +191,39 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return false
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusNotFound
 }
 
-// baselineContains fetches the path without injection and checks whether the
-// expected value already appears in the response, to suppress false positives.
-func baselineContains(ctx context.Context, client *http.Client, rawURL, expect string) bool {
+// baselineOccurrences fetches the path without injection and returns the number
+// of times expect appears in the response body (using the same word-boundary
+// rules as evaluatedInBody). Returns 0 on any error.
+func baselineOccurrences(ctx context.Context, client *http.Client, rawURL, expect string) int {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return false
+		return 0
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return false
+		return 0
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	resp.Body.Close()
-	return evaluatedInBody(expect, string(body))
+	return countOccurrences(expect, string(body))
+}
+
+// countOccurrences returns the number of word-boundary matches of expect in body.
+func countOccurrences(expect, body string) int {
+	switch expect {
+	case "49":
+		return len(wordBoundary49.FindAllString(body, -1))
+	case "7777777":
+		return len(wordBoundary7777777.FindAllString(body, -1))
+	default:
+		return strings.Count(body, expect)
+	}
 }
 
 // detectScheme tries HTTPS first, falling back to HTTP.
@@ -225,9 +234,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

@@ -5,7 +5,8 @@
 // of application/xml or text/xml, then injects XXE payloads and checks whether
 // the server echoes /etc/passwd content or internal file data in its response.
 //
-// Deep mode only (active payloads that attempt file reads).
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+// ScanAuthorized only (active payloads that attempt file reads).
 package xxe
 
 import (
@@ -88,7 +89,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the XXE scan. Deep mode only.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -142,28 +144,21 @@ func discoverXMLEndpoints(ctx context.Context, client *http.Client, base string)
 			if err != nil {
 				continue
 			}
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 			resp.Body.Close()
 
-			// Accept only if the response gives strong signals of XML processing:
-			//   (a) response Content-Type is XML or SOAP, OR
-			//   (b) response body contains XML-like markup.
-			// This avoids false positives from SPA catch-all routes that return
-			// 200 for every path regardless of content-type.
+			// Accept any 2xx non-HTML response as a potential XML endpoint.
+			// We cannot require the response to be XML because many servers
+			// (e.g. Spring Boot REST) accept XML input but always respond with
+			// JSON. The only filter we apply is:
+			//   - status must be 2xx (not 404/405/501)
+			//   - response must not be text/html (SPA catch-all routes
+			//     typically return HTML for every unknown path)
 			respCT := resp.Header.Get("Content-Type")
-			xmlCT := strings.Contains(respCT, "xml") || strings.Contains(respCT, "soap")
-			bodyStr := string(body)
-			xmlBody := strings.Contains(bodyStr, "<?xml") ||
-				strings.Contains(bodyStr, "<soap:") ||
-				strings.Contains(bodyStr, "<SOAP") ||
-				(strings.Contains(bodyStr, "<?") && strings.Contains(bodyStr, "?>"))
+			isHTML := strings.Contains(respCT, "text/html")
 
-			validStatus := resp.StatusCode >= 200 && resp.StatusCode < 500 &&
-				resp.StatusCode != http.StatusNotFound &&
-				resp.StatusCode != http.StatusMethodNotAllowed &&
-				resp.StatusCode != http.StatusNotImplemented
+			validStatus := resp.StatusCode >= 200 && resp.StatusCode < 300
 
-			if validStatus && (xmlCT || xmlBody) {
+			if validStatus && !isHTML {
 				endpoints = append(endpoints, endpointURL)
 				break
 			}

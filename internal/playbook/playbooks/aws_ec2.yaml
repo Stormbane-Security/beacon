@@ -11,6 +11,7 @@ match:
     - cname_contains: ".elb.amazonaws.com"
     - cname_contains: ".awsglobalaccelerator.com"
     - cert_san_contains: ".compute.amazonaws.com"
+    - cloud_provider_contains: "aws"
 surface:
   nuclei_tags:
     - aws

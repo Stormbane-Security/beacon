@@ -1,8 +1,9 @@
 // Package saml detects SAML endpoints and tests for common SAML vulnerabilities.
 //
 // Surface mode: passive discovery of SAML/SSO endpoints and metadata.
-// Deep mode: active tests for signature bypass, XML wrapping, replay,
+// ScanAuthorized mode: active tests for signature bypass, XML wrapping, replay,
 // issuer/audience validation, XXE.
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
 //
 // CheckIDs used:
 //   - finding.CheckSAMLEndpointExposed       = "saml.endpoint_exposed"
@@ -102,11 +103,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return findings, nil
 	}
 
-	// ── Deep mode: active ACS probing ─────────────────────────────────────
+	// ── ScanAuthorized mode: active ACS probing ─────────────────────────────────────
 	acsURL := discoveredACS
 	if acsURL == "" {
 		// Try guessed ACS paths; use the first one that responds at all.

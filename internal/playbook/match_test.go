@@ -549,6 +549,36 @@ match:
 	}
 }
 
+// TestMatch_LLMProviderCaseInsensitive verifies that llm_provider_contains
+// performs a case-insensitive substring match against Evidence.LLMProvider.
+// A rule specifying "OpenAI" should match an Evidence with LLMProvider "openai".
+func TestMatch_LLMProviderCaseInsensitive(t *testing.T) {
+	p := mustParse(t, `
+name: test_llm_provider
+match:
+  any:
+    - llm_provider_contains: "OpenAI"
+`)
+
+	// Mixed-case rule should match lower-case evidence value.
+	ev := playbook.Evidence{LLMProvider: "openai"}
+	if !p.Matches(ev) {
+		t.Fatal("llm_provider_contains must match case-insensitively: 'OpenAI' should match 'openai'")
+	}
+
+	// Rule should not match an unrelated provider.
+	evOther := playbook.Evidence{LLMProvider: "anthropic"}
+	if p.Matches(evOther) {
+		t.Fatal("llm_provider_contains must not match an unrelated provider")
+	}
+
+	// Empty LLMProvider should not match.
+	evEmpty := playbook.Evidence{}
+	if p.Matches(evEmpty) {
+		t.Fatal("llm_provider_contains must not match when LLMProvider is empty")
+	}
+}
+
 // TestMatch_AnyConditionsOR verifies that a playbook with two rules in any:
 // matches when EITHER (or both) conditions are satisfied.
 func TestMatch_AnyConditionsOR(t *testing.T) {
@@ -585,5 +615,29 @@ match:
 	}
 	if p.Matches(neither) {
 		t.Fatal("any: combinator must not match when neither condition is satisfied")
+	}
+}
+
+// TestMatch_AIEndpointPresentFalse verifies that a playbook rule requiring
+// ai_endpoint_present: true does NOT match when Evidence.AIEndpoints is empty.
+// This guards against accidental trigger of AI-specific playbooks on non-AI targets.
+func TestMatch_AIEndpointPresentFalse(t *testing.T) {
+	p := mustParse(t, `
+name: test_ai_endpoint_present
+match:
+  any:
+    - ai_endpoint_present: true
+`)
+
+	// No AI endpoints detected — must not match.
+	evEmpty := playbook.Evidence{}
+	if p.Matches(evEmpty) {
+		t.Fatal("ai_endpoint_present: true must not match when Evidence.AIEndpoints is empty")
+	}
+
+	// AI endpoints present — must match.
+	evWithAI := playbook.Evidence{AIEndpoints: []string{"https://api.example.com/v1/chat/completions"}}
+	if !p.Matches(evWithAI) {
+		t.Fatal("ai_endpoint_present: true must match when Evidence.AIEndpoints is non-empty")
 	}
 }

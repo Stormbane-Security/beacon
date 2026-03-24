@@ -196,10 +196,30 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckCensysHostData:       `curl -s -u "$BEACON_CENSYS_API_ID:$BEACON_CENSYS_API_SECRET" "https://search.censys.io/api/v2/hosts/{asset}" | python3 -m json.tool`,
 	finding.CheckGreyNoiseContext:     `curl -s "https://api.greynoise.io/v3/community/{asset}" -H "key: $BEACON_GREYNOISE_API_KEY" | python3 -m json.tool`,
 
+	// ── Swagger / OpenAPI ─────────────────────────────────────────────────────
+	finding.CheckSwaggerExposed: `curl -s https://{asset}/swagger.json | python3 -m json.tool | head -40`,
+
 	// ── Web3 ──────────────────────────────────────────────────────────────────
 	finding.CheckWeb3WalletLibDetected:  `curl -s https://{asset}/ | grep -oiE '(ethers|viem|wagmi|walletconnect|web3\.js)' | sort -u`,
 	finding.CheckWeb3RPCEndpointExposed: `curl -s -X POST https://{asset}/ -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' | python3 -m json.tool`,
 	finding.CheckWeb3ContractFound:      `curl -s https://{asset}/ | grep -oE '0x[0-9a-fA-F]{40}' | sort -u`,
+
+	// ── EVM contract vulnerability ─────────────────────────────────────────
+	finding.CheckContractReentrancy:      `slither {asset} --detect reentrancy-eth,reentrancy-no-eth 2>/dev/null | grep -i reentrancy`,
+	finding.CheckContractSelfDestruct:    `slither {asset} --detect suicidal 2>/dev/null | head -20`,
+	finding.CheckContractUncheckedCall:   `slither {asset} --detect unchecked-lowlevel 2>/dev/null | head -20`,
+	finding.CheckContractIntegerOverflow: `slither {asset} --detect integer-overflow 2>/dev/null | head -20`,
+	finding.CheckContractSourceExposed:   `curl -s 'https://api.etherscan.io/api?module=contract&action=getsourcecode&address={asset}' | python3 -m json.tool | head -20`,
+	finding.CheckContractProxyAdmin:      `cast storage {asset} 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103 --rpc-url $BEACON_ETH_RPC_URL 2>/dev/null`,
+
+	// ── Blockchain node detection ──────────────────────────────────────────
+	finding.CheckChainNodeRPCExposed:       `curl -s -X POST http://{asset}:8545 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'`,
+	finding.CheckChainNodeUnauthorized:     `curl -s -X POST http://{asset}:8545 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}'`,
+	finding.CheckChainNodeValidatorExposed: `curl -s http://{asset}:5052/eth/v1/node/syncing | python3 -m json.tool`,
+	finding.CheckChainNodeMinerExposed:     `curl -s -X POST http://{asset}:8545 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_coinbase","params":[],"id":1}'`,
+	finding.CheckChainNodePeerCountLeak:    `curl -s -X POST http://{asset}:8545 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}'`,
+	finding.CheckChainNodeWSExposed:        `wscat -c ws://{asset}:8546 -x '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' 2>/dev/null`,
+	finding.CheckChainNodeGrafanaExposed:   `curl -s http://{asset}:9615/metrics | grep -E '^# HELP|^beacon' | head -10`,
 
 	// ── Nmap ──────────────────────────────────────────────────────────────────
 	finding.CheckNmapOSDetected:  `nmap -O {asset} --osscan-guess 2>/dev/null | grep -E 'OS:|Running:' | head -5`,
@@ -331,4 +351,23 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckGHActionOverpermissioned: `# Check workflow for 'permissions: write-all' or absent permissions block`,
 	finding.CheckGHActionSecretsEchoed:    `# Search run: steps for echo/printf of ${{ secrets.* }}`,
 	finding.CheckGHActionSelfHostedPublic: `# Public repo with 'runs-on: [self-hosted]' — any fork can trigger`,
+
+	// ── Terraform / IaC static analysis ──────────────────────────────────────
+	finding.CheckTerraformS3BucketPublic:     `grep -rn 'acl\s*=\s*"public\|block_public_acls\s*=\s*false' {asset}`,
+	finding.CheckTerraformGCSBucketPublic:    `grep -rn 'allUsers\|allAuthenticatedUsers\|uniform_bucket_level_access\s*=\s*false' {asset}`,
+	finding.CheckTerraformGKEPublicEndpoint:  `grep -rn 'google_container_cluster' {asset}; echo "Verify master_authorized_networks_config or private_cluster_config is present"`,
+	finding.CheckTerraformGKELegacyABAC:     `grep -rn 'enable_legacy_abac\s*=\s*true' {asset}`,
+	finding.CheckTerraformGKENoNetworkPolicy: `grep -rn 'google_container_cluster' {asset}; echo "Verify network_policy { enabled = true } block is present"`,
+	finding.CheckTerraformRDSPublic:          `grep -rn 'publicly_accessible\s*=\s*true' {asset}`,
+	finding.CheckTerraformRDSUnencrypted:     `grep -rn 'aws_db_instance' {asset}; grep -n 'storage_encrypted' {asset}`,
+	finding.CheckTerraformSGOpenIngress:      `grep -rn '0\.0\.0\.0/0\|::/0' {asset}`,
+	finding.CheckTerraformIAMWildcardPolicy:  `grep -rn '"Action".*"\*"' {asset}`,
+	finding.CheckTerraformIAMAdminPolicy:     `grep -rn 'AdministratorAccess\|PowerUserAccess' {asset}`,
+	finding.CheckTerraformSecretsInCode:      `grep -rn 'password\s*=\s*"[^$]' {asset} | grep -v 'var\.\|local\.\|data\.'`,
+	finding.CheckTerraformUnencryptedEBS:     `grep -rn 'encrypted\s*=\s*false' {asset}`,
+	finding.CheckTerraformIMDSv1Enabled:      `grep -rn 'aws_instance' {asset}; echo "Verify metadata_options { http_tokens = required } is present"`,
+	finding.CheckTerraformPublicECRRepo:      `grep -rn 'aws_ecr_repository' {asset}; echo "Verify encryption_configuration block is present"`,
+	finding.CheckTerraformCloudFrontHTTP:     `grep -rn 'viewer_protocol_policy\s*=\s*"allow-all"' {asset}`,
+	finding.CheckTerraformLBHTTP:             `grep -rn 'protocol\s*=\s*"HTTP"' {asset}`,
+	finding.CheckTerraformTFStatePublic:      `grep -rn 'encrypt\s*=\s*false' {asset}`,
 }

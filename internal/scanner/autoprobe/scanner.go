@@ -117,11 +117,21 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	r1, t1 := probeLogin(ctx, client, loginURL, userA, syntheticPassword)
 	r2, t2 := probeLogin(ctx, client, loginURL, userB, syntheticPassword)
+	// Second pair of requests for timing consistency — a single pair can produce
+	// a spurious difference due to network jitter. Both pairs must show timing
+	// difference in the same direction before we report it.
+	r1b, t1b := probeLogin(ctx, client, loginURL, userA, syntheticPassword)
+	r2b, t2b := probeLogin(ctx, client, loginURL, userB, syntheticPassword)
 
 	if r1 != nil && r2 != nil {
 		bodyDiff := math.Abs(float64(r1.bodyLen-r2.bodyLen)) > 20
 		statusDiff := r1.status != r2.status
-		timingDiff := timingSignificant(t1, t2)
+		// Timing difference must exceed 500ms threshold AND be consistent across
+		// both probe pairs (same direction: A faster or slower than B both times).
+		timingDiff := timingSignificant(t1, t2) &&
+			r1b != nil && r2b != nil &&
+			timingSignificant(t1b, t2b) &&
+			((t1 > t2) == (t1b > t2b))
 
 		if bodyDiff || statusDiff || timingDiff {
 			detail := ""
@@ -330,11 +340,12 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 }
 
 // timingSignificant returns true if the timing difference between two requests
-// is large enough to suggest differential processing (>300ms gap).
+// is large enough to suggest differential processing (>500ms gap).
+// The higher threshold reduces false positives from network jitter.
 func timingSignificant(a, b time.Duration) bool {
 	diff := a - b
 	if diff < 0 {
 		diff = -diff
 	}
-	return diff > 300*time.Millisecond
+	return diff > 500*time.Millisecond
 }

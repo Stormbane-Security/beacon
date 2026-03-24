@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ var secretPatterns = map[string]*regexp.Regexp{
 	"Anthropic API Key":        regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`),
 	"Firebase API Key":         regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
 	"Mailgun API Key":          regexp.MustCompile(`key-[a-f0-9]{32}`),
+	"OAuth Client Secret":      regexp.MustCompile(`(?i)client[_-]?secret['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][0-9a-zA-Z\-_.]{16,}`),
 }
 
 // internalEndpointPatterns matches internal/development API endpoints in JS.
@@ -377,67 +379,114 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 	var findings []finding.Finding
 	now := time.Now()
 
-	// Check for hardcoded secrets
+	// Check for hardcoded secrets — find ALL matches per pattern so a file with
+	// multiple keys produces one finding per key, not just the first.
+	seenMatches := make(map[string]struct{}) // dedup identical matches within the same file
 	for label, pattern := range secretPatterns {
-		match := pattern.FindString(srcStr)
-		if match == "" {
-			continue
-		}
-		// Dedup: skip less-specific patterns when a more-specific one covers the
-		// same credential value. Firebase keys (AIzaSy...) also match "Google API
-		// Key" (AIza...) and, when in apiKey=... context, "Generic API Key".
-		if label == "Google API Key" && secretPatterns["Firebase API Key"].MatchString(match) {
-			continue // reported as Firebase API Key
-		}
-		if label == "Generic API Key" {
-			// If the value portion of this match contains a more-specific credential,
-			// suppress the generic label — it will be (or was) captured more precisely.
-			for specific, re := range secretPatterns {
-				if specific == "Generic API Key" || specific == "Generic Password" {
-					continue
-				}
-				if re.FindString(match) != "" {
-					match = "" // signal: skip this label
-					break
-				}
-			}
+		matches := pattern.FindAllString(srcStr, -1)
+		for _, match := range matches {
 			if match == "" {
 				continue
 			}
-		}
-		// Generic Password: filter out common non-secret values — the keyword
-		// "password" itself (as an i18n label or HTML attribute), autocomplete
-		// hints like "current-password", field type specifiers, etc.
-		if label == "Generic Password" {
-			if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
-				val := sub[1]
-				// Skip known false-positive values (input type names, autocomplete hints).
-				if genericPwdFalsePositives[val] {
-					continue
-				}
-				// Skip placeholder/template tokens: %filtered%, {PASSWORD}, $SECRET, etc.
-				if genericPwdPlaceholderRe.MatchString(val) {
-					continue
-				}
-				// Skip values that are all lowercase ASCII words — likely a JS property
-				// name or i18n key rather than a credential (e.g. password:"text").
-				allLowerWord := true
-				for _, c := range val {
-					if !((c >= 'a' && c <= 'z') || c == '-' || c == '_') {
-						allLowerWord = false
+			// Dedup identical raw matches (same key appearing multiple times in the file).
+			if _, already := seenMatches[label+":"+match]; already {
+				continue
+			}
+			seenMatches[label+":"+match] = struct{}{}
+
+			// Dedup: skip less-specific patterns when a more-specific one covers the
+			// same credential value. Firebase keys (AIzaSy...) also match "Google API
+			// Key" (AIza...) and, when in apiKey=... context, "Generic API Key".
+			if label == "Google API Key" && secretPatterns["Firebase API Key"].MatchString(match) {
+				continue // reported as Firebase API Key
+			}
+			if label == "Generic API Key" {
+				// If the value portion of this match contains a more-specific credential,
+				// suppress the generic label — it will be (or was) captured more precisely.
+				suppressed := false
+				for specific, re := range secretPatterns {
+					if specific == "Generic API Key" || specific == "Generic Password" {
+						continue
+					}
+					if re.FindString(match) != "" {
+						suppressed = true
 						break
 					}
 				}
-				if allLowerWord {
+				if suppressed {
 					continue
 				}
+				// Extract the quoted value and reject env-var references — patterns like
+				// apiKey: "NEXT_PUBLIC_SOME_SERVICE_API_KEY" where the "value" is itself
+				// an uppercase_underscore variable name, not an actual credential.
+				if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
+					val := sub[1]
+					isEnvVarRef := true
+					for _, c := range val {
+						if !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+							isEnvVarRef = false
+							break
+						}
+					}
+					if isEnvVarRef {
+						continue // e.g. NEXT_PUBLIC_API_KEY, REACT_APP_TOKEN — not a real value
+					}
+				}
 			}
-		}
-		{
+			// Generic Password: filter out common non-secret values — the keyword
+			// "password" itself (as an i18n label or HTML attribute), autocomplete
+			// hints like "current-password", field type specifiers, etc.
+			if label == "Generic Password" {
+				if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
+					val := sub[1]
+					// Skip known false-positive values (input type names, autocomplete hints).
+					if genericPwdFalsePositives[val] {
+						continue
+					}
+					// Skip placeholder/template tokens: %filtered%, {PASSWORD}, $SECRET, etc.
+					if genericPwdPlaceholderRe.MatchString(val) {
+						continue
+					}
+					// Skip values that are all lowercase ASCII words — likely a JS property
+					// name or i18n key rather than a credential (e.g. password:"text").
+					allLowerWord := true
+					for _, c := range val {
+						if !((c >= 'a' && c <= 'z') || c == '-' || c == '_') {
+							allLowerWord = false
+							break
+						}
+					}
+					if allLowerWord {
+						continue
+					}
+				}
+			}
 			// Redact the actual value in the finding
 			redacted := match
 			if len(redacted) > 12 {
 				redacted = redacted[:8] + "..." + redacted[len(redacted)-4:]
+			}
+			// Detect cross-origin JS: the file is hosted on a different domain than
+			// the scanned asset (e.g. a CDN or third-party vendor). The credential is
+			// still exposed to visitors of the asset regardless of where the file lives.
+			jsHost := jsURL
+			if u, err := url.Parse(jsURL); err == nil {
+				jsHost = u.Host
+			}
+			crossOrigin := jsHost != asset && jsHost != "www."+asset
+			desc := fmt.Sprintf("A %s appears to be hardcoded in a JavaScript file at %s. This credential is exposed to anyone who visits %s.", label, jsURL, asset)
+			if crossOrigin {
+				desc = fmt.Sprintf(
+					"A %s appears to be hardcoded in a JavaScript file hosted at %s (a third-party dependency of %s). "+
+						"Because %s loads this script, the credential is delivered to every visitor's browser regardless of where the file is hosted. "+
+						"The owning team for %s should be notified.",
+					label, jsURL, asset, asset, jsHost)
+			}
+			ev := map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted}
+			if crossOrigin {
+				ev["loaded_by"] = asset
+				ev["hosted_on"] = jsHost
+				ev["cross_origin"] = true
 			}
 			findings = append(findings, finding.Finding{
 				CheckID:     finding.CheckJSHardcodedSecret,
@@ -445,9 +494,9 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 				Scanner:     scannerName,
 				Severity:    finding.SeverityCritical,
 				Title:       fmt.Sprintf("Hardcoded %s found in JavaScript", label),
-				Description: fmt.Sprintf("A %s appears to be hardcoded in a JavaScript file at %s. This credential is exposed to anyone who visits the site.", label, jsURL),
+				Description: desc,
 				Asset:       asset,
-				Evidence:    map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted},
+				Evidence:    ev,
 				// Use a shell-safe proof command — the internal Go regex contains single
 				// quotes and backticks that would break shell quoting. Instead use a
 				// keyword-context grep that avoids those characters entirely.

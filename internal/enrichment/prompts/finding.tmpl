@@ -4,6 +4,9 @@ You have been given a list of security findings from an automated scan. For each
 1. A plain-language explanation of what the issue is (1-2 sentences, no jargon)
 2. The real-world impact if this is exploited (1-2 sentences, in business terms: data breach, downtime, compliance fine)
 3. Specific remediation steps (numbered list, as concrete as possible)
+4. A Terraform/OpenTofu HCL fix block — only when the issue maps to an IaC resource (cloud storage,
+   load balancer, DNS record, compute instance, certificate, IAM policy). Leave empty string "" when
+   no Terraform fix applies (e.g. web app logic bugs, runtime-only issues).
 
 Respond with a JSON array. Each object must have exactly these fields:
 - "check_id": the check_id from the input (unchanged)
@@ -11,8 +14,11 @@ Respond with a JSON array. Each object must have exactly these fields:
 - "impact": what an attacker could do and what that costs the business
 - "remediation": numbered steps — use the asset name, check type, and any tech clues to give
   the most specific fix possible (exact config keys, CLI commands, package names)
+- "terraform_fix": minimal HCL block that correctly remediates the issue, or "" if not applicable
 
 Keep explanations friendly. Avoid unexplained acronyms. Lead impact with a concrete business consequence.
+For terraform_fix: produce complete, copy-paste-ready HCL. Use placeholder values (e.g. "my-bucket",
+"example.com") and add comments. No markdown fences around the HCL — just the raw HCL text.
 
 Security findings to enrich:
 {{range .}}
@@ -22,6 +28,8 @@ title: {{safe .Title}}
 description: {{safe .Description}}
 severity: {{.Severity}}
 asset: {{safe .Asset}}
+{{if .Reference.DocSummary}}reference: {{.Reference.DocSummary}}{{end}}
+{{if .Reference.TerraformExample}}terraform_example: {{.Reference.TerraformExample}}{{end}}
 {{end}}
 
 Respond with only the JSON array, no other text.

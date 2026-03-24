@@ -323,13 +323,26 @@ func checkPersistedQueryBypass(ctx context.Context, client *http.Client, asset, 
 	if err != nil {
 		return nil
 	}
-	responseBody := string(raw)
-	// A correctly behaving APQ server returns PersistedQueryNotFound.
-	if strings.Contains(responseBody, "PersistedQueryNotFound") {
+	// Parse the response properly to avoid false positives from string matching.
+	// `"data": null` and `"data": {}` both contain the `"data"` string but mean
+	// different things; only a non-null data value proves the query was executed.
+	var gqlResp struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &gqlResp); err != nil {
 		return nil
 	}
-	// If we got a data response, the server executed our query via the APQ path.
-	if !strings.Contains(responseBody, `"data"`) {
+	// A correctly behaving APQ server returns PersistedQueryNotFound in errors.
+	for _, e := range gqlResp.Errors {
+		if strings.Contains(e.Message, "PersistedQueryNotFound") {
+			return nil
+		}
+	}
+	// Only flag if data is present and non-null — the query was actually executed.
+	if len(gqlResp.Data) == 0 || string(gqlResp.Data) == "null" {
 		return nil
 	}
 	return &finding.Finding{

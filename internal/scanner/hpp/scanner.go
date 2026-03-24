@@ -205,9 +205,6 @@ func fetchBody(ctx context.Context, client *http.Client, rawURL string) string {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
@@ -223,9 +220,6 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return false
 	}
 	resp.Body.Close()
@@ -240,9 +234,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

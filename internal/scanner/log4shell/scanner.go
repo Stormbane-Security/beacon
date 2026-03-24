@@ -6,10 +6,11 @@
 // recorded in finding Evidence but no finding is emitted — they inform whether
 // a deep scan is worthwhile.
 //
-// Deep mode: injects JNDI payloads into common HTTP headers and looks for
+// ScanAuthorized mode: injects JNDI payloads into common HTTP headers and looks for
 // reflection of the literal "${jndi:" string in the response body (some debug
 // endpoints echo request headers). If the BEACON_OOB_DOMAIN environment
 // variable is set, the payload uses that domain for out-of-band detection.
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
 package log4shell
 
 import (
@@ -79,7 +80,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	// Deep mode: send JNDI payloads and look for reflection.
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
+		return nil, nil
+	}
+	// ScanAuthorized mode: send JNDI payloads and look for reflection.
 	return s.deepScan(ctx, client, targetURL, asset)
 }
 
@@ -87,6 +92,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, asset string) ([]finding.Finding, error) {
 	oobDomain := os.Getenv("BEACON_OOB_DOMAIN")
 	useOOB := oobDomain != ""
+
+	// Require Java signals before trusting header-reflection as evidence.
+	// Many non-Java servers (nginx debug pages, Rack, etc.) echo arbitrary
+	// headers back in the response body — that alone does not indicate Log4j.
+	// If OOB detection is configured we have real DNS/LDAP callback evidence
+	// and can skip this gate.
+	javaEv := detectJavaSignals(ctx, client, targetURL, asset)
+	hasJavaSignals := javaEv != nil && javaEv["java_detected"] == true
 
 	var callbackHost string
 	if useOOB {
@@ -108,9 +121,6 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 
 		resp, err := client.Do(req)
 		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
-			}
 			continue
 		}
 
@@ -118,9 +128,12 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 		resp.Body.Close()
 
 		// Check whether the raw JNDI string is reflected in the response body.
-		// Some debug/diagnostic endpoints echo request headers — that itself
-		// is a signal that log4j may process the value.
+		// Without OOB detection we also require Java server signals — otherwise
+		// any debug endpoint that echoes headers would produce a false positive.
 		if !strings.Contains(string(body), reflectionMarker) {
+			continue
+		}
+		if !useOOB && !hasJavaSignals {
 			continue
 		}
 
@@ -181,9 +194,6 @@ func detectJavaSignals(ctx context.Context, client *http.Client, targetURL, _ st
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
@@ -229,9 +239,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return "http"
 	}
 	resp.Body.Close()

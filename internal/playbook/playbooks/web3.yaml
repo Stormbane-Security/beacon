@@ -32,10 +32,11 @@ match:
 surface:
   scanners:
     - web3detect
-    - webcontent  # scan JS bundles for hardcoded private keys / mnemonics / RPC keys
-    - dlp         # detect mnemonic phrases, private keys, RPC API keys in page content
-    - cors        # web3 apps often have broad CORS for wallet connections
-    - headers     # check CSP — web3 apps often have weak CSP
+    - contractscan  # analyse EVM contract addresses found in page source for vulnerabilities
+    - chainnode     # detect exposed blockchain node RPC / validator / miner ports
+    - webcontent    # scan JS bundles for hardcoded private keys / mnemonics / RPC keys
+    - dlp           # detect mnemonic phrases, private keys, RPC API keys in page content
+    - cors          # web3 apps often have broad CORS for wallet connections
   nuclei_tags:
     - web3
     - blockchain
@@ -43,6 +44,7 @@ surface:
 
 deep:
   scanners:
-    - web3auth    # SIWE login flow + domain bypass, nonce reuse, replay, escalation probes
+    - web3auth      # SIWE login flow + domain bypass, nonce reuse, replay, escalation probes
+    - contractscan  # deep mode adds proxy admin slot probing + RPC method enumeration
     - cors
     - httpmethods

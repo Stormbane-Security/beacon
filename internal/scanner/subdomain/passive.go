@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -72,49 +73,56 @@ func isValidHostname(s string) bool {
 // Returns findings of type "asset.subdomain_discovered" for each unique subdomain found.
 // The pipeline uses the Evidence field to extract discovered assets for further scanning.
 func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	subdomains := make(map[string]struct{})
+	// All sources run concurrently under a single deadline so no single slow or
+	// hung source (subfinder querying GitHub, amass doing zone-walking) can block
+	// the entire discovery phase. Passive: 5 min total. Deep: 12 min total.
+	deadline := 5 * time.Minute
+	if scanType == module.ScanDeep {
+		deadline = 12 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+
+	active := scanType == module.ScanDeep
+	otxKey := s.otxAPIKey
+
+	type sourceResult struct{ subs []string }
+	ch := make(chan sourceResult, 6)
+	var wg sync.WaitGroup
+
+	launch := func(fn func() []string) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ch <- sourceResult{fn()}
+		}()
+	}
 
 	// Source 1: crt.sh Certificate Transparency logs
-	crtSubs, err := crtsh(ctx, asset)
-	if err == nil {
-		for _, sub := range crtSubs {
-			subdomains[sub] = struct{}{}
-		}
-	}
+	launch(func() []string { subs, _ := crtsh(runCtx, asset); return subs })
 
-	// Source 2: subfinder — passive on surface scans, active (DNS resolve + all
-	// sources) on deep scans where permission has been confirmed.
-	finderSubs, err := runSubfinder(ctx, s.subfinderBin, asset, scanType == module.ScanDeep)
-	if err == nil {
-		for _, sub := range finderSubs {
-			subdomains[sub] = struct{}{}
-		}
-	}
+	// Source 2: subfinder — passive on surface, active (all sources + DNS) on deep
+	launch(func() []string { subs, _ := runSubfinder(runCtx, s.subfinderBin, asset, active); return subs })
 
 	// Source 3: amass passive/OSINT (surface) or active (deep)
-	active := scanType == module.ScanDeep
-	amassSubs, err := runAmass(ctx, s.ammassBin, asset, active)
-	if err == nil {
-		for _, sub := range amassSubs {
-			subdomains[sub] = struct{}{}
-		}
-	}
+	launch(func() []string { subs, _ := runAmass(runCtx, s.ammassBin, asset, active); return subs })
 
 	// Source 4: urlscan.io passive search index (no key required)
-	for _, sub := range urlscanSubdomains(ctx, asset) {
-		subdomains[sub] = struct{}{}
-	}
+	launch(func() []string { return urlscanSubdomains(runCtx, asset) })
 
 	// Source 5: AlienVault OTX passive DNS (optional, requires API key)
-	for _, sub := range otxSubdomains(ctx, asset, s.otxAPIKey) {
-		subdomains[sub] = struct{}{}
-	}
+	launch(func() []string { return otxSubdomains(runCtx, asset, otxKey) })
 
-	// Source 6: DNS brute-force with common subdomain wordlist.
-	// Purely passive from a target perspective — standard DNS lookups only.
-	// Resolves ~160 common prefixes in parallel; adds only those that exist.
-	for _, sub := range bruteForceSubdomains(ctx, asset) {
-		subdomains[sub] = struct{}{}
+	// Source 6: DNS brute-force with common subdomain wordlist
+	launch(func() []string { return bruteForceSubdomains(runCtx, asset) })
+
+	go func() { wg.Wait(); close(ch) }()
+
+	subdomains := make(map[string]struct{})
+	for r := range ch {
+		for _, sub := range r.subs {
+			subdomains[sub] = struct{}{}
+		}
 	}
 
 	if len(subdomains) == 0 {
@@ -229,12 +237,21 @@ func runSubfinder(ctx context.Context, bin, domain string, active bool) ([]strin
 		return nil, fmt.Errorf("subfinder: %w", err)
 	}
 
-	args := []string{"-d", domain, "-silent", "-o", "-"}
+	// Cap subfinder runtime — some passive sources (GitHub, Shodan, etc.) stall
+	// indefinitely. 8 min is generous for passive; 15 min for active DNS resolve.
+	sfTimeout := 8 * time.Minute
+	if active {
+		sfTimeout = 15 * time.Minute
+	}
+	sfCtx, sfCancel := context.WithTimeout(ctx, sfTimeout)
+	defer sfCancel()
+
+	args := []string{"-d", domain, "-silent", "-o", "-", "-timeout", "30"}
 	if !active {
 		args = append(args, "-passive")
 	}
 
-	cmd := exec.CommandContext(ctx, resolvedBin, args...)
+	cmd := exec.CommandContext(sfCtx, resolvedBin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

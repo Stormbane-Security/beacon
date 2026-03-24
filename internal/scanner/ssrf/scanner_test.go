@@ -29,7 +29,7 @@ func TestSSRF_MetadataReflected(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSSRF_NoReflection(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}

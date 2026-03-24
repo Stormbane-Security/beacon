@@ -37,6 +37,8 @@ surface:
     - nginx          # Nginx alias traversal + IIS short-name probes — safe GET-only path probes
     - gateway        # CDN/LB/API-gateway/mesh admin interface exposure — vendor-specific GET probes
     - tlscheck       # native Go TLS: key strength, OCSP, CT logs, PFS, HSTS policy
+    - swagger        # OpenAPI/Swagger spec exposure — safe GET probes to common spec paths
+    - chainnode      # blockchain node/validator/miner detection — port probes + JSON-RPC fingerprinting
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:
@@ -76,6 +78,7 @@ deep:
     - xxe            # XML external entity injection in XML-accepting endpoints
     - deserial       # insecure deserialization fingerprinting (Java/PHP magic bytes + exception probing)
     - fileupload     # file upload bypass: double extension, MIME confusion, null byte
+    - swagger        # OpenAPI endpoint fuzzing: missing-param 500s, type confusion, SQL canaries
   nuclei_tags:
     - cves
     - network

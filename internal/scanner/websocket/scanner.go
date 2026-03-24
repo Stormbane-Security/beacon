@@ -151,9 +151,6 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if resp != nil {
-			resp.Body.Close()
-		}
 		return nil
 	}
 	defer resp.Body.Close()

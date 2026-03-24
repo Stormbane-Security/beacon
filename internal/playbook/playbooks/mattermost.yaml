@@ -25,7 +25,6 @@ match:
         contains: ""
 surface:
   scanners:
-    - headers
     - exposedfiles
     - httpmethods
     - apiversions

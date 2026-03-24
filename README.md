@@ -1,6 +1,14 @@
 # Beacon
 
-Beacon is a modular, passive-first attack surface scanner built for security engineers and developers who need actionable reconnaissance without false positives. It discovers subdomains, fingerprints technology stacks, checks email and TLS hygiene, probes for exposed files and cloud buckets, and — with explicit permission — runs active vulnerability payloads. Findings are enriched with AI-generated context and remediation guidance via the Claude API, and every scan is stored locally so you can track your attack surface over time.
+Beacon is a modular, safe-by-default attack surface scanner built for security engineers and developers who need actionable reconnaissance without false positives. It discovers subdomains, fingerprints technology stacks, checks email and TLS hygiene, probes for exposed files and cloud buckets, and — with explicit permission — runs active vulnerability payloads. Findings are enriched with AI-generated context and remediation guidance via the Claude API, and every scan is stored locally so you can track your attack surface over time.
+
+**Three scan modes** give you precise control over risk:
+
+| Mode | What it does | How to enable |
+|------|-------------|---------------|
+| `surface` | Passive enumeration and safe read-only probes. Safe to run without explicit permission on any publicly-reachable domain. | Default — no extra flags required |
+| `deep` | Active probing: port scans, directory brute-force, nuclei CVE templates, testssl analysis, payload injection. | `--deep --permission-confirmed` |
+| `authorized` | Exploitation-class probes (SSRF, SSTI, prototype pollution, log4shell OOB callbacks, JWT attacks, etc.). | `--deep --permission-confirmed --authorized` + interactive acknowledgment at runtime |
 
 ## Table of Contents
 
@@ -155,6 +163,7 @@ beacon scan --github <org-or-repo> [flags]
 | `--github <org>` | Scan a GitHub organisation or `org/repo` for Actions workflow vulnerabilities. Mutually exclusive with `--domain`. |
 | `--deep` | Enable active probing. Requires `--permission-confirmed`. |
 | `--permission-confirmed` | Acknowledge that you have explicit written authorisation to run active probes against the target. |
+| `--authorized` | Enable exploitation-class probes (SSRF, SSTI, log4shell OOB, JWT attacks, etc.). Requires `--deep`, `--permission-confirmed`, and an interactive acknowledgment prompt at runtime. |
 | `--format <fmt>` | Output format: `text` (default), `html`, `json`, `markdown`. |
 | `--out <path>` | Write the report to a file instead of stdout. |
 | `--severity <level>` | Minimum severity to include in the report: `critical`, `high`, `medium`, `low`, `info` (default). Findings below this threshold are not enriched or sent to the Claude API. |
@@ -340,11 +349,12 @@ All `BEACON_*` environment variables override the corresponding config file valu
 | `BEACON_GREYNOISE_API_KEY` | `greynoise_api_key` | Enriches discovered IPs with GreyNoise noise context (is this IP a known scanner?). Free community key at [greynoise.io](https://greynoise.io). |
 | `BEACON_GITHUB_TOKEN` | `github_token` | GitHub personal access token. Raises the GitHub API rate limit from 60 to 5,000 req/hour, enables scanning private repositories, and is required for `beacon playbook open-pr`. |
 
-#### Model Selection
+#### Model Selection and AI Behaviour
 
 | Variable | Config key | Description |
 |----------|-----------|-------------|
 | `BEACON_CLAUDE_MODEL` | `claude_model` | Overrides the Claude model used for AI enrichment and summary generation. Default: `claude-sonnet-4-6`. |
+| `BEACON_ADAPTIVE_RECON` | `adaptive_recon` | When `true` and `BEACON_ANTHROPIC_API_KEY` is set, Claude profiles each target after the classify phase and recommends scanner modules and evasion strategies. Default: `false`. |
 
 #### Storage and Config Path
 
@@ -379,6 +389,15 @@ These variables are consumed by `beacond` only, not by the `beacon` CLI.
 | `BEACON_SMTP_USER` | `smtp.user` | SMTP username. |
 | `BEACON_SMTP_PASS` | `smtp.pass` | SMTP password. |
 | `BEACON_SMTP_FROM` | `smtp.from` | Sender address used in outbound report emails. |
+
+#### Scan Behaviour
+
+| Variable | Config key | Description |
+|----------|-----------|-------------|
+| `BEACON_AUTH_TOKEN` | _(env only)_ | Global bearer token injected as `Authorization: Bearer <token>` into all HTTP requests for all assets. Per-asset `auth` entries in the config file take precedence when they match. |
+| `BEACON_OOB_DOMAIN` | _(env only)_ | Out-of-band callback domain for log4shell and SSRF OOB detection in authorized mode. Beacon injects `${jndi:ldap://...}` payloads that call back to this domain to confirm exploitation. |
+| `BEACON_PROXY_POOL` | `proxy_pool` | Comma-separated list of SOCKS5/HTTP proxy URLs rotated round-robin across assets for request evasion (e.g. `socks5://1.2.3.4:1080,http://5.6.7.8:8080`). |
+| `BEACON_REQUEST_JITTER_MS` | `request_jitter_ms` | Maximum random delay in milliseconds injected between scanner HTTP requests. `0` disables jitter (default). |
 
 #### Binary Path Overrides
 

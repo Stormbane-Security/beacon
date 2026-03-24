@@ -18,6 +18,7 @@ match:
     - body_contains: "_next/static"
     - path_responds: "/_next/static/chunks/main.js"
     - path_responds: "/_next/static/chunks/webpack.js"
+    - framework_contains: "nextjs"
 surface:
   scanners:
     - exposedfiles

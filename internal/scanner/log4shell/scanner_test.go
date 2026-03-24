@@ -39,7 +39,9 @@ func TestLog4Shell_JavaSignalDetected_SurfaceOnly(t *testing.T) {
 // the JNDI string back in the response body a Critical finding is emitted.
 func TestLog4Shell_ReflectionInBody_DeepMode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate a debug endpoint that echoes all request headers.
+		// Simulate a Java debug endpoint: set Tomcat Server header (Java signal)
+		// and echo all request headers back in the response body.
+		w.Header().Set("Server", "Apache Tomcat/9.0.75")
 		var sb strings.Builder
 		for name, vals := range r.Header {
 			sb.WriteString(name + ": " + strings.Join(vals, ", ") + "\n")
@@ -49,7 +51,7 @@ func TestLog4Shell_ReflectionInBody_DeepMode(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -78,7 +80,7 @@ func TestLog4Shell_NoReflection_NoFinding(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}

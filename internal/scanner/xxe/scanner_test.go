@@ -31,7 +31,7 @@ func TestRun_DeepMode_NoXMLEndpoints_NoFindings(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestRun_DeepMode_XXEDetected(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestRun_DeepMode_XMLEndpointExists_NoXXE_NoFinding(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestRun_DeepMode_ProofCommandHasActualURL(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,6 +153,6 @@ func TestRun_ContextCancelled_NoPanic(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, _ := s.Run(ctx, host, module.ScanDeep)
+	findings, _ := s.Run(ctx, host, module.ScanAuthorized)
 	_ = findings // must not panic
 }

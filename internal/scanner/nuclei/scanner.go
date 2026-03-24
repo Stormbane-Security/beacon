@@ -4,8 +4,9 @@
 //
 // # WAF interaction
 //
-// Deep Nuclei templates include active probes — fuzzing, path enumeration,
-// and exploit PoC payloads. These WILL trigger WAF managed rules and may
+// ScanAuthorized Nuclei templates include active exploit probes — fuzzing, path enumeration,
+// and exploit PoC payloads.
+// Active exploitation probes require ScanAuthorized mode (--authorized flag). These WILL trigger WAF managed rules and may
 // result in a source-IP block for the duration of the scan or longer.
 // Expected behaviour on WAF-protected targets:
 //   - Cloudflare/AWS WAF: probe requests return 403 with a WAF challenge page.
@@ -114,7 +115,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	templateList := s.surfaceList
-	if scanType == module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType == module.ScanAuthorized {
 		templateList = s.deepList
 	}
 

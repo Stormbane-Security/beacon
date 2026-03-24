@@ -112,6 +112,41 @@ var allCheckIDs = []finding.CheckID{
 	finding.CheckHarvesterEmails,
 	finding.CheckHarvesterSubdomains,
 	finding.CheckVisionServiceID,
+	// OpenAPI / Swagger
+	finding.CheckSwaggerExposed,
+	// EVM smart contract analysis
+	finding.CheckContractReentrancy,
+	finding.CheckContractSelfDestruct,
+	finding.CheckContractUncheckedCall,
+	finding.CheckContractIntegerOverflow,
+	finding.CheckContractSourceExposed,
+	finding.CheckContractProxyAdmin,
+	// Blockchain node detection
+	finding.CheckChainNodeRPCExposed,
+	finding.CheckChainNodeUnauthorized,
+	finding.CheckChainNodeValidatorExposed,
+	finding.CheckChainNodeMinerExposed,
+	finding.CheckChainNodePeerCountLeak,
+	finding.CheckChainNodeWSExposed,
+	finding.CheckChainNodeGrafanaExposed,
+	// Terraform / IaC static analysis
+	finding.CheckTerraformS3BucketPublic,
+	finding.CheckTerraformGCSBucketPublic,
+	finding.CheckTerraformGKEPublicEndpoint,
+	finding.CheckTerraformGKELegacyABAC,
+	finding.CheckTerraformGKENoNetworkPolicy,
+	finding.CheckTerraformRDSPublic,
+	finding.CheckTerraformRDSUnencrypted,
+	finding.CheckTerraformSGOpenIngress,
+	finding.CheckTerraformIAMWildcardPolicy,
+	finding.CheckTerraformIAMAdminPolicy,
+	finding.CheckTerraformSecretsInCode,
+	finding.CheckTerraformUnencryptedEBS,
+	finding.CheckTerraformIMDSv1Enabled,
+	finding.CheckTerraformPublicECRRepo,
+	finding.CheckTerraformCloudFrontHTTP,
+	finding.CheckTerraformLBHTTP,
+	finding.CheckTerraformTFStatePublic,
 	// Web3 / SIWE + SIWS
 	finding.CheckWeb3SIWEEndpoint,
 	finding.CheckWeb3SIWSDEndpoint,
@@ -223,6 +258,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckWebAPIFuzz:             true,
 		// Log4Shell — deep mode sends JNDI payload in headers
 		finding.CheckCVELog4Shell: true,
+		// EVM contract vulnerability analysis — active Etherscan + RPC probes
+		finding.CheckContractReentrancy:      true,
+		finding.CheckContractSelfDestruct:    true,
+		finding.CheckContractUncheckedCall:   true,
+		finding.CheckContractIntegerOverflow: true,
 	}
 
 	for id, meta := range finding.Registry {

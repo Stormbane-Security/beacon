@@ -22,6 +22,7 @@ match:
     - header_value:
         name: "x-powered-by"
         contains: "Spring"
+    - framework_contains: "spring"
     # /health and /env are intentionally excluded — too broad, used by
     # Django, Rails, k8s liveness probes, and many non-Spring services.
 surface:

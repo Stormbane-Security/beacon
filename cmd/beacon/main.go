@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,7 +18,6 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
-
 
 	"github.com/google/uuid"
 
@@ -32,6 +32,7 @@ import (
 	"github.com/stormbane/beacon/internal/modules/surface"
 	"github.com/stormbane/beacon/internal/playbook"
 	"github.com/stormbane/beacon/internal/report"
+	tfscan "github.com/stormbane/beacon/internal/scanner/terraform"
 	"github.com/stormbane/beacon/internal/store"
 	sqlitestore "github.com/stormbane/beacon/internal/store/sqlite"
 	"github.com/stormbane/beacon/internal/scanner/toolinstall"
@@ -85,6 +86,7 @@ EXAMPLES:
   beacon analyze
   beacon playbook suggestions
   beacon playbook open-pr --id <suggestion-id>
+  beacon terraform <path> [<path>...]
 `
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -135,6 +137,8 @@ func main() {
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
+	case "terraform":
+		cmdTerraform(cfg, os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -1354,7 +1358,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeFinds:
-			if isQ || isEsc {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc {
 				bs.mode = browseModeScans
 				bs.findings = nil
 				bs.executions = nil
@@ -1405,7 +1412,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeDetail:
-			if isQ || isEsc || b[0] == 'b' {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeFinds
 				bs.selectedFinding = nil
 			}
@@ -1430,7 +1440,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeAssets:
-			if isQ || isEsc || b[0] == 'b' {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeScans
 				bs.findings = nil
 				bs.executions = nil
@@ -1454,7 +1467,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeAssetDetail:
-			if isQ || isEsc || b[0] == 'b' {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeAssets
 				bs.selectedExec = nil
 			}
@@ -2629,6 +2645,169 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	_ = st.UpdatePlaybookSuggestion(ctx, target)
 }
 
+// ---------- terraform ----------
+
+// cmdTerraform scans one or more Terraform/OpenTofu HCL files (or directories)
+// for infrastructure misconfigurations and prints findings to stdout.
+//
+// Usage:
+//
+//	beacon terraform <path> [<path>...]
+//	beacon terraform --format json ./infra
+//	beacon terraform --severity high ./infra
+func cmdTerraform(cfg *config.Config, args []string) {
+	var paths []string
+	format := "text"
+	severityFlag := ""
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format", "-f":
+			if i+1 < len(args) {
+				i++
+				format = args[i]
+			}
+		case "--severity", "-s":
+			if i+1 < len(args) {
+				i++
+				severityFlag = args[i]
+			}
+		default:
+			paths = append(paths, args[i])
+		}
+	}
+
+	if len(paths) == 0 {
+		fatalf("usage: beacon terraform [--format text|json|markdown] [--severity <level>] <path> [<path>...]")
+	}
+
+	findings, err := tfscan.ScanFiles(paths)
+	if err != nil {
+		fatalf("terraform scan: %v", err)
+	}
+
+	// Apply severity filter.
+	minSev := finding.ParseSeverity(severityFlag)
+	if minSev > finding.SeverityInfo {
+		var filtered []finding.Finding
+		for _, f := range findings {
+			if f.Severity >= minSev {
+				filtered = append(filtered, f)
+			}
+		}
+		findings = filtered
+	}
+
+	if len(findings) == 0 {
+		fmt.Println("No issues found.")
+		return
+	}
+
+	// Enrich with Claude if API key is set.
+	enriched := make([]enrichment.EnrichedFinding, len(findings))
+	for i, f := range findings {
+		enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		// Populate TerraformFix from the finding Evidence if the scanner set it.
+		if fix, ok := f.Evidence["terraform_fix"]; ok {
+			if fixStr, ok := fix.(string); ok {
+				enriched[i].TerraformFix = fixStr
+			}
+		}
+	}
+
+	if cfg.AnthropicAPIKey != "" {
+		enricher, err := enrichment.NewClaudeDefault(cfg.AnthropicAPIKey)
+		if err == nil {
+			ctx := context.Background()
+			if ef, err := enricher.Enrich(ctx, findings); err == nil {
+				enriched = ef
+				// Re-merge scanner-provided TerraformFix where Claude didn't produce one.
+				for i, f := range findings {
+					if enriched[i].TerraformFix == "" {
+						if fix, ok := f.Evidence["terraform_fix"]; ok {
+							if fixStr, ok := fix.(string); ok {
+								enriched[i].TerraformFix = fixStr
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Render output.
+	switch format {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(enriched)
+	case "markdown", "md":
+		printTerraformMarkdown(enriched)
+	default:
+		printTerraformText(enriched)
+	}
+}
+
+func printTerraformText(enriched []enrichment.EnrichedFinding) {
+	counts := map[finding.Severity]int{}
+	for _, ef := range enriched {
+		counts[ef.Finding.Severity]++
+	}
+	fmt.Printf("Terraform scan: %d finding(s)\n", len(enriched))
+	for _, sev := range []finding.Severity{finding.SeverityCritical, finding.SeverityHigh, finding.SeverityMedium, finding.SeverityLow, finding.SeverityInfo} {
+		if n := counts[sev]; n > 0 {
+			fmt.Printf("  %s: %d\n", sev, n)
+		}
+	}
+	fmt.Println()
+
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Printf("[%s] %s\n", f.Severity, f.Title)
+		fmt.Printf("  File: %s\n", f.Asset)
+		if ef.Explanation != "" && ef.Explanation != f.Description {
+			fmt.Printf("  %s\n", ef.Explanation)
+		} else {
+			fmt.Printf("  %s\n", f.Description)
+		}
+		if ef.Remediation != "" {
+			fmt.Printf("  Fix: %s\n", ef.Remediation)
+		}
+		if ef.TerraformFix != "" {
+			fmt.Println("  Terraform fix:")
+			for _, line := range strings.Split(ef.TerraformFix, "\n") {
+				fmt.Printf("    %s\n", line)
+			}
+		}
+		fmt.Println()
+	}
+}
+
+func printTerraformMarkdown(enriched []enrichment.EnrichedFinding) {
+	fmt.Printf("# Terraform Scan Results\n\n")
+	fmt.Printf("%d finding(s)\n\n", len(enriched))
+
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Printf("## [%s] %s\n\n", f.Severity, f.Title)
+		fmt.Printf("**File:** `%s`\n\n", f.Asset)
+		if ef.Explanation != "" {
+			fmt.Printf("%s\n\n", ef.Explanation)
+		}
+		if ef.Impact != "" {
+			fmt.Printf("**Impact:** %s\n\n", ef.Impact)
+		}
+		if ef.Remediation != "" {
+			fmt.Printf("**Remediation:** %s\n\n", ef.Remediation)
+		}
+		if ef.TerraformFix != "" {
+			fmt.Printf("**Terraform Fix:**\n\n```hcl\n%s\n```\n\n", ef.TerraformFix)
+		}
+		fmt.Println("---")
+		fmt.Println()
+	}
+}
+
 // ---------- helpers ----------
 
 // filterBySeverity drops enriched findings below the specified minimum severity.
@@ -2895,9 +3074,19 @@ func newProgressRenderer(verbose bool, minSeverity finding.Severity) *progressRe
 	// Put stdin in raw mode so single keypresses are read without Enter.
 	// Keep ISIG so Ctrl+C still sends SIGINT.
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		if old, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
-			// MakeRaw turns off ISIG; restore it so Ctrl+C works.
-			r.restoreFn = func() { _ = term.Restore(int(os.Stdin.Fd()), old) }
+		fd := int(os.Stdin.Fd())
+		old, err := term.MakeRaw(fd)
+		if err != nil {
+			// MakeRaw failed on a live TTY — this happens when a previous beacon
+			// process was killed (OOM, SIGKILL) while holding the terminal in raw
+			// mode, leaving the tty settings corrupted. Attempt to restore sane
+			// settings via "stty sane" and retry once.
+			if execErr := exec.Command("stty", "sane").Run(); execErr == nil {
+				old, err = term.MakeRaw(fd)
+			}
+		}
+		if err == nil {
+			r.restoreFn = func() { _ = term.Restore(fd, old) }
 			r.startInputLoop()
 		}
 	}
@@ -2950,9 +3139,9 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 	isEnter := buf[0] == '\r' || buf[0] == '\n'
 	isEsc   := n == 1 && buf[0] == 0x1b
 
-	// 'b' always detaches to the browse list from any mode.
+	// 'q' and 'b' always detach to the browse list from any mode (scan keeps running).
 	// Esc only detaches when headless (non-headless Esc has mode-specific meanings).
-	if (buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
+	if (buf[0] == 'q' || buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
 		r.mu.Unlock()
 		r.stopOnce.Do(func() { close(r.stop) })
 		close(r.detached)
@@ -2997,16 +3186,11 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			close(r.detached)
 			r.mu.Lock() // re-acquire so caller's deferred unlock is safe
 			return
-		case buf[0] == 'q' || buf[0] == 's':
-			if r.phase == "done" {
-				// Historical scan — treat q/s as detach, not stop.
-				r.mu.Unlock()
-				r.stopOnce.Do(func() { close(r.stop) })
-				close(r.detached)
-				r.mu.Lock()
-				return
+		case buf[0] == 's':
+			// 's' stops the scan (with confirmation). 'q'/'b' just detach.
+			if r.phase != "done" {
+				r.confirmingExit = true
 			}
-			r.confirmingExit = true
 		}
 	case "findings":
 		if r.findingFilterMode {
@@ -3041,7 +3225,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.findingFilter = ""
 				r.findingsCursor = 0
 				r.findingsOff = 0
-			case buf[0] == 'f' || buf[0] == ' ' || buf[0] == 'q':
+			case buf[0] == 'f' || buf[0] == ' ':
 				r.mode = "progress"
 			case buf[0] == 'a':
 				r.mode = "assets"
@@ -3098,7 +3282,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.topoDetailOff = 0
 				r.mode = "topo_detail"
 			}
-		case buf[0] == 'q' || buf[0] == 't':
+		case buf[0] == 't':
 			r.mode = "progress"
 		}
 	case "topo_detail":
@@ -3109,7 +3293,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			if r.topoDetailOff > 0 {
 				r.topoDetailOff--
 			}
-		case buf[0] == 'q' || buf[0] == 'b':
+		case buf[0] == 'b':
 			r.mode = "topology"
 		}
 	case "assets":
@@ -3128,7 +3312,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.assetDetailOff = 0
 				r.mode = "asset_detail"
 			}
-		case buf[0] == 'q' || buf[0] == 'a':
+		case buf[0] == 'a':
 			r.mode = "progress"
 		}
 	case "asset_detail":
@@ -3161,7 +3345,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.findingDetailOrigin = "asset_detail"
 				r.mode = "finding_detail"
 			}
-		case buf[0] == 'q' || buf[0] == 'a':
+		case buf[0] == 'a':
 			r.mode = "assets"
 			r.assetDetailCursor = 0
 		}
@@ -3173,7 +3357,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			if r.findingDetailOff > 0 {
 				r.findingDetailOff--
 			}
-		case buf[0] == 'q' || isEsc || isEnter:
+		case isEsc || isEnter:
 			r.mode = r.findingDetailOrigin
 			r.selectedFinding = nil
 		}
@@ -3232,6 +3416,14 @@ func (r *progressRenderer) startInputLoop() {
 				r.mu.Unlock()
 				continue
 			}
+			// 'q' and 'b' always detach from any mode (scan keeps running in background).
+			if buf[0] == 'q' || buf[0] == 'b' || (isEsc && r.mode == "progress") {
+				r.mu.Unlock()
+				r.stopOnce.Do(func() { close(r.stop) })
+				close(r.detached)
+				return
+			}
+
 			switch r.mode {
 			case "progress":
 				switch {
@@ -3243,21 +3435,16 @@ func (r *progressRenderer) startInputLoop() {
 				case buf[0] == 't':
 					r.mode = "topology"
 					r.topoOff = 0
-				case buf[0] == 'b' || isEsc:
-					// Signal detach: cmdScan will close the live UI and launch the browse TUI
-					// so the user can look at other scans while this one finishes in the background.
-					r.mu.Unlock()
-					r.stopOnce.Do(func() { close(r.stop) })   // stop the ticker
-					close(r.detached)                          // signal cmdScan
-					return
-				case buf[0] == 'q' || buf[0] == 's':
-					// On the main screen, q/s prompt to stop the scan.
-					r.confirmingExit = true
+				case buf[0] == 's':
+					// 's' prompts to stop the scan; 'q'/'b' just detach (handled above).
+					if r.phase != "done" {
+						r.confirmingExit = true
+					}
 				}
 
 			case "findings":
 				switch {
-				case buf[0] == 'f' || buf[0] == ' ' || buf[0] == 'q':
+				case buf[0] == 'f' || buf[0] == ' ':
 					r.mode = "progress"
 				case buf[0] == 'a':
 					r.mode = "assets"
@@ -3290,7 +3477,7 @@ func (r *progressRenderer) startInputLoop() {
 					if r.topoOff > 0 {
 						r.topoOff--
 					}
-				case buf[0] == 'q' || buf[0] == 't':
+				case buf[0] == 't':
 					r.mode = "progress"
 				}
 
@@ -3310,7 +3497,7 @@ func (r *progressRenderer) startInputLoop() {
 						r.assetDetailOff = 0
 						r.mode = "asset_detail"
 					}
-				case buf[0] == 'q' || buf[0] == 'a':
+				case buf[0] == 'a':
 					r.mode = "progress"
 				}
 
@@ -3345,7 +3532,7 @@ func (r *progressRenderer) startInputLoop() {
 						r.findingDetailOrigin = "asset_detail"
 						r.mode = "finding_detail"
 					}
-				case buf[0] == 'q' || buf[0] == 'b' || isEsc:
+				case isEsc:
 					r.mode = "assets"
 				}
 
@@ -3372,7 +3559,7 @@ func (r *progressRenderer) startInputLoop() {
 							copyToClipboard(text)
 						}
 					}
-				case buf[0] == 'q' || buf[0] == 'b' || isEsc:
+				case isEsc || isEnter:
 					if r.findingDetailOrigin != "" {
 						r.mode = r.findingDetailOrigin
 					} else {
@@ -3694,14 +3881,14 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
 			r.done, r.total, len(r.findings))
 	} else if r.phase == "done" {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [b/q] back\x1b[0m\n",
+		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m\n",
 			r.total, len(r.findings))
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [b] detach  [q] stop\x1b[0m\n",
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
 			len(r.findings))
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [b] detach  [q] stop\x1b[0m\n",
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [q/b] detach  [s] stop\x1b[0m\n",
 			r.done, r.total, len(r.findings))
 	}
 	lineCount := 2

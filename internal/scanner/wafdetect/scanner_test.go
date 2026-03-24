@@ -229,6 +229,28 @@ func TestWAFDetect_MultipleVendors(t *testing.T) {
 	}
 }
 
+// TestWAFDetect_CatchAllSkipped verifies that a server that responds 200 for
+// every path (catch-all / wildcard handler) but returns no WAF headers does not
+// produce any finding. The scanner must not emit anything when it cannot identify
+// a vendor — response presence alone is not a WAF signal.
+func TestWAFDetect_CatchAllSkipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Respond 200 for every path — no WAF headers.
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	scanner := New()
+	findings, err := scanner.Run(context.Background(), host, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for catch-all server with no WAF headers, got %d", len(findings))
+	}
+}
+
 // TestWAFDetect_NilHeaderMap verifies that a server returning 200 with no WAF
 // headers produces no finding and does not panic.
 func TestWAFDetect_NilHeaderMap(t *testing.T) {

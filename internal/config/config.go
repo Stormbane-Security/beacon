@@ -11,6 +11,47 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// AuthConfig holds optional credentials for authenticated scanning of a specific asset.
+// When matched, beacon performs a pre-scan login and injects the resulting session
+// into all HTTP requests made against that asset.
+type AuthConfig struct {
+	// Asset is the hostname this auth applies to. Use "*" to apply to all assets.
+	Asset string `yaml:"asset"`
+
+	// Method selects the auth mechanism:
+	//   bearer   — static bearer token (Authorization: Bearer <token>)
+	//   api_key  — API key header (default header: X-API-Key, override with Header field)
+	//   cookie   — raw cookie string injected as Cookie header
+	//   basic    — HTTP Basic Auth (Username + Password)
+	//   oidc     — OAuth2 client_credentials flow (ClientID + ClientSecret + TokenURL)
+	//   web3_evm — SIWE login (EVMPrivateKey hex, or ephemeral if empty)
+	//   web3_sol — SIWS login (SolanaPrivateKey base58, or ephemeral if empty)
+	Method string `yaml:"method"`
+
+	// bearer / api_key
+	Token  string `yaml:"token"`
+	Header string `yaml:"header"` // default: "Authorization" for bearer, "X-API-Key" for api_key
+
+	// basic
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+
+	// cookie — raw value of the Cookie header, e.g. "session=abc; csrf=xyz"
+	Cookie string `yaml:"cookie"`
+
+	// oidc / oauth2 client_credentials
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret string   `yaml:"client_secret"`
+	TokenURL     string   `yaml:"token_url"`
+	Scopes       []string `yaml:"scopes"`
+
+	// web3_evm — hex-encoded secp256k1 private key (leave empty for ephemeral)
+	EVMPrivateKey string `yaml:"evm_private_key"`
+
+	// web3_sol — base58-encoded ed25519 private key (leave empty for ephemeral)
+	SolanaPrivateKey string `yaml:"solana_private_key"`
+}
+
 // Config holds all Beacon configuration. Values are loaded from
 // ~/.beacon/config.yaml with environment variable overrides (BEACON_ prefix).
 type Config struct {
@@ -92,6 +133,11 @@ type Config struct {
 
 	// Server connection — when set, beacon CLI acts as a remote client.
 	Server ServerConfig `yaml:"server"`
+
+	// Auth holds optional per-asset credentials for authenticated scanning.
+	// BEACON_AUTH_TOKEN sets a global bearer token applied to all assets when
+	// no specific AuthConfig entry is matched.
+	Auth []AuthConfig `yaml:"auth"`
 
 	// loadedFrom is the config file path that was successfully read.
 	// Empty when no file was found (defaults + env vars only).
@@ -305,5 +351,11 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("BEACON_SMTP_FROM"); v != "" {
 		cfg.SMTP.From = v
+	}
+	// BEACON_AUTH_TOKEN injects a global bearer token for all assets when no
+	// specific auth config entry exists. It is prepended so per-asset entries
+	// in the YAML file take precedence (first matching entry wins).
+	if v := os.Getenv("BEACON_AUTH_TOKEN"); v != "" {
+		cfg.Auth = append([]AuthConfig{{Asset: "*", Method: "bearer", Token: v}}, cfg.Auth...)
 	}
 }

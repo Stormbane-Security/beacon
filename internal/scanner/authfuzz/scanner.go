@@ -2,7 +2,8 @@
 // validation. It complements the oauth and jwt scanners by testing cross-flow
 // attack patterns that require active state manipulation.
 //
-// Checks performed (Deep mode only):
+// Checks performed (ScanAuthorized mode only):
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
 //   - redirect_uri abuse: tries arbitrary domains, subdomain confusion, encoding bypass
 //   - Authorization code re-use: exchanges the same code twice (no invalidation check)
 //   - Token substitution: submits JWTs with modified claims or alg:none
@@ -42,7 +43,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the authfuzz scan. Deep mode only.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

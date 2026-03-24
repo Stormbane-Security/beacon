@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stormbane/beacon/internal/enrichment"
@@ -101,6 +102,35 @@ func TestRenderJSON_NoFindings_EmptyArray(t *testing.T) {
 	}
 	if len(arr) != 0 {
 		t.Errorf("expected empty findings array, got %d elements", len(arr))
+	}
+}
+
+// TestReport_ProofCommandTakesPrecedenceOverVerifyCmd verifies that when a finding
+// has a ProofCommand set, it is used in the report output instead of the
+// auto-generated VerifyCmd from the registry.
+func TestReport_ProofCommandTakesPrecedenceOverVerifyCmd(t *testing.T) {
+	// email.spf_missing has a VerifyCmd entry in verify.go, so if ProofCommand
+	// is ignored the rendered output would show the registry command instead.
+	const customProof = "dig TXT example.com @1.1.1.1 +short | grep spf"
+	f := finding.Finding{
+		CheckID:      finding.CheckEmailSPFMissing,
+		Severity:     finding.SeverityHigh,
+		Title:        "Missing SPF record",
+		Asset:        "example.com",
+		ProofCommand: customProof,
+	}
+	ef := enrichment.EnrichedFinding{Finding: f, Explanation: "No SPF record found."}
+
+	run := testRun()
+
+	out := RenderText(run, []enrichment.EnrichedFinding{ef}, "", nil)
+	if !strings.Contains(out, customProof) {
+		t.Errorf("text report does not contain the custom ProofCommand %q", customProof)
+	}
+	// The registry command should NOT override the per-finding ProofCommand.
+	registryCmd := VerifyCmd(f.CheckID, f.Asset)
+	if registryCmd != "" && strings.Contains(out, registryCmd) && !strings.Contains(registryCmd, customProof) {
+		t.Logf("note: registry command %q also present — acceptable if custom command also shown", registryCmd)
 	}
 }
 

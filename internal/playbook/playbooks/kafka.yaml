@@ -16,7 +16,7 @@ surface:
   scanners:
     - portscan
     - exposedfiles
-  paths:
+  dictionary:
     - /topics
     - /v3/clusters
     - /v3/topics

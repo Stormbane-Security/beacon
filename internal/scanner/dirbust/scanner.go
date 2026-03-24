@@ -149,11 +149,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 	close(jobs)
 
 	var (
-		mu       sync.Mutex
-		results  []Result
-		wafStop  bool // set to true when WAF blocking is detected
-		wafCount int  // number of paths that returned 403+WAF headers
-		wg       sync.WaitGroup
+		mu      sync.Mutex
+		results []Result
+		wafStop bool // set to true on the first WAF-header 403 block
+		wg      sync.WaitGroup
 	)
 	sem := make(chan struct{}, s.concurrency)
 
@@ -174,11 +173,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 
 			result, waf := s.probe(ctx, baseURL, job.path)
 			if waf {
+				// Stop on first confirmed WAF block — isWAFResponse requires
+				// WAF-specific response headers, so a single hit is reliable.
 				mu.Lock()
-				wafCount++
-				if wafCount >= 3 {
-					wafStop = true
-				}
+				wafStop = true
 				mu.Unlock()
 				return
 			}

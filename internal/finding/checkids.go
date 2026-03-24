@@ -517,10 +517,30 @@ const (
 	CheckCDNFastlyDebugExposed      CheckID = "cdn.fastly_debug_exposed"       // Fastly debug info in Surrogate-Key or X-Served-By headers
 	CheckCDNVarnishPurgeEnabled     CheckID = "cdn.varnish_purge_enabled"      // Varnish cache accepts PURGE requests without auth
 
+	// Swagger / OpenAPI spec exposure and endpoint fuzzing
+	CheckSwaggerExposed CheckID = "web.swagger_exposed" // OpenAPI/Swagger spec publicly accessible
+
 	// Web3 / blockchain passive detection
 	CheckWeb3WalletLibDetected  CheckID = "web3.wallet_lib_detected"
 	CheckWeb3RPCEndpointExposed CheckID = "web3.rpc_endpoint_exposed"
 	CheckWeb3ContractFound      CheckID = "web3.contract_address_found"
+
+	// EVM smart contract vulnerability scanning
+	CheckContractReentrancy       CheckID = "contract.reentrancy"         // reentrancy vulnerability detected in contract bytecode
+	CheckContractSelfDestruct     CheckID = "contract.selfdestruct"       // unprotected selfdestruct opcode
+	CheckContractUncheckedCall    CheckID = "contract.unchecked_call"     // unchecked low-level call return value
+	CheckContractIntegerOverflow  CheckID = "contract.integer_overflow"   // potential integer overflow / underflow
+	CheckContractSourceExposed    CheckID = "contract.source_exposed"     // contract source code verified and retrievable
+	CheckContractProxyAdmin       CheckID = "contract.proxy_admin"        // upgradeable proxy with admin slot detectable
+
+	// Blockchain node / validator / miner detection
+	CheckChainNodeRPCExposed      CheckID = "chain.node_rpc_exposed"      // Ethereum/Bitcoin/Solana JSON-RPC port open and responding
+	CheckChainNodeUnauthorized    CheckID = "chain.node_rpc_unauth"       // JSON-RPC accepts state-changing calls without auth
+	CheckChainNodeValidatorExposed CheckID = "chain.validator_api_exposed" // ETH2 beacon/validator client API accessible
+	CheckChainNodeMinerExposed    CheckID = "chain.miner_rpc_exposed"     // eth_mining/eth_hashrate reveals active miner
+	CheckChainNodePeerCountLeak   CheckID = "chain.peer_count_leak"       // net_peerCount leaks network topology
+	CheckChainNodeWSExposed       CheckID = "chain.node_ws_exposed"       // WebSocket JSON-RPC port accessible
+	CheckChainNodeGrafanaExposed  CheckID = "chain.node_grafana_exposed"  // node monitoring dashboard exposed without auth
 
 	// Web3 / SIWE authenticated security testing — Deep (requires --permission-confirmed)
 	// Surface: detect SIWE/SIWS login pages and nonce endpoints
@@ -569,6 +589,25 @@ const (
 	CheckCorrelationCredentialReuse    CheckID = "correlation.credential_reuse_across_assets"
 	CheckCorrelationLateralMovement    CheckID = "correlation.lateral_movement_path"
 	CheckCorrelationGeneric            CheckID = "correlation.attack_chain"
+
+	// Terraform / IaC static analysis
+	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
+	CheckTerraformGCSBucketPublic      CheckID = "terraform.gcs_bucket_public"
+	CheckTerraformGKEPublicEndpoint    CheckID = "terraform.gke_public_endpoint"
+	CheckTerraformGKELegacyABAC       CheckID = "terraform.gke_legacy_abac"
+	CheckTerraformGKENoNetworkPolicy   CheckID = "terraform.gke_no_network_policy"
+	CheckTerraformRDSPublic            CheckID = "terraform.rds_publicly_accessible"
+	CheckTerraformRDSUnencrypted       CheckID = "terraform.rds_unencrypted"
+	CheckTerraformSGOpenIngress        CheckID = "terraform.sg_open_ingress"
+	CheckTerraformIAMWildcardPolicy    CheckID = "terraform.iam_wildcard_policy"
+	CheckTerraformIAMAdminPolicy       CheckID = "terraform.iam_admin_policy_attached"
+	CheckTerraformSecretsInCode        CheckID = "terraform.secrets_in_code"
+	CheckTerraformUnencryptedEBS       CheckID = "terraform.ebs_unencrypted"
+	CheckTerraformIMDSv1Enabled        CheckID = "terraform.imdsv1_enabled"
+	CheckTerraformPublicECRRepo        CheckID = "terraform.ecr_public_repo"
+	CheckTerraformCloudFrontHTTP       CheckID = "terraform.cloudfront_http_allowed"
+	CheckTerraformLBHTTP               CheckID = "terraform.lb_http_only"
+	CheckTerraformTFStatePublic        CheckID = "terraform.tfstate_public_backend"
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1097,10 +1136,30 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCDNFastlyDebugExposed:      {CheckCDNFastlyDebugExposed, SeverityLow, ConversionLow, ClarityMedium, ModeSurface},
 	CheckCDNVarnishPurgeEnabled:     {CheckCDNVarnishPurgeEnabled, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
 
+	// Swagger / OpenAPI
+	CheckSwaggerExposed: {CheckSwaggerExposed, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+
 	// Web3 / blockchain
 	CheckWeb3WalletLibDetected:  {CheckWeb3WalletLibDetected, SeverityInfo, ConversionLow, ClarityMedium, ModeSurface},
 	CheckWeb3RPCEndpointExposed: {CheckWeb3RPCEndpointExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckWeb3ContractFound:      {CheckWeb3ContractFound, SeverityInfo, ConversionLow, ClarityMedium, ModeSurface},
+
+	// EVM smart contract vulnerability scanning
+	CheckContractReentrancy:      {CheckContractReentrancy, SeverityCritical, ConversionHigh, ClarityHigh, ModeDeep},
+	CheckContractSelfDestruct:    {CheckContractSelfDestruct, SeverityCritical, ConversionHigh, ClarityHigh, ModeDeep},
+	CheckContractUncheckedCall:   {CheckContractUncheckedCall, SeverityHigh, ConversionHigh, ClarityHigh, ModeDeep},
+	CheckContractIntegerOverflow: {CheckContractIntegerOverflow, SeverityHigh, ConversionHigh, ClarityMedium, ModeDeep},
+	CheckContractSourceExposed:   {CheckContractSourceExposed, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckContractProxyAdmin:      {CheckContractProxyAdmin, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+
+	// Blockchain node detection
+	CheckChainNodeRPCExposed:       {CheckChainNodeRPCExposed, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeUnauthorized:     {CheckChainNodeUnauthorized, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeValidatorExposed: {CheckChainNodeValidatorExposed, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeMinerExposed:     {CheckChainNodeMinerExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodePeerCountLeak:    {CheckChainNodePeerCountLeak, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckChainNodeWSExposed:        {CheckChainNodeWSExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeGrafanaExposed:   {CheckChainNodeGrafanaExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
 
 	// Web3 / SIWE + SIWS authenticated security testing
 	CheckWeb3SIWEEndpoint:         {CheckWeb3SIWEEndpoint, SeverityInfo, ConversionLow, ClarityHigh, ModeSurface},
@@ -1121,6 +1180,25 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationCredentialReuse:    {CheckCorrelationCredentialReuse, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckCorrelationLateralMovement:    {CheckCorrelationLateralMovement, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckCorrelationGeneric:            {CheckCorrelationGeneric, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+
+	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
+	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGCSBucketPublic:   {CheckTerraformGCSBucketPublic, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGKEPublicEndpoint: {CheckTerraformGKEPublicEndpoint, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGKELegacyABAC:    {CheckTerraformGKELegacyABAC, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGKENoNetworkPolicy: {CheckTerraformGKENoNetworkPolicy, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformRDSPublic:         {CheckTerraformRDSPublic, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformRDSUnencrypted:    {CheckTerraformRDSUnencrypted, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformSGOpenIngress:     {CheckTerraformSGOpenIngress, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformIAMWildcardPolicy: {CheckTerraformIAMWildcardPolicy, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformIAMAdminPolicy:    {CheckTerraformIAMAdminPolicy, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformSecretsInCode:     {CheckTerraformSecretsInCode, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformUnencryptedEBS:    {CheckTerraformUnencryptedEBS, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformIMDSv1Enabled:     {CheckTerraformIMDSv1Enabled, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformPublicECRRepo:     {CheckTerraformPublicECRRepo, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformCloudFrontHTTP:    {CheckTerraformCloudFrontHTTP, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformLBHTTP:            {CheckTerraformLBHTTP, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformTFStatePublic:     {CheckTerraformTFStatePublic, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

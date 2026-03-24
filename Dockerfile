@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     unzip \
     git \
+    nmap \
   && rm -rf /var/lib/apt/lists/*
 
 # ── Install scanner tools ──────────────────────────────────────────────────────
@@ -96,7 +97,8 @@ ENV BEACON_ADDR=:8080 \
     KATANA_BIN=/usr/local/bin/katana \
     BEACON_HTTPX_BIN=/usr/local/bin/httpx \
     BEACON_DNSX_BIN=/usr/local/bin/dnsx \
-    BEACON_FFUF_BIN=/usr/local/bin/ffuf
+    BEACON_FFUF_BIN=/usr/local/bin/ffuf \
+    BEACON_NMAP_BIN=/usr/bin/nmap
 
 RUN mkdir -p /data
 VOLUME ["/data"]

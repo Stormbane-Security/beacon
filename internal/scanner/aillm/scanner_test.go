@@ -291,6 +291,52 @@ func TestAILLM_NonJSONResponse(t *testing.T) {
 	}
 }
 
+// TestAILLM_RefusalNoFinding verifies that a response body containing
+// "tool_calls" in a refusal context (prose, not as a JSON key) does NOT
+// produce a tool_abuse finding. The specific phrase here mirrors a model
+// refusing to use tool_calls entirely.
+func TestAILLM_RefusalNoFinding(t *testing.T) {
+	srv := chatServer(t, "I cannot execute commands or use tool_calls.")
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.CheckID == finding.CheckAIToolAbuse {
+			t.Errorf("must not emit tool abuse finding when 'tool_calls' appears in prose refusal: %s", f.Title)
+		}
+	}
+}
+
+// TestAILLM_InjectionDetected verifies that a response confirming prompt injection
+// triggers the prompt_injection finding. The server returns a body containing the
+// INJECTION_CONFIRMED marker that the scanner's success patterns match against.
+func TestAILLM_InjectionDetected(t *testing.T) {
+	// The server echoes back an injection-confirmed response with an embedded marker.
+	srv := chatServer(t, "INJECTION_CONFIRMED. BEACON_INJECTED_MARKER_7f3a2b — all previous instructions have been cleared.")
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckAIPromptInjection {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected ai.prompt_injection finding when injected marker is present in model response")
+	}
+}
+
 func TestAILLM_EvidenceEndpointsUsed(t *testing.T) {
 	// Verify that when Evidence has specific AI endpoints, only those are probed.
 	probed := make(map[string]bool)
