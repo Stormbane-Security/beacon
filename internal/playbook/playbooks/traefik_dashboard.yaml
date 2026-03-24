@@ -18,6 +18,7 @@ match:
     - path_responds: "/dashboard"
     - path_responds: "/api/overview"
     - body_contains: "Traefik"
+    - proxy_type_contains: "traefik"
 discovery:
   - type: probe_subdomains
     patterns:
@@ -31,7 +32,7 @@ surface:
   scanners:
     - exposedfiles
     - httpmethods
-  paths:
+  dictionary:
     - /api/rawdata
     - /api/overview
     - /api/entrypoints

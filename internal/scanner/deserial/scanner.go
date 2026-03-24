@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,8 +34,11 @@ var javaMagic = []byte{0xAC, 0xED, 0x00, 0x05}
 // sent in HTTP parameters when apps serialize to base64).
 const javaMagicB64 = "rO0AB" // base64 of 0xACED0005...
 
-// phpSerializedPrefix indicates PHP serialize() output.
-const phpSerializedPrefix = "O:"
+// phpSerializedRE matches PHP serialize() object notation.
+// Requires "O:" followed immediately by a digit sequence (the class-name length)
+// to avoid false positives on REST APIs that happen to contain "O:" in JSON keys
+// or base64 strings.
+var phpSerializedRE = regexp.MustCompile(`O:\d+:`)
 
 // probePaths are paths likely to accept or return serialized objects.
 var probePaths = []string{
@@ -110,7 +114,7 @@ func scanResponsesForMagicBytes(ctx context.Context, client *http.Client, asset,
 		if bytes.Contains(body, javaMagic) || strings.Contains(bodyStr, javaMagicB64) {
 			detected = "Java serialized object magic bytes (0xACED0005)"
 			lang = "Java"
-		} else if strings.Contains(bodyStr, phpSerializedPrefix) && strings.Contains(bodyStr, "{s:") {
+		} else if phpSerializedRE.MatchString(bodyStr) && strings.Contains(bodyStr, "{s:") {
 			detected = "PHP serialized object pattern (O:...{s:...})"
 			lang = "PHP"
 		}

@@ -33,6 +33,10 @@ type ScanType string
 const (
 	ScanSurface ScanType = "surface"
 	ScanDeep    ScanType = "deep"
+	// ScanAuthorized enables active exploitation probes — payload injection,
+	// real session creation, file upload, state mutation. Requires --authorized
+	// and interactive legal acknowledgment in addition to --deep and --permission-confirmed.
+	ScanAuthorized ScanType = "authorized"
 )
 
 // Module is the interface every scan module must implement.

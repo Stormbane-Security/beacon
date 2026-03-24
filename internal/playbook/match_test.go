@@ -549,6 +549,36 @@ match:
 	}
 }
 
+// TestMatch_LLMProviderCaseInsensitive verifies that llm_provider_contains
+// performs a case-insensitive substring match against Evidence.LLMProvider.
+// A rule specifying "OpenAI" should match an Evidence with LLMProvider "openai".
+func TestMatch_LLMProviderCaseInsensitive(t *testing.T) {
+	p := mustParse(t, `
+name: test_llm_provider
+match:
+  any:
+    - llm_provider_contains: "OpenAI"
+`)
+
+	// Mixed-case rule should match lower-case evidence value.
+	ev := playbook.Evidence{LLMProvider: "openai"}
+	if !p.Matches(ev) {
+		t.Fatal("llm_provider_contains must match case-insensitively: 'OpenAI' should match 'openai'")
+	}
+
+	// Rule should not match an unrelated provider.
+	evOther := playbook.Evidence{LLMProvider: "anthropic"}
+	if p.Matches(evOther) {
+		t.Fatal("llm_provider_contains must not match an unrelated provider")
+	}
+
+	// Empty LLMProvider should not match.
+	evEmpty := playbook.Evidence{}
+	if p.Matches(evEmpty) {
+		t.Fatal("llm_provider_contains must not match when LLMProvider is empty")
+	}
+}
+
 // TestMatch_AnyConditionsOR verifies that a playbook with two rules in any:
 // matches when EITHER (or both) conditions are satisfied.
 func TestMatch_AnyConditionsOR(t *testing.T) {

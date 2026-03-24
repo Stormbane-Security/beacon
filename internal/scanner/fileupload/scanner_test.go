@@ -30,7 +30,7 @@ func TestRun_DeepMode_NoUploadEndpoints_NoFindings(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestRun_DeepMode_UploadAcceptsPHPDoubleExt_FindingEmitted(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRun_DeepMode_UploadRejects405_NoFinding(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestRun_DeepMode_UploadReturns200WithoutFileURL_NoFinding(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,6 +154,6 @@ func TestRun_ContextCancelled_NoPanic(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, _ := s.Run(ctx, host, module.ScanDeep)
+	findings, _ := s.Run(ctx, host, module.ScanAuthorized)
 	_ = findings
 }

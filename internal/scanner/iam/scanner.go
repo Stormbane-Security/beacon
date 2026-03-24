@@ -4,7 +4,8 @@
 // Surface mode: SCIM exposure, OIDC userinfo leak, OAuth introspect/device/
 // dynamic-client endpoints, IdP admin panels, role assignment endpoints.
 //
-// Deep mode: cloud metadata SSRF, LDAP injection.
+// ScanAuthorized mode: cloud metadata SSRF, LDAP injection.
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
 //
 // CheckIDs used:
 //   - finding.CheckSCIMExposed             = "iam.scim_exposed"
@@ -153,11 +154,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return findings, nil
 	}
 
-	// ── Deep mode only ────────────────────────────────────────────────────
+	// ── ScanAuthorized only ────────────────────────────────────────────────────
 
 	// 8. Cloud metadata SSRF
 	if f := checkCloudMetadataSSRF(ctx, client, asset, base); f != nil {

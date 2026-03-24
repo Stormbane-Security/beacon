@@ -91,7 +91,7 @@ func TestRun_DeepMode_NoAuthEndpoint_NoFindings(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestRun_DeepMode_RedirectURIAbuse_FindingEmitted(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestRun_DeepMode_StrictRedirectURI_NoFinding(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestRun_DeepMode_AlgNoneAccepted_FindingEmitted(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestRun_DeepMode_ProofCommandContainsHost(t *testing.T) {
 
 	s := New()
 	host := strings.TrimPrefix(ts.URL, "http://")
-	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

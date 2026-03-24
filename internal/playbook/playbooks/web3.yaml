@@ -35,7 +35,6 @@ surface:
     - webcontent  # scan JS bundles for hardcoded private keys / mnemonics / RPC keys
     - dlp         # detect mnemonic phrases, private keys, RPC API keys in page content
     - cors        # web3 apps often have broad CORS for wallet connections
-    - headers     # check CSP — web3 apps often have weak CSP
   nuclei_tags:
     - web3
     - blockchain

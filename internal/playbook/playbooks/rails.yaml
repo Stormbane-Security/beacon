@@ -30,6 +30,7 @@ match:
     - header_value:
         name: "set-cookie"
         contains: "_session"
+    - framework_contains: "rails"
 surface:
   nuclei_tags:
     - rails

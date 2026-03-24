@@ -27,7 +27,7 @@ func TestSSTI_Jinja2Detected(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestSSTI_FreeMarkerDetected(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestSSTI_EchoesInputNotEvaluated(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSSTI_404Skipped(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}

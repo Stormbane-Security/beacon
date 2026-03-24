@@ -158,7 +158,7 @@ func TestSAML_UnsignedAssertionAccepted(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	findings, err := New().Run(t.Context(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestSAML_IssuerMismatch_Accepted(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	findings, err := New().Run(t.Context(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestSAML_OpenRedirectViaRelayState(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	findings, err := New().Run(t.Context(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin`))
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	findings, err := New().Run(t.Context(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatal(err)
 	}

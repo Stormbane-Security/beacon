@@ -24,6 +24,7 @@ match:
     - header_value:
         name: "set-cookie"
         contains: "sessionid"
+    - framework_contains: "django"
 surface:
   nuclei_tags:
     - django

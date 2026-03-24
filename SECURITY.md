@@ -34,7 +34,7 @@ Encrypted reports are welcome. Our PGP key is published at `https://stormbane.co
 
 | Timeframe | What happens |
 |-----------|-------------|
-| 48 hours | Initial acknowledgement of your report |
+| 72 hours | Initial acknowledgement of your report |
 | 7 days | Triage assessment: confirmed, declined, or needs more information |
 | 30 days | Target for a fix to be released for critical and high severity issues |
 | 90 days | Target for medium and low severity issues |
@@ -47,7 +47,7 @@ We follow coordinated disclosure. We ask that you:
 
 We will:
 
-- Confirm receipt within 48 hours.
+- Confirm receipt within 72 hours.
 - Keep you informed of progress throughout the remediation process.
 - Credit you in the release notes and GitHub security advisory (unless you prefer to remain anonymous).
 - Not pursue legal action against researchers acting in good faith under this policy.

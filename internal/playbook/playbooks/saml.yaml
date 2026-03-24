@@ -21,6 +21,7 @@ match:
     - body_contains: "SAMLResponse"
     - body_contains: "saml2:"
     - header_contains: "saml"
+    - auth_system_contains: "saml"
 surface:
   scanners:
     - saml

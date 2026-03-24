@@ -5,7 +5,8 @@
 // of application/xml or text/xml, then injects XXE payloads and checks whether
 // the server echoes /etc/passwd content or internal file data in its response.
 //
-// Deep mode only (active payloads that attempt file reads).
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+// ScanAuthorized only (active payloads that attempt file reads).
 package xxe
 
 import (
@@ -88,7 +89,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the XXE scan. Deep mode only.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

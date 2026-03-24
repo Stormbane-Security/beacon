@@ -37,7 +37,7 @@ func TestProtoPollution_PayloadReflected(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestProtoPollution_NotReflected(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}

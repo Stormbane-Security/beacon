@@ -7,15 +7,19 @@
 //     confidence) because many servers list methods in Allow headers without
 //     actually accepting them.
 //
-// Deep mode (requires permission):
+// ScanAuthorized mode (requires --authorized):
 //   - After the OPTIONS check, confirms each advertised dangerous method by
 //     sending the actual request to a benign probe path.
 //   - Confirmed findings are reported at higher severity and with proof commands.
 //
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+//
 // Dangerous methods checked:
-//   - PUT    — allows arbitrary file upload / content modification
-//   - DELETE — allows resource deletion
-//   - TRACE  — echoes request back; enables XST (Cross-Site Tracing)
+//   - PUT     — allows arbitrary file upload / content modification
+//   - DELETE  — allows resource deletion
+//   - TRACE   — echoes request back; enables XST (Cross-Site Tracing)
+//   - PATCH   — allows partial resource modification
+//   - CONNECT — can create proxy tunnels (checked via OPTIONS only)
 package httpmethods
 
 import (
@@ -40,12 +44,39 @@ func (s *Scanner) Name() string { return scannerName }
 
 // dangerousMethods are methods that should never be enabled on public-facing servers.
 var dangerousMethods = []struct {
-	method string
-	risk   string
+	method   string
+	risk     string
+	severity finding.Severity
+	// optionsOnly means we never send this method directly — only flag it if
+	// advertised in the OPTIONS Allow header.
+	optionsOnly bool
 }{
-	{"PUT", "Allows arbitrary file upload or overwrite — attackers can plant webshells or replace content."},
-	{"DELETE", "Allows deletion of server-side resources — data destruction or service disruption."},
-	{"TRACE", "Echoes request headers back to the client. Enables Cross-Site Tracing (XST), which can expose HttpOnly cookies and Authorization headers to JavaScript even when SameSite protections are in place."},
+	{
+		method:   "PUT",
+		risk:     "Allows arbitrary file upload or overwrite — attackers can plant webshells or replace content.",
+		severity: finding.SeverityMedium,
+	},
+	{
+		method:   "DELETE",
+		risk:     "Allows deletion of server-side resources — data destruction or service disruption.",
+		severity: finding.SeverityMedium,
+	},
+	{
+		method:   "TRACE",
+		risk:     "Echoes request headers back to the client. Enables Cross-Site Tracing (XST), which can expose HttpOnly cookies and Authorization headers to JavaScript even when SameSite protections are in place.",
+		severity: finding.SeverityMedium,
+	},
+	{
+		method:   "PATCH",
+		risk:     "Allows partial resource modification — attackers can alter resource fields without a full PUT, potentially bypassing server-side validation on omitted fields.",
+		severity: finding.SeverityMedium,
+	},
+	{
+		method:      "CONNECT",
+		risk:        "Can be used to create proxy tunnels through the server, allowing traffic to be relayed to internal hosts or bypassing firewall rules.",
+		severity:    finding.SeverityMedium,
+		optionsOnly: true,
+	},
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
@@ -72,11 +103,42 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// Deep mode: also probe methods not in Allow, since many servers don't
 		// return the header but still accept dangerous methods.
 		inAllow := strings.Contains(strings.ToUpper(allowed), dm.method)
-		if !inAllow && scanType != module.ScanDeep {
+
+		// CONNECT is never probed directly — only reported when advertised.
+		if dm.optionsOnly {
+			if inAllow {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebDangerousMethodEnabled,
+					Module:   "surface",
+					Scanner:  scannerName,
+					Severity: dm.severity,
+					Asset:    asset,
+					Title: fmt.Sprintf("Dangerous HTTP method advertised: %s on %s",
+						dm.method, baseURL),
+					Description: fmt.Sprintf(
+						"The Allow response header on %s lists %s as a supported method. "+
+							"%s This finding is based on the OPTIONS Allow header; the method "+
+							"was not actively exercised.",
+						baseURL, dm.method, dm.risk,
+					),
+					Evidence: map[string]any{
+						"method":       dm.method,
+						"url":          baseURL,
+						"allow_header": allowed,
+						"confirmed":    false,
+					},
+					DiscoveredAt: now,
+				})
+			}
 			continue
 		}
 
-		if scanType != module.ScanDeep && inAllow {
+		// Exploitation probes require --authorized (beyond --deep).
+		if !inAllow && scanType != module.ScanAuthorized {
+			continue
+		}
+
+		if scanType != module.ScanAuthorized && inAllow {
 			// Surface mode: report the advertisement without confirming.
 			// Severity is Low because Allow headers are unreliable indicators.
 			findings = append(findings, finding.Finding{
@@ -112,9 +174,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckWebDangerousMethodEnabled,
-			Module:   "surface",
+			Module:   "deep",
 			Scanner:  scannerName,
-			Severity: finding.SeverityMedium,
+			Severity: dm.severity,
 			Asset:    asset,
 			Title: fmt.Sprintf("Dangerous HTTP method enabled: %s on %s",
 				dm.method, baseURL),
@@ -175,7 +237,7 @@ func optionsAllowed(ctx context.Context, client *http.Client, url string) string
 // when the server responds with anything other than 405 (Method Not Allowed)
 // or 501 (Not Implemented), indicating the method is actually processed.
 //
-// For PUT/DELETE we use a safe non-existent path to avoid modifying real content.
+// For PUT/DELETE/PATCH we use a safe non-existent path to avoid modifying real content.
 // If a PUT succeeds (2xx), a best-effort DELETE is sent to remove any artifact.
 func confirmMethod(ctx context.Context, client *http.Client, baseURL, method string) (bool, int) {
 	probeURL := strings.TrimSuffix(baseURL, "/") + "/.beacon-method-probe-xq7z"

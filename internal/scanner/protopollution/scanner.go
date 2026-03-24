@@ -2,7 +2,8 @@
 // It posts prototype-polluting payloads and then checks whether the injected
 // property is reflected in a subsequent GET response.
 //
-// Deep mode only (active payloads).
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+// ScanAuthorized only (active payloads).
 package protopollution
 
 import (
@@ -63,7 +64,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the prototype pollution scan. Only runs in deep mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

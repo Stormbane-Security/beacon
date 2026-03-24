@@ -6,10 +6,11 @@
 // recorded in finding Evidence but no finding is emitted — they inform whether
 // a deep scan is worthwhile.
 //
-// Deep mode: injects JNDI payloads into common HTTP headers and looks for
+// ScanAuthorized mode: injects JNDI payloads into common HTTP headers and looks for
 // reflection of the literal "${jndi:" string in the response body (some debug
 // endpoints echo request headers). If the BEACON_OOB_DOMAIN environment
 // variable is set, the payload uses that domain for out-of-band detection.
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
 package log4shell
 
 import (
@@ -79,7 +80,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	// Deep mode: send JNDI payloads and look for reflection.
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
+		return nil, nil
+	}
+	// ScanAuthorized mode: send JNDI payloads and look for reflection.
 	return s.deepScan(ctx, client, targetURL, asset)
 }
 

@@ -8,7 +8,8 @@
 //   - Null byte injection (file.php%00.jpg)
 //   - Content-type spoofing (claim image/gif, upload PHP)
 //
-// Deep mode only (active upload attempts).
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+// ScanAuthorized only (active upload attempts).
 package fileupload
 
 import (
@@ -113,7 +114,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the file upload bypass scan. Deep mode only.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -265,6 +267,14 @@ func probeUpload(ctx context.Context, client *http.Client, asset, endpoint strin
 		strings.Contains(bodyStr, `"downloadUrl"`) ||
 		strings.Contains(bodyStr, `"storage_path"`) ||
 		strings.Contains(bodyStr, `"storagePath"`)
+
+	// Also check the Location header: servers commonly return the stored file
+	// URL as a redirect target rather than (or in addition to) a JSON body.
+	if !hasFileURL {
+		if loc := resp.Header.Get("Location"); loc != "" && strings.Contains(loc, m.filename) {
+			hasFileURL = true
+		}
+	}
 
 	if !accepted || !hasFileURL {
 		return nil

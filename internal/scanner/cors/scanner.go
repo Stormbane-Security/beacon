@@ -163,5 +163,70 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// Preflight check: send an OPTIONS preflight with a dangerous Origin and
+	// Access-Control-Request-Method to detect misconfigured preflight responses
+	// that the simple GET probes above may have missed.
+	preflightOrigin := "https://evil.example.com"
+
+	// Only run the preflight check if the simple GET probes didn't already
+	// emit a finding for this origin/wildcard combination.
+	alreadyCaught := false
+	for _, f := range findings {
+		if ev, ok := f.Evidence["injected_origin"]; ok && ev == preflightOrigin {
+			alreadyCaught = true
+			break
+		}
+		if ev, ok := f.Evidence["access_control_allow_origin"]; ok && ev == "*" {
+			alreadyCaught = true
+			break
+		}
+	}
+
+	if !alreadyCaught {
+		preReq, err := http.NewRequestWithContext(ctx, http.MethodOptions, target, nil)
+		if err == nil {
+			preReq.Header.Set("Origin", preflightOrigin)
+			preReq.Header.Set("Access-Control-Request-Method", "POST")
+			preReq.Header.Set("Access-Control-Request-Headers", "Authorization")
+
+			if preResp, err := client.Do(preReq); err == nil {
+				preResp.Body.Close()
+
+				preACAO := preResp.Header.Get("Access-Control-Allow-Origin")
+				preACAC := strings.ToLower(preResp.Header.Get("Access-Control-Allow-Credentials"))
+
+				allowsOrigin := strings.EqualFold(preACAO, preflightOrigin) || preACAO == "*"
+				if allowsOrigin && preACAC == "true" {
+					findings = append(findings, finding.Finding{
+						CheckID:  finding.CheckCORSMisconfiguration,
+						Module:   "deep",
+						Scanner:  scannerName,
+						Severity: finding.SeverityCritical,
+						Title:    fmt.Sprintf("CORS: preflight misconfiguration allows credentialed cross-origin requests on %s", asset),
+						Description: fmt.Sprintf(
+							"%s responded to an OPTIONS preflight with Access-Control-Allow-Origin: %q and "+
+								"Access-Control-Allow-Credentials: true. This was found via a preflight probe "+
+								"(Origin: %s, Access-Control-Request-Method: POST, Access-Control-Request-Headers: Authorization). "+
+								"An attacker-controlled page can make credentialed POST requests and read the responses.",
+							asset, preACAO, preflightOrigin,
+						),
+						Asset: asset,
+						Evidence: map[string]any{
+							"url":                              target,
+							"injected_origin":                  preflightOrigin,
+							"access_control_allow_origin":      preACAO,
+							"access_control_allow_credentials": preACAC,
+							"via":                              "preflight",
+						},
+						ProofCommand: fmt.Sprintf(
+							"curl -sI -X OPTIONS -H 'Origin: %s' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: Authorization' '%s' | grep -i 'access-control'",
+							preflightOrigin, target),
+						DiscoveredAt: time.Now(),
+					})
+				}
+			}
+		}
+	}
+
 	return findings, nil
 }

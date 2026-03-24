@@ -20,6 +20,7 @@ match:
     - body_contains: "keycloak"
     - body_contains: "Keycloak"
     - path_responds: "/auth/admin"
+    - auth_system_contains: "keycloak"
 surface:
   nuclei_tags:
     - keycloak

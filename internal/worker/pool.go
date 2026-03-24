@@ -110,6 +110,7 @@ func (p *Pool) process(job Job) {
 		HttpxBin:        p.cfg.HttpxBin,
 		DnsxBin:         p.cfg.DnsxBin,
 		FfufBin:         p.cfg.FfufBin,
+		Auth:            p.cfg.Auth,
 	})
 	if err != nil {
 		p.emitError(job.ScanRunID, fmt.Sprintf("init scanner: %v", err))

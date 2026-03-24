@@ -25,6 +25,7 @@ match:
     - header_value:
         name: "set-cookie"
         contains: "laravel_session"
+    - framework_contains: "laravel"
 surface:
   nuclei_tags:
     - laravel

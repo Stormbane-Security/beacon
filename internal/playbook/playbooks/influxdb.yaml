@@ -15,7 +15,7 @@ match:
 surface:
   scanners:
     - exposedfiles
-  paths:
+  dictionary:
     - /ping
     - /query?q=SHOW+DATABASES
     - /health

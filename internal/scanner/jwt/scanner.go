@@ -2,6 +2,7 @@
 // responses (cookies, body, and Authorization header) and inspects them for
 // common weaknesses: insecure algorithms, long-lived expiry, and sensitive data
 // embedded in the unencrypted payload.
+// Active exploitation probes (algorithm confusion, forged token submission) require ScanAuthorized mode (--authorized flag).
 package jwt
 
 import (
@@ -147,8 +148,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	findings = append(findings, jwksFindings...)
 
-	// Algorithm confusion check — deep mode only (sends forged tokens).
-	if scanType == module.ScanDeep {
+	// Algorithm confusion check — exploitation probes require --authorized (beyond --deep).
+	if scanType == module.ScanAuthorized {
 		if base == "http://"+asset {
 			// already resolved above; reuse the working base
 		} else {

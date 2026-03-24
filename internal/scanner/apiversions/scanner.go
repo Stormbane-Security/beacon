@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -67,7 +68,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
-	// Collect active versions.
+	// Gate: if the server returns 200 for a path that cannot exist, every probe
+	// path will look "active". Skip the entire scan on catch-all servers.
+	if isCatchAll(ctx, client, base) {
+		return nil, nil
+	}
+
+	// Collect active versions — probe all paths concurrently (max 10 in flight).
 	type activeVersion struct {
 		path    string
 		version string
@@ -75,48 +82,79 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		ct      string
 		bodyLen int
 	}
-	var active []activeVersion
+
+	type result struct {
+		path    string
+		version string
+		status  int
+		ct      string
+		bodyLen int
+	}
+
+	resultCh := make(chan result, len(versionPaths))
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
 
 	for _, v := range versionPaths {
-		u := base + v.path
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("Accept", "application/json")
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(v struct{ path, version string }) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		resp, err := client.Do(req)
-		if err != nil {
-			if resp != nil {
-				resp.Body.Close()
+			u := base + v.path
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				return
 			}
-			continue
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		resp.Body.Close()
+			req.Header.Set("Accept", "application/json")
 
-		// Skip 404 and method-not-allowed.
-		if resp.StatusCode == 404 || resp.StatusCode == 405 {
-			continue
-		}
-		// Skip redirects — a 3xx means the path doesn't serve API content here;
-		// it's almost always a catch-all that forwards unknown paths to the root
-		// or login page, not an actual staging/dev environment.
-		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			continue
-		}
-		// Skip HTML responses — almost certainly a catch-all redirect/landing page.
-		ct := resp.Header.Get("Content-Type")
-		if strings.Contains(ct, "text/html") {
-			continue
-		}
+			resp, err := client.Do(req)
+			if err != nil {
+				if resp != nil {
+					resp.Body.Close()
+				}
+				return
+			}
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			resp.Body.Close()
 
+			// Skip 404 and method-not-allowed.
+			if resp.StatusCode == 404 || resp.StatusCode == 405 {
+				return
+			}
+			// Skip redirects — a 3xx means the path doesn't serve API content here;
+			// it's almost always a catch-all that forwards unknown paths to the root
+			// or login page, not an actual staging/dev environment.
+			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+				return
+			}
+			// Skip HTML responses — almost certainly a catch-all redirect/landing page.
+			ct := resp.Header.Get("Content-Type")
+			if strings.Contains(ct, "text/html") {
+				return
+			}
+
+			resultCh <- result{
+				path:    v.path,
+				version: v.version,
+				status:  resp.StatusCode,
+				ct:      ct,
+				bodyLen: len(body),
+			}
+		}(v)
+	}
+
+	go func() { wg.Wait(); close(resultCh) }()
+
+	var active []activeVersion
+	for r := range resultCh {
 		active = append(active, activeVersion{
-			path:    v.path,
-			version: v.version,
-			status:  resp.StatusCode,
-			ct:      ct,
-			bodyLen: len(body),
+			path:    r.path,
+			version: r.version,
+			status:  r.status,
+			ct:      r.ct,
+			bodyLen: r.bodyLen,
 		})
 	}
 
@@ -189,4 +227,20 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp.Body.Close()
 	return "https"
+}
+
+// isCatchAll returns true when the server responds HTTP 200 to a path that
+// cannot exist, indicating a wildcard/catch-all where all probes are noise.
+func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

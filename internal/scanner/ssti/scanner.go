@@ -3,7 +3,8 @@
 // checks whether the server evaluates them — a reliable signal that user
 // input flows into a template engine without sanitisation.
 //
-// Deep mode only (active payloads).
+// Active exploitation probes require ScanAuthorized mode (--authorized flag).
+// ScanAuthorized only (active payloads).
 package ssti
 
 import (
@@ -75,7 +76,8 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the SSTI scan. Only runs in deep mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	// Exploitation probes require --authorized (beyond --deep).
+	if scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
