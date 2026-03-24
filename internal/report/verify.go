@@ -351,4 +351,23 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckGHActionOverpermissioned: `# Check workflow for 'permissions: write-all' or absent permissions block`,
 	finding.CheckGHActionSecretsEchoed:    `# Search run: steps for echo/printf of ${{ secrets.* }}`,
 	finding.CheckGHActionSelfHostedPublic: `# Public repo with 'runs-on: [self-hosted]' — any fork can trigger`,
+
+	// ── Terraform / IaC static analysis ──────────────────────────────────────
+	finding.CheckTerraformS3BucketPublic:     `grep -rn 'acl\s*=\s*"public\|block_public_acls\s*=\s*false' {asset}`,
+	finding.CheckTerraformGCSBucketPublic:    `grep -rn 'allUsers\|allAuthenticatedUsers\|uniform_bucket_level_access\s*=\s*false' {asset}`,
+	finding.CheckTerraformGKEPublicEndpoint:  `grep -rn 'google_container_cluster' {asset}; echo "Verify master_authorized_networks_config or private_cluster_config is present"`,
+	finding.CheckTerraformGKELegacyABAC:     `grep -rn 'enable_legacy_abac\s*=\s*true' {asset}`,
+	finding.CheckTerraformGKENoNetworkPolicy: `grep -rn 'google_container_cluster' {asset}; echo "Verify network_policy { enabled = true } block is present"`,
+	finding.CheckTerraformRDSPublic:          `grep -rn 'publicly_accessible\s*=\s*true' {asset}`,
+	finding.CheckTerraformRDSUnencrypted:     `grep -rn 'aws_db_instance' {asset}; grep -n 'storage_encrypted' {asset}`,
+	finding.CheckTerraformSGOpenIngress:      `grep -rn '0\.0\.0\.0/0\|::/0' {asset}`,
+	finding.CheckTerraformIAMWildcardPolicy:  `grep -rn '"Action".*"\*"' {asset}`,
+	finding.CheckTerraformIAMAdminPolicy:     `grep -rn 'AdministratorAccess\|PowerUserAccess' {asset}`,
+	finding.CheckTerraformSecretsInCode:      `grep -rn 'password\s*=\s*"[^$]' {asset} | grep -v 'var\.\|local\.\|data\.'`,
+	finding.CheckTerraformUnencryptedEBS:     `grep -rn 'encrypted\s*=\s*false' {asset}`,
+	finding.CheckTerraformIMDSv1Enabled:      `grep -rn 'aws_instance' {asset}; echo "Verify metadata_options { http_tokens = required } is present"`,
+	finding.CheckTerraformPublicECRRepo:      `grep -rn 'aws_ecr_repository' {asset}; echo "Verify encryption_configuration block is present"`,
+	finding.CheckTerraformCloudFrontHTTP:     `grep -rn 'viewer_protocol_policy\s*=\s*"allow-all"' {asset}`,
+	finding.CheckTerraformLBHTTP:             `grep -rn 'protocol\s*=\s*"HTTP"' {asset}`,
+	finding.CheckTerraformTFStatePublic:      `grep -rn 'encrypt\s*=\s*false' {asset}`,
 }
