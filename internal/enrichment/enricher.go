@@ -20,6 +20,11 @@ type EnrichedFinding struct {
 	TechSpecificRemediation string   `json:"tech_specific_remediation,omitempty"` // stack-aware fix (e.g. exact Django setting)
 	ComplianceTags          []string `json:"compliance_tags,omitempty"`           // e.g. ["SOC2-CC6.1", "PCI-3.4"]
 
+	// TerraformFix is an HCL code block that remediates the finding in Terraform/OpenTofu.
+	// Populated by Enrich when the finding maps to a known IaC resource.
+	// Empty string when no Terraform fix applies.
+	TerraformFix string `json:"terraform_fix,omitempty"`
+
 	// Set by regression comparison after enrichment — not from Claude.
 	DeltaStatus string `json:"delta_status,omitempty"` // "new" | "recurring" | "resolved"
 }

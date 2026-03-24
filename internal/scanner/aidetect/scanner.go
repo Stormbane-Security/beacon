@@ -37,8 +37,22 @@ var candidatePaths = []struct {
 	{"/v1/completions", "POST"},
 	{"/v1/models", "GET"},
 	{"/v1/embeddings", "POST"},
-	// Azure OpenAI path pattern
+	// Azure OpenAI path patterns (internal proxies / APIM backends)
 	{"/openai/v1/chat/completions", "POST"},
+	{"/openai/deployments/chat/completions", "POST"},
+	{"/openai/deployments/gpt-4/chat/completions", "POST"},
+	{"/openai/deployments/gpt-35-turbo/chat/completions", "POST"},
+	{"/api/openai/v1/chat/completions", "POST"},
+	{"/azure/openai/chat/completions", "POST"},
+	// AWS Bedrock proxy patterns (LiteLLM, internal gateway)
+	{"/bedrock/invoke", "POST"},
+	{"/api/bedrock/chat", "POST"},
+	{"/aws/bedrock/converse", "POST"},
+	// Google Vertex AI / Gemini proxy patterns
+	{"/gemini/generateContent", "POST"},
+	{"/api/gemini/chat", "POST"},
+	{"/vertex/chat/completions", "POST"},
+	{"/api/vertex/generate", "POST"},
 	// Generic chat routes
 	{"/chat", "GET"},
 	{"/chat/completions", "POST"},
@@ -94,9 +108,13 @@ var providerHeaders = []struct {
 	{"x-lmstudio-version", "lmstudio"},
 	{"x-vllm-model-name", "vllm"},
 	{"x-vllm-request-id", "vllm"},
-	{"x-ms-client-request-id", "azure_openai"}, // Azure OpenAI and Azure services
-	{"x-goog-request-id", "vertex_ai"},         // Google Vertex AI
-	{"x-amzn-requestid", "aws_bedrock"},         // AWS Bedrock (also general AWS)
+	{"x-ms-client-request-id", "azure_openai"},    // Azure OpenAI and Azure services
+	{"x-ms-request-id", "azure_openai"},           // Azure APIM / OpenAI backend
+	{"apim-request-id", "azure_openai"},           // Azure API Management gateway
+	{"x-goog-request-id", "vertex_ai"},            // Google Vertex AI
+	{"x-goog-api-key", "vertex_ai"},               // Gemini API key reflected (misconfigured proxy)
+	{"x-amzn-requestid", "aws_bedrock"},           // AWS Bedrock (also general AWS)
+	{"x-amzn-bedrock-invocation-latency", "aws_bedrock"}, // Bedrock-specific response header
 	{"x-ollama-version", "ollama"},
 	{"x-inference-time", "generic"},
 }
@@ -125,11 +143,22 @@ var providerBodySignals = []struct {
 	// Cohere
 	{`"generations":[`, "cohere"},
 	{`"generation_id"`, "cohere"},
-	// Google Vertex AI
+	// Google Vertex AI / Gemini — Gemini response structure
 	{`"candidates":[`, "vertex_ai"},
 	{`"finishReason"`, "vertex_ai"},
-	// AWS Bedrock — response wrapping
+	{`"safetyRatings"`, "vertex_ai"},
+	{`"usageMetadata"`, "vertex_ai"},
+	{`"promptTokenCount"`, "vertex_ai"},
+	// Google Vertex AI model names in responses
+	{`"model":"gemini-`, "vertex_ai"},
+	{`"model":"text-bison`, "vertex_ai"},
+	{`"model":"chat-bison`, "vertex_ai"},
+	// AWS Bedrock — response body patterns
 	{`"amazon-bedrock-`, "aws_bedrock"},
+	{`"inputTextTokenCount"`, "aws_bedrock"},     // Titan model response
+	{`"completionReason"`, "aws_bedrock"},         // Titan
+	{`"outputText"`, "aws_bedrock"},               // Titan
+	{`"x-amzn-bedrock-`, "aws_bedrock"},           // Bedrock metadata headers reflected
 	// Hugging Face
 	{`"generated_text"`, "huggingface"},
 	// vLLM — model list format
@@ -239,6 +268,11 @@ func (s *Scanner) RunWithEvidence(ctx context.Context, asset string, _ module.Sc
 	// Check for API keys in response headers (e.g., misconfigured proxies echoing keys).
 	if keyFinding := checkKeyLeak(ctx, client, base, asset); keyFinding != nil {
 		findings = append(findings, *keyFinding)
+	}
+
+	// Scan page source + inline JS for provider endpoint references.
+	if jsFindings := checkJSProviderLeak(ctx, client, base, asset, ev); len(jsFindings) > 0 {
+		findings = append(findings, jsFindings...)
 	}
 
 	return findings, nil
@@ -398,6 +432,82 @@ func checkKeyLeak(ctx context.Context, client *http.Client, base, asset string) 
 		}
 	}
 	return nil
+}
+
+// jsProviderPatterns are regex patterns that detect cloud LLM provider endpoint
+// URLs hardcoded in page source or JavaScript bundles.
+var jsProviderPatterns = []struct {
+	re       *regexp.Regexp
+	provider string
+	label    string
+}{
+	// Azure OpenAI — deployment URL in JS
+	{regexp.MustCompile(`https://[a-z0-9\-]+\.openai\.azure\.com/openai/deployments/`), "azure_openai", "Azure OpenAI deployment URL"},
+	// AWS Bedrock — regional endpoint in JS
+	{regexp.MustCompile(`https://bedrock(?:-runtime)?\.(?:us|eu|ap)-[a-z0-9\-]+\.amazonaws\.com`), "aws_bedrock", "AWS Bedrock endpoint URL"},
+	// Google Vertex AI
+	{regexp.MustCompile(`https://[a-z0-9\-]+-aiplatform\.googleapis\.com`), "vertex_ai", "Google Vertex AI endpoint URL"},
+	// Google Gemini (generativelanguage API)
+	{regexp.MustCompile(`https://generativelanguage\.googleapis\.com`), "vertex_ai", "Google Gemini API URL"},
+	// Anthropic
+	{regexp.MustCompile(`https://api\.anthropic\.com/v[0-9]/messages`), "anthropic", "Anthropic API URL"},
+	// OpenAI
+	{regexp.MustCompile(`https://api\.openai\.com/v[0-9]/`), "openai", "OpenAI API URL"},
+}
+
+// checkJSProviderLeak fetches the root page and looks for cloud LLM provider
+// endpoint URLs hardcoded in inline or embedded JavaScript.
+func checkJSProviderLeak(ctx context.Context, client *http.Client, base, asset string, ev *playbook.Evidence) []finding.Finding {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024)) // 256 KB cap
+	resp.Body.Close()
+
+	bodyStr := string(body)
+	var findings []finding.Finding
+	seen := map[string]bool{}
+
+	for _, p := range jsProviderPatterns {
+		match := p.re.FindString(bodyStr)
+		if match == "" || seen[p.provider] {
+			continue
+		}
+		seen[p.provider] = true
+
+		if ev != nil && ev.LLMProvider == "" {
+			ev.LLMProvider = p.provider
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckAIEndpointExposed,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Title:    fmt.Sprintf("Cloud LLM provider endpoint hardcoded in page source: %s", p.label),
+			Description: fmt.Sprintf(
+				"A %s endpoint URL was found hardcoded in the page source at %s. "+
+					"Hardcoded cloud AI provider URLs in client-side code expose your provider, model, "+
+					"and possibly region/deployment configuration to any visitor, aiding targeted attacks.",
+				p.label, base),
+			Asset:        asset,
+			ProofCommand: fmt.Sprintf(`curl -s %s | grep -oP '%s'`, base, p.re.String()),
+			Evidence: map[string]any{
+				"url":      base,
+				"provider": p.provider,
+				"pattern":  p.label,
+				"match":    truncate(match, 80),
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+	return findings
 }
 
 func proofFlags(method, path string) string {

@@ -123,13 +123,20 @@ func (c *ClaudeEnricher) WithCache(cache EnrichmentCache) *ClaudeEnricher {
 	return c
 }
 
+// findingWithRef wraps a finding with its per-CheckID reference material so the
+// template can render both the finding fields and the reference block.
+type findingWithRef struct {
+	finding.Finding
+	Reference checkReference
+}
+
 func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding) ([]EnrichedFinding, error) {
 	if len(findings) == 0 {
 		return nil, nil
 	}
 
 	// Pre-populate from cache and collect uncached findings (one per unique CheckID).
-	type cached struct{ explanation, impact, remediation string }
+	type cached struct{ explanation, impact, remediation, terraformFix string }
 	cacheHits := make(map[finding.CheckID]cached)
 	seenUncached := make(map[finding.CheckID]bool)
 	var uncached []finding.Finding
@@ -144,7 +151,7 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 			}
 			explanation, impact, remediation, found := c.cache.GetEnrichmentCache(ctx, f.CheckID)
 			if found && !looksLikeRawJSON(explanation) {
-				cacheHits[f.CheckID] = cached{explanation, impact, remediation}
+				cacheHits[f.CheckID] = cached{explanation: explanation, impact: impact, remediation: remediation}
 			} else {
 				// Cache miss or poisoned entry — treat as uncached and re-enrich.
 				seenUncached[f.CheckID] = true
@@ -164,8 +171,14 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 	// Call Claude for uncached check types.
 	newEnrich := make(map[finding.CheckID]cached)
 	if len(uncached) > 0 {
+		// Wrap each finding with its per-CheckID reference material so the template
+		// can inject documentation excerpts and Terraform examples into the prompt.
+		withRefs := make([]findingWithRef, len(uncached))
+		for i, f := range uncached {
+			withRefs[i] = findingWithRef{Finding: f, Reference: referenceFor(string(f.CheckID))}
+		}
 		var promptBuf bytes.Buffer
-		if err := c.findingTmpl.Execute(&promptBuf, uncached); err != nil {
+		if err := c.findingTmpl.Execute(&promptBuf, withRefs); err != nil {
 			return nil, fmt.Errorf("rendering finding prompt: %w", err)
 		}
 		responseText, err := c.callClaude(ctx, findingModel, promptBuf.String())
@@ -177,7 +190,7 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 			return nil, err
 		}
 		for _, ef := range parsed {
-			newEnrich[ef.Finding.CheckID] = cached{ef.Explanation, ef.Impact, ef.Remediation}
+			newEnrich[ef.Finding.CheckID] = cached{explanation: ef.Explanation, impact: ef.Impact, remediation: ef.Remediation, terraformFix: ef.TerraformFix}
 		}
 		// Save new results to cache — but only when the explanation looks like
 		// human-readable prose, not a raw JSON blob from a failed parse.
@@ -199,10 +212,12 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 			ef.Explanation = e.explanation
 			ef.Impact = e.impact
 			ef.Remediation = e.remediation
+			ef.TerraformFix = e.terraformFix
 		} else if e, ok := newEnrich[f.CheckID]; ok {
 			ef.Explanation = e.explanation
 			ef.Impact = e.impact
 			ef.Remediation = e.remediation
+			ef.TerraformFix = e.terraformFix
 		} else {
 			ef.Explanation = f.Description
 		}
@@ -460,10 +475,11 @@ func looksLikeRawJSON(s string) bool {
 // Expected format: [{"check_id":"...","explanation":"...","impact":"...","remediation":"..."},...]
 func parseEnrichedResponse(findings []finding.Finding, text string) ([]EnrichedFinding, error) {
 	var parsed []struct {
-		CheckID     string `json:"check_id"`
-		Explanation string `json:"explanation"`
-		Impact      string `json:"impact"`
-		Remediation string `json:"remediation"`
+		CheckID      string `json:"check_id"`
+		Explanation  string `json:"explanation"`
+		Impact       string `json:"impact"`
+		Remediation  string `json:"remediation"`
+		TerraformFix string `json:"terraform_fix"`
 	}
 
 	jsonText := extractJSONArray(text)
@@ -478,26 +494,25 @@ func parseEnrichedResponse(findings []finding.Finding, text string) ([]EnrichedF
 	}
 
 	// Index parsed results by check_id
-	enrichMap := make(map[string]struct {
-		Explanation string
-		Impact      string
-		Remediation string
-	})
+	type enrichEntry struct {
+		Explanation  string
+		Impact       string
+		Remediation  string
+		TerraformFix string
+	}
+	enrichMap := make(map[string]enrichEntry)
 	for _, p := range parsed {
-		enrichMap[p.CheckID] = struct {
-			Explanation string
-			Impact      string
-			Remediation string
-		}{p.Explanation, p.Impact, p.Remediation}
+		enrichMap[p.CheckID] = enrichEntry{p.Explanation, p.Impact, p.Remediation, p.TerraformFix}
 	}
 
 	out := make([]EnrichedFinding, len(findings))
 	for i, f := range findings {
 		ef := EnrichedFinding{Finding: f}
-		if e, ok := enrichMap[f.CheckID]; ok {
+		if e, ok := enrichMap[string(f.CheckID)]; ok {
 			ef.Explanation = e.Explanation
 			ef.Impact = e.Impact
 			ef.Remediation = e.Remediation
+			ef.TerraformFix = e.TerraformFix
 		} else {
 			ef.Explanation = f.Description
 		}

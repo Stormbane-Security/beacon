@@ -589,6 +589,25 @@ const (
 	CheckCorrelationCredentialReuse    CheckID = "correlation.credential_reuse_across_assets"
 	CheckCorrelationLateralMovement    CheckID = "correlation.lateral_movement_path"
 	CheckCorrelationGeneric            CheckID = "correlation.attack_chain"
+
+	// Terraform / IaC static analysis
+	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
+	CheckTerraformGCSBucketPublic      CheckID = "terraform.gcs_bucket_public"
+	CheckTerraformGKEPublicEndpoint    CheckID = "terraform.gke_public_endpoint"
+	CheckTerraformGKELegacyABAC       CheckID = "terraform.gke_legacy_abac"
+	CheckTerraformGKENoNetworkPolicy   CheckID = "terraform.gke_no_network_policy"
+	CheckTerraformRDSPublic            CheckID = "terraform.rds_publicly_accessible"
+	CheckTerraformRDSUnencrypted       CheckID = "terraform.rds_unencrypted"
+	CheckTerraformSGOpenIngress        CheckID = "terraform.sg_open_ingress"
+	CheckTerraformIAMWildcardPolicy    CheckID = "terraform.iam_wildcard_policy"
+	CheckTerraformIAMAdminPolicy       CheckID = "terraform.iam_admin_policy_attached"
+	CheckTerraformSecretsInCode        CheckID = "terraform.secrets_in_code"
+	CheckTerraformUnencryptedEBS       CheckID = "terraform.ebs_unencrypted"
+	CheckTerraformIMDSv1Enabled        CheckID = "terraform.imdsv1_enabled"
+	CheckTerraformPublicECRRepo        CheckID = "terraform.ecr_public_repo"
+	CheckTerraformCloudFrontHTTP       CheckID = "terraform.cloudfront_http_allowed"
+	CheckTerraformLBHTTP               CheckID = "terraform.lb_http_only"
+	CheckTerraformTFStatePublic        CheckID = "terraform.tfstate_public_backend"
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1161,6 +1180,25 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationCredentialReuse:    {CheckCorrelationCredentialReuse, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckCorrelationLateralMovement:    {CheckCorrelationLateralMovement, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckCorrelationGeneric:            {CheckCorrelationGeneric, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+
+	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
+	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGCSBucketPublic:   {CheckTerraformGCSBucketPublic, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGKEPublicEndpoint: {CheckTerraformGKEPublicEndpoint, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGKELegacyABAC:    {CheckTerraformGKELegacyABAC, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformGKENoNetworkPolicy: {CheckTerraformGKENoNetworkPolicy, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformRDSPublic:         {CheckTerraformRDSPublic, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformRDSUnencrypted:    {CheckTerraformRDSUnencrypted, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformSGOpenIngress:     {CheckTerraformSGOpenIngress, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformIAMWildcardPolicy: {CheckTerraformIAMWildcardPolicy, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformIAMAdminPolicy:    {CheckTerraformIAMAdminPolicy, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformSecretsInCode:     {CheckTerraformSecretsInCode, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformUnencryptedEBS:    {CheckTerraformUnencryptedEBS, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformIMDSv1Enabled:     {CheckTerraformIMDSv1Enabled, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckTerraformPublicECRRepo:     {CheckTerraformPublicECRRepo, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformCloudFrontHTTP:    {CheckTerraformCloudFrontHTTP, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformLBHTTP:            {CheckTerraformLBHTTP, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckTerraformTFStatePublic:     {CheckTerraformTFStatePublic, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

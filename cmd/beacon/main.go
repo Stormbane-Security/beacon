@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,7 +18,6 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
-
 
 	"github.com/google/uuid"
 
@@ -32,6 +32,7 @@ import (
 	"github.com/stormbane/beacon/internal/modules/surface"
 	"github.com/stormbane/beacon/internal/playbook"
 	"github.com/stormbane/beacon/internal/report"
+	tfscan "github.com/stormbane/beacon/internal/scanner/terraform"
 	"github.com/stormbane/beacon/internal/store"
 	sqlitestore "github.com/stormbane/beacon/internal/store/sqlite"
 	"github.com/stormbane/beacon/internal/scanner/toolinstall"
@@ -85,6 +86,7 @@ EXAMPLES:
   beacon analyze
   beacon playbook suggestions
   beacon playbook open-pr --id <suggestion-id>
+  beacon terraform <path> [<path>...]
 `
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -135,6 +137,8 @@ func main() {
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
+	case "terraform":
+		cmdTerraform(cfg, os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -2639,6 +2643,169 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 
 	target.Status = "pr_opened"
 	_ = st.UpdatePlaybookSuggestion(ctx, target)
+}
+
+// ---------- terraform ----------
+
+// cmdTerraform scans one or more Terraform/OpenTofu HCL files (or directories)
+// for infrastructure misconfigurations and prints findings to stdout.
+//
+// Usage:
+//
+//	beacon terraform <path> [<path>...]
+//	beacon terraform --format json ./infra
+//	beacon terraform --severity high ./infra
+func cmdTerraform(cfg *config.Config, args []string) {
+	var paths []string
+	format := "text"
+	severityFlag := ""
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format", "-f":
+			if i+1 < len(args) {
+				i++
+				format = args[i]
+			}
+		case "--severity", "-s":
+			if i+1 < len(args) {
+				i++
+				severityFlag = args[i]
+			}
+		default:
+			paths = append(paths, args[i])
+		}
+	}
+
+	if len(paths) == 0 {
+		fatalf("usage: beacon terraform [--format text|json|markdown] [--severity <level>] <path> [<path>...]")
+	}
+
+	findings, err := tfscan.ScanFiles(paths)
+	if err != nil {
+		fatalf("terraform scan: %v", err)
+	}
+
+	// Apply severity filter.
+	minSev := finding.ParseSeverity(severityFlag)
+	if minSev > finding.SeverityInfo {
+		var filtered []finding.Finding
+		for _, f := range findings {
+			if f.Severity >= minSev {
+				filtered = append(filtered, f)
+			}
+		}
+		findings = filtered
+	}
+
+	if len(findings) == 0 {
+		fmt.Println("No issues found.")
+		return
+	}
+
+	// Enrich with Claude if API key is set.
+	enriched := make([]enrichment.EnrichedFinding, len(findings))
+	for i, f := range findings {
+		enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		// Populate TerraformFix from the finding Evidence if the scanner set it.
+		if fix, ok := f.Evidence["terraform_fix"]; ok {
+			if fixStr, ok := fix.(string); ok {
+				enriched[i].TerraformFix = fixStr
+			}
+		}
+	}
+
+	if cfg.AnthropicAPIKey != "" {
+		enricher, err := enrichment.NewClaudeDefault(cfg.AnthropicAPIKey)
+		if err == nil {
+			ctx := context.Background()
+			if ef, err := enricher.Enrich(ctx, findings); err == nil {
+				enriched = ef
+				// Re-merge scanner-provided TerraformFix where Claude didn't produce one.
+				for i, f := range findings {
+					if enriched[i].TerraformFix == "" {
+						if fix, ok := f.Evidence["terraform_fix"]; ok {
+							if fixStr, ok := fix.(string); ok {
+								enriched[i].TerraformFix = fixStr
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Render output.
+	switch format {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(enriched)
+	case "markdown", "md":
+		printTerraformMarkdown(enriched)
+	default:
+		printTerraformText(enriched)
+	}
+}
+
+func printTerraformText(enriched []enrichment.EnrichedFinding) {
+	counts := map[finding.Severity]int{}
+	for _, ef := range enriched {
+		counts[ef.Finding.Severity]++
+	}
+	fmt.Printf("Terraform scan: %d finding(s)\n", len(enriched))
+	for _, sev := range []finding.Severity{finding.SeverityCritical, finding.SeverityHigh, finding.SeverityMedium, finding.SeverityLow, finding.SeverityInfo} {
+		if n := counts[sev]; n > 0 {
+			fmt.Printf("  %s: %d\n", sev, n)
+		}
+	}
+	fmt.Println()
+
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Printf("[%s] %s\n", f.Severity, f.Title)
+		fmt.Printf("  File: %s\n", f.Asset)
+		if ef.Explanation != "" && ef.Explanation != f.Description {
+			fmt.Printf("  %s\n", ef.Explanation)
+		} else {
+			fmt.Printf("  %s\n", f.Description)
+		}
+		if ef.Remediation != "" {
+			fmt.Printf("  Fix: %s\n", ef.Remediation)
+		}
+		if ef.TerraformFix != "" {
+			fmt.Println("  Terraform fix:")
+			for _, line := range strings.Split(ef.TerraformFix, "\n") {
+				fmt.Printf("    %s\n", line)
+			}
+		}
+		fmt.Println()
+	}
+}
+
+func printTerraformMarkdown(enriched []enrichment.EnrichedFinding) {
+	fmt.Printf("# Terraform Scan Results\n\n")
+	fmt.Printf("%d finding(s)\n\n", len(enriched))
+
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Printf("## [%s] %s\n\n", f.Severity, f.Title)
+		fmt.Printf("**File:** `%s`\n\n", f.Asset)
+		if ef.Explanation != "" {
+			fmt.Printf("%s\n\n", ef.Explanation)
+		}
+		if ef.Impact != "" {
+			fmt.Printf("**Impact:** %s\n\n", ef.Impact)
+		}
+		if ef.Remediation != "" {
+			fmt.Printf("**Remediation:** %s\n\n", ef.Remediation)
+		}
+		if ef.TerraformFix != "" {
+			fmt.Printf("**Terraform Fix:**\n\n```hcl\n%s\n```\n\n", ef.TerraformFix)
+		}
+		fmt.Println("---")
+		fmt.Println()
+	}
 }
 
 // ---------- helpers ----------
