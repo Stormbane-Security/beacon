@@ -1354,7 +1354,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeFinds:
-			if isQ || isEsc {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc {
 				bs.mode = browseModeScans
 				bs.findings = nil
 				bs.executions = nil
@@ -1405,7 +1408,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeDetail:
-			if isQ || isEsc || b[0] == 'b' {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeFinds
 				bs.selectedFinding = nil
 			}
@@ -1430,7 +1436,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeAssets:
-			if isQ || isEsc || b[0] == 'b' {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeScans
 				bs.findings = nil
 				bs.executions = nil
@@ -1454,7 +1463,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 		case browseModeAssetDetail:
-			if isQ || isEsc || b[0] == 'b' {
+			if isQ {
+				return browseResult{}
+			}
+			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeAssets
 				bs.selectedExec = nil
 			}
@@ -2950,9 +2962,9 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 	isEnter := buf[0] == '\r' || buf[0] == '\n'
 	isEsc   := n == 1 && buf[0] == 0x1b
 
-	// 'b' always detaches to the browse list from any mode.
+	// 'q' and 'b' always detach to the browse list from any mode (scan keeps running).
 	// Esc only detaches when headless (non-headless Esc has mode-specific meanings).
-	if (buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
+	if (buf[0] == 'q' || buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
 		r.mu.Unlock()
 		r.stopOnce.Do(func() { close(r.stop) })
 		close(r.detached)
@@ -2997,16 +3009,11 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			close(r.detached)
 			r.mu.Lock() // re-acquire so caller's deferred unlock is safe
 			return
-		case buf[0] == 'q' || buf[0] == 's':
-			if r.phase == "done" {
-				// Historical scan — treat q/s as detach, not stop.
-				r.mu.Unlock()
-				r.stopOnce.Do(func() { close(r.stop) })
-				close(r.detached)
-				r.mu.Lock()
-				return
+		case buf[0] == 's':
+			// 's' stops the scan (with confirmation). 'q'/'b' just detach.
+			if r.phase != "done" {
+				r.confirmingExit = true
 			}
-			r.confirmingExit = true
 		}
 	case "findings":
 		if r.findingFilterMode {
@@ -3041,7 +3048,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.findingFilter = ""
 				r.findingsCursor = 0
 				r.findingsOff = 0
-			case buf[0] == 'f' || buf[0] == ' ' || buf[0] == 'q':
+			case buf[0] == 'f' || buf[0] == ' ':
 				r.mode = "progress"
 			case buf[0] == 'a':
 				r.mode = "assets"
@@ -3098,7 +3105,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.topoDetailOff = 0
 				r.mode = "topo_detail"
 			}
-		case buf[0] == 'q' || buf[0] == 't':
+		case buf[0] == 't':
 			r.mode = "progress"
 		}
 	case "topo_detail":
@@ -3109,7 +3116,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			if r.topoDetailOff > 0 {
 				r.topoDetailOff--
 			}
-		case buf[0] == 'q' || buf[0] == 'b':
+		case buf[0] == 'b':
 			r.mode = "topology"
 		}
 	case "assets":
@@ -3128,7 +3135,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.assetDetailOff = 0
 				r.mode = "asset_detail"
 			}
-		case buf[0] == 'q' || buf[0] == 'a':
+		case buf[0] == 'a':
 			r.mode = "progress"
 		}
 	case "asset_detail":
@@ -3161,7 +3168,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.findingDetailOrigin = "asset_detail"
 				r.mode = "finding_detail"
 			}
-		case buf[0] == 'q' || buf[0] == 'a':
+		case buf[0] == 'a':
 			r.mode = "assets"
 			r.assetDetailCursor = 0
 		}
@@ -3173,7 +3180,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			if r.findingDetailOff > 0 {
 				r.findingDetailOff--
 			}
-		case buf[0] == 'q' || isEsc || isEnter:
+		case isEsc || isEnter:
 			r.mode = r.findingDetailOrigin
 			r.selectedFinding = nil
 		}
@@ -3232,6 +3239,14 @@ func (r *progressRenderer) startInputLoop() {
 				r.mu.Unlock()
 				continue
 			}
+			// 'q' and 'b' always detach from any mode (scan keeps running in background).
+			if buf[0] == 'q' || buf[0] == 'b' || (isEsc && r.mode == "progress") {
+				r.mu.Unlock()
+				r.stopOnce.Do(func() { close(r.stop) })
+				close(r.detached)
+				return
+			}
+
 			switch r.mode {
 			case "progress":
 				switch {
@@ -3243,21 +3258,16 @@ func (r *progressRenderer) startInputLoop() {
 				case buf[0] == 't':
 					r.mode = "topology"
 					r.topoOff = 0
-				case buf[0] == 'b' || isEsc:
-					// Signal detach: cmdScan will close the live UI and launch the browse TUI
-					// so the user can look at other scans while this one finishes in the background.
-					r.mu.Unlock()
-					r.stopOnce.Do(func() { close(r.stop) })   // stop the ticker
-					close(r.detached)                          // signal cmdScan
-					return
-				case buf[0] == 'q' || buf[0] == 's':
-					// On the main screen, q/s prompt to stop the scan.
-					r.confirmingExit = true
+				case buf[0] == 's':
+					// 's' prompts to stop the scan; 'q'/'b' just detach (handled above).
+					if r.phase != "done" {
+						r.confirmingExit = true
+					}
 				}
 
 			case "findings":
 				switch {
-				case buf[0] == 'f' || buf[0] == ' ' || buf[0] == 'q':
+				case buf[0] == 'f' || buf[0] == ' ':
 					r.mode = "progress"
 				case buf[0] == 'a':
 					r.mode = "assets"
@@ -3290,7 +3300,7 @@ func (r *progressRenderer) startInputLoop() {
 					if r.topoOff > 0 {
 						r.topoOff--
 					}
-				case buf[0] == 'q' || buf[0] == 't':
+				case buf[0] == 't':
 					r.mode = "progress"
 				}
 
@@ -3310,7 +3320,7 @@ func (r *progressRenderer) startInputLoop() {
 						r.assetDetailOff = 0
 						r.mode = "asset_detail"
 					}
-				case buf[0] == 'q' || buf[0] == 'a':
+				case buf[0] == 'a':
 					r.mode = "progress"
 				}
 
@@ -3345,7 +3355,7 @@ func (r *progressRenderer) startInputLoop() {
 						r.findingDetailOrigin = "asset_detail"
 						r.mode = "finding_detail"
 					}
-				case buf[0] == 'q' || buf[0] == 'b' || isEsc:
+				case isEsc:
 					r.mode = "assets"
 				}
 
@@ -3372,7 +3382,7 @@ func (r *progressRenderer) startInputLoop() {
 							copyToClipboard(text)
 						}
 					}
-				case buf[0] == 'q' || buf[0] == 'b' || isEsc:
+				case isEsc || isEnter:
 					if r.findingDetailOrigin != "" {
 						r.mode = r.findingDetailOrigin
 					} else {
@@ -3694,14 +3704,14 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
 			r.done, r.total, len(r.findings))
 	} else if r.phase == "done" {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [b/q] back\x1b[0m\n",
+		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m\n",
 			r.total, len(r.findings))
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [b] detach  [q] stop\x1b[0m\n",
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
 			len(r.findings))
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [b] detach  [q] stop\x1b[0m\n",
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [q/b] detach  [s] stop\x1b[0m\n",
 			r.done, r.total, len(r.findings))
 	}
 	lineCount := 2
