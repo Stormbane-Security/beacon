@@ -83,7 +83,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				"authentication. Groovy execution could not be confirmed (CSRF token or POST " +
 				"restrictions may be in place), but the console is accessible and should be " +
 				"restricted. Unauthenticated access to this path is a critical misconfiguration.",
-			Evidence:     map[string]any{"script_url": scriptURL},
+			Evidence: map[string]any{"script_url": scriptURL},
+			ProofCommand: fmt.Sprintf(
+				"curl -s -o /dev/null -w '%%{http_code}' '%s'\n"+
+					"# Expected: 200 — confirms unauthenticated GET access to the Jenkins Script Console",
+				scriptURL),
 			DiscoveredAt: time.Now(),
 		}}, nil
 	}
@@ -109,6 +113,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			"java_version": javaVersion,
 			"payload":      groovyPayload,
 		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s -X POST '%s' --data-urlencode 'script=println(\"beacon-rce-\"+\"confirmed\")' | grep beacon-rce-confirmed\n"+
+				"# Expected: 'beacon-rce-confirmed' in output — confirms unauthenticated Groovy RCE",
+			scriptURL),
 		DiscoveredAt: time.Now(),
 	}}, nil
 }
@@ -119,8 +127,10 @@ func scriptEndpoint(asset string) string {
 	return "https://" + asset + "/script"
 }
 
-// scriptAccessible returns true if /script responds with 200 (unauthenticated
-// access). Redirects to /login (3xx) mean authentication is required.
+// scriptAccessible returns true if /script responds with 200 AND the response
+// body contains Jenkins-specific markers. Redirects (3xx) mean auth is required.
+// Checking the body prevents false positives from unrelated apps that happen to
+// serve content at the path /script (e.g. blockchain faucets, health endpoints).
 func scriptAccessible(ctx context.Context, client *http.Client, scriptURL string) bool {
 	for _, u := range variants(scriptURL) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -132,8 +142,18 @@ func scriptAccessible(ctx context.Context, client *http.Client, scriptURL string
 		if err != nil {
 			continue
 		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		// Require Jenkins-specific content in the response body.
+		// A bare HTTP 200 at /script is not sufficient — many non-Jenkins services
+		// serve content at this path.
+		bodyLower := strings.ToLower(string(body))
+		if strings.Contains(bodyLower, "jenkins") ||
+			strings.Contains(bodyLower, "script console") ||
+			strings.Contains(bodyLower, "groovy") {
 			return true
 		}
 	}

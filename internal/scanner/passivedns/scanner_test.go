@@ -136,9 +136,10 @@ func TestCDNBypassFromHistory_404Response_NoFinding(t *testing.T) {
 	}
 }
 
-// TestCDNBypassFromHistory_3xxResponse_FindingEmitted verifies that a redirect
-// (3xx) also counts as a successful bypass response.
-func TestCDNBypassFromHistory_3xxResponse_FindingEmitted(t *testing.T) {
+// TestCDNBypassFromHistory_3xxResponse_NotABypass verifies that a redirect
+// (3xx) is NOT counted as a bypass. A 3xx is just HTTP→HTTPS redirect from a
+// CDN edge node — the origin is not serving application content.
+func TestCDNBypassFromHistory_3xxResponse_NotABypass(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMovedPermanently)
 	}))
@@ -149,8 +150,8 @@ func TestCDNBypassFromHistory_3xxResponse_FindingEmitted(t *testing.T) {
 		{Hostname: "old.example.com", IP: addr},
 	}
 	findings := cdnBypassFromHistory(context.Background(), ts.Client(), "example.com", records)
-	if len(findings) == 0 {
-		t.Error("expected a finding for 301 response (valid bypass), got none")
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for 301 response (CDN redirect, not a bypass), got %d", len(findings))
 	}
 }
 

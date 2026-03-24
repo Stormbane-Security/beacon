@@ -70,6 +70,16 @@ var cdnCIDRs = func() []*net.IPNet {
 		"204.246.172.0/23",
 		"205.251.192.0/19",
 		"216.137.32.0/19",
+		// Vercel
+		"76.76.21.0/24",
+		"76.76.22.0/24",
+		"64.29.17.0/24",
+		"216.150.1.0/24",
+		"66.33.60.0/24",
+		"66.33.61.0/24",
+		// Fastly (additional ranges)
+		"199.36.156.0/22",
+		"199.36.158.0/23",
 	}
 	nets := make([]*net.IPNet, 0, len(cidrs))
 	for _, c := range cidrs {
@@ -288,7 +298,7 @@ func cdnBypassFromHistory(ctx context.Context, client *http.Client, asset string
 			continue
 		}
 		resp.Body.Close()
-		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			responding = append(responding, respondingIP{IP: ip, Status: resp.StatusCode})
 		}
 	}
@@ -309,7 +319,7 @@ func cdnBypassFromHistory(ctx context.Context, client *http.Client, asset string
 	// Proof command: curl each responding IP with the correct Host header so the
 	// operator can confirm the origin server answers directly (bypassing CDN/WAF).
 	var proofLines []string
-	proofLines = append(proofLines, fmt.Sprintf("# Each command should return HTTP 2xx/3xx, proving direct origin access for %s", asset))
+	proofLines = append(proofLines, fmt.Sprintf("# Each command should return HTTP 2xx, proving direct origin access for %s (bypassing CDN/WAF)", asset))
 	for _, r := range responding {
 		proofLines = append(proofLines, fmt.Sprintf(
 			`curl -sv -o /dev/null -w "%%{http_code}" -H "Host: %s" http://%s/`,

@@ -307,3 +307,120 @@ func TestTruncate_LongString_Truncated(t *testing.T) {
 	}
 }
 
+// --- JWKS key strength checks ---
+
+// TestJWT_JWKSWeakRSAKey serves a JWKS document containing a 1024-bit RSA key
+// (128-byte modulus) and asserts that checkJWKSKeys emits CheckJWKSWeakKey.
+func TestJWT_JWKSWeakRSAKey(t *testing.T) {
+	// 128 bytes = 1024-bit modulus (all 0xFF for simplicity; we only check length).
+	weakModulus := base64.RawURLEncoding.EncodeToString(make([]byte, 128))
+	jwks := fmt.Sprintf(`{"keys":[{"kty":"RSA","kid":"test-key-1","n":"%s","e":"AQAB"}]}`, weakModulus)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/jwks.json" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, jwks)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	// Strip "http://" to get the host:port form that checkJWKSKeys expects.
+	host := strings.TrimPrefix(srv.URL, "http://")
+	findings := checkJWKSKeys(t.Context(), srv.Client(), host, srv.URL)
+
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJWKSWeakKey {
+			found = true
+			if f.Severity != finding.SeverityHigh {
+				t.Errorf("expected High severity, got %s", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected CheckJWKSWeakKey finding for 1024-bit RSA key, got findings: %v", findings)
+	}
+}
+
+// TestJWT_JWKSMissingKID serves a JWKS document where the key has no "kid"
+// field and asserts that checkJWKSKeys emits CheckJWKSMissingKID.
+func TestJWT_JWKSMissingKID(t *testing.T) {
+	// 256 bytes = 2048-bit modulus — strong enough, so only the missing-kid
+	// finding should fire (not the weak-key finding).
+	strongModulus := base64.RawURLEncoding.EncodeToString(make([]byte, 256))
+	// Deliberately omit the "kid" field.
+	jwks := fmt.Sprintf(`{"keys":[{"kty":"RSA","n":"%s","e":"AQAB"}]}`, strongModulus)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/jwks.json" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, jwks)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	findings := checkJWKSKeys(t.Context(), srv.Client(), host, srv.URL)
+
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJWKSMissingKID {
+			found = true
+			if f.Severity != finding.SeverityMedium {
+				t.Errorf("expected Medium severity, got %s", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected CheckJWKSMissingKID finding for key without kid, got findings: %v", findings)
+	}
+}
+
+// TestOIDC_WeakSigningAlg spins up a mock OIDC discovery document that
+// advertises "none" in id_token_signing_alg_values_supported and asserts that
+// the oauth scanner emits CheckOIDCWeakSigningAlg (High severity).
+func TestOIDC_WeakSigningAlg(t *testing.T) {
+	discovery := `{
+		"issuer": "https://example.com",
+		"authorization_endpoint": "https://example.com/oauth/authorize",
+		"token_endpoint": "https://example.com/oauth/token",
+		"jwks_uri": "https://example.com/.well-known/jwks.json",
+		"response_types_supported": ["code"],
+		"id_token_signing_alg_values_supported": ["RS256", "none"]
+	}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, discovery)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := oauthscanner.New()
+	findings, err := s.Run(t.Context(), host, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("oauth scanner returned error: %v", err)
+	}
+
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckOIDCWeakSigningAlg {
+			found = true
+			if f.Severity != finding.SeverityHigh {
+				t.Errorf("expected High severity, got %s", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected CheckOIDCWeakSigningAlg finding for discovery doc with 'none' alg, got %d findings", len(findings))
+	}
+}
+

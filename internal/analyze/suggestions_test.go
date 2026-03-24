@@ -45,11 +45,11 @@ func fakeEmptyIntelServer(t *testing.T) *httptest.Server {
 func fakeClaudeServer(t *testing.T, responseBody string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate Anthropic API response format.
 		resp := map[string]any{
 			"content": []map[string]any{
 				{"type": "text", "text": responseBody},
 			},
+			"stop_reason": "end_turn",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck

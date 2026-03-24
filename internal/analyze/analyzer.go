@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,7 +30,11 @@ const (
 	defaultAnalyzeModel = "claude-opus-4-6"
 	apiURL              = "https://api.anthropic.com/v1/messages"
 	apiVersion          = "2023-06-01"
-	maxTokens           = 16384
+	// maxTokens is the per-domain call output token budget.
+	// Responses run ~3 500 tokens; 8 192 gives comfortable headroom.
+	// Parallel calls may 429 — the retry loop handles that with back-off.
+	maxTokens           = 8192
+	maxTokensFullPrompt = 16384
 )
 
 // Analyzer runs the batch playbook analysis job.
@@ -81,7 +86,7 @@ func NewWithAPIURL(st store.Store, apiKey, url string) (*Analyzer, error) {
 		apiKey:       apiKey,
 		apiURL:       url,
 		model:        defaultAnalyzeModel,
-		httpClient:   &http.Client{Timeout: 120 * time.Second},
+		httpClient:   &http.Client{Timeout: 240 * time.Second},
 		registry:     reg,
 		intelSources: DefaultIntelSources(),
 	}, nil
@@ -109,27 +114,112 @@ func (a *Analyzer) Run(ctx context.Context) (int, error) {
 // RunFull executes the full analysis and returns all result sections.
 // Callers that want accuracy review, optimizations, gaps, and the fix prompt
 // should call this instead of Run.
+//
+// When there are multiple domains, Claude is called concurrently — one call
+// per domain — and results are merged into a single AnalysisResult.
 func (a *Analyzer) RunFull(ctx context.Context) (*AnalysisResult, error) {
 	a.emit("loading scan history, findings, evidence, and scanner ROI data...")
-	prompt, domainRunIDs, err := a.buildPrompt(ctx)
+
+	// Build shared context once (includes threat intel).
+	sharedCtx, domainSummaries, err := a.buildSharedContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("build prompt: %w", err)
+		return nil, fmt.Errorf("build shared context: %w", err)
 	}
 
-	a.emit(fmt.Sprintf("sending %d domains to Claude for comprehensive analysis (this may take a minute)...", len(domainRunIDs)))
-	responseText, err := a.callClaude(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("claude: %w", err)
+	// No domains → fall back to a single generic prompt with no domain picture.
+	if len(domainSummaries) == 0 {
+		a.emit("no scan history found — sending generic analysis prompt...")
+		prompt, domainRunIDs, err := a.buildPrompt(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("build prompt: %w", err)
+		}
+		responseText, err := a.callClaude(ctx, prompt, maxTokensFullPrompt)
+		if err != nil {
+			return nil, fmt.Errorf("claude: %w", err)
+		}
+		result, err := parseFullAnalysisResponse(responseText, domainRunIDs)
+		if err != nil {
+			suggestions, _ := parseSuggestions(responseText)
+			result = &AnalysisResult{Suggestions: suggestions}
+		}
+		return a.saveAndReturn(ctx, result)
 	}
 
-	a.emit("parsing analysis results...")
-	result, err := parseFullAnalysisResponse(responseText, domainRunIDs)
-	if err != nil {
-		// Graceful fallback: try legacy format for suggestions only.
-		suggestions, _ := parseSuggestions(responseText)
-		result = &AnalysisResult{Suggestions: suggestions}
+	// Sort domains for deterministic ordering.
+	domains := make([]string, 0, len(domainSummaries))
+	for d := range domainSummaries {
+		domains = append(domains, d)
+	}
+	sort.Strings(domains)
+
+	a.emit(fmt.Sprintf("analyzing %d domain(s) in parallel...", len(domains)))
+
+	type domainResult struct {
+		domain string
+		result *AnalysisResult
+		err    error
+	}
+	resultCh := make(chan domainResult, len(domains))
+
+	for i, domain := range domains {
+		go func(domain string, ds domainSummary, idx int) {
+			a.emit(fmt.Sprintf("analyzing domain %d/%d: %s...", idx, len(domains), domain))
+			prompt := a.buildDomainPrompt(sharedCtx, domain, ds)
+			responseText, err := a.callClaude(ctx, prompt, maxTokens)
+			if err != nil {
+				resultCh <- domainResult{domain: domain, err: err}
+				return
+			}
+			r, err := parseFullAnalysisResponse(responseText, map[string]string{domain: ds.RunID})
+			if err != nil {
+				suggestions, _ := parseSuggestions(responseText)
+				r = &AnalysisResult{Suggestions: suggestions}
+			}
+			resultCh <- domainResult{domain: domain, result: r}
+		}(domain, domainSummaries[domain], i+1)
 	}
 
+	merged := &AnalysisResult{
+		CorrelationsByDomain: make(map[string][]store.CorrelationFinding),
+	}
+	var firstErr error
+
+	for range domains {
+		dr := <-resultCh
+		if dr.err != nil {
+			a.emit(fmt.Sprintf("domain %s: claude error: %v", dr.domain, dr.err))
+			if firstErr == nil {
+				firstErr = dr.err
+			}
+			continue
+		}
+		r := dr.result
+		merged.Suggestions = append(merged.Suggestions, r.Suggestions...)
+		merged.AccuracyReview = append(merged.AccuracyReview, r.AccuracyReview...)
+		merged.ScanOptimizations = append(merged.ScanOptimizations, r.ScanOptimizations...)
+		merged.ScanGaps = append(merged.ScanGaps, r.ScanGaps...)
+		if r.FixPrompt != "" {
+			if merged.FixPrompt == "" {
+				merged.FixPrompt = r.FixPrompt
+			} else {
+				merged.FixPrompt += "\n\n" + r.FixPrompt
+			}
+		}
+		for d, corrs := range r.CorrelationsByDomain {
+			merged.CorrelationsByDomain[d] = append(merged.CorrelationsByDomain[d], corrs...)
+		}
+	}
+
+	if firstErr != nil && len(merged.Suggestions) == 0 && len(merged.AccuracyReview) == 0 {
+		return nil, fmt.Errorf("claude: %w", firstErr)
+	}
+
+	return a.saveAndReturn(ctx, merged)
+}
+
+// saveAndReturn saves suggestions and correlations to the store, emits progress,
+// and returns the final result.
+func (a *Analyzer) saveAndReturn(ctx context.Context, result *AnalysisResult) (*AnalysisResult, error) {
 	for _, s := range result.Suggestions {
 		if err := a.st.SavePlaybookSuggestion(ctx, s); err != nil {
 			return nil, fmt.Errorf("save suggestion: %w", err)
@@ -174,8 +264,236 @@ func (a *Analyzer) lastAnalyzeRun(ctx context.Context) time.Time {
 	return latest
 }
 
+// buildSharedContext builds the shared prompt prefix that is sent with every
+// domain call: system description, scanner list, match rule types, existing
+// playbooks, unmatched assets, and live threat intelligence.
+// Returns the shared context string and the per-domain summary map.
+func (a *Analyzer) buildSharedContext(ctx context.Context) (string, map[string]domainSummary, error) {
+	lastRun := a.lastAnalyzeRun(ctx)
+
+	// Fetch threat intel concurrently while we query the store.
+	intelCh := make(chan ThreatIntel, 1)
+	go func() {
+		intelClient := &http.Client{Timeout: 15 * time.Second}
+		sources := a.intelSources
+		sources.Since = lastRun
+		intelCh <- sources.Fetch(ctx, intelClient)
+	}()
+
+	a.emit("querying store for unmatched assets...")
+	unmatched, err := a.st.ListUnmatchedAssets(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	a.emit("building domain summaries from scan findings...")
+	domainSummaries, err := a.buildDomainSummaries(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	a.emit("waiting for threat intelligence feeds...")
+	intel := <-intelCh
+
+	var b strings.Builder
+
+	lastRunStr := "never (first run)"
+	if !lastRun.IsZero() {
+		lastRunStr = lastRun.Format("2006-01-02 15:04 UTC")
+	}
+	b.WriteString(fmt.Sprintf(`You are a senior security tool architect for Beacon, a reconnaissance scanner.
+Your job is to analyze ALL accumulated scan history AND current threat intelligence,
+then produce high-quality playbook improvements AND identify cross-asset attack chains.
+
+Analysis last ran: %s
+Today: %s
+
+Playbooks are YAML files that configure which Nuclei tags and named scanners run for
+matching assets. The available named scanners are:
+
+  Surface (safe, passive or low-noise):
+    email, whois, tls, tlscheck, assetintel, webcontent, cloudbuckets, historicalurls,
+    crawler, screenshot, bgp, passivedns, cdnbypass, vhost, graphql, portscan,
+    typosquat, dlp, dns, httpmethods, takeover, wafdetect, harvester, clickjacking,
+    exposedfiles, apiversions, aidetect, saml, iam, web3detect, log4shell, depconf,
+    dorks, cms-plugins, hibp
+
+  Deep (active probes — requires --deep flag):
+    testssl, cors, ratelimit, hostheader, jwt, oauth, autoprobe, websocket,
+    smuggling, aillm, ssti, crlf
+
+Match rule types (for the match: section):
+  always, header_present, header_value, asn_org_contains, dns_suffix,
+  cname_contains, title_contains, body_contains, cert_san_contains,
+  path_responds, service_version_contains, ai_endpoint_present,
+  llm_provider_contains, cloud_provider_contains, framework_contains,
+  auth_system_contains, is_serverless (bool), is_kubernetes (bool),
+  has_contract_addresses (bool), auth_scheme_contains, mx_provider_contains,
+  vendor_signal_contains, has_dmarc (bool)
+
+Nuclei CVE template naming convention: cve-YYYY-NNNNN
+  (e.g. CVE-2024-12345 → nuclei tag "cve-2024-12345")
+
+---
+`, lastRunStr, time.Now().UTC().Format("2006-01-02")))
+
+	// Existing playbooks.
+	b.WriteString("## Existing playbooks\n")
+	for _, p := range a.registry.All() {
+		b.WriteString("  - " + p.Name + "\n")
+	}
+	b.WriteString("\n")
+
+	// Unmatched assets from scan history.
+	if len(unmatched) > 0 {
+		shown := unmatched
+		if len(shown) > 20 {
+			shown = shown[:20]
+		}
+		b.WriteString(fmt.Sprintf("## Unmatched assets from scan history (%d unique fingerprints)\n", len(unmatched)))
+		b.WriteString("These assets had no targeted playbook match — potential gaps in coverage.\n\n")
+		for _, u := range shown {
+			ev := u.Evidence
+			b.WriteString(fmt.Sprintf(
+				"  asset=%s asn_org=%q dns_suffix=%q title=%q status=%d cname=%v cert_issuer=%q\n",
+				u.Asset, ev.ASNOrg, ev.DNSSuffix, ev.Title, ev.StatusCode,
+				ev.CNAMEChain, ev.CertIssuer,
+			))
+		}
+		b.WriteString("\n")
+	}
+
+	// Live threat intelligence.
+	intel.AppendToPrompt(&b)
+
+	return b.String(), domainSummaries, nil
+}
+
+// buildDomainPrompt combines the shared context with a single domain summary
+// and the per-domain task instructions.
+func (a *Analyzer) buildDomainPrompt(sharedCtx, domain string, ds domainSummary) string {
+	var b strings.Builder
+	b.WriteString(sharedCtx)
+	b.WriteString(ds.Text)
+	b.WriteString(fmt.Sprintf(`---
+## Your task (for domain: %s)
+
+Return a single JSON object. No other text.
+
+---
+### SECTION A: ACCURACY REVIEW (critical and high findings only)
+
+For each CRIT/HIGH finding listed above, evaluate:
+1. Does the evidence support the finding? Assign confidence 0-100.
+2. Is proof_cmd syntactically correct and targeting the right URL?
+3. Flag SSRF findings where the signal is in the payload URL itself (false positive pattern).
+4. Flag 3xx responses claimed as SSRF — the server redirected, did not fetch.
+
+"accuracy_review": [
+  {
+    "asset": "...",
+    "check_id": "...",
+    "title": "...",
+    "confidence": 0-100,
+    "verdict": "true_positive" | "likely_false_positive" | "needs_verification",
+    "reasoning": "...",
+    "proof_cmd_ok": true | false,
+    "proof_cmd_issue": "..." // null if ok
+  }
+]
+
+---
+### SECTION B: ATTACK CHAIN CORRELATIONS
+
+Look across all assets in this domain. Identify multi-step paths combining ≥2 findings.
+Only include chains with compound risk not visible from any single asset.
+
+"correlations": [
+  {
+    "title": "...",
+    "severity": "critical"|"high"|"medium"|"low",
+    "affected_assets": [...],
+    "contributing_checks": [...],
+    "description": "...",
+    "remediation": "..."
+  }
+]
+
+---
+### SECTION C: SCAN OPTIMIZATION
+
+Based on scanner ROI data, evidence patterns, false positives, and timing:
+- Scanners with poor signal-to-noise for this tech stack.
+- Scanners too slow relative to findings produced.
+- Check IDs that consistently produce false positives with this stack.
+NEVER suggest removing a scanner entirely — only suggest conditional targeting.
+
+"scan_optimizations": [
+  {
+    "type": "false_positive_pattern" | "performance" | "coverage_gap" | "ordering",
+    "scanner": "...",
+    "check_id": "...",
+    "description": "...",
+    "suggested_change": "..."
+  }
+]
+
+---
+### SECTION D: CVE / THREAT INTEL
+
+Map threat intel CVEs to existing playbooks or suggest new ones.
+CISA KEV = HIGHEST PRIORITY.
+
+"playbook_suggestions": [
+  {
+    "type": "new" | "improve",
+    "target_playbook": "...",
+    "suggested_yaml": "...",
+    "reasoning": "..."
+  }
+]
+"scan_gaps": [
+  {
+    "cve_id": "...",
+    "product": "...",
+    "reason_undetectable": "...",
+    "suggested_new_scanner_or_check": "..."
+  }
+]
+
+---
+### SECTION E: PLAYBOOK GAPS
+
+Unmatched assets → new playbooks. Matched assets missing obvious scanners.
+(Add to playbook_suggestions above.)
+
+---
+### SECTION F: FIX PROMPT
+
+Code-level fixes for broken proof commands, false positive logic, wrong signal patterns.
+
+"fix_prompt": "Fix the following..."
+
+---
+### OUTPUT FORMAT (return ONLY this JSON, no other text):
+
+{"accuracy_review":[],"correlations":[],"scan_optimizations":[],"playbook_suggestions":[],"scan_gaps":[],"fix_prompt":""}
+
+Rules:
+- Only use the named scanners and match rule types listed in the system header.
+- Nuclei tags: cve-YYYY-NNNNN (lowercase).
+- Do not duplicate existing playbooks.
+- Each suggested_yaml must be complete valid YAML.
+- Empty arrays [] for sections with no entries.
+- Every entry needs substantive reasoning grounded in evidence from the scan data.
+`, domain))
+	return b.String()
+}
+
 // buildPrompt assembles the analysis context from scan data + live threat intel.
 // Returns the prompt string, a map of domain->scanRunID, and any error.
+// This is kept for backward compatibility and is used as the fallback when no
+// domain summaries are available.
 func (a *Analyzer) buildPrompt(ctx context.Context) (string, map[string]string, error) {
 	// Determine when analyze last ran so we can filter CVEs to "new since then".
 	lastRun := a.lastAnalyzeRun(ctx)
@@ -248,7 +566,6 @@ Nuclei CVE template naming convention: cve-YYYY-NNNNN
 
 ---
 `, lastRunStr, time.Now().UTC().Format("2006-01-02")))
-
 
 	// Existing playbooks.
 	b.WriteString("## Existing playbooks\n")
@@ -447,7 +764,6 @@ Rules:
 - Empty arrays [] for sections with no entries.
 - Every entry needs substantive reasoning grounded in evidence from the scan data.
 `)
-
 
 	return b.String(), domainRunIDs, nil
 }
@@ -648,11 +964,12 @@ func parseSuggestions(text string) ([]*store.PlaybookSuggestion, error) {
 	return out, nil
 }
 
-// claudeRequest / claudeResponse are minimal Anthropic API types.
+// claudeRequest / claudeResponse are minimal Anthropic API types shared across
+// the analyze package.
 type claudeRequest struct {
-	Model     string           `json:"model"`
-	MaxTokens int              `json:"max_tokens"`
-	Messages  []claudeMessage  `json:"messages"`
+	Model     string          `json:"model"`
+	MaxTokens int             `json:"max_tokens"`
+	Messages  []claudeMessage `json:"messages"`
 }
 
 type claudeMessage struct {
@@ -664,53 +981,138 @@ type claudeResponse struct {
 	Content []struct {
 		Text string `json:"text"`
 	} `json:"content"`
-	Error *struct {
+	StopReason string `json:"stop_reason"`
+	Error      *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
-func (a *Analyzer) callClaude(ctx context.Context, prompt string) (string, error) {
+// callClaude sends a request to the Anthropic API and returns the response text.
+// tokenBudget controls max_tokens in the request; use maxTokens for per-domain
+// calls and maxTokensFullPrompt for the legacy single-prompt path.
+func (a *Analyzer) callClaude(ctx context.Context, prompt string, tokenBudget int) (string, error) {
 	body, err := json.Marshal(claudeRequest{
 		Model:     a.model,
-		MaxTokens: maxTokens,
+		MaxTokens: tokenBudget,
 		Messages:  []claudeMessage{{Role: "user", Content: prompt}},
 	})
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.apiURL, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", a.apiKey)
-	req.Header.Set("anthropic-version", apiVersion)
+	a.emit(fmt.Sprintf("claude request: model=%s max_tokens=%d prompt=%d chars request_body=%d bytes",
+		a.model, tokenBudget, len([]rune(prompt)), len(body)))
 
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.apiURL, bytes.NewReader(body))
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", a.apiKey)
+		req.Header.Set("anthropic-version", apiVersion)
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			a.emit(fmt.Sprintf("claude http error (attempt %d/%d): %v", attempt+1, maxAttempts, err))
+			if strings.Contains(err.Error(), "EOF") {
+				wait := retryDelay(attempt, 3*time.Second)
+				if sleepCtx(ctx, wait) != nil {
+					return "", ctx.Err()
+				}
+				continue
+			}
+			return "", err
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
+		data, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			a.emit(fmt.Sprintf("claude read error after %d bytes (attempt %d/%d): %v",
+				len(data), attempt+1, maxAttempts, readErr))
+			if strings.Contains(readErr.Error(), "EOF") {
+				wait := retryDelay(attempt, 3*time.Second)
+				if sleepCtx(ctx, wait) != nil {
+					return "", ctx.Err()
+				}
+				continue
+			}
+			return "", readErr
+		}
 
-	var cr claudeResponse
-	if err := json.Unmarshal(data, &cr); err != nil {
-		return "", fmt.Errorf("parse response: %w", err)
+		a.emit(fmt.Sprintf("claude response: status=%d body=%d bytes", resp.StatusCode, len(data)))
+
+		switch resp.StatusCode {
+		case http.StatusTooManyRequests:
+			// Rate limited — honour Retry-After if present, else back off exponentially.
+			wait := retryDelay(attempt, 60*time.Second)
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				if secs, err := time.ParseDuration(ra + "s"); err == nil {
+					wait = secs + 2*time.Second // small buffer
+				}
+			}
+			a.emit(fmt.Sprintf("claude rate limited (attempt %d/%d), waiting %s...", attempt+1, maxAttempts, wait.Round(time.Second)))
+			lastErr = fmt.Errorf("rate limited: %s", strings.TrimSpace(string(data)))
+			if sleepCtx(ctx, wait) != nil {
+				return "", ctx.Err()
+			}
+			continue
+
+		case http.StatusServiceUnavailable, 529:
+			wait := retryDelay(attempt, 10*time.Second)
+			a.emit(fmt.Sprintf("claude overloaded (attempt %d/%d), waiting %s...", attempt+1, maxAttempts, wait.Round(time.Second)))
+			lastErr = fmt.Errorf("overloaded: HTTP %d", resp.StatusCode)
+			if sleepCtx(ctx, wait) != nil {
+				return "", ctx.Err()
+			}
+			continue
+
+		case http.StatusOK:
+			// fall through to parse
+
+		default:
+			return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		}
+
+		var cr claudeResponse
+		if err := json.Unmarshal(data, &cr); err != nil {
+			return "", fmt.Errorf("parse response: %w", err)
+		}
+		if cr.Error != nil {
+			return "", fmt.Errorf("API error: %s", cr.Error.Message)
+		}
+		if len(cr.Content) == 0 {
+			return "", fmt.Errorf("empty response")
+		}
+		a.emit(fmt.Sprintf("claude response parsed: stop_reason=%s response_chars=%d",
+			cr.StopReason, len(cr.Content[0].Text)))
+		return cr.Content[0].Text, nil
 	}
-	if cr.Error != nil {
-		return "", fmt.Errorf("API error: %s", cr.Error.Message)
+	return "", lastErr
+}
+
+// retryDelay returns an exponential back-off delay: base * 2^attempt, capped at 5 minutes.
+func retryDelay(attempt int, base time.Duration) time.Duration {
+	d := base
+	for i := 0; i < attempt; i++ {
+		d *= 2
+		if d > 5*time.Minute {
+			return 5 * time.Minute
+		}
 	}
-	if len(cr.Content) == 0 {
-		return "", fmt.Errorf("empty response")
+	return d
+}
+
+// sleepCtx sleeps for d or until ctx is cancelled, whichever comes first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
 	}
-	return cr.Content[0].Text, nil
 }

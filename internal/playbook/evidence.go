@@ -97,6 +97,12 @@ type Evidence struct {
 	// Used by the surface module to queue new assets missed by passive enumeration.
 	SubdomainsInBody []string
 
+	// BackendServices is a deduplicated list of named backend services inferred
+	// from RespondingPaths. Populated by classify after path probing completes.
+	// Examples: "Spring Boot", "HashiCorp Vault", "Keycloak", "Elasticsearch".
+	// Used by topology rendering and the AI analysis prompt for richer context.
+	BackendServices []string
+
 	// PhaseACheckIDs holds check IDs from Phase A scanner findings (wafdetect,
 	// portscan, aidetect). Populated by the surface module after Phase A completes
 	// and before the second playbook-matching pass. Enables playbooks to match on

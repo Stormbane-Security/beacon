@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,8 +27,14 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	// Strip subdomains — bucket names are usually derived from the root domain
+	// Strip subdomains — bucket names are derived from the root domain.
+	// Only run on the root domain itself to avoid reporting the same guessed
+	// bucket names once per subdomain (api.acme.com, app.acme.com, etc. all
+	// generate identical candidates and would produce duplicate findings).
 	root := rootDomain(asset)
+	if asset != root {
+		return nil, nil
+	}
 
 	client := &http.Client{
 		Timeout: 8 * time.Second,
@@ -122,22 +129,57 @@ func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bu
 
 	switch resp.StatusCode {
 	case 200:
-		// Bucket exists and is publicly readable
+		// Read up to 4KB of the response body to determine whether listing is enabled.
+		// GCS and S3 both return XML with <ListBucketResult> when the bucket is publicly
+		// listable. An empty body or non-XML body means the bucket URL responded (exists,
+		// public object access possible) but directory listing is disabled.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if strings.Contains(string(body), "ListBucketResult") {
+			// Bucket is publicly listable — anyone can enumerate and download all contents.
+			// Bucket name was guessed from the domain so mark as "possible" pending ownership confirmation.
+			listURL := fmt.Sprintf("%s?max-keys=20", url)
+			return &finding.Finding{
+				CheckID:     finding.CheckCloudBucketPublic,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityCritical,
+				Title:       fmt.Sprintf("Possible public %s bucket (listable): %s", provider, bucketName),
+				Description: fmt.Sprintf("A %s bucket named '%s' (guessed from %s) is publicly listable. Confirm it belongs to the target by reviewing the object keys. If confirmed, anyone can enumerate and download all contents.", provider, bucketName, asset),
+				Asset:       asset,
+				Evidence: map[string]any{
+					"bucket_url":  url,
+					"bucket_name": bucketName,
+					"provider":    provider,
+					"status_code": resp.StatusCode,
+					"listing":     "enabled",
+				},
+				ProofCommand: fmt.Sprintf(
+					"# List up to 20 object keys to confirm ownership and enumerate contents:\ncurl -s '%s' | grep -o '<Key>[^<]*</Key>' | sed 's/<[^>]*>//g'",
+					listURL),
+				DiscoveredAt: now,
+			}
+		}
+		// Bucket exists and is publicly accessible but listing is disabled.
+		// Bucket name was guessed from the domain — mark as "possible" pending ownership confirmation.
+		listURL := fmt.Sprintf("%s?max-keys=20", url)
 		return &finding.Finding{
 			CheckID:     finding.CheckCloudBucketPublic,
 			Module:      "surface",
 			Scanner:     scannerName,
-			Severity:    finding.SeverityCritical,
-			Title:       fmt.Sprintf("Public %s bucket found: %s", provider, bucketName),
-			Description: fmt.Sprintf("A %s bucket named '%s' associated with %s is publicly accessible. Anyone can list and download its contents, which may include sensitive files, backups, or credentials.", provider, bucketName, asset),
+			Severity:    finding.SeverityMedium,
+			Title:       fmt.Sprintf("Possible public %s bucket (listing disabled): %s", provider, bucketName),
+			Description: fmt.Sprintf("A %s bucket named '%s' (guessed from %s) responded with HTTP 200 but listing is disabled. Bucket ownership is unconfirmed — verify by checking whether the target's HTML/JS references this bucket URL.", provider, bucketName, asset),
 			Asset:       asset,
 			Evidence: map[string]any{
 				"bucket_url":  url,
 				"bucket_name": bucketName,
 				"provider":    provider,
 				"status_code": resp.StatusCode,
+				"listing":     "disabled",
 			},
-			ProofCommand: fmt.Sprintf("curl -sI '%s' | grep -i 'HTTP/'", url),
+			ProofCommand: fmt.Sprintf(
+				"# Attempt to list objects (empty = listing disabled, XML = listable):\ncurl -s '%s'\n# If you know an object path, fetch it directly:\n# curl -I '%sPATH/TO/OBJECT'",
+				listURL, url),
 			DiscoveredAt: now,
 		}
 

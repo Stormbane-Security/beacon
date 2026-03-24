@@ -26,7 +26,7 @@ import (
 	"github.com/stormbane/beacon/internal/worker"
 )
 
-// fakeClaudeServerWithObject returns a test server that responds with the new object format.
+// fakeClaudeServerWithObject returns a test server that responds with the Anthropic JSON format.
 func fakeClaudeServerWithObject(t *testing.T, responseBody string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +34,7 @@ func fakeClaudeServerWithObject(t *testing.T, responseBody string) *httptest.Ser
 			"content": []map[string]any{
 				{"type": "text", "text": responseBody},
 			},
+			"stop_reason": "end_turn",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck

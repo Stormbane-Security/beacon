@@ -86,6 +86,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	defer resp.Body.Close()
 
+	// Catch-all / wildcard detection: if the server returns 200 for a random
+	// path that cannot exist, all JWT probe responses will be false positives.
+	if isCatchAll(ctx, client, resp.Request.URL.Scheme+"://"+asset) {
+		return nil, nil
+	}
+
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	bodyStr := string(bodyBytes)
 
@@ -859,4 +865,20 @@ func checkJWKSKeys(ctx context.Context, client *http.Client, asset, base string)
 	}
 
 	return findings
+}
+
+// isCatchAll returns true when the server responds 200 to a path that cannot
+// exist on any real application — indicating a wildcard / catch-all config
+// where all JWT probe responses would be false positives.
+func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

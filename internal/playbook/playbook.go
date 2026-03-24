@@ -50,6 +50,7 @@ type MatchConfig struct {
 // MatchRule is a single condition evaluated against Evidence.
 type MatchRule struct {
 	HeaderPresent          string            `yaml:"header_present"`
+	HeaderContains         string            `yaml:"header_contains"` // substring match against any header name or value
 	HeaderValue            *HeaderValueMatch `yaml:"header_value"`
 	ASNOrgContains         string            `yaml:"asn_org_contains"`
 	DNSSuffix              string            `yaml:"dns_suffix"`
@@ -115,6 +116,20 @@ func ruleMatches(r MatchRule, e Evidence) bool {
 	if r.HeaderPresent != "" {
 		checked++
 		if _, ok := e.Headers[strings.ToLower(r.HeaderPresent)]; !ok {
+			return false
+		}
+	}
+	if r.HeaderContains != "" {
+		checked++
+		needle := strings.ToLower(r.HeaderContains)
+		found := false
+		for k, v := range e.Headers {
+			if strings.Contains(k, needle) || strings.Contains(strings.ToLower(v), needle) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
 	}
@@ -339,6 +354,7 @@ func ParsePlaybook(data []byte) (*Playbook, error) {
 // isEmptyRule returns true when a MatchRule has no conditions set.
 func isEmptyRule(r MatchRule) bool {
 	return r.HeaderPresent == "" &&
+		r.HeaderContains == "" &&
 		r.HeaderValue == nil &&
 		r.ASNOrgContains == "" &&
 		r.DNSSuffix == "" &&

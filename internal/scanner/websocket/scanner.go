@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -57,10 +58,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	scheme := "https"
+	var sessionCookies []string
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
 	if resp, err := client.Do(req); err != nil {
 		scheme = "http"
 	} else {
+		for _, c := range resp.Cookies() {
+			if looksLikeSessionCookie(c) {
+				sessionCookies = append(sessionCookies, c.Name)
+			}
+		}
 		resp.Body.Close()
 	}
 
@@ -69,13 +76,19 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		wsScheme = "wss"
 	}
 
+	// Skip catch-all servers that return 200 for any path — WS probes would
+	// all be false positives on such servers.
+	if isCatchAll(ctx, client, scheme+"://"+asset) {
+		return nil, nil
+	}
+
 	var findings []finding.Finding
 
 	for _, path := range candidatePaths {
 		wsURL := wsScheme + "://" + asset + path
 		httpURL := scheme + "://" + asset + path
 
-		f := probeCWSH(ctx, client, httpURL, wsURL, asset)
+		f := probeCWSH(ctx, client, httpURL, wsURL, asset, sessionCookies)
 		if f != nil {
 			findings = append(findings, *f)
 		}
@@ -84,9 +97,46 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return findings, nil
 }
 
+// isCatchAll returns true when the server responds HTTP 200 to a path that
+// cannot exist on any real application, indicating a wildcard / catch-all
+// config where all path-based probes would be false positives.
+func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// looksLikeSessionCookie returns true when a cookie's name matches common
+// session / auth token patterns. These indicate the site uses cookie-based
+// authentication, which makes CSWSH exploitable for session hijacking.
+func looksLikeSessionCookie(c *http.Cookie) bool {
+	name := strings.ToLower(c.Name)
+	sessionNames := []string{
+		"session", "sess", "sid", "jsessionid", "phpsessid",
+		"asp.net_sessionid", "connect.sid", "laravel_session",
+		"ci_session", "rack.session", "auth", "token", "jwt",
+		"access_token", "id_token", "remember_me", "logged_in",
+		"user_id", "uid", "identity",
+	}
+	for _, s := range sessionNames {
+		if name == s || strings.HasPrefix(name, s+"_") || strings.HasSuffix(name, "_"+s) {
+			return true
+		}
+	}
+	// HttpOnly cookies on authenticated sites are almost always session tokens.
+	return c.HttpOnly
+}
+
 // probeCWSH sends a WebSocket upgrade with a forged Origin.
 // Returns a finding if the server accepts the handshake, nil otherwise.
-func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset string) *finding.Finding {
+func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset string, sessionCookies []string) *finding.Finding {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpURL, nil)
 	if err != nil {
 		return nil
@@ -114,25 +164,47 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 		return nil
 	}
 
+	severity := finding.SeverityLow
+	var description string
+	if len(sessionCookies) > 0 {
+		severity = finding.SeverityHigh
+		description = fmt.Sprintf(
+			"The WebSocket endpoint accepted an upgrade request from an untrusted Origin "+
+				"(evil-beacon-probe.example.com). Session cookies were detected on this domain (%s), "+
+				"which means a malicious webpage can open a WebSocket connection using a victim's "+
+				"authenticated session — reading and writing messages on their behalf. "+
+				"The server must validate the Origin header against an allowlist.",
+			strings.Join(sessionCookies, ", "))
+	} else {
+		description = "The WebSocket endpoint accepted an upgrade request from an untrusted Origin " +
+			"(evil-beacon-probe.example.com). No session cookies were detected on this domain, " +
+			"suggesting this may be a public/unauthenticated endpoint. Impact is limited unless " +
+			"authentication is handled client-side (e.g. bearer tokens sent in WS messages). " +
+			"The server should still validate the Origin header to prevent unintended cross-origin access."
+	}
+
 	return &finding.Finding{
-		CheckID:  "websocket.cswsh",
-		Module:   "surface",
-		Scanner:  scannerName,
-		Severity: finding.SeverityHigh,
-		Title:    fmt.Sprintf("Cross-Site WebSocket Hijacking (CSWSH) at %s", wsURL),
-		Description: "The WebSocket endpoint accepted an upgrade request from an untrusted Origin " +
-			"(evil-beacon-probe.example.com). Any malicious webpage can open a WebSocket connection " +
-			"to this endpoint using a victim user's session cookies, reading and writing messages " +
-			"on their behalf. The server must validate the Origin header against an allowlist.",
-		Asset: asset,
+		CheckID:     "websocket.cswsh",
+		Module:      "surface",
+		Scanner:     scannerName,
+		Severity:    severity,
+		Title:       fmt.Sprintf("Cross-Site WebSocket Hijacking (CSWSH) at %s", wsURL),
+		Description: description,
+		Asset:       asset,
 		ProofCommand: fmt.Sprintf(
-			`curl -si -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" `+
-				`-H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: https://evil-beacon-probe.example.com" %s`,
-			httpURL),
+			// wscat is the clearest proof — it performs a real WebSocket handshake.
+			// The --http1.1 curl fallback is needed because HTTP/2 servers ignore
+			// the Upgrade header and respond with their normal HTTP handler.
+			`npx wscat --connect %s --header "Origin: https://evil-beacon-probe.example.com"`+
+				"\n# curl fallback (requires HTTP/1.1 — HTTP/2 servers won't upgrade):\n"+
+				`curl -si --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" `+
+				`-H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Origin: https://evil-beacon-probe.example.com" %s | head -5`,
+			wsURL, httpURL),
 		Evidence: map[string]any{
-			"url":           wsURL,
-			"forged_origin": "https://evil-beacon-probe.example.com",
-			"response_code": resp.StatusCode,
+			"url":             wsURL,
+			"forged_origin":   "https://evil-beacon-probe.example.com",
+			"response_code":   resp.StatusCode,
+			"session_cookies": sessionCookies,
 		},
 	}
 }

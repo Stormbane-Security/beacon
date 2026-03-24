@@ -67,25 +67,51 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 	wg.Wait()
 
-	var findings []finding.Finding
-	now := time.Now()
-	for _, h := range hits {
-		findings = append(findings, finding.Finding{
-			CheckID:  finding.CheckDomainTyposquat,
-			Module:   "surface",
-			Scanner:  scannerName,
-			Severity: finding.SeverityHigh,
-			Title:    fmt.Sprintf("Lookalike domain registered: %s", h.domain),
-			Description: fmt.Sprintf(
-				"The domain %s is registered and resolves to %s. Lookalike domains are commonly used for phishing, "+
-					"business email compromise, and brand impersonation attacks.",
-				h.domain, strings.Join(h.ips, ", ")),
-			Asset:        asset,
-			Evidence:     map[string]any{"lookalike": h.domain, "resolves_to": h.ips},
-			DiscoveredAt: now,
-		})
+	if len(hits) == 0 {
+		return nil, nil
 	}
-	return findings, nil
+
+	now := time.Now()
+
+	// Build a sorted domain list and a resolves_to map for the evidence.
+	domainList := make([]string, 0, len(hits))
+	resolvesTo := make(map[string][]string, len(hits))
+	for _, h := range hits {
+		domainList = append(domainList, h.domain)
+		resolvesTo[h.domain] = h.ips
+	}
+
+	// Truncate the title list at 5 domains to keep it readable.
+	titleDomains := domainList
+	if len(titleDomains) > 5 {
+		titleDomains = titleDomains[:5]
+	}
+	title := fmt.Sprintf("%d lookalike domains registered: %s", len(hits), strings.Join(titleDomains, ", "))
+	if len(hits) > 5 {
+		title += fmt.Sprintf(" (+%d more)", len(hits)-5)
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckDomainTyposquat,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    title,
+		Description: fmt.Sprintf(
+			"%d domains similar to %s are registered and resolving. Lookalike domains are commonly used for phishing, "+
+				"business email compromise, and brand impersonation. Review the full list and consider registering "+
+				"the most plausible variants defensively.",
+			len(hits), asset),
+		Asset: asset,
+		Evidence: map[string]any{
+			"count":          len(hits),
+			"domains":        domainList,
+			"resolves_to":    resolvesTo,
+		},
+		ProofCommand: fmt.Sprintf("for d in %s; do echo -n \"$d: \"; dig +short $d; done",
+			strings.Join(domainList, " ")),
+		DiscoveredAt: now,
+	}}, nil
 }
 
 // permutations generates a deduplicated set of lookalike domain candidates for the given

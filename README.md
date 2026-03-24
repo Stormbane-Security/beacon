@@ -30,7 +30,7 @@ Beacon is a modular, passive-first attack surface scanner built for security eng
 
 ## Quick Start
 
-**Requires Go 1.21+.**
+**Requires Go 1.25+.**
 
 ```sh
 # Install the beacon CLI

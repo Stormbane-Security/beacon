@@ -212,6 +212,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
+	// Wildcard / catch-all detection: probe a path that cannot exist on any
+	// real application. If the server returns 200, it serves the same response
+	// for every path (install script CDNs, catch-all SPA configs, etc.) and
+	// all path-based findings would be false positives.
+	if isCatchAll(ctx, client, base) {
+		return nil, nil
+	}
+
 	var findings []finding.Finding
 
 	for _, t := range targets {
@@ -289,6 +297,24 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	return findings, nil
+}
+
+// isCatchAll returns true when the server responds with 200 to a randomly
+// named path that cannot exist on any real application. This detects install
+// script CDNs, SPA catch-alls, and wildcard configs where every path returns
+// the same content — path-based findings would all be false positives.
+func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
+	u := base + "/beacon-probe-c4a7f2d9b3e1-doesnotexist"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

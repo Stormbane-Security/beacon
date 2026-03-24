@@ -31,16 +31,20 @@ var genericPwdValueRe = regexp.MustCompile(`[=:]\s*['` + "`" + `"]([^'"` + "`" +
 // assignment but are not credentials: HTML input type/autocomplete hints,
 // the keyword itself used as an i18n label, etc.
 var genericPwdFalsePositives = map[string]bool{
-	"password":         true,
-	"Password":         true,
-	"passwd":           true,
-	"pwd":              true,
-	"current-password": true,
-	"new-password":     true,
-	"one-time-code":    true,
-	"off":              true,
+	"password":          true,
+	"Password":          true,
+	"passwd":            true,
+	"pwd":               true,
+	"current-password":  true,
+	"new-password":      true,
+	"one-time-code":     true,
+	"off":               true,
 	"username,password": true,
 }
+
+// genericPwdPlaceholderRe matches placeholder/template values that are not
+// real credentials: %word%, {word}, <word>, {{word}}, $VAR_NAME style tokens.
+var genericPwdPlaceholderRe = regexp.MustCompile(`^(%[^%]+%|\{[^}]+\}|<[^>]+>|\$[A-Z_]+|YOUR_|EXAMPLE|REPLACE|CHANGEME|TODO|FIXME|REDACTED|FILTERED)`)
 
 var secretPatterns = map[string]*regexp.Regexp{
 	"AWS Access Key":           regexp.MustCompile(`(?i)AKIA[0-9A-Z]{16}`),
@@ -379,12 +383,52 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 		if match == "" {
 			continue
 		}
+		// Dedup: skip less-specific patterns when a more-specific one covers the
+		// same credential value. Firebase keys (AIzaSy...) also match "Google API
+		// Key" (AIza...) and, when in apiKey=... context, "Generic API Key".
+		if label == "Google API Key" && secretPatterns["Firebase API Key"].MatchString(match) {
+			continue // reported as Firebase API Key
+		}
+		if label == "Generic API Key" {
+			// If the value portion of this match contains a more-specific credential,
+			// suppress the generic label — it will be (or was) captured more precisely.
+			for specific, re := range secretPatterns {
+				if specific == "Generic API Key" || specific == "Generic Password" {
+					continue
+				}
+				if re.FindString(match) != "" {
+					match = "" // signal: skip this label
+					break
+				}
+			}
+			if match == "" {
+				continue
+			}
+		}
 		// Generic Password: filter out common non-secret values — the keyword
 		// "password" itself (as an i18n label or HTML attribute), autocomplete
 		// hints like "current-password", field type specifiers, etc.
 		if label == "Generic Password" {
 			if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
-				if genericPwdFalsePositives[sub[1]] {
+				val := sub[1]
+				// Skip known false-positive values (input type names, autocomplete hints).
+				if genericPwdFalsePositives[val] {
+					continue
+				}
+				// Skip placeholder/template tokens: %filtered%, {PASSWORD}, $SECRET, etc.
+				if genericPwdPlaceholderRe.MatchString(val) {
+					continue
+				}
+				// Skip values that are all lowercase ASCII words — likely a JS property
+				// name or i18n key rather than a credential (e.g. password:"text").
+				allLowerWord := true
+				for _, c := range val {
+					if !((c >= 'a' && c <= 'z') || c == '-' || c == '_') {
+						allLowerWord = false
+						break
+					}
+				}
+				if allLowerWord {
 					continue
 				}
 			}
@@ -395,19 +439,20 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 			if len(redacted) > 12 {
 				redacted = redacted[:8] + "..." + redacted[len(redacted)-4:]
 			}
-			// Use the exact regex that matched so grep reproduces the same result.
-			// This is far more reliable than a generic keyword-before-value pattern.
-			proofRegex := pattern.String()
 			findings = append(findings, finding.Finding{
-				CheckID:      finding.CheckJSHardcodedSecret,
-				Module:       "surface",
-				Scanner:      scannerName,
-				Severity:     finding.SeverityCritical,
-				Title:        fmt.Sprintf("Hardcoded %s found in JavaScript", label),
-				Description:  fmt.Sprintf("A %s appears to be hardcoded in a JavaScript file at %s. This credential is exposed to anyone who visits the site.", label, jsURL),
-				Asset:        asset,
-				Evidence:     map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted},
-				ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE '%s'", jsURL, proofRegex),
+				CheckID:     finding.CheckJSHardcodedSecret,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityCritical,
+				Title:       fmt.Sprintf("Hardcoded %s found in JavaScript", label),
+				Description: fmt.Sprintf("A %s appears to be hardcoded in a JavaScript file at %s. This credential is exposed to anyone who visits the site.", label, jsURL),
+				Asset:       asset,
+				Evidence:    map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted},
+				// Use a shell-safe proof command — the internal Go regex contains single
+				// quotes and backticks that would break shell quoting. Instead use a
+				// keyword-context grep that avoids those characters entirely.
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oiE '.{0,20}%s.{0,60}'",
+					jsURL, secretProofKeyword(label)),
 				DiscoveredAt: now,
 			})
 		}
@@ -437,6 +482,39 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 	}
 
 	return findings
+}
+
+// secretProofKeyword returns a shell-safe grep keyword for the given secret
+// label. The full Go regex patterns contain single quotes and backticks that
+// break shell quoting when embedded in a proof command. This maps each label
+// to a simple alphanumeric keyword that grep can match without quoting issues.
+func secretProofKeyword(label string) string {
+	keywords := map[string]string{
+		"Generic Password":         "password",
+		"Generic API Key":          "apikey",
+		"AWS Secret Key":           "aws_secret",
+		"GitHub Token":             "ghp_",
+		"Stripe Secret Key":        "sk_live_",
+		"Stripe Publishable Key":   "pk_live_",
+		"Slack Token":              "xoxb-",
+		"SendGrid API Key":         "SG\\.",
+		"Twilio Account SID":       "AC[a-f0-9]",
+		"Google API Key":           "AIza",
+		"Private Key":              "PRIVATE KEY",
+		"OpenAI API Key":           "sk-[A-Za-z0-9]",
+		"Anthropic API Key":        "sk-ant-",
+		"Firebase API Key":         "AIzaSy",
+		"Mailgun API Key":          "key-[a-f0-9]",
+	}
+	if kw, ok := keywords[label]; ok {
+		return kw
+	}
+	// Fallback: use first word of label, lowercased.
+	parts := strings.Fields(strings.ToLower(label))
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return "secret"
 }
 
 // checkSourceMapExposed looks for a //# sourceMappingURL= comment in JS source

@@ -105,33 +105,48 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
+		// Check whether the poisoned response was served from cache — if so
+		// this is confirmed cache poisoning (Critical), not just a theoretical risk.
+		cached := strings.EqualFold(resp.Header.Get("X-Cache"), "HIT") ||
+			strings.EqualFold(resp.Header.Get("CF-Cache-Status"), "HIT")
+
+		sev := finding.SeverityHigh
+		title := fmt.Sprintf("Host header injection: %s reflected in %s", p.name, where)
+		desc := "The application reflects the injected host header value in its response. " +
+			"This can be exploited for cache poisoning attacks (serving malicious content to other users " +
+			"via a shared cache) and password-reset poisoning (sending password-reset emails containing " +
+			"links pointing to an attacker-controlled domain). An attacker who can manipulate the " +
+			"Host header can redirect sensitive tokens and links to infrastructure they control."
+		if cached {
+			sev = finding.SeverityCritical
+			title = fmt.Sprintf("Host header cache poisoning: %s reflected in %s (cached)", p.name, where)
+			desc = "The poisoned response was served from cache (X-Cache: HIT). Real users are being " +
+				"redirected to the injected domain. This is confirmed cache poisoning — the attacker does " +
+				"not need to be on-path. Anyone requesting this URL receives the poisoned response until " +
+				"the cache entry expires."
+		}
+
+		evidence := map[string]any{
+			"injected_header": p.name,
+			"injected_value":  probeValue,
+			"reflected_in":    where,
+			"url":             url,
+		}
+		if cached {
+			evidence["cached"] = "true"
+		}
+
 		findings = append(findings, finding.Finding{
-			CheckID:  finding.CheckHostHeaderInjection,
-			Module:   "deep",
-			Scanner:  scannerName,
-			Severity: finding.SeverityHigh,
-			Title:    fmt.Sprintf("Host header injection: %s reflected in %s", p.name, where),
-			Description: "The application reflects the injected host header value in its response. " +
-				"This can be exploited for cache poisoning attacks (serving malicious content to other users " +
-				"via a shared cache) and password-reset poisoning (sending password-reset emails containing " +
-				"links pointing to an attacker-controlled domain). An attacker who can manipulate the " +
-				"Host header can redirect sensitive tokens and links to infrastructure they control.",
-			Asset:    asset,
-			DeepOnly: true,
-			Evidence: map[string]any{
-				"injected_header": p.name,
-				"injected_value":  probeValue,
-				"reflected_in":    where,
-				"url":             url,
-			},
-			// Proof uses the exact probe value that triggered the finding so
-			// the reflected value is unambiguous. -si shows response headers
-			// via a GET (not HEAD) so the same code-path fires as the probe.
-			// Expected: the Location or body contains "%s".
-			ProofCommand: fmt.Sprintf(
-				"# Confirm: response should contain '%s' in the %s\n"+
-					"curl -si -H '%s: %s' '%s' | grep -i '%s'",
-				probeValue, where, p.name, probeValue, url, probeValue),
+			CheckID:      finding.CheckHostHeaderInjection,
+			Module:       "deep",
+			Scanner:      scannerName,
+			Severity:     sev,
+			Title:        title,
+			Description:  desc,
+			Asset:        asset,
+			DeepOnly:     true,
+			Evidence:     evidence,
+			ProofCommand: fmt.Sprintf("curl -si -H '%s: %s' '%s' | grep -iE 'location|x-cache|cf-cache-status'", p.name, probeValue, url),
 			DiscoveredAt: time.Now(),
 		})
 	}

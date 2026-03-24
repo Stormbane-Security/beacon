@@ -11,6 +11,13 @@ import (
 	"github.com/stormbane/beacon/internal/module"
 )
 
+// isProbe returns true for the catch-all detection path used by the scanner.
+// Test servers must return 404 for this path so the catch-all check doesn't
+// skip the entire scan.
+func isProbe(r *http.Request) bool {
+	return strings.Contains(r.URL.Path, "beacon-probe-c4a7f2d9b3e1-doesnotexist")
+}
+
 // samlMetadataBody is a minimal SAML metadata document.
 const samlMetadataBody = `<?xml version="1.0"?>
 <EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata"
@@ -90,6 +97,10 @@ func TestSAML_SkippedInSurfaceMode_ForActiveChecks(t *testing.T) {
 
 	acsCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isProbe(r) {
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method == http.MethodPost {
 			acsCalled = true
 			w.WriteHeader(http.StatusOK)
@@ -128,6 +139,10 @@ func TestSAML_SkippedInSurfaceMode_ForActiveChecks(t *testing.T) {
 // emitted with CheckSAMLSignatureNotValidated.
 func TestSAML_UnsignedAssertionAccepted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isProbe(r) {
+			http.NotFound(w, r)
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost:
 			// Accept everything — simulates broken signature validation.
@@ -173,6 +188,10 @@ func TestSAML_UnsignedAssertionAccepted(t *testing.T) {
 // accepts a SAMLResponse with a wrong Issuer, a High finding is emitted.
 func TestSAML_IssuerMismatch_Accepted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isProbe(r) {
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method == http.MethodPost {
 			// Accept all POSTs including ones with a mismatched issuer.
 			w.WriteHeader(http.StatusOK)
@@ -213,6 +232,10 @@ func TestSAML_IssuerMismatch_Accepted(t *testing.T) {
 // redirects to the RelayState value, a Medium open-redirect finding is emitted.
 func TestSAML_OpenRedirectViaRelayState(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isProbe(r) {
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			relay := r.FormValue("RelayState")
@@ -256,6 +279,10 @@ func TestSAML_OpenRedirectViaRelayState(t *testing.T) {
 // /etc/passwd content (XXE resolved), a Critical finding is emitted.
 func TestSAML_XXEInjection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isProbe(r) {
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			encoded := r.FormValue("SAMLResponse")

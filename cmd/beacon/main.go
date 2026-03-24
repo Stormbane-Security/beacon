@@ -1485,6 +1485,7 @@ func browseLoadScan(ctx context.Context, st interface {
 	bs.findings = ef
 	bs.findCursor = 0
 	bs.findOff = 0
+	bs.findMinSev = finding.SeverityInfo
 
 	exec, _ := st.ListAssetExecutions(ctx, run.ID)
 	// Sort assets by finding count descending, then name.
@@ -1693,7 +1694,16 @@ func browseRenderScans(buf *strings.Builder, bs *browseState, termW, termH int) 
 	} else {
 		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[90m[↵] attach/view  [a] assets  [e] export  [n] new  [s] stop  [p] pause  [d] delete  [X] purge  [q] quit  %d scans\x1b[0m\n", len(bs.scans))
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-20s  %-7s  %-14s  %s\x1b[0m\n", "DOMAIN", "TYPE", "STATUS", "STARTED")
+	// Domain column fills available width; minimum 20, cap at 50.
+	// Layout: 2(indent) + domainW + 2 + 7(type) + 2 + 16(started) + 2 + status + trail
+	domainW := termW - 65
+	if domainW < 20 {
+		domainW = 20
+	}
+	if domainW > 50 {
+		domainW = 50
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-*s  %-7s  %-14s  %s\x1b[0m\n", domainW, "DOMAIN", "TYPE", "STATUS", "STARTED")
 
 	end := bs.scanOff + bodyLines
 	if end > len(bs.scans) {
@@ -1747,8 +1757,8 @@ func browseRenderScans(buf *strings.Builder, bs *browseState, termW, termH int) 
 				trailStr = fmt.Sprintf("\x1b[90m%d findings\x1b[0m", r.FindingCount)
 			}
 		}
-		line := fmt.Sprintf("  %-20s  %-7s  %-14s  %s  %s",
-			truncate(r.Domain, 20),
+		line := fmt.Sprintf("  %-*s  %-7s  %-14s  %s  %s",
+			domainW, truncate(r.Domain, domainW),
 			r.ScanType,
 			r.StartedAt.Format("2006-01-02 15:04"),
 			statusStr,
@@ -1815,7 +1825,13 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 
 	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36m%s\x1b[0m  \x1b[90m%s  [↵] detail  [j/k] move  [1-5] filter  [e] export  [q/b] back  %d/%d\x1b[0m%s\n",
 		domain, started, len(filtered), len(bs.findings), filterLabel)
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-8s  %-40s  %s\x1b[0m\n", "SEV", "TITLE", "CHECK ID")
+	// Title column fills available terminal width; minimum 40.
+	// Layout: 2(indent) + 10(sev) + 2(sep) + titleW + 2(sep) + ~32(checkid)
+	titleW := termW - 48
+	if titleW < 40 {
+		titleW = 40
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-8s  %-*s  %s\x1b[0m\n", "SEV", titleW, "TITLE", "CHECK ID")
 
 	end := bs.findOff + bodyLines
 	if end > len(filtered) {
@@ -1825,8 +1841,8 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 		ef := filtered[i]
 		f := ef.Finding
 		sev := severityTag(f.Severity)
-		line := fmt.Sprintf("  %s  %-40s  \x1b[90m%s\x1b[0m",
-			sev, truncate(f.Title, 40), f.CheckID)
+		line := fmt.Sprintf("  %s  %-*s  \x1b[90m%s\x1b[0m",
+			sev, titleW, truncate(f.Title, titleW), f.CheckID)
 		if i == bs.findCursor {
 			fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
 		} else {
@@ -1982,7 +1998,13 @@ func browseRenderAssets(buf *strings.Builder, bs *browseState, termW, termH int)
 	}
 	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36m%s — Assets\x1b[0m  \x1b[90m[↵] detail  [f] findings  [j/k] move  [q/b] back  %d assets\x1b[0m\n",
 		domain, total)
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-42s  %-20s  %s\x1b[0m\n", "Asset", "Tech/Cloud", "Findings")
+	// Asset name column fills available terminal width; minimum 42.
+	// Layout: 2(cursor) + nameW + 2(sep) + 20(tech) + 2(sep) + ~20(badge)
+	nameW := termW - 46
+	if nameW < 42 {
+		nameW = 42
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-*s  %-20s  %s\x1b[0m\n", nameW, "Asset", "Tech/Cloud", "Findings")
 
 	end := bs.execOff + bodyLines
 	if end > total {
@@ -1998,8 +2020,8 @@ func browseRenderAssets(buf *strings.Builder, bs *browseState, termW, termH int)
 		}
 
 		name := ex.Asset
-		if len(name) > 42 {
-			name = "…" + name[len(name)-41:]
+		if len(name) > nameW {
+			name = "…" + name[len(name)-nameW+1:]
 		}
 
 		// Derive tech/cloud label.
@@ -2044,7 +2066,7 @@ func browseRenderAssets(buf *strings.Builder, bs *browseState, termW, termH int)
 			badge = "\x1b[32mclean\x1b[0m"
 		}
 
-		line := fmt.Sprintf(" %s%-42s  %-20s  %s", cursor, name, tech, badge)
+		line := fmt.Sprintf(" %s%-*s  %-20s  %s", cursor, nameW, name, tech, badge)
 		if i == bs.execCursor {
 			fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
 		} else {
@@ -3642,10 +3664,15 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 	// Column widths: scanner(12) + asset(dynamic) + cmd(rest), 2-char margins.
 	// Layout: "  ↳  scanner     asset          cmd...\n"
 	// Fixed visible chars: 2(indent) + 1(↳) + 2(spaces) + 12(scanner) + 2(spaces) = 19
-	// We give asset up to 30 chars, then cmd takes the rest.
+	// Asset column scales with terminal: wider terminals show more of the asset name.
 	const scannerW = 12
-	const assetW = 30
-	// "  ↳  " = 5, scanner+2 spaces = 14, asset+2 spaces = 32  → 51 fixed chars before cmd
+	assetW := termW/4
+	if assetW < 30 {
+		assetW = 30
+	}
+	if assetW > 55 {
+		assetW = 55
+	}
 	cmdW := termW - 5 - scannerW - 2 - assetW - 2
 	if cmdW < 20 {
 		cmdW = 20
@@ -4185,9 +4212,16 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 // Shows asset info, finding metadata, description, and all evidence fields.
 // Caller must hold r.mu.
 func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
-	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	termW, termH, err := term.GetSize(int(os.Stderr.Fd()))
 	if err != nil || termH < 5 {
 		termH = 24
+	}
+	if err != nil || termW < 40 {
+		termW = 120
+	}
+	wrapWidth := termW - 4
+	if wrapWidth < 20 {
+		wrapWidth = 20
 	}
 
 	if r.selectedFinding == nil {
@@ -4217,7 +4251,7 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	// Description
 	if f.Description != "" {
 		lines = append(lines, "  \x1b[1mDescription\x1b[0m")
-		for _, ln := range wordWrapLines(f.Description, 72) {
+		for _, ln := range wordWrapLines(f.Description, wrapWidth) {
 			lines = append(lines, "  "+ln)
 		}
 		lines = append(lines, "")
@@ -4232,8 +4266,8 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	if proofCmd != "" {
 		lines = append(lines, "  \x1b[1mProof Command\x1b[0m  \x1b[90m([y] to copy)\x1b[0m")
 		lines = append(lines, "  \x1b[90mRun this in your terminal to confirm the finding:\x1b[0m")
-		// Wrap long commands at natural word boundaries (flags, pipes).
-		for _, cmdLine := range wordWrapAtShellBoundaries(proofCmd, 72) {
+		// Wrap long commands at natural word boundaries (flags, pipes, --flags).
+		for _, cmdLine := range wordWrapAtShellBoundaries(proofCmd, wrapWidth) {
 			lines = append(lines, fmt.Sprintf("  \x1b[36m%s\x1b[0m", cmdLine))
 		}
 		lines = append(lines, "")
@@ -4590,10 +4624,13 @@ func wordWrapLines(text string, maxWidth int) []string {
 }
 
 // wordWrapAtShellBoundaries wraps a shell command at natural break points
-// (pipes, &&, flags starting with -) rather than arbitrary word boundaries.
+// (pipes, &&, flag boundaries --) rather than arbitrary word boundaries.
 // Continuation lines are indented with two spaces so the command is readable.
 // Falls back to wordWrapLines if no shell boundaries are present.
 func wordWrapAtShellBoundaries(cmd string, maxWidth int) []string {
+	if maxWidth < 20 {
+		maxWidth = 20
+	}
 	if len(cmd) <= maxWidth {
 		return []string{cmd}
 	}
@@ -4609,6 +4646,17 @@ func wordWrapAtShellBoundaries(cmd string, maxWidth int) []string {
 			}
 			return lines
 		}
+	}
+	// Try to split at a flag boundary (space followed by --) within maxWidth.
+	if idx := strings.LastIndex(cmd[:maxWidth], " --"); idx > 0 {
+		first := cmd[:idx]
+		rest := cmd[idx+1:] // drop the leading space; keep "--..."
+		var lines []string
+		lines = append(lines, first)
+		for _, sub := range wordWrapAtShellBoundaries(rest, maxWidth-2) {
+			lines = append(lines, "  "+sub)
+		}
+		return lines
 	}
 	// No shell boundary found — fall back to word-wrap.
 	return wordWrapLines(cmd, maxWidth)

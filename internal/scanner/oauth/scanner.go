@@ -344,13 +344,20 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 			return nil
 		}
 
+		// 3xx redirects are not OAuth responses — the endpoint is just redirecting
+		// (e.g. HTTP→HTTPS or subdomain canonicalisation). Skip entirely.
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return nil
+		}
+
 		// If the response is not JSON/OAuth content, it's likely a protocol-level
 		// error (e.g., "plain HTTP request was sent to HTTPS port" from a reverse
 		// proxy), not an actual OAuth token endpoint response. Skip to avoid false
 		// positives when the HTTP base URL was used for an HTTPS-only server.
+		// Use content-type or OAuth-specific JSON keys — not just the word "oauth"
+		// which can appear in a redirect Location URL body.
 		isOAuthLike := strings.Contains(ct, "application/json") ||
 			strings.Contains(ct, "application/x-www-form-urlencoded") ||
-			strings.Contains(bodyLower, "oauth") ||
 			strings.Contains(bodyLower, "grant_type") ||
 			strings.Contains(bodyLower, "access_token") ||
 			strings.Contains(bodyLower, "invalid_client") ||
@@ -359,9 +366,10 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 			return nil
 		}
 
-		// Any 2xx or an unexpected response format suggests the endpoint may be
-		// accepting unauthenticated requests or leaking internal error detail.
-		if resp.StatusCode < 400 || (resp.StatusCode == http.StatusBadRequest &&
+		// Only flag 2xx responses — a token endpoint that returns 200 without
+		// requiring credentials is genuinely misconfigured. Non-2xx non-4xx
+		// responses (5xx, etc.) are server errors, not auth bypasses.
+		if resp.StatusCode == http.StatusOK || (resp.StatusCode == http.StatusBadRequest &&
 			!strings.Contains(bodyLower, "invalid")) {
 			return &finding.Finding{
 				CheckID:  finding.CheckOAuthMissingState, // reuse closest check; ideally a dedicated ID
@@ -850,6 +858,12 @@ func checkTokenLeakReferer(ctx context.Context, client *http.Client, asset, auth
 }
 
 func checkJWTNoVerification(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
+	// Skip catch-all / wildcard servers that return 200 for any path — all
+	// probes would be false positives on such servers.
+	if oauthIsCatchAll(ctx, client, base) {
+		return nil
+	}
+
 	fakeJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" +
 		".eyJzdWIiOiIxIiwiYWRtaW4iOnRydWUsImlhdCI6MTcwMDAwMDAwMH0" +
 		".INVALIDSIGNATUREFORBEACONTEST"
@@ -875,6 +889,13 @@ func checkJWTNoVerification(ctx context.Context, client *http.Client, asset, bas
 			bodyStr := strings.ToLower(string(body))
 			if strings.Contains(bodyStr, "error") || strings.Contains(bodyStr, "invalid") ||
 				strings.Contains(bodyStr, "unauthorized") {
+				continue
+			}
+			// Require JSON-like response — non-JSON 200s (HTML status pages, empty
+			// bodies, plain text) are not evidence of a JWT bypass. A real user
+			// endpoint must return a JSON object or array.
+			trimmed := strings.TrimSpace(string(body))
+			if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
 				continue
 			}
 			return &finding.Finding{
@@ -1195,5 +1216,21 @@ func baseURL(ctx context.Context, client *http.Client, asset string) string {
 		return u
 	}
 	return ""
+}
+
+// oauthIsCatchAll returns true when the server responds HTTP 200 to a path
+// that cannot exist on any real application, indicating a wildcard / catch-all
+// configuration where JWT probe responses would all be false positives.
+func oauthIsCatchAll(ctx context.Context, client *http.Client, base string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
