@@ -617,3 +617,27 @@ match:
 		t.Fatal("any: combinator must not match when neither condition is satisfied")
 	}
 }
+
+// TestMatch_AIEndpointPresentFalse verifies that a playbook rule requiring
+// ai_endpoint_present: true does NOT match when Evidence.AIEndpoints is empty.
+// This guards against accidental trigger of AI-specific playbooks on non-AI targets.
+func TestMatch_AIEndpointPresentFalse(t *testing.T) {
+	p := mustParse(t, `
+name: test_ai_endpoint_present
+match:
+  any:
+    - ai_endpoint_present: true
+`)
+
+	// No AI endpoints detected — must not match.
+	evEmpty := playbook.Evidence{}
+	if p.Matches(evEmpty) {
+		t.Fatal("ai_endpoint_present: true must not match when Evidence.AIEndpoints is empty")
+	}
+
+	// AI endpoints present — must match.
+	evWithAI := playbook.Evidence{AIEndpoints: []string{"https://api.example.com/v1/chat/completions"}}
+	if !p.Matches(evWithAI) {
+		t.Fatal("ai_endpoint_present: true must match when Evidence.AIEndpoints is non-empty")
+	}
+}

@@ -64,6 +64,7 @@ var secretPatterns = map[string]*regexp.Regexp{
 	"Anthropic API Key":        regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`),
 	"Firebase API Key":         regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
 	"Mailgun API Key":          regexp.MustCompile(`key-[a-f0-9]{32}`),
+	"OAuth Client Secret":      regexp.MustCompile(`(?i)client[_-]?secret['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][0-9a-zA-Z\-_.]{16,}`),
 }
 
 // internalEndpointPatterns matches internal/development API endpoints in JS.
