@@ -2907,9 +2907,19 @@ func newProgressRenderer(verbose bool, minSeverity finding.Severity) *progressRe
 	// Put stdin in raw mode so single keypresses are read without Enter.
 	// Keep ISIG so Ctrl+C still sends SIGINT.
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		if old, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
-			// MakeRaw turns off ISIG; restore it so Ctrl+C works.
-			r.restoreFn = func() { _ = term.Restore(int(os.Stdin.Fd()), old) }
+		fd := int(os.Stdin.Fd())
+		old, err := term.MakeRaw(fd)
+		if err != nil {
+			// MakeRaw failed on a live TTY — this happens when a previous beacon
+			// process was killed (OOM, SIGKILL) while holding the terminal in raw
+			// mode, leaving the tty settings corrupted. Attempt to restore sane
+			// settings via "stty sane" and retry once.
+			if execErr := exec.Command("stty", "sane").Run(); execErr == nil {
+				old, err = term.MakeRaw(fd)
+			}
+		}
+		if err == nil {
+			r.restoreFn = func() { _ = term.Restore(fd, old) }
 			r.startInputLoop()
 		}
 	}
