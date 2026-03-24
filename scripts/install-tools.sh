@@ -115,6 +115,24 @@ else
   go install -v github.com/ffuf/ffuf/v2@latest
 fi
 
+# --- nmap (GPL) — port scan + NSE scripts (service versions, vuln detection) ---
+# nmap is installed via the system package manager since it requires kernel
+# capabilities (raw sockets). The Go installer cannot grant those.
+if check nmap; then
+  info "nmap already installed: $(nmap --version 2>&1 | head -1)"
+else
+  info "nmap not found — install via your package manager:"
+  if check apt-get; then
+    info "  sudo apt-get install -y nmap"
+    warn "Run the above command to install nmap, then re-run this script."
+  elif check brew; then
+    info "  brew install nmap"
+    warn "Run the above command to install nmap, then re-run this script."
+  else
+    warn "Install nmap manually: https://nmap.org/download.html"
+  fi
+fi
+
 info "all tools installed"
 echo ""
 echo "Tools summary:"
@@ -128,3 +146,4 @@ echo "  testssl.sh: $(which testssl.sh 2>/dev/null || echo 'not found')"
 echo "  httpx:      $(which httpx 2>/dev/null || echo 'not found')"
 echo "  dnsx:       $(which dnsx 2>/dev/null || echo 'not found')"
 echo "  ffuf:       $(which ffuf 2>/dev/null || echo 'not found')"
+echo "  nmap:       $(which nmap 2>/dev/null || echo 'not found — install via package manager')"

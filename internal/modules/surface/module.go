@@ -90,6 +90,9 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/deserial"
 	"github.com/stormbane/beacon/internal/scanner/fileupload"
 	"github.com/stormbane/beacon/internal/scanner/gateway"
+	"github.com/stormbane/beacon/internal/scanner/swagger"
+	"github.com/stormbane/beacon/internal/scanner/contractscan"
+	"github.com/stormbane/beacon/internal/scanner/chainnode"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/store"
@@ -346,6 +349,9 @@ func New(cfg Config) (*Module, error) {
 		"deserial":         deserial.New(),
 		"fileupload":       fileupload.New(),
 		"gateway":          gateway.New(),
+		"swagger":          swagger.New(),
+		"contractscan":     contractscan.New(),
+		"chainnode":        chainnode.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

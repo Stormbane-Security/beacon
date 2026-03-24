@@ -223,6 +223,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckWebAPIFuzz:             true,
 		// Log4Shell — deep mode sends JNDI payload in headers
 		finding.CheckCVELog4Shell: true,
+		// EVM contract vulnerability analysis — active Etherscan + RPC probes
+		finding.CheckContractReentrancy:      true,
+		finding.CheckContractSelfDestruct:    true,
+		finding.CheckContractUncheckedCall:   true,
+		finding.CheckContractIntegerOverflow: true,
 	}
 
 	for id, meta := range finding.Registry {

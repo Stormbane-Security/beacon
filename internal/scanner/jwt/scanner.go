@@ -527,6 +527,8 @@ type jwksKey struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`
 	N   string `json:"n"` // RSA modulus, base64url-encoded
+	X   string `json:"x"` // EC x-coordinate, base64url-encoded
+	Y   string `json:"y"` // EC y-coordinate, base64url-encoded
 	Alg string `json:"alg"`
 }
 
@@ -584,13 +586,20 @@ func checkAlgorithmConfusion(ctx context.Context, client *http.Client, asset, ba
 					jwksURL = u
 					break
 				}
-			} else if (kty == "EC" || kty == "OKP") && k.N != "" {
-				nb, err := base64.RawURLEncoding.DecodeString(k.N)
-				if err == nil && len(nb) > 0 {
-					keyBytes = nb
-					jwksURL = u
-					break
+			} else if (kty == "EC" || kty == "OKP") && k.X != "" {
+				// EC key confusion: use the x-coordinate as the HMAC secret
+				// (analogous to RSA modulus confusion). Concatenate x||y for
+				// a richer byte string that more closely matches what some
+				// vulnerable implementations derive their HMAC key from.
+				xb, err := base64.RawURLEncoding.DecodeString(k.X)
+				if err != nil || len(xb) == 0 {
+					continue
 				}
+				yb, _ := base64.RawURLEncoding.DecodeString(k.Y)
+				nb := append(xb, yb...)
+				keyBytes = nb
+				jwksURL = u
+				break
 			}
 		}
 		if len(keyBytes) > 0 {

@@ -517,10 +517,30 @@ const (
 	CheckCDNFastlyDebugExposed      CheckID = "cdn.fastly_debug_exposed"       // Fastly debug info in Surrogate-Key or X-Served-By headers
 	CheckCDNVarnishPurgeEnabled     CheckID = "cdn.varnish_purge_enabled"      // Varnish cache accepts PURGE requests without auth
 
+	// Swagger / OpenAPI spec exposure and endpoint fuzzing
+	CheckSwaggerExposed CheckID = "web.swagger_exposed" // OpenAPI/Swagger spec publicly accessible
+
 	// Web3 / blockchain passive detection
 	CheckWeb3WalletLibDetected  CheckID = "web3.wallet_lib_detected"
 	CheckWeb3RPCEndpointExposed CheckID = "web3.rpc_endpoint_exposed"
 	CheckWeb3ContractFound      CheckID = "web3.contract_address_found"
+
+	// EVM smart contract vulnerability scanning
+	CheckContractReentrancy       CheckID = "contract.reentrancy"         // reentrancy vulnerability detected in contract bytecode
+	CheckContractSelfDestruct     CheckID = "contract.selfdestruct"       // unprotected selfdestruct opcode
+	CheckContractUncheckedCall    CheckID = "contract.unchecked_call"     // unchecked low-level call return value
+	CheckContractIntegerOverflow  CheckID = "contract.integer_overflow"   // potential integer overflow / underflow
+	CheckContractSourceExposed    CheckID = "contract.source_exposed"     // contract source code verified and retrievable
+	CheckContractProxyAdmin       CheckID = "contract.proxy_admin"        // upgradeable proxy with admin slot detectable
+
+	// Blockchain node / validator / miner detection
+	CheckChainNodeRPCExposed      CheckID = "chain.node_rpc_exposed"      // Ethereum/Bitcoin/Solana JSON-RPC port open and responding
+	CheckChainNodeUnauthorized    CheckID = "chain.node_rpc_unauth"       // JSON-RPC accepts state-changing calls without auth
+	CheckChainNodeValidatorExposed CheckID = "chain.validator_api_exposed" // ETH2 beacon/validator client API accessible
+	CheckChainNodeMinerExposed    CheckID = "chain.miner_rpc_exposed"     // eth_mining/eth_hashrate reveals active miner
+	CheckChainNodePeerCountLeak   CheckID = "chain.peer_count_leak"       // net_peerCount leaks network topology
+	CheckChainNodeWSExposed       CheckID = "chain.node_ws_exposed"       // WebSocket JSON-RPC port accessible
+	CheckChainNodeGrafanaExposed  CheckID = "chain.node_grafana_exposed"  // node monitoring dashboard exposed without auth
 
 	// Web3 / SIWE authenticated security testing — Deep (requires --permission-confirmed)
 	// Surface: detect SIWE/SIWS login pages and nonce endpoints
@@ -1097,10 +1117,30 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCDNFastlyDebugExposed:      {CheckCDNFastlyDebugExposed, SeverityLow, ConversionLow, ClarityMedium, ModeSurface},
 	CheckCDNVarnishPurgeEnabled:     {CheckCDNVarnishPurgeEnabled, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
 
+	// Swagger / OpenAPI
+	CheckSwaggerExposed: {CheckSwaggerExposed, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+
 	// Web3 / blockchain
 	CheckWeb3WalletLibDetected:  {CheckWeb3WalletLibDetected, SeverityInfo, ConversionLow, ClarityMedium, ModeSurface},
 	CheckWeb3RPCEndpointExposed: {CheckWeb3RPCEndpointExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckWeb3ContractFound:      {CheckWeb3ContractFound, SeverityInfo, ConversionLow, ClarityMedium, ModeSurface},
+
+	// EVM smart contract vulnerability scanning
+	CheckContractReentrancy:      {CheckContractReentrancy, SeverityCritical, ConversionHigh, ClarityHigh, ModeDeep},
+	CheckContractSelfDestruct:    {CheckContractSelfDestruct, SeverityCritical, ConversionHigh, ClarityHigh, ModeDeep},
+	CheckContractUncheckedCall:   {CheckContractUncheckedCall, SeverityHigh, ConversionHigh, ClarityHigh, ModeDeep},
+	CheckContractIntegerOverflow: {CheckContractIntegerOverflow, SeverityHigh, ConversionHigh, ClarityMedium, ModeDeep},
+	CheckContractSourceExposed:   {CheckContractSourceExposed, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckContractProxyAdmin:      {CheckContractProxyAdmin, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+
+	// Blockchain node detection
+	CheckChainNodeRPCExposed:       {CheckChainNodeRPCExposed, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeUnauthorized:     {CheckChainNodeUnauthorized, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeValidatorExposed: {CheckChainNodeValidatorExposed, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeMinerExposed:     {CheckChainNodeMinerExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodePeerCountLeak:    {CheckChainNodePeerCountLeak, SeverityMedium, ConversionMedium, ClarityHigh, ModeSurface},
+	CheckChainNodeWSExposed:        {CheckChainNodeWSExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckChainNodeGrafanaExposed:   {CheckChainNodeGrafanaExposed, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
 
 	// Web3 / SIWE + SIWS authenticated security testing
 	CheckWeb3SIWEEndpoint:         {CheckWeb3SIWEEndpoint, SeverityInfo, ConversionLow, ClarityHigh, ModeSurface},
