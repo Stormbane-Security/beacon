@@ -3166,9 +3166,12 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 	isEnter := buf[0] == '\r' || buf[0] == '\n'
 	isEsc   := n == 1 && buf[0] == 0x1b
 
-	// 'q' and 'b' always detach to the browse list from any mode (scan keeps running).
+	// 'q' stops the scan and detaches. 'b'/Esc detach without stopping.
 	// Esc only detaches when headless (non-headless Esc has mode-specific meanings).
 	if (buf[0] == 'q' || buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
+		if buf[0] == 'q' && r.cancelFn != nil {
+			r.cancelFn()
+		}
 		r.mu.Unlock()
 		r.stopOnce.Do(func() { close(r.stop) })
 		close(r.detached)
@@ -3443,8 +3446,11 @@ func (r *progressRenderer) startInputLoop() {
 				r.mu.Unlock()
 				continue
 			}
-			// 'q' and 'b' always detach from any mode (scan keeps running in background).
+			// 'q' stops the scan and detaches to browse. 'b' detaches without stopping.
 			if buf[0] == 'q' || buf[0] == 'b' || (isEsc && r.mode == "progress") {
+				if buf[0] == 'q' && r.cancelFn != nil {
+					r.cancelFn() // stop the scan so waitScanResult returns promptly
+				}
 				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
 				close(r.detached)
