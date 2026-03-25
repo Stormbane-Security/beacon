@@ -3182,14 +3182,23 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 	isEnter := buf[0] == '\r' || buf[0] == '\n'
 	isEsc   := n == 1 && buf[0] == 0x1b
 
-	// 'q' and 'b' detach from the live view; 's' stops the scan.
+	// 'q' always detaches. 'b' navigates back one level; only detaches from "progress".
 	// Esc only detaches when headless (non-headless Esc has mode-specific meanings).
-	if (buf[0] == 'q' || buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
-		r.mu.Unlock()
-		r.stopOnce.Do(func() { close(r.stop) })
-		close(r.detached)
-		r.mu.Lock()
-		return
+	if !r.confirmingExit {
+		isDetach := buf[0] == 'q' || (r.headless && isEsc && r.mode == "progress")
+		isBack := buf[0] == 'b' || (r.headless && isEsc)
+		if isDetach || (isBack && r.mode == "progress") {
+			r.mu.Unlock()
+			r.stopOnce.Do(func() { close(r.stop) })
+			close(r.detached)
+			r.mu.Lock()
+			return
+		}
+		if isBack {
+			r.navigateBack()
+			r.render()
+			return
+		}
 	}
 
 	if r.confirmingExit {
@@ -3459,12 +3468,18 @@ func (r *progressRenderer) startInputLoop() {
 				r.mu.Unlock()
 				continue
 			}
-			// 'q' and 'b' detach from the live view; 's' stops the scan.
-			if buf[0] == 'q' || buf[0] == 'b' || (isEsc && r.mode == "progress") {
+			// 'q' detaches. 'b' navigates back one level; only detaches from "progress".
+			if buf[0] == 'q' || (buf[0] == 'b' && r.mode == "progress") || (isEsc && r.mode == "progress") {
 				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
 				close(r.detached)
 				return
+			}
+			if buf[0] == 'b' || isEsc {
+				r.navigateBack()
+				r.render()
+				r.mu.Unlock()
+				continue
 			}
 
 			switch r.mode {
@@ -3828,6 +3843,29 @@ func (r *progressRenderer) eraseBlock() {
 
 // render draws (or redraws) the status block in a single write to avoid
 // partial-frame flicker. Caller must hold r.mu.
+// navigateBack moves the renderer one level up in the view hierarchy.
+// Caller must hold r.mu.
+func (r *progressRenderer) navigateBack() {
+	switch r.mode {
+	case "finding_detail":
+		if r.findingDetailOrigin != "" {
+			r.mode = r.findingDetailOrigin
+		} else {
+			r.mode = "findings"
+		}
+		r.selectedFinding = nil
+	case "asset_detail":
+		r.mode = "assets"
+		r.selectedAsset = ""
+	case "topo_detail":
+		r.mode = "topology"
+	case "findings", "assets", "topology":
+		r.mode = "progress"
+	default:
+		r.mode = "progress"
+	}
+}
+
 func (r *progressRenderer) render() {
 	var buf strings.Builder
 
