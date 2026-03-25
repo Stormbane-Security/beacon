@@ -257,8 +257,17 @@ func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence, 
 	if apiKey == "" {
 		return fmt.Errorf("profiler: no API key")
 	}
-	// Only invoke Claude when there are actual gaps to fill.
-	if ev.Framework != "" && ev.ProxyType != "" && ev.AuthSystem != "" {
+	// Require at least some evidence for Claude to work with. An asset with no
+	// HTTP response, no headers, and no body gives Claude nothing useful.
+	hasEvidence := ev.StatusCode > 0 || len(ev.Headers) > 0 || ev.Body512 != "" ||
+		len(ev.RespondingPaths) > 0 || len(ev.CNAMEChain) > 0 || ev.ASNOrg != ""
+	if !hasEvidence {
+		return nil
+	}
+	// Only invoke Claude when there are actual gaps to fill across all key fields.
+	allFilled := ev.Framework != "" && ev.ProxyType != "" && ev.AuthSystem != "" &&
+		ev.CloudProvider != "" && len(ev.BackendServices) > 0
+	if allFilled {
 		return nil
 	}
 	if model == "" {
