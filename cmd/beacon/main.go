@@ -499,8 +499,21 @@ Type exactly: I have written authorization for %s
 		}
 		registerJob(lj)
 		cmdBrowse(cfg) // blocks until user quits the browser
+		// User quit browse — exit beacon. The scan goroutine is cancelled via
+		// the signal context (Ctrl+C) or will be cleaned up on process exit.
+		// Mark the run as stopped so it doesn't stay "running" in history.
 		unregisterJob(run.ID)
-		// Now wait for the scan to finish (it may already be done).
+		select {
+		case <-scanDone:
+			// Scan already finished while we were in browse — fall through to save.
+		default:
+			// Still running — mark stopped and exit. Findings saved so far are lost.
+			run.Status = store.StatusStopped
+			run.Error = "detached by user"
+			_ = st.UpdateScanRun(ctx, run)
+			return
+		}
+		// Scan finished while in browse — save its results.
 		var stopped bool
 		findings, stopped = waitScanResult()
 		if stopped {
@@ -3166,12 +3179,9 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 	isEnter := buf[0] == '\r' || buf[0] == '\n'
 	isEsc   := n == 1 && buf[0] == 0x1b
 
-	// 'q' stops the scan and detaches. 'b'/Esc detach without stopping.
+	// 'q' and 'b' detach from the live view; 's' stops the scan.
 	// Esc only detaches when headless (non-headless Esc has mode-specific meanings).
 	if (buf[0] == 'q' || buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
-		if buf[0] == 'q' && r.cancelFn != nil {
-			r.cancelFn()
-		}
 		r.mu.Unlock()
 		r.stopOnce.Do(func() { close(r.stop) })
 		close(r.detached)
@@ -3446,11 +3456,8 @@ func (r *progressRenderer) startInputLoop() {
 				r.mu.Unlock()
 				continue
 			}
-			// 'q' stops the scan and detaches to browse. 'b' detaches without stopping.
+			// 'q' and 'b' detach from the live view; 's' stops the scan.
 			if buf[0] == 'q' || buf[0] == 'b' || (isEsc && r.mode == "progress") {
-				if buf[0] == 'q' && r.cancelFn != nil {
-					r.cancelFn() // stop the scan so waitScanResult returns promptly
-				}
 				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
 				close(r.detached)
