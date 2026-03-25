@@ -30,6 +30,7 @@ import (
 
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane/beacon/internal/store"
 )
 
 const defaultModel = "claude-sonnet-4-6"
@@ -239,6 +240,278 @@ func parseProfile(text string) (*TargetProfile, error) {
 		return nil, err
 	}
 	return &profile, nil
+}
+
+// FillGaps uses Claude to infer missing tech-stack fields from raw HTTP
+// evidence. It updates ev.Framework, ev.ProxyType, ev.AuthSystem, and
+// ev.BackendServices in place when those fields are currently empty and
+// Claude can make a confident inference.
+//
+// This complements deterministic fingerprintTech(): Claude recognises patterns
+// in body content, error messages, cookie names, and header combinations that
+// rule-based detection misses. Only called when at least one key field is
+// still empty after the normal fingerprint pass.
+//
+// Errors are always non-fatal — the caller should log and continue.
+func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence, st store.Store) error {
+	if apiKey == "" {
+		return fmt.Errorf("profiler: no API key")
+	}
+	// Require at least some evidence for Claude to work with. An asset with no
+	// HTTP response, no headers, and no body gives Claude nothing useful.
+	hasEvidence := ev.StatusCode > 0 || len(ev.Headers) > 0 || ev.Body512 != "" ||
+		len(ev.RespondingPaths) > 0 || len(ev.CNAMEChain) > 0 || ev.ASNOrg != ""
+	if !hasEvidence {
+		return nil
+	}
+	// Only invoke Claude when there are actual gaps to fill across all key fields.
+	allFilled := ev.Framework != "" && ev.ProxyType != "" && ev.AuthSystem != "" &&
+		ev.CloudProvider != "" && len(ev.BackendServices) > 0
+	if allFilled {
+		return nil
+	}
+	if model == "" {
+		model = defaultModel
+	}
+
+	prompt := buildGapPrompt(ev)
+
+	reqBody, err := json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": 512,
+		"messages": []map[string]any{
+			{"role": "user", "content": prompt},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("profiler: gap marshal: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.anthropic.com/v1/messages", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("profiler: gap request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("profiler: gap API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	if err != nil {
+		return fmt.Errorf("profiler: gap read: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("profiler: gap API %d: %s", resp.StatusCode, body)
+	}
+
+	text, err := extractText(body)
+	if err != nil {
+		return fmt.Errorf("profiler: gap extract: %w", err)
+	}
+
+	return applyGaps(ctx, text, ev, st)
+}
+
+// buildGapPrompt constructs a targeted prompt asking Claude to fill missing
+// tech-stack fields from raw HTTP signals.
+func buildGapPrompt(ev *playbook.Evidence) string {
+	var sb strings.Builder
+	sb.WriteString("You are a web technology fingerprinting assistant. Given the following raw HTTP " +
+		"evidence from a server, identify the technology stack. Only fill in fields you are " +
+		"confident about (>80% probability). Use short, lowercase, canonical names " +
+		"(e.g. \"cloudflare\", \"nginx\", \"spring-boot\", \"auth0\", \"vault\").\n\n")
+	sb.WriteString("Raw evidence:\n")
+
+	writeField(&sb, "Hostname", ev.Hostname)
+	writeField(&sb, "HTTP status", fmt.Sprintf("%d", ev.StatusCode))
+	writeField(&sb, "Page title", ev.Title)
+	if ev.ServiceVersions != nil {
+		if ws, ok := ev.ServiceVersions["web_server"]; ok {
+			writeField(&sb, "Server header", ws)
+		}
+	}
+	for k, v := range ev.Headers {
+		if k != "server" { // already included above
+			writeField(&sb, "Header "+k, v)
+		}
+	}
+	if ev.Body512 != "" {
+		sb.WriteString("- Response body (first 512 bytes): ")
+		sb.WriteString(ev.Body512)
+		sb.WriteString("\n")
+	}
+	if len(ev.RespondingPaths) > 0 {
+		writeField(&sb, "Responding paths", strings.Join(ev.RespondingPaths, ", "))
+	}
+	if len(ev.CertSANs) > 0 {
+		writeField(&sb, "TLS cert SANs", strings.Join(ev.CertSANs[:min(len(ev.CertSANs), 5)], ", "))
+	}
+	if len(ev.CNAMEChain) > 0 {
+		writeField(&sb, "CNAME chain", strings.Join(ev.CNAMEChain, " → "))
+	}
+	// Already-computed fields — tell Claude what we already know so it doesn't
+	// waste effort re-deriving them.
+	if ev.Framework != "" {
+		writeField(&sb, "Already detected framework", ev.Framework)
+	}
+	if ev.ProxyType != "" {
+		writeField(&sb, "Already detected proxy", ev.ProxyType)
+	}
+	if ev.AuthSystem != "" {
+		writeField(&sb, "Already detected auth system", ev.AuthSystem)
+	}
+	if len(ev.BackendServices) > 0 {
+		writeField(&sb, "Already detected backend services", strings.Join(ev.BackendServices, ", "))
+	}
+
+	sb.WriteString("\nReturn ONLY valid JSON, no markdown:\n")
+	sb.WriteString(`{"proxy_type":"","framework":"","auth_system":"","backend_services":[],"confidence":0.0}`)
+	sb.WriteString("\n\nFill in the JSON with your best inferences. Use empty string / empty array for fields you cannot determine. Also include a \"confidence\" field (0.0-1.0) reflecting your overall confidence in these inferences.")
+	return sb.String()
+}
+
+// gapResult is the JSON structure Claude returns for gap-filling.
+type gapResult struct {
+	ProxyType       string   `json:"proxy_type"`
+	Framework       string   `json:"framework"`
+	AuthSystem      string   `json:"auth_system"`
+	BackendServices []string `json:"backend_services"`
+	Confidence      float64  `json:"confidence"`
+}
+
+// applyGaps parses Claude's gap-fill JSON and writes non-empty fields into ev,
+// but only when the ev field is currently empty (never overwrites confirmed data).
+func applyGaps(ctx context.Context, text string, ev *playbook.Evidence, st store.Store) error {
+	text = strings.TrimSpace(text)
+	// Strip markdown fences.
+	if strings.HasPrefix(text, "```") {
+		if i := strings.Index(text, "\n"); i >= 0 {
+			text = text[i+1:]
+		}
+		text = strings.TrimSuffix(text, "```")
+		text = strings.TrimSpace(text)
+	}
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start < 0 || end <= start {
+		return fmt.Errorf("no JSON found")
+	}
+	text = text[start : end+1]
+
+	var gap gapResult
+	if err := json.Unmarshal([]byte(text), &gap); err != nil {
+		return err
+	}
+	if ev.ProxyType == "" && gap.ProxyType != "" {
+		ev.ProxyType = gap.ProxyType
+	}
+	if ev.Framework == "" && gap.Framework != "" {
+		ev.Framework = gap.Framework
+	}
+	if ev.AuthSystem == "" && gap.AuthSystem != "" {
+		ev.AuthSystem = gap.AuthSystem
+	}
+	if len(ev.BackendServices) == 0 && len(gap.BackendServices) > 0 {
+		ev.BackendServices = gap.BackendServices
+	}
+
+	// Save AI-discovered rules to the database as pending for human review.
+	if st != nil {
+		saveAIRules(ctx, st, gap, ev)
+	}
+	return nil
+}
+
+func saveAIRules(ctx context.Context, st store.Store, gap gapResult, ev *playbook.Evidence) {
+	candidates := []struct {
+		field string
+		value string
+	}{
+		{"proxy_type", gap.ProxyType},
+		{"framework", gap.Framework},
+		{"auth_system", gap.AuthSystem},
+	}
+	for _, c := range candidates {
+		if c.value == "" {
+			continue
+		}
+		rule := inferRule(c.field, c.value, ev)
+		if rule == nil {
+			continue
+		}
+		rule.Source = "ai"
+		rule.Status = "pending"
+		rule.Confidence = gap.Confidence
+		_ = st.UpsertFingerprintRule(ctx, rule)
+	}
+	for _, bs := range gap.BackendServices {
+		rule := inferRule("backend_services", bs, ev)
+		if rule == nil {
+			continue
+		}
+		rule.Source = "ai"
+		rule.Status = "pending"
+		rule.Confidence = gap.Confidence
+		_ = st.UpsertFingerprintRule(ctx, rule)
+	}
+}
+
+// inferRule tries to find the most specific signal that could explain the inference.
+// Returns nil if no good signal can be identified.
+func inferRule(field, value string, ev *playbook.Evidence) *store.FingerprintRule {
+	valueLower := strings.ToLower(value)
+	// Check body first (most specific).
+	if strings.Contains(strings.ToLower(ev.Body512), valueLower) {
+		return &store.FingerprintRule{
+			SignalType:  "body",
+			SignalValue: valueLower,
+			Field:       field,
+			Value:       value,
+			SeenCount:   1,
+		}
+	}
+	// Check responding paths.
+	for _, p := range ev.RespondingPaths {
+		if strings.Contains(strings.ToLower(p), valueLower) {
+			return &store.FingerprintRule{
+				SignalType:  "path",
+				SignalValue: p,
+				Field:       field,
+				Value:       value,
+				SeenCount:   1,
+			}
+		}
+	}
+	// Check server header.
+	if server := ev.Headers["server"]; server != "" && strings.Contains(strings.ToLower(server), valueLower) {
+		return &store.FingerprintRule{
+			SignalType:  "server",
+			SignalValue: valueLower,
+			Field:       field,
+			Value:       value,
+			SeenCount:   1,
+		}
+	}
+	// Check CNAME chain.
+	for _, c := range ev.CNAMEChain {
+		if strings.Contains(strings.ToLower(c), valueLower) {
+			return &store.FingerprintRule{
+				SignalType:  "cname",
+				SignalValue: valueLower,
+				Field:       field,
+				Value:       value,
+				SeenCount:   1,
+			}
+		}
+	}
+	return nil
 }
 
 func min(a, b int) int {

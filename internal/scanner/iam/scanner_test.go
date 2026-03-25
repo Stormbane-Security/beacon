@@ -235,7 +235,7 @@ func TestIAM_IdPAdminExposed(t *testing.T) {
 		if r.URL.Path == "/auth/admin/" {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, `<html><body><h1>Keycloak Admin Console</h1></body></html>`)
+			fmt.Fprintln(w, `<html><head><title>Keycloak Administration Console</title></head><body></body></html>`)
 			return
 		}
 		http.NotFound(w, r)

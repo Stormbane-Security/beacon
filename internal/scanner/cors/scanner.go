@@ -7,6 +7,7 @@ package cors
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -197,19 +198,39 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// catch misconfigs the simple GET probes above may have missed.
 		preflightOrigin := "https://evil.example.com"
 
+		// Skip the preflight probe if GET probes already found a Critical or High
+		// CORS finding for this target — the preflight would be redundant.
 		alreadyCaught := false
 		for _, f := range findings {
-			if ev, ok := f.Evidence["injected_origin"]; ok && ev == preflightOrigin {
-				alreadyCaught = true
-				break
-			}
-			if ev, ok := f.Evidence["access_control_allow_origin"]; ok && ev == "*" {
+			if f.Evidence["url"] == target &&
+				(f.Severity == finding.SeverityCritical || f.Severity == finding.SeverityHigh) {
 				alreadyCaught = true
 				break
 			}
 		}
 
-		if !alreadyCaught {
+		// Catch-all guard for the preflight probe: if a random path returns 200
+		// with credentialed CORS, this server echoes headers for every path and the
+		// preflight would be a false positive. GET probes above already fired on
+		// the real path, so we only gate the OPTIONS probe here.
+		preflightIsCatchAll := false
+		canaryURL := fmt.Sprintf("%s/beacon-canary-%016x", target, rand.Int63())
+		canaryReq, _ := http.NewRequestWithContext(ctx, http.MethodOptions, canaryURL, nil)
+		if canaryReq != nil {
+			canaryReq.Header.Set("Origin", preflightOrigin)
+			canaryReq.Header.Set("Access-Control-Request-Method", "POST")
+			if cResp, err := client.Do(canaryReq); err == nil {
+				cResp.Body.Close()
+				cacao := cResp.Header.Get("Access-Control-Allow-Origin")
+				cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
+				// A catch-all returns 200 + reflects origin + credentials on random paths.
+				if cResp.StatusCode == 200 && strings.EqualFold(cacao, preflightOrigin) && cacac == "true" {
+					preflightIsCatchAll = true
+				}
+			}
+		}
+
+		if !alreadyCaught && !preflightIsCatchAll {
 			preReq, err := http.NewRequestWithContext(ctx, http.MethodOptions, target, nil)
 			if err == nil {
 				preReq.Header.Set("Origin", preflightOrigin)

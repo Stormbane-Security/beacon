@@ -97,21 +97,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, f...)
 	}
 
-	// Ethereum WebSocket RPC (port 8546)
-	if isPortOpen(ctx, host, "8546") {
+	// Ethereum WebSocket RPC (port 8546) — verify with a real WebSocket upgrade
+	// handshake, not just a TCP connect, to avoid false positives on any TCP
+	// service that happens to be on 8546.
+	if wsUpgradeConfirmed(ctx, host, "8546") {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckChainNodeWSExposed,
 			Module:   "surface",
 			Scanner:  scannerName,
 			Severity: finding.SeverityHigh,
 			Title:    fmt.Sprintf("Ethereum WebSocket JSON-RPC exposed on %s:8546", host),
-			Description: "Port 8546 (Ethereum WebSocket RPC) is open and accessible. " +
-				"WebSocket RPC enables real-time subscription to events and full JSON-RPC access. " +
-				"Without authentication, attackers can subscribe to mempool transactions, read wallet state, " +
-				"and in some configurations send transactions.",
-			Asset: asset,
+			Description: "Port 8546 (Ethereum WebSocket RPC) is open and accepted a WebSocket " +
+				"upgrade request. WebSocket RPC enables real-time subscription to events and full " +
+				"JSON-RPC access. Without authentication, attackers can subscribe to mempool " +
+				"transactions, read wallet state, and in some configurations send transactions.",
+			Asset: host, // use host (port-stripped) so Asset matches the finding host
 			Evidence: map[string]any{"host": host, "port": "8546", "chain": "ethereum"},
-			ProofCommand: fmt.Sprintf("wscat -c ws://%s:8546 -x '{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[],\"id\":1}' 2>/dev/null", host),
+			ProofCommand: fmt.Sprintf(
+				"python3 -c \"%s\"",
+				wsProofPython(host, "8546"),
+			),
 			DiscoveredAt: time.Now(),
 		})
 	}
@@ -586,6 +591,55 @@ func isPortOpen(ctx context.Context, host, port string) bool {
 	}
 	conn.Close()
 	return true
+}
+
+// wsUpgradeConfirmed dials host:port and sends an HTTP/1.1 WebSocket upgrade
+// request. Returns true only if the server responds with "101 Switching
+// Protocols" — confirming a real WebSocket endpoint, not just any TCP service.
+func wsUpgradeConfirmed(ctx context.Context, host, port string) bool {
+	dialer := &net.Dialer{Timeout: dialTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(dialTimeout)) //nolint:errcheck
+
+	// Minimal WebSocket upgrade handshake (RFC 6455).
+	req := fmt.Sprintf(
+		"GET / HTTP/1.1\r\nHost: %s:%s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
+			"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+		host, port,
+	)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		return false
+	}
+
+	buf := make([]byte, 256)
+	n, err := conn.Read(buf)
+	if err != nil || n == 0 {
+		return false
+	}
+	// 101 Switching Protocols confirms this is a WebSocket server.
+	return strings.Contains(string(buf[:n]), "101")
+}
+
+// wsProofPython returns a one-liner Python 3 command that connects to a
+// WebSocket endpoint and sends eth_chainId, printing the raw response.
+// Uses only stdlib so it works without wscat or any npm tools.
+func wsProofPython(host, port string) string {
+	return fmt.Sprintf(
+		`import socket,struct,base64,os; `+
+			`s=socket.create_connection(('%s',%s),timeout=5); `+
+			`s.sendall(b'GET / HTTP/1.1\\r\\nHost: %s:%s\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n'); `+
+			`print(s.recv(256).decode(errors=\"replace\")); `+
+			`payload=b'{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[],\"id\":1}'; `+
+			`frame=bytes([0x81,len(payload)])+payload; `+
+			`s.sendall(frame); `+
+			`print(s.recv(256)[2:].decode(errors=\"replace\")); `+
+			`s.close()`,
+		host, port, host, port,
+	)
 }
 
 // resolveChainID maps common EVM chain IDs to human-readable names.

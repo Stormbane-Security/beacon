@@ -93,7 +93,9 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/swagger"
 	"github.com/stormbane/beacon/internal/scanner/contractscan"
 	"github.com/stormbane/beacon/internal/scanner/chainnode"
+	"github.com/stormbane/beacon/internal/scanner/githubactions"
 	"github.com/stormbane/beacon/internal/evasion"
+	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/store"
 )
@@ -160,6 +162,10 @@ type Module struct {
 
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
+
+	// fingerprintRules holds active DB-driven fingerprint rules loaded once at
+	// scan start and applied per-asset after fingerprintTech().
+	fingerprintRules []store.FingerprintRule
 }
 
 // Config holds binary paths required to instantiate the module.
@@ -240,6 +246,11 @@ type Config struct {
 	// When a matching entry exists for the current asset (or asset == "*"),
 	// scanners run against content that is gated behind a login.
 	Auth []config.AuthConfig
+
+	// GitHubToken is an optional GitHub personal access token used by the
+	// githubactions scanner to fetch workflow files via the GitHub API.
+	// Without it the scanner is limited to 60 unauthenticated requests/hour.
+	GitHubToken string
 }
 
 const (
@@ -352,6 +363,7 @@ func New(cfg Config) (*Module, error) {
 		"swagger":          swagger.New(),
 		"contractscan":     contractscan.New(),
 		"chainnode":        chainnode.New(),
+		"githubactions":   githubactions.New(cfg.GitHubToken),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.
@@ -433,6 +445,12 @@ func isAuthorized(t module.ScanType) bool {
 // Run executes the full surface scan pipeline driven by playbooks.
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	rootDomain := input.Domain
+
+	// Load active fingerprint rules once per scan run and cache on the module.
+	if m.st != nil {
+		rules, _ := m.st.GetFingerprintRules(ctx, "active")
+		m.fingerprintRules = rules
+	}
 
 	var allFindings []finding.Finding
 	var mu sync.Mutex
@@ -1015,6 +1033,19 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		})
 	}
 	ev := classify.Collect(ctx, asset)
+
+	// AI fingerprint gap-filling: when an Anthropic key is available, ask
+	// Claude to infer Framework/ProxyType/AuthSystem/BackendServices fields
+	// that deterministic fingerprinting left empty. Errors are ignored so a
+	// failed API call never blocks the scan.
+	if m.anthropicKey != "" {
+		_ = profiler.FillGaps(ctx, m.anthropicKey, m.claudeModel, &ev, m.st)
+	}
+
+	// Apply database-driven fingerprint rules to fill any remaining gaps.
+	if len(m.fingerprintRules) > 0 {
+		fingerprintdb.Apply(m.fingerprintRules, &ev)
+	}
 
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
 	// base http.Client to inject credentials into all scanner requests.

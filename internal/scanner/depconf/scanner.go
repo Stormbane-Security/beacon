@@ -111,6 +111,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			continue
 		}
 
+		var proofCmd string
+		switch p.ecosystem {
+		case "npm":
+			proofCmd = fmt.Sprintf("curl -s https://registry.npmjs.org/%s | jq '.name,.version,.description'", p.name)
+		case "pypi":
+			proofCmd = fmt.Sprintf("curl -s https://pypi.org/pypi/%s/json | jq '.info.name,.info.version,.info.author'", p.name)
+		default:
+			proofCmd = fmt.Sprintf("# verify %s exists on public %s registry", p.name, p.ecosystem)
+		}
+
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckDependencyConfusion,
 			Module:   "surface",
@@ -130,6 +140,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 				"ecosystem": p.ecosystem,
 				"manifest":  p.manifest,
 			},
+			ProofCommand: proofCmd,
 			DiscoveredAt: time.Now(),
 		})
 	}
@@ -192,24 +203,48 @@ func parseNPMPackages(data []byte) []string {
 	return names
 }
 
+// validPackageName returns true when s looks like a valid PyPI package name.
+// PEP 508 names are alphanumeric plus hyphens, underscores, and dots.
+// Any space, quote, shell metacharacter, or bracket disqualifies the string.
+func validPackageName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
 // parsePyPIPackages extracts package names from a requirements.txt.
 func parsePyPIPackages(data []byte) []string {
 	var names []string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		// Skip blank lines, comments, and pip option flags (e.g. --index-url).
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "-") {
 			continue
 		}
+		// Strip inline comment: "requests  # HTTP library" → "requests"
+		if idx := strings.Index(line, " #"); idx > 0 {
+			line = strings.TrimSpace(line[:idx])
+		}
 		// Strip version specifiers: "requests>=2.0" → "requests"
-		for _, sep := range []string{">=", "<=", "==", "!=", "~=", ">"," <", ";"} {
+		for _, sep := range []string{">=", "<=", "==", "!=", "~=", ">", "<", ";"} {
 			if idx := strings.Index(line, sep); idx > 0 {
-				line = line[:idx]
+				line = strings.TrimSpace(line[:idx])
 			}
 		}
-		line = strings.TrimSpace(line)
-		if line != "" {
-			names = append(names, strings.ToLower(line))
+		// Validate: a real package name contains only [A-Za-z0-9._-].
+		// Lines like `echo "# add nexus cli to path"` contain spaces/quotes
+		// and must be rejected — they are shell commands, not package names.
+		if !validPackageName(line) {
+			continue
 		}
+		names = append(names, strings.ToLower(line))
 	}
 	return names
 }

@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,11 +25,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stormbane/beacon/internal/analyze"
+	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/verify"
 	"github.com/stormbane/beacon/internal/api"
 	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/enrichment"
 	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/module"
 	githubmodule "github.com/stormbane/beacon/internal/modules/github"
 	"github.com/stormbane/beacon/internal/modules/surface"
@@ -138,6 +142,8 @@ func main() {
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
+	case "fingerprints":
+		cmdFingerprints(cfg, os.Args[2:])
 	case "terraform":
 		cmdTerraform(cfg, os.Args[2:])
 	case "--help", "-h", "help":
@@ -348,6 +354,11 @@ Type exactly: I have written authorization for %s
 	}
 	defer st.Close()
 
+	// Seed built-in fingerprint rules (idempotent — safe to call every scan).
+	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
+		_ = seedErr // non-fatal
+	}
+
 	// Upsert target
 	target, err := st.UpsertTarget(ctx, domain)
 	if err != nil {
@@ -404,6 +415,7 @@ Type exactly: I have written authorization for %s
 		RequestJitterMs:      cfg.RequestJitterMs,
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
+		GitHubToken:          cfg.GitHubToken,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -616,6 +628,46 @@ Type exactly: I have written authorization for %s
 		fmt.Print(output)
 	}
 
+	// Attack path analysis: if enabled and we have an Anthropic key, ask Claude
+	// to identify multi-step attack chains across findings from this scan run.
+	// Only correlates findings from the current run, never historical data.
+	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
+		fmt.Fprintf(os.Stderr, "beacon: analysing attack paths...\n")
+		chains := profiler.ReasonAttackPaths(ctx, cfg.AnthropicAPIKey, cfg.ClaudeModel, findings)
+		if f := profiler.BuildAttackPathFinding(domain, chains); f != nil {
+			fmt.Fprintf(os.Stderr, "beacon: %d attack path(s) identified\n", len(chains))
+			_ = st.SaveFindings(ctx, run.ID, []finding.Finding{*f})
+		}
+	}
+
+	// Webhook delivery: POST a structured JSON findings payload to the configured
+	// endpoint so findings can be streamed to a SIEM or external platform.
+	if cfg.WebhookURL != "" {
+		if err := deliverWebhook(ctx, cfg.WebhookURL, cfg.WebhookAPIKey, *run, enriched, summary); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: webhook delivery failed: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "beacon: findings posted to webhook\n")
+		}
+	}
+
+	// Post-scan review summary: show pending fingerprint rules and playbook suggestions.
+	{
+		pendingRules, _ := st.GetFingerprintRules(ctx, "pending")
+		pendingSuggs, _ := st.ListPlaybookSuggestions(ctx, "pending")
+		if len(pendingRules) > 0 || len(pendingSuggs) > 0 {
+			fmt.Fprintf(os.Stderr, "\nbeacon: review pending —")
+			if len(pendingRules) > 0 {
+				fmt.Fprintf(os.Stderr, " %d fingerprint rule%s", len(pendingRules), pluralS(len(pendingRules)))
+			}
+			if len(pendingSuggs) > 0 {
+				if len(pendingRules) > 0 {
+					fmt.Fprintf(os.Stderr, " ·")
+				}
+				fmt.Fprintf(os.Stderr, " %d playbook suggestion%s", len(pendingSuggs), pluralS(len(pendingSuggs)))
+			}
+			fmt.Fprintf(os.Stderr, "\n  run: beacon fingerprints pending  |  beacon playbook suggestions\n")
+		}
+	}
 	fmt.Fprintf(os.Stderr, "beacon: done — scan ID: %s\n", run.ID)
 }
 
@@ -967,6 +1019,7 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 	}
 
 	renderer := newHeadlessRenderer(finding.SeverityInfo)
+	renderer.st = st
 
 	job := &liveJob{
 		runID:    run.ID,
@@ -1006,6 +1059,7 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		RequestJitterMs:      cfg.RequestJitterMs,
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
+		GitHubToken:          cfg.GitHubToken,
 	})
 	if err != nil {
 		cancel()
@@ -2901,6 +2955,39 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 	}
 }
 
+// deliverWebhook POSTs a JSON findings payload to the configured webhook URL.
+// The payload matches the structured JSON report format so SIEM consumers can
+// ingest it with the same schema as `beacon scan --output json`.
+// Errors are non-fatal — a failed webhook never blocks the scan report.
+func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string) error {
+	payload, err := report.RenderJSON(run, enriched, summary)
+	if err != nil {
+		return fmt.Errorf("render webhook payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL,
+		strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "beacon-scanner/1.0")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // filterOmitted drops findings Claude marked as having no actionable value
 // given other controls present in the scan.
 func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedFinding {
@@ -3086,6 +3173,17 @@ type progressRenderer struct {
 	topoDetailAsset string                   // asset selected for topo_detail view
 	topoDetailOff   int                      // scroll offset for topo_detail view
 
+	// store reference for post-scan review
+	st store.Store
+
+	// pendingReview is set by Done() when there are pending fingerprint rules or playbook suggestions.
+	pendingReview string
+
+	// Review mode state
+	pendingReviewRules []store.FingerprintRule
+	pendingReviewSuggs []store.PlaybookSuggestion
+	reviewCursor       int
+
 	stopOnce  sync.Once
 	stop      chan struct{}
 	detached  chan struct{} // closed when user presses b to detach (browse while scan runs)
@@ -3259,6 +3357,15 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			if r.phase != "done" {
 				r.confirmingExit = true
 			}
+		case buf[0] == 'r':
+			// Load pending items and enter review mode.
+			if r.st != nil && r.phase == "done" {
+				ctx := context.Background()
+				r.pendingReviewRules, _ = r.st.GetFingerprintRules(ctx, "pending")
+				r.pendingReviewSuggs, _ = r.st.ListPlaybookSuggestions(ctx, "pending")
+				r.reviewCursor = 0
+				r.mode = "review"
+			}
 		}
 	case "findings":
 		if r.findingFilterMode {
@@ -3429,6 +3536,118 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			r.mode = r.findingDetailOrigin
 			r.selectedFinding = nil
 		}
+	case "review":
+		type reviewItemP struct {
+			kind   string
+			id     int64
+			suggID string
+		}
+		var ritems []reviewItemP
+		for _, r2 := range r.pendingReviewRules {
+			ritems = append(ritems, reviewItemP{kind: "fingerprint", id: r2.ID})
+		}
+		for _, s := range r.pendingReviewSuggs {
+			ritems = append(ritems, reviewItemP{kind: "playbook", suggID: s.ID})
+		}
+		switch {
+		case isDown:
+			if r.reviewCursor < len(ritems)-1 {
+				r.reviewCursor++
+			}
+		case isUp:
+			if r.reviewCursor > 0 {
+				r.reviewCursor--
+			}
+		case buf[0] == 'a':
+			if r.reviewCursor < len(ritems) && r.st != nil {
+				item := ritems[r.reviewCursor]
+				ctx := context.Background()
+				if item.kind == "fingerprint" {
+					for i := range r.pendingReviewRules {
+						if r.pendingReviewRules[i].ID == item.id {
+							r.pendingReviewRules[i].Status = "active"
+							_ = r.st.UpsertFingerprintRule(ctx, &r.pendingReviewRules[i])
+							r.pendingReviewRules = append(r.pendingReviewRules[:i], r.pendingReviewRules[i+1:]...)
+							break
+						}
+					}
+				} else {
+					for i := range r.pendingReviewSuggs {
+						if r.pendingReviewSuggs[i].ID == item.suggID {
+							r.pendingReviewSuggs[i].Status = "pr_opened"
+							_ = r.st.UpdatePlaybookSuggestion(ctx, &r.pendingReviewSuggs[i])
+							r.pendingReviewSuggs = append(r.pendingReviewSuggs[:i], r.pendingReviewSuggs[i+1:]...)
+							break
+						}
+					}
+				}
+				if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+					r.reviewCursor--
+				}
+				if r.reviewCursor < 0 {
+					r.reviewCursor = 0
+				}
+				if len(r.pendingReviewRules)+len(r.pendingReviewSuggs) == 0 {
+					r.pendingReview = ""
+				}
+			}
+		case buf[0] == 'x':
+			if r.reviewCursor < len(ritems) && r.st != nil {
+				item := ritems[r.reviewCursor]
+				ctx := context.Background()
+				if item.kind == "fingerprint" {
+					for i := range r.pendingReviewRules {
+						if r.pendingReviewRules[i].ID == item.id {
+							r.pendingReviewRules[i].Status = "rejected"
+							_ = r.st.UpsertFingerprintRule(ctx, &r.pendingReviewRules[i])
+							r.pendingReviewRules = append(r.pendingReviewRules[:i], r.pendingReviewRules[i+1:]...)
+							break
+						}
+					}
+				} else {
+					for i := range r.pendingReviewSuggs {
+						if r.pendingReviewSuggs[i].ID == item.suggID {
+							r.pendingReviewSuggs[i].Status = "rejected"
+							_ = r.st.UpdatePlaybookSuggestion(ctx, &r.pendingReviewSuggs[i])
+							r.pendingReviewSuggs = append(r.pendingReviewSuggs[:i], r.pendingReviewSuggs[i+1:]...)
+							break
+						}
+					}
+				}
+				if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+					r.reviewCursor--
+				}
+				if r.reviewCursor < 0 {
+					r.reviewCursor = 0
+				}
+				if len(r.pendingReviewRules)+len(r.pendingReviewSuggs) == 0 {
+					r.pendingReview = ""
+				}
+			}
+		case buf[0] == 'd':
+			if r.reviewCursor < len(ritems) && r.st != nil {
+				item := ritems[r.reviewCursor]
+				ctx := context.Background()
+				if item.kind == "fingerprint" {
+					_ = r.st.DeleteFingerprintRule(ctx, item.id)
+					for i := range r.pendingReviewRules {
+						if r.pendingReviewRules[i].ID == item.id {
+							r.pendingReviewRules = append(r.pendingReviewRules[:i], r.pendingReviewRules[i+1:]...)
+							break
+						}
+					}
+					if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+						r.reviewCursor--
+					}
+					if r.reviewCursor < 0 {
+						r.reviewCursor = 0
+					}
+				}
+				if len(r.pendingReviewRules)+len(r.pendingReviewSuggs) == 0 {
+					r.pendingReview = ""
+				}
+			}
+		}
 	}
 	r.render()
 }
@@ -3513,6 +3732,14 @@ func (r *progressRenderer) startInputLoop() {
 					// 's' prompts to stop the scan; 'q'/'b' just detach (handled above).
 					if r.phase != "done" {
 						r.confirmingExit = true
+					}
+				case buf[0] == 'r':
+					if r.st != nil && r.phase == "done" {
+						ctx := context.Background()
+						r.pendingReviewRules, _ = r.st.GetFingerprintRules(ctx, "pending")
+						r.pendingReviewSuggs, _ = r.st.ListPlaybookSuggestions(ctx, "pending")
+						r.reviewCursor = 0
+						r.mode = "review"
 					}
 				}
 
@@ -3638,6 +3865,122 @@ func (r *progressRenderer) startInputLoop() {
 						r.mode = r.findingDetailOrigin
 					} else {
 						r.mode = "asset_detail"
+					}
+				}
+
+			case "review":
+				type reviewItemLocal struct {
+					kind   string
+					id     int64
+					suggID string
+				}
+				var ritems []reviewItemLocal
+				for _, r2 := range r.pendingReviewRules {
+					ritems = append(ritems, reviewItemLocal{kind: "fingerprint", id: r2.ID})
+				}
+				for _, s := range r.pendingReviewSuggs {
+					ritems = append(ritems, reviewItemLocal{kind: "playbook", suggID: s.ID})
+				}
+				switch {
+				case isDown:
+					if r.reviewCursor < len(ritems)-1 {
+						r.reviewCursor++
+					}
+				case isUp:
+					if r.reviewCursor > 0 {
+						r.reviewCursor--
+					}
+				case buf[0] == 'a':
+					if r.reviewCursor < len(ritems) && r.st != nil {
+						item := ritems[r.reviewCursor]
+						ctx := context.Background()
+						if item.kind == "fingerprint" {
+							for i := range r.pendingReviewRules {
+								if r.pendingReviewRules[i].ID == item.id {
+									r.pendingReviewRules[i].Status = "active"
+									_ = r.st.UpsertFingerprintRule(ctx, &r.pendingReviewRules[i])
+									r.pendingReviewRules = append(r.pendingReviewRules[:i], r.pendingReviewRules[i+1:]...)
+									break
+								}
+							}
+						} else {
+							for i := range r.pendingReviewSuggs {
+								if r.pendingReviewSuggs[i].ID == item.suggID {
+									r.pendingReviewSuggs[i].Status = "pr_opened"
+									_ = r.st.UpdatePlaybookSuggestion(ctx, &r.pendingReviewSuggs[i])
+									r.pendingReviewSuggs = append(r.pendingReviewSuggs[:i], r.pendingReviewSuggs[i+1:]...)
+									break
+								}
+							}
+						}
+						if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+							r.reviewCursor--
+						}
+						if r.reviewCursor < 0 {
+							r.reviewCursor = 0
+						}
+						total := len(r.pendingReviewRules) + len(r.pendingReviewSuggs)
+						if total == 0 {
+							r.pendingReview = ""
+						}
+					}
+				case buf[0] == 'x':
+					if r.reviewCursor < len(ritems) && r.st != nil {
+						item := ritems[r.reviewCursor]
+						ctx := context.Background()
+						if item.kind == "fingerprint" {
+							for i := range r.pendingReviewRules {
+								if r.pendingReviewRules[i].ID == item.id {
+									r.pendingReviewRules[i].Status = "rejected"
+									_ = r.st.UpsertFingerprintRule(ctx, &r.pendingReviewRules[i])
+									r.pendingReviewRules = append(r.pendingReviewRules[:i], r.pendingReviewRules[i+1:]...)
+									break
+								}
+							}
+						} else {
+							for i := range r.pendingReviewSuggs {
+								if r.pendingReviewSuggs[i].ID == item.suggID {
+									r.pendingReviewSuggs[i].Status = "rejected"
+									_ = r.st.UpdatePlaybookSuggestion(ctx, &r.pendingReviewSuggs[i])
+									r.pendingReviewSuggs = append(r.pendingReviewSuggs[:i], r.pendingReviewSuggs[i+1:]...)
+									break
+								}
+							}
+						}
+						if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+							r.reviewCursor--
+						}
+						if r.reviewCursor < 0 {
+							r.reviewCursor = 0
+						}
+						total := len(r.pendingReviewRules) + len(r.pendingReviewSuggs)
+						if total == 0 {
+							r.pendingReview = ""
+						}
+					}
+				case buf[0] == 'd':
+					if r.reviewCursor < len(ritems) && r.st != nil {
+						item := ritems[r.reviewCursor]
+						ctx := context.Background()
+						if item.kind == "fingerprint" {
+							_ = r.st.DeleteFingerprintRule(ctx, item.id)
+							for i := range r.pendingReviewRules {
+								if r.pendingReviewRules[i].ID == item.id {
+									r.pendingReviewRules = append(r.pendingReviewRules[:i], r.pendingReviewRules[i+1:]...)
+									break
+								}
+							}
+							if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+								r.reviewCursor--
+							}
+							if r.reviewCursor < 0 {
+								r.reviewCursor = 0
+							}
+						}
+						total := len(r.pendingReviewRules) + len(r.pendingReviewSuggs)
+						if total == 0 {
+							r.pendingReview = ""
+						}
 					}
 				}
 			}
@@ -3877,6 +4220,8 @@ func (r *progressRenderer) navigateBack() {
 		r.mode = "topology"
 	case "findings", "assets", "topology":
 		r.mode = "progress"
+	case "review":
+		r.mode = "progress"
 	default:
 		r.mode = "progress"
 	}
@@ -3911,6 +4256,8 @@ func (r *progressRenderer) render() {
 		lines = r.renderTopology(&buf)
 	case "topo_detail":
 		lines = r.renderTopoDetail(&buf)
+	case "review":
+		lines = r.renderReview(&buf)
 	default:
 		lines = r.renderProgress(&buf)
 	}
@@ -3978,8 +4325,12 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
 			r.done, r.total, len(r.findings))
 	} else if r.phase == "done" {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m\n",
-			r.total, len(r.findings))
+		reviewHint := ""
+		if r.pendingReview != "" {
+			reviewHint = "  \x1b[33m" + r.pendingReview + "\x1b[0m  \x1b[90m[r] review\x1b[0m"
+		}
+		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m%s\n",
+			r.total, len(r.findings), reviewHint)
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
 		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
@@ -5014,6 +5365,85 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 	return drawn
 }
 
+// renderReview renders the pending fingerprint rules + playbook suggestions review pane.
+// Keys: j/k move cursor, a approve, x reject, d delete, b/q back.
+func (r *progressRenderer) renderReview(buf *strings.Builder) int {
+	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || termH < 5 {
+		termH = 24
+	}
+	bodyLines := termH - 2
+	if bodyLines < 1 {
+		bodyLines = 1
+	}
+
+	type reviewItem struct {
+		kind   string // "fingerprint" or "playbook"
+		label  string // one-line display string
+		id     int64  // fingerprint rule ID (kind=fingerprint)
+		suggID string // playbook suggestion ID (kind=playbook)
+	}
+
+	var items []reviewItem
+	for _, r2 := range r.pendingReviewRules {
+		sig := r2.SignalType
+		if r2.SignalKey != "" {
+			sig = r2.SignalType + ":" + r2.SignalKey
+		}
+		label := fmt.Sprintf("\x1b[35m[fingerprint]\x1b[0m  %-10s %-25s → %-14s = %-14s  \x1b[90mconf:%.0f%% seen:%d src:%s\x1b[0m",
+			sig, truncateStr(r2.SignalValue, 25), r2.Field, truncateStr(r2.Value, 14), r2.Confidence*100, r2.SeenCount, r2.Source)
+		items = append(items, reviewItem{kind: "fingerprint", label: label, id: r2.ID})
+	}
+	for _, s := range r.pendingReviewSuggs {
+		target := s.TargetPlaybook
+		if target == "" {
+			target = "(new)"
+		}
+		label := fmt.Sprintf("\x1b[36m[playbook]   \x1b[0m  %-10s %-30s  \x1b[90m%s\x1b[0m",
+			s.Type, truncateStr(target, 30), truncateStr(s.Reasoning, 40))
+		items = append(items, reviewItem{kind: "playbook", label: label, suggID: s.ID})
+	}
+
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [b/q] back\x1b[0m\n")
+	lineCount := 1
+
+	if len(items) == 0 {
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo pending items.\x1b[0m\n")
+		return 2
+	}
+
+	// Clamp cursor.
+	if r.reviewCursor >= len(items) {
+		r.reviewCursor = len(items) - 1
+	}
+	if r.reviewCursor < 0 {
+		r.reviewCursor = 0
+	}
+
+	// Scroll offset to keep cursor visible.
+	off := r.reviewCursor - bodyLines/2
+	if off < 0 {
+		off = 0
+	}
+	if off+bodyLines > len(items) {
+		off = len(items) - bodyLines
+		if off < 0 {
+			off = 0
+		}
+	}
+
+	for i := off; i < len(items) && lineCount < termH-1; i++ {
+		item := items[i]
+		cursor := "  "
+		if i == r.reviewCursor {
+			cursor = "\x1b[7m▶\x1b[0m "
+		}
+		fmt.Fprintf(buf, "\x1b[2K\r%s%s\n", cursor, item.label)
+		lineCount++
+	}
+	return lineCount
+}
+
 // renderTopoDetail renders the full detail pane for a selected topology asset.
 func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
@@ -5488,6 +5918,24 @@ func (r *progressRenderer) eta() time.Duration {
 func (r *progressRenderer) Done() {
 	r.stopOnce.Do(func() { close(r.stop) })
 	if r.headless {
+		// Load pending review counts for the post-scan notice.
+		if r.st != nil {
+			ctx := context.Background()
+			pendingRules, _ := r.st.GetFingerprintRules(ctx, "pending")
+			pendingSuggs, _ := r.st.ListPlaybookSuggestions(ctx, "pending")
+			if len(pendingRules)+len(pendingSuggs) > 0 {
+				parts := []string{}
+				if len(pendingRules) > 0 {
+					parts = append(parts, fmt.Sprintf("%d fingerprint rule%s", len(pendingRules), pluralS(len(pendingRules))))
+				}
+				if len(pendingSuggs) > 0 {
+					parts = append(parts, fmt.Sprintf("%d playbook suggestion%s", len(pendingSuggs), pluralS(len(pendingSuggs))))
+				}
+				r.mu.Lock()
+				r.pendingReview = strings.Join(parts, " · ") + " pending"
+				r.mu.Unlock()
+			}
+		}
 		return // browse TUI owns the terminal; nothing to restore here
 	}
 	if r.restoreFn != nil {
@@ -5513,4 +5961,170 @@ func safePlaybookName(s string) string {
 		return ""
 	}
 	return s
+}
+
+// ---------- fingerprints ----------
+
+func cmdFingerprints(cfg *config.Config, args []string) {
+	db, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+
+	switch sub {
+	case "list":
+		rules, err := db.GetFingerprintRules(ctx, "active")
+		if err != nil {
+			fatalf("list rules: %v", err)
+		}
+		fmt.Printf("%-6s  %-8s  %-10s  %-22s  %-22s  %-14s  %-12s  %s\n",
+			"ID", "SOURCE", "SIGNAL", "SIGNAL KEY/VALUE", "FIELD", "VALUE", "SEEN", "CONFIDENCE")
+		fmt.Println(strings.Repeat("─", 110))
+		for _, r := range rules {
+			sig := r.SignalType
+			kv := r.SignalValue
+			if r.SignalKey != "" {
+				kv = r.SignalKey + ": " + r.SignalValue
+			}
+			fmt.Printf("%-6d  %-8s  %-10s  %-22s  %-22s  %-14s  %-12d  %.0f%%\n",
+				r.ID, r.Source, sig, truncateStr(kv, 22), r.Field, truncateStr(r.Value, 14), r.SeenCount, r.Confidence*100)
+		}
+		fmt.Printf("\n%d active rules\n", len(rules))
+
+	case "pending":
+		rules, err := db.GetFingerprintRules(ctx, "pending")
+		if err != nil {
+			fatalf("list pending: %v", err)
+		}
+		if len(rules) == 0 {
+			fmt.Println("No pending fingerprint rules.")
+			return
+		}
+		fmt.Printf("%-6s  %-8s  %-10s  %-25s  %-14s  %-14s  %s\n",
+			"ID", "SOURCE", "SIGNAL", "SIGNAL KEY/VALUE", "FIELD", "VALUE", "CONFIDENCE")
+		fmt.Println(strings.Repeat("─", 90))
+		for _, r := range rules {
+			kv := r.SignalValue
+			if r.SignalKey != "" {
+				kv = r.SignalKey + ": " + r.SignalValue
+			}
+			fmt.Printf("%-6d  %-8s  %-10s  %-25s  %-14s  %-14s  %.0f%%\n",
+				r.ID, r.Source, r.SignalType, truncateStr(kv, 25), r.Field, truncateStr(r.Value, 14), r.Confidence*100)
+		}
+		fmt.Printf("\n%d pending rules awaiting review\n", len(rules))
+		fmt.Println("Run 'beacon fingerprints approve <id>' to activate or 'beacon fingerprints reject <id>' to dismiss.")
+
+	case "approve":
+		if len(args) < 2 {
+			fatalf("usage: beacon fingerprints approve <id>")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			fatalf("invalid id: %v", err)
+		}
+		rules, err := db.GetFingerprintRules(ctx, "pending")
+		if err != nil {
+			fatalf("fetch rule: %v", err)
+		}
+		var found *store.FingerprintRule
+		for i := range rules {
+			if rules[i].ID == id {
+				found = &rules[i]
+				break
+			}
+		}
+		if found == nil {
+			fatalf("pending rule %d not found", id)
+		}
+		found.Status = "active"
+		if err := db.UpsertFingerprintRule(ctx, found); err != nil {
+			fatalf("approve: %v", err)
+		}
+		fmt.Printf("Rule %d approved: %s %s → %s: %s\n", id, found.SignalType, found.SignalValue, found.Field, found.Value)
+
+	case "reject":
+		if len(args) < 2 {
+			fatalf("usage: beacon fingerprints reject <id>")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			fatalf("invalid id: %v", err)
+		}
+		rules, _ := db.GetFingerprintRules(ctx, "pending")
+		for i := range rules {
+			if rules[i].ID == id {
+				rules[i].Status = "rejected"
+				_ = db.UpsertFingerprintRule(ctx, &rules[i])
+				fmt.Printf("Rule %d rejected\n", id)
+				return
+			}
+		}
+		fatalf("pending rule %d not found", id)
+
+	case "delete":
+		if len(args) < 2 {
+			fatalf("usage: beacon fingerprints delete <id>")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			fatalf("invalid id: %v", err)
+		}
+		if err := db.DeleteFingerprintRule(ctx, id); err != nil {
+			fatalf("delete: %v", err)
+		}
+		fmt.Printf("Deleted rule %d\n", id)
+
+	case "add":
+		// beacon fingerprints add <signal_type> <signal_key_or_--> <signal_value> <field> <value>
+		if len(args) < 6 {
+			fatalf("usage: beacon fingerprints add <signal_type> <signal_key|--> <signal_value> <field> <value>\n" +
+				"  signal_type: header|body|path|cookie|cname|server|title|dns_suffix|asn_org\n" +
+				"  signal_key:  header name for type=header, use '--' for others\n" +
+				"  field:       framework|proxy_type|auth_system|cloud_provider|infra_layer|backend_services\n" +
+				"  Example: beacon fingerprints add header x-my-cdn '' proxy_type mycdn")
+		}
+		key := args[2]
+		if key == "--" {
+			key = ""
+		}
+		r := &store.FingerprintRule{
+			SignalType:  args[1],
+			SignalKey:   key,
+			SignalValue: args[3],
+			Field:       args[4],
+			Value:       args[5],
+			Source:      "user",
+			Status:      "active",
+			Confidence:  1.0,
+			SeenCount:   1,
+		}
+		if err := db.UpsertFingerprintRule(ctx, r); err != nil {
+			fatalf("add rule: %v", err)
+		}
+		fmt.Printf("Added rule: %s %s → %s: %s\n", r.SignalType, r.SignalValue, r.Field, r.Value)
+
+	default:
+		fatalf("unknown subcommand: beacon fingerprints %s\n  subcommands: list, pending, approve, reject, delete, add", sub)
+	}
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

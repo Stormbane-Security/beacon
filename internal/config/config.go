@@ -134,6 +134,19 @@ type Config struct {
 	// Server connection — when set, beacon CLI acts as a remote client.
 	Server ServerConfig `yaml:"server"`
 
+	// WebhookURL enables streaming findings to an external SIEM or webhook
+	// endpoint. After each scan completes, Beacon POSTs a JSON findings payload
+	// to this URL. Set via BEACON_WEBHOOK_URL.
+	WebhookURL string `yaml:"webhook_url"`
+
+	// WebhookAPIKey is an optional Bearer token sent in the Authorization header
+	// when posting to WebhookURL. Set via BEACON_WEBHOOK_API_KEY.
+	WebhookAPIKey string `yaml:"webhook_api_key"`
+
+	// AttackPathAnalysis enables AI-driven cross-asset attack chain reasoning
+	// at the end of each scan (requires AnthropicAPIKey). Set via BEACON_ATTACK_PATH=true.
+	AttackPathAnalysis bool `yaml:"attack_path_analysis"`
+
 	// Auth holds optional per-asset credentials for authenticated scanning.
 	// BEACON_AUTH_TOKEN sets a global bearer token applied to all assets when
 	// no specific AuthConfig entry is matched.
@@ -331,6 +344,15 @@ func applyEnv(cfg *Config) {
 		if ms, err := strconv.Atoi(v); err == nil && ms >= 0 {
 			cfg.RequestJitterMs = ms
 		}
+	}
+	if v := os.Getenv("BEACON_WEBHOOK_URL"); v != "" {
+		cfg.WebhookURL = v
+	}
+	if v := os.Getenv("BEACON_WEBHOOK_API_KEY"); v != "" {
+		cfg.WebhookAPIKey = v
+	}
+	if v := os.Getenv("BEACON_ATTACK_PATH"); v != "" {
+		cfg.AttackPathAnalysis = v == "true" || v == "1" || v == "yes"
 	}
 	if v := os.Getenv("BEACON_STORE_PATH"); v != "" {
 		cfg.Store.Path = v

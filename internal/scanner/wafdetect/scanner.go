@@ -329,11 +329,36 @@ func findOriginIP(ctx context.Context, asset string) string {
 	candidates := []string{}
 	for _, root := range roots {
 		candidates = append(candidates,
+			// Classic direct-access patterns
 			"direct."+root,
 			"origin."+root,
 			"direct-"+root,
 			"backend."+root,
 			"internal."+root,
+			// API / gateway patterns
+			"api."+root,
+			"gw."+root,
+			"gateway."+root,
+			// Load balancer / infrastructure patterns
+			"lb."+root,
+			"app."+root,
+			"server."+root,
+			// Environment-based patterns (common in dev/staging setups)
+			"prod."+root,
+			"production."+root,
+			"staging."+root,
+			"dev."+root,
+			// Kubernetes / container ingress patterns
+			"k8s."+root,
+			"ingress."+root,
+			"cluster."+root,
+			// Regional / zone patterns
+			"us."+root,
+			"eu."+root,
+			"ap."+root,
+			"us-east."+root,
+			"us-west."+root,
+			"eu-west."+root,
 		)
 	}
 

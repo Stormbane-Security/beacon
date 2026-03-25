@@ -162,6 +162,23 @@ type SanitizedScannerMetric struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+// FingerprintRule defines a data-driven pattern for technology fingerprinting.
+// Rules map observed HTTP signals to structured Evidence fields.
+// They are applied after the deterministic fingerprintTech() pass to fill gaps.
+type FingerprintRule struct {
+	ID          int64     `json:"id"`
+	SignalType  string    `json:"signal_type"`  // "header", "body", "path", "cookie", "cname", "title", "dns_suffix", "asn_org"
+	SignalKey   string    `json:"signal_key"`   // header name (for type=header); empty for others
+	SignalValue string    `json:"signal_value"` // case-insensitive substring to match
+	Field       string    `json:"field"`        // "framework", "proxy_type", "auth_system", "backend_services", "cloud_provider", "infra_layer"
+	Value       string    `json:"value"`        // the value to assign when matched
+	Source      string    `json:"source"`       // "builtin", "ai", "user"
+	Status      string    `json:"status"`       // "active", "pending", "rejected"
+	Confidence  float64   `json:"confidence"`   // 0.0–1.0, AI-estimated confidence
+	SeenCount   int       `json:"seen_count"`   // incremented each time pattern is observed
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // CrossDomainScannerSummary aggregates sanitized scanner metrics across all
 // domains and scans. Used in analyze prompts to surface cross-customer patterns.
 type CrossDomainScannerSummary struct {
@@ -324,6 +341,12 @@ type Store interface {
 	// GetCrossDomainScannerSummary aggregates sanitized metrics across all scans
 	// and domains, grouped by (scanner_name, tech_category).
 	GetCrossDomainScannerSummary(ctx context.Context) ([]CrossDomainScannerSummary, error)
+
+	// Fingerprint rules — data-driven tech detection patterns
+	GetFingerprintRules(ctx context.Context, status string) ([]FingerprintRule, error) // status="" means all active
+	UpsertFingerprintRule(ctx context.Context, r *FingerprintRule) error
+	DeleteFingerprintRule(ctx context.Context, id int64) error
+	IncrementFingerprintRuleSeen(ctx context.Context, id int64) error
 
 	// Lifecycle
 	Close() error

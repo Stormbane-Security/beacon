@@ -316,8 +316,77 @@ func TestArbitraryOriginWithCredentials_ProofCommandHasActualURL(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Catch-all OPTIONS preflight: server mirrors any origin with credentials for
+// every path including non-existent ones. The canary guard must suppress the
+// preflight finding; however, GET probes on the root ARE still legitimate.
+// ---------------------------------------------------------------------------
+
+func TestPreflightCatchAll_PreflightSuppressed(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// OPTIONS: mirrors origin+credentials for ALL paths (catch-all preflight).
+		// GET: no CORS headers — so GET probes produce no findings.
+		if r.Method == http.MethodOptions {
+			origin := r.Header.Get("Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "POST")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// GET probes find nothing; the canary detects the catch-all OPTIONS pattern
+	// and suppresses the preflight probe — so we expect zero findings.
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings on catch-all OPTIONS site (canary guard should suppress preflight), got %d", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Preflight-only detection: GET returns no CORS, OPTIONS on root only is vuln.
+// The canary probes a random path (404 → no CORS headers) so catch-all guard
+// does not fire, and the preflight on the real root URL detects the issue.
+// ---------------------------------------------------------------------------
+
+func TestPreflightOnly_CriticalFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions && r.URL.Path == "/" {
+			// Only the root path is vulnerable on OPTIONS — random paths return 404.
+			origin := r.Header.Get("Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "POST")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// All other paths (including the canary UUID path) return 404 with no CORS.
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// GET probes return no CORS; canary OPTIONS returns 404 (no catch-all).
+	// Preflight on root should fire and produce a Critical finding.
+	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("expected CheckCORSMisconfiguration via preflight probe when GET returns no CORS headers but OPTIONS does")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestACACUppercase_StillDetected verifies that Access-Control-Allow-Credentials
 // with value "TRUE" (uppercase) is still caught by the lower-case comparison.
+// ---------------------------------------------------------------------------
+
 func TestACACUppercase_StillDetected(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
