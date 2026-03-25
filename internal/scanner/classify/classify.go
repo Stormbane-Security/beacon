@@ -7,6 +7,7 @@ package classify
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -157,7 +158,15 @@ func Collect(ctx context.Context, hostname string) playbook.Evidence {
 	// Skip when the bare host uses wildcard DNS — every path would respond,
 	// making RespondingPaths completely unreliable as a technology signal.
 	if e.StatusCode > 0 && !isWildcardDomain(ctx, bareHost) {
-		e.RespondingPaths = probeFingerprintPaths(ctx, hostname)
+		// Detect catch-all / SPA sites before probing paths.
+		softNotFound, softNotFoundHash := detectSoftNotFound(ctx, httpClient, "https://"+hostname)
+		if !softNotFound {
+			// Try HTTP fallback if HTTPS didn't yield a result.
+			softNotFound, softNotFoundHash = detectSoftNotFound(ctx, httpClient, "http://"+hostname)
+		}
+		e.SoftNotFound = softNotFound
+		e.SoftNotFoundHash = softNotFoundHash
+		e.RespondingPaths = probeFingerprintPaths(ctx, hostname, &e)
 		// Re-run auth system detection now that RespondingPaths is populated.
 		fingerprintTech(&e)
 	}
@@ -694,10 +703,101 @@ func isWildcardDomain(ctx context.Context, hostname string) bool {
 	return err == nil && len(addrs) > 0
 }
 
+// detectSoftNotFound probes two distinct canary paths and compares their
+// SHA-256 body hashes. If both return 200 and have identical hashes, the site
+// is a catch-all / SPA that returns the same page for every URL.
+func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string) (bool, [32]byte) {
+	fetch := func(u string) ([]byte, int) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, 0
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, 0
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+		return b, resp.StatusCode
+	}
+	bodyA, scA := fetch(baseURL + "/beacon-canary-a3f7k9-doesnotexist")
+	bodyB, scB := fetch(baseURL + "/beacon-canary-b8m2p4-alsonotreal")
+	if scA != 200 || scB != 200 {
+		return false, [32]byte{}
+	}
+	hashA := sha256.Sum256(bodyA)
+	hashB := sha256.Sum256(bodyB)
+	if hashA != hashB {
+		return false, [32]byte{}
+	}
+	return true, hashA
+}
+
 // probeFingerprintPaths probes each path in fingerprintPaths concurrently and
 // returns those that responded with a non-404, non-5xx status code.
 // A 401 or 403 still confirms the path exists (auth-gated endpoint).
-func probeFingerprintPaths(ctx context.Context, hostname string) []string {
+// pathBodySignatures maps path prefixes to a body substring that must be
+// present in a 200 response before the path is considered confirmed. These
+// guards prevent catch-all / SPA sites from producing false-positive path
+// matches. Only paths where the body signature is highly distinctive are
+// listed; all other paths fall back to pure status-code matching.
+var pathBodySignatures = map[string]string{
+	// Spring Boot Actuator
+	"/actuator/health":    `"status"`,
+	"/actuator/env":       `"activeProfiles"`,
+	"/actuator/mappings":  `"mappings"`,
+	// HashiCorp Vault
+	"/v1/sys/health":      `"initialized"`,
+	"/v1/sys/seal-status": `"sealed"`,
+	// Keycloak
+	"/auth/realms":                    `"realm"`,
+	"/.well-known/openid-configuration": `"issuer"`,
+	"/.well-known/oauth-authorization-server": `"issuer"`,
+	// Elasticsearch / OpenSearch
+	"/_cluster/health": `"cluster_name"`,
+	"/_cat/indices":    `index`,
+	// Grafana
+	"/api/health": `"database"`,
+	// Prometheus
+	"/metrics": `# HELP`,
+	// Airflow
+	"/api/v1/health": `"metadatabase"`,
+	"/api/v1/dags":   `"dags"`,
+	// Jupyter
+	"/api/kernels":   `"id"`,
+	"/api/contents":  `"type"`,
+	// Hasura
+	"/v1/graphql":  `"data"`,
+	"/v1/metadata": `"version"`,
+	// Traefik
+	"/api/overview":    `"http"`,
+	"/api/entrypoints": `"name"`,
+	// Kafka REST
+	"/topics":      `[`,
+	"/v3/clusters": `"cluster_id"`,
+	// WordPress
+	"/wp-json": `"name"`,
+	// OIDC / OAuth
+	"/oauth/authorize":  `response_type`,
+	"/oauth2/authorize": `response_type`,
+	// AI / LLM
+	"/v1/models": `"data"`,
+	// Langflow
+	"/api/v1/version": `"version"`,
+	"/api/v1/flows":   `"id"`,
+	// Veeam
+	"/api/v1/serverInfo": `"version"`,
+	// Wazuh
+	"/api/v2/manager/info": `"title"`,
+}
+
+func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evidence) []string {
+	// If the site returns HTTP 200 for every URL (catch-all / SPA), skip path
+	// probing entirely — any result would be a false positive.
+	if e.SoftNotFound {
+		return nil
+	}
+
 	// Determine scheme from a quick probe (reuse whatever worked in probeHTTP).
 	scheme := "https"
 	checkClient := &http.Client{
@@ -734,7 +834,13 @@ func probeFingerprintPaths(ctx context.Context, hostname string) []string {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodHead, base+p, nil)
+			requiredBody, needsBody := pathBodySignatures[p]
+
+			method := http.MethodHead
+			if needsBody {
+				method = http.MethodGet
+			}
+			req, err := http.NewRequestWithContext(ctx, method, base+p, nil)
 			if err != nil {
 				return
 			}
@@ -742,15 +848,29 @@ func probeFingerprintPaths(ctx context.Context, hostname string) []string {
 			if err != nil {
 				return
 			}
-			resp.Body.Close()
 
 			// Accept any response that proves the path exists:
 			// 2xx, 3xx redirects, 401 (auth required), 403 (forbidden).
 			// Reject 404 (not found) and 5xx (server error / not this product).
 			sc := resp.StatusCode
 			if sc == http.StatusNotFound || sc >= 500 {
+				resp.Body.Close()
 				return
 			}
+
+			// For paths with a required body signature, only accept HTTP 200
+			// and verify the body contains the expected content. This prevents
+			// catch-all sites from matching service-specific paths.
+			if needsBody && sc == http.StatusOK {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+				resp.Body.Close()
+				if !strings.Contains(string(body), requiredBody) {
+					return
+				}
+			} else {
+				resp.Body.Close()
+			}
+
 			mu.Lock()
 			found = append(found, p)
 			mu.Unlock()

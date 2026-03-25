@@ -4855,13 +4855,32 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 				svcs := r.topoServices[h.name]
 				sort.Slice(svcs, func(a, b int) bool { return svcs[a].port < svcs[b].port })
 				var parts []string
-				if h.status > 0 && h.status != 404 {
-					parts = append(parts, fmt.Sprintf("HTTP %d", h.status))
-				}
-				if h.tech != "" {
-					parts = append(parts, h.tech)
-				}
 				if ev, ok := r.topoEvidence[h.name]; ok {
+					// Build "proxy → framework → backend" chain.
+					var chain []string
+					if ev.ProxyType != "" {
+						chain = append(chain, "\x1b[35m"+ev.ProxyType+"\x1b[0m")
+					}
+					if ev.Framework != "" {
+						chain = append(chain, "\x1b[32m"+ev.Framework+"\x1b[0m")
+					} else if h.tech != "" {
+						chain = append(chain, "\x1b[32m"+h.tech+"\x1b[0m")
+					}
+					for _, bs := range ev.BackendServices {
+						chain = append(chain, "\x1b[33m"+bs+"\x1b[0m")
+					}
+					if len(chain) > 0 {
+						parts = append(parts, strings.Join(chain, " → "))
+					}
+					// Auth system.
+					if ev.AuthSystem != "" {
+						parts = append(parts, "\x1b[90mauth:\x1b[0m\x1b[36m"+ev.AuthSystem+"\x1b[0m")
+					}
+					// HTTP status if non-200.
+					if h.status > 0 && h.status != 200 && h.status != 404 {
+						parts = append(parts, fmt.Sprintf("\x1b[90mHTTP %d\x1b[0m", h.status))
+					}
+					// First 3 responding paths.
 					for i, p := range ev.RespondingPaths {
 						if i >= 3 {
 							parts = append(parts, fmt.Sprintf("\x1b[90m+%d paths\x1b[0m", len(ev.RespondingPaths)-3))
@@ -4875,6 +4894,14 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 							title = title[:29] + "…"
 						}
 						parts = append(parts, "\x1b[90m\""+title+"\"\x1b[0m")
+					}
+				} else {
+					// No evidence yet — show basic info.
+					if h.status > 0 && h.status != 404 {
+						parts = append(parts, fmt.Sprintf("HTTP %d", h.status))
+					}
+					if h.tech != "" {
+						parts = append(parts, h.tech)
 					}
 				}
 				if h.cname != "" {

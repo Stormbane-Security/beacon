@@ -98,6 +98,14 @@ type Evidence struct {
 	// Used by the surface module to queue new assets missed by passive enumeration.
 	SubdomainsInBody []string
 
+	// SoftNotFound indicates the asset returns HTTP 200 for nonexistent paths
+	// (catch-all / SPA pattern). When true, path-based findings must rely on
+	// body content matching rather than status code alone.
+	SoftNotFound bool
+	// SoftNotFoundHash is the SHA-256 hash of the canary-path response body,
+	// used to detect when a probed path returns the same content as the catch-all.
+	SoftNotFoundHash [32]byte
+
 	// BackendServices is a deduplicated list of named backend services inferred
 	// from RespondingPaths. Populated by classify after path probing completes.
 	// Examples: "Spring Boot", "HashiCorp Vault", "Keycloak", "Elasticsearch".
