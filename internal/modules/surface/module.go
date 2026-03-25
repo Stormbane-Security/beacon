@@ -1016,6 +1016,14 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 	ev := classify.Collect(ctx, asset)
 
+	// AI fingerprint gap-filling: when an Anthropic key is available, ask
+	// Claude to infer Framework/ProxyType/AuthSystem/BackendServices fields
+	// that deterministic fingerprinting left empty. Errors are ignored so a
+	// failed API call never blocks the scan.
+	if m.anthropicKey != "" {
+		_ = profiler.FillGaps(ctx, m.anthropicKey, m.claudeModel, &ev)
+	}
+
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
 	// base http.Client to inject credentials into all scanner requests.
 	httpClient := &http.Client{}

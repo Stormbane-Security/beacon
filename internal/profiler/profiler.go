@@ -241,6 +241,178 @@ func parseProfile(text string) (*TargetProfile, error) {
 	return &profile, nil
 }
 
+// FillGaps uses Claude to infer missing tech-stack fields from raw HTTP
+// evidence. It updates ev.Framework, ev.ProxyType, ev.AuthSystem, and
+// ev.BackendServices in place when those fields are currently empty and
+// Claude can make a confident inference.
+//
+// This complements deterministic fingerprintTech(): Claude recognises patterns
+// in body content, error messages, cookie names, and header combinations that
+// rule-based detection misses. Only called when at least one key field is
+// still empty after the normal fingerprint pass.
+//
+// Errors are always non-fatal — the caller should log and continue.
+func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence) error {
+	if apiKey == "" {
+		return fmt.Errorf("profiler: no API key")
+	}
+	// Only invoke Claude when there are actual gaps to fill.
+	if ev.Framework != "" && ev.ProxyType != "" && ev.AuthSystem != "" {
+		return nil
+	}
+	if model == "" {
+		model = defaultModel
+	}
+
+	prompt := buildGapPrompt(ev)
+
+	reqBody, err := json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": 512,
+		"messages": []map[string]any{
+			{"role": "user", "content": prompt},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("profiler: gap marshal: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.anthropic.com/v1/messages", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("profiler: gap request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("profiler: gap API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	if err != nil {
+		return fmt.Errorf("profiler: gap read: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("profiler: gap API %d: %s", resp.StatusCode, body)
+	}
+
+	text, err := extractText(body)
+	if err != nil {
+		return fmt.Errorf("profiler: gap extract: %w", err)
+	}
+
+	return applyGaps(text, ev)
+}
+
+// buildGapPrompt constructs a targeted prompt asking Claude to fill missing
+// tech-stack fields from raw HTTP signals.
+func buildGapPrompt(ev *playbook.Evidence) string {
+	var sb strings.Builder
+	sb.WriteString("You are a web technology fingerprinting assistant. Given the following raw HTTP " +
+		"evidence from a server, identify the technology stack. Only fill in fields you are " +
+		"confident about (>80% probability). Use short, lowercase, canonical names " +
+		"(e.g. \"cloudflare\", \"nginx\", \"spring-boot\", \"auth0\", \"vault\").\n\n")
+	sb.WriteString("Raw evidence:\n")
+
+	writeField(&sb, "Hostname", ev.Hostname)
+	writeField(&sb, "HTTP status", fmt.Sprintf("%d", ev.StatusCode))
+	writeField(&sb, "Page title", ev.Title)
+	if ev.ServiceVersions != nil {
+		if ws, ok := ev.ServiceVersions["web_server"]; ok {
+			writeField(&sb, "Server header", ws)
+		}
+	}
+	for k, v := range ev.Headers {
+		if k != "server" { // already included above
+			writeField(&sb, "Header "+k, v)
+		}
+	}
+	if ev.Body512 != "" {
+		sb.WriteString("- Response body (first 512 bytes): ")
+		sb.WriteString(ev.Body512)
+		sb.WriteString("\n")
+	}
+	if len(ev.RespondingPaths) > 0 {
+		writeField(&sb, "Responding paths", strings.Join(ev.RespondingPaths, ", "))
+	}
+	if len(ev.CertSANs) > 0 {
+		writeField(&sb, "TLS cert SANs", strings.Join(ev.CertSANs[:min(len(ev.CertSANs), 5)], ", "))
+	}
+	if len(ev.CNAMEChain) > 0 {
+		writeField(&sb, "CNAME chain", strings.Join(ev.CNAMEChain, " → "))
+	}
+	// Already-computed fields — tell Claude what we already know so it doesn't
+	// waste effort re-deriving them.
+	if ev.Framework != "" {
+		writeField(&sb, "Already detected framework", ev.Framework)
+	}
+	if ev.ProxyType != "" {
+		writeField(&sb, "Already detected proxy", ev.ProxyType)
+	}
+	if ev.AuthSystem != "" {
+		writeField(&sb, "Already detected auth system", ev.AuthSystem)
+	}
+	if len(ev.BackendServices) > 0 {
+		writeField(&sb, "Already detected backend services", strings.Join(ev.BackendServices, ", "))
+	}
+
+	sb.WriteString("\nReturn ONLY valid JSON, no markdown:\n")
+	sb.WriteString(`{"proxy_type":"","framework":"","auth_system":"","backend_services":[]}`)
+	sb.WriteString("\n\nFill in the JSON with your best inferences. Use empty string / empty array for fields you cannot determine.")
+	return sb.String()
+}
+
+// gapResult is the JSON structure Claude returns for gap-filling.
+type gapResult struct {
+	ProxyType       string   `json:"proxy_type"`
+	Framework       string   `json:"framework"`
+	AuthSystem      string   `json:"auth_system"`
+	BackendServices []string `json:"backend_services"`
+}
+
+// applyGaps parses Claude's gap-fill JSON and writes non-empty fields into ev,
+// but only when the ev field is currently empty (never overwrites confirmed data).
+func applyGaps(text string, ev *playbook.Evidence) error {
+	text = strings.TrimSpace(text)
+	// Strip markdown fences.
+	if strings.HasPrefix(text, "```") {
+		if i := strings.Index(text, "\n"); i >= 0 {
+			text = text[i+1:]
+		}
+		text = strings.TrimSuffix(text, "```")
+		text = strings.TrimSpace(text)
+	}
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start < 0 || end <= start {
+		return fmt.Errorf("no JSON found")
+	}
+	text = text[start : end+1]
+
+	var gap gapResult
+	if err := json.Unmarshal([]byte(text), &gap); err != nil {
+		return err
+	}
+	if ev.ProxyType == "" && gap.ProxyType != "" {
+		ev.ProxyType = gap.ProxyType
+	}
+	if ev.Framework == "" && gap.Framework != "" {
+		ev.Framework = gap.Framework
+	}
+	if ev.AuthSystem == "" && gap.AuthSystem != "" {
+		ev.AuthSystem = gap.AuthSystem
+	}
+	if len(ev.BackendServices) == 0 && len(gap.BackendServices) > 0 {
+		ev.BackendServices = gap.BackendServices
+	}
+	return nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
