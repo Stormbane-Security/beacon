@@ -1631,9 +1631,10 @@ func attachJob(bs *browseState, job *liveJob) {
 	// re-attaching works correctly.
 	select {
 	case <-job.renderer.detached:
-		// Channel was closed by a previous detach — create a fresh one.
+		// Channel was closed by a previous detach — create fresh channels so
+		// the next 'b'/'q' keypress can close them without panicking.
 		job.renderer.detached = make(chan struct{})
-		// Also reset stopOnce so the ticker stop path can fire again if needed.
+		job.renderer.stop = make(chan struct{})
 		job.renderer.stopOnce = sync.Once{}
 	default:
 	}
