@@ -425,9 +425,11 @@ Type exactly: I have written authorization for %s
 		err      error
 	}
 	resultCh := make(chan scanResult, 1)
+	scanDone := make(chan struct{}) // closed when the scan goroutine exits
 	go func() {
 		f, e := mod.Run(ctx, input, scanType)
 		resultCh <- scanResult{f, e}
+		close(scanDone)
 	}()
 
 	// Wait for scan completion or user detach (b/Esc pressed in live UI).
@@ -480,7 +482,24 @@ Type exactly: I have written authorization for %s
 		// User pressed b — restore terminal and show browse TUI.
 		// The scan goroutine continues; we wait for it after the browser exits.
 		pr.Done()
+		// Register this scan as a liveJob so browseInteractive can attach/stop it.
+		pr.mu.Lock()
+		pr.headless = true
+		pr.detached = make(chan struct{}) // reset for potential re-attach
+		pr.drawn = false
+		pr.drawnLines = 0
+		pr.mu.Unlock()
+		lj := &liveJob{
+			runID:    run.ID,
+			domain:   domain,
+			scanType: string(scanType),
+			cancel:   cancel,
+			renderer: pr,
+			done:     scanDone,
+		}
+		registerJob(lj)
 		cmdBrowse(cfg) // blocks until user quits the browser
+		unregisterJob(run.ID)
 		// Now wait for the scan to finish (it may already be done).
 		var stopped bool
 		findings, stopped = waitScanResult()
