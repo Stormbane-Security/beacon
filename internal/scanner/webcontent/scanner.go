@@ -285,6 +285,7 @@ func analyzeCSP(asset string, resp *http.Response) []finding.Finding {
 			Description:  fmt.Sprintf("The CSP on %s includes 'unsafe-inline', which allows inline JavaScript and CSS. This defeats the primary purpose of CSP as an XSS mitigation.", asset),
 			Asset:        asset,
 			Evidence:     map[string]any{"csp": csp},
+			ProofCommand: fmt.Sprintf("curl -sI 'https://%s/' | grep -i content-security-policy | grep -i unsafe-inline", asset),
 			DiscoveredAt: now,
 		})
 	}
@@ -299,21 +300,40 @@ func analyzeCSP(asset string, resp *http.Response) []finding.Finding {
 			Description:  fmt.Sprintf("The CSP on %s includes 'unsafe-eval', allowing dynamic code execution via eval(). This can be exploited in XSS attacks.", asset),
 			Asset:        asset,
 			Evidence:     map[string]any{"csp": csp},
+			ProofCommand: fmt.Sprintf("curl -sI 'https://%s/' | grep -i content-security-policy | grep -i unsafe-eval", asset),
 			DiscoveredAt: now,
 		})
 	}
 
-	// Check for wildcard sources in script-src or default-src
-	if cspWildcardRe.MatchString(csp) {
+	// Check for wildcard sources in script-src or default-src.
+	// Extract the matching directive name and value for precise evidence.
+	if m := cspWildcardRe.FindString(csp); m != "" {
+		// Determine which directive contained the wildcard.
+		directive := "script-src"
+		if strings.HasPrefix(strings.ToLower(m), "default-src") {
+			directive = "default-src"
+		}
 		findings = append(findings, finding.Finding{
-			CheckID:      finding.CheckCSPWildcardSource,
-			Module:       "surface",
-			Scanner:      scannerName,
-			Severity:     finding.SeverityHigh,
-			Title:        "Content Security Policy uses wildcard source",
-			Description:  fmt.Sprintf("The CSP on %s uses a wildcard (*) in script-src or default-src. This allows scripts to be loaded from any origin, making the CSP effectively useless.", asset),
-			Asset:        asset,
-			Evidence:     map[string]any{"csp": csp},
+			CheckID:  finding.CheckCSPWildcardSource,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("CSP %s allows wildcard script source on %s", directive, asset),
+			Description: fmt.Sprintf(
+				"The CSP on %s uses a wildcard (*) in %s, allowing scripts to be loaded "+
+					"from any origin. This defeats CSP as an XSS mitigation — an attacker "+
+					"who can load a script from any host can bypass the policy entirely. "+
+					"Replace the wildcard with explicit trusted origins.",
+				asset, directive),
+			Asset: asset,
+			Evidence: map[string]any{
+				"directive": directive,
+				"matched":   m,
+				"csp":       csp,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -sI 'https://%s/' | grep -i content-security-policy | grep -oE '(%s)[^;]*\\*[^;]*'",
+				asset, directive),
 			DiscoveredAt: now,
 		})
 	}
