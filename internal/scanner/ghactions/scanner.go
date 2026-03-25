@@ -83,6 +83,14 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		if isPublic {
 			all = append(all, checkSelfHostedOnPublic(content, repoSlug)...)
 		}
+		all = append(all, checkWorkflowRunUnsafe(content, repoSlug)...)
+		all = append(all, checkGitHubEnvInjection(content, repoSlug)...)
+		all = append(all, checkSecretsInherit(content, repoSlug)...)
+		all = append(all, checkInsecureCommands(content, repoSlug)...)
+		all = append(all, checkBotConditionSpoofable(content, repoSlug)...)
+		all = append(all, checkArtiPacked(content, repoSlug)...)
+		all = append(all, checkCachePoisoning(content, repoSlug)...)
+		all = append(all, checkLongLivedCloudCreds(content, repoSlug)...)
 	}
 
 	return all, nil
@@ -454,6 +462,345 @@ func checkSelfHostedOnPublic(workflowYAML, repo string) []finding.Finding {
 		Evidence:     map[string]any{"runner": "self-hosted", "repo_visibility": "public"},
 		DiscoveredAt: time.Now(),
 	}}
+}
+
+// -------------------------------------------------------------------------
+// New checks: workflow_run, GITHUB_ENV injection, secrets:inherit,
+// insecure commands, bot conditions, ArtiPACKED, cache poisoning
+// -------------------------------------------------------------------------
+
+// reWorkflowRunTrigger detects a workflow_run trigger.
+var reWorkflowRunTrigger = regexp.MustCompile(`workflow_run:`)
+
+// checkWorkflowRunUnsafe flags workflows triggered by workflow_run that check out
+// the triggering workflow's head ref — a privilege escalation vector similar to
+// pull_request_target but less obvious.
+func checkWorkflowRunUnsafe(workflowYAML, repo string) []finding.Finding {
+	if !reWorkflowRunTrigger.MatchString(workflowYAML) {
+		return nil
+	}
+	if !reCheckoutUnsafeRef.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionWorkflowRunUnsafe,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    repo,
+		Title:    "workflow_run trigger with unsafe checkout of triggering workflow's ref",
+		Description: "A workflow triggered by workflow_run runs in the privileged context of the target " +
+			"repository (with access to secrets) but checks out code from the triggering workflow's branch. " +
+			"An attacker can trigger this from a fork, executing code in a privileged environment. " +
+			"Remove the unsafe checkout or add an explicit approval gate before processing untrusted code.",
+		Evidence:     map[string]any{"trigger": "workflow_run", "unsafe_checkout": true},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// reGitHubEnvWrite detects writes to the GITHUB_ENV or GITHUB_PATH files.
+var reGitHubEnvWrite = regexp.MustCompile(`(?i)(echo\s.*>>\s*\$GITHUB_ENV|echo\s.*>>\s*\$GITHUB_PATH|tee\s+-a\s+\$GITHUB_ENV)`)
+
+// checkGitHubEnvInjection flags run: steps that write untrusted input to GITHUB_ENV or GITHUB_PATH.
+func checkGitHubEnvInjection(workflowYAML, repo string) []finding.Finding {
+	if !reGitHubEnvWrite.MatchString(workflowYAML) {
+		return nil
+	}
+	// Only flag if there's also a user-controlled context value nearby (within the workflow).
+	if !reInjectionSinks.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionGitHubEnvInjection,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    repo,
+		Title:    "Untrusted input may be written to GITHUB_ENV or GITHUB_PATH",
+		Description: "The workflow writes to $GITHUB_ENV or $GITHUB_PATH (which inject environment " +
+			"variables and PATH entries into subsequent steps) and also uses user-controlled GitHub " +
+			"context values. If the untrusted value reaches the env file write, an attacker can inject " +
+			"arbitrary environment variables — including LD_PRELOAD — or hijack PATH to run malicious " +
+			"binaries in later steps. Use an intermediate sanitised env var and validate input.",
+		Evidence:     map[string]any{"vector": "GITHUB_ENV/GITHUB_PATH injection"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// reSecretsInherit detects blanket secrets: inherit in workflow_call.
+var reSecretsInherit = regexp.MustCompile(`secrets:\s*inherit`)
+
+// checkSecretsInherit flags reusable workflow calls that use secrets: inherit.
+func checkSecretsInherit(workflowYAML, repo string) []finding.Finding {
+	if !reSecretsInherit.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionSecretsInherit,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    repo,
+		Title:    "Reusable workflow called with secrets: inherit",
+		Description: "A workflow_call invocation uses `secrets: inherit`, which passes ALL secrets " +
+			"from the calling workflow to the called workflow. This violates the principle of least " +
+			"privilege. Explicitly list only the secrets the called workflow actually needs: " +
+			"secrets:\\n  MY_SECRET: ${{ secrets.MY_SECRET }}",
+		Evidence:     map[string]any{"pattern": "secrets: inherit"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// reInsecureCommands detects the legacy insecure workflow commands re-enablement env var.
+var reInsecureCommands = regexp.MustCompile(`ACTIONS_ALLOW_UNSECURE_COMMANDS:\s*true`)
+
+// checkInsecureCommands flags workflows that re-enable deprecated set-env/add-path commands.
+func checkInsecureCommands(workflowYAML, repo string) []finding.Finding {
+	if !reInsecureCommands.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionInsecureCommands,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    repo,
+		Title:    "Deprecated insecure workflow commands re-enabled",
+		Description: "The workflow sets `ACTIONS_ALLOW_UNSECURE_COMMANDS: true`, re-enabling the " +
+			"deprecated ::set-env:: and ::add-path:: workflow commands. These commands were disabled " +
+			"because they allow any step (including actions from third parties) to inject arbitrary " +
+			"environment variables and PATH entries. Remove this env var and use $GITHUB_ENV / " +
+			"$GITHUB_PATH file writes instead.",
+		Evidence:     map[string]any{"env_var": "ACTIONS_ALLOW_UNSECURE_COMMANDS"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// reBotCondition detects actor comparisons used as security gates.
+var reBotCondition = regexp.MustCompile(`github\.actor\s*==\s*'(dependabot\[bot\]|renovate\[bot\]|github-actions\[bot\])'`)
+
+// checkBotConditionSpoofable flags security conditions based on github.actor which can be spoofed.
+func checkBotConditionSpoofable(workflowYAML, repo string) []finding.Finding {
+	m := reBotCondition.FindString(workflowYAML)
+	if m == "" {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionBotConditionSpoofable,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    repo,
+		Title:    fmt.Sprintf("Spoofable bot condition: %s", m),
+		Description: fmt.Sprintf(
+			"The workflow uses `%s` as a security gate. The github.actor value can be spoofed by "+
+				"a contributor whose GitHub username happens to match or by creating an account with "+
+				"that exact name before the bot account is created. Use github.event_name and "+
+				"verified event payload fields, or the `github.event.sender.type == 'Bot'` check "+
+				"combined with repository permission checks instead.", m),
+		Evidence:     map[string]any{"condition": m},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// reCheckoutStep detects actions/checkout usage.
+var reCheckoutStep = regexp.MustCompile(`uses:\s*actions/checkout`)
+
+// rePersistCredentialsFalse detects explicit opt-out of credential persistence.
+var rePersistCredentialsFalse = regexp.MustCompile(`persist-credentials:\s*false`)
+
+// reUploadArtifact detects artifact upload steps.
+var reUploadArtifact = regexp.MustCompile(`uses:\s*actions/upload-artifact`)
+
+// checkArtiPacked flags workflows where git credentials may be included in uploaded artifacts.
+func checkArtiPacked(workflowYAML, repo string) []finding.Finding {
+	if !reCheckoutStep.MatchString(workflowYAML) {
+		return nil
+	}
+	if !reUploadArtifact.MatchString(workflowYAML) {
+		return nil
+	}
+	// Only flag if persist-credentials is NOT explicitly set to false.
+	if rePersistCredentialsFalse.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionArtiPacked,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    repo,
+		Title:    "Git credentials may be included in uploaded artifact (ArtiPACKED)",
+		Description: "The workflow checks out the repository (which by default persists git credentials " +
+			"to .git/config) and also uploads an artifact. If the artifact upload path includes the " +
+			"repository checkout directory, the .git/config file containing the GITHUB_TOKEN will be " +
+			"included in the artifact and accessible to anyone who can download it. Set " +
+			"`persist-credentials: false` on the checkout step, or ensure the artifact path " +
+			"excludes the .git directory.",
+		Evidence:     map[string]any{"vector": "ArtiPACKED — credentials in artifact"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// reReleaseTrigger detects release-related workflow triggers.
+var reReleaseTrigger = regexp.MustCompile(`(?m)^\s*release:|on:\s*release`)
+
+// reRestoreCache detects cache restore steps.
+var reRestoreCache = regexp.MustCompile(`uses:\s*actions/cache`)
+
+// checkCachePoisoning flags release workflows that restore build caches.
+func checkCachePoisoning(workflowYAML, repo string) []finding.Finding {
+	if !reReleaseTrigger.MatchString(workflowYAML) {
+		return nil
+	}
+	if !reRestoreCache.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionCachePoisoning,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    repo,
+		Title:    "Release workflow restores build cache — cache poisoning risk",
+		Description: "A release workflow restores a build cache via actions/cache. Build caches " +
+			"are populated by PR workflows (which run in the context of the PR branch). An attacker " +
+			"with write access to a PR can poison the cache with malicious artifacts that are then " +
+			"consumed by the privileged release workflow. Use a separate, isolated build environment " +
+			"for releases or disable cache restore in release workflows.",
+		Evidence:     map[string]any{"vector": "cache poisoning on release trigger"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// -------------------------------------------------------------------------
+// OIDC vs long-lived credential checks
+// -------------------------------------------------------------------------
+
+// cloudCredCheck describes a pattern that detects a long-lived secret being used
+// instead of OIDC/Workload Identity.
+type cloudCredCheck struct {
+	checkID     finding.CheckID
+	secretNames []string // secret context names that indicate a long-lived key
+	oidcAction  string   // action name that indicates OIDC is being used (skip if present)
+	service     string   // human-readable service name
+	mitigation  string   // recommended OIDC approach
+}
+
+var cloudCredChecks = []cloudCredCheck{
+	{
+		checkID:     finding.CheckGHActionAWSLongLivedKey,
+		secretNames: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"},
+		oidcAction:  "aws-actions/configure-aws-credentials",
+		service:     "AWS",
+		mitigation:  "Use aws-actions/configure-aws-credentials with `role-to-assume` and `id-token: write` permission (OIDC) instead of long-lived access keys.",
+	},
+	{
+		checkID:     finding.CheckGHActionGCPServiceAccountKey,
+		secretNames: []string{"GOOGLE_CREDENTIALS", "GCP_SA_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "GCP_CREDENTIALS"},
+		oidcAction:  "google-github-actions/auth",
+		service:     "GCP",
+		mitigation:  "Use google-github-actions/auth with `workload_identity_provider` and `service_account` (Workload Identity Federation) instead of a service account JSON key.",
+	},
+	{
+		checkID:     finding.CheckGHActionAzureCredentials,
+		secretNames: []string{"AZURE_CREDENTIALS", "AZURE_CLIENT_SECRET", "ARM_CLIENT_SECRET"},
+		oidcAction:  "azure/login",
+		service:     "Azure",
+		mitigation:  "Use azure/login with `client-id`, `tenant-id`, and `subscription-id` with `id-token: write` (OIDC federated credentials) instead of a service principal JSON secret.",
+	},
+	{
+		checkID:     finding.CheckGHActionNPMTokenNotOIDC,
+		secretNames: []string{"NODE_AUTH_TOKEN", "NPM_TOKEN", "NPM_AUTH_TOKEN"},
+		oidcAction:  "npm/provenance",
+		service:     "npm",
+		mitigation:  "Use npm OIDC Trusted Publishing: set `id-token: write`, configure `NPM_CONFIG_PROVENANCE=true`, and use a granular access token scoped to the package instead of a long-lived automation token.",
+	},
+	{
+		checkID:     finding.CheckGHActionPyPITokenNotTrusted,
+		secretNames: []string{"PYPI_API_TOKEN", "PYPI_TOKEN", "TWINE_PASSWORD", "POETRY_PYPI_TOKEN_PYPI"},
+		oidcAction:  "pypa/gh-action-pypi-publish",
+		service:     "PyPI",
+		mitigation:  "Use PyPI Trusted Publishing: configure the package on PyPI to trust this GitHub repository and workflow, then use pypa/gh-action-pypi-publish with `id-token: write` — no API token needed.",
+	},
+	{
+		checkID:     finding.CheckGHActionDockerPasswordSecret,
+		secretNames: []string{"DOCKER_PASSWORD", "DOCKERHUB_TOKEN", "DOCKER_TOKEN", "REGISTRY_PASSWORD"},
+		oidcAction:  "docker/login-action",
+		service:     "Docker registry",
+		mitigation:  "For GitHub Container Registry (ghcr.io) use `GITHUB_TOKEN` with `packages: write`. For Docker Hub, consider OIDC with a fine-grained access token scoped to specific repositories.",
+	},
+	{
+		checkID:     finding.CheckGHActionVercelToken,
+		secretNames: []string{"VERCEL_TOKEN"},
+		oidcAction:  "",
+		service:     "Vercel",
+		mitigation:  "Rotate VERCEL_TOKEN regularly and scope it to the minimum required projects. Consider using Vercel's GitHub App integration which does not require a token secret.",
+	},
+	{
+		checkID:     finding.CheckGHActionTerraformCloudToken,
+		secretNames: []string{"TF_API_TOKEN", "TFC_TOKEN", "TERRAFORM_CLOUD_TOKEN", "TF_TOKEN_app_terraform_io"},
+		oidcAction:  "hashicorp/setup-terraform",
+		service:     "Terraform Cloud/HCP Terraform",
+		mitigation:  "Use HCP Terraform's OIDC integration: configure a dynamic provider credentials policy in HCP Terraform and use `id-token: write` instead of a long-lived API token.",
+	},
+	{
+		checkID:     finding.CheckGHActionFlyToken,
+		secretNames: []string{"FLY_API_TOKEN", "FLY_TOKEN"},
+		oidcAction:  "superfly/flyctl-actions",
+		service:     "Fly.io",
+		mitigation:  "Use Fly.io OIDC: create a deploy token scoped to the specific app with the minimum TTL, or use flyctl's --access-token flag with a short-lived token generated via OIDC.",
+	},
+}
+
+// reSecretRef matches ${{ secrets.NAME }} and captures NAME.
+var reSecretRef = regexp.MustCompile(`\$\{\{\s*secrets\.(\w+)\s*\}\}`)
+
+// checkLongLivedCloudCreds checks whether the workflow uses long-lived cloud credentials
+// instead of OIDC / Workload Identity.
+func checkLongLivedCloudCreds(workflowYAML, repo string) []finding.Finding {
+	// Collect all secret names referenced in this workflow.
+	secretsUsed := make(map[string]struct{})
+	for _, m := range reSecretRef.FindAllStringSubmatch(workflowYAML, -1) {
+		if len(m) == 2 {
+			secretsUsed[strings.ToUpper(m[1])] = struct{}{}
+		}
+	}
+	if len(secretsUsed) == 0 {
+		return nil
+	}
+
+	var findings []finding.Finding
+	for _, check := range cloudCredChecks {
+		// If the OIDC action is already present, skip — they're using OIDC.
+		if check.oidcAction != "" && strings.Contains(workflowYAML, check.oidcAction) {
+			// Only skip if the oidc action appears with role-to-assume / workload_identity_provider
+			// (simple heuristic: the action slug just being present is enough to skip).
+			continue
+		}
+		for _, secretName := range check.secretNames {
+			if _, ok := secretsUsed[secretName]; ok {
+				findings = append(findings, finding.Finding{
+					CheckID:  check.checkID,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Asset:    repo,
+					Title:    fmt.Sprintf("%s: long-lived credential secret instead of OIDC", check.service),
+					Description: fmt.Sprintf(
+						"The workflow uses secrets.%s — a long-lived %s credential. Long-lived keys "+
+							"increase the blast radius if the secret is leaked: they remain valid until "+
+							"manually rotated, often have broad permissions, and are an attractive target "+
+							"for supply chain attacks. %s",
+						secretName, check.service, check.mitigation),
+					Evidence:     map[string]any{"secret": secretName, "service": check.service},
+					DiscoveredAt: time.Now(),
+				})
+				break // one finding per service
+			}
+		}
+	}
+	return findings
 }
 
 // -------------------------------------------------------------------------

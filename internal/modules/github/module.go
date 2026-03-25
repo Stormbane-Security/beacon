@@ -1,6 +1,7 @@
 // Package github implements the GitHub/CI scan module.
 // It scans GitHub organisations and repositories for Actions workflow
-// security misconfigurations using the ghactions scanner.
+// security misconfigurations using the ghactions scanner, and for
+// repository/org configuration issues using the ghrepo scanner.
 package github
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
 	"github.com/stormbane/beacon/internal/scanner/ghactions"
+	"github.com/stormbane/beacon/internal/scanner/ghrepo"
 )
 
 // Module implements module.Module for GitHub/CI scanning.
@@ -28,20 +30,35 @@ func (m *Module) Name() string                       { return "github" }
 func (m *Module) Tier() module.PricingTier           { return module.TierBasic }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputGitHub} }
 
-// Run scans the GitHub org/repo specified in input for Actions workflow issues.
+// Run scans the GitHub org/repo specified in input for Actions workflow issues
+// and repository configuration misconfigurations.
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	target, err := resolveTarget(input)
 	if err != nil {
 		return nil, err
 	}
 
-	s := ghactions.New(m.token)
-	findings, err := s.Run(ctx, target, scanType)
-	if err != nil {
-		return nil, fmt.Errorf("github module: %w", err)
-	}
+	var all []finding.Finding
 
-	return findings, nil
+	// GitHub Actions workflow analysis.
+	actionsScanner := ghactions.New(m.token)
+	actionsFindings, err := actionsScanner.Run(ctx, target, scanType)
+	if err != nil {
+		return nil, fmt.Errorf("github module (actions): %w", err)
+	}
+	all = append(all, actionsFindings...)
+
+	// Repository and org configuration checks.
+	repoScanner := ghrepo.New(m.token)
+	repoFindings, err := repoScanner.Run(ctx, target, scanType)
+	if err != nil {
+		// Non-fatal: repo config checks may fail due to auth requirements.
+		// Still return actions findings.
+		return all, fmt.Errorf("github module (repo): %w", err)
+	}
+	all = append(all, repoFindings...)
+
+	return all, nil
 }
 
 // resolveTarget builds an "owner/repo" string from the module input.
