@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -895,6 +896,10 @@ type browseState struct {
 
 	// Live scan attachment.
 	attachedJob *liveJob // non-nil when user is viewing a running job's live UI
+
+	// copyFlash is set to a short status message when 'y' is pressed.
+	// Shown in the detail header for one render cycle, then cleared.
+	copyFlash string
 }
 
 var browseSpinChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -1474,7 +1479,13 @@ func browseInteractive(cfg *config.Config) browseResult {
 					ptext = extractFindingURL(bf)
 				}
 				if ptext != "" {
-					copyToClipboard(ptext)
+					if copyToClipboard(ptext) {
+						bs.copyFlash = "\x1b[1;32m✓ Copied!\x1b[0m"
+					} else {
+						bs.copyFlash = "\x1b[1;31m✗ Clipboard unavailable — copy manually\x1b[0m"
+					}
+				} else {
+					bs.copyFlash = "\x1b[90mNo proof command to copy\x1b[0m"
 				}
 			}
 
@@ -2062,8 +2073,13 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 		bs.detailOff = maxOff
 	}
 
-	// Header.
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [b/q] back\x1b[0m\n")
+	// Header — show copy flash feedback if present, otherwise normal hint bar.
+	if bs.copyFlash != "" {
+		fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[90m[j/k] scroll  [b/q] back\x1b[0m\n", bs.copyFlash)
+		bs.copyFlash = "" // clear after one render
+	} else {
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [b/q] back\x1b[0m\n")
+	}
 
 	end := bs.detailOff + bodyLines
 	if end > len(lines) {
@@ -5335,8 +5351,8 @@ func extractFindingURL(f *finding.Finding) string {
 
 // copyToClipboard writes text to the system clipboard using whatever tool is
 // available (pbcopy on macOS, xclip/xsel on Linux, clip on Windows).
-// Errors are silently ignored — clipboard support is best-effort.
-func copyToClipboard(text string) {
+// Returns true if the copy succeeded.
+func copyToClipboard(text string) bool {
 	candidates := [][]string{
 		{"pbcopy"},                           // macOS
 		{"xclip", "-selection", "clipboard"}, // Linux/X11
@@ -5346,11 +5362,22 @@ func copyToClipboard(text string) {
 	}
 	for _, args := range candidates {
 		cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
-		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err == nil {
-			return
+		// Use StdinPipe for reliable stdin delivery even when the parent
+		// process has stdin in raw/non-blocking mode (TUI context).
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			continue
+		}
+		if err := cmd.Start(); err != nil {
+			continue
+		}
+		_, _ = io.WriteString(stdin, text)
+		stdin.Close()
+		if err := cmd.Wait(); err == nil {
+			return true
 		}
 	}
+	return false
 }
 
 func severityColor(sev finding.Severity) string {

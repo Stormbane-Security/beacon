@@ -162,7 +162,9 @@ func probeHAProxyStats(ctx context.Context, client *http.Client, base, asset str
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 		resp.Body.Close()
 
-		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
+		// Only flag on a real 200 response — redirects (3xx) often contain
+		// the word "haproxy" in the redirect body without the stats being accessible.
+		if resp.StatusCode != http.StatusOK {
 			continue
 		}
 
