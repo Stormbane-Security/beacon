@@ -1278,10 +1278,17 @@ func browseInteractive(cfg *config.Config) browseResult {
 				browseRender(bs)
 				continue
 			}
-			// 's' → stop the selected live job.
+			// 's' → stop the selected live job, or mark an orphaned running scan as stopped.
 			if b[0] == 's' && len(bs.scans) > 0 {
-				if job, ok := getLiveJob(bs.scans[bs.scanCursor].ID); ok {
+				sel := bs.scans[bs.scanCursor]
+				if job, ok := getLiveJob(sel.ID); ok {
 					job.Stop()
+				} else if sel.Status == store.StatusRunning || sel.Status == store.StatusPending {
+					// No live goroutine owns this scan — mark it stopped in the DB.
+					sel.Status = store.StatusStopped
+					sel.Error = "stopped by user"
+					_ = st.UpdateScanRun(ctx, &sel)
+					bs.scans[bs.scanCursor] = sel
 				}
 			}
 			// 'p' → pause or resume the selected live job.
