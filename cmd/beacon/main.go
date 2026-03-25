@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stormbane/beacon/internal/analyze"
+	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/verify"
 	"github.com/stormbane/beacon/internal/api"
 	"github.com/stormbane/beacon/internal/config"
@@ -138,6 +140,8 @@ func main() {
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
+	case "fingerprints":
+		cmdFingerprints(cfg, os.Args[2:])
 	case "terraform":
 		cmdTerraform(cfg, os.Args[2:])
 	case "--help", "-h", "help":
@@ -347,6 +351,11 @@ Type exactly: I have written authorization for %s
 		fatalf("open store: %v", err)
 	}
 	defer st.Close()
+
+	// Seed built-in fingerprint rules (idempotent — safe to call every scan).
+	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
+		_ = seedErr // non-fatal
+	}
 
 	// Upsert target
 	target, err := st.UpsertTarget(ctx, domain)
@@ -5513,4 +5522,163 @@ func safePlaybookName(s string) string {
 		return ""
 	}
 	return s
+}
+
+// ---------- fingerprints ----------
+
+func cmdFingerprints(cfg *config.Config, args []string) {
+	db, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+
+	switch sub {
+	case "list":
+		rules, err := db.GetFingerprintRules(ctx, "active")
+		if err != nil {
+			fatalf("list rules: %v", err)
+		}
+		fmt.Printf("%-6s  %-8s  %-10s  %-22s  %-22s  %-14s  %-12s  %s\n",
+			"ID", "SOURCE", "SIGNAL", "SIGNAL KEY/VALUE", "FIELD", "VALUE", "SEEN", "CONFIDENCE")
+		fmt.Println(strings.Repeat("─", 110))
+		for _, r := range rules {
+			sig := r.SignalType
+			kv := r.SignalValue
+			if r.SignalKey != "" {
+				kv = r.SignalKey + ": " + r.SignalValue
+			}
+			fmt.Printf("%-6d  %-8s  %-10s  %-22s  %-22s  %-14s  %-12d  %.0f%%\n",
+				r.ID, r.Source, sig, truncateStr(kv, 22), r.Field, truncateStr(r.Value, 14), r.SeenCount, r.Confidence*100)
+		}
+		fmt.Printf("\n%d active rules\n", len(rules))
+
+	case "pending":
+		rules, err := db.GetFingerprintRules(ctx, "pending")
+		if err != nil {
+			fatalf("list pending: %v", err)
+		}
+		if len(rules) == 0 {
+			fmt.Println("No pending fingerprint rules.")
+			return
+		}
+		fmt.Printf("%-6s  %-8s  %-10s  %-25s  %-14s  %-14s  %s\n",
+			"ID", "SOURCE", "SIGNAL", "SIGNAL KEY/VALUE", "FIELD", "VALUE", "CONFIDENCE")
+		fmt.Println(strings.Repeat("─", 90))
+		for _, r := range rules {
+			kv := r.SignalValue
+			if r.SignalKey != "" {
+				kv = r.SignalKey + ": " + r.SignalValue
+			}
+			fmt.Printf("%-6d  %-8s  %-10s  %-25s  %-14s  %-14s  %.0f%%\n",
+				r.ID, r.Source, r.SignalType, truncateStr(kv, 25), r.Field, truncateStr(r.Value, 14), r.Confidence*100)
+		}
+		fmt.Printf("\n%d pending rules awaiting review\n", len(rules))
+		fmt.Println("Run 'beacon fingerprints approve <id>' to activate or 'beacon fingerprints reject <id>' to dismiss.")
+
+	case "approve":
+		if len(args) < 2 {
+			fatalf("usage: beacon fingerprints approve <id>")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			fatalf("invalid id: %v", err)
+		}
+		rules, err := db.GetFingerprintRules(ctx, "pending")
+		if err != nil {
+			fatalf("fetch rule: %v", err)
+		}
+		var found *store.FingerprintRule
+		for i := range rules {
+			if rules[i].ID == id {
+				found = &rules[i]
+				break
+			}
+		}
+		if found == nil {
+			fatalf("pending rule %d not found", id)
+		}
+		found.Status = "active"
+		if err := db.UpsertFingerprintRule(ctx, found); err != nil {
+			fatalf("approve: %v", err)
+		}
+		fmt.Printf("Rule %d approved: %s %s → %s: %s\n", id, found.SignalType, found.SignalValue, found.Field, found.Value)
+
+	case "reject":
+		if len(args) < 2 {
+			fatalf("usage: beacon fingerprints reject <id>")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			fatalf("invalid id: %v", err)
+		}
+		rules, _ := db.GetFingerprintRules(ctx, "pending")
+		for i := range rules {
+			if rules[i].ID == id {
+				rules[i].Status = "rejected"
+				_ = db.UpsertFingerprintRule(ctx, &rules[i])
+				fmt.Printf("Rule %d rejected\n", id)
+				return
+			}
+		}
+		fatalf("pending rule %d not found", id)
+
+	case "delete":
+		if len(args) < 2 {
+			fatalf("usage: beacon fingerprints delete <id>")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			fatalf("invalid id: %v", err)
+		}
+		if err := db.DeleteFingerprintRule(ctx, id); err != nil {
+			fatalf("delete: %v", err)
+		}
+		fmt.Printf("Deleted rule %d\n", id)
+
+	case "add":
+		// beacon fingerprints add <signal_type> <signal_key_or_--> <signal_value> <field> <value>
+		if len(args) < 6 {
+			fatalf("usage: beacon fingerprints add <signal_type> <signal_key|--> <signal_value> <field> <value>\n" +
+				"  signal_type: header|body|path|cookie|cname|server|title|dns_suffix|asn_org\n" +
+				"  signal_key:  header name for type=header, use '--' for others\n" +
+				"  field:       framework|proxy_type|auth_system|cloud_provider|infra_layer|backend_services\n" +
+				"  Example: beacon fingerprints add header x-my-cdn '' proxy_type mycdn")
+		}
+		key := args[2]
+		if key == "--" {
+			key = ""
+		}
+		r := &store.FingerprintRule{
+			SignalType:  args[1],
+			SignalKey:   key,
+			SignalValue: args[3],
+			Field:       args[4],
+			Value:       args[5],
+			Source:      "user",
+			Status:      "active",
+			Confidence:  1.0,
+			SeenCount:   1,
+		}
+		if err := db.UpsertFingerprintRule(ctx, r); err != nil {
+			fatalf("add rule: %v", err)
+		}
+		fmt.Printf("Added rule: %s %s → %s: %s\n", r.SignalType, r.SignalValue, r.Field, r.Value)
+
+	default:
+		fatalf("unknown subcommand: beacon fingerprints %s\n  subcommands: list, pending, approve, reject, delete, add", sub)
+	}
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }

@@ -217,6 +217,28 @@ CREATE TABLE IF NOT EXISTS sanitized_scanner_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_sanitized_metrics_scanner ON sanitized_scanner_metrics(scanner_name);
 CREATE INDEX IF NOT EXISTS idx_sanitized_metrics_tech ON sanitized_scanner_metrics(tech_category);
+
+-- Fingerprint rules: data-driven tech detection patterns.
+-- Rules map HTTP signals (headers, body, paths, cookies, CNAMEs, etc.) to
+-- structured Evidence fields. Replaces hardcoded fingerprintTech() rules over time.
+-- Source: builtin (seeded from code), ai (discovered by Claude), user (manually added).
+-- Status: active (applied in scans), pending (awaiting review), rejected.
+CREATE TABLE IF NOT EXISTS fingerprint_rules (
+    id           INTEGER  PRIMARY KEY AUTOINCREMENT,
+    signal_type  TEXT     NOT NULL,
+    signal_key   TEXT     NOT NULL DEFAULT '',
+    signal_value TEXT     NOT NULL,
+    field        TEXT     NOT NULL,
+    value        TEXT     NOT NULL,
+    source       TEXT     NOT NULL DEFAULT 'builtin',
+    status       TEXT     NOT NULL DEFAULT 'active',
+    confidence   REAL     NOT NULL DEFAULT 1.0,
+    seen_count   INTEGER  NOT NULL DEFAULT 1,
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(signal_type, signal_key, signal_value, field)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fingerprint_rules_status ON fingerprint_rules(status);
 `
 
 // Store is a SQLite-backed implementation of store.Store.
@@ -265,6 +287,7 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE playbook_suggestions ADD COLUMN code_snippet TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE playbook_suggestions ADD COLUMN priority TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE playbook_suggestions ADD COLUMN affected_domains TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE fingerprint_rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
 	}
 	for _, m := range migrations {
 		_, _ = db.Exec(m) // ignore "duplicate column" errors
@@ -1308,6 +1331,56 @@ func (s *Store) GetCrossDomainScannerSummary(_ context.Context) ([]store.CrossDo
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// --- Fingerprint Rules ---
+
+func (s *Store) GetFingerprintRules(ctx context.Context, status string) ([]store.FingerprintRule, error) {
+	var rows *sql.Rows
+	var err error
+	if status == "" {
+		rows, err = s.db.QueryContext(ctx, `SELECT id, signal_type, signal_key, signal_value, field, value, source, status, confidence, seen_count, created_at FROM fingerprint_rules WHERE status = 'active' ORDER BY seen_count DESC, id ASC`)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `SELECT id, signal_type, signal_key, signal_value, field, value, source, status, confidence, seen_count, created_at FROM fingerprint_rules WHERE status = ? ORDER BY seen_count DESC, id ASC`, status)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var rules []store.FingerprintRule
+	for rows.Next() {
+		var r store.FingerprintRule
+		if err := rows.Scan(&r.ID, &r.SignalType, &r.SignalKey, &r.SignalValue, &r.Field, &r.Value, &r.Source, &r.Status, &r.Confidence, &r.SeenCount, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	return rules, rows.Err()
+}
+
+func (s *Store) UpsertFingerprintRule(ctx context.Context, r *store.FingerprintRule) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO fingerprint_rules (signal_type, signal_key, signal_value, field, value, source, status, confidence, seen_count, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(signal_type, signal_key, signal_value, field) DO UPDATE SET
+			value = excluded.value,
+			source = CASE WHEN source = 'builtin' THEN source ELSE excluded.source END,
+			status = CASE WHEN status = 'rejected' THEN status ELSE excluded.status END,
+			confidence = MAX(confidence, excluded.confidence),
+			seen_count = seen_count + 1`,
+		r.SignalType, r.SignalKey, r.SignalValue, r.Field, r.Value,
+		r.Source, r.Status, r.Confidence, r.SeenCount, time.Now())
+	return err
+}
+
+func (s *Store) DeleteFingerprintRule(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM fingerprint_rules WHERE id = ?`, id)
+	return err
+}
+
+func (s *Store) IncrementFingerprintRuleSeen(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE fingerprint_rules SET seen_count = seen_count + 1 WHERE id = ?`, id)
+	return err
 }
 
 // ScanType needs to be stored as its string value.

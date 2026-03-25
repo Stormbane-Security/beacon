@@ -404,6 +404,15 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *Store) GetFingerprintRules(_ context.Context, _ string) ([]store.FingerprintRule, error) {
+	return nil, nil
+}
+func (s *Store) UpsertFingerprintRule(_ context.Context, _ *store.FingerprintRule) error {
+	return nil
+}
+func (s *Store) DeleteFingerprintRule(_ context.Context, _ int64) error { return nil }
+func (s *Store) IncrementFingerprintRuleSeen(_ context.Context, _ int64) error { return nil }
+
 func (s *Store) PurgeOrphanedRuns(_ context.Context, olderThan time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

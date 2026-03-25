@@ -30,6 +30,7 @@ import (
 
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane/beacon/internal/store"
 )
 
 const defaultModel = "claude-sonnet-4-6"
@@ -252,7 +253,7 @@ func parseProfile(text string) (*TargetProfile, error) {
 // still empty after the normal fingerprint pass.
 //
 // Errors are always non-fatal — the caller should log and continue.
-func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence) error {
+func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence, st store.Store) error {
 	if apiKey == "" {
 		return fmt.Errorf("profiler: no API key")
 	}
@@ -306,7 +307,7 @@ func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence) 
 		return fmt.Errorf("profiler: gap extract: %w", err)
 	}
 
-	return applyGaps(text, ev)
+	return applyGaps(ctx, text, ev, st)
 }
 
 // buildGapPrompt constructs a targeted prompt asking Claude to fill missing
@@ -362,8 +363,8 @@ func buildGapPrompt(ev *playbook.Evidence) string {
 	}
 
 	sb.WriteString("\nReturn ONLY valid JSON, no markdown:\n")
-	sb.WriteString(`{"proxy_type":"","framework":"","auth_system":"","backend_services":[]}`)
-	sb.WriteString("\n\nFill in the JSON with your best inferences. Use empty string / empty array for fields you cannot determine.")
+	sb.WriteString(`{"proxy_type":"","framework":"","auth_system":"","backend_services":[],"confidence":0.0}`)
+	sb.WriteString("\n\nFill in the JSON with your best inferences. Use empty string / empty array for fields you cannot determine. Also include a \"confidence\" field (0.0-1.0) reflecting your overall confidence in these inferences.")
 	return sb.String()
 }
 
@@ -373,11 +374,12 @@ type gapResult struct {
 	Framework       string   `json:"framework"`
 	AuthSystem      string   `json:"auth_system"`
 	BackendServices []string `json:"backend_services"`
+	Confidence      float64  `json:"confidence"`
 }
 
 // applyGaps parses Claude's gap-fill JSON and writes non-empty fields into ev,
 // but only when the ev field is currently empty (never overwrites confirmed data).
-func applyGaps(text string, ev *playbook.Evidence) error {
+func applyGaps(ctx context.Context, text string, ev *playbook.Evidence, st store.Store) error {
 	text = strings.TrimSpace(text)
 	// Strip markdown fences.
 	if strings.HasPrefix(text, "```") {
@@ -409,6 +411,96 @@ func applyGaps(text string, ev *playbook.Evidence) error {
 	}
 	if len(ev.BackendServices) == 0 && len(gap.BackendServices) > 0 {
 		ev.BackendServices = gap.BackendServices
+	}
+
+	// Save AI-discovered rules to the database as pending for human review.
+	if st != nil {
+		saveAIRules(ctx, st, gap, ev)
+	}
+	return nil
+}
+
+func saveAIRules(ctx context.Context, st store.Store, gap gapResult, ev *playbook.Evidence) {
+	candidates := []struct {
+		field string
+		value string
+	}{
+		{"proxy_type", gap.ProxyType},
+		{"framework", gap.Framework},
+		{"auth_system", gap.AuthSystem},
+	}
+	for _, c := range candidates {
+		if c.value == "" {
+			continue
+		}
+		rule := inferRule(c.field, c.value, ev)
+		if rule == nil {
+			continue
+		}
+		rule.Source = "ai"
+		rule.Status = "pending"
+		rule.Confidence = gap.Confidence
+		_ = st.UpsertFingerprintRule(ctx, rule)
+	}
+	for _, bs := range gap.BackendServices {
+		rule := inferRule("backend_services", bs, ev)
+		if rule == nil {
+			continue
+		}
+		rule.Source = "ai"
+		rule.Status = "pending"
+		rule.Confidence = gap.Confidence
+		_ = st.UpsertFingerprintRule(ctx, rule)
+	}
+}
+
+// inferRule tries to find the most specific signal that could explain the inference.
+// Returns nil if no good signal can be identified.
+func inferRule(field, value string, ev *playbook.Evidence) *store.FingerprintRule {
+	valueLower := strings.ToLower(value)
+	// Check body first (most specific).
+	if strings.Contains(strings.ToLower(ev.Body512), valueLower) {
+		return &store.FingerprintRule{
+			SignalType:  "body",
+			SignalValue: valueLower,
+			Field:       field,
+			Value:       value,
+			SeenCount:   1,
+		}
+	}
+	// Check responding paths.
+	for _, p := range ev.RespondingPaths {
+		if strings.Contains(strings.ToLower(p), valueLower) {
+			return &store.FingerprintRule{
+				SignalType:  "path",
+				SignalValue: p,
+				Field:       field,
+				Value:       value,
+				SeenCount:   1,
+			}
+		}
+	}
+	// Check server header.
+	if server := ev.Headers["server"]; server != "" && strings.Contains(strings.ToLower(server), valueLower) {
+		return &store.FingerprintRule{
+			SignalType:  "server",
+			SignalValue: valueLower,
+			Field:       field,
+			Value:       value,
+			SeenCount:   1,
+		}
+	}
+	// Check CNAME chain.
+	for _, c := range ev.CNAMEChain {
+		if strings.Contains(strings.ToLower(c), valueLower) {
+			return &store.FingerprintRule{
+				SignalType:  "cname",
+				SignalValue: valueLower,
+				Field:       field,
+				Value:       value,
+				SeenCount:   1,
+			}
+		}
 	}
 	return nil
 }
