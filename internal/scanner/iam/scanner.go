@@ -84,6 +84,18 @@ var idpAdminPaths = []string{
 	"/adfs/ls/",           // ADFS
 }
 
+// idpAdminSignatures maps each IdP admin path to a body substring that must be
+// present before the path is flagged as an exposed admin panel. This prevents
+// false positives on catch-all sites that return HTTP 200 for every URL.
+var idpAdminSignatures = map[string]string{
+	"/admin/":         "keycloak",           // Keycloak admin UI contains "keycloak" in HTML/JS
+	"/api/v2/users":   `"user_id"`,          // Auth0 Management API user object
+	"/auth/admin/":    "Keycloak",           // Keycloak admin page title
+	"/realms/master/protocol/openid-connect/token": "access_token", // Keycloak token response
+	"/pingfederate/app":  "PingFederate",    // PingFederate branding
+	"/adfs/ls/":          "adfs",            // ADFS page body
+}
+
 // roleEndpointPaths are role/RBAC API paths to probe.
 var roleEndpointPaths = []string{
 	"/api/v1/roles",
@@ -450,6 +462,8 @@ func checkDynClientReg(ctx context.Context, client *http.Client, asset, base str
 }
 
 // checkIdPAdmin probes known IdP admin panel paths for unauthenticated access.
+// A 200 response alone is not sufficient — the body must also contain an
+// IdP-specific signature string to prevent false positives on catch-all sites.
 func checkIdPAdmin(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
 	for _, path := range idpAdminPaths {
 		target := base + path
@@ -466,26 +480,35 @@ func checkIdPAdmin(ctx context.Context, client *http.Client, asset, base string)
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		resp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK && len(body) > 0 {
-			return &finding.Finding{
-				CheckID:  finding.CheckIdentityProviderExposed,
-				Module:   "surface",
-				Scanner:  scannerName,
-				Severity: finding.SeverityCritical,
-				Title:    "Identity provider admin panel accessible without authentication",
-				Description: "An identity provider administrative endpoint is returning HTTP 200 without " +
-					"requiring authentication. Admin panels for Okta, Auth0, Keycloak, PingFederate, or " +
-					"ADFS provide full control over users, roles, applications, and federation settings.",
-				Asset: asset,
-				ProofCommand: fmt.Sprintf("curl -si '%s'", target),
-				Evidence: map[string]any{
-					"url":          target,
-					"path":         path,
-					"status_code":  resp.StatusCode,
-					"body_snippet": truncate(string(body), 200),
-				},
-				DiscoveredAt: time.Now(),
-			}
+		if resp.StatusCode != http.StatusOK || len(body) == 0 {
+			continue
+		}
+
+		// Require an IdP-specific signature in the response body to confirm this
+		// is actually the admin panel and not a generic catch-all / redirect page.
+		sig, hasSig := idpAdminSignatures[path]
+		if hasSig && !strings.Contains(strings.ToLower(string(body)), strings.ToLower(sig)) {
+			continue
+		}
+
+		return &finding.Finding{
+			CheckID:  finding.CheckIdentityProviderExposed,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    "Identity provider admin panel accessible without authentication",
+			Description: "An identity provider administrative endpoint is returning HTTP 200 without " +
+				"requiring authentication. Admin panels for Okta, Auth0, Keycloak, PingFederate, or " +
+				"ADFS provide full control over users, roles, applications, and federation settings.",
+			Asset: asset,
+			ProofCommand: fmt.Sprintf("curl -si '%s'", target),
+			Evidence: map[string]any{
+				"url":          target,
+				"path":         path,
+				"status_code":  resp.StatusCode,
+				"body_snippet": truncate(string(body), 200),
+			},
+			DiscoveredAt: time.Now(),
 		}
 	}
 	return nil

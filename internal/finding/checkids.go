@@ -265,6 +265,43 @@ const (
 	CheckGHActionSecretsEchoed    CheckID = "ghaction.secrets_echoed"
 	CheckGHActionSelfHostedPublic CheckID = "ghaction.self_hosted_on_public_repo"
 
+	// GitHub Actions — workflow behavior gaps
+	CheckGHActionWorkflowRunUnsafe      CheckID = "ghaction.workflow_run_unsafe"
+	CheckGHActionGitHubEnvInjection     CheckID = "ghaction.github_env_injection"
+	CheckGHActionSecretsInherit         CheckID = "ghaction.secrets_inherit"
+	CheckGHActionInsecureCommands       CheckID = "ghaction.insecure_commands"
+	CheckGHActionBotConditionSpoofable  CheckID = "ghaction.bot_condition_spoofable"
+	CheckGHActionArtiPacked             CheckID = "ghaction.artipacked"
+	CheckGHActionCachePoisoning         CheckID = "ghaction.cache_poisoning"
+
+	// GitHub Actions — OIDC vs long-lived credential checks
+	CheckGHActionAWSLongLivedKey        CheckID = "ghaction.aws_long_lived_key"
+	CheckGHActionGCPServiceAccountKey   CheckID = "ghaction.gcp_service_account_key"
+	CheckGHActionAzureCredentials       CheckID = "ghaction.azure_credentials_secret"
+	CheckGHActionNPMTokenNotOIDC        CheckID = "ghaction.npm_token_not_oidc"
+	CheckGHActionPyPITokenNotTrusted    CheckID = "ghaction.pypi_token_not_trusted_publishing"
+	CheckGHActionDockerPasswordSecret   CheckID = "ghaction.docker_password_not_oidc"
+	CheckGHActionVercelToken            CheckID = "ghaction.vercel_token_secret"
+	CheckGHActionTerraformCloudToken    CheckID = "ghaction.terraform_cloud_token"
+	CheckGHActionFlyToken               CheckID = "ghaction.fly_token_secret"
+	CheckGHActionPATUsedInWorkflow      CheckID = "ghaction.pat_used_in_workflow"
+
+	// GitHub repository configuration
+	CheckGitHubNoBranchProtection      CheckID = "github.no_branch_protection"
+	CheckGitHubNoSecretScanning        CheckID = "github.secret_scanning_disabled"
+	CheckGitHubNoDependabot            CheckID = "github.no_dependabot"
+	CheckGitHubNoSAST                  CheckID = "github.no_sast"
+	CheckGitHubNoVulnAlerts            CheckID = "github.vuln_alerts_disabled"
+	CheckGitHubForkWorkflowApproval    CheckID = "github.fork_workflow_no_approval"
+	CheckGitHubDefaultTokenWrite       CheckID = "github.default_token_write"
+	CheckGitHubActionsUnrestricted     CheckID = "github.actions_unrestricted"
+	CheckGitHubWebhookNoSecret         CheckID = "github.webhook_no_secret"
+	CheckGitHubOrgMFANotRequired       CheckID = "github.org_mfa_not_required"
+
+	// GitHub secret/key leaks in source code
+	CheckGitHubSecretInCode            CheckID = "github.secret_in_code"
+	CheckGitHubPrivateKeyInRepo        CheckID = "github.private_key_in_repo"
+
 	// Dependency confusion — package name lookup in public registry → Surface
 	CheckDependencyConfusion CheckID = "supply_chain.dependency_confusion"
 
@@ -948,6 +985,40 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCICDPwnRequest:       {CheckCICDPwnRequest, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckCICDBroadPermissions: {CheckCICDBroadPermissions, SeverityHigh, ConversionMedium, ClarityMedium, ModeSurface},
 	CheckSecretsAPIKey:        {CheckSecretsAPIKey, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+
+	// GitHub Actions — gaps
+	CheckGHActionWorkflowRunUnsafe:     {CheckGHActionWorkflowRunUnsafe, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGHActionGitHubEnvInjection:    {CheckGHActionGitHubEnvInjection, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGHActionSecretsInherit:        {CheckGHActionSecretsInherit, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionInsecureCommands:      {CheckGHActionInsecureCommands, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGHActionBotConditionSpoofable: {CheckGHActionBotConditionSpoofable, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionArtiPacked:            {CheckGHActionArtiPacked, SeverityHigh, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionCachePoisoning:        {CheckGHActionCachePoisoning, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	// GitHub Actions — OIDC
+	CheckGHActionAWSLongLivedKey:       {CheckGHActionAWSLongLivedKey, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGHActionGCPServiceAccountKey:  {CheckGHActionGCPServiceAccountKey, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGHActionAzureCredentials:      {CheckGHActionAzureCredentials, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGHActionNPMTokenNotOIDC:       {CheckGHActionNPMTokenNotOIDC, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionPyPITokenNotTrusted:   {CheckGHActionPyPITokenNotTrusted, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionDockerPasswordSecret:  {CheckGHActionDockerPasswordSecret, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionVercelToken:           {CheckGHActionVercelToken, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionTerraformCloudToken:   {CheckGHActionTerraformCloudToken, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionFlyToken:              {CheckGHActionFlyToken, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionPATUsedInWorkflow:     {CheckGHActionPATUsedInWorkflow, SeverityMedium, ConversionHigh, ClarityHigh, ModeSurface},
+	// GitHub repo config
+	CheckGitHubNoBranchProtection:     {CheckGitHubNoBranchProtection, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGitHubNoSecretScanning:       {CheckGitHubNoSecretScanning, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGitHubNoDependabot:           {CheckGitHubNoDependabot, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGitHubNoSAST:                 {CheckGitHubNoSAST, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGitHubNoVulnAlerts:           {CheckGitHubNoVulnAlerts, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGitHubForkWorkflowApproval:   {CheckGitHubForkWorkflowApproval, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGitHubDefaultTokenWrite:      {CheckGitHubDefaultTokenWrite, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGitHubActionsUnrestricted:    {CheckGitHubActionsUnrestricted, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGitHubWebhookNoSecret:        {CheckGitHubWebhookNoSecret, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGitHubOrgMFANotRequired:      {CheckGitHubOrgMFANotRequired, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	// GitHub secret leaks
+	CheckGitHubSecretInCode:           {CheckGitHubSecretInCode, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
+	CheckGitHubPrivateKeyInRepo:       {CheckGitHubPrivateKeyInRepo, SeverityCritical, ConversionHigh, ClarityHigh, ModeSurface},
 
 	// nmap — service version fingerprinting (surface) and NSE vuln scripts (deep)
 	CheckNmapServiceVersion: {CheckNmapServiceVersion, SeverityInfo, ConversionLow, ClarityLow, ModeSurface},

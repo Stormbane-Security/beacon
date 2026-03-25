@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -425,9 +426,11 @@ Type exactly: I have written authorization for %s
 		err      error
 	}
 	resultCh := make(chan scanResult, 1)
+	scanDone := make(chan struct{}) // closed when the scan goroutine exits
 	go func() {
 		f, e := mod.Run(ctx, input, scanType)
 		resultCh <- scanResult{f, e}
+		close(scanDone)
 	}()
 
 	// Wait for scan completion or user detach (b/Esc pressed in live UI).
@@ -480,8 +483,38 @@ Type exactly: I have written authorization for %s
 		// User pressed b — restore terminal and show browse TUI.
 		// The scan goroutine continues; we wait for it after the browser exits.
 		pr.Done()
+		// Register this scan as a liveJob so browseInteractive can attach/stop it.
+		pr.mu.Lock()
+		pr.headless = true
+		pr.detached = make(chan struct{}) // reset for potential re-attach
+		pr.drawn = false
+		pr.drawnLines = 0
+		pr.mu.Unlock()
+		lj := &liveJob{
+			runID:    run.ID,
+			domain:   domain,
+			scanType: string(scanType),
+			cancel:   cancel,
+			renderer: pr,
+			done:     scanDone,
+		}
+		registerJob(lj)
 		cmdBrowse(cfg) // blocks until user quits the browser
-		// Now wait for the scan to finish (it may already be done).
+		// User quit browse — exit beacon. The scan goroutine is cancelled via
+		// the signal context (Ctrl+C) or will be cleaned up on process exit.
+		// Mark the run as stopped so it doesn't stay "running" in history.
+		unregisterJob(run.ID)
+		select {
+		case <-scanDone:
+			// Scan already finished while we were in browse — fall through to save.
+		default:
+			// Still running — mark stopped and exit. Findings saved so far are lost.
+			run.Status = store.StatusStopped
+			run.Error = "detached by user"
+			_ = st.UpdateScanRun(ctx, run)
+			return
+		}
+		// Scan finished while in browse — save its results.
 		var stopped bool
 		findings, stopped = waitScanResult()
 		if stopped {
@@ -863,6 +896,10 @@ type browseState struct {
 
 	// Live scan attachment.
 	attachedJob *liveJob // non-nil when user is viewing a running job's live UI
+
+	// copyFlash is set to a short status message when 'y' is pressed.
+	// Shown in the detail header for one render cycle, then cleared.
+	copyFlash string
 }
 
 var browseSpinChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -1259,10 +1296,17 @@ func browseInteractive(cfg *config.Config) browseResult {
 				browseRender(bs)
 				continue
 			}
-			// 's' → stop the selected live job.
+			// 's' → stop the selected live job, or mark an orphaned running scan as stopped.
 			if b[0] == 's' && len(bs.scans) > 0 {
-				if job, ok := getLiveJob(bs.scans[bs.scanCursor].ID); ok {
+				sel := bs.scans[bs.scanCursor]
+				if job, ok := getLiveJob(sel.ID); ok {
 					job.Stop()
+				} else if sel.Status == store.StatusRunning || sel.Status == store.StatusPending {
+					// No live goroutine owns this scan — mark it stopped in the DB.
+					sel.Status = store.StatusStopped
+					sel.Error = "stopped by user"
+					_ = st.UpdateScanRun(ctx, &sel)
+					bs.scans[bs.scanCursor] = sel
 				}
 			}
 			// 'p' → pause or resume the selected live job.
@@ -1435,7 +1479,13 @@ func browseInteractive(cfg *config.Config) browseResult {
 					ptext = extractFindingURL(bf)
 				}
 				if ptext != "" {
-					copyToClipboard(ptext)
+					if copyToClipboard(ptext) {
+						bs.copyFlash = "\x1b[1;32m✓ Copied!\x1b[0m"
+					} else {
+						bs.copyFlash = "\x1b[1;31m✗ Clipboard unavailable — copy manually\x1b[0m"
+					}
+				} else {
+					bs.copyFlash = "\x1b[90mNo proof command to copy\x1b[0m"
 				}
 			}
 
@@ -1612,10 +1662,14 @@ func attachJob(bs *browseState, job *liveJob) {
 	// re-attaching works correctly.
 	select {
 	case <-job.renderer.detached:
-		// Channel was closed by a previous detach — create a fresh one.
+		// Channel was closed by a previous detach — create fresh channels so
+		// the next 'b'/'q' keypress can close them without panicking.
 		job.renderer.detached = make(chan struct{})
-		// Also reset stopOnce so the ticker stop path can fire again if needed.
+		job.renderer.stop = make(chan struct{})
 		job.renderer.stopOnce = sync.Once{}
+		// Reset to the top-level overview so the user doesn't land inside a
+		// sub-view (e.g. assets) they left before detaching.
+		job.renderer.mode = "progress"
 	default:
 	}
 	job.renderer.drawnLines = 0
@@ -2019,8 +2073,13 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 		bs.detailOff = maxOff
 	}
 
-	// Header.
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [b/q] back\x1b[0m\n")
+	// Header — show copy flash feedback if present, otherwise normal hint bar.
+	if bs.copyFlash != "" {
+		fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[90m[j/k] scroll  [b/q] back\x1b[0m\n", bs.copyFlash)
+		bs.copyFlash = "" // clear after one render
+	} else {
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [b/q] back\x1b[0m\n")
+	}
 
 	end := bs.detailOff + bodyLines
 	if end > len(lines) {
@@ -3139,14 +3198,23 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 	isEnter := buf[0] == '\r' || buf[0] == '\n'
 	isEsc   := n == 1 && buf[0] == 0x1b
 
-	// 'q' and 'b' always detach to the browse list from any mode (scan keeps running).
+	// 'q' always detaches. 'b' navigates back one level; only detaches from "progress".
 	// Esc only detaches when headless (non-headless Esc has mode-specific meanings).
-	if (buf[0] == 'q' || buf[0] == 'b' || (r.headless && isEsc)) && !r.confirmingExit {
-		r.mu.Unlock()
-		r.stopOnce.Do(func() { close(r.stop) })
-		close(r.detached)
-		r.mu.Lock()
-		return
+	if !r.confirmingExit {
+		isDetach := buf[0] == 'q' || (r.headless && isEsc && r.mode == "progress")
+		isBack := buf[0] == 'b' || (r.headless && isEsc)
+		if isDetach || (isBack && r.mode == "progress") {
+			r.mu.Unlock()
+			r.stopOnce.Do(func() { close(r.stop) })
+			close(r.detached)
+			r.mu.Lock()
+			return
+		}
+		if isBack {
+			r.navigateBack()
+			r.render()
+			return
+		}
 	}
 
 	if r.confirmingExit {
@@ -3416,12 +3484,18 @@ func (r *progressRenderer) startInputLoop() {
 				r.mu.Unlock()
 				continue
 			}
-			// 'q' and 'b' always detach from any mode (scan keeps running in background).
-			if buf[0] == 'q' || buf[0] == 'b' || (isEsc && r.mode == "progress") {
+			// 'q' detaches. 'b' navigates back one level; only detaches from "progress".
+			if buf[0] == 'q' || (buf[0] == 'b' && r.mode == "progress") || (isEsc && r.mode == "progress") {
 				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
 				close(r.detached)
 				return
+			}
+			if buf[0] == 'b' || isEsc {
+				r.navigateBack()
+				r.render()
+				r.mu.Unlock()
+				continue
 			}
 
 			switch r.mode {
@@ -3785,6 +3859,29 @@ func (r *progressRenderer) eraseBlock() {
 
 // render draws (or redraws) the status block in a single write to avoid
 // partial-frame flicker. Caller must hold r.mu.
+// navigateBack moves the renderer one level up in the view hierarchy.
+// Caller must hold r.mu.
+func (r *progressRenderer) navigateBack() {
+	switch r.mode {
+	case "finding_detail":
+		if r.findingDetailOrigin != "" {
+			r.mode = r.findingDetailOrigin
+		} else {
+			r.mode = "findings"
+		}
+		r.selectedFinding = nil
+	case "asset_detail":
+		r.mode = "assets"
+		r.selectedAsset = ""
+	case "topo_detail":
+		r.mode = "topology"
+	case "findings", "assets", "topology":
+		r.mode = "progress"
+	default:
+		r.mode = "progress"
+	}
+}
+
 func (r *progressRenderer) render() {
 	var buf strings.Builder
 
@@ -4758,13 +4855,32 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 				svcs := r.topoServices[h.name]
 				sort.Slice(svcs, func(a, b int) bool { return svcs[a].port < svcs[b].port })
 				var parts []string
-				if h.status > 0 && h.status != 404 {
-					parts = append(parts, fmt.Sprintf("HTTP %d", h.status))
-				}
-				if h.tech != "" {
-					parts = append(parts, h.tech)
-				}
 				if ev, ok := r.topoEvidence[h.name]; ok {
+					// Build "proxy → framework → backend" chain.
+					var chain []string
+					if ev.ProxyType != "" {
+						chain = append(chain, "\x1b[35m"+ev.ProxyType+"\x1b[0m")
+					}
+					if ev.Framework != "" {
+						chain = append(chain, "\x1b[32m"+ev.Framework+"\x1b[0m")
+					} else if h.tech != "" {
+						chain = append(chain, "\x1b[32m"+h.tech+"\x1b[0m")
+					}
+					for _, bs := range ev.BackendServices {
+						chain = append(chain, "\x1b[33m"+bs+"\x1b[0m")
+					}
+					if len(chain) > 0 {
+						parts = append(parts, strings.Join(chain, " → "))
+					}
+					// Auth system.
+					if ev.AuthSystem != "" {
+						parts = append(parts, "\x1b[90mauth:\x1b[0m\x1b[36m"+ev.AuthSystem+"\x1b[0m")
+					}
+					// HTTP status if non-200.
+					if h.status > 0 && h.status != 200 && h.status != 404 {
+						parts = append(parts, fmt.Sprintf("\x1b[90mHTTP %d\x1b[0m", h.status))
+					}
+					// First 3 responding paths.
 					for i, p := range ev.RespondingPaths {
 						if i >= 3 {
 							parts = append(parts, fmt.Sprintf("\x1b[90m+%d paths\x1b[0m", len(ev.RespondingPaths)-3))
@@ -4778,6 +4894,14 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 							title = title[:29] + "…"
 						}
 						parts = append(parts, "\x1b[90m\""+title+"\"\x1b[0m")
+					}
+				} else {
+					// No evidence yet — show basic info.
+					if h.status > 0 && h.status != 404 {
+						parts = append(parts, fmt.Sprintf("HTTP %d", h.status))
+					}
+					if h.tech != "" {
+						parts = append(parts, h.tech)
 					}
 				}
 				if h.cname != "" {
@@ -5254,8 +5378,8 @@ func extractFindingURL(f *finding.Finding) string {
 
 // copyToClipboard writes text to the system clipboard using whatever tool is
 // available (pbcopy on macOS, xclip/xsel on Linux, clip on Windows).
-// Errors are silently ignored — clipboard support is best-effort.
-func copyToClipboard(text string) {
+// Returns true if the copy succeeded.
+func copyToClipboard(text string) bool {
 	candidates := [][]string{
 		{"pbcopy"},                           // macOS
 		{"xclip", "-selection", "clipboard"}, // Linux/X11
@@ -5265,11 +5389,22 @@ func copyToClipboard(text string) {
 	}
 	for _, args := range candidates {
 		cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
-		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err == nil {
-			return
+		// Use StdinPipe for reliable stdin delivery even when the parent
+		// process has stdin in raw/non-blocking mode (TUI context).
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			continue
+		}
+		if err := cmd.Start(); err != nil {
+			continue
+		}
+		_, _ = io.WriteString(stdin, text)
+		stdin.Close()
+		if err := cmd.Wait(); err == nil {
+			return true
 		}
 	}
+	return false
 }
 
 func severityColor(sev finding.Severity) string {
