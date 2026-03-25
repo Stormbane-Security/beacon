@@ -285,6 +285,10 @@ const (
 	CheckGHActionTerraformCloudToken    CheckID = "ghaction.terraform_cloud_token"
 	CheckGHActionFlyToken               CheckID = "ghaction.fly_token_secret"
 	CheckGHActionPATUsedInWorkflow      CheckID = "ghaction.pat_used_in_workflow"
+	// Informational: deploy targets extracted from workflow files for cross-scan correlation.
+	CheckGHActionDeployTargets          CheckID = "ghaction.deploy_targets"
+	// AI-generated attack path connecting CI/CD findings to deployed infrastructure.
+	CheckCICDAttackPath                 CheckID = "cicd.attack_path"
 
 	// GitHub repository configuration
 	CheckGitHubNoBranchProtection      CheckID = "github.no_branch_protection"

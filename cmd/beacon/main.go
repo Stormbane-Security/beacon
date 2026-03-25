@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -30,6 +31,7 @@ import (
 	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/enrichment"
 	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/module"
 	githubmodule "github.com/stormbane/beacon/internal/modules/github"
 	"github.com/stormbane/beacon/internal/modules/surface"
@@ -413,6 +415,7 @@ Type exactly: I have written authorization for %s
 		RequestJitterMs:      cfg.RequestJitterMs,
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
+		GitHubToken:          cfg.GitHubToken,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -623,6 +626,28 @@ Type exactly: I have written authorization for %s
 		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
 	} else {
 		fmt.Print(output)
+	}
+
+	// Attack path analysis: if enabled and we have an Anthropic key, ask Claude
+	// to identify multi-step attack chains across findings from this scan run.
+	// Only correlates findings from the current run, never historical data.
+	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
+		fmt.Fprintf(os.Stderr, "beacon: analysing attack paths...\n")
+		chains := profiler.ReasonAttackPaths(ctx, cfg.AnthropicAPIKey, cfg.ClaudeModel, findings)
+		if f := profiler.BuildAttackPathFinding(domain, chains); f != nil {
+			fmt.Fprintf(os.Stderr, "beacon: %d attack path(s) identified\n", len(chains))
+			_ = st.SaveFindings(ctx, run.ID, []finding.Finding{*f})
+		}
+	}
+
+	// Webhook delivery: POST a structured JSON findings payload to the configured
+	// endpoint so findings can be streamed to a SIEM or external platform.
+	if cfg.WebhookURL != "" {
+		if err := deliverWebhook(ctx, cfg.WebhookURL, cfg.WebhookAPIKey, *run, enriched, summary); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: webhook delivery failed: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "beacon: findings posted to webhook\n")
+		}
 	}
 
 	// Post-scan review summary: show pending fingerprint rules and playbook suggestions.
@@ -1034,6 +1059,7 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		RequestJitterMs:      cfg.RequestJitterMs,
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
+		GitHubToken:          cfg.GitHubToken,
 	})
 	if err != nil {
 		cancel()
@@ -2927,6 +2953,39 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 	default: // "text" or empty
 		return report.RenderText(run, enriched, summary, executions), nil
 	}
+}
+
+// deliverWebhook POSTs a JSON findings payload to the configured webhook URL.
+// The payload matches the structured JSON report format so SIEM consumers can
+// ingest it with the same schema as `beacon scan --output json`.
+// Errors are non-fatal — a failed webhook never blocks the scan report.
+func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string) error {
+	payload, err := report.RenderJSON(run, enriched, summary)
+	if err != nil {
+		return fmt.Errorf("render webhook payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL,
+		strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "beacon-scanner/1.0")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // filterOmitted drops findings Claude marked as having no actionable value

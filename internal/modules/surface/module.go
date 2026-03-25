@@ -93,6 +93,7 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/swagger"
 	"github.com/stormbane/beacon/internal/scanner/contractscan"
 	"github.com/stormbane/beacon/internal/scanner/chainnode"
+	"github.com/stormbane/beacon/internal/scanner/githubactions"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/profiler"
@@ -245,6 +246,11 @@ type Config struct {
 	// When a matching entry exists for the current asset (or asset == "*"),
 	// scanners run against content that is gated behind a login.
 	Auth []config.AuthConfig
+
+	// GitHubToken is an optional GitHub personal access token used by the
+	// githubactions scanner to fetch workflow files via the GitHub API.
+	// Without it the scanner is limited to 60 unauthenticated requests/hour.
+	GitHubToken string
 }
 
 const (
@@ -357,6 +363,7 @@ func New(cfg Config) (*Module, error) {
 		"swagger":          swagger.New(),
 		"contractscan":     contractscan.New(),
 		"chainnode":        chainnode.New(),
+		"githubactions":   githubactions.New(cfg.GitHubToken),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

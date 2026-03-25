@@ -39,6 +39,7 @@ surface:
     - tlscheck       # native Go TLS: key strength, OCSP, CT logs, PFS, HSTS policy
     - swagger        # OpenAPI/Swagger spec exposure — safe GET probes to common spec paths
     - chainnode      # blockchain node/validator/miner detection — port probes + JSON-RPC fingerprinting
+    - githubactions  # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:
