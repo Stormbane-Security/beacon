@@ -88,12 +88,17 @@ var idpAdminPaths = []string{
 // present before the path is flagged as an exposed admin panel. This prevents
 // false positives on catch-all sites that return HTTP 200 for every URL.
 var idpAdminSignatures = map[string]string{
-	"/admin/":         "keycloak",           // Keycloak admin UI contains "keycloak" in HTML/JS
-	"/api/v2/users":   `"user_id"`,          // Auth0 Management API user object
-	"/auth/admin/":    "Keycloak",           // Keycloak admin page title
-	"/realms/master/protocol/openid-connect/token": "access_token", // Keycloak token response
-	"/pingfederate/app":  "PingFederate",    // PingFederate branding
-	"/adfs/ls/":          "adfs",            // ADFS page body
+	// Keycloak: look for unique JS/HTML artifacts not present on catch-all pages
+	"/admin/":      "window.authServerUrl",      // Keycloak admin console sets this JS global
+	"/auth/admin/": "Keycloak Administration Console", // exact page title
+	// Auth0 Management API: the JSON key is reasonably specific; also present in error shapes
+	"/api/v2/users": `"user_id"`,
+	// Keycloak OIDC token endpoint: only responds with JSON containing access_token when live
+	"/realms/master/protocol/openid-connect/token": `"access_token"`,
+	// PingFederate: unique static path prefix in all page assets
+	"/pingfederate/app": "/pingfederate/static/",
+	// ADFS: unique Microsoft SSO page content
+	"/adfs/ls/": "Microsoft Active Directory Federation Services",
 }
 
 // roleEndpointPaths are role/RBAC API paths to probe.

@@ -40,6 +40,9 @@ func matchSignal(r store.FingerprintRule, ev *playbook.Evidence) bool {
 	needle := strings.ToLower(r.SignalValue)
 	switch r.SignalType {
 	case "header":
+		if ev.Headers == nil {
+			return false
+		}
 		key := strings.ToLower(r.SignalKey)
 		val := strings.ToLower(ev.Headers[key])
 		// Empty SignalValue means "header exists with any value".
@@ -75,6 +78,9 @@ func matchSignal(r store.FingerprintRule, ev *playbook.Evidence) bool {
 		return strings.Contains(strings.ToLower(ev.ASNOrg), needle)
 	case "server":
 		// Convenience alias for header "server".
+		if ev.Headers == nil {
+			return false
+		}
 		return strings.Contains(strings.ToLower(ev.Headers["server"]), needle)
 	}
 	return false
