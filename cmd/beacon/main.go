@@ -1656,6 +1656,9 @@ func attachJob(bs *browseState, job *liveJob) {
 		job.renderer.detached = make(chan struct{})
 		job.renderer.stop = make(chan struct{})
 		job.renderer.stopOnce = sync.Once{}
+		// Reset to the top-level overview so the user doesn't land inside a
+		// sub-view (e.g. assets) they left before detaching.
+		job.renderer.mode = "progress"
 	default:
 	}
 	job.renderer.drawnLines = 0
