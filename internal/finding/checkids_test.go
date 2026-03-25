@@ -127,6 +127,7 @@ var allCheckIDs = []finding.CheckID{
 	finding.CheckGHActionVercelToken,
 	finding.CheckGHActionTerraformCloudToken,
 	finding.CheckGHActionFlyToken,
+	finding.CheckGHActionPATUsedInWorkflow,
 	// GitHub repository configuration
 	finding.CheckGitHubNoBranchProtection,
 	finding.CheckGitHubNoSecretScanning,

@@ -284,6 +284,7 @@ const (
 	CheckGHActionVercelToken            CheckID = "ghaction.vercel_token_secret"
 	CheckGHActionTerraformCloudToken    CheckID = "ghaction.terraform_cloud_token"
 	CheckGHActionFlyToken               CheckID = "ghaction.fly_token_secret"
+	CheckGHActionPATUsedInWorkflow      CheckID = "ghaction.pat_used_in_workflow"
 
 	// GitHub repository configuration
 	CheckGitHubNoBranchProtection      CheckID = "github.no_branch_protection"
@@ -1003,6 +1004,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGHActionVercelToken:           {CheckGHActionVercelToken, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
 	CheckGHActionTerraformCloudToken:   {CheckGHActionTerraformCloudToken, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
 	CheckGHActionFlyToken:              {CheckGHActionFlyToken, SeverityMedium, ConversionMedium, ClarityMedium, ModeSurface},
+	CheckGHActionPATUsedInWorkflow:     {CheckGHActionPATUsedInWorkflow, SeverityMedium, ConversionHigh, ClarityHigh, ModeSurface},
 	// GitHub repo config
 	CheckGitHubNoBranchProtection:     {CheckGitHubNoBranchProtection, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},
 	CheckGitHubNoSecretScanning:       {CheckGitHubNoSecretScanning, SeverityHigh, ConversionHigh, ClarityHigh, ModeSurface},

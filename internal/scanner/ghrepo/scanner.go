@@ -351,20 +351,29 @@ var secretPatterns = []secretPattern{
 			"This removes the long-lived JSON key entirely.",
 	},
 	{
-		name:    "GitHub personal access token (classic)",
+		name:    "GitHub classic personal access token (ghp_)",
 		pattern: regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
 		checkID: finding.CheckGitHubSecretInCode,
-		oidcGuidance: "Prefer the built-in GITHUB_TOKEN (scoped to the current repo/workflow run) " +
-			"or a fine-grained PAT with the minimum required scopes and a short expiry. " +
-			"For cross-repo access consider using a GitHub App installation token.",
+		oidcGuidance: "This is a classic PAT — the most dangerous PAT type. Classic PATs grant " +
+			"account-level permissions across every repository the owner can access and have no " +
+			"mandatory expiry. They cannot be scoped to a single repo. Revoke it immediately, then " +
+			"choose one of these alternatives:\n" +
+			"1. ${{ secrets.GITHUB_TOKEN }} for same-repo CI operations — no token needed at all.\n" +
+			"2. A fine-grained PAT (Settings → Developer settings → Fine-grained tokens) scoped " +
+			"to specific repositories with only the permissions required and a short expiry.\n" +
+			"3. A GitHub App installation token for automation — short-lived, auditable, not " +
+			"tied to any individual's account.",
 	},
 	{
-		name:    "GitHub fine-grained personal access token",
+		name:    "GitHub fine-grained personal access token (github_pat_)",
 		pattern: regexp.MustCompile(`github_pat_[0-9a-zA-Z_]{82}`),
 		checkID: finding.CheckGitHubSecretInCode,
-		oidcGuidance: "Prefer the built-in GITHUB_TOKEN where possible. " +
-			"If cross-repo access is required, use a GitHub App installation token (short-lived, auditable) " +
-			"rather than a personal access token.",
+		oidcGuidance: "This is a fine-grained PAT — better than a classic PAT (repo-scoped, " +
+			"permission-limited, supports expiry) but still a long-lived credential tied to one " +
+			"person's account. Revoke it and replace with:\n" +
+			"1. ${{ secrets.GITHUB_TOKEN }} if the workflow only touches the current repo.\n" +
+			"2. A GitHub App installation token for cross-repo or organisation access — " +
+			"tokens are short-lived (1 hour), auditable, and survive employee departures.",
 	},
 	{
 		name:    "npm publish token",

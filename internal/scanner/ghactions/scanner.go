@@ -91,6 +91,7 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		all = append(all, checkArtiPacked(content, repoSlug)...)
 		all = append(all, checkCachePoisoning(content, repoSlug)...)
 		all = append(all, checkLongLivedCloudCreds(content, repoSlug)...)
+		all = append(all, checkPATUsedInWorkflow(content, repoSlug)...)
 	}
 
 	return all, nil
@@ -799,6 +800,73 @@ func checkLongLivedCloudCreds(workflowYAML, repo string) []finding.Finding {
 				break // one finding per service
 			}
 		}
+	}
+	return findings
+}
+
+// patSecretNames are common secret names that indicate a GitHub Personal Access Token
+// is being used in a workflow. These are checked case-insensitively.
+var patSecretNames = []string{
+	"GH_PAT", "GITHUB_PAT", "GH_TOKEN", "GITHUB_TOKEN_PAT",
+	"PERSONAL_ACCESS_TOKEN", "GITHUB_ACCESS_TOKEN", "ACCESS_TOKEN",
+	"REPO_TOKEN", "CI_TOKEN", "BOT_TOKEN", "GITHUB_API_TOKEN",
+	"GIT_TOKEN", "GH_API_TOKEN", "GITHUB_PERSONAL_TOKEN",
+}
+
+// checkPATUsedInWorkflow detects common PAT-named secrets used in workflows and
+// recommends GITHUB_TOKEN or a fine-grained PAT / GitHub App token as appropriate.
+func checkPATUsedInWorkflow(workflowYAML, repo string) []finding.Finding {
+	// Collect all secret names referenced in this workflow.
+	secretsUsed := make(map[string]string) // upper-case name -> original name
+	for _, m := range reSecretRef.FindAllStringSubmatch(workflowYAML, -1) {
+		if len(m) == 2 {
+			secretsUsed[strings.ToUpper(m[1])] = m[1]
+		}
+	}
+
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+	for _, name := range patSecretNames {
+		orig, ok := secretsUsed[name]
+		if !ok {
+			continue
+		}
+		if _, already := seen[name]; already {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		// Distinguish classic PAT guidance from general PAT guidance based on name signals.
+		// We can't see the actual token value here (only the secret name), so we key on
+		// whether the name is very generic (could be a GitHub App token) vs clearly a PAT.
+		desc := fmt.Sprintf(
+			"The workflow uses secrets.%s, which appears to be a GitHub Personal Access Token (PAT). "+
+				"PATs carry risks that the built-in GITHUB_TOKEN does not:\n\n"+
+				"• Classic PATs (ghp_...) grant broad account-level permissions across all repos "+
+				"the owner can access — they cannot be scoped to a single repository.\n"+
+				"• Fine-grained PATs (github_pat_...) are better: repo-scoped, permission-limited, "+
+				"and support expiry — but they are still long-lived credentials tied to one person's account.\n\n"+
+				"Recommended alternatives in order of preference:\n"+
+				"1. Use ${{ secrets.GITHUB_TOKEN }} for operations on the current repository "+
+				"(contents, packages, pull requests) — it is automatically provisioned per-run with minimal scope.\n"+
+				"2. For cross-repository or organisation-wide access, create a GitHub App and use "+
+				"its installation token (short-lived, auditable, not tied to a personal account).\n"+
+				"3. If a PAT is unavoidable, use a fine-grained PAT with the narrowest permissions, "+
+				"shortest acceptable expiry, and store it as an organisation secret scoped to only "+
+				"the repositories that need it — never a classic PAT.",
+			orig)
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGHActionPATUsedInWorkflow,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repo,
+			Title:    fmt.Sprintf("PAT secret %q used in workflow — prefer GITHUB_TOKEN or GitHub App token", orig),
+			Description: desc,
+			Evidence:    map[string]any{"secret": orig},
+			DiscoveredAt: time.Now(),
+		})
 	}
 	return findings
 }

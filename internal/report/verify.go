@@ -367,6 +367,7 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckGHActionVercelToken:           "grep -r 'VERCEL_TOKEN' .github/workflows/",
 	finding.CheckGHActionTerraformCloudToken:   `grep -r 'TF_API_TOKEN\|TFC_TOKEN' .github/workflows/`,
 	finding.CheckGHActionFlyToken:              `grep -r 'FLY_API_TOKEN\|FLY_TOKEN' .github/workflows/`,
+	finding.CheckGHActionPATUsedInWorkflow:     `grep -rE 'secrets\.(GH_PAT|GITHUB_PAT|GH_TOKEN|PERSONAL_ACCESS_TOKEN|ACCESS_TOKEN|REPO_TOKEN|CI_TOKEN|BOT_TOKEN)' .github/workflows/`,
 	finding.CheckGitHubNoBranchProtection:      "gh api repos/{asset}/branches/{branch}/protection",
 	finding.CheckGitHubNoSecretScanning:        "gh api repos/{asset} --jq '.security_and_analysis'",
 	finding.CheckGitHubNoDependabot:            "test -f .github/dependabot.yml || echo 'missing'",
