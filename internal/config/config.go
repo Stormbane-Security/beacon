@@ -258,6 +258,51 @@ func (c *Config) ActiveAI() *AIConfig {
 	return nil
 }
 
+// Redacted returns a shallow copy of the Config with all credential fields
+// replaced by "[REDACTED]". Use this whenever the config is logged, printed in
+// error messages, or serialized for debugging to prevent API key leaks.
+func (c *Config) Redacted() Config {
+	r := *c
+	redact := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		return "[REDACTED]"
+	}
+	// AI / LLM keys
+	r.AI.APIKey = redact(r.AI.APIKey)
+	r.AnthropicAPIKey = redact(r.AnthropicAPIKey)
+	// Third-party API keys
+	r.ShodanAPIKey = redact(r.ShodanAPIKey)
+	r.OTXAPIKey = redact(r.OTXAPIKey)
+	r.HIBPAPIKey = redact(r.HIBPAPIKey)
+	r.BingAPIKey = redact(r.BingAPIKey)
+	r.VirusTotalAPIKey = redact(r.VirusTotalAPIKey)
+	r.SecurityTrailsAPIKey = redact(r.SecurityTrailsAPIKey)
+	r.CensysAPIID = redact(r.CensysAPIID)
+	r.CensysAPISecret = redact(r.CensysAPISecret)
+	r.GreyNoiseAPIKey = redact(r.GreyNoiseAPIKey)
+	r.GitHubToken = redact(r.GitHubToken)
+	// Server / webhook credentials
+	r.Server.APIKey = redact(r.Server.APIKey)
+	r.WebhookAPIKey = redact(r.WebhookAPIKey)
+	// SMTP credentials
+	r.SMTP.Password = redact(r.SMTP.Password)
+	// Auth configs: clear all per-asset credentials
+	redactedAuth := make([]AuthConfig, len(r.Auth))
+	for i, a := range r.Auth {
+		a.Token = redact(a.Token)
+		a.Password = redact(a.Password)
+		a.Cookie = redact(a.Cookie)
+		a.ClientSecret = redact(a.ClientSecret)
+		a.EVMPrivateKey = redact(a.EVMPrivateKey)
+		a.SolanaPrivateKey = redact(a.SolanaPrivateKey)
+		redactedAuth[i] = a
+	}
+	r.Auth = redactedAuth
+	return r
+}
+
 // MustLoad calls Load and panics on error. Suitable for use in main().
 func MustLoad() *Config {
 	cfg, err := Load()

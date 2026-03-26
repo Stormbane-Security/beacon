@@ -513,8 +513,12 @@ func checkJTIMissing(asset string, claims map[string]any) *finding.Finding {
 // jwksProbePaths are the well-known locations of JWKS documents.
 var jwksProbePaths = []string{
 	"/.well-known/jwks.json",
+	"/jwks.json",
+	"/jwks",
 	"/oauth/discovery/keys",
+	"/oauth/.well-known/jwks.json",
 	"/oauth2/v1/certs",
+	"/auth/.well-known/jwks.json",
 	"/api/v1/identity/oidc/.well-known/keys",
 }
 

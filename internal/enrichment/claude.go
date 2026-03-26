@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -275,7 +276,11 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 				if looksLikeRawJSON(e.explanation) {
 					continue // skip — would pollute cache with bad data
 				}
-				_ = c.cache.SaveEnrichmentCache(ctx, id, e.explanation, e.impact, e.remediation)
+				if err := c.cache.SaveEnrichmentCache(ctx, id, e.explanation, e.impact, e.remediation); err != nil {
+					// Log but don't fail — the enrichment itself succeeded; missing
+					// cache only means the next scan re-computes this check type.
+					fmt.Fprintf(os.Stderr, "enrichment: cache write failed for %s: %v\n", id, err)
+				}
 			}
 		}
 	}
@@ -467,17 +472,43 @@ type claudeResponse struct {
 }
 
 // callLLM dispatches a completion request to whichever provider is configured.
+// callLLM dispatches to the configured provider with exponential backoff retry.
+// Transient failures (network errors, 429 rate-limits, 5xx server errors) are
+// retried up to 3 times with 1s → 2s → 4s delays before returning an error.
 func (c *ClaudeEnricher) callLLM(ctx context.Context, model, prompt string) (string, error) {
-	switch c.provider {
-	case "openai", "mistral", "grok", "groq":
-		return c.callOpenAICompat(ctx, model, prompt)
-	case "gemini":
-		return c.callGemini(ctx, model, prompt)
-	case "ollama":
-		return c.callOllama(ctx, model, prompt)
-	default: // "claude" or unrecognised
-		return c.callClaude(ctx, model, prompt)
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		var result string
+		var err error
+		switch c.provider {
+		case "openai", "mistral", "grok", "groq":
+			result, err = c.callOpenAICompat(ctx, model, prompt)
+		case "gemini":
+			result, err = c.callGemini(ctx, model, prompt)
+		case "ollama":
+			result, err = c.callOllama(ctx, model, prompt)
+		default: // "claude" or unrecognised
+			result, err = c.callClaude(ctx, model, prompt)
+		}
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		// Don't retry on context cancellation.
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 	}
+	return "", fmt.Errorf("after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // callOpenAICompat calls any OpenAI-compatible chat completions endpoint

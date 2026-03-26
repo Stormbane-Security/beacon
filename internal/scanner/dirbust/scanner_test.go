@@ -88,17 +88,11 @@ func TestRateLimit_BackoffAndNoFinding(t *testing.T) {
 // WAF detection
 // ---------------------------------------------------------------------------
 
-// TestWAF_BlockedEmitsWAFFindingNotPathFindings documents the intended behaviour:
-// after 3 consecutive 403s with WAF headers the scanner should emit a
-// CheckDirbustWAFBlocked finding and NOT emit CheckDirbustFound findings for
-// those blocked paths.
-//
-// NOTE: This test currently FAILS against the production code because the WAF
-// counter (consecutiveForbidden) is local to a single probe() call, but 403 is
-// also in interestingCodes — so after the very first 403 the probe returns a
-// path-found result before the counter ever reaches 3.  The test is intentionally
-// written to catch that bug: WAFBlocked should be emitted, path findings should
-// not be.
+// TestWAF_BlockedEmitsWAFFindingNotPathFindings verifies that when a server
+// returns 403 with WAF-indicator headers on every path, the scanner emits a
+// CheckDirbustWAFBlocked finding and does NOT emit CheckDirbustFound findings.
+// probe() checks isWAFResponse() before checking interestingCodes, so WAF-blocked
+// 403s are never counted as interesting path discoveries.
 func TestWAF_BlockedEmitsWAFFindingNotPathFindings(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-WAF-Status", "blocked")

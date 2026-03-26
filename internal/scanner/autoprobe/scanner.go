@@ -340,12 +340,15 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 }
 
 // timingSignificant returns true if the timing difference between two requests
-// is large enough to suggest differential processing (>500ms gap).
-// The higher threshold reduces false positives from network jitter.
+// is large enough to suggest differential processing (>1000ms gap).
+// 1000ms is chosen to tolerate high-latency networks and loaded servers without
+// masking genuine backend differences (e.g. bcrypt vs no-op on missing account).
+// The caller additionally requires two independent probe pairs to agree before
+// reporting a finding, providing a second layer of false-positive protection.
 func timingSignificant(a, b time.Duration) bool {
 	diff := a - b
 	if diff < 0 {
 		diff = -diff
 	}
-	return diff > 500*time.Millisecond
+	return diff > 1000*time.Millisecond
 }
