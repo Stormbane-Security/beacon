@@ -17,13 +17,18 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestValidSSN_InvalidWoolworthWallet(t *testing.T) {
-	// 078-05-1120 is the infamous Woolworth wallet insert SSN.
-	// Our structural filter (area 000/666/9xx, group 00, serial 0000) doesn't
-	// special-case this number, so it passes as structurally valid.
-	// For a security scanner, a false positive is preferable to a false negative —
-	// we want to flag this if it appears in a response body.
-	if !validSSN("078-05-1120") {
-		t.Error("078-05-1120 passes all structural SSN rules; validSSN should return true")
+	// 078-05-1120 is the infamous Woolworth wallet SSN — documented by the SSA
+	// as never validly assigned. It must be filtered as a known false positive.
+	if validSSN("078-05-1120") {
+		t.Error("078-05-1120 is a known invalid SSN; validSSN should return false")
+	}
+}
+
+func TestValidSSN_InvalidKnownAdvertising(t *testing.T) {
+	for _, ssn := range []string{"219-09-9999", "457-55-5462"} {
+		if validSSN(ssn) {
+			t.Errorf("known advertising SSN %s should be rejected by validSSN", ssn)
+		}
 	}
 }
 

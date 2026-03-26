@@ -385,8 +385,20 @@ func fetchBody(ctx context.Context, client *http.Client, asset string) ([]byte, 
 	return nil, "", fmt.Errorf("no HTTP response from %s", asset)
 }
 
+// knownInvalidSSNs lists specific SSNs that are historically documented as
+// never validly assigned. Matching these is almost certainly a false positive
+// (e.g. a sample card, advertising copy, or a test fixture).
+var knownInvalidSSNs = map[string]bool{
+	"078-05-1120": true, // Woolworth wallet insert — used by ~40 000 people as their "real" SSN
+	"219-09-9999": true, // SSA advertising example
+	"457-55-5462": true, // SSA advertising example
+}
+
 // validSSN returns false for SSNs with well-known invalid area/group/serial values.
 func validSSN(s string) bool {
+	if knownInvalidSSNs[s] {
+		return false
+	}
 	parts := strings.SplitN(s, "-", 3)
 	if len(parts) != 3 {
 		return false
