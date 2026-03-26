@@ -1290,6 +1290,12 @@ func browseInteractive(cfg *config.Config) browseResult {
 			if (isEnter || b[0] == 'f') && len(bs.scans) > 0 {
 				sel := bs.scans[bs.scanCursor]
 				if job, ok := getLiveJob(sel.ID); ok {
+					// 'f' jumps straight to findings list; Enter shows progress overview.
+					if b[0] == 'f' {
+						job.renderer.mu.Lock()
+						job.renderer.mode = "findings"
+						job.renderer.mu.Unlock()
+					}
 					attachJob(bs, job)
 				} else {
 					job := historicalJob(ctx, st, sel, "findings")
@@ -1714,6 +1720,9 @@ func attachJob(bs *browseState, job *liveJob) {
 		// Reset to the top-level overview so the user doesn't land inside a
 		// sub-view (e.g. assets) they left before detaching.
 		job.renderer.mode = "progress"
+		// Reset severity filter: a stale high-sev filter (e.g. "critical only")
+		// would silently show 0 findings on re-attach, which is very confusing.
+		job.renderer.minSeverity = finding.SeverityInfo
 	default:
 	}
 	job.renderer.drawnLines = 0
