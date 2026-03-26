@@ -4731,8 +4731,21 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 			if len(asset) > 30 {
 				asset = "…" + asset[len(asset)-29:]
 			}
+			// Fingerprint badge — compact tech label from asset evidence.
+			badge := ""
+			if ev, ok := r.topoEvidence[f.Asset]; ok {
+				if b := fingerprintBadge(ev); b != "" {
+					badge = " \x1b[90m[" + b + "]\x1b[0m"
+				}
+			}
 			// Layout: 2(indent) + 4(sev) + 2(gap) + 30(asset) + 2(gap) = 40 fixed chars.
+			// Badge is appended after title (no fixed width — it wraps to ANSI reset).
 			titleMax := termW - 40
+			if badge != "" {
+				// Reserve space for badge (strip ANSI codes from length estimate).
+				// fingerprintBadge max = 20 chars + " [" + "]" = 24 visible.
+				titleMax -= 24
+			}
 			if titleMax < 20 {
 				titleMax = 20
 			}
@@ -4741,9 +4754,9 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 				title = title[:titleMax-1] + "…"
 			}
 			if i == r.findingsCursor {
-				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m\n", col, sev, asset, title)
+				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m%s\n", col, sev, asset, title, badge)
 			} else {
-				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s\n", col, sev, asset, title)
+				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s%s\n", col, sev, asset, title, badge)
 			}
 		}
 		lineCount++
@@ -5124,6 +5137,39 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	lines = append(lines, fmt.Sprintf("  \x1b[90mScanner:  \x1b[0m%s", f.Scanner))
 	if !f.DiscoveredAt.IsZero() {
 		lines = append(lines, fmt.Sprintf("  \x1b[90mFound:    \x1b[0m%s", f.DiscoveredAt.Format("2006-01-02 15:04")))
+	}
+
+	// Service Fingerprint — technology stack classified for this asset.
+	if ev, ok := r.topoEvidence[f.Asset]; ok {
+		var fpLines []string
+		if ev.ProxyType != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Proxy/Server:", ev.ProxyType))
+		}
+		if ev.CloudProvider != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Cloud:", ev.CloudProvider))
+		}
+		if ev.InfraLayer != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Infra Layer:", ev.InfraLayer))
+		}
+		if ev.Framework != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Framework:", ev.Framework))
+		}
+		if sv := ev.Headers["server"]; sv != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Server Header:", sv))
+		}
+		if len(ev.BackendServices) > 0 {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Backends:", strings.Join(ev.BackendServices, ", ")))
+		}
+		if ev.IsReverseProxy {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Topology:", "reverse proxy detected"))
+		}
+		if ev.IsKubernetes {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Topology:", "kubernetes"))
+		}
+		if len(fpLines) > 0 {
+			lines = append(lines, "  \x1b[1mService Fingerprint\x1b[0m")
+			lines = append(lines, fpLines...)
+		}
 	}
 	lines = append(lines, "")
 
@@ -6045,6 +6091,40 @@ func copyToClipboard(text string) bool {
 		}
 	}
 	return false
+}
+
+// fingerprintBadge returns a compact technology label for an asset built from
+// its playbook Evidence, e.g. "cloudflare/nginx" or "haproxy" or "".
+// Used in the findings list to show what kind of service has each finding.
+func fingerprintBadge(ev playbook.Evidence) string {
+	var parts []string
+	if ev.CloudProvider != "" {
+		parts = append(parts, ev.CloudProvider)
+	}
+	if ev.ProxyType != "" {
+		// Avoid repeating cloud provider if proxy type is the same string
+		if ev.ProxyType != ev.CloudProvider {
+			parts = append(parts, ev.ProxyType)
+		}
+	}
+	if len(parts) == 0 {
+		// Fall back to raw server header
+		if sv := ev.Headers["server"]; sv != "" {
+			// Trim version numbers: "nginx/1.25.3" → "nginx"
+			if idx := strings.Index(sv, "/"); idx > 0 {
+				sv = sv[:idx]
+			}
+			parts = append(parts, strings.ToLower(sv))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	badge := strings.Join(parts, "/")
+	if len(badge) > 20 {
+		badge = badge[:19] + "…"
+	}
+	return badge
 }
 
 func severityColor(sev finding.Severity) string {
