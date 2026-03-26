@@ -28,10 +28,56 @@ var defaultContextualTmpl string
 const (
 	findingModel        = "claude-haiku-4-5-20251001" // fast, cheap — per-finding batch
 	defaultSummaryModel = "claude-sonnet-4-6"          // higher quality — once per scan
-	apiURL              = "https://api.anthropic.com/v1/messages"
-	apiVersion          = "2023-06-01"
+	claudeAPIURL        = "https://api.anthropic.com/v1/messages"
+	claudeAPIVersion    = "2023-06-01"
+	openAIAPIURL        = "https://api.openai.com/v1/chat/completions"
+	geminiAPIURL        = "https://generativelanguage.googleapis.com/v1beta/models"
+	ollamaAPIURL        = "http://localhost:11434/api/chat"
+	mistralAPIURL       = "https://api.mistral.ai/v1/chat/completions"
+	grokAPIURL          = "https://api.x.ai/v1/chat/completions"
+	groqAPIURL          = "https://api.groq.com/openai/v1/chat/completions"
 	maxTokens           = 4096
 )
+
+// defaultModelFor returns a sensible default model for a given provider.
+func defaultModelFor(provider string) string {
+	switch strings.ToLower(provider) {
+	case "openai":
+		return "gpt-4o"
+	case "gemini":
+		return "gemini-2.0-flash"
+	case "ollama":
+		return "llama3.1"
+	case "mistral":
+		return "mistral-large-latest"
+	case "grok":
+		return "grok-2"
+	case "groq":
+		return "llama-3.3-70b-versatile"
+	default: // "claude" or unrecognised
+		return defaultSummaryModel
+	}
+}
+
+// defaultFindingModelFor returns the preferred fast/cheap model for per-finding enrichment.
+func defaultFindingModelFor(provider string) string {
+	switch strings.ToLower(provider) {
+	case "openai":
+		return "gpt-4o-mini"
+	case "gemini":
+		return "gemini-2.0-flash"
+	case "ollama":
+		return "llama3.1"
+	case "mistral":
+		return "mistral-small-latest"
+	case "grok":
+		return "grok-2"
+	case "groq":
+		return "llama-3.3-70b-versatile"
+	default: // "claude"
+		return findingModel
+	}
+}
 
 // EnrichmentCache is a minimal interface for caching enrichment results by CheckID.
 // store.Store satisfies this interface — defined here to avoid an import cycle.
@@ -40,10 +86,14 @@ type EnrichmentCache interface {
 	SaveEnrichmentCache(ctx context.Context, checkID finding.CheckID, explanation, impact, remediation string) error
 }
 
-// ClaudeEnricher calls the Anthropic API to enrich findings.
+// ClaudeEnricher calls an AI provider to enrich findings.
+// Despite its name it supports Claude, OpenAI, Gemini, Ollama, Mistral, Grok, and Groq.
 type ClaudeEnricher struct {
+	provider        string // "claude" | "openai" | "gemini" | "ollama" | "mistral" | "grok" | "groq"
 	apiKey          string
+	baseURL         string // custom endpoint override (empty = use provider default)
 	summaryModel    string
+	findingModel    string // fast model for per-finding batch enrichment
 	findingTmpl     *template.Template
 	summaryTmpl     *template.Template
 	contextualTmpl  *template.Template
@@ -84,6 +134,29 @@ var safeFuncs = template.FuncMap{
 }
 
 func NewClaude(apiKey string, findingTmplSrc, summaryTmplSrc string) (*ClaudeEnricher, error) {
+	return newEnricher("claude", apiKey, "", findingTmplSrc, summaryTmplSrc)
+}
+
+// NewWithProvider creates an enricher for any supported AI provider.
+// provider is one of: claude, openai, gemini, ollama, mistral, grok, groq.
+// baseURL overrides the provider's default API endpoint (empty = use default).
+// model overrides the provider's default model (empty = use default).
+func NewWithProvider(provider, apiKey, model, baseURL string) (*ClaudeEnricher, error) {
+	e, err := newEnricher(provider, apiKey, baseURL, defaultFindingTmpl, defaultSummaryTmpl)
+	if err != nil {
+		return nil, err
+	}
+	if model != "" {
+		e.summaryModel = model
+		e.findingModel = model
+	}
+	return e, nil
+}
+
+func newEnricher(provider, apiKey, baseURL, findingTmplSrc, summaryTmplSrc string) (*ClaudeEnricher, error) {
+	if provider == "" {
+		provider = "claude"
+	}
 	ft, err := template.New("finding").Funcs(safeFuncs).Parse(findingTmplSrc)
 	if err != nil {
 		return nil, fmt.Errorf("finding template: %w", err)
@@ -97,8 +170,11 @@ func NewClaude(apiKey string, findingTmplSrc, summaryTmplSrc string) (*ClaudeEnr
 		return nil, fmt.Errorf("contextual template: %w", err)
 	}
 	return &ClaudeEnricher{
+		provider:       strings.ToLower(provider),
 		apiKey:         apiKey,
-		summaryModel:   defaultSummaryModel,
+		baseURL:        baseURL,
+		summaryModel:   defaultModelFor(provider),
+		findingModel:   defaultFindingModelFor(provider),
 		findingTmpl:    ft,
 		summaryTmpl:    st,
 		contextualTmpl: ct,
@@ -181,7 +257,7 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 		if err := c.findingTmpl.Execute(&promptBuf, withRefs); err != nil {
 			return nil, fmt.Errorf("rendering finding prompt: %w", err)
 		}
-		responseText, err := c.callClaude(ctx, findingModel, promptBuf.String())
+		responseText, err := c.callLLM(ctx, c.findingModel, promptBuf.String())
 		if err != nil {
 			return nil, fmt.Errorf("claude enrich: %w", err)
 		}
@@ -290,7 +366,7 @@ func (c *ClaudeEnricher) ContextualizeAndSummarize(ctx context.Context, enriched
 		return enriched, "", fmt.Errorf("rendering contextual prompt: %w", err)
 	}
 
-	responseText, err := c.callClaude(ctx, c.summaryModel, promptBuf.String())
+	responseText, err := c.callLLM(ctx, c.summaryModel, promptBuf.String())
 	if err != nil {
 		return enriched, "", fmt.Errorf("contextual claude call: %w", err)
 	}
@@ -390,6 +466,197 @@ type claudeResponse struct {
 	} `json:"error"`
 }
 
+// callLLM dispatches a completion request to whichever provider is configured.
+func (c *ClaudeEnricher) callLLM(ctx context.Context, model, prompt string) (string, error) {
+	switch c.provider {
+	case "openai", "mistral", "grok", "groq":
+		return c.callOpenAICompat(ctx, model, prompt)
+	case "gemini":
+		return c.callGemini(ctx, model, prompt)
+	case "ollama":
+		return c.callOllama(ctx, model, prompt)
+	default: // "claude" or unrecognised
+		return c.callClaude(ctx, model, prompt)
+	}
+}
+
+// callOpenAICompat calls any OpenAI-compatible chat completions endpoint
+// (OpenAI, Mistral, Grok/xAI, Groq, Azure OpenAI, etc.).
+func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt string) (string, error) {
+	endpoint := c.providerEndpoint()
+	type msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	body, _ := json.Marshal(struct {
+		Model     string `json:"model"`
+		MaxTokens int    `json:"max_tokens"`
+		Messages  []msg  `json:"messages"`
+	}{model, maxTokens, []msg{{"user", prompt}}})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenAI-compat API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Error *struct{ Message string `json:"message"` } `json:"error"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return "", fmt.Errorf("parsing OpenAI response: %w", err)
+	}
+	if out.Error != nil {
+		return "", fmt.Errorf("OpenAI-compat API error: %s", out.Error.Message)
+	}
+	if len(out.Choices) == 0 {
+		return "", fmt.Errorf("OpenAI-compat API returned no choices")
+	}
+	return out.Choices[0].Message.Content, nil
+}
+
+// callGemini calls the Google Generative Language API.
+func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (string, error) {
+	base := c.baseURL
+	if base == "" {
+		base = geminiAPIURL
+	}
+	url := fmt.Sprintf("%s/%s:generateContent?key=%s", strings.TrimRight(base, "/"), model, c.apiKey)
+
+	body, _ := json.Marshal(struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}{Contents: []struct {
+		Parts []struct {
+			Text string `json:"text"`
+		} `json:"parts"`
+	}{{Parts: []struct {
+		Text string `json:"text"`
+	}{{Text: prompt}}}}})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Gemini API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+
+	var out struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+		Error *struct{ Message string `json:"message"` } `json:"error"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return "", fmt.Errorf("parsing Gemini response: %w", err)
+	}
+	if out.Error != nil {
+		return "", fmt.Errorf("Gemini API error: %s", out.Error.Message)
+	}
+	if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("Gemini returned no content")
+	}
+	return out.Candidates[0].Content.Parts[0].Text, nil
+}
+
+// callOllama calls a local Ollama instance using its chat API.
+func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (string, error) {
+	endpoint := c.providerEndpoint()
+	type msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	body, _ := json.Marshal(struct {
+		Model    string `json:"model"`
+		Messages []msg  `json:"messages"`
+		Stream   bool   `json:"stream"`
+	}{model, []msg{{"user", prompt}}, false})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Ollama request failed (is Ollama running?): %w", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Ollama API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+
+	var out struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return "", fmt.Errorf("parsing Ollama response: %w", err)
+	}
+	if out.Error != "" {
+		return "", fmt.Errorf("Ollama error: %s", out.Error)
+	}
+	return out.Message.Content, nil
+}
+
+// providerEndpoint returns the API endpoint URL for the current provider,
+// using baseURL if set, otherwise the provider's canonical default.
+func (c *ClaudeEnricher) providerEndpoint() string {
+	if c.baseURL != "" {
+		return c.baseURL
+	}
+	switch c.provider {
+	case "openai":
+		return openAIAPIURL
+	case "mistral":
+		return mistralAPIURL
+	case "grok":
+		return grokAPIURL
+	case "groq":
+		return groqAPIURL
+	case "ollama":
+		return ollamaAPIURL
+	default:
+		return claudeAPIURL
+	}
+}
+
 func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (string, error) {
 	body, err := json.Marshal(claudeRequest{
 		Model:     model,
@@ -402,13 +669,13 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, claudeAPIURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", apiVersion)
+	req.Header.Set("anthropic-version", claudeAPIVersion)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

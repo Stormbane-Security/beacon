@@ -554,13 +554,13 @@ Type exactly: I have written authorization for %s
 
 	// Enrich findings
 	var enricher enrichment.Enricher
-	if cfg.AnthropicAPIKey != "" {
-		ce, err := enrichment.NewClaudeDefault(cfg.AnthropicAPIKey)
+	if ai := cfg.ActiveAI(); ai != nil {
+		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err != nil {
 			fatalf("init enricher: %v", err)
 		}
-		enricher = ce.WithSummaryModel(cfg.ClaudeModel).WithCache(st)
-		fmt.Fprintf(os.Stderr, "beacon: %d findings — enriching with AI...\n", len(findings))
+		enricher = ce.WithCache(st)
+		fmt.Fprintf(os.Stderr, "beacon: %d findings — enriching with AI (%s)...\n", len(findings), ai.Provider)
 	} else {
 		enricher = enrichment.NewNoop()
 		fmt.Fprintf(os.Stderr, "beacon: %d findings — building report...\n", len(findings))
@@ -571,7 +571,7 @@ Type exactly: I have written authorization for %s
 		fatalf("enrich: %v", err)
 	}
 
-	if cfg.AnthropicAPIKey != "" {
+	if cfg.ActiveAI() != nil {
 		fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
 	}
 	enriched, summary, err := enricher.ContextualizeAndSummarize(ctx, enriched, domain)
@@ -628,9 +628,8 @@ Type exactly: I have written authorization for %s
 		fmt.Print(output)
 	}
 
-	// Attack path analysis: if enabled and we have an Anthropic key, ask Claude
-	// to identify multi-step attack chains across findings from this scan run.
-	// Only correlates findings from the current run, never historical data.
+	// Attack path analysis: uses Claude (Anthropic) specifically.
+	// Requires anthropic_api_key in config regardless of the ai: provider block.
 	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
 		fmt.Fprintf(os.Stderr, "beacon: analysing attack paths...\n")
 		chains := profiler.ReasonAttackPaths(ctx, cfg.AnthropicAPIKey, cfg.ClaudeModel, findings)
@@ -2809,8 +2808,8 @@ func cmdTerraform(cfg *config.Config, args []string) {
 		}
 	}
 
-	if cfg.AnthropicAPIKey != "" {
-		enricher, err := enrichment.NewClaudeDefault(cfg.AnthropicAPIKey)
+	if ai := cfg.ActiveAI(); ai != nil {
+		enricher, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err == nil {
 			ctx := context.Background()
 			if ef, err := enricher.Enrich(ctx, findings); err == nil {
@@ -3009,7 +3008,7 @@ func warnMissingAPIKeys(cfg *config.Config) {
 		{cfg.SecurityTrailsAPIKey, "BEACON_SECURITYTRAILS_API_KEY", "SecurityTrails historical DNS and subdomain discovery"},
 		{cfg.CensysAPIID, "BEACON_CENSYS_API_ID + BEACON_CENSYS_API_SECRET", "Censys internet-wide host and certificate data"},
 		{cfg.GreyNoiseAPIKey, "BEACON_GREYNOISE_API_KEY", "GreyNoise IP noise context (reduces false positives on scanner IPs)"},
-		{cfg.AnthropicAPIKey, "BEACON_ANTHROPIC_API_KEY", "AI-powered finding enrichment, DLP vision analysis, and executive summary"},
+		{cfg.AnthropicAPIKey, "BEACON_ANTHROPIC_API_KEY / ai.api_key", "AI-powered finding enrichment, DLP vision analysis, and executive summary"},
 	}
 
 	var missing []keyInfo
