@@ -1333,6 +1333,19 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}
 	}
 
+	// ── Crawl-feed channel ────────────────────────────────────────────────────
+	// crawlFeed carries URLs discovered by katana to the DLP scanner in real
+	// time. Buffer of 128 gives DLP burst tolerance before it must drain.
+	// Non-blocking sends in the crawler ensure katana stdout is never stalled.
+	// The channel is closed exactly once via crawlFeedOnce — by whichever of
+	// (a) the crawler goroutine (normal path) or (b) the deferred safety net
+	// (crawler skipped / early error) fires first.
+	crawlFeed := make(chan string, 128)
+	var crawlFeedOnce sync.Once
+	closeCrawlFeed := func() { crawlFeedOnce.Do(func() { close(crawlFeed) }) }
+	defer closeCrawlFeed()
+	ctx = context.WithValue(ctx, module.CrawlFeedKey, crawlFeed)
+
 	// ── Phase B: Remaining scanners (concurrent) ──────────────────────────────
 	// httpDependentScanners produce zero useful findings on assets with no web
 	// server. All active HTTP probers are listed here to avoid wasted connections.

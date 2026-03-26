@@ -6,12 +6,12 @@ package crawler
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -72,22 +72,36 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		// katana may exit non-zero on partial crawls (e.g. timeout, TLS errors).
-		// Log the exit code for debugging but continue processing any output.
-		slog.Debug("katana exited with non-zero status", "asset", asset, "error", err,
-			"stderr", strings.TrimSpace(stderr.String()))
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("katana: stdout pipe: %w", err)
 	}
 
-	// Parse discovered URLs — one per line
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("katana: start: %w", err)
+	}
+
+	// If the orchestrator placed a crawl-feed channel in context, we own closing
+	// it when katana exits. Use a sync.Once so the close is safe even if this
+	// function returns early (e.g. context cancelled mid-scan).
+	var feedCh chan<- string
+	var feedOnce sync.Once
+	if v := ctx.Value(module.CrawlFeedKey); v != nil {
+		if ch, ok := v.(chan string); ok {
+			feedCh = ch
+			defer feedOnce.Do(func() { close(feedCh) })
+		}
+	}
+
+	// Stream katana output line by line so each URL reaches the DLP side-goroutine
+	// immediately rather than waiting for the full crawl to finish.
 	seen := make(map[string]struct{})
 	var endpoints []string
 
-	sc := bufio.NewScanner(&stdout)
+	sc := bufio.NewScanner(pipe)
 	for sc.Scan() {
 		u := strings.TrimSpace(sc.Text())
 		if u == "" || !strings.HasPrefix(u, "http") {
@@ -98,7 +112,25 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		seen[u] = struct{}{}
 		endpoints = append(endpoints, u)
+
+		// Non-blocking send: drop if the consumer is behind rather than stalling
+		// the stdout reader (which would cause katana to block on its write).
+		if feedCh != nil {
+			select {
+			case feedCh <- u:
+			default:
+				// DLP is busy — continue; the URL is still in endpoints for the finding.
+			}
+		}
 	}
+
+	// Wait for katana to exit after the pipe is fully drained (os/exec contract).
+	if err := cmd.Wait(); err != nil {
+		slog.Debug("katana exited with non-zero status", "asset", asset, "error", err,
+			"stderr", strings.TrimSpace(stderr.String()))
+	}
+
+	// feedOnce fires via defer — signals DLP that the crawl is complete.
 
 	if len(endpoints) == 0 {
 		return nil, nil

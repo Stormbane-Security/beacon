@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -184,6 +185,27 @@ type seenKey struct {
 	label string
 }
 
+// staticExtensions lists file types that cannot contain secrets.
+// Skipping these URLs from the crawl feed avoids wasting HTTP quota.
+var staticExtensions = map[string]bool{
+	".css": true, ".js": true, ".png": true, ".jpg": true, ".jpeg": true,
+	".gif": true, ".svg": true, ".ico": true, ".woff": true, ".woff2": true,
+	".ttf": true, ".eot": true, ".mp4": true, ".webm": true, ".ogg": true,
+	".mp3": true, ".pdf": true, ".zip": true, ".gz": true, ".map": true,
+}
+
+// isStaticURL returns true when the URL path ends with a static asset extension.
+func isStaticURL(rawURL string) bool {
+	p := rawURL
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		p = p[:i]
+	}
+	if i := strings.IndexByte(p, '#'); i >= 0 {
+		p = p[:i]
+	}
+	return staticExtensions[strings.ToLower(path.Ext(p))]
+}
+
 // emailPattern is used separately for count-based detection.
 var emailPattern = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
 
@@ -202,9 +224,101 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		},
 	}
 
+	// ── Crawl-feed side-scan ──────────────────────────────────────────────────
+	// If the crawler placed a URL channel in context, scan crawled pages as they
+	// arrive — concurrently with the root-page and high-value-path scans below.
+	// crawlResultCh carries the goroutine's findings back; it always receives
+	// exactly one value so the drain at the bottom never blocks indefinitely.
+	type crawlResult struct{ findings []finding.Finding }
+	crawlResultCh := make(chan crawlResult, 1)
+
+	if v := ctx.Value(module.CrawlFeedKey); v != nil {
+		if feedCh, ok := v.(chan string); ok {
+			go func() {
+				var crawlFindings []finding.Finding
+				crawlSeen := map[seenKey]bool{}
+				// 500 ms between fetches ≈ 2 req/s — conservative secondary rate limit
+				// so DLP doesn't double-hammer the target on top of the crawler's own rate.
+				ticker := time.NewTicker(500 * time.Millisecond)
+				defer ticker.Stop()
+
+				for u := range feedCh {
+					if isStaticURL(u) {
+						continue
+					}
+					select {
+					case <-ctx.Done():
+						crawlResultCh <- crawlResult{crawlFindings}
+						return
+					case <-ticker.C:
+					}
+
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+					if err != nil {
+						continue
+					}
+					req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+					resp, err := client.Do(req)
+					if err != nil {
+						continue
+					}
+					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+						resp.Body.Close()
+						continue
+					}
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+					resp.Body.Close()
+					if len(body) == 0 {
+						continue
+					}
+					bodyStr := string(body)
+					now := time.Now()
+
+					for _, p := range dlpPatterns {
+						k := seenKey{p.checkID, p.label}
+						if crawlSeen[k] {
+							continue
+						}
+						match := p.re.FindString(bodyStr)
+						if match == "" {
+							continue
+						}
+						if p.checkID == finding.CheckDLPSSN && !validSSN(match) {
+							continue
+						}
+						if p.checkID == finding.CheckDLPCreditCard && !luhn(match) {
+							continue
+						}
+						crawlSeen[k] = true
+						crawlFindings = append(crawlFindings, finding.Finding{
+							CheckID:  p.checkID,
+							Module:   "surface",
+							Scanner:  scannerName,
+							Severity: finding.SeverityCritical,
+							Title:    fmt.Sprintf("%s exposed at %s", p.label, asset),
+							Description: fmt.Sprintf(
+								"A pattern matching a %s was found at %s, discovered during web crawl.",
+								strings.ToLower(p.label), u),
+							Asset:        asset,
+							Evidence:     map[string]any{"url": u, "pattern": p.label, "sample_redacted": redact(match)},
+							DiscoveredAt: now,
+						})
+					}
+				}
+				// feedCh closed by crawler — goroutine exits cleanly.
+				crawlResultCh <- crawlResult{crawlFindings}
+			}()
+		} else {
+			crawlResultCh <- crawlResult{} // wrong type — send empty result
+		}
+	} else {
+		crawlResultCh <- crawlResult{} // no feed in context — send empty result
+	}
+
 	body, url, err := fetchBody(ctx, client, asset)
 	if err != nil || len(body) == 0 {
-		return nil, nil
+		cr := <-crawlResultCh
+		return cr.findings, nil
 	}
 
 	var findings []finding.Finding
@@ -299,6 +413,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		for _, f := range pathFindings {
 			alreadySeen[seenKey{f.CheckID, ""}] = true
 		}
+	}
+
+	// ── Merge crawl-feed findings ─────────────────────────────────────────────
+	// Wait for the crawl-feed goroutine to finish (channel closed by crawler),
+	// then merge any new findings. Deduplicate against what we already reported.
+	select {
+	case cr := <-crawlResultCh:
+		for _, f := range cr.findings {
+			k := seenKey{f.CheckID, ""}
+			if !alreadySeen[k] {
+				alreadySeen[k] = true
+				findings = append(findings, f)
+			}
+		}
+	case <-ctx.Done():
+		// Context expired before crawl finished — return what we have.
 	}
 
 	return findings, nil

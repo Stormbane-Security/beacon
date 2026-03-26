@@ -29,6 +29,18 @@ const (
 	ScanAuthorized ScanType = "authorized"
 )
 
+// crawlFeedKeyType is an unexported type used as a context key to prevent
+// collisions with keys from other packages.
+type crawlFeedKeyType struct{}
+
+// CrawlFeedKey is the context key under which the surface module places a
+// per-asset chan string that the crawler sends discovered URLs into.
+// DLP and other scanners can read from this channel to process pages in
+// real time without waiting for the full crawl to complete.
+// The channel is closed by the crawler (or by the module as a safety net)
+// when the crawl finishes.
+var CrawlFeedKey = crawlFeedKeyType{}
+
 // Module is the interface every scan module must implement.
 type Module interface {
 	// Name returns the stable module identifier (e.g., "surface", "github").
