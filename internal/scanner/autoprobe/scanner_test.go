@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stormbane/beacon/internal/module"
@@ -106,15 +107,16 @@ func TestAutoprobe_NoLockoutDetected(t *testing.T) {
 
 func TestAutoprobe_LockoutPresent_NoFinding(t *testing.T) {
 	// After 5 attempts, return 429 — lockout is present.
-	attempts := 0
+	// Use an atomic counter because the lockout check now sends requests concurrently.
+	var attemptCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 		io.Copy(io.Discard, r.Body) //nolint:errcheck
-		attempts++
-		if attempts >= 5 {
+		n := atomic.AddInt32(&attemptCount, 1)
+		if n >= 5 {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}

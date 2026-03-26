@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -115,13 +116,19 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		userA = s.discoveredEmails[0]
 	}
 
-	r1, t1 := probeLogin(ctx, client, loginURL, userA, syntheticPassword)
-	r2, t2 := probeLogin(ctx, client, loginURL, userB, syntheticPassword)
-	// Second pair of requests for timing consistency — a single pair can produce
-	// a spurious difference due to network jitter. Both pairs must show timing
-	// difference in the same direction before we report it.
-	r1b, t1b := probeLogin(ctx, client, loginURL, userA, syntheticPassword)
-	r2b, t2b := probeLogin(ctx, client, loginURL, userB, syntheticPassword)
+	// Run all four probes concurrently — they are fully independent requests.
+	// Parallelizing cuts the username-enumeration wall time from 4× RTT to 1× RTT.
+	var (
+		r1, r2, r1b, r2b   *probeResult
+		t1, t2, t1b, t2b   time.Duration
+		wgEnum             sync.WaitGroup
+	)
+	wgEnum.Add(4)
+	go func() { defer wgEnum.Done(); r1, t1 = probeLogin(ctx, client, loginURL, userA, syntheticPassword) }()
+	go func() { defer wgEnum.Done(); r2, t2 = probeLogin(ctx, client, loginURL, userB, syntheticPassword) }()
+	go func() { defer wgEnum.Done(); r1b, t1b = probeLogin(ctx, client, loginURL, userA, syntheticPassword) }()
+	go func() { defer wgEnum.Done(); r2b, t2b = probeLogin(ctx, client, loginURL, userB, syntheticPassword) }()
+	wgEnum.Wait()
 
 	if r1 != nil && r2 != nil {
 		bodyDiff := math.Abs(float64(r1.bodyLen-r2.bodyLen)) > 20
@@ -174,16 +181,30 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// --- Account lockout check ---
-	// Send 8 login attempts with the same fake account. A properly configured
-	// endpoint should throttle or lock after 5-6 failures.
-	locked := false
+	// Send 8 login attempts concurrently with the same fake account.
+	// A properly configured endpoint should throttle or lock after 5-6 failures.
+	// Parallel sends are equivalent to sequential for lockout detection: the
+	// server's counter increments regardless of whether requests are batched
+	// or staggered, and we still report "locked" if any attempt gets 429/423/403.
+	var (
+		locked    bool
+		lockedMu  sync.Mutex
+		wgLock    sync.WaitGroup
+	)
+	wgLock.Add(8)
 	for i := 0; i < 8; i++ {
-		r, _ := probeLogin(ctx, client, loginURL, syntheticUsers[0], fmt.Sprintf("WrongPass%d!", i))
-		if r != nil && (r.status == 429 || r.status == 423 || r.status == 403) {
-			locked = true
-			break
-		}
+		i := i
+		go func() {
+			defer wgLock.Done()
+			r, _ := probeLogin(ctx, client, loginURL, syntheticUsers[0], fmt.Sprintf("WrongPass%d!", i))
+			if r != nil && (r.status == 429 || r.status == 423 || r.status == 403) {
+				lockedMu.Lock()
+				locked = true
+				lockedMu.Unlock()
+			}
+		}()
 	}
+	wgLock.Wait()
 	if !locked {
 		findings = append(findings, finding.Finding{
 			CheckID:  "auth.no_lockout",
