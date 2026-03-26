@@ -116,7 +116,102 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	wg.Wait()
 
+	findings = consolidateUnconfirmed(findings, asset, now)
+
 	return findings, nil
+}
+
+// consolidateUnconfirmed collapses multiple unconfirmed bucket findings for the
+// same provider into a single finding. Unconfirmed findings are guesses derived
+// from the domain name — generating one noisy alert per guessed bucket name
+// is unhelpful. A single consolidated alert lists all candidates and makes clear
+// that ownership is unverified. Confirmed findings (where the target page
+// references the bucket) are left as individual high-confidence alerts.
+func consolidateUnconfirmed(findings []finding.Finding, asset string, now time.Time) []finding.Finding {
+	type groupKey struct {
+		provider string
+		listing  string // "enabled" or "disabled"
+		checkID  finding.CheckID
+	}
+
+	// Split confirmed from unconfirmed.
+	var confirmed []finding.Finding
+	groups := map[groupKey][]finding.Finding{}
+
+	for _, f := range findings {
+		if isOwnershipConfirmed(f) {
+			confirmed = append(confirmed, f)
+			continue
+		}
+		// Only collapse public-bucket findings, not writable-bucket findings.
+		if f.CheckID != finding.CheckCloudBucketPublic && f.CheckID != finding.CheckCloudBucketExists {
+			confirmed = append(confirmed, f) // keep as-is
+			continue
+		}
+		listing, _ := f.Evidence["listing"].(string)
+		prov, _ := f.Evidence["provider"].(string)
+		k := groupKey{provider: prov, listing: listing, checkID: f.CheckID}
+		groups[k] = append(groups[k], f)
+	}
+
+	result := confirmed
+
+	for k, group := range groups {
+		if len(group) == 1 {
+			result = append(result, group[0])
+			continue
+		}
+		// Collapse to one finding.
+		var names []string
+		for _, f := range group {
+			if n, ok := f.Evidence["bucket_name"].(string); ok {
+				names = append(names, n)
+			}
+		}
+		// Use the first finding as the template for severity, module, etc.
+		base := group[0]
+		listingDesc := "publicly listable"
+		if k.listing == "disabled" {
+			listingDesc = "publicly accessible (listing disabled)"
+		} else if k.listing == "" {
+			listingDesc = "private"
+		}
+		nameSummary := strings.Join(names, ", ")
+		title := fmt.Sprintf("Possible %s buckets (%s): %d candidates — ownership unconfirmed",
+			k.provider, listingDesc, len(names))
+		desc := fmt.Sprintf(
+			"%d %s bucket names derived from %s were found to be %s. "+
+				"Ownership is unconfirmed — these names were guessed from the domain. "+
+				"Verify that the target actually uses these buckets before treating this as a confirmed finding. "+
+				"Bucket names: %s",
+			len(names), k.provider, asset, listingDesc, nameSummary)
+		result = append(result, finding.Finding{
+			CheckID:      base.CheckID,
+			Module:       base.Module,
+			Scanner:      base.Scanner,
+			Severity:     base.Severity,
+			Title:        title,
+			Description:  desc,
+			Asset:        asset,
+			ProofCommand: base.ProofCommand,
+			Evidence: map[string]any{
+				"provider":            k.provider,
+				"listing":             k.listing,
+				"bucket_names":        names,
+				"count":               len(names),
+				"ownership_confirmed": false,
+			},
+			DiscoveredAt: now,
+		})
+	}
+
+	return result
+}
+
+// isOwnershipConfirmed checks whether a finding's evidence marks it as confirmed.
+func isOwnershipConfirmed(f finding.Finding) bool {
+	v, _ := f.Evidence["ownership_confirmed"].(bool)
+	return v
 }
 
 // fetchPageText fetches the root page of the asset (https first, then http)

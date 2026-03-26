@@ -126,6 +126,26 @@ func TestAPIVersions_NumberedVersionLowSeverity(t *testing.T) {
 	}
 }
 
+func TestAPIVersions_400NotFlagged(t *testing.T) {
+	// A 400 from a generic GET probe is too ambiguous — the server may use it as
+	// a custom 404 or because our probe lacks required parameters. Not a finding.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, `{"error":"bad request"}`)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("400 responses should not trigger findings, got %d findings", len(findings))
+	}
+}
+
 func TestAPIVersions_405SkippedNotFlagged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)

@@ -127,6 +127,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 				return
 			}
+			// Skip 400 — a generic GET probe without required parameters often gets
+			// 400 from valid API endpoints. 400 is too ambiguous to distinguish
+			// "endpoint exists, bad params" from a custom not-found handler; it
+			// produces false positives on APIs that return 400 instead of 404.
+			if resp.StatusCode == 400 {
+				return
+			}
 			// Skip HTML responses — almost certainly a catch-all redirect/landing page.
 			ct := resp.Header.Get("Content-Type")
 			if strings.Contains(ct, "text/html") {
