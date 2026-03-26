@@ -3089,6 +3089,14 @@ type recentOp struct {
 	elapsed  time.Duration
 }
 
+// findingsRow is one visual row in the findings pager: either a severity-group
+// header or a reference to a finding in filteredFindings.
+type findingsRow struct {
+	isHeader bool
+	severity finding.Severity // label/color for header rows
+	idx      int              // index into filteredFindings (finding rows only)
+}
+
 // progressRenderer renders live scan progress to stderr.
 //
 // Modes: "progress" (default 3-line bar), "findings" (full-screen pager),
@@ -3118,8 +3126,9 @@ type progressRenderer struct {
 	// Findings pager
 	findings       []finding.Finding
 	findingsOff    int // scroll offset (first visible row)
-	findingsCursor  int              // highlighted row (index into filteredFindings)
-	filteredFindings []finding.Finding // findings after severity+text filter; rebuilt each render frame
+	findingsCursor   int               // highlighted row (index into findingsRows)
+	filteredFindings []finding.Finding // findings after severity+text filter, sorted by severity; rebuilt each frame
+	findingsRows     []findingsRow     // visual rows (headers + finding refs); rebuilt each render frame
 
 	// Asset roster
 	assets       []liveAsset
@@ -3393,16 +3402,24 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.findingsCursor = 0
 				r.findingsOff = 0
 			case isDown:
-				if r.findingsCursor < len(r.filteredFindings)-1 {
+				// Advance cursor, skipping group-header rows.
+				for r.findingsCursor+1 < len(r.findingsRows) {
 					r.findingsCursor++
+					if !r.findingsRows[r.findingsCursor].isHeader {
+						break
+					}
 				}
 			case isUp:
-				if r.findingsCursor > 0 {
+				// Move cursor back, skipping group-header rows.
+				for r.findingsCursor > 0 {
 					r.findingsCursor--
+					if !r.findingsRows[r.findingsCursor].isHeader {
+						break
+					}
 				}
 			case isEnter:
-				if len(r.filteredFindings) > 0 && r.findingsCursor < len(r.filteredFindings) {
-					f := r.filteredFindings[r.findingsCursor]
+				if len(r.findingsRows) > 0 && r.findingsCursor < len(r.findingsRows) && !r.findingsRows[r.findingsCursor].isHeader {
+					f := r.filteredFindings[r.findingsRows[r.findingsCursor].idx]
 					r.selectedFinding = &f
 					r.findingDetailOff = 0
 					r.findingDetailOrigin = "findings"
@@ -3733,16 +3750,24 @@ func (r *progressRenderer) startInputLoop() {
 					r.mode = "topology"
 					r.topoOff = 0
 				case isDown:
-					if r.findingsCursor < len(r.filteredFindings)-1 {
+					// Advance cursor, skipping group-header rows.
+					for r.findingsCursor+1 < len(r.findingsRows) {
 						r.findingsCursor++
+						if !r.findingsRows[r.findingsCursor].isHeader {
+							break
+						}
 					}
 				case isUp:
-					if r.findingsCursor > 0 {
+					// Move cursor back, skipping group-header rows.
+					for r.findingsCursor > 0 {
 						r.findingsCursor--
+						if !r.findingsRows[r.findingsCursor].isHeader {
+							break
+						}
 					}
 				case isEnter:
-					if len(r.filteredFindings) > 0 && r.findingsCursor < len(r.filteredFindings) {
-						f := r.filteredFindings[r.findingsCursor]
+					if len(r.findingsRows) > 0 && r.findingsCursor < len(r.findingsRows) && !r.findingsRows[r.findingsCursor].isHeader {
+						f := r.filteredFindings[r.findingsRows[r.findingsCursor].idx]
 						r.selectedFinding = &f
 						r.findingDetailOff = 0
 						r.findingDetailOrigin = "findings"
@@ -4480,9 +4505,9 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 		bodyLines = 1
 	}
 
-	// Apply filter: build a filtered view of findings (severity + text filter).
-	// Store in r.filteredFindings so the key handler can look up the correct
-	// finding on Enter without re-deriving the filter independently.
+	// Apply filter: build a filtered view of findings (severity + text filter),
+	// sorted by severity (Critical first). Store in r.filteredFindings so the
+	// key handler can look up the correct finding on Enter.
 	var filtered []finding.Finding
 	needle := strings.ToLower(r.findingFilter)
 	for _, f := range r.findings {
@@ -4497,16 +4522,45 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 		}
 		filtered = append(filtered, f)
 	}
+	// Sort descending by severity so Critical appears first.
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Severity > filtered[j].Severity
+	})
 	r.filteredFindings = filtered
-	total := len(filtered)
 
-	// Clamp cursor.
+	// Build visual rows: inject a severity-group header at each boundary.
+	var rows []findingsRow
+	lastSev := finding.Severity(-1)
+	for i, f := range filtered {
+		if f.Severity != lastSev {
+			rows = append(rows, findingsRow{isHeader: true, severity: f.Severity})
+			lastSev = f.Severity
+		}
+		rows = append(rows, findingsRow{idx: i})
+	}
+	r.findingsRows = rows
+	total := len(rows)
+
+	// Clamp cursor and ensure it lands on a finding row, not a header.
 	if total == 0 {
 		r.findingsCursor = 0
-	} else if r.findingsCursor >= total {
-		r.findingsCursor = total - 1
-	} else if r.findingsCursor < 0 {
-		r.findingsCursor = 0
+	} else {
+		if r.findingsCursor >= total {
+			r.findingsCursor = total - 1
+		} else if r.findingsCursor < 0 {
+			r.findingsCursor = 0
+		}
+		// Advance past any header at current position.
+		for r.findingsCursor < total && rows[r.findingsCursor].isHeader {
+			r.findingsCursor++
+		}
+		if r.findingsCursor >= total {
+			// Fell off end — step back to last finding row.
+			r.findingsCursor = total - 1
+			for r.findingsCursor > 0 && rows[r.findingsCursor].isHeader {
+				r.findingsCursor--
+			}
+		}
 	}
 
 	// Keep scroll window centered on cursor.
@@ -4542,43 +4596,51 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 		sevLabel = fmt.Sprintf("  \x1b[33m[min: %s]\x1b[0m\x1b[90m", strings.ToUpper(r.minSeverity.String()))
 	}
 
+	// Count real findings (non-header rows) for display.
+	nFindings := len(filtered)
+
 	// Header — hints change depending on filter state.
 	if r.findingFilterMode {
 		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  %d total\x1b[0m\n", sevLabel, len(r.findings))
 	} else if r.findingFilter != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  filter: %s  [Esc] clear  %d/%d\x1b[0m\n", sevLabel, r.findingFilter, total, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  filter: %s  [Esc] clear  %d/%d\x1b[0m\n", sevLabel, r.findingFilter, nFindings, len(r.findings))
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [1-5] sev  [f/q] back  %d shown\x1b[0m\n", sevLabel, total)
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [1-5] sev  [f/q] back  %d shown\x1b[0m\n", sevLabel, nFindings)
 	}
 	lineCount++
 
-	// Finding rows
+	// Visual rows: headers and finding rows interleaved.
 	for i := off; i < end; i++ {
-		f := filtered[i]
-		col := severityColor(f.Severity)
-		sev := strings.ToUpper(string(f.Severity.String()))
-		if len(sev) > 4 {
-			sev = sev[:4]
-		}
-		asset := f.Asset
-		if len(asset) > 30 {
-			asset = "…" + asset[len(asset)-29:]
-		}
-		// Layout: 2(indent) + 4(sev) + 2(gap) + 30(asset) + 2(gap) = 40 fixed chars.
-		// Title gets whatever is left, with a minimum of 20.
-		titleMax := termW - 40
-		if titleMax < 20 {
-			titleMax = 20
-		}
-		title := f.Title
-		if len(title) > titleMax {
-			title = title[:titleMax-1] + "…"
-		}
-		if i == r.findingsCursor {
-			// Highlighted row
-			fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m\n", col, sev, asset, title)
+		row := rows[i]
+		if row.isHeader {
+			col := severityColor(row.severity)
+			label := strings.ToUpper(row.severity.String())
+			fmt.Fprintf(buf, "\x1b[2K\r  %s── %s ──\x1b[0m\n", col, label)
 		} else {
-			fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s\n", col, sev, asset, title)
+			f := filtered[row.idx]
+			col := severityColor(f.Severity)
+			sev := strings.ToUpper(f.Severity.String())
+			if len(sev) > 4 {
+				sev = sev[:4]
+			}
+			asset := f.Asset
+			if len(asset) > 30 {
+				asset = "…" + asset[len(asset)-29:]
+			}
+			// Layout: 2(indent) + 4(sev) + 2(gap) + 30(asset) + 2(gap) = 40 fixed chars.
+			titleMax := termW - 40
+			if titleMax < 20 {
+				titleMax = 20
+			}
+			title := f.Title
+			if len(title) > titleMax {
+				title = title[:titleMax-1] + "…"
+			}
+			if i == r.findingsCursor {
+				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m\n", col, sev, asset, title)
+			} else {
+				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s\n", col, sev, asset, title)
+			}
 		}
 		lineCount++
 	}
