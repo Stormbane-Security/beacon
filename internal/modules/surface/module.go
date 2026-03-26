@@ -1749,6 +1749,12 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Write audit record
 	if m.st != nil && scanRunID != "" {
+		// Persist this asset's findings immediately so they survive if the process
+		// is killed before the scan completes. main.go also calls SaveFindings at
+		// the end — the store must be idempotent on duplicate check_id+asset pairs.
+		if len(findings) > 0 {
+			_ = m.st.SaveFindings(ctx, scanRunID, findings)
+		}
 		playbooks := make([]string, 0, len(matched))
 		for _, p := range matched {
 			playbooks = append(playbooks, p.Name)

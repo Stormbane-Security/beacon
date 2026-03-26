@@ -288,6 +288,8 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE playbook_suggestions ADD COLUMN priority TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE playbook_suggestions ADD COLUMN affected_domains TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE fingerprint_rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+		// Dedup index so per-asset incremental saves + final save don't produce duplicates.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup ON findings(scan_run_id, check_id, asset, title)`,
 	}
 	for _, m := range migrations {
 		_, _ = db.Exec(m) // ignore "duplicate column" errors
@@ -521,8 +523,8 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO findings (id, scan_run_id, check_id, module, scanner, severity,
-		                      title, description, asset, evidence, deep_only, discovered_at)
+		INSERT OR IGNORE INTO findings (id, scan_run_id, check_id, module, scanner, severity,
+		                                title, description, asset, evidence, deep_only, discovered_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
