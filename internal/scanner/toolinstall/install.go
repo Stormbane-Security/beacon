@@ -225,8 +225,55 @@ type ToolStatus struct {
 	Skipped bool // true when the tool is not available on this platform
 }
 
+// EnsureSwaks checks for swaks and installs it via the system package manager.
+// swaks (Swiss Army Knife SMTP) is a Perl-based tool used for SMTP testing and
+// spoofing verification. It is not required at scan time but is used in proof
+// commands so analysts can reproduce email spoofability findings.
+func EnsureSwaks() (string, error) {
+	const bin = "swaks"
+	if path, err := exec.LookPath(bin); err == nil {
+		return path, nil
+	}
+
+	if runtime.GOOS == "darwin" {
+		if brewPath, err := exec.LookPath("brew"); err == nil {
+			fmt.Fprintf(os.Stderr, "beacon: installing swaks via brew...\n")
+			cmd := exec.Command(brewPath, "install", "swaks")
+			cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err == nil {
+				if path, err := exec.LookPath(bin); err == nil {
+					return path, nil
+				}
+			}
+		}
+		return "", fmt.Errorf("swaks not found. Install with: brew install swaks")
+	}
+
+	if runtime.GOOS == "linux" {
+		if aptPath, err := exec.LookPath("apt-get"); err == nil {
+			fmt.Fprintf(os.Stderr, "beacon: installing swaks via apt-get...\n")
+			cmd := exec.Command(aptPath, "install", "-y", "swaks")
+			cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err == nil {
+				if path, err := exec.LookPath(bin); err == nil {
+					return path, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf(
+		"swaks not found. Install instructions:\n" +
+			"  macOS:          brew install swaks\n" +
+			"  Debian/Ubuntu:  sudo apt install swaks\n" +
+			"  Other:          https://jetmore.org/john/code/swaks/",
+	)
+}
+
 // EnsureAll checks and installs every tool beacon depends on.
-// Results are returned in a stable order: Go tools, Python tools, then testssl.
+// Results are returned in a stable order: Go tools, Python tools, then testssl, then swaks.
 // Errors are non-fatal — callers should report them as warnings.
 func EnsureAll() []ToolStatus {
 	var results []ToolStatus
@@ -250,6 +297,14 @@ func EnsureAll() []ToolStatus {
 		results = append(results, ToolStatus{Name: "testssl.sh", Path: path, Err: err})
 	} else {
 		results = append(results, ToolStatus{Name: "testssl.sh", Skipped: true})
+	}
+
+	// swaks — used for email spoofability proof commands
+	if runtime.GOOS != "windows" {
+		path, err := EnsureSwaks()
+		results = append(results, ToolStatus{Name: "swaks", Path: path, Err: err})
+	} else {
+		results = append(results, ToolStatus{Name: "swaks", Skipped: true})
 	}
 
 	return results

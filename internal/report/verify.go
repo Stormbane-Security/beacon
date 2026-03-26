@@ -34,7 +34,7 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckEmailDMARCPolicyNone: "dig TXT _dmarc.{asset} | grep -i 'p='",
 	finding.CheckEmailDKIMMissing:  "dig TXT default._domainkey.{asset}",
 	finding.CheckEmailMTASTSMissing: "dig TXT _mta-sts.{asset}",
-	finding.CheckEmailSpoofable:    "swaks --to test@{asset} --from spoofed@{asset} --server mail.{asset} --header 'Subject: SPF test'",
+	finding.CheckEmailSpoofable:    "dig TXT {asset} | grep -i spf ; echo '---DMARC---' ; dig TXT _dmarc.{asset} | grep -i dmarc\n# Empty output above confirms no SPF + no DMARC = spoofable.\n# To send a live spoofing test (requires swaks, replace YOUR_EMAIL):\n# swaks --to YOUR_EMAIL --from admin@{asset} --header 'Subject: SPF spoofing test'",
 
 	// ── TLS / SSL ────────────────────────────────────────────────────────────
 	finding.CheckTLSCertExpiry7d:        "echo | openssl s_client -connect {asset}:443 2>/dev/null | openssl x509 -noout -dates",
