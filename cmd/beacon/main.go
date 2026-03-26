@@ -3140,8 +3140,9 @@ type progressRenderer struct {
 	findings       []finding.Finding
 	findingsOff    int // scroll offset (first visible row)
 	findingsCursor   int               // highlighted row (index into findingsRows)
-	filteredFindings []finding.Finding // findings after severity+text filter, sorted by severity; rebuilt each frame
-	findingsRows     []findingsRow     // visual rows (headers + finding refs); rebuilt each render frame
+	filteredFindings    []finding.Finding // findings after severity+text filter, sorted by severity; rebuilt each frame
+	filteredFindingsIdx []int             // parallel slice: r.findings index for each entry in filteredFindings
+	findingsRows        []findingsRow     // visual rows (headers + finding refs); rebuilt each render frame
 
 	// Asset roster
 	assets       []liveAsset
@@ -3161,6 +3162,11 @@ type progressRenderer struct {
 
 	// Severity filter: findings below this level are excluded from the live pager
 	minSeverity finding.Severity
+
+	// severityOverrides maps finding index (in r.findings) to a user-adjusted
+	// severity. Pressing [ / ] on a finding bumps its severity without
+	// modifying the underlying scanner output.
+	severityOverrides map[int]finding.Severity
 
 	// findingFilter is the active text filter in the findings pager.
 	findingFilter     string
@@ -3461,6 +3467,36 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.minSeverity = levels[buf[0]-'1']
 				r.findingsOff = 0
 				r.findingsCursor = 0
+			case buf[0] == '[' || buf[0] == ']':
+				// [ / ] bumps the highlighted finding's severity down or up.
+				if len(r.findingsRows) > 0 && r.findingsCursor < len(r.findingsRows) && !r.findingsRows[r.findingsCursor].isHeader {
+					rowIdx := r.findingsRows[r.findingsCursor].idx
+					origIdx := r.filteredFindingsIdx[rowIdx]
+					cur := r.filteredFindings[rowIdx].Severity
+					allSevs := []finding.Severity{
+						finding.SeverityInfo,
+						finding.SeverityLow,
+						finding.SeverityMedium,
+						finding.SeverityHigh,
+						finding.SeverityCritical,
+					}
+					pos := 0
+					for i, s := range allSevs {
+						if s == cur {
+							pos = i
+							break
+						}
+					}
+					if buf[0] == ']' && pos < len(allSevs)-1 {
+						pos++
+					} else if buf[0] == '[' && pos > 0 {
+						pos--
+					}
+					if r.severityOverrides == nil {
+						r.severityOverrides = make(map[int]finding.Severity)
+					}
+					r.severityOverrides[origIdx] = allSevs[pos]
+				}
 			}
 		}
 	case "topology":
@@ -3571,6 +3607,41 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		case isEsc || isEnter:
 			r.mode = r.findingDetailOrigin
 			r.selectedFinding = nil
+		case buf[0] == '[' || buf[0] == ']':
+			// [ / ] bumps the current finding's severity from the detail view too.
+			if r.selectedFinding != nil {
+				// Find the finding in r.findings to get its original index.
+				for origIdx, f := range r.findings {
+					if f.CheckID == r.selectedFinding.CheckID && f.Asset == r.selectedFinding.Asset {
+						cur := r.selectedFinding.Severity
+						allSevs := []finding.Severity{
+							finding.SeverityInfo,
+							finding.SeverityLow,
+							finding.SeverityMedium,
+							finding.SeverityHigh,
+							finding.SeverityCritical,
+						}
+						pos := 0
+						for i, s := range allSevs {
+							if s == cur {
+								pos = i
+								break
+							}
+						}
+						if buf[0] == ']' && pos < len(allSevs)-1 {
+							pos++
+						} else if buf[0] == '[' && pos > 0 {
+							pos--
+						}
+						if r.severityOverrides == nil {
+							r.severityOverrides = make(map[int]finding.Severity)
+						}
+						r.severityOverrides[origIdx] = allSevs[pos]
+						r.selectedFinding.Severity = allSevs[pos]
+						break
+					}
+				}
+			}
 		}
 	case "review":
 		type reviewItemP struct {
@@ -4601,9 +4672,18 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 	// Apply filter: build a filtered view of findings (severity + text filter),
 	// sorted by severity (Critical first). Store in r.filteredFindings so the
 	// key handler can look up the correct finding on Enter.
-	var filtered []finding.Finding
+	// Apply user severity overrides before filtering so bumped-down findings
+	// disappear when they fall below minSeverity.
+	type indexedFinding struct {
+		f   finding.Finding
+		idx int // original index in r.findings
+	}
+	var indexed []indexedFinding
 	needle := strings.ToLower(r.findingFilter)
-	for _, f := range r.findings {
+	for i, f := range r.findings {
+		if ov, ok := r.severityOverrides[i]; ok {
+			f.Severity = ov
+		}
 		if f.Severity < r.minSeverity {
 			continue
 		}
@@ -4613,13 +4693,20 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 				continue
 			}
 		}
-		filtered = append(filtered, f)
+		indexed = append(indexed, indexedFinding{f: f, idx: i})
 	}
 	// Sort descending by severity so Critical appears first.
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].Severity > filtered[j].Severity
+	sort.Slice(indexed, func(i, j int) bool {
+		return indexed[i].f.Severity > indexed[j].f.Severity
 	})
+	filtered := make([]finding.Finding, len(indexed))
+	filteredIdx := make([]int, len(indexed))
+	for i, x := range indexed {
+		filtered[i] = x.f
+		filteredIdx[i] = x.idx
+	}
 	r.filteredFindings = filtered
+	r.filteredFindingsIdx = filteredIdx
 
 	// Build visual rows: inject a severity-group header at each boundary.
 	var rows []findingsRow
@@ -4707,9 +4794,9 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 	if r.findingFilterMode {
 		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	} else if r.findingFilter != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [/] filter: %s  [Esc] clear  [f/q] back  %d/%d\x1b[0m\n", sevSelector, r.findingFilter, nFindings, totalFindings)
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter: %s  [Esc] clear  [f/q] back  %d/%d\x1b[0m\n", sevSelector, r.findingFilter, nFindings, totalFindings)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	}
 	lineCount++
 
@@ -4730,6 +4817,11 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 			asset := f.Asset
 			if len(asset) > 30 {
 				asset = "…" + asset[len(asset)-29:]
+			}
+			// Mark findings with a user-adjusted severity with a small indicator.
+			overrideMarker := ""
+			if _, ok := r.severityOverrides[filteredIdx[row.idx]]; ok {
+				overrideMarker = "\x1b[90m*\x1b[0m"
 			}
 			// Fingerprint badge — compact tech label from asset evidence.
 			badge := ""
@@ -4754,9 +4846,9 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 				title = title[:titleMax-1] + "…"
 			}
 			if i == r.findingsCursor {
-				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m%s\n", col, sev, asset, title, badge)
+				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m%s%s\n", col, sev, asset, title, badge, overrideMarker)
 			} else {
-				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s%s\n", col, sev, asset, title, badge)
+				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s%s%s\n", col, sev, asset, title, badge, overrideMarker)
 			}
 		}
 		lineCount++
@@ -5115,6 +5207,9 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	if wrapWidth < 20 {
 		wrapWidth = 20
 	}
+	if wrapWidth > 100 {
+		wrapWidth = 100
+	}
 
 	if r.selectedFinding == nil {
 		r.mode = "asset_detail"
@@ -5208,17 +5303,17 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 		var locationLines, matchLines, contextLines, otherLines []string
 		for _, k := range locationKeys {
 			if v, ok := f.Evidence[k]; ok && fmt.Sprintf("%v", v) != "" {
-				locationLines = append(locationLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
+				locationLines = append(locationLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		for _, k := range matchKeys {
 			if v, ok := f.Evidence[k]; ok && fmt.Sprintf("%v", v) != "" {
-				matchLines = append(matchLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m\x1b[33m%s\x1b[0m", k+":", formatEvidenceValue(k, v)))
+				matchLines = append(matchLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m\x1b[33m%s\x1b[0m", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		for _, k := range contextKeys {
 			if v, ok := f.Evidence[k]; ok && fmt.Sprintf("%v", v) != "" {
-				contextLines = append(contextLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
+				contextLines = append(contextLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		known := map[string]bool{}
@@ -5227,7 +5322,7 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 		}
 		for k, v := range f.Evidence {
 			if !known[k] && fmt.Sprintf("%v", v) != "" {
-				otherLines = append(otherLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
+				otherLines = append(otherLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		sort.Strings(otherLines)
@@ -5942,6 +6037,17 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 // field value. Multi-line and HTML-heavy values are stripped and capped at 300
 // chars so they don't overflow the terminal.
 func formatEvidenceValue(key string, v any) string {
+	// Render slices as comma-separated strings instead of Go's "[a b c]" format.
+	switch val := v.(type) {
+	case []string:
+		v = strings.Join(val, ", ")
+	case []any:
+		parts := make([]string, len(val))
+		for i, item := range val {
+			parts[i] = fmt.Sprintf("%v", item)
+		}
+		v = strings.Join(parts, ", ")
+	}
 	raw := fmt.Sprintf("%v", v)
 
 	// Strip HTML tags for known snippet keys or when the value looks like HTML.
