@@ -1243,11 +1243,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 
 		switch bs.mode {
 		case browseModeScans:
-			// Dismiss the "stop first" error on any keypress.
+			// Dismiss the "stop first" error on any keypress, but let the key
+			// fall through so 's' can stop the scan in the same press.
 			if bs.deleteBlockedMsg != "" {
 				bs.deleteBlockedMsg = ""
-				browseRender(bs)
-				continue
 			}
 			// Handle confirmation prompts first.
 			if bs.confirmingDelete {
@@ -1348,6 +1347,11 @@ func browseInteractive(cfg *config.Config) browseResult {
 					_ = st.UpdateScanRun(ctx, &sel)
 					bs.scans[bs.scanCursor] = sel
 				}
+				// Reload scan list immediately so the updated status is visible.
+				if updated, err := st.ListRecentScanRuns(ctx, 200); err == nil {
+					bs.scans = updated
+				}
+				browseRender(bs)
 			}
 			// 'p' → pause or resume the selected live job.
 			if b[0] == 'p' && len(bs.scans) > 0 {
@@ -3477,6 +3481,20 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			if r.topoDetailOff > 0 {
 				r.topoDetailOff--
 			}
+		case buf[0] == 'n':
+			// Advance to next host in topology order.
+			if r.topoCursor < len(r.topoHostOrder)-1 {
+				r.topoCursor++
+				r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+				r.topoDetailOff = 0
+			}
+		case buf[0] == 'p':
+			// Go back to previous host in topology order.
+			if r.topoCursor > 0 {
+				r.topoCursor--
+				r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+				r.topoDetailOff = 0
+			}
 		case buf[0] == 'b':
 			r.mode = "topology"
 		}
@@ -3807,8 +3825,38 @@ func (r *progressRenderer) startInputLoop() {
 					if r.topoOff > 0 {
 						r.topoOff--
 					}
+				case isEnter:
+					if len(r.topoHostOrder) > 0 && r.topoCursor < len(r.topoHostOrder) {
+						r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+						r.topoDetailOff = 0
+						r.mode = "topo_detail"
+					}
 				case buf[0] == 't':
 					r.mode = "progress"
+				}
+
+			case "topo_detail":
+				switch {
+				case isDown:
+					r.topoDetailOff++
+				case isUp:
+					if r.topoDetailOff > 0 {
+						r.topoDetailOff--
+					}
+				case buf[0] == 'n':
+					if r.topoCursor < len(r.topoHostOrder)-1 {
+						r.topoCursor++
+						r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+						r.topoDetailOff = 0
+					}
+				case buf[0] == 'p':
+					if r.topoCursor > 0 {
+						r.topoCursor--
+						r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+						r.topoDetailOff = 0
+					}
+				case buf[0] == 'b' || isEsc:
+					r.mode = "topology"
 				}
 
 			case "assets":
@@ -5723,6 +5771,66 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 			section("THIRD-PARTY VENDORS")
 			add("  %s", strings.Join(ev.VendorSignals, ", "))
 		}
+
+		// ── Detection evidence: which response headers drove technology classification ──
+		var reasonLines []string
+		fingerHeaders := []string{
+			"server", "x-powered-by", "via", "x-generator",
+			"x-aspnet-version", "x-aspnetmvc-version",
+			"x-envoy-upstream-service-time", "x-envoy-decorator-operation",
+			"x-kong-request-id", "x-kong-upstream-latency",
+			"x-traefik-request-id",
+			"cf-ray", "cf-cache-status",
+			"x-cache", "x-cache-hits",
+			"x-amz-cf-id", "x-amz-request-id",
+			"x-azure-ref",
+			"fly-request-id", "x-vercel-id", "x-netlify-id",
+			"x-fastly-request-id", "cdn-loop",
+			"x-request-id", "x-correlation-id",
+		}
+		for _, hdr := range fingerHeaders {
+			if val, ok := ev.Headers[hdr]; ok && val != "" {
+				v := val
+				if len(v) > termW-22 {
+					v = v[:termW-25] + "…"
+				}
+				reasonLines = append(reasonLines, fmt.Sprintf("  %-20s %s", hdr+":", v))
+			}
+		}
+		if len(reasonLines) > 0 {
+			section("DETECTION EVIDENCE")
+			for _, l := range reasonLines {
+				add("%s", l)
+			}
+		}
+
+		// ── Remaining response headers (sorted) ──
+		if len(ev.Headers) > 0 {
+			reasonSet := make(map[string]bool)
+			for _, l := range reasonLines {
+				trimmed := strings.TrimLeft(l, " ")
+				if idx := strings.Index(trimmed, ":"); idx >= 0 {
+					reasonSet[trimmed[:idx]] = true
+				}
+			}
+			var extraHdrs []string
+			for k := range ev.Headers {
+				if !reasonSet[k] {
+					extraHdrs = append(extraHdrs, k)
+				}
+			}
+			sort.Strings(extraHdrs)
+			if len(extraHdrs) > 0 {
+				section(fmt.Sprintf("RESPONSE HEADERS  (%d)", len(ev.Headers)))
+				for _, k := range extraHdrs {
+					v := ev.Headers[k]
+					if len(v) > termW-22 {
+						v = v[:termW-25] + "…"
+					}
+					add("  %-20s %s", k+":", v)
+				}
+			}
+		}
 	}
 
 	// ── Open ports ──
@@ -5751,7 +5859,11 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 	}
 
 	drawn := 0
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m  \x1b[90m[j/k] scroll  [b/q] back to topology\x1b[0m\n")
+	posHint := ""
+	if len(r.topoHostOrder) > 1 {
+		posHint = fmt.Sprintf("  \x1b[90m%d/%d", r.topoCursor+1, len(r.topoHostOrder))
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m%s  \x1b[90m[j/k] scroll  [n/p] next/prev  [b] topology\x1b[0m\n", posHint)
 	drawn++
 	for _, l := range visible {
 		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
