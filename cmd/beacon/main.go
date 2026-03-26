@@ -3355,6 +3355,18 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.reviewCursor = 0
 				r.mode = "review"
 			}
+		case buf[0] >= '1' && buf[0] <= '5':
+			// 1-5 adjusts the minimum severity filter from any view.
+			levels := []finding.Severity{
+				finding.SeverityInfo,
+				finding.SeverityLow,
+				finding.SeverityMedium,
+				finding.SeverityHigh,
+				finding.SeverityCritical,
+			}
+			r.minSeverity = levels[buf[0]-'1']
+			r.findingsOff = 0
+			r.findingsCursor = 0
 		}
 	case "findings":
 		if r.findingFilterMode {
@@ -3738,6 +3750,18 @@ func (r *progressRenderer) startInputLoop() {
 						r.reviewCursor = 0
 						r.mode = "review"
 					}
+				case buf[0] >= '1' && buf[0] <= '5':
+					// 1-5 adjusts minimum severity filter from any view.
+					levels := []finding.Severity{
+						finding.SeverityInfo,
+						finding.SeverityLow,
+						finding.SeverityMedium,
+						finding.SeverityHigh,
+						finding.SeverityCritical,
+					}
+					r.minSeverity = levels[buf[0]-'1']
+					r.findingsOff = 0
+					r.findingsCursor = 0
 				}
 
 			case "findings":
@@ -4325,24 +4349,36 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 			bar, pct*100, statusStr, fmtETA(eta))
 	}
 
-	// Line 2: asset count + findings + nav hints (or exit confirm)
+	// Line 2: asset count + findings + nav hints (or exit confirm).
+	// Count findings at or above the active severity filter for accurate display.
+	visFindings := 0
+	for _, f := range r.findings {
+		if f.Severity >= r.minSeverity {
+			visFindings++
+		}
+	}
+	findingsLabel := fmt.Sprintf("\x1b[1m%d findings\x1b[0m", visFindings)
+	if visFindings < len(r.findings) {
+		findingsLabel = fmt.Sprintf("\x1b[1m%d\x1b[0m\x1b[90m/%d\x1b[0m \x1b[1mfindings\x1b[0m \x1b[33m[sev≥%s]\x1b[0m", visFindings, len(r.findings), r.minSeverity.String())
+	}
+	sevHint := "\x1b[90m[1-5] sev  \x1b[0m"
 	if r.confirmingExit {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
-			r.done, r.total, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
+			r.done, r.total, findingsLabel)
 	} else if r.phase == "done" {
 		reviewHint := ""
 		if r.pendingReview != "" {
 			reviewHint = "  \x1b[33m" + r.pendingReview + "\x1b[0m  \x1b[90m[r] review\x1b[0m"
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m%s\n",
-			r.total, len(r.findings), reviewHint)
+		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m%s\n",
+			r.total, findingsLabel, sevHint, reviewHint)
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
-			len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   %s   \x1b[90m%s[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
+			findingsLabel, sevHint)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [q/b] detach  [s] stop\x1b[0m\n",
-			r.done, r.total, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology  [q/b] detach  [s] stop\x1b[0m\n",
+			r.done, r.total, findingsLabel, sevHint)
 	}
 	lineCount := 2
 
@@ -4590,22 +4626,33 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 
 	lineCount := 0
 
-	// Build severity filter label shown in header (omit when showing all).
-	sevLabel := ""
-	if r.minSeverity > finding.SeverityInfo {
-		sevLabel = fmt.Sprintf("  \x1b[33m[min: %s]\x1b[0m\x1b[90m", strings.ToUpper(r.minSeverity.String()))
+	// Build severity selector shown in header — always visible so user knows
+	// why findings might be hidden and how to change it.
+	// Format: [1]all [2]low [3]med [4]high [5]crit  with current level highlighted.
+	sevNames := []string{"all", "low+", "med+", "high+", "crit"}
+	var sevParts []string
+	for i, name := range sevNames {
+		key := i + 1
+		sev := finding.Severity(i) // SeverityInfo=0 → key 1, etc.
+		if sev == r.minSeverity {
+			sevParts = append(sevParts, fmt.Sprintf("\x1b[0m\x1b[1;33m[%d]%s\x1b[0m\x1b[90m", key, name))
+		} else {
+			sevParts = append(sevParts, fmt.Sprintf("[%d]%s", key, name))
+		}
 	}
+	sevSelector := "\x1b[90m" + strings.Join(sevParts, " ") + "\x1b[0m"
 
 	// Count real findings (non-header rows) for display.
 	nFindings := len(filtered)
+	totalFindings := len(r.findings)
 
 	// Header — hints change depending on filter state.
 	if r.findingFilterMode {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  %d total\x1b[0m\n", sevLabel, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	} else if r.findingFilter != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  filter: %s  [Esc] clear  %d/%d\x1b[0m\n", sevLabel, r.findingFilter, nFindings, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [/] filter: %s  [Esc] clear  [f/q] back  %d/%d\x1b[0m\n", sevSelector, r.findingFilter, nFindings, totalFindings)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [1-5] sev  [f/q] back  %d shown\x1b[0m\n", sevLabel, nFindings)
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	}
 	lineCount++
 
