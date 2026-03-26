@@ -35,7 +35,7 @@ type Scanner struct {
 func New(githubToken string) *Scanner {
 	return &Scanner{
 		token:      githubToken,
-		httpClient: &http.Client{Timeout: 20 * time.Second},
+		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 

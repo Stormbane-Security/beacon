@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -75,7 +76,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	_ = cmd.Run() // ignore exit code — katana may exit non-zero on partial crawls
+	if err := cmd.Run(); err != nil {
+		// katana may exit non-zero on partial crawls (e.g. timeout, TLS errors).
+		// Log the exit code for debugging but continue processing any output.
+		slog.Debug("katana exited with non-zero status", "asset", asset, "error", err,
+			"stderr", strings.TrimSpace(stderr.String()))
+	}
 
 	// Parse discovered URLs — one per line
 	seen := make(map[string]struct{})

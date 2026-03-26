@@ -78,14 +78,13 @@ var dlpPatterns = []pattern{
 		"Ethereum private key",
 		regexp.MustCompile(`(?i)(?:private[_\s]?key|privateKey)["\s]*[:=]["\s]*(?:0x)?[0-9a-fA-F]{64}`),
 	},
-	// Possible crypto seed phrase — 12 to 24 consecutive short lowercase words.
-	// BIP-39 mnemonics consist of 12 or 24 words from a fixed wordlist; this
-	// pattern catches sequences of 12+ lowercase alphabetical tokens which are
-	// uncommon in normal prose at that length.
+	// Possible crypto seed phrase — 12 to 24 consecutive short lowercase words in a
+	// labelled context. The label (seed/mnemonic/recovery) anchors the pattern to
+	// actual key material; without it any 12-word English sentence would trigger.
 	{
 		finding.CheckDLPAPIKey,
 		"Possible crypto seed phrase",
-		regexp.MustCompile(`\b[a-z]{3,8}(?:\s+[a-z]{3,8}){11,23}\b`),
+		regexp.MustCompile(`(?i)(?:seed[_\s-]?phrase|mnemonic|recovery[_\s-]?(?:phrase|words?)|wallet[_\s-]?words?)["\s]*[:=]["'\s]+(?:[a-z]{3,8}\s+){11,23}[a-z]{3,8}`),
 	},
 	// EVM contract/wallet address — 0x followed by exactly 40 hex chars.
 	// Only flag when the address appears in a sensitive context (assigned to a
@@ -221,6 +220,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		if p.checkID == finding.CheckDLPSSN && !validSSN(match) {
 			continue
 		}
+		// For credit cards: require the number to pass the Luhn checksum.
+		// This eliminates version strings, serial numbers, and random digit sequences.
+		if p.checkID == finding.CheckDLPCreditCard && !luhn(match) {
+			continue
+		}
 		redacted := redact(match)
 		findings = append(findings, finding.Finding{
 			CheckID:  p.checkID,
@@ -336,6 +340,10 @@ func scanPath(ctx context.Context, client *http.Client, asset, url string, alrea
 		if match == "" {
 			continue
 		}
+		// Generic API Key pattern is broad — skip obvious documentation placeholders.
+		if p.label == "Generic API Key" && isPlaceholderAPIKey(match) {
+			continue
+		}
 		alreadySeen[k] = true
 		redacted := redact(match)
 		findings = append(findings, finding.Finding{
@@ -411,6 +419,71 @@ func validSSN(s string) bool {
 		return false
 	}
 	return true
+}
+
+// luhn returns true when the digit-only string passes the Luhn checksum.
+// Used to filter credit card regex matches that are structurally valid but not
+// real card numbers (e.g. formatted version strings, serial numbers).
+func luhn(s string) bool {
+	var digits []int
+	for _, ch := range s {
+		if ch >= '0' && ch <= '9' {
+			digits = append(digits, int(ch-'0'))
+		}
+	}
+	n := len(digits)
+	if n < 13 {
+		return false
+	}
+	sum := 0
+	for i, d := range digits {
+		if (n-i)%2 == 0 { // double every second digit from the right
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+	}
+	return sum%10 == 0
+}
+
+// isPlaceholderAPIKey returns true when the value portion of a matched API key
+// looks like a documentation placeholder rather than a real credential.
+// Catches strings like "xxxxxxxxxxxxxxxxxxxx", "your_api_key_here", "REPLACE_ME".
+func isPlaceholderAPIKey(match string) bool {
+	// Extract the value after the last = or :
+	idx := strings.LastIndexAny(match, "=:")
+	val := match
+	if idx >= 0 && idx < len(match)-1 {
+		val = strings.Trim(match[idx+1:], `"' `+"`")
+	}
+	if len(val) == 0 {
+		return true
+	}
+	valLower := strings.ToLower(val)
+	// Common placeholder patterns
+	placeholders := []string{"your", "replace", "insert", "changeme", "example", "sample", "placeholder", "xxx", "todo", "fixme", "redacted"}
+	for _, p := range placeholders {
+		if strings.Contains(valLower, p) {
+			return true
+		}
+	}
+	// Uniform-character strings (e.g. "xxxxxxxxxxxxxxxxxxxx" or "0000000000000000000")
+	if len(val) >= 8 {
+		first := val[0]
+		allSame := true
+		for i := 1; i < len(val); i++ {
+			if val[i] != first {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			return true
+		}
+	}
+	return false
 }
 
 // redact replaces the middle 60% of a matched string with asterisks
