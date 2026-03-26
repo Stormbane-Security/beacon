@@ -825,10 +825,6 @@ type liveJob struct {
 	paused  bool
 	pauseCh chan struct{} // non-nil when paused; close to resume
 
-	// externalRunning is true for scans started outside this process that are
-	// still in running/pending state. The done channel is never closed for
-	// these; the browse ticker periodically reloads findings from the DB.
-	externalRunning bool
 }
 
 func (j *liveJob) Stop() { j.cancel() }
@@ -1299,11 +1295,6 @@ func browseInteractive(cfg *config.Config) browseResult {
 					attachJob(bs, job)
 				} else {
 					job := historicalJob(ctx, st, sel, "findings")
-					// No live goroutine backs this job — treat orphaned running/pending as done.
-					if job.externalRunning {
-						close(job.done)
-						job.externalRunning = false
-					}
 					attachJob(bs, job)
 				}
 				// Render immediately instead of waiting for the 500ms ticker.
@@ -1323,10 +1314,6 @@ func browseInteractive(cfg *config.Config) browseResult {
 					attachJob(bs, job)
 				} else {
 					job := historicalJob(ctx, st, sel, "assets")
-					if job.externalRunning {
-						close(job.done)
-						job.externalRunning = false
-					}
 					attachJob(bs, job)
 				}
 				// Render immediately instead of waiting for the 500ms ticker.
@@ -1772,10 +1759,11 @@ func loadHistoricalScan(ctx context.Context, st interface {
 }
 
 // historicalJob wraps a DB scan run in a liveJob so it can be attached to the
-// browse TUI. For completed/failed/stopped runs the done channel is closed
-// immediately so the renderer shows phase "done". For running/pending runs the
-// done channel is left open and externalRunning is set so the browse ticker can
-// poll for new findings without the attach loop immediately detaching.
+// browse TUI. The done channel is intentionally never closed: the ticker's
+// done-channel check is only meant to auto-detach when a live scan goroutine
+// finishes. For historical scans (completed, stopped, failed, orphaned running)
+// there is no goroutine, so we leave done open and let the user navigate back
+// manually with 'b' or 'q'.
 func historicalJob(ctx context.Context, st interface {
 	GetFindings(context.Context, string) ([]finding.Finding, error)
 	ListAssetExecutions(context.Context, string) ([]store.AssetExecution, error)
@@ -1783,20 +1771,13 @@ func historicalJob(ctx context.Context, st interface {
 	r := loadHistoricalScan(ctx, st, run)
 	r.mode = initialMode
 
-	doneCh := make(chan struct{})
-	extRunning := run.Status == store.StatusRunning || run.Status == store.StatusPending
-	if !extRunning {
-		close(doneCh)
-	}
-
 	return &liveJob{
-		runID:           run.ID,
-		domain:          run.Domain,
-		scanType:        string(run.ScanType),
-		cancel:          func() {},
-		renderer:        r,
-		done:            doneCh,
-		externalRunning: extRunning,
+		runID:    run.ID,
+		domain:   run.Domain,
+		scanType: string(run.ScanType),
+		cancel:   func() {},
+		renderer: r,
+		done:     make(chan struct{}), // never closed; user navigates back manually
 	}
 }
 
