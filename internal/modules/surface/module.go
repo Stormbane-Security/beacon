@@ -427,7 +427,6 @@ func New(cfg Config) (*Module, error) {
 }
 
 func (m *Module) Name() string                       { return "surface" }
-func (m *Module) Tier() module.PricingTier           { return module.TierFree }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputDomain} }
 
 // isDeepOrAuthorized returns true for ScanDeep and ScanAuthorized.

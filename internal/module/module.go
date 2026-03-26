@@ -6,16 +6,6 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 )
 
-// PricingTier controls which modules a user can run.
-type PricingTier int
-
-const (
-	TierFree    PricingTier = iota // Surface passive scan
-	TierBasic                      // + GitHub/CI
-	TierPro                        // + IaC
-	TierPremium                    // + Cloud + Kubernetes
-)
-
 // InputType declares what kind of input a module requires.
 type InputType string
 
@@ -43,9 +33,6 @@ const (
 type Module interface {
 	// Name returns the stable module identifier (e.g., "surface", "github").
 	Name() string
-
-	// Tier returns the minimum pricing tier required to run this module.
-	Tier() PricingTier
 
 	// RequiredInputs returns the input types this module needs populated.
 	RequiredInputs() []InputType

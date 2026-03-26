@@ -27,7 +27,6 @@ func New(githubToken string) *Module {
 }
 
 func (m *Module) Name() string                       { return "github" }
-func (m *Module) Tier() module.PricingTier           { return module.TierBasic }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputGitHub} }
 
 // Run scans the GitHub org/repo specified in input for Actions workflow issues

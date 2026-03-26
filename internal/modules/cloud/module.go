@@ -14,7 +14,6 @@ type Module struct{}
 func New() *Module { return &Module{} }
 
 func (m *Module) Name() string                       { return "cloud" }
-func (m *Module) Tier() module.PricingTier           { return module.TierPremium }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputCloud} }
 
 func (m *Module) Run(_ context.Context, _ module.Input, _ module.ScanType) ([]finding.Finding, error) {
