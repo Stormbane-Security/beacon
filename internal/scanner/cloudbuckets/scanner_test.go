@@ -119,7 +119,7 @@ func TestProbeURL_PublicBucket_CriticalFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-backup", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-backup", "", time.Now())
 	if f == nil {
 		t.Fatal("expected a finding for HTTP 200 response (public bucket), got nil")
 	}
@@ -137,7 +137,7 @@ func TestProbeURL_PrivateBucket_InfoFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "GCS", "example-private", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "GCS", "example-private", "", time.Now())
 	if f == nil {
 		t.Fatal("expected a finding for HTTP 403 response (private bucket exists), got nil")
 	}
@@ -155,7 +155,7 @@ func TestProbeURL_NotFound_NoFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "Azure Blob", "nonexistent", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "Azure Blob", "nonexistent", "", time.Now())
 	if f != nil {
 		t.Errorf("expected nil finding for 404 response, got %+v", f)
 	}
@@ -167,7 +167,7 @@ func TestProbeURL_301Redirect_NoFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-redir", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-redir", "", time.Now())
 	if f != nil {
 		t.Errorf("expected nil finding for 301 response, got %+v", f)
 	}
