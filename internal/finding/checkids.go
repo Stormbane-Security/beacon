@@ -266,13 +266,16 @@ const (
 	CheckGHActionSelfHostedPublic CheckID = "ghaction.self_hosted_on_public_repo"
 
 	// GitHub Actions — workflow behavior gaps
-	CheckGHActionWorkflowRunUnsafe      CheckID = "ghaction.workflow_run_unsafe"
-	CheckGHActionGitHubEnvInjection     CheckID = "ghaction.github_env_injection"
-	CheckGHActionSecretsInherit         CheckID = "ghaction.secrets_inherit"
-	CheckGHActionInsecureCommands       CheckID = "ghaction.insecure_commands"
-	CheckGHActionBotConditionSpoofable  CheckID = "ghaction.bot_condition_spoofable"
-	CheckGHActionArtiPacked             CheckID = "ghaction.artipacked"
-	CheckGHActionCachePoisoning         CheckID = "ghaction.cache_poisoning"
+	CheckGHActionWorkflowRunUnsafe           CheckID = "ghaction.workflow_run_unsafe"
+	CheckGHActionGitHubEnvInjection          CheckID = "ghaction.github_env_injection"
+	CheckGHActionSecretsInherit              CheckID = "ghaction.secrets_inherit"
+	CheckGHActionInsecureCommands            CheckID = "ghaction.insecure_commands"
+	CheckGHActionBotConditionSpoofable       CheckID = "ghaction.bot_condition_spoofable"
+	CheckGHActionArtiPacked                  CheckID = "ghaction.artipacked"
+	CheckGHActionCachePoisoning              CheckID = "ghaction.cache_poisoning"
+	CheckGHActionUnsignedRelease             CheckID = "ghaction.unsigned_release_artifacts"
+	CheckGHActionReusableWorkflowUnpinned    CheckID = "ghaction.reusable_workflow_unpinned"
+	CheckGHActionWorkflowDispatchInjection   CheckID = "ghaction.workflow_dispatch_injection"
 
 	// GitHub Actions — OIDC vs long-lived credential checks
 	CheckGHActionAWSLongLivedKey        CheckID = "ghaction.aws_long_lived_key"
@@ -301,6 +304,12 @@ const (
 	CheckGitHubActionsUnrestricted     CheckID = "github.actions_unrestricted"
 	CheckGitHubWebhookNoSecret         CheckID = "github.webhook_no_secret"
 	CheckGitHubOrgMFANotRequired       CheckID = "github.org_mfa_not_required"
+
+	// GitHub repository configuration — additional security controls
+	CheckGitHubNoPushProtection       CheckID = "github.no_push_protection"
+	CheckGitHubNoSignedCommits        CheckID = "github.no_signed_commits"
+	CheckGitHubNoRequiredStatusChecks CheckID = "github.no_required_status_checks"
+	CheckGitHubNoDependencyReview     CheckID = "github.no_dependency_review"
 
 	// GitHub secret/key leaks in source code
 	CheckGitHubSecretInCode            CheckID = "github.secret_in_code"
@@ -988,8 +997,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGHActionSecretsInherit:        {CheckGHActionSecretsInherit, SeverityMedium, ModeSurface},
 	CheckGHActionInsecureCommands:      {CheckGHActionInsecureCommands, SeverityHigh, ModeSurface},
 	CheckGHActionBotConditionSpoofable: {CheckGHActionBotConditionSpoofable, SeverityMedium, ModeSurface},
-	CheckGHActionArtiPacked:            {CheckGHActionArtiPacked, SeverityHigh, ModeSurface},
-	CheckGHActionCachePoisoning:        {CheckGHActionCachePoisoning, SeverityHigh, ModeSurface},
+	CheckGHActionArtiPacked:                 {CheckGHActionArtiPacked, SeverityHigh, ModeSurface},
+	CheckGHActionCachePoisoning:             {CheckGHActionCachePoisoning, SeverityHigh, ModeSurface},
+	CheckGHActionUnsignedRelease:            {CheckGHActionUnsignedRelease, SeverityMedium, ModeSurface},
+	CheckGHActionReusableWorkflowUnpinned:   {CheckGHActionReusableWorkflowUnpinned, SeverityMedium, ModeSurface},
+	CheckGHActionWorkflowDispatchInjection:  {CheckGHActionWorkflowDispatchInjection, SeverityCritical, ModeSurface},
 	// GitHub Actions — OIDC
 	CheckGHActionAWSLongLivedKey:       {CheckGHActionAWSLongLivedKey, SeverityHigh, ModeSurface},
 	CheckGHActionGCPServiceAccountKey:  {CheckGHActionGCPServiceAccountKey, SeverityHigh, ModeSurface},
@@ -1012,6 +1024,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGitHubActionsUnrestricted:    {CheckGitHubActionsUnrestricted, SeverityMedium, ModeSurface},
 	CheckGitHubWebhookNoSecret:        {CheckGitHubWebhookNoSecret, SeverityHigh, ModeSurface},
 	CheckGitHubOrgMFANotRequired:      {CheckGitHubOrgMFANotRequired, SeverityCritical, ModeSurface},
+	CheckGitHubNoPushProtection:       {CheckGitHubNoPushProtection, SeverityHigh, ModeSurface},
+	CheckGitHubNoSignedCommits:        {CheckGitHubNoSignedCommits, SeverityLow, ModeSurface},
+	CheckGitHubNoRequiredStatusChecks: {CheckGitHubNoRequiredStatusChecks, SeverityMedium, ModeSurface},
+	CheckGitHubNoDependencyReview:     {CheckGitHubNoDependencyReview, SeverityMedium, ModeSurface},
 	// GitHub secret leaks
 	CheckGitHubSecretInCode:           {CheckGitHubSecretInCode, SeverityCritical, ModeSurface},
 	CheckGitHubPrivateKeyInRepo:       {CheckGitHubPrivateKeyInRepo, SeverityCritical, ModeSurface},

@@ -334,3 +334,174 @@ jobs:
 		t.Fatalf("expected no findings for GitHub-hosted runner, got %d", len(findings))
 	}
 }
+
+// -------------------------------------------------------------------------
+// Artifact signing tests
+// -------------------------------------------------------------------------
+
+func TestArtifactSigning_ReleaseMissingSign(t *testing.T) {
+	yaml := `
+on:
+  release:
+    types: [published]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goreleaser/goreleaser@v1
+`
+	findings := checkArtifactSigning(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected unsigned_release_artifacts finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionUnsignedRelease {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestArtifactSigning_WithCosign_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  release:
+    types: [published]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sigstore/cosign-installer@v3
+      - uses: goreleaser/goreleaser@v1
+`
+	findings := checkArtifactSigning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when cosign is present, got %d", len(findings))
+	}
+}
+
+func TestArtifactSigning_NoPushTrigger_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: goreleaser/goreleaser@v1
+`
+	findings := checkArtifactSigning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-release trigger, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Reusable workflow pinning tests
+// -------------------------------------------------------------------------
+
+func TestReusableWorkflow_Unpinned_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: myorg/myrepo/.github/workflows/ci.yml@v2
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected reusable_workflow_unpinned finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionReusableWorkflowUnpinned {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestReusableWorkflow_PinnedToSHA_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: myorg/myrepo/.github/workflows/ci.yml@abcdef1234567890abcdef1234567890abcdef12
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for SHA-pinned reusable workflow, got %d", len(findings))
+	}
+}
+
+func TestReusableWorkflow_LocalWorkflow_NoFinding(t *testing.T) {
+	// Local reusable workflows (./.github/workflows/…) are not external supply-chain risk.
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: ./.github/workflows/shared.yml
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local reusable workflow, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// workflow_dispatch injection tests
+// -------------------------------------------------------------------------
+
+func TestWorkflowDispatchInjection_Detected(t *testing.T) {
+	yaml := `
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: git checkout ${{ inputs.branch }}
+`
+	findings := checkWorkflowDispatchInjection(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected workflow_dispatch_injection finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionWorkflowDispatchInjection {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("unexpected severity %v, want Critical", findings[0].Severity)
+	}
+}
+
+func TestWorkflowDispatchInjection_SafeEnvVar_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          BRANCH: ${{ inputs.branch }}
+        run: git checkout "$BRANCH"
+`
+	findings := checkWorkflowDispatchInjection(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when input is via env var, got %d", len(findings))
+	}
+}
+
+func TestWorkflowDispatchInjection_NoPushTrigger_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ inputs.branch }}
+`
+	// No workflow_dispatch trigger, so inputs.* injection check should not fire.
+	findings := checkWorkflowDispatchInjection(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-dispatch trigger, got %d", len(findings))
+	}
+}

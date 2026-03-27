@@ -57,6 +57,25 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		all = append(all, checkRepoConfig(repoMeta, repoSlug)...)
 	}
 
+	// Vulnerability alerts.
+	vulnAlertsEnabled, _ := s.vulnAlertsEnabled(ctx, owner, repo)
+	if !vulnAlertsEnabled {
+		all = append(all, finding.Finding{
+			CheckID:  finding.CheckGitHubNoVulnAlerts,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repoSlug,
+			Title:    "Dependabot vulnerability alerts are disabled",
+			Description: "Dependabot vulnerability alerts are not enabled for this repository. " +
+				"Vulnerability alerts notify you when a dependency with a known CVE is detected " +
+				"in your dependency graph, allowing you to update or remediate before the vulnerability " +
+				"is exploited. Enable them under Settings > Code security and analysis > Dependabot alerts.",
+			Evidence:     map[string]any{"vulnerability_alerts": "disabled"},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	// Branch protection on the default branch.
 	if repoMeta.DefaultBranch != "" {
 		bp, err := s.getBranchProtection(ctx, owner, repo, repoMeta.DefaultBranch)
@@ -105,8 +124,16 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		})
 	}
 
-	// SAST: look for CodeQL workflow.
-	hasSAST, _ := s.hasWorkflowWithPattern(ctx, owner, repo, "codeql")
+	// SAST: look for CodeQL, Semgrep, Snyk, Trivy, Grype, Checkov, or TruffleHog in workflows.
+	// These are the most common SAST/SCA/secrets scanning tools used in GitHub Actions.
+	sastTools := []string{"codeql", "semgrep", "snyk", "trivy", "grype", "checkov", "trufflehog", "gitleaks", "sonarqube", "sonarcloud"}
+	hasSAST := false
+	for _, tool := range sastTools {
+		if found, _ := s.hasWorkflowWithPattern(ctx, owner, repo, tool); found {
+			hasSAST = true
+			break
+		}
+	}
 	if !hasSAST {
 		all = append(all, finding.Finding{
 			CheckID:  finding.CheckGitHubNoSAST,
@@ -114,15 +141,81 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 			Scanner:  scannerName,
 			Severity: finding.SeverityMedium,
 			Asset:    repoSlug,
-			Title:    "No SAST workflow detected (CodeQL or equivalent)",
-			Description: "No workflow file containing CodeQL or a similar SAST tool was found. Static " +
-				"application security testing automatically detects common vulnerability classes " +
-				"(SQL injection, XSS, path traversal, etc.) in pull requests before they merge. " +
-				"Enable GitHub Code Scanning with CodeQL via the Security tab, or add a workflow " +
-				"using github/codeql-action.",
-			Evidence:     map[string]any{"missing": "codeql or sast workflow"},
+			Title:    "No SAST or security scanning workflow detected",
+			Description: "No workflow file containing a SAST or security scanning tool was found " +
+				"(checked for: CodeQL, Semgrep, Snyk, Trivy, Grype, Checkov, TruffleHog, Gitleaks, " +
+				"SonarQube, SonarCloud). Static analysis automatically detects vulnerability classes " +
+				"(SQL injection, XSS, path traversal, secrets in code) in pull requests before they " +
+				"merge. Enable GitHub Code Scanning or add a security workflow for your stack.",
+			Evidence:     map[string]any{"missing": "no sast/sca/secrets-scanning workflow found"},
 			DiscoveredAt: time.Now(),
 		})
+	}
+
+	// Dependency review: look for actions/dependency-review-action in PR workflows.
+	hasDependencyReview, _ := s.hasWorkflowWithPattern(ctx, owner, repo, "dependency-review")
+	if !hasDependencyReview {
+		all = append(all, finding.Finding{
+			CheckID:  finding.CheckGitHubNoDependencyReview,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repoSlug,
+			Title:    "No dependency review action in PR workflows",
+			Description: "No workflow using actions/dependency-review-action was found. The dependency " +
+				"review action blocks pull requests that introduce dependencies with known vulnerabilities " +
+				"or license violations — before the dependency is merged. Without it, vulnerable " +
+				"dependencies can be introduced silently. Add a pull_request workflow using " +
+				"actions/dependency-review-action.",
+			Evidence:     map[string]any{"missing": "actions/dependency-review-action"},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Default workflow token permissions (requires token).
+	if s.token != "" {
+		if wp, err := s.getWorkflowPermissions(ctx, owner, repo); err == nil {
+			if wp.DefaultWorkflowPermissions == "write" {
+				all = append(all, finding.Finding{
+					CheckID:  finding.CheckGitHubDefaultTokenWrite,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Asset:    repoSlug,
+					Title:    "Default GITHUB_TOKEN permission is read-write",
+					Description: "The repository default workflow token permission is set to 'write', " +
+						"granting every workflow job write access to contents, packages, and other scopes " +
+						"unless explicitly restricted. This violates the principle of least privilege: " +
+						"a compromised workflow step or injected action can push code, create releases, " +
+						"or modify repository settings. Set the default to 'read' under " +
+						"Settings > Actions > Workflow permissions, then add explicit write permissions " +
+						"per job with a `permissions:` block.",
+					Evidence:     map[string]any{"default_workflow_permissions": "write"},
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+
+		// Actions allowed policy.
+		if ap, err := s.getActionsPermissions(ctx, owner, repo); err == nil {
+			if ap.AllowedActions == "all" {
+				all = append(all, finding.Finding{
+					CheckID:  finding.CheckGitHubActionsUnrestricted,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityMedium,
+					Asset:    repoSlug,
+					Title:    "All GitHub Actions are permitted (no allow-list)",
+					Description: "The repository allows all GitHub Actions to run without restriction. " +
+						"An attacker who compromises or creates an action can be used in a workflow " +
+						"without any gate. Restrict allowed actions to GitHub-owned actions and a " +
+						"curated list of trusted third-party actions under " +
+						"Settings > Actions > General > Allow actions and reusable workflows.",
+					Evidence:     map[string]any{"allowed_actions": "all"},
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
 	}
 
 	// Scan top-level and common paths for .env files and secrets.
@@ -180,6 +273,15 @@ type ghRepoMeta struct {
 	DeleteBranchOnMerge bool `json:"delete_branch_on_merge"`
 }
 
+type ghActionsPermissions struct {
+	AllowedActions string `json:"allowed_actions"` // "all", "local_only", "selected"
+}
+
+type ghWorkflowPermissions struct {
+	DefaultWorkflowPermissions   string `json:"default_workflow_permissions"` // "read" or "write"
+	CanApprovePullRequestReviews bool   `json:"can_approve_pull_request_reviews"`
+}
+
 func (s *Scanner) getRepoMeta(ctx context.Context, owner, repo string) (ghRepoMeta, error) {
 	body, err := s.apiGet(ctx, fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo))
 	if err != nil {
@@ -193,7 +295,6 @@ func (s *Scanner) getRepoMeta(ctx context.Context, owner, repo string) (ghRepoMe
 func checkRepoConfig(meta ghRepoMeta, repoSlug string) []finding.Finding {
 	var findings []finding.Finding
 
-	// Secret scanning check (only available for private repos on GitHub Advanced Security).
 	if meta.SecurityAndAnalysis.SecretScanning.Status == "disabled" {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckGitHubNoSecretScanning,
@@ -211,6 +312,24 @@ func checkRepoConfig(meta ghRepoMeta, repoSlug string) []finding.Finding {
 		})
 	}
 
+	if meta.SecurityAndAnalysis.SecretScanningPushProtection.Status == "disabled" {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitHubNoPushProtection,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    repoSlug,
+			Title:    "Secret scanning push protection is disabled",
+			Description: "Push protection is not enabled for this repository. Without push protection, " +
+				"secrets can be committed and pushed to the repository before GitHub's secret scanning " +
+				"alerts fire — the secret is already in history by the time the alert is sent. " +
+				"Push protection blocks the push at the point of git push, before any secret reaches " +
+				"the remote. Enable it under Settings > Code security and analysis > Secret scanning > Push protection.",
+			Evidence:     map[string]any{"push_protection": "disabled"},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings
 }
 
@@ -219,12 +338,22 @@ type ghBranchProtection struct {
 		RequiredApprovingReviewCount int  `json:"required_approving_review_count"`
 		DismissStaleReviews          bool `json:"dismiss_stale_reviews"`
 	} `json:"required_pull_request_reviews"`
+	RequiredStatusChecks *struct {
+		Strict   bool     `json:"strict"`
+		Contexts []string `json:"contexts"`
+		Checks   []struct {
+			Context string `json:"context"`
+		} `json:"checks"`
+	} `json:"required_status_checks"`
 	EnforceAdmins struct {
 		Enabled bool `json:"enabled"`
 	} `json:"enforce_admins"`
 	AllowForcePushes struct {
 		Enabled bool `json:"enabled"`
 	} `json:"allow_force_pushes"`
+	RequireSignedCommits *struct {
+		Enabled bool `json:"enabled"`
+	} `json:"required_signatures"`
 }
 
 func (s *Scanner) getBranchProtection(ctx context.Context, owner, repo, branch string) (ghBranchProtection, error) {
@@ -271,6 +400,59 @@ func checkBranchProtection(bp ghBranchProtection, branch, repoSlug string) []fin
 					"reviewers, a single developer can merge unreviewed code to the production branch. "+
 					"Require at least 1 approving review and enable dismiss stale reviews.", branch),
 			Evidence:     map[string]any{"branch": branch, "required_reviews": 0},
+			DiscoveredAt: time.Now(),
+		})
+	} else if bp.RequiredPullRequestReviews != nil && !bp.RequiredPullRequestReviews.DismissStaleReviews {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitHubNoBranchProtection,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityLow,
+			Asset:    repoSlug,
+			Title:    fmt.Sprintf("Stale reviews not dismissed on branch %q", branch),
+			Description: fmt.Sprintf(
+				"Branch %q requires PR reviews but does not dismiss stale approvals when new commits "+
+					"are pushed. An approved PR can have malicious code added after approval, and the "+
+					"approval remains valid. Enable 'Dismiss stale pull request approvals when new commits "+
+					"are pushed' in branch protection settings.", branch),
+			Evidence:     map[string]any{"branch": branch, "dismiss_stale_reviews": false},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Required status checks gate CI on merge.
+	if bp.RequiredStatusChecks == nil || (len(bp.RequiredStatusChecks.Contexts) == 0 && len(bp.RequiredStatusChecks.Checks) == 0) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitHubNoRequiredStatusChecks,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repoSlug,
+			Title:    fmt.Sprintf("No required CI status checks on branch %q", branch),
+			Description: fmt.Sprintf(
+				"Branch %q does not require any CI status checks to pass before merging. Without "+
+					"required status checks, broken code and failing tests can be merged to the default "+
+					"branch. Add required status checks for your CI workflow jobs under branch protection settings.", branch),
+			Evidence:     map[string]any{"branch": branch, "required_status_checks": "none"},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Signed commits.
+	if bp.RequireSignedCommits == nil || !bp.RequireSignedCommits.Enabled {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitHubNoSignedCommits,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityLow,
+			Asset:    repoSlug,
+			Title:    fmt.Sprintf("Signed commits not required on branch %q", branch),
+			Description: fmt.Sprintf(
+				"Branch %q does not require signed commits. Without commit signing, anyone with write "+
+					"access can commit as any author identity — there is no cryptographic link between "+
+					"a commit and the developer who made it. Enable required signed commits to ensure "+
+					"all commits are verified with GPG or SSH keys.", branch),
+			Evidence:     map[string]any{"branch": branch, "require_signed_commits": false},
 			DiscoveredAt: time.Now(),
 		})
 	}
@@ -640,6 +822,51 @@ func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	return data, err
+}
+
+// vulnAlertsEnabled returns true if Dependabot vulnerability alerts are enabled.
+// The API returns 204 when enabled, 404 when disabled.
+func (s *Scanner) vulnAlertsEnabled(ctx context.Context, owner, repo string) (bool, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/vulnerability-alerts", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if s.token != "" {
+		req.Header.Set("Authorization", "token "+s.token)
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusNoContent, nil
+}
+
+// getWorkflowPermissions returns the default GITHUB_TOKEN permissions for workflows.
+func (s *Scanner) getWorkflowPermissions(ctx context.Context, owner, repo string) (ghWorkflowPermissions, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/permissions/workflow", owner, repo)
+	body, err := s.apiGet(ctx, url)
+	if err != nil {
+		return ghWorkflowPermissions{}, err
+	}
+	var wp ghWorkflowPermissions
+	err = json.Unmarshal(body, &wp)
+	return wp, err
+}
+
+// getActionsPermissions returns the actions allowed policy for the repository.
+func (s *Scanner) getActionsPermissions(ctx context.Context, owner, repo string) (ghActionsPermissions, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/actions/permissions", owner, repo)
+	body, err := s.apiGet(ctx, url)
+	if err != nil {
+		return ghActionsPermissions{}, err
+	}
+	var ap ghActionsPermissions
+	err = json.Unmarshal(body, &ap)
+	return ap, err
 }
 
 func splitOwnerRepo(target string) (owner, repo string, ok bool) {

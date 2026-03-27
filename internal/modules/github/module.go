@@ -1,7 +1,8 @@
 // Package github implements the GitHub/CI scan module.
 // It scans GitHub organisations and repositories for Actions workflow
-// security misconfigurations using the ghactions scanner, and for
-// repository/org configuration issues using the ghrepo scanner.
+// security misconfigurations using the ghactions scanner, for
+// repository/org configuration issues using the ghrepo scanner, and for
+// organisation-level settings using the ghorg scanner.
 package github
 
 import (
@@ -11,6 +12,7 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
 	"github.com/stormbane/beacon/internal/scanner/ghactions"
+	"github.com/stormbane/beacon/internal/scanner/ghorg"
 	"github.com/stormbane/beacon/internal/scanner/ghrepo"
 )
 
@@ -47,7 +49,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	}
 	all = append(all, actionsFindings...)
 
-	// Repository and org configuration checks.
+	// Repository configuration checks.
 	repoScanner := ghrepo.New(m.token)
 	repoFindings, err := repoScanner.Run(ctx, target, scanType)
 	if err != nil {
@@ -56,6 +58,11 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		return all, fmt.Errorf("github module (repo): %w", err)
 	}
 	all = append(all, repoFindings...)
+
+	// Organisation-level checks (MFA, actions policy, default token permissions).
+	orgScanner := ghorg.New(m.token)
+	orgFindings, _ := orgScanner.Run(ctx, input.GitHubOrg, scanType)
+	all = append(all, orgFindings...)
 
 	return all, nil
 }

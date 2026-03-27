@@ -87,6 +87,13 @@ var dlpPatterns = []pattern{
 		"Possible crypto seed phrase",
 		regexp.MustCompile(`(?i)(?:seed[_\s-]?phrase|mnemonic|recovery[_\s-]?(?:phrase|words?)|wallet[_\s-]?words?)["\s]*[:=]["'\s]+(?:[a-z]{3,8}\s+){11,23}[a-z]{3,8}`),
 	},
+	// GitHub tokens in page bodies — all token prefixes that indicate live credentials.
+	// ghs_ (App installation token) is highest privilege — org-wide scope.
+	{
+		finding.CheckDLPAPIKey,
+		"GitHub token",
+		regexp.MustCompile(`(?:ghp_|github_pat_|ghs_|gho_|ghu_)[0-9a-zA-Z_]{36,82}`),
+	},
 	// EVM contract/wallet address — 0x followed by exactly 40 hex chars.
 	// Only flag when the address appears in a sensitive context (assigned to a
 	// variable or returned in a JSON field) to avoid matching benign hex values
@@ -104,7 +111,11 @@ var dlpPatterns = []pattern{
 var apiKeyPatterns = []pattern{
 	{finding.CheckDLPAPIKey, "AWS Access Key ID", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
 	{finding.CheckDLPAPIKey, "AWS Secret Access Key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `\s]*[=:]\s*['"` + "`" + `]?[0-9a-zA-Z/+]{40}`)},
-	{finding.CheckDLPAPIKey, "GitHub Token", regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub classic PAT (ghp_)", regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub fine-grained PAT (github_pat_)", regexp.MustCompile(`github_pat_[0-9a-zA-Z_]{82}`)},
+	{finding.CheckDLPAPIKey, "GitHub App installation token (ghs_)", regexp.MustCompile(`ghs_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub OAuth token (gho_)", regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub user-to-server token (ghu_)", regexp.MustCompile(`ghu_[0-9a-zA-Z]{36}`)},
 	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
 	{finding.CheckDLPAPIKey, "Google API Key", regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`)},
 	{finding.CheckDLPAPIKey, "OpenAI API Key", regexp.MustCompile(`sk-[A-Za-z0-9]{48}`)},
