@@ -170,6 +170,23 @@ func (c *Classifier) Classify(ctx context.Context, ev *playbook.Evidence) (*Clas
 	if err != nil {
 		return nil, fmt.Errorf("aifp.Classify: parse: %w", err)
 	}
+
+	// Boost confidence for proposed rules whose predicted value agrees with what
+	// deterministic rules already established in ev. Agreement = the AI is
+	// confirming something the rule engine already knows, which is strong signal
+	// that the rule is correct. Also escalate the overall confidence tier when
+	// enough rules are confirmed.
+	confirmed := 0
+	for i := range result.ProposedRules {
+		if deterministicConfirms(&result.ProposedRules[i], ev) {
+			result.ProposedRules[i].Confidence = min(1.0, result.ProposedRules[i].Confidence*1.15)
+			confirmed++
+		}
+	}
+	if confirmed >= 2 && result.Confidence == "medium" {
+		result.Confidence = "high"
+	}
+
 	if c.st != nil {
 		// Persist proposed fingerprint rules.
 		for i := range result.ProposedRules {
@@ -564,4 +581,32 @@ func nonEmpty(ss ...string) []string {
 		}
 	}
 	return out
+}
+
+// deterministicConfirms returns true when the proposed rule's predicted value
+// matches a field that deterministic fingerprinting already established in ev.
+// This means the AI and deterministic rules agree — strong signal the rule is correct.
+func deterministicConfirms(r *store.FingerprintRule, ev *playbook.Evidence) bool {
+	if r.Value == "" {
+		return false
+	}
+	switch r.Field {
+	case "framework":
+		return ev.Framework != "" && strings.EqualFold(ev.Framework, r.Value)
+	case "proxy_type":
+		return ev.ProxyType != "" && strings.EqualFold(ev.ProxyType, r.Value)
+	case "cloud_provider":
+		return ev.CloudProvider != "" && strings.EqualFold(ev.CloudProvider, r.Value)
+	case "auth_system":
+		return ev.AuthSystem != "" && strings.EqualFold(ev.AuthSystem, r.Value)
+	case "infra_layer":
+		return ev.InfraLayer != "" && strings.EqualFold(ev.InfraLayer, r.Value)
+	case "backend_services":
+		for _, s := range ev.BackendServices {
+			if strings.EqualFold(s, r.Value) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -1367,9 +1367,16 @@ func (s *Store) UpsertFingerprintRule(ctx context.Context, r *store.FingerprintR
 		ON CONFLICT(signal_type, signal_key, signal_value, field) DO UPDATE SET
 			value = excluded.value,
 			source = CASE WHEN source = 'builtin' THEN source ELSE excluded.source END,
-			status = CASE WHEN status = 'rejected' THEN status ELSE excluded.status END,
 			confidence = MAX(confidence, excluded.confidence),
-			seen_count = seen_count + 1`,
+			seen_count = seen_count + 1,
+			status = CASE
+				WHEN status = 'rejected' THEN status
+				WHEN status = 'pending'
+				     AND (seen_count + 1) >= 3
+				     AND MAX(confidence, excluded.confidence) >= 0.85
+				     THEN 'active'
+				ELSE status
+			END`,
 		r.SignalType, r.SignalKey, r.SignalValue, r.Field, r.Value,
 		r.Source, r.Status, r.Confidence, r.SeenCount, time.Now())
 	return err

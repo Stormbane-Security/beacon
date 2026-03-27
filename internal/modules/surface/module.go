@@ -1219,8 +1219,13 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	// Apply database-driven fingerprint rules to fill any remaining gaps.
+	// Track which rules fired so SeenCount stays accurate across scans.
 	if len(m.fingerprintRules) > 0 {
-		fingerprintdb.Apply(m.fingerprintRules, &ev)
+		if matched := fingerprintdb.Apply(m.fingerprintRules, &ev); m.st != nil {
+			for _, id := range matched {
+				_ = m.st.IncrementFingerprintRuleSeen(ctx, id)
+			}
+		}
 	}
 
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
