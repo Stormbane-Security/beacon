@@ -592,3 +592,218 @@ jobs:
 		t.Fatalf("expected no findings for non-dispatch trigger, got %d", len(findings))
 	}
 }
+
+// -------------------------------------------------------------------------
+// CI/CD bypass checks
+// -------------------------------------------------------------------------
+
+func TestIssueCommentUnsafe_Detected(t *testing.T) {
+	yaml := `
+on: issue_comment
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.issue.pull_request.head.sha }}
+      - run: make test
+`
+	findings := checkIssueCommentUnsafe(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for issue_comment + head.sha checkout, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionIssueCommentUnsafe {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestIssueCommentUnsafe_SafeRef_NoFinding(t *testing.T) {
+	// issue_comment but checks out main branch, not PR head
+	yaml := `
+on: issue_comment
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: echo "safe"
+`
+	findings := checkIssueCommentUnsafe(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for issue_comment without PR checkout, got %d", len(findings))
+	}
+}
+
+func TestWorkflowAutoMerge_Detected(t *testing.T) {
+	yaml := `
+on: check_suite
+  completed:
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr merge --auto --squash ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+`
+	findings := checkWorkflowAutoMerge(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for gh pr merge, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionAutoMerge {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("expected Critical severity, got %v", findings[0].Severity)
+	}
+}
+
+func TestWorkflowAutoMerge_NoMatch_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "no merge here"
+`
+	findings := checkWorkflowAutoMerge(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestWorkflowAutoApprove_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr review --approve ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+`
+	findings := checkWorkflowAutoApprove(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for gh pr review --approve, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionAutoApprove {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestScheduledWrite_Detected(t *testing.T) {
+	yaml := `
+on:
+  schedule:
+    - cron: '0 0 * * *'
+permissions:
+  contents: write
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make release
+`
+	findings := checkScheduledWritePermissions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for scheduled + write, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionScheduledWrite {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestScheduledWrite_ReadOnly_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  schedule:
+    - cron: '0 0 * * *'
+permissions:
+  contents: read
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "read only"
+`
+	findings := checkScheduledWritePermissions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for scheduled + read only, got %d", len(findings))
+	}
+}
+
+func TestMissingJobTimeout_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make build
+`
+	findings := checkMissingJobTimeout(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for missing timeout-minutes, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionMissingJobTimeout {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestMissingJobTimeout_Set_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - run: make build
+`
+	findings := checkMissingJobTimeout(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when timeout-minutes is set, got %d", len(findings))
+	}
+}
+
+func TestContinueOnErrorSecurity_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@main
+        continue-on-error: true
+        with:
+          scan-type: fs
+`
+	findings := checkContinueOnErrorSecurity(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for security step with continue-on-error, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionContinueOnErrorSecurity {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestContinueOnErrorSecurity_NonSecurityStep_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        continue-on-error: true
+`
+	findings := checkContinueOnErrorSecurity(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-security step with continue-on-error, got %d", len(findings))
+	}
+}

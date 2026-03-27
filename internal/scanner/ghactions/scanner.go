@@ -96,6 +96,13 @@ func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanTy
 		all = append(all, checkReusableWorkflowPinning(content, repoSlug)...)
 		all = append(all, checkWorkflowDispatchInjection(content, repoSlug)...)
 		all = append(all, checkKnownCompromisedActions(content, repoSlug)...)
+		// CI/CD safety-bypass checks
+		all = append(all, checkIssueCommentUnsafe(content, repoSlug)...)
+		all = append(all, checkWorkflowAutoMerge(content, repoSlug)...)
+		all = append(all, checkWorkflowAutoApprove(content, repoSlug)...)
+		all = append(all, checkScheduledWritePermissions(content, repoSlug)...)
+		all = append(all, checkMissingJobTimeout(content, repoSlug)...)
+		all = append(all, checkContinueOnErrorSecurity(content, repoSlug)...)
 	}
 
 	// Deep mode: query the GitHub Advisory Database for any actions advisories

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -270,6 +271,26 @@ func isStaticURL(rawURL string) bool {
 	return staticExtensions[strings.ToLower(path.Ext(p))]
 }
 
+// urlBelongsToAsset returns true when rawURL's host is the asset domain or a
+// subdomain of it. asset is the bare domain/host (e.g. "example.com" or
+// "sub.example.com:8443"). External URLs must not be fetched without separate
+// authorization from the operator.
+func urlBelongsToAsset(rawURL, asset string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname() // strips port
+	// Normalise asset to bare hostname too (strip port if present).
+	assetHost := asset
+	if h, _, ok := strings.Cut(asset, ":"); ok {
+		assetHost = h
+	}
+	assetHost = strings.ToLower(assetHost)
+	host = strings.ToLower(host)
+	return host == assetHost || strings.HasSuffix(host, "."+assetHost)
+}
+
 // emailPattern is used separately for count-based detection.
 var emailPattern = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
 
@@ -308,6 +329,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 				for u := range feedCh {
 					if isStaticURL(u) {
+						continue
+					}
+					// Only scan URLs that belong to the target domain.
+					// Katana follows external links by default; fetching third-party
+					// domains without explicit authorization is out of scope.
+					if !urlBelongsToAsset(u, asset) {
 						continue
 					}
 					select {

@@ -278,6 +278,21 @@ const (
 	CheckGHActionWorkflowDispatchInjection   CheckID = "ghaction.workflow_dispatch_injection"
 	CheckGHActionKnownCompromised            CheckID = "ghaction.known_compromised_action"
 
+	// GitHub Actions — CI/CD safety bypass patterns
+	// These checks catch workflows that deliberately circumvent the PR review
+	// and branch protection controls GitHub provides as safety guardrails.
+	CheckGHActionIssueCommentUnsafe       CheckID = "ghaction.issue_comment_unsafe"       // issue_comment + PR checkout = RCE
+	CheckGHActionAutoMerge               CheckID = "ghaction.workflow_auto_merge"          // workflow merges PRs — bypasses branch protection
+	CheckGHActionAutoApprove             CheckID = "ghaction.workflow_auto_approve"        // workflow approves its own PRs — bypasses required reviews
+	CheckGHActionScheduledWrite          CheckID = "ghaction.scheduled_write_permissions"  // scheduled trigger + write access = unmanned code changes
+	CheckGHActionMissingJobTimeout       CheckID = "ghaction.missing_job_timeout"          // no timeout-minutes — workflow can run indefinitely
+	CheckGHActionContinueOnErrorSecurity CheckID = "ghaction.continue_on_error_security"  // security step with continue-on-error: true
+
+	// GitHub repository configuration — additional hardening
+	CheckGitHubNoCodeowners          CheckID = "github.no_codeowners"           // no CODEOWNERS file — critical paths unprotected
+	CheckGitHubNoTagProtection       CheckID = "github.no_tag_protection"       // tags can be created/moved/deleted by any contributor
+	CheckGitHubNoEnvProtection       CheckID = "github.no_environment_protection" // deployment environments without required reviewers
+
 	// GitHub Actions — OIDC vs long-lived credential checks
 	CheckGHActionAWSLongLivedKey        CheckID = "ghaction.aws_long_lived_key"
 	CheckGHActionGCPServiceAccountKey   CheckID = "ghaction.gcp_service_account_key"
@@ -1004,6 +1019,17 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGHActionReusableWorkflowUnpinned:   {CheckGHActionReusableWorkflowUnpinned, SeverityMedium, ModeSurface},
 	CheckGHActionWorkflowDispatchInjection:  {CheckGHActionWorkflowDispatchInjection, SeverityCritical, ModeSurface},
 	CheckGHActionKnownCompromised:           {CheckGHActionKnownCompromised, SeverityCritical, ModeSurface},
+	// GitHub Actions — CI/CD safety bypass
+	CheckGHActionIssueCommentUnsafe:       {CheckGHActionIssueCommentUnsafe, SeverityCritical, ModeSurface},
+	CheckGHActionAutoMerge:               {CheckGHActionAutoMerge, SeverityCritical, ModeSurface},
+	CheckGHActionAutoApprove:             {CheckGHActionAutoApprove, SeverityHigh, ModeSurface},
+	CheckGHActionScheduledWrite:          {CheckGHActionScheduledWrite, SeverityHigh, ModeSurface},
+	CheckGHActionMissingJobTimeout:       {CheckGHActionMissingJobTimeout, SeverityMedium, ModeSurface},
+	CheckGHActionContinueOnErrorSecurity: {CheckGHActionContinueOnErrorSecurity, SeverityMedium, ModeSurface},
+	// GitHub repo hardening
+	CheckGitHubNoCodeowners:    {CheckGitHubNoCodeowners, SeverityMedium, ModeSurface},
+	CheckGitHubNoTagProtection: {CheckGitHubNoTagProtection, SeverityMedium, ModeSurface},
+	CheckGitHubNoEnvProtection: {CheckGitHubNoEnvProtection, SeverityHigh, ModeSurface},
 	// GitHub Actions — OIDC
 	CheckGHActionAWSLongLivedKey:       {CheckGHActionAWSLongLivedKey, SeverityHigh, ModeSurface},
 	CheckGHActionGCPServiceAccountKey:  {CheckGHActionGCPServiceAccountKey, SeverityHigh, ModeSurface},

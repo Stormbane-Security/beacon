@@ -218,6 +218,80 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		}
 	}
 
+	// CODEOWNERS: protects critical paths from unauthorised changes.
+	hasCodeowners := false
+	for _, path := range []string{"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"} {
+		if ok, _ := s.fileExists(ctx, owner, repo, path); ok {
+			hasCodeowners = true
+			break
+		}
+	}
+	if !hasCodeowners {
+		all = append(all, finding.Finding{
+			CheckID:  finding.CheckGitHubNoCodeowners,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repoSlug,
+			Title:    "No CODEOWNERS file found",
+			Description: "No CODEOWNERS file was found at CODEOWNERS, .github/CODEOWNERS, or docs/CODEOWNERS. " +
+				"CODEOWNERS automatically assigns required reviewers to pull requests that modify sensitive " +
+				"files (e.g. .github/workflows/, deployment scripts, auth code, infrastructure config). " +
+				"Without it, any contributor with merge access can modify critical paths without the " +
+				"correct domain expert reviewing the change. Add a CODEOWNERS file and enable the " +
+				"'Require review from code owners' branch protection option.",
+			Evidence:     map[string]any{"missing": "CODEOWNERS"},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Tag protection rules: prevent supply-chain attacks via tag hijacking.
+	if s.token != "" {
+		tagRules, _ := s.getTagProtectionRules(ctx, owner, repo)
+		if len(tagRules) == 0 {
+			all = append(all, finding.Finding{
+				CheckID:  finding.CheckGitHubNoTagProtection,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityMedium,
+				Asset:    repoSlug,
+				Title:    "No tag protection rules configured",
+				Description: "No tag protection rules are configured. Any contributor with push access can " +
+					"create, overwrite, or delete release tags. This enables supply-chain attacks: a " +
+					"compromised contributor can move a stable release tag (e.g. v1.2.3) to a malicious " +
+					"commit, affecting every downstream user who pins that tag. " +
+					"Add tag protection rules under Settings > Tags to restrict who can create or modify tags.",
+				Evidence:     map[string]any{"tag_protection_rules": 0},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+
+	// Deployment environment protection: production deploys should require approval.
+	if s.token != "" {
+		envs, _ := s.getEnvironments(ctx, owner, repo)
+		for _, env := range envs {
+			if env.Protection.RequiredReviewers == 0 {
+				all = append(all, finding.Finding{
+					CheckID:  finding.CheckGitHubNoEnvProtection,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Asset:    repoSlug,
+					Title:    fmt.Sprintf("Deployment environment %q has no required reviewers", env.Name),
+					Description: fmt.Sprintf(
+						"The deployment environment %q has no required reviewer protection. "+
+							"Any workflow that targets this environment can deploy to it without human "+
+							"approval, even from an unreviewed branch. This removes the human gate before "+
+							"production deployments. Add required reviewers to the environment under "+
+							"Settings > Environments > %s > Required reviewers.", env.Name, env.Name),
+					Evidence:     map[string]any{"environment": env.Name, "required_reviewers": 0},
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+	}
+
 	// Scan top-level and common paths for .env files and secrets.
 	all = append(all, s.scanForSecrets(ctx, owner, repo, repoSlug)...)
 
@@ -912,6 +986,72 @@ func (s *Scanner) getActionsPermissions(ctx context.Context, owner, repo string)
 	var ap ghActionsPermissions
 	err = json.Unmarshal(body, &ap)
 	return ap, err
+}
+
+// ghTagProtectionRule is one rule returned by the tag protection API.
+type ghTagProtectionRule struct {
+	ID      int    `json:"id"`
+	Pattern string `json:"pattern"`
+}
+
+// getTagProtectionRules returns the configured tag protection rules for the repo.
+// The endpoint returns 404 when no rules are configured (or the feature is unavailable).
+func (s *Scanner) getTagProtectionRules(ctx context.Context, owner, repo string) ([]ghTagProtectionRule, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/tags/protection", owner, repo)
+	body, err := s.apiGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	var rules []ghTagProtectionRule
+	err = json.Unmarshal(body, &rules)
+	return rules, err
+}
+
+// ghEnvironmentProtection holds the reviewer count for a deployment environment.
+type ghEnvironmentProtection struct {
+	RequiredReviewers int `json:"required_reviewers"`
+}
+
+// ghEnvironment is a single deployment environment entry.
+type ghEnvironment struct {
+	Name       string                  `json:"name"`
+	Protection ghEnvironmentProtection `json:"-"` // populated via separate API call
+}
+
+// ghEnvironmentsResponse is the list-environments API response wrapper.
+type ghEnvironmentsResponse struct {
+	Environments []struct {
+		Name                  string `json:"name"`
+		ProtectionRules       []struct {
+			Type      string `json:"type"`       // "required_reviewers", "wait_timer", etc.
+			Reviewers []any  `json:"reviewers"`
+		} `json:"protection_rules"`
+	} `json:"environments"`
+}
+
+// getEnvironments returns all deployment environments for the repo along with
+// their protection rule status.
+func (s *Scanner) getEnvironments(ctx context.Context, owner, repo string) ([]ghEnvironment, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/environments", owner, repo)
+	body, err := s.apiGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	var resp ghEnvironmentsResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	var envs []ghEnvironment
+	for _, e := range resp.Environments {
+		env := ghEnvironment{Name: e.Name}
+		for _, rule := range e.ProtectionRules {
+			if rule.Type == "required_reviewers" {
+				env.Protection.RequiredReviewers = len(rule.Reviewers)
+			}
+		}
+		envs = append(envs, env)
+	}
+	return envs, nil
 }
 
 func splitOwnerRepo(target string) (owner, repo string, ok bool) {

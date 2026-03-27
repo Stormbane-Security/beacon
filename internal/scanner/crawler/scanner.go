@@ -9,7 +9,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +37,20 @@ func New(bin string) *Scanner {
 
 func (s *Scanner) Name() string { return scannerName }
 
+// urlOnDomain returns true when rawURL's host equals asset or is a subdomain of
+// it. asset is the bare hostname passed to Run (e.g. "example.com"). This
+// prevents the DLP feed from receiving third-party URLs that katana discovers
+// while following external links.
+func urlOnDomain(rawURL, asset string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	base := strings.ToLower(strings.SplitN(asset, ":", 2)[0]) // strip port if present
+	return host == base || strings.HasSuffix(host, "."+base)
+}
+
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	resolvedBin, err := toolinstall.Ensure(s.bin)
 	if err != nil {
@@ -42,6 +58,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	target := "https://" + asset
+
+	// Scope regex: restrict katana to the target domain and its subdomains.
+	// This prevents katana from following external links and crawling third-party
+	// sites that the operator has not authorized. The DLP feed filter is a second
+	// layer of defence, but limiting katana's scope avoids fetching those pages
+	// at all, saving bandwidth and preventing unintended contact.
+	bareAsset := strings.SplitN(asset, ":", 2)[0] // strip port if present
+	scopeRegex := `.*` + regexp.QuoteMeta(bareAsset) + `.*`
 
 	// Surface: shallow crawl — depth 2, 8 req/s, 2 concurrent, cap 100 pages.
 	// Deep: deeper crawl with JS rendering — depth 3, 3 req/s, 2 concurrent, cap 200 pages.
@@ -65,6 +89,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		"-max-response-size", "2",           // 2MB max per response
 		"-known-files", "all",               // check robots.txt, sitemap.xml
 		"-robots",                           // respect robots.txt Disallow rules
+		"-cs", scopeRegex,                   // restrict crawl to target domain only
 	}
 	args = append(args, extraArgs...)
 
@@ -113,13 +138,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		seen[u] = struct{}{}
 		endpoints = append(endpoints, u)
 
-		// Non-blocking send: drop if the consumer is behind rather than stalling
-		// the stdout reader (which would cause katana to block on its write).
-		if feedCh != nil {
+		// Non-blocking send: only forward URLs that belong to the target domain.
+		// Katana follows external links by default; the DLP side-goroutine must
+		// not fetch third-party domains without separate operator authorization.
+		if feedCh != nil && urlOnDomain(u, asset) {
 			select {
 			case feedCh <- u:
 			default:
-				// DLP is busy — continue; the URL is still in endpoints for the finding.
+				// DLP is busy — continue; URL is still in endpoints for the finding.
 			}
 		}
 	}

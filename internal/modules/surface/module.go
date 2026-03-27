@@ -454,6 +454,18 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	var allFindings []finding.Finding
 	var mu sync.Mutex
 
+	// unconfirmedAssets collects IPs and hostnames whose ownership by rootDomain
+	// could not be automatically confirmed.  Surface scans still run against
+	// them (passive observation is always safe); deep scans require the operator
+	// to type an explicit confirmation in the TUI before they are allowed.
+	var unconfirmedAssets []module.DiscoveredAsset
+	var unconfirmedMu sync.Mutex
+	addUnconfirmed := func(a module.DiscoveredAsset) {
+		unconfirmedMu.Lock()
+		unconfirmedAssets = append(unconfirmedAssets, a)
+		unconfirmedMu.Unlock()
+	}
+
 	appendFindings := func(fs []finding.Finding) {
 		if len(fs) == 0 {
 			return
@@ -653,22 +665,54 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// them to the asset list so they receive the full classify + playbook +
 	// portscan treatment. Without this step, BGP-discovered hosts would only
 	// appear as findings but never be scanned.
+	//
+	// Ownership verification: BGP discovers every IP in the ASN, which may
+	// include unrelated tenants on shared infrastructure.  We run passive
+	// confirmation (PTR + TLS SAN) before treating an IP as in-scope.
+	// Unconfirmed IPs still get a surface scan (unsolicited observation is
+	// always safe) but are flagged for the operator to review before a deep
+	// scan is allowed.
 	for _, f := range bgpFindings {
 		switch f.CheckID {
 		case finding.CheckASNIPService:
 			if ip, ok := f.Evidence["ip"].(string); ok && ip != "" {
 				if _, alreadySeen := seen[ip]; !alreadySeen {
 					seen[ip] = struct{}{}
-					assets = append(assets, ip)
-					assetSource[ip] = "bgp"
+					assets = append(assets, ip) // surface scan always runs
+					ownership := checkAssetOwnership(ctx, ip, rootDomain)
+					if ownership.Confidence >= AssetConfirmed {
+						assetSource[ip] = "bgp"
+					} else {
+						assetSource[ip] = "bgp_unconfirmed"
+						addUnconfirmed(module.DiscoveredAsset{
+							Asset:         ip,
+							DiscoveredVia: "bgp",
+							Relationship:  fmt.Sprintf("IP in ASN for %s — %s", rootDomain, ownership.Confidence),
+							Confirmed:     ownership.Confidence >= AssetConfirmed,
+							Evidence:      ownership.Evidence,
+							RootDomain:    rootDomain,
+						})
+					}
 				}
 			}
 		case finding.CheckPTRRecord:
 			if hostname, ok := f.Evidence["ptr_name"].(string); ok && hostname != "" {
 				if _, alreadySeen := seen[hostname]; !alreadySeen {
 					seen[hostname] = struct{}{}
-					assets = append(assets, hostname)
-					assetSource[hostname] = "bgp_ptr"
+					assets = append(assets, hostname) // surface scan always runs
+					if ipBelongsToDomain(hostname, rootDomain) {
+						assetSource[hostname] = "bgp_ptr"
+					} else {
+						assetSource[hostname] = "bgp_ptr_unconfirmed"
+						addUnconfirmed(module.DiscoveredAsset{
+							Asset:         hostname,
+							DiscoveredVia: "bgp_ptr",
+							Relationship:  fmt.Sprintf("PTR record for BGP-discovered IP — not a subdomain of %s", rootDomain),
+							Confirmed:     false,
+							Evidence:      []string{fmt.Sprintf("PTR name: %s (does not end in .%s)", hostname, rootDomain)},
+							RootDomain:    rootDomain,
+						})
+					}
 				}
 			}
 		}
@@ -683,8 +727,21 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		for _, ip := range extraIPs {
 			if _, alreadySeen := seen[ip]; !alreadySeen {
 				seen[ip] = struct{}{}
-				assets = append(assets, ip)
-				assetSource[ip] = "cidr"
+				assets = append(assets, ip) // surface scan always runs
+				ownership := checkAssetOwnership(ctx, ip, rootDomain)
+				if ownership.Confidence >= AssetConfirmed {
+					assetSource[ip] = "cidr"
+				} else {
+					assetSource[ip] = "cidr_unconfirmed"
+					addUnconfirmed(module.DiscoveredAsset{
+						Asset:         ip,
+						DiscoveredVia: "cidr",
+						Relationship:  fmt.Sprintf("IP in operator-specified CIDR — %s", ownership.Confidence),
+						Confirmed:     ownership.Confidence >= AssetConfirmed,
+						Evidence:      ownership.Evidence,
+						RootDomain:    rootDomain,
+					})
+				}
 			}
 		}
 	}
@@ -694,12 +751,26 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	if input.Progress != nil {
 		assetsCopy := make([]string, len(assets))
 		copy(assetsCopy, assets)
+		// Emit discovery_done with the full asset list.
 		input.Progress(module.ProgressEvent{
 			Phase:        "discovery_done",
 			AssetsTotal:  len(assets),
 			FindingCount: len(allFindings),
 			AssetNames:   assetsCopy,
 		})
+		// Emit unconfirmed_assets so the TUI can show the Discovered Assets
+		// panel immediately — surface scans for these assets will still arrive
+		// via normal scanner_done events as the scan progresses.
+		if len(unconfirmedAssets) > 0 {
+			unconfirmedMu.Lock()
+			unconfirmedCopy := make([]module.DiscoveredAsset, len(unconfirmedAssets))
+			copy(unconfirmedCopy, unconfirmedAssets)
+			unconfirmedMu.Unlock()
+			input.Progress(module.ProgressEvent{
+				Phase:            "unconfirmed_assets",
+				DiscoveredAssets: unconfirmedCopy,
+			})
+		}
 	}
 
 	// ── Phase 2 & 3: Classify + Execute per asset ────────────────────────────
