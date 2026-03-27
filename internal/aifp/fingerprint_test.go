@@ -483,13 +483,21 @@ func TestBuildClassifyPrompt_TruncatesLongBody(t *testing.T) {
 
 // fakeStore is a minimal store.Store implementation for testing rule persistence.
 type fakeStore struct {
-	upsert func(r *store.FingerprintRule)
+	upsert          func(r *store.FingerprintRule)
+	savePlaybook    func(s *store.PlaybookSuggestion)
 	store.Store // embed to satisfy interface; panics on any other call
 }
 
 func (f *fakeStore) UpsertFingerprintRule(_ context.Context, r *store.FingerprintRule) error {
 	if f.upsert != nil {
 		f.upsert(r)
+	}
+	return nil
+}
+
+func (f *fakeStore) SavePlaybookSuggestion(_ context.Context, s *store.PlaybookSuggestion) error {
+	if f.savePlaybook != nil {
+		f.savePlaybook(s)
 	}
 	return nil
 }
@@ -577,5 +585,594 @@ func TestClassify_ProposedRuleCreatedAt_Set(t *testing.T) {
 	r := result.ProposedRules[0]
 	if r.CreatedAt.Before(before) || r.CreatedAt.After(after) {
 		t.Errorf("rule CreatedAt not set correctly: %v", r.CreatedAt)
+	}
+}
+
+// ── deterministicConfirms ─────────────────────────────────────────────────────
+
+func TestDeterministicConfirms_FrameworkMatch(t *testing.T) {
+	r := &store.FingerprintRule{Field: "framework", Value: "nextjs"}
+	ev := &playbook.Evidence{Framework: "nextjs"}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected match when framework values agree (case-insensitive)")
+	}
+}
+
+func TestDeterministicConfirms_FrameworkCaseInsensitive(t *testing.T) {
+	r := &store.FingerprintRule{Field: "framework", Value: "NextJS"}
+	ev := &playbook.Evidence{Framework: "nextjs"}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected case-insensitive match")
+	}
+}
+
+func TestDeterministicConfirms_FrameworkMismatch(t *testing.T) {
+	r := &store.FingerprintRule{Field: "framework", Value: "rails"}
+	ev := &playbook.Evidence{Framework: "nextjs"}
+	if deterministicConfirms(r, ev) {
+		t.Error("expected no match when framework values differ")
+	}
+}
+
+func TestDeterministicConfirms_FrameworkEmpty(t *testing.T) {
+	r := &store.FingerprintRule{Field: "framework", Value: "nextjs"}
+	ev := &playbook.Evidence{Framework: ""}
+	if deterministicConfirms(r, ev) {
+		t.Error("expected no match when ev.Framework is empty (deterministic didn't identify it)")
+	}
+}
+
+func TestDeterministicConfirms_ProxyType(t *testing.T) {
+	r := &store.FingerprintRule{Field: "proxy_type", Value: "nginx"}
+	ev := &playbook.Evidence{ProxyType: "nginx"}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected match for proxy_type")
+	}
+}
+
+func TestDeterministicConfirms_CloudProvider(t *testing.T) {
+	r := &store.FingerprintRule{Field: "cloud_provider", Value: "aws"}
+	ev := &playbook.Evidence{CloudProvider: "AWS"}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected case-insensitive match for cloud_provider")
+	}
+}
+
+func TestDeterministicConfirms_AuthSystem(t *testing.T) {
+	r := &store.FingerprintRule{Field: "auth_system", Value: "auth0"}
+	ev := &playbook.Evidence{AuthSystem: "auth0"}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected match for auth_system")
+	}
+}
+
+func TestDeterministicConfirms_InfraLayer(t *testing.T) {
+	r := &store.FingerprintRule{Field: "infra_layer", Value: "cdn_edge"}
+	ev := &playbook.Evidence{InfraLayer: "cdn_edge"}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected match for infra_layer")
+	}
+}
+
+func TestDeterministicConfirms_BackendServices_Match(t *testing.T) {
+	r := &store.FingerprintRule{Field: "backend_services", Value: "redis"}
+	ev := &playbook.Evidence{BackendServices: []string{"postgresql", "redis"}}
+	if !deterministicConfirms(r, ev) {
+		t.Error("expected match when value is in BackendServices list")
+	}
+}
+
+func TestDeterministicConfirms_BackendServices_NoMatch(t *testing.T) {
+	r := &store.FingerprintRule{Field: "backend_services", Value: "mongodb"}
+	ev := &playbook.Evidence{BackendServices: []string{"postgresql", "redis"}}
+	if deterministicConfirms(r, ev) {
+		t.Error("expected no match when value not in BackendServices list")
+	}
+}
+
+func TestDeterministicConfirms_EmptyRuleValue(t *testing.T) {
+	r := &store.FingerprintRule{Field: "framework", Value: ""}
+	ev := &playbook.Evidence{Framework: "nextjs"}
+	if deterministicConfirms(r, ev) {
+		t.Error("expected no match when rule Value is empty")
+	}
+}
+
+func TestDeterministicConfirms_UnknownField(t *testing.T) {
+	r := &store.FingerprintRule{Field: "unknown_field", Value: "whatever"}
+	ev := &playbook.Evidence{Framework: "nextjs"}
+	if deterministicConfirms(r, ev) {
+		t.Error("expected no match for unknown field")
+	}
+}
+
+// ── Confidence boost + tier escalation ────────────────────────────────────────
+
+func TestClassify_ConfidenceBoost_AgreementBoostsRule(t *testing.T) {
+	// The AI proposes framework=nextjs; ev already has Framework=nextjs from
+	// deterministic rules. Agreement should boost the rule confidence by 15%.
+	resp := `{
+		"framework": "nextjs",
+		"confidence": "medium",
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-nextjs-cache", "signal_value": "HIT",
+			 "field": "framework", "value": "nextjs", "confidence": 0.80}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{Framework: "nextjs"} // deterministic already identified it
+	result, err := c.Classify(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ProposedRules) == 0 {
+		t.Fatal("expected proposed rules")
+	}
+	boosted := result.ProposedRules[0].Confidence
+	if boosted <= 0.80 {
+		t.Errorf("expected confidence boosted above 0.80, got %.3f", boosted)
+	}
+	// 0.80 * 1.15 = 0.92 — check it's close.
+	want := 0.80 * 1.15
+	if boosted < want-0.001 || boosted > want+0.001 {
+		t.Errorf("expected boosted confidence ~%.3f, got %.3f", want, boosted)
+	}
+}
+
+func TestClassify_ConfidenceBoost_CapAt1(t *testing.T) {
+	// A rule starting at confidence 0.95 should not exceed 1.0 after boost.
+	resp := `{
+		"framework": "rails",
+		"confidence": "high",
+		"proposed_rules": [
+			{"signal_type": "cookie", "signal_value": "_session_id",
+			 "field": "framework", "value": "rails", "confidence": 0.95}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{Framework: "rails"}
+	result, _ := c.Classify(context.Background(), ev)
+	if result.ProposedRules[0].Confidence > 1.0 {
+		t.Errorf("confidence should not exceed 1.0, got %.3f", result.ProposedRules[0].Confidence)
+	}
+}
+
+func TestClassify_TierEscalation_TwoConfirmedRulesPromoteMediumToHigh(t *testing.T) {
+	// Two rules that agree with deterministic findings → medium → high.
+	resp := `{
+		"framework": "django",
+		"proxy_type": "nginx",
+		"confidence": "medium",
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-frame-options", "signal_value": "DENY",
+			 "field": "framework", "value": "django", "confidence": 0.82},
+			{"signal_type": "header", "signal_key": "server", "signal_value": "nginx",
+			 "field": "proxy_type", "value": "nginx", "confidence": 0.85}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{Framework: "django", ProxyType: "nginx"}
+	result, err := c.Classify(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Confidence != "high" {
+		t.Errorf("expected confidence escalated to 'high', got %q", result.Confidence)
+	}
+}
+
+func TestClassify_TierEscalation_OneConfirmedRuleNoEscalation(t *testing.T) {
+	// Only one confirmed rule — stays at medium.
+	resp := `{
+		"framework": "django",
+		"confidence": "medium",
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-frame-options", "signal_value": "DENY",
+			 "field": "framework", "value": "django", "confidence": 0.82}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{Framework: "django"}
+	result, _ := c.Classify(context.Background(), ev)
+	if result.Confidence != "medium" {
+		t.Errorf("expected confidence to stay 'medium' with 1 confirmed rule, got %q", result.Confidence)
+	}
+}
+
+func TestClassify_TierEscalation_AlreadyHighStaysHigh(t *testing.T) {
+	// High confidence is never downgraded by the escalation logic.
+	resp := `{
+		"framework": "nextjs",
+		"confidence": "high",
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-nextjs-cache", "signal_value": "HIT",
+			 "field": "framework", "value": "nextjs", "confidence": 0.9},
+			{"signal_type": "header", "signal_key": "cf-ray", "signal_value": "",
+			 "field": "proxy_type", "value": "cloudflare", "confidence": 0.88}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{Framework: "nextjs", ProxyType: "cloudflare"}
+	result, _ := c.Classify(context.Background(), ev)
+	if result.Confidence != "high" {
+		t.Errorf("expected 'high' to be preserved, got %q", result.Confidence)
+	}
+}
+
+func TestClassify_TierEscalation_LowNeverEscalated(t *testing.T) {
+	// Low confidence is not escalated even with 2+ confirmed rules
+	// (the escalation only applies when base is medium).
+	resp := `{
+		"framework": "nextjs",
+		"confidence": "low",
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-nextjs-cache", "signal_value": "HIT",
+			 "field": "framework", "value": "nextjs", "confidence": 0.9},
+			{"signal_type": "header", "signal_key": "cf-ray", "signal_value": "",
+			 "field": "proxy_type", "value": "cloudflare", "confidence": 0.88}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{Framework: "nextjs", ProxyType: "cloudflare"}
+	result, _ := c.Classify(context.Background(), ev)
+	if result.Confidence != "low" {
+		t.Errorf("expected 'low' to be unchanged, got %q", result.Confidence)
+	}
+}
+
+func TestClassify_NoBoost_WhenNoAgreement(t *testing.T) {
+	// AI proposes framework=nextjs but ev has Framework="" → no deterministic
+	// confirmation → no boost.
+	resp := `{
+		"framework": "nextjs",
+		"confidence": "medium",
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-nextjs-cache", "signal_value": "HIT",
+			 "field": "framework", "value": "nextjs", "confidence": 0.80}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	ev := &playbook.Evidence{} // deterministic found nothing
+	result, _ := c.Classify(context.Background(), ev)
+	if result.ProposedRules[0].Confidence != 0.80 {
+		t.Errorf("expected confidence unchanged at 0.80, got %.3f", result.ProposedRules[0].Confidence)
+	}
+}
+
+// ── buildProposedPlaybook ─────────────────────────────────────────────────────
+
+func TestBuildProposedPlaybook_LowConfidenceReturnsNil(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence:        "low",
+		Framework:         "nextjs",
+		SuggestedScanners: []string{"jwt"},
+	}
+	if buildProposedPlaybook(r) != nil {
+		t.Error("expected nil for low confidence")
+	}
+}
+
+func TestBuildProposedPlaybook_NoTechPartsReturnsNil(t *testing.T) {
+	// All classification fields empty → no meaningful playbook name.
+	r := &ClassifyResult{
+		Confidence:        "high",
+		SuggestedScanners: []string{"jwt"},
+	}
+	if buildProposedPlaybook(r) != nil {
+		t.Error("expected nil when no tech parts resolved")
+	}
+}
+
+func TestBuildProposedPlaybook_NoSuggestedScannersReturnsNil(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence: "high",
+		Framework:  "nextjs",
+		// no suggested scanners
+	}
+	if buildProposedPlaybook(r) != nil {
+		t.Error("expected nil when no suggested scanners")
+	}
+}
+
+func TestBuildProposedPlaybook_LowConfidenceRulesStillProducesPlaybook(t *testing.T) {
+	// Low-confidence proposed rules are excluded from the YAML match conditions,
+	// but the high-level Framework field still produces a framework_contains clause,
+	// so the playbook is not nil.
+	r := &ClassifyResult{
+		Confidence:        "medium",
+		Framework:         "nextjs",
+		SuggestedScanners: []string{"jwt"},
+		Signals:           []string{"x-nextjs header"},
+		Explanation:       "Next.js detected.",
+		ProposedRules: []store.FingerprintRule{
+			{SignalType: "header", SignalKey: "x-nextjs", SignalValue: "HIT",
+				Field: "framework", Value: "nextjs", Confidence: 0.5}, // below 0.75 threshold
+		},
+	}
+	sugg := buildProposedPlaybook(r)
+	if sugg == nil {
+		t.Fatal("expected non-nil: Framework field always produces a match condition")
+	}
+	if !strings.Contains(sugg.SuggestedYAML, "framework_contains") {
+		t.Errorf("expected framework_contains in YAML despite low-confidence rules:\n%s", sugg.SuggestedYAML)
+	}
+}
+
+func TestBuildProposedPlaybook_ValidResult(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence:        "high",
+		Framework:         "nextjs",
+		SuggestedScanners: []string{"jwt", "cors"},
+		Signals:           []string{"x-nextjs-cache header"},
+		Explanation:       "Vercel-hosted Next.js.",
+	}
+	sugg := buildProposedPlaybook(r)
+	if sugg == nil {
+		t.Fatal("expected non-nil suggestion")
+	}
+	if sugg.Status != "pending" {
+		t.Errorf("expected status=pending, got %q", sugg.Status)
+	}
+	if sugg.SuggestionKind != "playbook" {
+		t.Errorf("expected kind=playbook, got %q", sugg.SuggestionKind)
+	}
+	if sugg.Priority != "high" {
+		t.Errorf("expected priority=high, got %q", sugg.Priority)
+	}
+	if sugg.TargetPlaybook != "nextjs" {
+		t.Errorf("expected target=nextjs, got %q", sugg.TargetPlaybook)
+	}
+	if sugg.Type != "new" {
+		t.Errorf("expected type=new, got %q", sugg.Type)
+	}
+	if sugg.SuggestedYAML == "" {
+		t.Error("expected non-empty YAML")
+	}
+	if sugg.Reasoning == "" {
+		t.Error("expected non-empty Reasoning")
+	}
+	if sugg.CreatedAt.IsZero() {
+		t.Error("expected CreatedAt to be set")
+	}
+}
+
+func TestBuildProposedPlaybook_PlaybookNameSanitized(t *testing.T) {
+	// Tech name with spaces/dashes/slashes should be snake_cased.
+	r := &ClassifyResult{
+		Confidence:        "medium",
+		Framework:         "Ruby on Rails",
+		SuggestedScanners: []string{"cors"},
+		Signals:           []string{"x-rails header"},
+		Explanation:       "Ruby on Rails app.",
+	}
+	sugg := buildProposedPlaybook(r)
+	if sugg == nil {
+		t.Fatal("expected non-nil suggestion")
+	}
+	if sugg.TargetPlaybook != "ruby_on_rails" {
+		t.Errorf("expected sanitized name 'ruby_on_rails', got %q", sugg.TargetPlaybook)
+	}
+}
+
+// ── buildPlaybookYAML ─────────────────────────────────────────────────────────
+
+func TestBuildPlaybookYAML_EmptyWhenNoMatchConditions(t *testing.T) {
+	r := &ClassifyResult{} // nothing set
+	yaml := buildPlaybookYAML("unknown", r)
+	if yaml != "" {
+		t.Errorf("expected empty string when no match conditions, got:\n%s", yaml)
+	}
+}
+
+func TestBuildPlaybookYAML_FrameworkMatchCondition(t *testing.T) {
+	r := &ClassifyResult{
+		Framework:         "nextjs",
+		SuggestedScanners: []string{"jwt"},
+		Confidence:        "high",
+		Signals:           []string{"x-nextjs-cache"},
+		Explanation:       "Next.js detected.",
+	}
+	yaml := buildPlaybookYAML("nextjs", r)
+	if !strings.Contains(yaml, `framework_contains: "nextjs"`) {
+		t.Errorf("expected framework_contains in YAML, got:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "surface:") {
+		t.Errorf("expected surface section in YAML, got:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "jwt") {
+		t.Errorf("expected jwt in surface scanners, got:\n%s", yaml)
+	}
+}
+
+func TestBuildPlaybookYAML_DeepOnlyScannerInDeepSection(t *testing.T) {
+	r := &ClassifyResult{
+		Framework:         "nextjs",
+		SuggestedScanners: []string{"ratelimit", "smuggling"}, // deep-only
+		Confidence:        "high",
+		Signals:           []string{"x-nextjs-cache"},
+		Explanation:       "Next.js detected.",
+	}
+	yaml := buildPlaybookYAML("nextjs", r)
+	if !strings.Contains(yaml, "deep:") {
+		t.Errorf("expected deep section for deep-only scanners, got:\n%s", yaml)
+	}
+	// deep-only scanners should NOT appear in surface section.
+	surfaceIdx := strings.Index(yaml, "surface:")
+	deepIdx := strings.Index(yaml, "deep:")
+	if surfaceIdx >= 0 && deepIdx >= 0 && surfaceIdx < deepIdx {
+		surfaceSection := yaml[surfaceIdx:deepIdx]
+		if strings.Contains(surfaceSection, "ratelimit") {
+			t.Error("ratelimit (deep-only) should not appear in surface section")
+		}
+	}
+}
+
+func TestBuildPlaybookYAML_SurfaceOnlyScannerNotInDeep(t *testing.T) {
+	r := &ClassifyResult{
+		Framework:         "django",
+		SuggestedScanners: []string{"dlp", "webcontent"}, // surface-only
+		Confidence:        "medium",
+		Signals:           []string{"x-django"},
+		Explanation:       "Django detected.",
+	}
+	yaml := buildPlaybookYAML("django", r)
+	if strings.Contains(yaml, "deep:") {
+		t.Errorf("surface-only scanners should not produce a deep section:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "surface:") {
+		t.Errorf("expected surface section for surface-only scanners:\n%s", yaml)
+	}
+}
+
+func TestBuildPlaybookYAML_ProposedRuleHeaderInMatchSection(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence:        "high",
+		SuggestedScanners: []string{"jwt"},
+		Signals:           []string{"x-powered-by: Express"},
+		Explanation:       "Express.js.",
+		ProposedRules: []store.FingerprintRule{
+			{SignalType: "header", SignalKey: "x-powered-by", SignalValue: "Express",
+				Field: "framework", Value: "express", Confidence: 0.9},
+		},
+	}
+	// No high-level framework/proxy fields set → only rule-based match conditions.
+	yaml := buildPlaybookYAML("express", r)
+	if !strings.Contains(yaml, `name: "x-powered-by"`) {
+		t.Errorf("expected header name in YAML, got:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, `contains: "Express"`) {
+		t.Errorf("expected header contains in YAML, got:\n%s", yaml)
+	}
+}
+
+func TestBuildPlaybookYAML_LowConfidenceRulesExcluded(t *testing.T) {
+	r := &ClassifyResult{
+		Framework:         "nextjs", // provides a match condition via framework_contains
+		SuggestedScanners: []string{"jwt"},
+		Confidence:        "medium",
+		Signals:           []string{},
+		Explanation:       "Next.js.",
+		ProposedRules: []store.FingerprintRule{
+			{SignalType: "body", SignalValue: "some-weak-signal",
+				Field: "framework", Value: "nextjs", Confidence: 0.5}, // below 0.75
+		},
+	}
+	yaml := buildPlaybookYAML("nextjs", r)
+	if strings.Contains(yaml, "some-weak-signal") {
+		t.Errorf("low-confidence rules should be excluded from YAML:\n%s", yaml)
+	}
+}
+
+func TestBuildPlaybookYAML_CookieRuleUsesSetCookieHeader(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence:        "high",
+		SuggestedScanners: []string{"cors"},
+		Signals:           []string{"laravel_session cookie"},
+		Explanation:       "Laravel detected via session cookie.",
+		ProposedRules: []store.FingerprintRule{
+			{SignalType: "cookie", SignalValue: "laravel_session",
+				Field: "framework", Value: "laravel", Confidence: 0.9},
+		},
+	}
+	yaml := buildPlaybookYAML("laravel", r)
+	if !strings.Contains(yaml, `name: "set-cookie"`) {
+		t.Errorf("cookie signal should map to set-cookie header in YAML:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, `contains: "laravel_session"`) {
+		t.Errorf("expected cookie value in YAML:\n%s", yaml)
+	}
+}
+
+func TestBuildPlaybookYAML_AllSignalTypes(t *testing.T) {
+	// Verify each signal_type produces the expected match clause.
+	cases := []struct {
+		rule    store.FingerprintRule
+		wantKey string
+	}{
+		{store.FingerprintRule{SignalType: "body", SignalValue: "wp-content", Field: "framework", Value: "wordpress", Confidence: 0.9}, "body_contains"},
+		{store.FingerprintRule{SignalType: "title", SignalValue: "WordPress", Field: "framework", Value: "wordpress", Confidence: 0.9}, "title_contains"},
+		{store.FingerprintRule{SignalType: "path", SignalValue: "/wp-login.php", Field: "framework", Value: "wordpress", Confidence: 0.9}, "path_responds"},
+		{store.FingerprintRule{SignalType: "cname", SignalValue: ".wpengine.com", Field: "proxy_type", Value: "wpengine", Confidence: 0.9}, "cname_contains"},
+		{store.FingerprintRule{SignalType: "dns_suffix", SignalValue: ".vercel.app", Field: "cloud_provider", Value: "vercel", Confidence: 0.9}, "dns_suffix"},
+		{store.FingerprintRule{SignalType: "asn_org", SignalValue: "CLOUDFLARENET", Field: "proxy_type", Value: "cloudflare", Confidence: 0.9}, "asn_org_contains"},
+	}
+	for _, tc := range cases {
+		r := &ClassifyResult{
+			Confidence:        "high",
+			SuggestedScanners: []string{"cors"},
+			Signals:           []string{tc.rule.SignalValue},
+			Explanation:       "Test.",
+			ProposedRules:     []store.FingerprintRule{tc.rule},
+		}
+		yaml := buildPlaybookYAML("test", r)
+		if !strings.Contains(yaml, tc.wantKey) {
+			t.Errorf("signal_type=%q: expected %q in YAML:\n%s", tc.rule.SignalType, tc.wantKey, yaml)
+		}
+	}
+}
+
+func TestClassify_StoreReceivesPlaybookSuggestion(t *testing.T) {
+	// When the classifier produces medium+ confidence with scanners,
+	// it should persist a PlaybookSuggestion via the store.
+	var saved *store.PlaybookSuggestion
+	fs := &fakeStore{
+		savePlaybook: func(s *store.PlaybookSuggestion) { saved = s },
+	}
+	resp := `{
+		"framework": "nextjs",
+		"confidence": "high",
+		"signals": ["x-nextjs-cache header"],
+		"explanation": "Next.js behind Vercel.",
+		"suggested_scanners": ["jwt", "cors"],
+		"proposed_rules": [
+			{"signal_type": "header", "signal_key": "x-nextjs-cache", "signal_value": "HIT",
+			 "field": "framework", "value": "nextjs", "confidence": 0.92}
+		]
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, fs)
+	_, err := c.Classify(context.Background(), &playbook.Evidence{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if saved == nil {
+		t.Fatal("expected PlaybookSuggestion to be saved to store")
+	}
+	if saved.Status != "pending" {
+		t.Errorf("expected status=pending, got %q", saved.Status)
+	}
+	if saved.SuggestedYAML == "" {
+		t.Error("expected non-empty YAML in saved suggestion")
+	}
+}
+
+func TestClassify_LowConfidenceNoPlaybookSaved(t *testing.T) {
+	saved := false
+	fs := &fakeStore{
+		savePlaybook: func(_ *store.PlaybookSuggestion) { saved = true },
+	}
+	resp := `{
+		"framework": "nextjs",
+		"confidence": "low",
+		"signals": ["weak signal"],
+		"explanation": "Uncertain.",
+		"suggested_scanners": ["jwt"],
+		"proposed_rules": []
+	}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, fs)
+	_, err := c.Classify(context.Background(), &playbook.Evidence{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if saved {
+		t.Error("low confidence should not trigger PlaybookSuggestion persistence")
 	}
 }

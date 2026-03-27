@@ -56,6 +56,7 @@ USAGE:
   beacon analyze     [--id <run-id>] [--out <file>]  Playbook analysis + finding accuracy review
   beacon playbook    suggestions                 List AI playbook suggestions
   beacon playbook    import --id <id>            Import suggestion to ~/.config/beacon/playbooks/
+  beacon playbook    dismiss --id <id>           Dismiss a suggestion (won't appear again)
   beacon playbook    open-pr --id <id>           Open a GitHub PR for a suggestion
 
 SCAN FLAGS:
@@ -143,6 +144,8 @@ func main() {
 			cmdPlaybookOpenPR(cfg, os.Args[3:])
 		case "import":
 			cmdPlaybookImport(cfg, os.Args[3:])
+		case "dismiss":
+			cmdPlaybookDismiss(cfg, os.Args[3:])
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
@@ -2800,6 +2803,51 @@ func cmdPlaybookImport(cfg *config.Config, args []string) {
 	target.Status = "imported"
 	_ = st.UpdatePlaybookSuggestion(ctx, target)
 	fmt.Fprintf(os.Stdout, "Imported playbook %q — active on next scan.\n", target.TargetPlaybook)
+}
+
+// cmdPlaybookDismiss marks a pending suggestion as dismissed so it no longer
+// appears in 'beacon playbook suggestions'. Usage: beacon playbook dismiss --id <id>
+func cmdPlaybookDismiss(cfg *config.Config, args []string) {
+	var id string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--id" {
+			i++
+			if i < len(args) {
+				id = args[i]
+			}
+		}
+	}
+	if id == "" {
+		fatalf("usage: beacon playbook dismiss --id <suggestion-id>")
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
+	if err != nil {
+		fatalf("list suggestions: %v", err)
+	}
+	var target *store.PlaybookSuggestion
+	for i := range suggestions {
+		if suggestions[i].ID == id {
+			target = &suggestions[i]
+			break
+		}
+	}
+	if target == nil {
+		fatalf("suggestion not found: %s", id)
+	}
+
+	target.Status = "dismissed"
+	if err := st.UpdatePlaybookSuggestion(ctx, target); err != nil {
+		fatalf("dismiss: %v", err)
+	}
+	fmt.Fprintf(os.Stdout, "Dismissed suggestion %s (%s).\n", id, target.TargetPlaybook)
 }
 
 // ---------- terraform ----------
