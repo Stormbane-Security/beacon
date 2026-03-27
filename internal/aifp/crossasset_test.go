@@ -103,7 +103,7 @@ func TestAnalyze_ValidResponse_CrossFindingsPerAsset(t *testing.T) {
 		if _, ok := f.Evidence["attack_chains"]; !ok {
 			t.Error("finding evidence missing attack_chains")
 		}
-		if !strings.Contains(f.ProofCommand, "beacon scan example.com") {
+		if !strings.Contains(f.ProofCommand, "beacon scan --domain example.com") {
 			t.Errorf("ProofCommand should reference root domain: %s", f.ProofCommand)
 		}
 		if f.DiscoveredAt.IsZero() {

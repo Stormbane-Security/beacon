@@ -150,7 +150,7 @@ func (r *ClassifyResult) UnknownTechFinding(asset string) *finding.Finding {
 			asset, tech, r.Confidence, strings.Join(r.Signals, "; ")),
 		Asset:        asset,
 		Evidence:     map[string]any{"ai_classification": tech, "confidence": r.Confidence, "explanation": r.Explanation},
-		ProofCommand: fmt.Sprintf("beacon fingerprints list --status pending"),
+		ProofCommand: "beacon fingerprints pending",
 		DiscoveredAt: time.Now(),
 	}
 }

@@ -190,7 +190,7 @@ func parseCrossAssetResponse(text, rootDomain string) (*CrossAssetResult, error)
 					"analysis_source":   "ai_cross_asset",
 					"attack_chains":     strings.Join(raw.AttackChains, " | "),
 				},
-				ProofCommand: fmt.Sprintf("beacon scan %s --attack-path-analysis", rootDomain),
+				ProofCommand: fmt.Sprintf("beacon scan --domain %s", rootDomain),
 				DiscoveredAt: time.Now(),
 			})
 		}
