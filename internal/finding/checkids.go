@@ -276,6 +276,7 @@ const (
 	CheckGHActionUnsignedRelease             CheckID = "ghaction.unsigned_release_artifacts"
 	CheckGHActionReusableWorkflowUnpinned    CheckID = "ghaction.reusable_workflow_unpinned"
 	CheckGHActionWorkflowDispatchInjection   CheckID = "ghaction.workflow_dispatch_injection"
+	CheckGHActionKnownCompromised            CheckID = "ghaction.known_compromised_action"
 
 	// GitHub Actions — OIDC vs long-lived credential checks
 	CheckGHActionAWSLongLivedKey        CheckID = "ghaction.aws_long_lived_key"
@@ -1002,6 +1003,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGHActionUnsignedRelease:            {CheckGHActionUnsignedRelease, SeverityMedium, ModeSurface},
 	CheckGHActionReusableWorkflowUnpinned:   {CheckGHActionReusableWorkflowUnpinned, SeverityMedium, ModeSurface},
 	CheckGHActionWorkflowDispatchInjection:  {CheckGHActionWorkflowDispatchInjection, SeverityCritical, ModeSurface},
+	CheckGHActionKnownCompromised:           {CheckGHActionKnownCompromised, SeverityCritical, ModeSurface},
 	// GitHub Actions — OIDC
 	CheckGHActionAWSLongLivedKey:       {CheckGHActionAWSLongLivedKey, SeverityHigh, ModeSurface},
 	CheckGHActionGCPServiceAccountKey:  {CheckGHActionGCPServiceAccountKey, SeverityHigh, ModeSurface},

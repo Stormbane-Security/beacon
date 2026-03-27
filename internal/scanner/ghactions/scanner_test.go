@@ -490,6 +490,93 @@ jobs:
 	}
 }
 
+// -------------------------------------------------------------------------
+// Known-compromised action tests
+// -------------------------------------------------------------------------
+
+func TestKnownCompromised_TjActions_MutableTag(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: tj-actions/changed-files@v44
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected known_compromised_action finding for tj-actions/changed-files@v44, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionKnownCompromised {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("expected Critical severity, got %v", findings[0].Severity)
+	}
+}
+
+func TestKnownCompromised_TjActions_SHA_NoFinding(t *testing.T) {
+	// A full SHA-pinned ref is not flagged by the static list — it may be a clean SHA.
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: tj-actions/changed-files@abcdef1234567890abcdef1234567890abcdef12
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for SHA-pinned tj-actions/changed-files, got %d", len(findings))
+	}
+}
+
+func TestKnownCompromised_ReviewdogV1_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: reviewdog/action-setup@v1
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected known_compromised_action finding for reviewdog/action-setup@v1, got none")
+	}
+}
+
+func TestKnownCompromised_ReviewdogV2_NoFinding(t *testing.T) {
+	// v2 was not affected — only v1 was compromised.
+	yaml := `
+on: pull_request
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: reviewdog/action-setup@v2
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for reviewdog/action-setup@v2, got %d", len(findings))
+	}
+}
+
+func TestKnownCompromised_UnrelatedAction_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unrelated action, got %d", len(findings))
+	}
+}
+
 func TestWorkflowDispatchInjection_NoPushTrigger_NoFinding(t *testing.T) {
 	yaml := `
 on: push

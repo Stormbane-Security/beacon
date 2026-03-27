@@ -87,13 +87,31 @@ var dlpPatterns = []pattern{
 		"Possible crypto seed phrase",
 		regexp.MustCompile(`(?i)(?:seed[_\s-]?phrase|mnemonic|recovery[_\s-]?(?:phrase|words?)|wallet[_\s-]?words?)["\s]*[:=]["'\s]+(?:[a-z]{3,8}\s+){11,23}[a-z]{3,8}`),
 	},
-	// GitHub tokens in page bodies — all token prefixes that indicate live credentials.
+	// GitHub tokens — all prefixes that indicate live credentials.
 	// ghs_ (App installation token) is highest privilege — org-wide scope.
 	{
 		finding.CheckDLPAPIKey,
 		"GitHub token",
 		regexp.MustCompile(`(?:ghp_|github_pat_|ghs_|gho_|ghu_)[0-9a-zA-Z_]{36,82}`),
 	},
+	// GCP service account JSON — high signal anywhere it appears.
+	{
+		finding.CheckDLPAPIKey,
+		"GCP service account key (JSON)",
+		regexp.MustCompile(`"type"\s*:\s*"service_account"`),
+	},
+	// npm, PyPI, Fly.io — distinctive fixed prefixes, very low false-positive risk.
+	{finding.CheckDLPAPIKey, "npm publish token", regexp.MustCompile(`npm_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "PyPI API token", regexp.MustCompile(`pypi-[0-9a-zA-Z_-]{40,}`)},
+	{finding.CheckDLPAPIKey, "Fly.io token", regexp.MustCompile(`fo1[0-9a-zA-Z_-]{40,}`)},
+	// HuggingFace, Databricks, Shopify — distinctive fixed prefixes.
+	{finding.CheckDLPAPIKey, "HuggingFace token", regexp.MustCompile(`hf_[A-Za-z0-9]{34}`)},
+	{finding.CheckDLPAPIKey, "Databricks token", regexp.MustCompile(`dapi[0-9a-f]{32}`)},
+	{finding.CheckDLPAPIKey, "Shopify Admin Access Token", regexp.MustCompile(`shpat_[0-9a-fA-F]{32}`)},
+	// HashiCorp Vault service token (new hvs. format).
+	{finding.CheckDLPAPIKey, "HashiCorp Vault service token", regexp.MustCompile(`hvs\.[A-Za-z0-9_-]{90,}`)},
+	// Stripe secret — high risk if leaked in a page body.
+	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
 	// EVM contract/wallet address — 0x followed by exactly 40 hex chars.
 	// Only flag when the address appears in a sensitive context (assigned to a
 	// variable or returned in a JSON field) to avoid matching benign hex values
@@ -109,19 +127,54 @@ var dlpPatterns = []pattern{
 // These paths return JSON or plaintext environment variables that commonly
 // contain API keys, cloud credentials, and service secrets.
 var apiKeyPatterns = []pattern{
+	// ── AWS ──────────────────────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "AWS Access Key ID", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
 	{finding.CheckDLPAPIKey, "AWS Secret Access Key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `\s]*[=:]\s*['"` + "`" + `]?[0-9a-zA-Z/+]{40}`)},
+
+	// ── GitHub ───────────────────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "GitHub classic PAT (ghp_)", regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`)},
 	{finding.CheckDLPAPIKey, "GitHub fine-grained PAT (github_pat_)", regexp.MustCompile(`github_pat_[0-9a-zA-Z_]{82}`)},
 	{finding.CheckDLPAPIKey, "GitHub App installation token (ghs_)", regexp.MustCompile(`ghs_[0-9a-zA-Z]{36}`)},
 	{finding.CheckDLPAPIKey, "GitHub OAuth token (gho_)", regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`)},
 	{finding.CheckDLPAPIKey, "GitHub user-to-server token (ghu_)", regexp.MustCompile(`ghu_[0-9a-zA-Z]{36}`)},
-	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
+
+	// ── Google / GCP ─────────────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "Google API Key", regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`)},
+	{finding.CheckDLPAPIKey, "GCP service account key (JSON)", regexp.MustCompile(`"type"\s*:\s*"service_account"`)},
+
+	// ── AI / LLM providers ───────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "OpenAI API Key", regexp.MustCompile(`sk-[A-Za-z0-9]{48}`)},
 	{finding.CheckDLPAPIKey, "Anthropic API Key", regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`)},
+	{finding.CheckDLPAPIKey, "HuggingFace token (hf_)", regexp.MustCompile(`hf_[A-Za-z0-9]{34}`)},
+
+	// ── Payment ──────────────────────────────────────────────────────────────
+	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
+	{finding.CheckDLPAPIKey, "Stripe Publishable Key", regexp.MustCompile(`pk_live_[0-9a-zA-Z]{24,}`)},
+	{finding.CheckDLPAPIKey, "Shopify Admin Access Token", regexp.MustCompile(`shpat_[0-9a-fA-F]{32}`)},
+	{finding.CheckDLPAPIKey, "Shopify Shared Secret", regexp.MustCompile(`shpss_[0-9a-fA-F]{32}`)},
+
+	// ── Messaging / Notifications ────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "Slack Token", regexp.MustCompile(`xox[baprs]-[0-9]{12}-[0-9]{12}-[0-9a-zA-Z]{24}`)},
+	{finding.CheckDLPAPIKey, "Slack Webhook URL", regexp.MustCompile(`https://hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9a-zA-Z]+`)},
 	{finding.CheckDLPAPIKey, "SendGrid API Key", regexp.MustCompile(`SG\.[0-9a-zA-Z\-_]{22}\.[0-9a-zA-Z\-_]{43}`)},
+	{finding.CheckDLPAPIKey, "Twilio API Key SID", regexp.MustCompile(`SK[0-9a-f]{32}`)},
+	{finding.CheckDLPAPIKey, "Twilio Account SID", regexp.MustCompile(`AC[0-9a-f]{32}`)},
+
+	// ── Package registries ───────────────────────────────────────────────────
+	{finding.CheckDLPAPIKey, "npm publish token", regexp.MustCompile(`npm_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "PyPI API token", regexp.MustCompile(`pypi-[0-9a-zA-Z_-]{40,}`)},
+
+	// ── Infrastructure / cloud tooling ───────────────────────────────────────
+	{finding.CheckDLPAPIKey, "Fly.io token (fo1)", regexp.MustCompile(`fo1[0-9a-zA-Z_-]{40,}`)},
+	{finding.CheckDLPAPIKey, "HashiCorp Vault service token", regexp.MustCompile(`hvs\.[A-Za-z0-9_-]{90,}`)},
+	{finding.CheckDLPAPIKey, "Databricks token", regexp.MustCompile(`dapi[0-9a-f]{32}`)},
+	{finding.CheckDLPAPIKey, "Terraform Cloud token", regexp.MustCompile(`(?i)(tf[_-]?api[_-]?token|tfc[_-]?token|terraform[_-]?cloud[_-]?token)\s*[:=]\s*["']?[0-9a-zA-Z.\-_/]{20,}`)},
+	{finding.CheckDLPAPIKey, "Vercel deployment token", regexp.MustCompile(`(?i)(vercel[_-]?token|vercel[_-]?api[_-]?token)\s*[:=]\s*["']?[0-9a-zA-Z_-]{20,}`)},
+	{finding.CheckDLPAPIKey, "Docker Hub credentials", regexp.MustCompile(`(?i)(docker[_-]?password|dockerhub[_-]?token|docker[_-]?token)\s*[:=]\s*["']?[0-9a-zA-Z_-]{10,}`)},
+	{finding.CheckDLPAPIKey, "Azure storage connection string", regexp.MustCompile(`DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[^;]+`)},
+	{finding.CheckDLPAPIKey, "JWT signing secret", regexp.MustCompile(`(?i)(jwt[_-]?secret|jwt[_-]?key|signing[_-]?secret)\s*[:=]\s*["']?[0-9a-zA-Z+/=_-]{20,}`)},
+
+	// ── Generic / catch-all ──────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "Generic API Key", regexp.MustCompile(`(?i)(api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)['"` + "`" + `\s]*[=:]\s*['"` + "`" + `]?[0-9a-zA-Z\-_]{20,}`)},
 	// Database URLs in config dumps (complement root-page dlpPatterns)
 	{finding.CheckDLPDatabaseURL, "Database connection string", regexp.MustCompile(`(?i)(?:mysql|postgres|postgresql|mongodb|redis|mssql|sqlserver):\/\/[^:@\s"'<>]{1,64}:[^@\s"'<>]{1,64}@[^\s"'<>]+`)},

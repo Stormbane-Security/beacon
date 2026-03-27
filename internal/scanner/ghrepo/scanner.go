@@ -662,6 +662,51 @@ var secretPatterns = []secretPattern{
 			"(`id-token: write`). No PYPI_API_TOKEN secret is required — PyPI issues a short-lived " +
 			"upload token automatically.",
 	},
+	{
+		name:    "Google API key",
+		pattern: regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "HuggingFace token (hf_)",
+		pattern: regexp.MustCompile(`hf_[A-Za-z0-9]{34}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "Databricks token",
+		pattern: regexp.MustCompile(`dapi[0-9a-f]{32}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "Shopify Admin Access Token",
+		pattern: regexp.MustCompile(`shpat_[0-9a-fA-F]{32}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "HashiCorp Vault service token",
+		pattern: regexp.MustCompile(`hvs\.[A-Za-z0-9_-]{90,}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "Azure storage connection string",
+		pattern: regexp.MustCompile(`DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[^;]+`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "Twilio Account SID",
+		pattern: regexp.MustCompile(`AC[0-9a-f]{32}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "Stripe publishable key",
+		pattern: regexp.MustCompile(`pk_live_[0-9a-zA-Z]{24}`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
+	{
+		name:    "Slack webhook URL",
+		pattern: regexp.MustCompile(`https://hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9a-zA-Z]+`),
+		checkID: finding.CheckGitHubSecretInCode,
+	},
 }
 
 // scanPaths are file paths and directories to check for leaked secrets.

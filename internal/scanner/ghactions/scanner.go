@@ -41,7 +41,7 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run analyses GitHub Actions workflows for the given target.
 // target must be "owner/repo" (e.g. "myorg/myrepo").
-func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]finding.Finding, error) {
+func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanType) ([]finding.Finding, error) {
 	owner, repo, ok := splitOwnerRepo(target)
 	if !ok {
 		return nil, fmt.Errorf("ghactions: invalid target %q — expected owner/repo", target)
@@ -95,6 +95,14 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		all = append(all, checkArtifactSigning(content, repoSlug)...)
 		all = append(all, checkReusableWorkflowPinning(content, repoSlug)...)
 		all = append(all, checkWorkflowDispatchInjection(content, repoSlug)...)
+		all = append(all, checkKnownCompromisedActions(content, repoSlug)...)
+	}
+
+	// Deep mode: query the GitHub Advisory Database for any actions advisories
+	// that match actions referenced in these workflows.
+	if scanType >= module.ScanDeep && len(paths) > 0 {
+		advisoryFindings, _ := s.checkAdvisoryDatabase(ctx, repoSlug, owner, repo)
+		all = append(all, advisoryFindings...)
 	}
 
 	return all, nil
@@ -1034,6 +1042,257 @@ func checkWorkflowDispatchInjection(workflowYAML, repo string) []finding.Finding
 		})
 	}
 	return findings
+}
+
+// -------------------------------------------------------------------------
+// Known-compromised action checks
+// -------------------------------------------------------------------------
+
+// compromisedAction describes a GitHub Action with a documented supply-chain compromise.
+type compromisedAction struct {
+	Slug         string   // "owner/action-name" — matched case-insensitively
+	AffectedRefs []string // specific tags/branches affected; empty = all non-SHA refs
+	CVE          string
+	GHSA         string
+	IncidentDate string // YYYY-MM-DD
+	Summary      string
+	Remediation  string
+}
+
+// knownCompromisedActions is a curated list of confirmed supply-chain incidents.
+// Entries are matched against `uses:` lines in workflow files.
+// Keep entries sorted by incident date (newest first) so the list is easy to audit.
+var knownCompromisedActions = []compromisedAction{
+	{
+		// March 14-15 2025: all tags on tj-actions/changed-files were moved to a
+		// malicious commit that printed CI runner secrets to workflow logs.
+		Slug:         "tj-actions/changed-files",
+		AffectedRefs: nil, // all non-SHA refs were affected
+		CVE:          "CVE-2025-30066",
+		GHSA:         "GHSA-mrrh-frkj-8544",
+		IncidentDate: "2025-03-15",
+		Summary:      "All version tags were rewritten to point to a malicious commit that exfiltrated CI runner secrets to public workflow logs.",
+		Remediation:  "Pin to a verified post-incident commit SHA. See GHSA-mrrh-frkj-8544 for safe SHAs and audit any run between 2025-03-14 and 2025-03-15.",
+	},
+	{
+		// March 11 2025: reviewdog/action-setup@v1 was modified to inject malware
+		// that exfiltrated secrets from the runner environment.
+		Slug:         "reviewdog/action-setup",
+		AffectedRefs: []string{"v1"},
+		CVE:          "CVE-2025-30065",
+		GHSA:         "GHSA-c2h3-6mxw-7mvq",
+		IncidentDate: "2025-03-11",
+		Summary:      "The v1 tag was modified to inject malware that exfiltrated CI runner secrets.",
+		Remediation:  "Pin to a verified post-incident commit SHA. Audit any run between 2025-03-11 and 2025-03-14.",
+	},
+}
+
+// checkKnownCompromisedActions flags any `uses:` step referencing a known-compromised action.
+func checkKnownCompromisedActions(workflowYAML, repo string) []finding.Finding {
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+
+	for _, m := range reUsesStep.FindAllStringSubmatch(workflowYAML, -1) {
+		if len(m) < 3 {
+			continue
+		}
+		fullRef := strings.TrimSpace(m[1]) // "owner/action@ref"
+		ref := strings.TrimSpace(m[2])     // "ref"
+
+		if strings.HasPrefix(fullRef, "./") {
+			continue
+		}
+
+		actionPath := strings.ToLower(actionBase(fullRef))
+
+		for _, bad := range knownCompromisedActions {
+			if strings.ToLower(bad.Slug) != actionPath {
+				continue
+			}
+
+			// If specific refs are listed, only flag those refs.
+			if len(bad.AffectedRefs) > 0 {
+				matched := false
+				for _, aRef := range bad.AffectedRefs {
+					if ref == aRef {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			} else {
+				// All non-SHA refs were affected — skip if already pinned to a SHA.
+				// (We can't verify the SHA is clean without a known-malicious SHA list,
+				// so SHA-pinned refs are considered safer and not flagged here.)
+				if reFullSHA.MatchString(ref) {
+					continue
+				}
+			}
+
+			key := fullRef
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			cveRef := bad.CVE
+			if bad.GHSA != "" {
+				cveRef += " / " + bad.GHSA
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGHActionKnownCompromised,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    repo,
+				Title:    fmt.Sprintf("Known-compromised action: %s (%s)", fullRef, cveRef),
+				Description: fmt.Sprintf(
+					"The action %q was involved in a confirmed supply-chain attack on %s. %s\n\n"+
+						"Remediation: %s\n\n"+
+						"Advisory: https://github.com/advisories/%s",
+					fullRef, bad.IncidentDate, bad.Summary, bad.Remediation, bad.GHSA),
+				Evidence: map[string]any{
+					"action":        fullRef,
+					"ref":           ref,
+					"cve":           bad.CVE,
+					"ghsa":          bad.GHSA,
+					"incident_date": bad.IncidentDate,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
+}
+
+// ── Deep mode: GitHub Advisory Database ──────────────────────────────────────
+
+// ghAdvisory is the minimal shape we need from the GitHub Advisory Database API.
+type ghAdvisory struct {
+	GHSAID          string `json:"ghsa_id"`
+	CVEID           string `json:"cve_id"`
+	Summary         string `json:"summary"`
+	Severity        string `json:"severity"`
+	Vulnerabilities []struct {
+		Package struct {
+			Ecosystem string `json:"ecosystem"`
+			Name      string `json:"name"`
+		} `json:"package"`
+		VulnerableVersionRange string `json:"vulnerable_version_range"`
+		FirstPatchedVersion    string `json:"first_patched_version"`
+	} `json:"vulnerabilities"`
+}
+
+// checkAdvisoryDatabase queries the GitHub Advisory Database for malware/critical
+// advisories in the `actions` ecosystem and flags any action used in this repo's
+// workflows that appears in the database.
+func (s *Scanner) checkAdvisoryDatabase(ctx context.Context, repoSlug, owner, repo string) ([]finding.Finding, error) {
+	// Collect all action slugs referenced across all workflows.
+	actionSlugs, err := s.collectActionSlugs(ctx, owner, repo)
+	if err != nil || len(actionSlugs) == 0 {
+		return nil, err
+	}
+
+	// Fetch the first page of actions advisories (type=malware covers supply-chain attacks).
+	// We fetch up to 100 entries — enough to catch all published incidents.
+	url := "https://api.github.com/advisories?type=malware&ecosystem=actions&per_page=100"
+	body, err := s.apiGet(ctx, url)
+	if err != nil {
+		// Advisory API is best-effort — non-fatal.
+		return nil, nil //nolint:nilerr
+	}
+
+	var advisories []ghAdvisory
+	if err := json.Unmarshal(body, &advisories); err != nil {
+		return nil, nil //nolint:nilerr
+	}
+
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+
+	for _, adv := range advisories {
+		for _, vuln := range adv.Vulnerabilities {
+			if strings.ToLower(vuln.Package.Ecosystem) != "actions" {
+				continue
+			}
+			pkgName := strings.ToLower(vuln.Package.Name)
+			if _, used := actionSlugs[pkgName]; !used {
+				continue
+			}
+
+			key := adv.GHSAID + ":" + pkgName
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			ref := cveRef(adv)
+			vr := vuln.VulnerableVersionRange
+			if vr == "" {
+				vr = "all versions"
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGHActionKnownCompromised,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    repoSlug,
+				Title:    fmt.Sprintf("Advisory match: %s uses %s (%s)", repoSlug, vuln.Package.Name, ref),
+				Description: fmt.Sprintf(
+					"The GitHub Advisory Database lists %s as having a supply-chain advisory (%s).\n\n"+
+						"Affected versions: %s\n"+
+						"Summary: %s\n\n"+
+						"Advisory: https://github.com/advisories/%s",
+					vuln.Package.Name, ref, vr, adv.Summary, adv.GHSAID),
+				Evidence: map[string]any{
+					"action":                   vuln.Package.Name,
+					"ghsa":                     adv.GHSAID,
+					"cve":                      adv.CVEID,
+					"vulnerable_version_range": vr,
+					"first_patched_version":    vuln.FirstPatchedVersion,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings, nil
+}
+
+// collectActionSlugs fetches all workflow files and returns a set of action slugs
+// (lowercased "owner/action-name") referenced via `uses:` steps.
+func (s *Scanner) collectActionSlugs(ctx context.Context, owner, repo string) (map[string]struct{}, error) {
+	paths, err := s.listWorkflows(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	slugs := make(map[string]struct{})
+	for _, path := range paths {
+		content, err := s.fetchWorkflowContent(ctx, owner, repo, path)
+		if err != nil {
+			continue
+		}
+		for _, m := range reUsesStep.FindAllStringSubmatch(content, -1) {
+			if len(m) >= 2 {
+				slug := strings.ToLower(actionBase(strings.TrimSpace(m[1])))
+				if !strings.HasPrefix(slug, "./") {
+					slugs[slug] = struct{}{}
+				}
+			}
+		}
+	}
+	return slugs, nil
+}
+
+// cveRef returns "CVE-XXXX-YYYYY" if present, otherwise the GHSA ID.
+func cveRef(adv ghAdvisory) string {
+	if adv.CVEID != "" {
+		return adv.CVEID
+	}
+	return adv.GHSAID
 }
 
 // -------------------------------------------------------------------------
