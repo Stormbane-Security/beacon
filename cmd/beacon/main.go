@@ -55,6 +55,7 @@ USAGE:
   beacon report      --id <scan-id> [flags]      Print a past report
   beacon analyze     [--id <run-id>] [--out <file>]  Playbook analysis + finding accuracy review
   beacon playbook    suggestions                 List AI playbook suggestions
+  beacon playbook    import --id <id>            Import suggestion to ~/.config/beacon/playbooks/
   beacon playbook    open-pr --id <id>           Open a GitHub PR for a suggestion
 
 SCAN FLAGS:
@@ -90,6 +91,7 @@ EXAMPLES:
   beacon report --id <id> --format markdown
   beacon analyze
   beacon playbook suggestions
+  beacon playbook import --id <suggestion-id>
   beacon playbook open-pr --id <suggestion-id>
   beacon terraform <path> [<path>...]
 `
@@ -139,6 +141,8 @@ func main() {
 			cmdPlaybookSuggestions(cfg)
 		case "open-pr":
 			cmdPlaybookOpenPR(cfg, os.Args[3:])
+		case "import":
+			cmdPlaybookImport(cfg, os.Args[3:])
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
@@ -2751,6 +2755,53 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	_ = st.UpdatePlaybookSuggestion(ctx, target)
 }
 
+// cmdPlaybookImport writes an approved suggestion's YAML to
+// ~/.config/beacon/playbooks/<name>.yaml so LoadUserDir picks it up on
+// the next scan. Usage: beacon playbook import --id <suggestion-id>
+func cmdPlaybookImport(cfg *config.Config, args []string) {
+	var id string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--id" {
+			i++
+			if i < len(args) {
+				id = args[i]
+			}
+		}
+	}
+	if id == "" {
+		fatalf("usage: beacon playbook import --id <suggestion-id>")
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
+	if err != nil {
+		fatalf("list suggestions: %v", err)
+	}
+	var target *store.PlaybookSuggestion
+	for i := range suggestions {
+		if suggestions[i].ID == id {
+			target = &suggestions[i]
+			break
+		}
+	}
+	if target == nil {
+		fatalf("suggestion not found: %s", id)
+	}
+
+	if err := importPlaybookSuggestion(target); err != nil {
+		fatalf("import playbook: %v", err)
+	}
+	target.Status = "imported"
+	_ = st.UpdatePlaybookSuggestion(ctx, target)
+	fmt.Fprintf(os.Stdout, "Imported playbook %q — active on next scan.\n", target.TargetPlaybook)
+}
+
 // ---------- terraform ----------
 
 // cmdTerraform scans one or more Terraform/OpenTofu HCL files (or directories)
@@ -3843,9 +3894,57 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 					r.pendingReview = ""
 				}
 			}
+		case buf[0] == 'i':
+			// Import a playbook suggestion to ~/.config/beacon/playbooks/<name>.yaml
+			// so that LoadUserDir picks it up on the next scan.
+			if r.reviewCursor < len(ritems) && r.st != nil {
+				item := ritems[r.reviewCursor]
+				if item.kind == "playbook" {
+					ctx := context.Background()
+					for i := range r.pendingReviewSuggs {
+						if r.pendingReviewSuggs[i].ID != item.suggID {
+							continue
+						}
+						sugg := &r.pendingReviewSuggs[i]
+						if err := importPlaybookSuggestion(sugg); err == nil {
+							sugg.Status = "imported"
+							_ = r.st.UpdatePlaybookSuggestion(ctx, sugg)
+							r.pendingReviewSuggs = append(r.pendingReviewSuggs[:i], r.pendingReviewSuggs[i+1:]...)
+						}
+						break
+					}
+					if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+						r.reviewCursor--
+					}
+					if r.reviewCursor < 0 {
+						r.reviewCursor = 0
+					}
+					if len(r.pendingReviewRules)+len(r.pendingReviewSuggs) == 0 {
+						r.pendingReview = ""
+					}
+				}
+			}
 		}
 	}
 	r.render()
+}
+
+// importPlaybookSuggestion writes a PlaybookSuggestion's YAML to
+// ~/.config/beacon/playbooks/<name>.yaml so it is loaded on next scan.
+func importPlaybookSuggestion(sugg *store.PlaybookSuggestion) error {
+	safeName := safePlaybookName(sugg.TargetPlaybook)
+	if safeName == "" {
+		return fmt.Errorf("invalid playbook name: %q", sugg.TargetPlaybook)
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(homeDir, ".config", "beacon", "playbooks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, safeName+".yaml"), []byte(sugg.SuggestedYAML), 0o600)
 }
 
 // startInputLoop reads raw keypresses from stdin and handles view toggles /
@@ -5811,7 +5910,7 @@ func (r *progressRenderer) renderReview(buf *strings.Builder) int {
 		items = append(items, reviewItem{kind: "playbook", label: label, suggID: s.ID})
 	}
 
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [b/q] back\x1b[0m\n")
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [i] import playbook  [b/q] back\x1b[0m\n")
 	lineCount := 1
 
 	if len(items) == 0 {

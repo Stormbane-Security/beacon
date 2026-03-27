@@ -2,10 +2,18 @@
 // security misconfigurations, absent security controls, and leaked secrets in
 // committed source code.
 //
-// It uses the GitHub REST API v3 (repos, orgs, contents endpoints). An
-// authenticated token (BEACON_GITHUB_TOKEN) is required for most checks;
-// unauthenticated requests only see public repository data and quickly hit
-// rate limits.
+// It uses the GitHub REST API v3 (repos, orgs, contents endpoints).
+//
+// Token requirements:
+//   - Public repos: no token needed. All workflow-file checks, branch protection,
+//     CODEOWNERS, SAST/dependabot config, and secret pattern scanning work
+//     unauthenticated. The unauthenticated rate limit is 60 req/hr — sufficient
+//     for a single repo scan.
+//   - Private repos: token required (repo scope).
+//   - Admin-level checks (webhooks, default workflow permissions, actions
+//     allow-list, tag protection, environment protection, vulnerability alerts)
+//     require a token regardless of repo visibility. These checks are gated
+//     behind `if s.token != ""` and silently skipped when no token is provided.
 package ghrepo
 
 import (
@@ -57,9 +65,11 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		all = append(all, checkRepoConfig(repoMeta, repoSlug)...)
 	}
 
-	// Vulnerability alerts.
+	// Vulnerability alerts — requires a token; the endpoint returns 403 for
+	// unauthenticated requests even on public repos, which we must not treat
+	// as "disabled" (false positive).
 	vulnAlertsEnabled, _ := s.vulnAlertsEnabled(ctx, owner, repo)
-	if !vulnAlertsEnabled {
+	if s.token != "" && !vulnAlertsEnabled {
 		all = append(all, finding.Finding{
 			CheckID:  finding.CheckGitHubNoVulnAlerts,
 			Module:   "github",

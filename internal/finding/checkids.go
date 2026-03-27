@@ -674,6 +674,10 @@ const (
 	CheckTerraformCloudFrontHTTP       CheckID = "terraform.cloudfront_http_allowed"
 	CheckTerraformLBHTTP               CheckID = "terraform.lb_http_only"
 	CheckTerraformTFStatePublic        CheckID = "terraform.tfstate_public_backend"
+
+	// AI fingerprinting and cross-asset analysis
+	CheckAIFPCrossAsset    CheckID = "aifp.cross_asset_finding"   // AI-identified cross-asset vulnerability
+	CheckAIFPUnknownTech   CheckID = "aifp.unknown_technology"    // AI classified unknown tech — verify and review rule
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1310,6 +1314,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckTerraformCloudFrontHTTP:    {CheckTerraformCloudFrontHTTP, SeverityMedium, ModeSurface},
 	CheckTerraformLBHTTP:            {CheckTerraformLBHTTP, SeverityMedium, ModeSurface},
 	CheckTerraformTFStatePublic:     {CheckTerraformTFStatePublic, SeverityCritical, ModeSurface},
+
+	// AI fingerprinting / cross-asset
+	CheckAIFPCrossAsset:  {CheckAIFPCrossAsset, SeverityMedium, ModeSurface},
+	CheckAIFPUnknownTech: {CheckAIFPUnknownTech, SeverityInfo, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

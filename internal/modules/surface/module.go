@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -303,6 +305,11 @@ func New(cfg Config) (*Module, error) {
 	reg, err := playbook.Load()
 	if err != nil {
 		return nil, fmt.Errorf("surface: load playbooks: %w", err)
+	}
+	homeDir, _ := os.UserHomeDir()
+	userPlaybookDir := filepath.Join(homeDir, ".config", "beacon", "playbooks")
+	if err := reg.LoadUserDir(userPlaybookDir); err != nil {
+		return nil, fmt.Errorf("surface: load user playbooks: %w", err)
 	}
 
 	nucl := nuclei.New(cfg.NucleiBin, surfaceList, deepList)

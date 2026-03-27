@@ -192,6 +192,13 @@ func (c *ClaudeEnricher) WithSummaryModel(model string) *ClaudeEnricher {
 	return c
 }
 
+// Chat sends a single prompt to the AI and returns the response text.
+// Uses the summary model (full reasoning). Safe for concurrent use.
+// Errors from transient failures are retried automatically by callLLM.
+func (c *ClaudeEnricher) Chat(ctx context.Context, prompt string) (string, error) {
+	return c.callLLM(ctx, c.summaryModel, prompt)
+}
+
 // WithCache attaches a cache for enrichment results. When set, explanations
 // already computed for a given CheckID are returned from cache without calling
 // Claude, and new results are saved after each API call.

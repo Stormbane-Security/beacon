@@ -118,4 +118,10 @@ type Evidence struct {
 	// SSH-banner detections and port discoveries (e.g. "netdev.mikrotik_detected",
 	// "port.checkpoint_topology") that the classify scanner cannot observe.
 	PhaseACheckIDs []string
+
+	// ClassificationSource records how the tech-stack classification was determined.
+	// "" = fully deterministic rules; "ai:high" / "ai:medium" / "ai:low" = AI-inferred
+	// at the named confidence tier. Displayed in the TUI with an [AI] badge and
+	// carried into findings so analysts know which were AI-guided.
+	ClassificationSource string
 }
