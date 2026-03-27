@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stormbane/beacon/internal/aifp"
 	"github.com/stormbane/beacon/internal/analyze"
 	"github.com/stormbane/beacon/internal/auth"
 	"github.com/stormbane/beacon/internal/config"
+	"github.com/stormbane/beacon/internal/enrichment"
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
 	"github.com/stormbane/beacon/internal/playbook"
@@ -166,6 +168,10 @@ type Module struct {
 	// fingerprintRules holds active DB-driven fingerprint rules loaded once at
 	// scan start and applied per-asset after fingerprintTech().
 	fingerprintRules []store.FingerprintRule
+
+	// enricher is the AI client used for fingerprint gap-filling, scanner
+	// suggestion, and cross-asset analysis. nil when no API key is configured.
+	enricher *enrichment.ClaudeEnricher
 }
 
 // Config holds binary paths required to instantiate the module.
@@ -400,6 +406,13 @@ func New(cfg Config) (*Module, error) {
 		claudeModel = "claude-sonnet-4-6"
 	}
 
+	var enricher *enrichment.ClaudeEnricher
+	if cfg.AnthropicAPIKey != "" {
+		if e, err := enrichment.NewWithProvider("claude", cfg.AnthropicAPIKey, claudeModel, ""); err == nil {
+			enricher = e
+		}
+	}
+
 	return &Module{
 		subdomainScanner:  subdomain.NewPassiveWithKeys(cfg.SubfinderBin, cfg.AmmassBin, cfg.OTXAPIKey),
 		passiveDNSScanner: passivedns.New(),
@@ -423,6 +436,7 @@ func New(cfg Config) (*Module, error) {
 		adaptiveRecon:     cfg.AdaptiveRecon,
 		claudeModel:       claudeModel,
 		authCfgs:          cfg.Auth,
+		enricher:          enricher,
 	}, nil
 }
 
@@ -1082,6 +1096,82 @@ assetLoop:
 		allFindings = filtered
 	}
 
+	// ── Cross-asset AI analysis ───────────────────────────────────────────────
+	// After all assets are scanned, ask AI to identify attack chains, cross-asset
+	// vulnerabilities, and additional scanners warranted by the full picture.
+	// Only runs when attack path analysis is enabled and an enricher is available.
+	// Additional scanners recommended here are run immediately per-asset.
+	if m.enricher != nil && len(allFindings) > 0 {
+		analyzer := aifp.NewCrossAnalyzer(m.enricher.Chat)
+		if result, err := analyzer.Analyze(ctx, allFindings, rootDomain); err == nil {
+			// Emit cross-asset findings.
+			mu.Lock()
+			allFindings = append(allFindings, result.CrossFindings...)
+			mu.Unlock()
+
+			// Emit summary as a progress event so the TUI can surface it.
+			if input.Progress != nil && result.Summary != "" {
+				input.Progress(module.ProgressEvent{
+					Phase:     "cross_asset_analysis",
+					StatusMsg: result.Summary,
+				})
+			}
+
+			// Run any AI-recommended additional scans per asset.
+			// Uses a small concurrency cap so we don't fan out unboundedly.
+			if len(result.AdditionalScans) > 0 {
+				const maxAdditionalConcurrent = 5
+				addSem := make(chan struct{}, maxAdditionalConcurrent)
+				var addWg sync.WaitGroup
+				for targetAsset, scannerNames := range result.AdditionalScans {
+					targetAsset, scannerNames := targetAsset, scannerNames
+					addSem <- struct{}{}
+					addWg.Add(1)
+					go func() {
+						defer addWg.Done()
+						defer func() { <-addSem }()
+						// Snapshot per-asset findings for evidence extraction.
+						mu.Lock()
+						assetFindings := make([]finding.Finding, 0, len(allFindings))
+						for _, f := range allFindings {
+							if f.Asset == targetAsset {
+								assetFindings = append(assetFindings, f)
+							}
+						}
+						mu.Unlock()
+
+						for _, name := range scannerNames {
+							var fs []finding.Finding
+							var scanErr error
+							switch {
+							case name == "aillm":
+								// Pass per-asset AI endpoints so the scanner targets
+								// confirmed paths rather than the generic default list.
+								ev := &playbook.Evidence{
+									AIEndpoints: extractAIEndpoints(assetFindings),
+								}
+								fs, scanErr = aillm.NewWithEvidence(ev).Run(ctx, targetAsset, scanType)
+							default:
+								sc, ok := m.scanners[name]
+								if !ok {
+									continue
+								}
+								fs, scanErr = sc.Run(ctx, targetAsset, scanType)
+							}
+							_ = scanErr
+							if len(fs) > 0 {
+								mu.Lock()
+								allFindings = append(allFindings, fs...)
+								mu.Unlock()
+							}
+						}
+					}()
+				}
+				addWg.Wait()
+			}
+		}
+	}
+
 	return allFindings, nil
 }
 
@@ -1104,11 +1194,20 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 	ev := classify.Collect(ctx, asset)
 
-	// AI fingerprint gap-filling: when an Anthropic key is available, ask
-	// Claude to infer Framework/ProxyType/AuthSystem/BackendServices fields
-	// that deterministic fingerprinting left empty. Errors are ignored so a
-	// failed API call never blocks the scan.
-	if m.anthropicKey != "" {
+	// AI fingerprint gap-filling + scanner suggestion.
+	// When deterministic rules leave key fields empty, the classifier fills them,
+	// proposes a pending fingerprint rule for human review, and returns scanners
+	// that are warranted by the identified technology but not in the current plan.
+	// Falls back to legacy FillGaps when the enricher isn't available.
+	var aifpSuggestedScanners []string
+	var aifpUnknownFinding *finding.Finding
+	if m.enricher != nil && aifp.NeedsClassification(&ev) {
+		if result, err := aifp.NewClassifier(m.enricher.Chat, m.st).Classify(ctx, &ev); err == nil {
+			result.MergeInto(&ev)
+			aifpSuggestedScanners = result.SuggestedScanners
+			aifpUnknownFinding = result.UnknownTechFinding(asset)
+		}
+	} else if m.anthropicKey != "" {
 		_ = profiler.FillGaps(ctx, m.anthropicKey, m.claudeModel, &ev, m.st)
 	}
 
@@ -1633,6 +1732,154 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	wg.Wait()
+
+	// ── AI-classified unknown technology finding ──────────────────────────────
+	// Emitted when deterministic rules couldn't classify the asset and AI was
+	// used. Alerts analysts to review the proposed fingerprint rule.
+	if aifpUnknownFinding != nil {
+		findings = append(findings, *aifpUnknownFinding)
+	}
+
+	// ── Evidence convergence loop ─────────────────────────────────────────────
+	// After Phase B completes, extract new check IDs from findings and re-match
+	// playbooks. Run any newly matched scanners that haven't run yet. Also runs
+	// AI-suggested scanners on the first round.
+	//
+	// This handles late-discovered tech signals, e.g.:
+	//   crawler finds /graphql → graphql scanner triggered
+	//   jwt scanner finds Cognito tokens → aillm scanner triggered
+	//   webcontent finds Spring error page → depconf scanner triggered
+	//
+	// Converges in at most maxConvergenceRounds passes (usually 1).
+	{
+		const maxConvergenceRounds = 3
+		ranScanners := make(map[string]bool, len(phaseADone)+len(plan.Scanners))
+		for name := range phaseADone {
+			ranScanners[name] = true
+		}
+		for _, name := range plan.Scanners {
+			ranScanners[name] = true
+		}
+
+		for round := 0; round < maxConvergenceRounds; round++ {
+			// Collect check IDs from findings that aren't in ev.PhaseACheckIDs yet.
+			mu.Lock()
+			existingIDSet := make(map[string]bool, len(ev.PhaseACheckIDs))
+			for _, id := range ev.PhaseACheckIDs {
+				existingIDSet[id] = true
+			}
+			var newCheckIDs []string
+			for _, f := range findings {
+				id := string(f.CheckID)
+				if id != "" && !existingIDSet[id] {
+					newCheckIDs = append(newCheckIDs, id)
+					existingIDSet[id] = true
+				}
+			}
+			mu.Unlock()
+
+			var newScanners []string
+			seen := map[string]bool{}
+
+			// (a) Re-match playbooks with newly discovered check IDs.
+			if len(newCheckIDs) > 0 {
+				ev.PhaseACheckIDs = append(ev.PhaseACheckIDs, newCheckIDs...)
+				for _, pb := range m.registry.Match(ev) {
+					for _, s := range playbook.BuildRunPlan([]*playbook.Playbook{pb}).Scanners {
+						if !ranScanners[s] && !seen[s] {
+							newScanners = append(newScanners, s)
+							seen[s] = true
+						}
+					}
+				}
+			}
+
+			// (b) AI-suggested scanners — first round only.
+			if round == 0 {
+				for _, name := range aifpSuggestedScanners {
+					if !ranScanners[name] && !seen[name] {
+						if _, ok := m.scanners[name]; ok {
+							newScanners = append(newScanners, name)
+							seen[name] = true
+						}
+					}
+				}
+			}
+
+			if len(newScanners) == 0 {
+				break // stable — no new scanners to run
+			}
+
+			for _, name := range newScanners {
+				ranScanners[name] = true
+			}
+
+			var convWg sync.WaitGroup
+			for _, name := range newScanners {
+				convScanner, ok := m.scanners[name]
+				if !ok {
+					continue
+				}
+				skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners)
+				if skipReason != "" {
+					m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
+					continue
+				}
+				name, convScanner := name, convScanner
+				convWg.Add(1)
+				go func() {
+					defer convWg.Done()
+					start := time.Now()
+					var fs []finding.Finding
+					var scanErr error
+					// Mirror the same special-cases as Phase B to ensure convergence
+					// scanners get the same context (AI endpoints, harvester emails,
+					// origin IP) that Phase B scanners receive.
+					switch {
+					case name == "aillm" && len(ev.AIEndpoints) > 0:
+						fs, scanErr = aillm.NewWithEvidence(&ev).Run(ctx, asset, scanType)
+					case name == "autoprobe":
+						m.harvesterEmailsMu.Lock()
+						emails := m.harvesterEmails
+						m.harvesterEmailsMu.Unlock()
+						fs, scanErr = autoprobe.NewWithEmails(emails).Run(ctx, asset, scanType)
+					default:
+						if originSc, ok := convScanner.(sc.OriginScanner); ok && originIP != "" {
+							fs, scanErr = originSc.RunWithOriginIP(ctx, asset, originIP, scanType)
+						} else {
+							fs, scanErr = convScanner.Run(ctx, asset, scanType)
+						}
+					}
+					mu.Lock()
+					findings = append(findings, fs...)
+					mu.Unlock()
+					m.saveScanMetricElapsed(ctx, scanRunID, asset, name, time.Since(start), fs, scanErr)
+				}()
+			}
+			convWg.Wait()
+
+			// After each convergence round: refresh dynamic evidence signals from
+			// new findings so subsequent rounds use up-to-date context.
+			mu.Lock()
+			convFindings := make([]finding.Finding, len(findings))
+			copy(convFindings, findings)
+			mu.Unlock()
+			// Refresh AI endpoints discovered by aidetect if it ran in convergence.
+			if eps := extractAIEndpoints(convFindings); len(eps) > 0 {
+				ev.AIEndpoints = eps
+			}
+			// Refresh origin IP if a new wafdetect finding arrived.
+			if newOrigin := extractOriginIP(convFindings); newOrigin != "" {
+				originIP = newOrigin
+			}
+			if newBehindWAF, newVendor := extractWAFInfo(convFindings); newBehindWAF {
+				behindWAF = true
+				if wafVendor == "" {
+					wafVendor = newVendor
+				}
+			}
+		}
+	}
 
 	// ── Post-scan classify helpers (after wg.Wait — no concurrent writes) ─────
 	// Run after goroutines finish to avoid data races on the findings slice.

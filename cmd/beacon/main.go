@@ -3181,6 +3181,17 @@ type progressRenderer struct {
 	topoDetailAsset string                   // asset selected for topo_detail view
 	topoDetailOff   int                      // scroll offset for topo_detail view
 
+	// Discovered Assets panel — IPs / deploy targets whose ownership has not
+	// been automatically confirmed.  Populated by "unconfirmed_assets" and
+	// "deploy_targets" progress events.  Surface scans always run; deep scans
+	// require the operator to type "permission confirmed" in the detail view.
+	discoveredAssets   []module.DiscoveredAsset
+	discoveredOff      int    // scroll offset for list view
+	discoveredCursor   int    // highlighted row
+	discoveredDetailIdx int   // index of asset open in detail view
+	discoveredConfirm  string // text typed into the permission gate
+	discoveredConfirming bool // true while the operator is typing the gate phrase
+
 	// store reference for post-scan review
 	st store.Store
 
@@ -3353,6 +3364,10 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		case buf[0] == 't':
 			r.mode = "topology"
 			r.topoOff = 0
+		case buf[0] == 'd' && len(r.discoveredAssets) > 0:
+			r.discoveredOff = 0
+			r.discoveredCursor = 0
+			r.mode = "discovered"
 		case buf[0] == 'b' || isEsc:
 			// Signal detach back to the browse TUI.
 			r.mu.Unlock()
@@ -3427,6 +3442,10 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			case buf[0] == 't':
 				r.mode = "topology"
 				r.topoOff = 0
+			case buf[0] == 'd' && len(r.discoveredAssets) > 0:
+				r.discoveredOff = 0
+				r.discoveredCursor = 0
+				r.mode = "discovered"
 			case buf[0] == '/':
 				r.findingFilterMode = true
 				r.findingFilter = ""
@@ -3515,8 +3534,78 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.topoDetailOff = 0
 				r.mode = "topo_detail"
 			}
+		case buf[0] == 'd' && len(r.discoveredAssets) > 0:
+			r.discoveredOff = 0
+			r.discoveredCursor = 0
+			r.mode = "discovered"
 		case buf[0] == 't':
 			r.mode = "progress"
+		}
+
+	case "discovered":
+		switch {
+		case isDown:
+			if r.discoveredCursor < len(r.discoveredAssets)-1 {
+				r.discoveredCursor++
+				// Scroll viewport down when cursor moves below visible area.
+			}
+		case isUp:
+			if r.discoveredCursor > 0 {
+				r.discoveredCursor--
+			}
+		case isEnter:
+			if r.discoveredCursor < len(r.discoveredAssets) {
+				r.discoveredDetailIdx = r.discoveredCursor
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = false
+				r.mode = "discovered_detail"
+			}
+		case buf[0] == 'b' || buf[0] == 'q' || isEsc:
+			r.mode = "progress"
+		}
+
+	case "discovered_detail":
+		if r.discoveredConfirming {
+			// Operator is typing the permission gate phrase character by character.
+			switch {
+			case isEsc:
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = false
+			case isEnter:
+				// Phrase accepted; the render function enables the deep scan action.
+				r.discoveredConfirming = false
+			case n == 1 && (buf[0] == 127 || buf[0] == 8): // backspace
+				runes := []rune(r.discoveredConfirm)
+				if len(runes) > 0 {
+					r.discoveredConfirm = string(runes[:len(runes)-1])
+				}
+			default:
+				if buf[0] >= 0x20 && buf[0] < 0x7f {
+					r.discoveredConfirm += string(buf[:n])
+				}
+			}
+		} else {
+			switch {
+			case isDown:
+				r.discoveredDetailIdx++ // reused as scroll offset in detail view
+				if r.discoveredDetailIdx >= len(r.discoveredAssets) {
+					r.discoveredDetailIdx = len(r.discoveredAssets) - 1
+				}
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = false
+			case isUp:
+				if r.discoveredDetailIdx > 0 {
+					r.discoveredDetailIdx--
+					r.discoveredConfirm = ""
+					r.discoveredConfirming = false
+				}
+			case buf[0] == 'p':
+				// Start typing permission phrase.
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = true
+			case buf[0] == 'b' || buf[0] == 'q' || isEsc:
+				r.mode = "discovered"
+			}
 		}
 	case "topo_detail":
 		switch {
@@ -4177,6 +4266,12 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 			fmt.Fprintf(os.Stderr, "beacon: discovery done — %d assets\n", r.total)
 		}
 
+	case "unconfirmed_assets", "deploy_targets":
+		// Assets whose domain ownership could not be confirmed automatically.
+		// Surface scans always run against these; deep scans require the operator
+		// to type the permission gate phrase in the Discovered Assets panel.
+		r.discoveredAssets = append(r.discoveredAssets, ev.DiscoveredAssets...)
+
 	case "scanning":
 		r.phase = "scanning"
 		if ev.AssetsTotal > r.total {
@@ -4413,6 +4508,10 @@ func (r *progressRenderer) render() {
 		lines = r.renderTopology(&buf)
 	case "topo_detail":
 		lines = r.renderTopoDetail(&buf)
+	case "discovered":
+		lines = r.renderDiscovered(&buf)
+	case "discovered_detail":
+		lines = r.renderDiscoveredDetail(&buf)
 	case "review":
 		lines = r.renderReview(&buf)
 	default:
@@ -4498,15 +4597,23 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		if r.pendingReview != "" {
 			reviewHint = "  \x1b[33m" + r.pendingReview + "\x1b[0m  \x1b[90m[r] review\x1b[0m"
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m%s\n",
-			r.total, findingsLabel, sevHint, reviewHint)
+		discoveredHint := ""
+		if len(r.discoveredAssets) > 0 {
+			discoveredHint = fmt.Sprintf("  [d] discovered (%d)", len(r.discoveredAssets))
+		}
+		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [e] export  [q/b] back\x1b[0m%s\n",
+			r.total, findingsLabel, sevHint, discoveredHint, reviewHint)
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
 		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   %s   \x1b[90m%s[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
 			findingsLabel, sevHint)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology  [q/b] detach  [s] stop\x1b[0m\n",
-			r.done, r.total, findingsLabel, sevHint)
+		discoveredHint := ""
+		if len(r.discoveredAssets) > 0 {
+			discoveredHint = fmt.Sprintf("  [d] discovered (%d)", len(r.discoveredAssets))
+		}
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [q/b] detach  [s] stop\x1b[0m\n",
+			r.done, r.total, findingsLabel, sevHint, discoveredHint)
 	}
 	lineCount := 2
 
@@ -4824,9 +4931,18 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 				overrideMarker = "\x1b[90m*\x1b[0m"
 			}
 			// Fingerprint badge — compact tech label from asset evidence.
+			// Appends ~AI when the classification was AI-inferred (not deterministic).
 			badge := ""
 			if ev, ok := r.topoEvidence[f.Asset]; ok {
-				if b := fingerprintBadge(ev); b != "" {
+				b := fingerprintBadge(ev)
+				if strings.HasPrefix(ev.ClassificationSource, "ai:") {
+					if b != "" {
+						b += "~AI"
+					} else {
+						b = "AI"
+					}
+				}
+				if b != "" {
 					badge = " \x1b[90m[" + b + "]\x1b[0m"
 				}
 			}
@@ -5260,6 +5376,10 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 		}
 		if ev.IsKubernetes {
 			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Topology:", "kubernetes"))
+		}
+		if ev.ClassificationSource != "" && strings.HasPrefix(ev.ClassificationSource, "ai:") {
+			confidence := strings.TrimPrefix(ev.ClassificationSource, "ai:")
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m\x1b[33m[AI]\x1b[0m classified (%s confidence) — verify via `beacon fingerprints`", "Source:", confidence))
 		}
 		if len(fpLines) > 0 {
 			lines = append(lines, "  \x1b[1mService Fingerprint\x1b[0m")
@@ -6028,6 +6148,275 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 		pct = r.topoDetailOff * 100 / maxOff
 	}
 	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	drawn++
+	return drawn
+}
+
+// renderDiscovered renders the list of discovered (unconfirmed) assets.
+// Keys: j/k move cursor, Enter for detail, b/q back.
+func (r *progressRenderer) renderDiscovered(buf *strings.Builder) int {
+	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || termH < 5 {
+		termH = 24
+	}
+	bodyLines := termH - 2
+	if bodyLines < 1 {
+		bodyLines = 1
+	}
+
+	assets := r.discoveredAssets
+	total := len(assets)
+
+	// Build display lines.
+	type row struct {
+		text  string
+		idx   int // index into assets
+	}
+	var rows []row
+	for i, a := range assets {
+		cursor := "  "
+		if i == r.discoveredCursor {
+			cursor = "\x1b[7m▶\x1b[0m "
+		}
+
+		// Confidence indicator.
+		conf := "\x1b[33m⚠ unconfirmed\x1b[0m"
+		if a.Confirmed {
+			conf = "\x1b[32m✓ confirmed\x1b[0m"
+		}
+
+		// Via label.
+		via := a.DiscoveredVia
+		switch via {
+		case "bgp":
+			via = "BGP ASN"
+		case "bgp_ptr":
+			via = "BGP PTR"
+		case "cdn_origin":
+			via = "CDN origin"
+		case "ghactions_deploy":
+			via = "deploy target"
+		}
+
+		// First evidence item as a hint.
+		hint := ""
+		if len(a.Evidence) > 0 {
+			hint = "\x1b[90m" + a.Evidence[0] + "\x1b[0m"
+		}
+
+		asset := a.Asset
+		if len(asset) > 36 {
+			asset = "…" + asset[len(asset)-35:]
+		}
+		rel := a.Relationship
+		if len(rel) > 28 {
+			rel = rel[:27] + "…"
+		}
+
+		line := fmt.Sprintf("%s\x1b[36m%-36s\x1b[0m  \x1b[90m%-14s\x1b[0m  %s", cursor, asset, via, conf)
+		if rel != "" {
+			line += fmt.Sprintf("  \x1b[90m%s\x1b[0m", rel)
+		}
+		_ = hint
+		rows = append(rows, row{text: line, idx: i})
+	}
+
+	if len(rows) == 0 {
+		rows = append(rows, row{text: "  \x1b[90mNo unconfirmed assets discovered yet.\x1b[0m"})
+	}
+
+	// Auto-scroll to keep cursor visible.
+	maxOff := len(rows) - bodyLines
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if r.discoveredCursor < r.discoveredOff {
+		r.discoveredOff = r.discoveredCursor
+	} else if r.discoveredCursor >= r.discoveredOff+bodyLines {
+		r.discoveredOff = r.discoveredCursor - bodyLines + 1
+	}
+	if r.discoveredOff > maxOff {
+		r.discoveredOff = maxOff
+	}
+
+	visible := rows[r.discoveredOff:]
+	if len(visible) > bodyLines {
+		visible = visible[:bodyLines]
+	}
+
+	drawn := 0
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSETS (%d)\x1b[0m  \x1b[90m[↵] detail  [j/k] move  [b/q] back\x1b[0m\n", total)
+	drawn++
+	for _, row := range visible {
+		fmt.Fprintf(buf, "\x1b[2K\r%s\n", row.text)
+		drawn++
+	}
+	for drawn-1 < bodyLines {
+		buf.WriteString("\x1b[2K\r\n")
+		drawn++
+	}
+	pct := 0
+	if maxOff > 0 {
+		pct = r.discoveredOff * 100 / maxOff
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	drawn++
+	return drawn
+}
+
+// renderDiscoveredDetail renders full evidence and findings for one discovered
+// asset, and presents the typed permission gate for authorizing a deep scan.
+// j/k navigate between assets; [p] starts typing the gate phrase; b/q back.
+func (r *progressRenderer) renderDiscoveredDetail(buf *strings.Builder) int {
+	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || termH < 5 {
+		termH = 24
+	}
+	termW, _, _ := func() (int, int, error) { w, h, e := term.GetSize(int(os.Stderr.Fd())); return w, h, e }()
+	if termW < 40 {
+		termW = 80
+	}
+	bodyLines := termH - 2
+
+	if len(r.discoveredAssets) == 0 {
+		fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m\n\x1b[2K\r  \x1b[90mNo assets.\x1b[0m\n")
+		return 2
+	}
+
+	idx := r.discoveredDetailIdx
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(r.discoveredAssets) {
+		idx = len(r.discoveredAssets) - 1
+	}
+	a := r.discoveredAssets[idx]
+
+	sep := strings.Repeat("─", termW-2)
+
+	var lines []string
+	add := func(format string, args ...any) {
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}
+	section := func(title string) {
+		add("\x1b[90m%s\x1b[0m", sep)
+		add("\x1b[1m  %s\x1b[0m", title)
+	}
+
+	// Title line.
+	conf := "\x1b[33m⚠ UNCONFIRMED\x1b[0m"
+	if a.Confirmed {
+		conf = "\x1b[32m✓ CONFIRMED\x1b[0m"
+	}
+	via := a.DiscoveredVia
+	add("\x1b[1;36m  %s\x1b[0m  \x1b[90m[%s]\x1b[0m  %s", a.Asset, via, conf)
+	if a.Relationship != "" {
+		add("  \x1b[90m%s\x1b[0m", a.Relationship)
+	}
+	if a.RootDomain != "" {
+		add("  \x1b[90mroot domain: %s\x1b[0m", a.RootDomain)
+	}
+	if a.BoundHostname != "" {
+		add("  \x1b[90mHost header: %s\x1b[0m", a.BoundHostname)
+	}
+
+	// Evidence section.
+	if len(a.Evidence) > 0 {
+		section("OWNERSHIP EVIDENCE")
+		for _, ev := range a.Evidence {
+			add("    %s", ev)
+		}
+	}
+
+	// Surface-scan findings for this asset.
+	var assetFindings []finding.Finding
+	for _, f := range r.findings {
+		if f.Asset == a.Asset {
+			assetFindings = append(assetFindings, f)
+		}
+	}
+	sort.Slice(assetFindings, func(i, j int) bool {
+		return assetFindings[i].Severity > assetFindings[j].Severity
+	})
+	section(fmt.Sprintf("SURFACE SCAN FINDINGS (%d)", len(assetFindings)))
+	if len(assetFindings) == 0 {
+		add("    \x1b[90mno findings yet\x1b[0m")
+	} else {
+		for _, f := range assetFindings {
+			col := severityColor(f.Severity)
+			sev := strings.ToUpper(f.Severity.String())
+			if len(sev) > 4 {
+				sev = sev[:4]
+			}
+			title := f.Title
+			maxT := termW - 16
+			if maxT < 20 {
+				maxT = 20
+			}
+			if len(title) > maxT {
+				title = title[:maxT-1] + "…"
+			}
+			add("    %s[%s]\x1b[0m  %s", col, sev, title)
+		}
+	}
+
+	// Permission gate section.
+	section("DEEP SCAN PERMISSION")
+	const gatePhrase = "permission confirmed"
+	confirmed := r.discoveredConfirm == gatePhrase
+	if confirmed {
+		add("  \x1b[1;32m✓ Permission confirmed — deep scan authorized\x1b[0m")
+		add("  \x1b[90mRe-run beacon with --permission-confirmed and target %s\x1b[0m", a.Asset)
+	} else if a.Confirmed {
+		add("  \x1b[90mAsset confirmed as belonging to %s — deep scan available.\x1b[0m", a.RootDomain)
+		if r.discoveredConfirming {
+			add("  Type phrase:  \x1b[1m%s\x1b[0m\x1b[7m \x1b[0m", r.discoveredConfirm)
+		} else {
+			add("  \x1b[90mPress [p] then type: \"%s\" to authorize deep scan.\x1b[0m", gatePhrase)
+		}
+	} else {
+		add("  \x1b[33mThis asset has not been confirmed as belonging to %s.\x1b[0m", a.RootDomain)
+		add("  \x1b[90mSurface (passive) scans are always authorized. Deep scans require\x1b[0m")
+		add("  \x1b[90mexplicit confirmation that you own or have permission to test this asset.\x1b[0m")
+		if r.discoveredConfirming {
+			add("  Type phrase:  \x1b[1m%s\x1b[0m\x1b[7m \x1b[0m", r.discoveredConfirm)
+		} else {
+			add("  \x1b[90mPress [p] then type: \"%s\" to authorize deep scan.\x1b[0m", gatePhrase)
+		}
+	}
+
+	// Render with scroll.
+	add("\x1b[90m%s\x1b[0m", sep)
+
+	maxOff := len(lines) - bodyLines
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	// When navigating j/k in detail mode the idx changes but we need a stable
+	// per-asset scroll — use discoveredDetailIdx changes as a reset signal.
+	// (Scroll is not separately tracked; content is rendered from top.)
+	off := 0
+	if off > maxOff {
+		off = maxOff
+	}
+	visible := lines[off:]
+	if len(visible) > bodyLines {
+		visible = visible[:bodyLines]
+	}
+
+	drawn := 0
+	nav := fmt.Sprintf("%d/%d", idx+1, len(r.discoveredAssets))
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m  \x1b[90m%s  [j/k] next/prev  [p] authorize  [b/q] back\x1b[0m\n", nav)
+	drawn++
+	for _, l := range visible {
+		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
+		drawn++
+	}
+	for drawn-1 < bodyLines {
+		buf.WriteString("\x1b[2K\r\n")
+		drawn++
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m──────\x1b[0m\n")
 	drawn++
 	return drawn
 }
