@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -109,15 +108,19 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, fmt.Errorf("katana: start: %w", err)
 	}
 
-	// If the orchestrator placed a crawl-feed channel in context, we own closing
-	// it when katana exits. Use a sync.Once so the close is safe even if this
-	// function returns early (e.g. context cancelled mid-scan).
+	// If the orchestrator placed a crawl-feed channel in context, close it via
+	// the shared closer (CrawlFeedCloserKey) when katana exits. The closer uses
+	// the module's sync.Once, so both this defer and the module's deferred
+	// safety-net closer are safe to call — only the first call closes the channel.
 	var feedCh chan<- string
-	var feedOnce sync.Once
 	if v := ctx.Value(module.CrawlFeedKey); v != nil {
 		if ch, ok := v.(chan string); ok {
 			feedCh = ch
-			defer feedOnce.Do(func() { close(feedCh) })
+		}
+	}
+	if v := ctx.Value(module.CrawlFeedCloserKey); v != nil {
+		if closer, ok := v.(func()); ok {
+			defer closer()
 		}
 	}
 

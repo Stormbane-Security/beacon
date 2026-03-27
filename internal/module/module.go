@@ -37,9 +37,17 @@ type crawlFeedKeyType struct{}
 // per-asset chan string that the crawler sends discovered URLs into.
 // DLP and other scanners can read from this channel to process pages in
 // real time without waiting for the full crawl to complete.
-// The channel is closed by the crawler (or by the module as a safety net)
-// when the crawl finishes.
 var CrawlFeedKey = crawlFeedKeyType{}
+
+// crawlFeedCloserKeyType is an unexported context key type for the closer.
+type crawlFeedCloserKeyType struct{}
+
+// CrawlFeedCloserKey is the context key under which the surface module places
+// the single authoritative closer for the crawlFeed channel. The crawler must
+// call this function (not close the channel directly) so that the module's
+// sync.Once is used — preventing a double-close panic when the module's
+// deferred safety-net closer also fires.
+var CrawlFeedCloserKey = crawlFeedCloserKeyType{}
 
 // Module is the interface every scan module must implement.
 type Module interface {

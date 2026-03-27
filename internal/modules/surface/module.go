@@ -1527,6 +1527,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	closeCrawlFeed := func() { crawlFeedOnce.Do(func() { close(crawlFeed) }) }
 	defer closeCrawlFeed()
 	ctx = context.WithValue(ctx, module.CrawlFeedKey, crawlFeed)
+	ctx = context.WithValue(ctx, module.CrawlFeedCloserKey, closeCrawlFeed)
 
 	// ── Phase B: Remaining scanners (concurrent) ──────────────────────────────
 	// httpDependentScanners produce zero useful findings on assets with no web
