@@ -1395,8 +1395,8 @@ func browseInteractive(cfg *config.Config) browseResult {
 			// 'n' → scan type menu, then launch as a background job.
 			if b[0] == 'n' {
 				term.Restore(fd, old)
-				fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l")
-				fmt.Fprint(os.Stderr, "\nNew scan\n\n")
+				fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l\x1b[2J\x1b[H")
+				fmt.Fprint(os.Stderr, "New scan\n\n")
 				fmt.Fprint(os.Stderr, "  1) Surface scan       (passive recon, safe to run without permission)\n")
 				fmt.Fprint(os.Stderr, "  2) Deep scan          (active probes — requires explicit permission)\n")
 				fmt.Fprint(os.Stderr, "\nScan type [1, blank to cancel]: ")
