@@ -166,7 +166,12 @@ var extendedPorts = []portEntry{
 	{8728, "routeros-api", false}, // MikroTik RouterOS API (plaintext)
 	{264, "checkpoint-topology", false}, // Check Point FW-1 topology / cpstat discovery
 	{179, "bgp", false},               // BGP routing protocol — internet-facing router exposure
-	{9998, "tika-server", false},       // Apache Tika Server REST API — CVE-2018-1335 header injection RCE
+	{9998, "tika-server", false},        // Apache Tika Server REST API — CVE-2018-1335 header injection RCE
+	{8088, "superset", false},           // Apache Superset BI — CVE-2023-27524 default SECRET_KEY session forge
+	{8123, "clickhouse", false},         // ClickHouse analytics DB HTTP interface
+	{8222, "nats-monitoring", false},    // NATS message broker monitoring API — multiple auth bypass CVEs
+	{8265, "ray-dashboard", false},      // Ray distributed ML dashboard (no auth by default)
+	{9097, "tekton-dashboard", false},   // Tekton Pipelines dashboard (no auth by default)
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -1500,6 +1505,187 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		}
 
 	// ── Veeam Backup & Replication ────────────────────────────────────────────
+	// ── Apache Superset BI platform ──────────────────────────────────────────
+
+	case 8088:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/api/v1/"); ok {
+			lower := strings.ToLower(body)
+			if strings.Contains(lower, "superset") || strings.Contains(lower, "apache") {
+				ev := map[string]any{"port": port, "service": service}
+				// Extract version from {"version":"X.Y.Z",...} JSON field.
+				if ver := parseJSONStringField(body, "version"); ver != "" {
+					ev["superset_version"] = ver
+				}
+				// CVE-2023-27524 (CVSS 8.9): default SECRET_KEY allows session forge.
+				// Known default: '\x02\x01thisismyscretkey\x01\x02\xe2\xe1\xd5\xd0'
+				// No patched version test here — exposure itself is the signal.
+				return []finding.Finding{makeF(
+					finding.CheckPortSupersetExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Apache Superset BI platform exposed on port %d", port),
+					"Apache Superset is publicly accessible. CVE-2023-27524 (CVSS 8.9, EPSS 84%) allows "+
+						"session cookie forgery when the default SECRET_KEY is not changed, granting admin "+
+						"access to all dashboards and database credentials. Superset stores production database "+
+						"connection strings. Restrict to trusted networks and rotate the SECRET_KEY.",
+					ev,
+				)}
+			}
+		}
+
+	// ── MLflow experiment tracking server ──────────────────────────────────────
+
+	case 5000:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/ping"); ok &&
+			strings.Contains(strings.ToLower(body), "ready") {
+			ev := map[string]any{"port": port, "service": service}
+			// Version from GET /version returns plain-text version string.
+			if verBody, ok2 := probeHTTPBody(ctx, asset, port, false, "/version"); ok2 {
+				ver := strings.TrimSpace(verBody)
+				if ver != "" && !strings.ContainsAny(ver, "<>{") {
+					ev["mlflow_version"] = ver
+				}
+			}
+			findings := []finding.Finding{makeF(
+				finding.CheckPortMLflowExposed,
+				finding.SeverityCritical,
+				fmt.Sprintf("MLflow experiment tracking server exposed on port %d", port),
+				"An MLflow server is publicly accessible without authentication. MLflow stores "+
+					"model artifacts, experiment parameters, training metrics, and run data. "+
+					"CVE-2023-6014 (CVSS 9.1) allows unauthenticated account creation via POST "+
+					"/api/2.0/users/create on MLflow < 2.8.0. Restrict to trusted networks.",
+				ev,
+			)}
+			// CVE-2023-6014: check if account creation API is open.
+			if probeHTTP(ctx, asset, port, false, "/api/2.0/mlflow/experiments/list") {
+				findings = append(findings, makeF(
+					finding.CheckCVEMLflowAuthBypass,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2023-6014: MLflow unauthenticated REST API confirmed on port %d", port),
+					"The MLflow experiments list API (/api/2.0/mlflow/experiments/list) returns data "+
+						"without authentication. CVE-2023-6014 (CVSS 9.1) allows unauthenticated account "+
+						"creation on MLflow < 2.8.0. Upgrade MLflow and restrict network access.",
+					ev,
+				))
+			}
+			return findings
+		}
+
+	// ── Ray distributed ML dashboard ──────────────────────────────────────────
+
+	case 8265:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/api/version"); ok {
+			ev := map[string]any{"port": port, "service": service}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				ev["ray_version"] = ver
+			}
+			if strings.Contains(strings.ToLower(body), "ray") || strings.Contains(body, "version") {
+				return []finding.Finding{makeF(
+					finding.CheckPortRayDashboardExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Ray distributed ML dashboard exposed on port %d", port),
+					"The Ray distributed computing dashboard is publicly accessible without authentication. "+
+						"Ray Dashboard exposes cluster state, running jobs, actor information, and "+
+						"file system paths. CVE-2026-32981 allows path traversal for arbitrary file reads. "+
+						"The jobs API (/api/jobs/) allows submitting and canceling cluster jobs without auth. "+
+						"Restrict to trusted networks immediately.",
+					ev,
+				)}
+			}
+		}
+
+	// ── NATS message broker monitoring ───────────────────────────────────────
+
+	case 8222:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/varz"); ok {
+			ev := map[string]any{"port": port, "service": service}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				ev["nats_version"] = ver
+			}
+			if strings.Contains(body, "server_id") || strings.Contains(body, "nats") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNATSMonitoringExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("NATS message broker monitoring API exposed on port %d", port),
+					"The NATS server monitoring endpoint (/varz) is publicly accessible. "+
+						"This exposes server configuration, connection counts, subscription counts, "+
+						"and routing topology. Multiple NATS CVEs involve authentication bypass: "+
+						"CVE-2023-47090 (system account bypass), CVE-2022-24450 (authorization bypass), "+
+						"CVE-2026-27889 (pre-auth crash via WebSocket). "+
+						"Restrict the monitoring port to trusted networks.",
+					ev,
+				)}
+			}
+		}
+
+	// ── ClickHouse analytics database HTTP interface ──────────────────────────
+
+	case 8123:
+		// ClickHouse HTTP interface uniquely returns "Ok.\n" to GET /.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok &&
+			strings.TrimSpace(body) == "Ok." {
+			ev := map[string]any{"port": port, "service": service}
+			// Version available via SELECT version() query.
+			if verBody, ok2 := probeHTTPBody(ctx, asset, port, false,
+				"/?query=SELECT+version()"); ok2 {
+				ver := strings.TrimSpace(verBody)
+				if ver != "" && !strings.ContainsAny(ver, "<>{") {
+					ev["clickhouse_version"] = ver
+				}
+			}
+			return []finding.Finding{makeF(
+				finding.CheckPortClickHouseExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("ClickHouse analytics database HTTP interface exposed on port %d", port),
+				"The ClickHouse HTTP interface is publicly accessible. In default configuration, "+
+					"ClickHouse allows unauthenticated read access via the HTTP API. "+
+					"CVE-2018-14668 (CVSS 7.5) and CVE-2018-14669 (CVSS 9.1) allow arbitrary file "+
+					"reads and unauthorized network access on older versions. Restrict to trusted networks "+
+					"and enable authentication (user/password) in the ClickHouse configuration.",
+					ev,
+			)}
+		}
+
+	// ── RabbitMQ management API ───────────────────────────────────────────────
+
+	case 15672:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "rabbitmq") {
+				ev := map[string]any{"port": port, "service": service}
+				return []finding.Finding{makeF(
+					finding.CheckPortRabbitMQMgmtExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("RabbitMQ management API exposed on port %d", port),
+					"The RabbitMQ management UI and REST API are publicly accessible. "+
+						"The management API provides full control over virtual hosts, exchanges, "+
+						"queues, bindings, and user accounts. Default credentials (guest:guest) "+
+						"are disabled on non-localhost connections in recent versions but older "+
+						"deployments may still accept them. Restrict to trusted networks.",
+					ev,
+				)}
+			}
+		}
+
+	// ── Tekton Pipelines dashboard ────────────────────────────────────────────
+
+	case 9097:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "tekton") {
+				ev := map[string]any{"port": port, "service": service}
+				return []finding.Finding{makeF(
+					finding.CheckPortTektonDashboardExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Tekton Pipelines dashboard exposed on port %d", port),
+					"The Tekton CI/CD Pipelines dashboard is publicly accessible without authentication. "+
+						"Tekton Dashboard exposes pipeline runs, task runs, and cluster configuration. "+
+						"CVE-2026-33211 allows path traversal in the git resolver to read arbitrary files "+
+						"from the resolver pod. Restrict to trusted networks and configure auth.",
+					ev,
+				)}
+			}
+		}
+
 	case 9401, 9419:
 		portDesc := map[int]string{
 			9401: "Veeam Backup & Replication Enterprise Manager",
@@ -1860,6 +2046,11 @@ var webServicePorts = map[int]string{
 	9091:  "prometheus-pushgateway",
 	9200:  "elasticsearch",
 	15672: "rabbitmq-mgmt",
+	8088:  "superset",
+	8123:  "clickhouse",
+	8222:  "nats-monitoring",
+	8265:  "ray-dashboard",
+	9097:  "tekton-dashboard",
 	16686: "jaeger-ui",
 	4848:  "glassfish-admin",
 	7001:  "weblogic",

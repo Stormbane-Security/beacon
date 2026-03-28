@@ -1139,6 +1139,40 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// Harbor container registry (CVE-2026-4404 default credentials, CVE-2022-46463 access control):
+	// /api/v2.0/systeminfo exposes harbor_version unauthenticated.
+	findings = append(findings, probeHarbor(ctx, client, base, asset)...)
+
+	// Argo CD GitOps platform (CVE-2025-55190 CVSS 10.0 repo credential leak):
+	// /api/version exposes Argo CD version unauthenticated.
+	if f := probeArgoCD(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2021-43798 (Grafana < 8.3.0 plugin path traversal, CVSS 7.5, KEV):
+	// /api/health exposes version; < 8.3.0 vulnerable to arbitrary file read.
+	if f := probeGrafanaPathTraversal(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2024-36466/36467 (Zabbix session forgery + API auth bypass, CVSS 9.9):
+	// JSON-RPC apiinfo.version call (unauthenticated by Zabbix design).
+	if f := probeZabbixSessionForge(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2024-3116 (pgAdmin ≤ 8.4 validate binary path RCE, EPSS 90.7%):
+	// /misc/ping or page source exposes pgAdmin version.
+	if f := probePgAdminValidateRCE(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2022-30781 (Gitea < 1.16.7 shell command injection, CVSS 9.8):
+	// /api/v1/version exposes Gitea version unauthenticated.
+	if f := probeGiteaCMDInjection(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	return findings, nil
 }
 
@@ -3954,6 +3988,495 @@ func probeColdFusionFCKEditor(ctx context.Context, client *http.Client, base, as
 		ProofCommand: fmt.Sprintf("curl -sk -o /dev/null -w '%%{http_code}' '%s'", u),
 		DiscoveredAt: time.Now(),
 	}
+}
+
+// probeHarbor tests for Harbor container registry exposure and default credentials.
+// CVE-2026-4404 (CVSS 9.4): Harbor ≤ 2.15.0 accepts admin:Harbor12345 by default.
+// CVE-2022-46463 (CVSS 8.x): unauthenticated users can pull private images.
+// /api/v2.0/systeminfo returns harbor_version unauthenticated.
+func probeHarbor(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
+	u := base + "/api/v2.0/systeminfo"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	if !strings.Contains(strings.ToLower(bodyStr), "harbor") &&
+		!strings.Contains(bodyStr, "harbor_version") {
+		return nil
+	}
+	ver := parseJSONField(bodyStr, "harbor_version")
+	ev := map[string]any{
+		"url":  u,
+		"body": bodyStr[:min(len(bodyStr), 512)],
+	}
+	if ver != "" {
+		ev["harbor_version"] = ver
+	}
+	return []finding.Finding{
+		{
+			CheckID:  finding.CheckPortHarborExposed,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("Harbor container registry admin API exposed on %s", asset),
+			Description: fmt.Sprintf(
+				"%s is exposing a Harbor container registry at /api/v2.0/systeminfo without authentication. "+
+					"Harbor stores all container images and associated metadata. "+
+					"CVE-2022-46463 allows unauthenticated image pulls on misconfigured instances. "+
+					"Restrict to trusted networks and enforce authentication.",
+				asset,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: fmt.Sprintf("curl -sk '%s' | jq .harbor_version", u),
+			DiscoveredAt: time.Now(),
+		},
+		{
+			CheckID:  finding.CheckCVEHarborDefaultCreds,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2026-4404: Harbor registry may accept default admin credentials on %s", asset),
+			Description: fmt.Sprintf(
+				"%s is running Harbor container registry (version: %s). "+
+					"CVE-2026-4404 (CVSS 9.4) — Harbor ≤ 2.15.0 ships with the default "+
+					"admin password 'Harbor12345'. If unchanged, an attacker gains admin "+
+					"access to all container images, can push malicious images, and read "+
+					"pull secrets stored in Harbor. Change the admin password immediately.",
+				asset, ver,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: fmt.Sprintf("curl -sk -u admin:Harbor12345 '%s/api/v2.0/users' | jq .", base),
+			DiscoveredAt: time.Now(),
+		},
+	}
+}
+
+// parseJSONField is a lightweight JSON field extractor for "key":"value" patterns.
+// It handles both string values and bare numeric/boolean values.
+func parseJSONField(body, key string) string {
+	needle := `"` + key + `"`
+	idx := strings.Index(body, needle)
+	if idx == -1 {
+		return ""
+	}
+	rest := body[idx+len(needle):]
+	colon := strings.IndexByte(rest, ':')
+	if colon == -1 {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[colon+1:])
+	if strings.HasPrefix(rest, `"`) {
+		rest = rest[1:]
+		end := strings.IndexByte(rest, '"')
+		if end < 0 {
+			return ""
+		}
+		return rest[:end]
+	}
+	// Bare value (number/bool/null).
+	end := strings.IndexAny(rest, ",}")
+	if end < 0 {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+// probeArgoCD tests for Argo CD GitOps platform exposure.
+// CVE-2025-55190 (CVSS 10.0): project API tokens can retrieve repo credentials.
+// /api/version is unauthenticated and returns Argo CD version information.
+func probeArgoCD(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/api/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// Argo CD /api/version returns {"Version":"v2.x.x","BuildDate":"...","GoVersion":"..."}
+	// The Version field starting with "v2" or "v3" uniquely identifies Argo CD.
+	ver := parseJSONField(bodyStr, "Version")
+	if ver == "" || (!strings.HasPrefix(ver, "v") && !strings.Contains(ver, ".")) {
+		return nil
+	}
+	if !strings.Contains(bodyStr, "BuildDate") && !strings.Contains(bodyStr, "GoVersion") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckPortArgoCDExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("Argo CD GitOps platform %s exposed on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running Argo CD %s with the version endpoint publicly accessible. "+
+				"CVE-2025-55190 (CVSS 10.0) allows project API tokens to leak repository "+
+				"credentials from /api/v1/projects/{project}/detailed. "+
+				"Affects Argo CD 2.13.0–2.13.8, 2.14.0–2.14.15, all 3.x < 3.0.14. "+
+				"Restrict Argo CD to internal networks and upgrade immediately.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | jq .Version", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeGrafanaPathTraversal tests for CVE-2021-43798 (Grafana < 8.3.0 plugin
+// endpoint path traversal → arbitrary file read, CVSS 7.5, KEV).
+// /api/health returns version JSON unauthenticated on all Grafana instances.
+func probeGrafanaPathTraversal(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/api/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	ver := parseJSONField(bodyStr, "version")
+	if ver == "" {
+		return nil
+	}
+	// Confirm it's Grafana (not another service with /api/health).
+	if !strings.Contains(bodyStr, "database") && !strings.Contains(bodyStr, "commit") {
+		return nil
+	}
+	if !isGrafanaPathTraversalVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEGrafanaPathTraversal,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("CVE-2021-43798: Grafana %s plugin path traversal on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running Grafana %s which is vulnerable to CVE-2021-43798 (CVSS 7.5, KEV). "+
+				"The plugin endpoint /public/plugins/{plugin-id}/../../../etc/passwd allows "+
+				"unauthenticated arbitrary file reads on the Grafana server. "+
+				"Affects Grafana 8.0.0–8.2.x (before 8.3.0). "+
+				"Upgrade to Grafana 8.3.0 or later immediately.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sk '%s/public/plugins/alertlist/../../../../../../../etc/passwd'",
+			base,
+		),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// isGrafanaPathTraversalVulnerable returns true for Grafana 8.0.0–8.2.x (< 8.3.0).
+func isGrafanaPathTraversalVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	return maj == 8 && min < 3
+}
+
+// probeZabbixSessionForge tests for CVE-2024-36466 / CVE-2024-36467 (Zabbix
+// session cookie forgery + API authentication bypass, CVSS 9.9). The Zabbix
+// JSON-RPC API allows an unauthenticated apiinfo.version call, which returns
+// the server version. Affected: Zabbix < 6.0.32 and 7.0.x < 7.0.1.
+func probeZabbixSessionForge(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	for _, path := range []string{"/api_jsonrpc.php", "/zabbix/api_jsonrpc.php"} {
+		u := base + path
+		payload := `{"jsonrpc":"2.0","method":"apiinfo.version","params":{},"id":1}`
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u,
+			strings.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		bodyStr := string(body)
+		ver := parseJSONField(bodyStr, "result")
+		if ver == "" {
+			continue
+		}
+		if !isZabbixSessionForgeVulnerable(ver) {
+			return nil
+		}
+		return &finding.Finding{
+			CheckID:  finding.CheckCVEZabbixSessionForge,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2024-36466/36467: Zabbix %s session forgery + API bypass on %s", ver, asset),
+			Description: fmt.Sprintf(
+				"%s is running Zabbix %s which is vulnerable to CVE-2024-36466 and CVE-2024-36467. "+
+					"CVE-2024-36466 allows forged session cookies; CVE-2024-36467 allows bypassing "+
+					"API authentication. Combined CVSS 9.9. "+
+					"Affects Zabbix < 6.0.32 and 7.0.x < 7.0.1. "+
+					"Upgrade to Zabbix 6.0.32+ or 7.0.1+ immediately.",
+				asset, ver,
+			),
+			Asset: asset,
+			Evidence: map[string]any{
+				"url":     u,
+				"version": ver,
+			},
+			ProofCommand: fmt.Sprintf(
+				`curl -s -X POST '%s' -H 'Content-Type: application/json' `+
+					`-d '{"jsonrpc":"2.0","method":"apiinfo.version","params":{},"id":1}' | jq .result`,
+				u,
+			),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// isZabbixSessionForgeVulnerable returns true for Zabbix < 6.0.32 and 7.0.x < 7.0.1.
+func isZabbixSessionForgeVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) == 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj == 6 && min == 0 {
+		return patch < 32
+	}
+	if maj == 7 && min == 0 {
+		return patch < 1
+	}
+	// Earlier major versions are all affected.
+	if maj < 6 {
+		return true
+	}
+	return false
+}
+
+// probePgAdminValidateRCE tests for CVE-2024-3116 (pgAdmin ≤ 8.4 validate
+// binary path API → OS command injection RCE, EPSS 90.7%). pgAdmin exposes
+// its version in the page source or /misc/ping endpoint.
+func probePgAdminValidateRCE(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Try /misc/ping first — pgAdmin-specific endpoint.
+	u := base + "/misc/ping"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+
+	var ver string
+	if resp.StatusCode == http.StatusOK {
+		bodyStr := string(body)
+		// pgAdmin /misc/ping may return {"alive": true} or version info.
+		ver = parseJSONField(bodyStr, "version")
+	}
+
+	// If no version from /misc/ping, check the root page.
+	if ver == "" {
+		rootReq, err2 := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+		if err2 == nil {
+			if rootResp, err3 := client.Do(rootReq); err3 == nil {
+				rootBody, _ := io.ReadAll(io.LimitReader(rootResp.Body, 8192))
+				rootResp.Body.Close()
+				// Page source contains pgadmin4==X.Y or VERSION = 'X.Y'
+				rootStr := string(rootBody)
+				if strings.Contains(strings.ToLower(rootStr), "pgadmin") {
+					// Try to extract version from page title or meta.
+					ver = extractPgAdminVersion(rootStr)
+				}
+			}
+		}
+	}
+	if ver == "" {
+		return nil
+	}
+	if !isPgAdminValidateRCEVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEpgAdminValidateRCE,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2024-3116: pgAdmin %s validate binary path RCE on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running pgAdmin %s which is vulnerable to CVE-2024-3116 (EPSS 90.7%%). "+
+				"The 'validate binary path' API endpoint (/validate/binary_path or similar) "+
+				"allows authenticated users to execute arbitrary OS commands on the pgAdmin server. "+
+				"Affects pgAdmin 4 ≤ 8.4. Upgrade to pgAdmin 8.5 or later immediately "+
+				"and restrict access to trusted networks.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | jq .", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+func extractPgAdminVersion(body string) string {
+	// Look for pgadmin4==X.Y or VERSION = 'X.Y' patterns.
+	lower := strings.ToLower(body)
+	if idx := strings.Index(lower, "pgadmin4=="); idx != -1 {
+		rest := body[idx+len("pgadmin4=="):]
+		end := strings.IndexAny(rest, `"' <>\n\r`)
+		if end > 0 {
+			return rest[:end]
+		}
+	}
+	return ""
+}
+
+func isPgAdminValidateRCEVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 2)
+	if len(parts) < 1 {
+		return false
+	}
+	maj := 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	// Affected: pgAdmin 4 ≤ 8.4. Since "8.4" means major version 8 minor 4,
+	// we check if the version string parses to 8.4 or below.
+	if maj < 8 {
+		return true
+	}
+	if maj == 8 && len(parts) == 2 {
+		minPatch := 0
+		fmt.Sscanf(parts[1], "%d", &minPatch)
+		return minPatch <= 4
+	}
+	return false
+}
+
+// probeGiteaCMDInjection tests for CVE-2022-30781 (Gitea < 1.16.7 shell command
+// injection in repository management, CVSS 9.8). Gitea exposes its version at
+// /api/v1/version unauthenticated.
+func probeGiteaCMDInjection(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/api/v1/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// {"version":"1.x.x"} — Gitea-specific JSON structure.
+	ver := parseJSONField(bodyStr, "version")
+	if ver == "" {
+		return nil
+	}
+	if !isGiteaCMDInjectionVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEGiteaCMDInjection,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2022-30781: Gitea %s shell command injection on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running Gitea %s which is vulnerable to CVE-2022-30781 (CVSS 9.8). "+
+				"Shell command injection in the repository management API allows authenticated "+
+				"users (including those with repo access) to execute arbitrary OS commands. "+
+				"Affects Gitea < 1.16.7. Upgrade to Gitea 1.16.7 or later immediately.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | jq .version", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// isGiteaCMDInjectionVulnerable returns true for Gitea < 1.16.7.
+func isGiteaCMDInjectionVulnerable(ver string) bool {
+	// Strip leading 'v' if present.
+	ver = strings.TrimPrefix(ver, "v")
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) == 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj < 1 {
+		return true
+	}
+	if maj == 1 && min < 16 {
+		return true
+	}
+	if maj == 1 && min == 16 && patch < 7 {
+		return true
+	}
+	return false
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

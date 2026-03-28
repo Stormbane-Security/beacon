@@ -484,9 +484,25 @@ const (
 	CheckCVEErlangOTPSSH           CheckID = "cve.erlang_otp_ssh_rce"    // CVE-2025-32433 Erlang/OTP SSH pre-auth unauthenticated RCE (CVSS 10.0, KEV)
 	CheckCVEVeeamBackupExposed     CheckID = "cve.veeam_backup_exposed"   // CVE-2025-23120 Veeam B&R unauthenticated RCE via deserialization (CVSS 9.9, KEV)
 	CheckPortDevServerExposed      CheckID = "port.dev_server_exposed"    // Vite/webpack/other JS dev server exposed publicly
-	CheckPortGradioExposed         CheckID = "port.gradio_exposed"        // Gradio ML demo server exposed without auth (port 7860)
-	CheckPortWebminExposed         CheckID = "port.webmin_exposed"        // Webmin server management panel exposed (port 10000)
-	CheckPortWazuhAPIExposed       CheckID = "port.wazuh_api_exposed"     // Wazuh SIEM/XDR REST API exposed (port 55000)
+	CheckPortGradioExposed         CheckID = "port.gradio_exposed"             // Gradio ML demo server exposed without auth (port 7860)
+	CheckPortWebminExposed         CheckID = "port.webmin_exposed"             // Webmin server management panel exposed (port 10000)
+	CheckPortWazuhAPIExposed       CheckID = "port.wazuh_api_exposed"          // Wazuh SIEM/XDR REST API exposed (port 55000)
+	CheckPortSupersetExposed       CheckID = "port.superset_exposed"           // Apache Superset BI exposed without auth (port 8088)
+	CheckCVESupersetDefaultKey     CheckID = "cve.superset_default_secret_key" // CVE-2023-27524 Apache Superset default SECRET_KEY allows session forge (CVSS 8.9, KEV-adjacent, EPSS 84%)
+	CheckPortMLflowExposed         CheckID = "port.mlflow_exposed"             // MLflow experiment tracking server exposed without auth (port 5000)
+	CheckCVEMLflowAuthBypass       CheckID = "cve.mlflow_auth_bypass"          // CVE-2023-6014 MLflow < 2.8.0 unauthenticated account creation (CVSS 9.1)
+	CheckPortRayDashboardExposed   CheckID = "port.ray_dashboard_exposed"      // Ray distributed ML dashboard exposed without auth (port 8265)
+	CheckPortNATSMonitoringExposed CheckID = "port.nats_monitoring_exposed"    // NATS message broker monitoring API exposed (port 8222) — multiple auth bypass CVEs
+	CheckPortClickHouseExposed     CheckID = "port.clickhouse_exposed"         // ClickHouse analytics DB HTTP interface exposed (port 8123)
+	CheckPortRabbitMQMgmtExposed   CheckID = "port.rabbitmq_mgmt_exposed"      // RabbitMQ management API exposed (port 15672)
+	CheckPortTektonDashboardExposed CheckID = "port.tekton_dashboard_exposed"  // Tekton Pipelines dashboard exposed without auth (port 9097)
+	CheckPortHarborExposed         CheckID = "port.harbor_exposed"             // Harbor container registry admin API exposed (port 443/80)
+	CheckCVEHarborDefaultCreds     CheckID = "cve.harbor_default_credentials"  // CVE-2026-4404 Harbor ≤ 2.15.0 default admin:Harbor12345 credentials (CVSS 9.4)
+	CheckPortArgoCDExposed         CheckID = "port.argocd_exposed"             // Argo CD GitOps platform version endpoint accessible (port 443)
+	CheckCVEGrafanaPathTraversal   CheckID = "cve.grafana_path_traversal"      // CVE-2021-43798 Grafana < 8.3.0 plugin path traversal → arbitrary file read (CVSS 7.5, KEV)
+	CheckCVEZabbixSessionForge     CheckID = "cve.zabbix_session_forgery"      // CVE-2024-36466/36467 Zabbix session cookie forgery + API auth bypass (CVSS 9.9)
+	CheckCVEpgAdminValidateRCE     CheckID = "cve.pgadmin_validate_rce"        // CVE-2024-3116 pgAdmin ≤ 8.4 validate binary path → command injection RCE (EPSS 90.7%)
+	CheckCVEGiteaCMDInjection      CheckID = "cve.gitea_cmd_injection"         // CVE-2022-30781 Gitea < 1.16.7 shell command injection in repository management (CVSS 9.8)
 
 	// ── Additional network vendor identification ──────────────────────────────
 	CheckNetDeviceF5Detected       CheckID = "netdev.f5_detected"         // F5 BIG-IP load balancer identified (/tmui/login.jsp)
@@ -1219,9 +1235,25 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEErlangOTPSSH:           {CheckCVEErlangOTPSSH, SeverityCritical, ModeSurface},
 	CheckCVEVeeamBackupExposed:     {CheckCVEVeeamBackupExposed, SeverityCritical, ModeSurface},
 	CheckPortDevServerExposed:      {CheckPortDevServerExposed, SeverityHigh, ModeSurface},
-	CheckPortGradioExposed:         {CheckPortGradioExposed, SeverityHigh, ModeSurface},
-	CheckPortWebminExposed:         {CheckPortWebminExposed, SeverityHigh, ModeSurface},
-	CheckPortWazuhAPIExposed:       {CheckPortWazuhAPIExposed, SeverityHigh, ModeSurface},
+	CheckPortGradioExposed:          {CheckPortGradioExposed, SeverityHigh, ModeSurface},
+	CheckPortWebminExposed:          {CheckPortWebminExposed, SeverityHigh, ModeSurface},
+	CheckPortWazuhAPIExposed:        {CheckPortWazuhAPIExposed, SeverityHigh, ModeSurface},
+	CheckPortSupersetExposed:        {CheckPortSupersetExposed, SeverityCritical, ModeSurface},
+	CheckCVESupersetDefaultKey:      {CheckCVESupersetDefaultKey, SeverityCritical, ModeSurface},
+	CheckPortMLflowExposed:          {CheckPortMLflowExposed, SeverityCritical, ModeSurface},
+	CheckCVEMLflowAuthBypass:        {CheckCVEMLflowAuthBypass, SeverityCritical, ModeSurface},
+	CheckPortRayDashboardExposed:    {CheckPortRayDashboardExposed, SeverityCritical, ModeSurface},
+	CheckPortNATSMonitoringExposed:  {CheckPortNATSMonitoringExposed, SeverityHigh, ModeSurface},
+	CheckPortClickHouseExposed:      {CheckPortClickHouseExposed, SeverityHigh, ModeSurface},
+	CheckPortRabbitMQMgmtExposed:    {CheckPortRabbitMQMgmtExposed, SeverityHigh, ModeSurface},
+	CheckPortTektonDashboardExposed: {CheckPortTektonDashboardExposed, SeverityHigh, ModeSurface},
+	CheckPortHarborExposed:          {CheckPortHarborExposed, SeverityHigh, ModeSurface},
+	CheckCVEHarborDefaultCreds:      {CheckCVEHarborDefaultCreds, SeverityCritical, ModeSurface},
+	CheckPortArgoCDExposed:          {CheckPortArgoCDExposed, SeverityHigh, ModeSurface},
+	CheckCVEGrafanaPathTraversal:    {CheckCVEGrafanaPathTraversal, SeverityHigh, ModeSurface},
+	CheckCVEZabbixSessionForge:      {CheckCVEZabbixSessionForge, SeverityCritical, ModeSurface},
+	CheckCVEpgAdminValidateRCE:      {CheckCVEpgAdminValidateRCE, SeverityCritical, ModeSurface},
+	CheckCVEGiteaCMDInjection:       {CheckCVEGiteaCMDInjection, SeverityCritical, ModeSurface},
 	CheckNetDeviceF5Detected:       {CheckNetDeviceF5Detected, SeverityInfo, ModeSurface},
 	CheckNetDeviceSonicWallDetected: {CheckNetDeviceSonicWallDetected, SeverityInfo, ModeSurface},
 	CheckNetDeviceCheckPointDetected: {CheckNetDeviceCheckPointDetected, SeverityInfo, ModeSurface},
