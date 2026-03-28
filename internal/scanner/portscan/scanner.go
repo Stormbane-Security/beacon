@@ -939,9 +939,30 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 	// ── SMB ───────────────────────────────────────────────────────────────────
 
 	case 445:
-		// Active check: attempt SMBv1 null session (anonymous unauthenticated access).
+		var findings []finding.Finding
+
+		// Check 1: SMBv1 protocol enabled — EternalBlue/WannaCry/SambaCry risk.
+		// Sends a multi-dialect negotiate; if the server selects \xffSMB (SMBv1)
+		// over \xfeSMB (SMBv2+), the protocol-level attack surface is present.
+		if probeSMBv1Enabled(ctx, asset) {
+			findings = append(findings, makeF(
+				finding.CheckPortSMBv1Enabled,
+				finding.SeverityCritical,
+				"SMBv1 protocol accepted — EternalBlue/WannaCry risk (CVE-2017-0144)",
+				"The SMB server accepted the SMBv1 ('NT LM 0.12') dialect when offered alongside SMBv2/3. "+
+					"SMBv1 is an obsolete protocol with known critical vulnerabilities: "+
+					"CVE-2017-0144 (EternalBlue/WannaCry, CVSS 8.1) exploits an SMBv1 buffer overflow for unauthenticated RCE on Windows. "+
+					"CVE-2017-7494 (SambaCry) uses SMBv1 for shared-library injection on Linux Samba servers. "+
+					"WannaCry and NotPetya both required SMBv1 for propagation. "+
+					"Disable SMBv1: PowerShell: Set-SmbServerConfiguration -EnableSMB1Protocol $false. "+
+					"Modern Windows (Server 2019+, Win10 1709+) disables SMBv1 by default.",
+				map[string]any{"port": port, "service": service, "smb_v1": true},
+			))
+		}
+
+		// Check 2: SMB null session (anonymous unauthenticated access).
 		if probeSMBNullSession(ctx, asset) {
-			return []finding.Finding{
+			findings = append(findings,
 				makeF(
 					finding.CheckPortSMBNullSession,
 					finding.SeverityCritical,
@@ -953,23 +974,19 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 						"Disable null sessions via: Group Policy → Network access: Restrict anonymous access to Named Pipes and Shares.",
 					map[string]any{"port": port, "service": service, "null_session": true},
 				),
-				makeF(
-					finding.CheckPortSMBExposed,
-					finding.SeverityHigh,
-					fmt.Sprintf("SMB exposed on port %d", port),
-					"SMB is publicly accessible. Null session accepted — see separate finding.",
-					map[string]any{"port": port, "service": service, "banner": banner},
-				),
-			}
+			)
 		}
-		return []finding.Finding{makeF(
+
+		// Always emit the base SMB-exposed finding.
+		findings = append(findings, makeF(
 			finding.CheckPortSMBExposed,
 			finding.SeverityHigh,
 			fmt.Sprintf("SMB exposed on port %d", port),
 			"Server Message Block (SMB) is publicly accessible. "+
 				"SMB has been the vector for major ransomware campaigns (WannaCry, NotPetya) and enables lateral movement.",
 			map[string]any{"port": port, "service": service, "banner": banner},
-		)}
+		))
+		return findings
 
 	// ── Databases ─────────────────────────────────────────────────────────────
 
@@ -2727,6 +2744,48 @@ func probeFTPAnonymous(ctx context.Context, host string, port int) bool {
 }
 
 // ── SMB null session probe ────────────────────────────────────────────────────
+
+// probeSMBv1Enabled connects to port 445 and sends a multi-dialect SMB Negotiate
+// request. It returns true when the server selects SMBv1 ("NT LM 0.12") over SMBv2/3
+// — identifiable by the \xffSMB magic bytes in the response (vs \xfeSMB for SMB2+).
+// SMBv1 is the prerequisite for CVE-2017-0144 (EternalBlue/WannaCry), CVE-2017-7494
+// (SambaCry), and numerous other protocol-level attacks. A modern Windows server
+// with SMBv2+ enabled will respond \xfeSMB and return false here.
+func probeSMBv1Enabled(ctx context.Context, host string) bool {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:445", host))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+
+	// Multi-dialect negotiate: include NT LM 0.12 (SMBv1) and SMB 2.x dialects.
+	// If the server selects SMBv1, its response header starts with \xff\x53\x4d\x42.
+	// If it selects SMBv2+, the response starts with \xfe\x53\x4d\x42.
+	negotiate := []byte{
+		0x00, 0x00, 0x00, 0x54,
+		0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00,
+		0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x40, 0x00,
+		0x00,
+		0x26, 0x00,
+		0x02, 0x4e, 0x54, 0x20, 0x4c, 0x4d, 0x20, 0x30, 0x2e, 0x31, 0x32, 0x00, // NT LM 0.12
+		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x30, 0x30, 0x32, 0x00,       // SMB 2.002
+		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x3f, 0x3f, 0x3f, 0x00,       // SMB 2.???
+	}
+	if _, err := conn.Write(negotiate); err != nil {
+		return false
+	}
+	resp := make([]byte, 64)
+	n, err := conn.Read(resp)
+	if err != nil || n < 8 {
+		return false
+	}
+	// \xffSMB in the response means the server selected SMBv1 — vulnerable to EternalBlue class.
+	// \xfeSMB means SMBv2/3 was selected — SMBv1 is disabled.
+	return resp[4] == 0xff && resp[5] == 0x53 && resp[6] == 0x4d && resp[7] == 0x42
+}
 
 // probeSMBNullSession attempts an SMB null session negotiation.
 // Sends SMBv1 Negotiate + SessionSetupAndX with empty credentials.

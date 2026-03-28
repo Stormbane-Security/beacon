@@ -674,6 +674,22 @@ var targets = []sensitiveFile{
 			"Restrict Solr admin access to localhost/management networks and upgrade to Solr ≥ 8.3.1.",
 	},
 
+	// CVE-2016-4047 — Open-Xchange AppSuite SSRF via unvalidated proxy URL parameter (CVSS 8.8).
+	// /api/system/version returns JSON version without authentication on default deployments.
+	// CVE-2016-4047 allows an authenticated OX user to send server-side requests to internal
+	// services via the proxy API. Fingerprinting the version enables CVE-specific triage.
+	{
+		path:         "/api/system/version",
+		title:        "CVE-2016-4047: Open-Xchange AppSuite version API exposed",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVEOXAppSuiteSSRF,
+		bodyContains: "version",
+		description: "The Open-Xchange AppSuite server-side version API is internet-accessible without authentication. " +
+			"CVE-2016-4047 (CVSS 8.8) is an SSRF vulnerability in the OX AppSuite frontend proxy that allows " +
+			"authenticated users to reach internal services. Versions before 7.8.0-rev27 are vulnerable. " +
+			"Restrict the admin and API endpoints to internal networks and upgrade OX AppSuite.",
+	},
+
 	// CVE-2017-0929 — DotNetNuke (DNN) DnnImageHandler path traversal → machineKey leak → RCE (CVSS 9.8).
 	// /DnnImageHandler.ashx is specific to DNN and is accessible without authentication.
 	// Path traversal via the `file` parameter leaks web.config, exposing the machineKey used to
@@ -945,6 +961,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2017-7921 (Hikvision IP camera unauthenticated ISAPI, CVSS 9.8, KEV):
 	// GET /ISAPI/Security/sessionLogin/capabilities returning XML without auth = ISAPI unauthenticated.
 	if f := probeHikvisionISAPI(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2016-4977 (Spring Security OAuth2 SpEL injection, CVSS 9.8):
+	// GET /oauth/authorize without credentials → Spring OAuth error page with Whitelabel format
+	// or JSON error response confirms the OAuth2 endpoint is exposed.
+	if f := probeSpringOAuthSpEL(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -2340,6 +2363,70 @@ func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset s
 		ProofCommand: fmt.Sprintf(
 			"curl -s '%s'\n"+
 				"# Expected: JSON with ns_platform/ns_build — confirms unauthenticated Nitro API access",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeSpringOAuthSpEL tests for CVE-2016-4977 (Spring Security OAuth2 SpEL injection, CVSS 9.8).
+// The vulnerability: the OAuth2 authorization endpoint passes the redirect_uri parameter into a
+// SpEL template renderer when generating error pages. An attacker can inject SpEL expressions
+// (e.g. ${T(java.lang.Runtime).getRuntime().exec(...)}) as the redirect_uri value, achieving
+// unauthenticated RCE when the error page is rendered.
+// Safe probe: GET /oauth/authorize with no credentials triggers an error page. If the response
+// body contains Spring OAuth error format (JSON with "error" key or Whitelabel error page with
+// "oauth" content), the endpoint is confirmed and CVE-2016-4977 may apply.
+func probeSpringOAuthSpEL(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/oauth/authorize?response_type=code&client_id=test&scope=read"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	// 404 means no OAuth endpoint — not Spring OAuth.
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	bodyLower := strings.ToLower(string(b))
+	// Spring OAuth2 error responses are JSON {"error":"...","error_description":"..."}
+	// or Spring Whitelabel Error Page containing "oauth" context.
+	// Require both the endpoint to be reachable AND Spring/OAuth-specific content.
+	isSpringOAuth := (strings.Contains(bodyLower, `"error"`) && strings.Contains(bodyLower, "oauth")) ||
+		strings.Contains(bodyLower, "whitelabel error") ||
+		strings.Contains(bodyLower, "x-application-context") ||
+		strings.Contains(bodyLower, "spring security oauth")
+	if !isSpringOAuth {
+		// Also check for the X-Application-Context header (Spring Boot specific).
+		if resp.Header.Get("X-Application-Context") == "" {
+			return nil
+		}
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVESpringOAuthSpEL,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2016-4977: Spring Security OAuth2 authorization endpoint exposed on %s", asset),
+		Description: "The Spring Security OAuth2 /oauth/authorize endpoint is internet-accessible and returned " +
+			"a Spring-specific error response. CVE-2016-4977 (CVSS 9.8) allows unauthenticated remote code execution " +
+			"via SpEL (Spring Expression Language) injection in the redirect_uri parameter — when the OAuth2 server " +
+			"generates an error page, it evaluates the redirect_uri value as a SpEL expression. " +
+			"Affects Spring Security OAuth 2.0.x < 2.0.10, 2.1.x < 2.1.5. " +
+			"Upgrade Spring Security OAuth and restrict the /oauth/ endpoints from public access.",
+		Evidence: map[string]any{
+			"endpoint":    u,
+			"status_code": resp.StatusCode,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s'\n"+
+				"# Expected: Spring OAuth JSON error or Whitelabel error page — confirms endpoint is exposed",
 			u),
 		DiscoveredAt: time.Now(),
 	}

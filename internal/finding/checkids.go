@@ -185,6 +185,7 @@ const (
 	CheckPortFTPAnonymous        CheckID = "port.ftp_anonymous"                 // FTP accepts anonymous login (no credentials)
 	CheckPortSMBExposed          CheckID = "port.smb_exposed"                   // SMB/Windows filesharing exposed
 	CheckPortSMBNullSession      CheckID = "port.smb_null_session"              // SMB accepts null session (unauthenticated share list)
+	CheckPortSMBv1Enabled        CheckID = "port.smb_v1_enabled"                // SMBv1 protocol accepted — EternalBlue/WannaCry risk (CVE-2017-0144)
 	CheckPortDatabaseExposed     CheckID = "port.database_exposed"              // Database port exposed (MySQL/Postgres/MSSQL/Oracle)
 	CheckPortK8sAPIExposed       CheckID = "port.k8s_api_exposed"               // Kubernetes API server exposed
 	CheckPortWinRMExposed        CheckID = "port.winrm_exposed"                 // WinRM remote management exposed
@@ -711,8 +712,10 @@ const (
 	CheckCVEPrimefacesEL          CheckID = "cve.primefaces_el_injection"     // CVE-2017-1000486 Primefaces EL injection via default hardcoded secret key (CVSS 9.8)
 
 	// ── Recent high-severity CVEs (2016) ──────────────────────────────────────
-	CheckCVEShiroRememberMe    CheckID = "cve.shiro_remember_me"        // CVE-2016-4437 Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle (CVSS 9.8, KEV)
-	CheckCVEWebSphereConsole   CheckID = "cve.websphere_console_exposed" // CVE-2016-5983 IBM WebSphere admin console exposed — deserialization RCE (CVSS 9.8)
+	CheckCVEShiroRememberMe      CheckID = "cve.shiro_remember_me"          // CVE-2016-4437 Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle (CVSS 9.8, KEV)
+	CheckCVEWebSphereConsole     CheckID = "cve.websphere_console_exposed"  // CVE-2016-5983 IBM WebSphere admin console exposed — deserialization RCE (CVSS 9.8)
+	CheckCVESpringOAuthSpEL      CheckID = "cve.spring_oauth_spel"          // CVE-2016-4977 Spring Security OAuth2 SpEL injection via redirect_uri error page (CVSS 9.8)
+	CheckCVEOXAppSuiteSSRF       CheckID = "cve.ox_appsuite_ssrf"           // CVE-2016-4047 Open-Xchange AppSuite SSRF via unvalidated proxy URL (CVSS 8.8)
 
 	// ── Recent high-severity CVEs (2015) ──────────────────────────────────────
 	CheckCVEJBossJMXInvoker CheckID = "cve.jboss_jmx_invoker" // CVE-2015-7501 JBoss JMXInvokerServlet pre-auth Java deserialization RCE (CVSS 9.8, KEV)
@@ -1000,6 +1003,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortFTPAnonymous:        {CheckPortFTPAnonymous, SeverityHigh, ModeSurface},
 	CheckPortSMBExposed:          {CheckPortSMBExposed, SeverityHigh, ModeSurface},
 	CheckPortSMBNullSession:      {CheckPortSMBNullSession, SeverityCritical, ModeSurface},
+	CheckPortSMBv1Enabled:        {CheckPortSMBv1Enabled, SeverityCritical, ModeSurface},
 	CheckPortDatabaseExposed:     {CheckPortDatabaseExposed, SeverityHigh, ModeSurface},
 	CheckPortK8sAPIExposed:       {CheckPortK8sAPIExposed, SeverityCritical, ModeSurface},
 	CheckPortWinRMExposed:        {CheckPortWinRMExposed, SeverityHigh, ModeSurface},
@@ -1339,6 +1343,8 @@ var Registry = map[CheckID]CheckMeta{
 	// 2016 CVEs
 	CheckCVEShiroRememberMe:  {CheckCVEShiroRememberMe, SeverityCritical, ModeSurface},
 	CheckCVEWebSphereConsole: {CheckCVEWebSphereConsole, SeverityHigh, ModeSurface},
+	CheckCVESpringOAuthSpEL:  {CheckCVESpringOAuthSpEL, SeverityCritical, ModeSurface},
+	CheckCVEOXAppSuiteSSRF:   {CheckCVEOXAppSuiteSSRF, SeverityHigh, ModeSurface},
 
 	// 2015 CVEs
 	CheckCVEJBossJMXInvoker: {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},
