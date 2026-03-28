@@ -751,6 +751,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// CVE-2023-29357 (SharePoint Server 2019 JWT none-alg auth bypass, CVSS 9.8, KEV):
+	// MicrosoftSharePointTeamServices header from /_api/contextinfo reveals build version;
+	// < 16.0.10399 means the June 2023 CU is not applied and the JWT bypass is unpatched.
+	if f := probeSharePointJWT(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	// CVE-2021-26855 (Exchange ProxyLogon, CVSS 9.8, KEV) / CVE-2021-34473/34523/31207 (ProxyShell):
 	// X-OWA-Version header at /owa/ reveals Exchange version; pre-March and pre-July 2021 CUs are vulnerable.
 	if f := probeExchangeOWAVersion(ctx, client, base, asset); f != nil {
@@ -1711,6 +1718,109 @@ func probeTeamCityRPC2(ctx context.Context, client *http.Client, base, asset str
 			u),
 		DiscoveredAt: time.Now(),
 	}
+}
+
+// probeSharePointJWT checks for CVE-2023-29357 (SharePoint Server 2019 JWT none-alg
+// auth bypass, CVSS 9.8, KEV). SharePoint returns the MicrosoftSharePointTeamServices
+// header even on unauthenticated requests — this leaks the exact build version.
+// Versions before the June 2023 CU (build < 16.0.10399) are vulnerable to the JWT
+// signature bypass that allows impersonation of any user including site admins.
+func probeSharePointJWT(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// /_api/contextinfo returns the SharePoint version header even on 401/403.
+	// /_vti_inf.html is always publicly accessible and also fingerprints SharePoint.
+	for _, path := range []string{"/_api/contextinfo", "/_vti_inf.html"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+
+		// Check for SharePoint version in the response header.
+		spVer := resp.Header.Get("MicrosoftSharePointTeamServices")
+		if spVer == "" {
+			// Also check body for SharePoint markers (/_vti_inf.html path).
+			bLower := strings.ToLower(string(b))
+			if !strings.Contains(bLower, "sharepoint") && !strings.Contains(bLower, "microsoft-sharepoint") {
+				continue
+			}
+			// Fingerprinted as SharePoint but no version header — emit advisory finding.
+			return &finding.Finding{
+				CheckID:  finding.CheckCVESharePointJWT,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Asset:    asset,
+				Title:    fmt.Sprintf("CVE-2023-29357: Microsoft SharePoint Server internet-exposed on %s", asset),
+				Description: "A Microsoft SharePoint Server instance is internet-accessible. " +
+					"CVE-2023-29357 (CVSS 9.8, KEV) allows unauthenticated privilege escalation via JWT " +
+					"tokens with algorithm set to 'none' — SharePoint accepts unsigned JWTs as valid, " +
+					"enabling impersonation of any user including site collection administrators. " +
+					"Chained with CVE-2023-24955 (SSTI) this yields unauthenticated RCE. " +
+					"Apply the June 2023 Cumulative Update or later and restrict SharePoint to internal networks.",
+				Evidence: map[string]any{"url": base + path},
+				ProofCommand: fmt.Sprintf(
+					"curl -sI '%s/_api/contextinfo' | grep -i MicrosoftSharePointTeamServices",
+					base),
+				DiscoveredAt: time.Now(),
+			}
+		}
+		// Parse SharePoint build version: "16.0.10399.20012" format.
+		// June 2023 CU threshold: 16.0.10399.20000 (SharePoint Server 2019).
+		vuln := isSharePointJWTVulnerable(spVer)
+		if !vuln {
+			return nil
+		}
+		return &finding.Finding{
+			CheckID:  finding.CheckCVESharePointJWT,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2023-29357: SharePoint %s vulnerable to JWT none-alg bypass on %s", spVer, asset),
+			Description: fmt.Sprintf(
+				"Microsoft SharePoint Server %s is internet-accessible and vulnerable to CVE-2023-29357 "+
+					"(CVSS 9.8, KEV). SharePoint accepts JWT tokens with algorithm 'none' as valid, "+
+					"allowing unauthenticated impersonation of any user including site admins. "+
+					"Chained with CVE-2023-24955 (authenticated SSTI in Business Data Connectivity) "+
+					"this gives unauthenticated RCE. Apply the June 2023 Cumulative Update (build ≥ 16.0.10399).",
+				spVer,
+			),
+			Evidence: map[string]any{
+				"sharepoint_version": spVer,
+				"url":                base + path,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -sI '%s/_api/contextinfo' | grep -i MicrosoftSharePointTeamServices\n"+
+					"# Expected: MicrosoftSharePointTeamServices: %s — confirms unpatched SharePoint build",
+				base, spVer),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// isSharePointJWTVulnerable returns true if the SharePoint build version is below
+// the June 2023 Cumulative Update threshold (16.0.10399.x for SharePoint 2019).
+func isSharePointJWTVulnerable(ver string) bool {
+	// Format: "16.0.10399.20012"
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	if parts[0] != "16" || parts[1] != "0" {
+		return false
+	}
+	build := 0
+	fmt.Sscanf(parts[2], "%d", &build)
+	// June 2023 CU for SharePoint Server 2019: build 16.0.10399.20000
+	// SharePoint Subscription Edition June 2023 CU: build 16.0.15601.20188
+	// For the 2019 release train (builds in the 10xxx range): < 10399 is unpatched.
+	return build < 10399
 }
 
 // probeExchangeOWAVersion reads the X-OWA-Version header from /owa/ to detect

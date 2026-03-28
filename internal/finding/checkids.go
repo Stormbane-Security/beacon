@@ -646,6 +646,9 @@ const (
 	CheckCVEFortiOSSSLVPN         CheckID = "cve.fortios_ssl_vpn_rce"      // CVE-2024-21762 FortiOS < 7.4.3 SSL VPN out-of-bounds write → unauthenticated RCE (CVSS 9.6, KEV)
 	CheckCVECheckPointFileRead    CheckID = "cve.checkpoint_file_read"     // CVE-2024-24919 Check Point CloudGuard arbitrary file read via /clients/MyCRL (CVSS 8.6, KEV)
 
+	// ── Recent high-severity CVEs (2023) — additional ────────────────────────
+	CheckCVESharePointJWT CheckID = "cve.sharepoint_jwt_bypass" // CVE-2023-29357 SharePoint Server 2019 JWT none-alg auth bypass — version from MicrosoftSharePointTeamServices header (CVSS 9.8, KEV)
+
 	// ── Recent high-severity CVEs (2023) ──────────────────────────────────────
 	CheckCVEOwnCloudPhpInfo     CheckID = "cve.owncloud_phpinfo"              // CVE-2023-49103 ownCloud graphapi phpinfo() leak — admin password in env vars (CVSS 10.0, KEV)
 	CheckCVEMOVEitWebShell      CheckID = "cve.moveit_webshell"               // CVE-2023-34362 MOVEit Transfer — CL0P human2.aspx web shell compromise indicator (CVSS 9.8, KEV)
@@ -1274,6 +1277,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEJuniperJWeb:         {CheckCVEJuniperJWeb, SeverityCritical, ModeSurface},
 	CheckCVESysAid:              {CheckCVESysAid, SeverityHigh, ModeSurface},
 	CheckCVETeamCityRPC2:        {CheckCVETeamCityRPC2, SeverityCritical, ModeDeep},
+	CheckCVESharePointJWT:       {CheckCVESharePointJWT, SeverityCritical, ModeSurface},
 
 	// 2022 CVEs
 	CheckCVEF5BigIPAuthBypass:   {CheckCVEF5BigIPAuthBypass, SeverityCritical, ModeSurface},
