@@ -304,6 +304,8 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckContractIntegerOverflow: true,
 		// CVE-2014-0224 OpenSSL CCS injection — testssl.sh sends malformed TLS handshake
 		finding.CheckTLSCCSInjection: true,
+		// WiFi PMKID capture via bettercap/hcxdumptool — requires --permission-confirmed
+		finding.CheckWiFiPMKID: true,
 	}
 
 	for id, meta := range finding.Registry {

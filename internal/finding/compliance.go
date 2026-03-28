@@ -108,4 +108,12 @@ var complianceMap = map[CheckID][]string{
 	CheckNetDeviceOpenWRTExposed: {"SOC2-CC6.6", "PCI-1.3"},
 	CheckPortRADIUSExposed:       {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
 	CheckDLPWifiCredential:       {"SOC2-CC6.1", "PCI-6.3.1"},
+
+	// Local WiFi
+	CheckWiFiOpenNetwork:    {"PCI-1.3", "SOC2-CC6.6", "NIST-PR.AC", "ISO27001-A.13.1"},
+	CheckWiFiWEPNetwork:     {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.DS", "ISO27001-A.13.1"},
+	CheckWiFiWPSEnabled:     {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.AC"},
+	CheckWiFiWPA2TKIP:       {"PCI-4.2.1", "SOC2-CC6.7"},
+	CheckWiFiGatewayExposed: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckWiFiPMKID:          {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.DS"},
 }

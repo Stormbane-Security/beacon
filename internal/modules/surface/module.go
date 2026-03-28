@@ -99,6 +99,7 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/chainnode"
 	"github.com/stormbane/beacon/internal/scanner/githubactions"
 	"github.com/stormbane/beacon/internal/scanner/nextjs"
+	"github.com/stormbane/beacon/internal/scanner/wifi"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/profiler"
@@ -379,6 +380,7 @@ func New(cfg Config) (*Module, error) {
 		"chainnode":        chainnode.New(),
 		"githubactions":   githubactions.New(cfg.GitHubToken),
 		"nextjs":          nextjs.New(),
+		"wifi":            wifi.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

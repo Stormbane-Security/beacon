@@ -494,6 +494,32 @@ resource "aws_security_group_rule" "grpc_restrict" {
 		TerraformExample: "",
 	},
 
+	// ---- Local WiFi ----
+	"wifi.open_network": {
+		DocSummary: "An open (unencrypted) WiFi network requires no credential to join. All traffic is transmitted in plaintext and can be passively captured by any nearby observer. Credentials, session tokens, and sensitive data traversing the network are exposed.",
+		TerraformExample: "",
+	},
+	"wifi.wep_network": {
+		DocSummary: "A WEP-encrypted WiFi network is detected. WEP was cryptographically broken in 2001 and can be cracked in minutes using freely available tools (aircrack-ng). Provides no meaningful protection against a determined attacker. Upgrade to WPA2-AES or WPA3.",
+		TerraformExample: "",
+	},
+	"wifi.wps_enabled": {
+		DocSummary: "WiFi Protected Setup (WPS) is enabled. The WPS PIN exchange is vulnerable to brute-force (Reaver) and Pixie-Dust offline attacks that recover the PIN in seconds to hours depending on AP firmware. Disable WPS in the access point configuration.",
+		TerraformExample: "",
+	},
+	"wifi.wpa2_tkip": {
+		DocSummary: "The network uses WPA2-TKIP (Temporal Key Integrity Protocol). TKIP was deprecated by the IEEE in 2012 and is considered cryptographically weak. The TKIP MIC attack (ChopChop) allows limited packet manipulation. Reconfigure the AP to use WPA2-AES (CCMP) only.",
+		TerraformExample: "",
+	},
+	"wifi.gateway_exposed": {
+		DocSummary: "The default gateway for the local wireless network has a management interface (HTTP/HTTPS/SSH/Winbox) reachable from the WiFi segment. Router admin panels are commonly targeted with credential stuffing using factory defaults. Restrict management access to the wired LAN interface only.",
+		TerraformExample: "",
+	},
+	"wifi.pmkid_capture": {
+		DocSummary: "A PMKID (Pairwise Master Key Identifier) was captured from the WPA2 beacon frames without any active deauthentication. The PMKID allows offline dictionary attacks against the network password using hashcat. Networks with weak passphrases can be cracked in minutes.",
+		TerraformExample: "",
+	},
+
 	// ---- Contract ----
 	"contract.reentrancy": {
 		DocSummary: "A reentrancy vulnerability allows an attacker to repeatedly call a function before the first invocation completes, draining contract funds. The DAO hack exploited this pattern and lost $60M.",
