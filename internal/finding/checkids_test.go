@@ -291,6 +291,9 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckWebAPIFuzz:             true,
 		// Log4Shell — deep mode sends JNDI payload in headers
 		finding.CheckCVELog4Shell: true,
+		// CVE-2025-24813 Apache Tomcat partial PUT — writes a 1-byte temp file,
+		// requires --permission-confirmed to avoid unsolicited writes to servers.
+		finding.CheckCVETomcatPartialPUT: true,
 		// EVM contract vulnerability analysis — active Etherscan + RPC probes
 		finding.CheckContractReentrancy:      true,
 		finding.CheckContractSelfDestruct:    true,

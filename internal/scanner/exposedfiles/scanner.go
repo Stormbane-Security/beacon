@@ -293,6 +293,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// CVE-2025-24813 (Deep only): Apache Tomcat partial PUT to .session path.
+	// If Tomcat's DefaultServlet has partial PUT enabled (default in affected
+	// versions) an attacker can upload an arbitrary file via Content-Range PUT,
+	// then trigger deserialization by requesting the session ID that matches the
+	// uploaded filename. The probe is a 1-byte partial PUT to a random .session
+	// path — acceptance (201 Created) proves the vulnerability without exploiting it.
+	if scanType == module.ScanDeep {
+		if f := probeTomcatPartialPUT(ctx, client, base, asset); f != nil {
+			findings = append(findings, *f)
+		}
+	}
+
 	return findings, nil
 }
 
@@ -312,6 +324,95 @@ func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// probeTomcatPartialPUT tests for CVE-2025-24813 (Apache Tomcat partial PUT
+// deserialization). It first fingerprints Tomcat via the Server header, then
+// sends a 1-byte partial PUT to a random .session path. A 201 Created response
+// means the DefaultServlet accepted the partial upload — the server is vulnerable.
+// No deserialization is triggered; the temp file is never read back.
+func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Fingerprint: check Server header on root request.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	resp.Body.Close()
+	server := strings.ToLower(resp.Header.Get("Server"))
+	isTomcat := strings.Contains(server, "tomcat") || strings.Contains(server, "coyote")
+	if !isTomcat {
+		// Secondary fingerprint: /manager/html returns 401 on stock Tomcat.
+		mReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/manager/html", nil)
+		if err != nil {
+			return nil
+		}
+		mResp, err := client.Do(mReq)
+		if err != nil {
+			return nil
+		}
+		mResp.Body.Close()
+		// Tomcat returns 401 Unauthorized with WWW-Authenticate on /manager/html.
+		wwwAuth := strings.ToLower(mResp.Header.Get("WWW-Authenticate"))
+		isTomcat = mResp.StatusCode == http.StatusUnauthorized &&
+			strings.Contains(wwwAuth, "tomcat")
+	}
+	if !isTomcat {
+		return nil
+	}
+
+	// Probe: partial PUT to a random .session filename.
+	sessionPath := fmt.Sprintf("/beacon-probe-%d.session", time.Now().UnixNano())
+	u := base + sessionPath
+	putReq, err := http.NewRequestWithContext(ctx, http.MethodPut, u,
+		strings.NewReader("\x00"))
+	if err != nil {
+		return nil
+	}
+	putReq.Header.Set("Content-Type", "application/octet-stream")
+	putReq.Header.Set("Content-Range", "bytes 0-0/100")
+	putResp, err := client.Do(putReq)
+	if err != nil {
+		return nil
+	}
+	putResp.Body.Close()
+	if putResp.StatusCode != http.StatusCreated {
+		return nil
+	}
+
+	f := &finding.Finding{
+		CheckID:  finding.CheckCVETomcatPartialPUT,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2025-24813: Apache Tomcat accepts partial PUT on .session path (%s)", asset),
+		Description: fmt.Sprintf(
+			"%s is running Apache Tomcat and accepted a partial PUT (Content-Range) request to "+
+				"a .session path, returning HTTP 201 Created. "+
+				"CVE-2025-24813 (CVSS 9.8, KEV) allows an attacker to upload a malicious Java "+
+				"serialized object as a partial upload, then trigger deserialization by requesting "+
+				"the session ID that matches the uploaded filename. This achieves remote code execution. "+
+				"Affects Tomcat 9.0.0.M1–9.0.98, 10.1.0-M1–10.1.34, 11.0.0-M1–11.0.2. "+
+				"Upgrade to 9.0.99 / 10.1.35 / 11.0.3 or later and disable partial PUT if not required.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":             u,
+			"put_status":      putResp.StatusCode,
+			"content_range":   "bytes 0-0/100",
+			"server":          resp.Header.Get("Server"),
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sk -X PUT '%s' -H 'Content-Range: bytes 0-0/100' -H 'Content-Type: application/octet-stream' -d $'\\x00' -o /dev/null -w '%%{http_code}'",
+			u,
+		),
+		DiscoveredAt: time.Now(),
+	}
+	return f
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

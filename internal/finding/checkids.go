@@ -630,6 +630,10 @@ const (
 	CheckPortBGPExposed               CheckID = "port.bgp_exposed"                 // BGP port 179 accessible — routing infrastructure exposed
 	CheckPortKibanaVulnerable         CheckID = "cve.kibana_cve_2025_25015"        // CVE-2025-25015 Kibana 8.15.0–8.17.2 prototype pollution RCE (CVSS 9.9)
 	CheckPortMinIODefaultCreds        CheckID = "port.minio_default_credentials"   // MinIO console (port 9001) accepts minioadmin:minioadmin default credentials
+	CheckCVENextJSMiddlewareBypass    CheckID = "cve.nextjs_middleware_bypass"      // CVE-2025-29927 Next.js middleware auth bypass via X-Middleware-Subrequest (CVSS 9.1, KEV)
+	CheckCVEViteFileRead              CheckID = "cve.vite_file_read"               // CVE-2025-30208 Vite dev server arbitrary file read via /@fs/ path double-query confusion (CVSS 9.1)
+	CheckCVEIngressNightmare          CheckID = "cve.ingress_nightmare"            // CVE-2025-1974 ingress-nginx admission webhook exposed — pre-auth RCE via annotation injection (CVSS 9.8, KEV)
+	CheckCVETomcatPartialPUT          CheckID = "cve.tomcat_partial_put"           // CVE-2025-24813 Apache Tomcat partial PUT accepted on .session path — deserialization RCE vector (CVSS 9.8, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1173,7 +1177,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEFortiOSSSOBypass:       {CheckCVEFortiOSSSOBypass, SeverityCritical, ModeSurface},
 	CheckCVEFortiWebAuthBypass:     {CheckCVEFortiWebAuthBypass, SeverityCritical, ModeSurface},
 	CheckCVECiscoASARCE:            {CheckCVECiscoASARCE, SeverityCritical, ModeSurface},
-	CheckCVEMCPServerExposed:       {CheckCVEMCPServerExposed, SeverityHigh, ModeSurface},
+	CheckCVEMCPServerExposed:          {CheckCVEMCPServerExposed, SeverityHigh, ModeSurface},
+	CheckCVENextJSMiddlewareBypass:    {CheckCVENextJSMiddlewareBypass, SeverityCritical, ModeSurface},
+	CheckCVEViteFileRead:              {CheckCVEViteFileRead, SeverityCritical, ModeSurface},
+	CheckCVEIngressNightmare:          {CheckCVEIngressNightmare, SeverityCritical, ModeSurface},
+	CheckCVETomcatPartialPUT:          {CheckCVETomcatPartialPUT, SeverityCritical, ModeDeep},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},
