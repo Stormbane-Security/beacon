@@ -1619,6 +1619,43 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			}
 		}
 
+	// ── Oracle WebLogic Server ────────────────────────────────────────────────
+	// Exposedfiles handles the full CVE probe suite; portscan emits an exposure
+	// finding when it confirms WebLogic is listening on 7001.
+	case 7001:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/console/login/LoginForm.jsp"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "weblogic") || strings.Contains(lb, "oracle") {
+				return []finding.Finding{makeF(
+					finding.CheckCVEWebLogicConsole,
+					finding.SeverityCritical,
+					fmt.Sprintf("Oracle WebLogic admin console exposed on port %d (CVE-2020-14882 KEV)", port),
+					"Oracle WebLogic admin console at /console/login/LoginForm.jsp is internet-accessible. "+
+						"CVE-2020-14882/14883 (CVSS 9.8, KEV) allows unauthenticated RCE via double URL-encoded "+
+						"paths. The WebLogic admin console must never be internet-facing regardless of patch level.",
+					map[string]any{"port": port, "service": "weblogic"},
+				)}
+			}
+		}
+
+	// ── Neo4j graph database HTTP API ─────────────────────────────────────────
+	case 7474:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "neo4j") || strings.Contains(lb, "bolt") && strings.Contains(lb, "transaction") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNeo4jExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Neo4j graph database HTTP API exposed without authentication on port %d", port),
+					"A Neo4j graph database REST API is accessible without authentication on port 7474. "+
+						"Unauthenticated access allows full read/write of all graph data. "+
+						"Enable authentication in neo4j.conf (dbms.security.auth_enabled=true) and "+
+						"restrict port 7474 to application server subnets only.",
+					map[string]any{"port": port, "service": "neo4j"},
+				)}
+			}
+		}
+
 	// ── Gradio ML demo server / Automatic1111 SD WebUI ───────────────────────
 	case 7860:
 		if body, ok := probeHTTPBody(ctx, asset, port, false, "/info"); ok && strings.Contains(body, "gradio") {
@@ -4289,7 +4326,7 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
-	if pktLen == 0 || pktLen > 65535 {
+	if pktLen == 0 || pktLen > (1<<24) { // MySQL max packet is 16MB
 		return false
 	}
 	greeting := make([]byte, pktLen)
@@ -4535,6 +4572,9 @@ func buildTDSLogin7(user, _ string) []byte {
 	}
 
 	totalLen := int(offset)
+	if totalLen+8 > 65535 { // TDS packet length field is uint16
+		return nil
+	}
 	pkt := make([]byte, totalLen+8) // +8 for TDS header
 
 	// TDS packet header

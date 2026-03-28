@@ -542,6 +542,7 @@ const (
 	CheckPortJetDirectExposed   CheckID = "port.jetdirect_exposed"    // JetDirect/PJL printer raw print port accessible (port 9100)
 	CheckPortMikroTikAPIExposed CheckID = "port.mikrotik_api_exposed" // MikroTik RouterOS API accessible (port 8728)
 	CheckPortCheckPointExposed  CheckID = "port.checkpoint_topology"  // Check Point FW-1 topology port accessible (port 264)
+	CheckPortNeo4jExposed       CheckID = "port.neo4j_exposed"        // Neo4j graph database HTTP API accessible without auth (port 7474)
 
 	// ── Email / messaging server exposure ───────────────────────────────────
 	// Ports 25/587 (SMTP), 143/993 (IMAP), 110/995 (POP3) exposed to internet.
@@ -1350,6 +1351,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortJetDirectExposed:      {CheckPortJetDirectExposed, SeverityMedium, ModeSurface},
 	CheckPortMikroTikAPIExposed:    {CheckPortMikroTikAPIExposed, SeverityHigh, ModeSurface},
 	CheckPortCheckPointExposed:     {CheckPortCheckPointExposed, SeverityHigh, ModeSurface},
+	CheckPortNeo4jExposed:          {CheckPortNeo4jExposed, SeverityHigh, ModeSurface},
 
 	// Email / messaging server exposure
 	CheckPortSMTPExposed:           {CheckPortSMTPExposed, SeverityMedium, ModeSurface},
