@@ -336,6 +336,136 @@ var targets = []sensitiveFile{
 			"for remote code execution. Multiple threat actors and ransomware groups exploited this immediately " +
 			"after disclosure. Apply VMware VMSA-2022-0011 patches immediately.",
 	},
+
+	// ── 2021 CVE-specific endpoint probes ─────────────────────────────────────
+
+	// CVE-2021-21985/22005 — VMware vCenter Server internet-exposed (CVSS 9.8, KEV).
+	// /sdk/vimServiceVersions.xml returns version info without authentication on every vCenter.
+	// CVE-2021-21985 (vSAN Health Check plugin RCE) and CVE-2021-22005 (analytics telemetry upload)
+	// both exploited unauthenticated vCenter access. Any internet-facing vCenter is critical.
+	{
+		path:         "/sdk/vimServiceVersions.xml",
+		title:        "CVE-2021-21985/22005: VMware vCenter Server exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEvCenterExposed,
+		bodyContains: "version",
+		description: "VMware vCenter Server is internet-accessible — /sdk/vimServiceVersions.xml " +
+			"returns version XML without authentication. CVE-2021-21985 (CVSS 9.8, KEV, vSAN Health Check plugin RCE) " +
+			"and CVE-2021-22005 (CVSS 9.8, KEV, analytics telemetry arbitrary file upload) both exploit " +
+			"unauthenticated access to vCenter. vCenter manages the entire VMware virtualisation stack — " +
+			"compromise gives an attacker control of every VM. Restrict vCenter access to internal networks only.",
+	},
+
+	// CVE-2021-22205 — GitLab ExifTool pre-auth RCE (CVSS 10.0, KEV).
+	// /api/v4/version returns version JSON without auth when anonymous API access is enabled.
+	// bodyContains "revision" distinguishes GitLab from Palo Alto Expedition (/api/v1/version).
+	{
+		path:         "/api/v4/version",
+		title:        "CVE-2021-22205: GitLab version API exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEGitLabRCE,
+		bodyContains: "revision",
+		description: "The GitLab version API is accessible without authentication. " +
+			"CVE-2021-22205 (CVSS 10.0, KEV) exploits an image upload endpoint that passes user-supplied " +
+			"DjVu files to ExifTool without authentication. ExifTool versions < 12.38 execute shell commands " +
+			"embedded in DjVu metadata, giving remote code execution. GitLab < 13.10.3, < 13.9.6, < 13.8.8 " +
+			"are vulnerable. Upgrade GitLab and restrict API access.",
+	},
+
+	// CVE-2021-27101/27102/27103/27104 — Accellion File Transfer Appliance (FTA) exploited (CVSS 9.8, KEV).
+	// Accellion FTA is end-of-life (discontinued Jan 2021). The product was mass-exploited by
+	// UNC2546/FIN11 for data extortion. Any internet-facing FTA is almost certainly compromised.
+	{
+		path:         "/courier/web/1000@/wmLogin.html",
+		title:        "CVE-2021-27101/27104: Accellion FTA (end-of-life) exposed — likely compromised",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEAccellionFTA,
+		bodyContains: "Accellion",
+		description: "An Accellion File Transfer Appliance (FTA) is internet-accessible. FTA reached end-of-life " +
+			"in April 2021 and receives no security patches. CVE-2021-27101 through 27104 (CVSS 9.8, KEV) are SQL " +
+			"injection and OS command injection vulnerabilities exploited by UNC2546/FIN11 for data extortion " +
+			"against dozens of organisations including government agencies. This appliance is almost certainly " +
+			"compromised. Decommission immediately and engage incident response.",
+	},
+
+	// ── 2020 CVE-specific endpoint probes ─────────────────────────────────────
+
+	// CVE-2020-5902 — F5 BIG-IP TMUI RCE via path traversal (CVSS 9.8, KEV).
+	// /tmui/login.jsp fingerprints the Traffic Management User Interface.
+	// The exploit traverses from /tmui/login.jsp/../.. to reach /mgmt/tm/ endpoints.
+	{
+		path:         "/tmui/login.jsp",
+		title:        "CVE-2020-5902: F5 BIG-IP TMUI management interface exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEF5BigIPTMUI,
+		bodyContains: "F5",
+		description: "The F5 BIG-IP Traffic Management User Interface (TMUI) is internet-accessible. " +
+			"CVE-2020-5902 (CVSS 9.8, KEV) exploits a path traversal in the TMUI that allows " +
+			"unauthenticated execution of arbitrary system commands on the BIG-IP controller. " +
+			"This vulnerability was mass-exploited within days of disclosure. " +
+			"Apply F5 patches immediately and restrict TMUI access to internal management networks.",
+	},
+
+	// CVE-2020-10148 — SolarWinds Orion auth bypass (CVSS 9.8, KEV).
+	// /Orion/Login.aspx fingerprints the SolarWinds Orion Platform.
+	// This CVE was exploited in the SUNBURST supply chain attack campaign context.
+	{
+		path:         "/Orion/Login.aspx",
+		title:        "CVE-2020-10148: SolarWinds Orion Platform exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVESolarWindsOrion,
+		bodyContains: "SolarWinds",
+		description: "The SolarWinds Orion Platform is internet-accessible. " +
+			"CVE-2020-10148 (CVSS 9.8, KEV) is an authentication bypass in the Orion API that allows " +
+			"unauthenticated access to the Orion web application when a request includes the parameter " +
+			"'SolarWinds-Orion-API-UseSolarWindsAuthentication=false'. This was exploited in the context " +
+			"of the SUNBURST supply chain compromise campaign. Upgrade to Orion 2020.2.1 HF 2 or later.",
+	},
+
+	// CVE-2020-13942 — Apache Unomi RCE via MVEL/OGNL in context.json (CVSS 9.8, KEV).
+	// /context.json returns profile data without auth; the payload RCE is via MVEL expressions.
+	{
+		path:         "/context.json",
+		title:        "CVE-2020-13942: Apache Unomi context API exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEApacheUnomi,
+		bodyContains: "requiredProfileId",
+		description: "The Apache Unomi Customer Data Platform /context.json endpoint is internet-accessible. " +
+			"CVE-2020-13942 (CVSS 9.8, KEV) allows unauthenticated remote code execution by sending " +
+			"MVEL or OGNL expressions as profile property conditions — the server evaluates them as code. " +
+			"Apache Unomi is a customer data hub; exploitation exposes all customer profiles. " +
+			"Upgrade to Unomi 1.5.2 or later immediately.",
+	},
+
+	// CVE-2020-7961 — Liferay Portal Java deserialization via /api/jsonws (CVSS 9.8, KEV).
+	// The JSON Web Services API is publicly accessible without authentication by default.
+	{
+		path:         "/api/jsonws",
+		title:        "CVE-2020-7961: Liferay Portal JSON Web Services API exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVELiferayRCE,
+		bodyContains: "jsonws",
+		description: "The Liferay Portal JSON Web Services API (/api/jsonws) is internet-accessible. " +
+			"CVE-2020-7961 (CVSS 9.8, KEV) exploits a Java deserialization vulnerability in Liferay's " +
+			"JSONWS API — an unauthenticated POST with a crafted serialized payload triggers RCE on the server. " +
+			"Liferay Portal 6.1+, 6.2+, 7.0, 7.1, 7.2 before the patch are affected. " +
+			"Upgrade to Liferay 7.2 CE GA2+ or DXP with the security patch applied.",
+	},
+
+	// CVE-2020-15505 — MobileIron MDM RCE (CVSS 9.8, KEV).
+	// /mifs/user/login.jsp fingerprints MobileIron Core/Enterprise/Sentry MDM.
+	{
+		path:         "/mifs/user/login.jsp",
+		title:        "CVE-2020-15505: MobileIron MDM login exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEMobileIronRCE,
+		bodyContains: "MobileIron",
+		description: "MobileIron Mobile Device Management (MDM) is internet-accessible. " +
+			"CVE-2020-15505 (CVSS 9.8, KEV) is an unauthenticated remote code execution vulnerability " +
+			"in MobileIron Core and Connector before 10.6. Nation-state actors exploited this to gain " +
+			"initial access to government and healthcare networks. " +
+			"Upgrade MobileIron Core to 10.6 or later and restrict MDM management access.",
+	},
 }
 
 // Scanner actively probes for exposed sensitive files.
@@ -510,6 +640,90 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// GET /api/v2/cmdb/system/admin with crafted Forwarded header bypasses auth on
 	// FortiOS 7.0.0–7.0.6, 7.2.0–7.2.1; FortiProxy 7.0.0–7.0.6, 7.2.0.
 	if f := probeFortiOSAuthBypass(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2019-11510 (Pulse Secure VPN arbitrary file read, CVSS 10.0, KEV):
+	// /dana-na/auth/url_default/welcome.cgi fingerprints Pulse Secure; version from login page JS paths.
+	if f := probePulseSecureVPN(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2019-1579 (PAN-OS GlobalProtect pre-auth RCE, CVSS 9.8, KEV):
+	// /global-protect/prelogin.esp returns XML with <panos-version> on unpatched PAN-OS.
+	if f := probePANGlobalProtect(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2019-11580 (Atlassian Crowd pdkinstall pre-auth RCE, CVSS 9.8, KEV):
+	// GET /crowd/plugins/servlet/pdkinstall returning 200 with upload form = pre-auth plugin install exposed.
+	if f := probeCrowdPdkInstall(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2019-18935 (Telerik RadAsyncUpload .NET deserialization, CVSS 9.8, KEV):
+	// GET /Telerik.Web.UI.WebResource.axd?type=rau returning 200/400/500 with Telerik content = endpoint present.
+	if f := probeTelerikRAU(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2019-2725 (Oracle WebLogic /_async/ pre-auth deserialization RCE, CVSS 9.8, KEV):
+	// GET /_async/AsyncResponseService?WSDL returning WSDL XML = the vulnerable endpoint is exposed.
+	if f := probeWebLogicAsync(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2018-7600/7602 (Drupal Drupalgeddon2/3, CVSS 9.8, KEV):
+	// CHANGELOG.txt reveals Drupal version; 8.x < 8.5.1 / 7.x < 7.58 are vulnerable.
+	if f := probeDrupalgeddon(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2017-10271 (Oracle WebLogic wls-wsat XXE → RCE, CVSS 9.8, KEV):
+	// GET /wls-wsat/CoordinatorPortType returning 200 with WLS content = pre-auth deserialization path exposed.
+	if f := probeWebLogicWLSWSAT(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2017-7921 (Hikvision IP camera unauthenticated ISAPI, CVSS 9.8, KEV):
+	// GET /ISAPI/Security/sessionLogin/capabilities returning XML without auth = ISAPI unauthenticated.
+	if f := probeHikvisionISAPI(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2016-4437 (Apache Shiro remember-me deserialization, CVSS 9.8, KEV):
+	// GET with Cookie: rememberMe=garbage → Set-Cookie: rememberMe=deleteMe = Shiro detected.
+	if f := probeShiroRememberMe(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2015-7501 (JBoss JMXInvokerServlet pre-auth Java deserialization, CVSS 9.8, KEV):
+	// GET /invoker/JMXInvokerServlet returning 200 with Java serialized binary body = vulnerable endpoint exposed.
+	if f := probeJBossJMXInvoker(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2021-26855 (Exchange ProxyLogon, CVSS 9.8, KEV) / CVE-2021-34473/34523/31207 (ProxyShell):
+	// X-OWA-Version header at /owa/ reveals Exchange version; pre-March and pre-July 2021 CUs are vulnerable.
+	if f := probeExchangeOWAVersion(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2021-41773/42013 (Apache httpd 2.4.49–2.4.50 path traversal/RCE, CVSS 9.8, KEV):
+	// Server header exposes exact Apache version; only 2.4.49 and 2.4.50 are vulnerable.
+	if f := probeApacheHTTPVersion(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2020-14882/14883 (Oracle WebLogic admin console auth bypass/RCE, CVSS 9.8, KEV):
+	// /console/login/LoginForm.jsp fingerprints WebLogic; double-encoded path confirms bypass.
+	if f := probeWebLogicConsole(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2019-19781/2020-8196 (Citrix ADC Nitro API unauthenticated access, CVSS 9.8, KEV):
+	// GET /nitro/v1/config/nsversion without credentials confirms unauthenticated Nitro API exposure.
+	if f := probeCitrixADCNitro(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -1446,6 +1660,855 @@ func probeTeamCityRPC2(ctx context.Context, client *http.Client, base, asset str
 		ProofCommand: fmt.Sprintf(
 			"curl -s -X POST -H 'Content-Type: application/json' -d '{}' '%s'\n"+
 				"# Expected on vulnerable: JSON with admin API token value",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeExchangeOWAVersion reads the X-OWA-Version header from /owa/ to detect
+// Microsoft Exchange versions vulnerable to ProxyLogon (CVE-2021-26855, CVSS 9.8, KEV)
+// and/or ProxyShell (CVE-2021-34473/34523/31207, CVSS 9.8, KEV).
+// Both vulnerabilities allow pre-authentication code execution on Exchange.
+func probeExchangeOWAVersion(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/owa/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	resp.Body.Close()
+	ver := resp.Header.Get("X-OWA-Version")
+	if ver == "" {
+		return nil
+	}
+	proxyLogon, proxyShell := exchangeVulnStatus(ver)
+	if !proxyLogon && !proxyShell {
+		return nil
+	}
+	if proxyLogon {
+		return &finding.Finding{
+			CheckID:  finding.CheckCVEExchangeProxyLogon,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2021-26855: Exchange %s vulnerable to ProxyLogon on %s", ver, asset),
+			Description: fmt.Sprintf(
+				"Microsoft Exchange %s is internet-accessible and vulnerable to CVE-2021-26855 "+
+					"(ProxyLogon, CVSS 9.8, KEV). ProxyLogon is a pre-authentication SSRF that chains with "+
+					"CVE-2021-27065 (post-auth file write) for unauthenticated RCE. HAFNIUM and numerous "+
+					"ransomware groups mass-exploited this within days of disclosure. This version is also "+
+					"vulnerable to CVE-2021-34473/34523/31207 (ProxyShell). "+
+					"Patch to the March 2021 or later Cumulative Update immediately.",
+				ver,
+			),
+			Evidence: map[string]any{
+				"x_owa_version": ver,
+				"owa_url":       u,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -sI '%s' | grep -i 'x-owa-version'\n"+
+					"# Expected: X-OWA-Version: %s — confirms vulnerable Exchange OWA exposed",
+				u, ver),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEExchangeProxyShell,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2021-34473: Exchange %s vulnerable to ProxyShell on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"Microsoft Exchange %s is internet-accessible and vulnerable to CVE-2021-34473/34523/31207 "+
+				"(ProxyShell, CVSS 9.8, KEV). ProxyShell chains three vulnerabilities to allow "+
+				"pre-authentication remote code execution via the Autodiscover service. "+
+				"Widely exploited by ransomware groups (LockFile, Conti, Hive, CUBA) in mid-2021. "+
+				"Patch to the July 2021 or later Cumulative Update immediately.",
+			ver,
+		),
+		Evidence: map[string]any{
+			"x_owa_version": ver,
+			"owa_url":       u,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sI '%s' | grep -i 'x-owa-version'\n"+
+				"# Expected: X-OWA-Version: %s — confirms vulnerable Exchange OWA exposed",
+			u, ver),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// exchangeVulnStatus checks an Exchange X-OWA-Version string (e.g., "15.2.986.26")
+// and returns whether it is vulnerable to ProxyLogon (patched March 2021)
+// and/or ProxyShell (patched July 2021).
+func exchangeVulnStatus(ver string) (proxyLogon, proxyShell bool) {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 || parts[0] != "15" {
+		return false, false
+	}
+	var minor, build, rev int
+	fmt.Sscanf(parts[1], "%d", &minor)
+	fmt.Sscanf(parts[2], "%d", &build)
+	if len(parts) >= 4 {
+		fmt.Sscanf(parts[3], "%d", &rev)
+	}
+	switch minor {
+	case 0: // Exchange 2013
+		// ProxyLogon patch: 15.0.1497.15 | ProxyShell patch: 15.0.1497.23
+		if build < 1497 || (build == 1497 && rev < 15) {
+			return true, true
+		}
+		return false, build == 1497 && rev < 23
+	case 1: // Exchange 2016
+		// ProxyLogon patch: 15.1.2176.9 | ProxyShell patch: 15.1.2308.14
+		if build < 2176 || (build == 2176 && rev < 9) {
+			return true, true
+		}
+		return false, build < 2308 || (build == 2308 && rev < 14)
+	case 2: // Exchange 2019
+		// ProxyLogon patch: 15.2.792.15 | ProxyShell patch: 15.2.986.14
+		if build < 792 || (build == 792 && rev < 15) {
+			return true, true
+		}
+		return false, build < 986 || (build == 986 && rev < 14)
+	}
+	return false, false
+}
+
+// probeApacheHTTPVersion checks the Server header for Apache httpd 2.4.49 or 2.4.50,
+// the only two versions vulnerable to CVE-2021-41773/42013 (path traversal / RCE, CVSS 9.8, KEV).
+// The broken path normalization in these versions allows ../ traversal via URL-encoded sequences;
+// if mod_cgi is enabled this becomes unauthenticated RCE.
+func probeApacheHTTPVersion(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	resp.Body.Close()
+	server := resp.Header.Get("Server")
+	if server == "" {
+		return nil
+	}
+	var ver, cve string
+	switch {
+	case strings.Contains(server, "Apache/2.4.49"):
+		ver, cve = "2.4.49", "CVE-2021-41773"
+	case strings.Contains(server, "Apache/2.4.50"):
+		// 2.4.50 was the incomplete fix; CVE-2021-42013 is the bypass of that fix.
+		ver, cve = "2.4.50", "CVE-2021-42013"
+	default:
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEApacheHTTPTraversal,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("%s: Apache httpd %s path traversal/RCE on %s", cve, ver, asset),
+		Description: fmt.Sprintf(
+			"Apache httpd %s is internet-accessible and vulnerable to %s (CVSS 9.8, KEV). "+
+				"This version has broken path normalization that allows %%2e%%2e%%2f sequences to "+
+				"escape the document root. If mod_cgi is enabled this is unauthenticated RCE. "+
+				"Apache 2.4.50 was an incomplete fix; CVE-2021-42013 demonstrates the bypass via "+
+				"%%2e%%2e%%2f%%2e%%2e%%2f. Both versions were mass-exploited within hours of disclosure. "+
+				"Upgrade to Apache httpd 2.4.51 or later immediately.",
+			ver, cve,
+		),
+		Evidence: map[string]any{
+			"server_header": server,
+			"url":           base + "/",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sI '%s/' | grep -i '^Server'\n"+
+				"# Expected: Server: Apache/%s — confirms vulnerable Apache httpd version",
+			base, ver),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeWebLogicConsole tests for CVE-2020-14882/14883 (Oracle WebLogic admin console
+// auth bypass / RCE, CVSS 9.8, KEV). It fingerprints WebLogic via /console/login/LoginForm.jsp,
+// then attempts the double URL-encoded path traversal to confirm unauthenticated console access.
+func probeWebLogicConsole(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	loginURL := base + "/console/login/LoginForm.jsp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, loginURL, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	fb, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(string(fb)), "weblogic") {
+		return nil
+	}
+	// Probe the CVE-2020-14882 auth bypass: double URL-encoded path traversal.
+	bypassURL := base + "/console/css/%252E%252E%252Fconsole.portal"
+	breq, err := http.NewRequestWithContext(ctx, http.MethodGet, bypassURL, nil)
+	if err == nil {
+		bresp, err := client.Do(breq)
+		if err == nil {
+			bb, _ := io.ReadAll(io.LimitReader(bresp.Body, 8192))
+			bresp.Body.Close()
+			bLower := strings.ToLower(string(bb))
+			if bresp.StatusCode == http.StatusOK && (strings.Contains(bLower, "welcome") ||
+				strings.Contains(bLower, "dashboard") || strings.Contains(bLower, "weblogic")) {
+				return &finding.Finding{
+					CheckID:  finding.CheckCVEWebLogicConsole,
+					Module:   "surface",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Asset:    asset,
+					Title:    fmt.Sprintf("CVE-2020-14882: WebLogic admin console auth bypass confirmed on %s", asset),
+					Description: "The Oracle WebLogic admin console returned an unauthenticated dashboard via " +
+						"the double URL-encoded path traversal (/console/css/%252E%252E%252Fconsole.portal). " +
+						"CVE-2020-14882 (CVSS 9.8, KEV) allows any unauthenticated attacker to reach the admin UI. " +
+						"Chained with CVE-2020-14883 (DeployerHandlerServlet RCE) this gives full OS-level code execution. " +
+						"Patch to the October 2020 CPU or later and restrict the admin console to management networks.",
+					Evidence: map[string]any{
+						"bypass_url":  bypassURL,
+						"console_url": loginURL,
+					},
+					ProofCommand: fmt.Sprintf(
+						"curl -sI '%s'\n"+
+							"# Expected: HTTP 200 with admin dashboard content — confirms unauthenticated console bypass",
+						bypassURL),
+					DiscoveredAt: time.Now(),
+				}
+			}
+		}
+	}
+	// Console is accessible but bypass may be patched — still critical exposure.
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEWebLogicConsole,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2020-14882: Oracle WebLogic admin console internet-exposed on %s", asset),
+		Description: "The Oracle WebLogic admin console at /console/login/LoginForm.jsp is internet-accessible. " +
+			"CVE-2020-14882/14883 (CVSS 9.8, KEV) allow unauthenticated access and RCE on unpatched instances. " +
+			"The WebLogic admin console must never be internet-facing regardless of patch level. " +
+			"Restrict access to management networks and patch to the October 2020 CPU or later.",
+		Evidence: map[string]any{
+			"console_url": loginURL,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sI '%s'\n"+
+				"# Expected: HTTP 200 — confirms WebLogic admin console is internet-accessible",
+			loginURL),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeCitrixADCNitro tests for unauthenticated access to the Citrix ADC (NetScaler) Nitro API.
+// CVE-2019-19781 (CVSS 9.8, KEV) allows path traversal and unauthenticated RCE on Citrix ADC/Gateway.
+// CVE-2020-8196 covers unauthenticated information disclosure via the Nitro API.
+// A JSON response from /nitro/v1/config/nsversion without credentials confirms exposure.
+func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/nitro/v1/config/nsversion"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bStr := strings.ToLower(string(b))
+	if !strings.Contains(bStr, "ns_build") && !strings.Contains(bStr, "ns_platform") &&
+		!strings.Contains(bStr, "nsversion") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVECitrixADCInfo,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2019-19781: Citrix ADC Nitro API accessible unauthenticated on %s", asset),
+		Description: "The Citrix ADC (NetScaler) Nitro REST API at /nitro/v1/config/nsversion responded " +
+			"without authentication. CVE-2019-19781 (CVSS 9.8, KEV) allows path traversal and unauthenticated " +
+			"RCE on Citrix ADC, Gateway, and SD-WAN WANOP. CVE-2020-8196 covers unauthenticated information " +
+			"disclosure via this same API. An unauthenticated Nitro API exposes ADC version and configuration data. " +
+			"Restrict Nitro API access to management networks and apply all available patches.",
+		Evidence: map[string]any{
+			"nitro_url": u,
+			"response":  string(b)[:min(len(string(b)), 256)],
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s'\n"+
+				"# Expected: JSON with ns_platform/ns_build — confirms unauthenticated Nitro API access",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probePulseSecureVPN fingerprints Pulse Secure VPN appliances via the welcome page.
+// CVE-2019-11510 (CVSS 10.0, KEV) allows unauthenticated arbitrary file read via path traversal
+// through the guacamole HTML5 VPN component. The file-read probe reads /etc/passwd — Deep only.
+// Surface mode emits a finding on fingerprint alone: exposed Pulse Secure is always a risk signal.
+func probePulseSecureVPN(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/dana-na/auth/url_default/welcome.cgi"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bLower := strings.ToLower(string(b))
+	if !strings.Contains(bLower, "pulse") && !strings.Contains(bLower, "ivanti connect") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEPulseSecureVPN,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2019-11510: Pulse Secure VPN internet-exposed on %s", asset),
+		Description: "A Pulse Secure (Ivanti Connect Secure) SSL VPN appliance is internet-accessible. " +
+			"CVE-2019-11510 (CVSS 10.0, KEV) is a pre-authentication arbitrary file read via path traversal " +
+			"through the guacamole HTML5 VPN endpoint, allowing unauthenticated attackers to read " +
+			"/data/runtime/mtmp/lmdb/rand_data/data.mdb which contains session tokens and cached credentials. " +
+			"NSA and CISA documented APT actors using this to steal AD credentials at scale. " +
+			"Affected: PCS 8.1R1–8.3R7, 9.0R1–9.0R3.3. Patch immediately and rotate all credentials.",
+		Evidence: map[string]any{
+			"url": u,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sI '%s' | head -5\n"+
+				"# Expected: HTTP 200 with Pulse Secure login — confirms VPN appliance exposed",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probePANGlobalProtect checks for PAN-OS GlobalProtect VPN prelogin exposure.
+// CVE-2019-1579 (CVSS 9.8, KEV) is a buffer overflow in the GlobalProtect portal/gateway
+// prelogin handler that allows unauthenticated RCE. The prelogin endpoint returns an XML
+// response that includes the PAN-OS version, enabling version-based detection.
+func probePANGlobalProtect(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/global-protect/prelogin.esp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	body := string(b)
+	bLower := strings.ToLower(body)
+	if !strings.Contains(bLower, "globalprotect") && !strings.Contains(bLower, "panos") &&
+		!strings.Contains(bLower, "prelogin-response") {
+		return nil
+	}
+	// Extract PAN-OS version from <panos-version> element if present.
+	ver := ""
+	if idx := strings.Index(body, "<panos-version>"); idx != -1 {
+		end := strings.Index(body[idx:], "</panos-version>")
+		if end != -1 {
+			ver = body[idx+len("<panos-version>") : idx+end]
+		}
+	}
+	ev := map[string]any{"prelogin_url": u}
+	if ver != "" {
+		ev["panos_version"] = ver
+	}
+	title := fmt.Sprintf("CVE-2019-1579: PAN-OS GlobalProtect portal exposed on %s", asset)
+	if ver != "" {
+		title = fmt.Sprintf("CVE-2019-1579: PAN-OS %s GlobalProtect portal exposed on %s", ver, asset)
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEPANGlobalProtect,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    title,
+		Description: "A Palo Alto Networks GlobalProtect VPN portal or gateway is internet-accessible. " +
+			"CVE-2019-1579 (CVSS 9.8, KEV) is a pre-authentication buffer overflow in the GlobalProtect " +
+			"prelogin handler affecting PAN-OS < 7.1.19, < 8.0.12, < 8.1.3. " +
+			"An unauthenticated attacker can achieve remote code execution on the VPN appliance. " +
+			"Patch to the fixed versions and consider restricting the portal to known source IPs.",
+		Evidence:     ev,
+		ProofCommand: fmt.Sprintf("curl -s '%s' | grep -i 'panos-version\\|globalprotect'", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeCrowdPdkInstall checks for the Atlassian Crowd pdkinstall plugin endpoint.
+// CVE-2019-11580 (CVSS 9.8, KEV) — the pdkinstall development plugin was never disabled
+// in production Crowd builds. A GET returning 200 with file upload form means unauthenticated
+// plugin installation (and thus arbitrary code execution) is possible.
+func probeCrowdPdkInstall(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/crowd/plugins/servlet/pdkinstall"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bLower := strings.ToLower(string(b))
+	// The page contains a file upload form with "file_cdn" input or plugin install instructions.
+	if !strings.Contains(bLower, "crowd") && !strings.Contains(bLower, "plugin") &&
+		!strings.Contains(bLower, "upload") && !strings.Contains(bLower, "atlassian") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVECrowdPdkInstall,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2019-11580: Atlassian Crowd pdkinstall endpoint exposed on %s", asset),
+		Description: "The Atlassian Crowd pdkinstall plugin installation endpoint is internet-accessible " +
+			"without authentication. CVE-2019-11580 (CVSS 9.8, KEV) allows any unauthenticated attacker " +
+			"to POST a malicious JAR plugin to /crowd/plugins/servlet/pdkinstall, causing arbitrary Java " +
+			"code execution on the Crowd server. Affected: Crowd 2.1.0–3.4.3. " +
+			"Upgrade immediately and restrict the admin interface to management networks.",
+		Evidence: map[string]any{"pdkinstall_url": u},
+		ProofCommand: fmt.Sprintf(
+			"curl -sI '%s'\n"+
+				"# Expected: HTTP 200 — confirms unauthenticated plugin install endpoint exposed",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeTelerikRAU checks for the Telerik RadAsyncUpload endpoint.
+// CVE-2019-18935 (CVSS 9.8, KEV) allows unauthenticated .NET deserialization RCE when
+// the Telerik encryption key is known or default. The endpoint itself is detectable via a
+// safe GET — any HTTP 200/400/500 response with Telerik-specific content confirms presence.
+func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/Telerik.Web.UI.WebResource.axd?type=rau"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	// Any non-404 response with Telerik-specific content confirms the endpoint.
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	bLower := strings.ToLower(string(b))
+	if !strings.Contains(bLower, "telerik") && !strings.Contains(bLower, "radupload") &&
+		!strings.Contains(bLower, "fileinfo") && !strings.Contains(bLower, "raupostback") {
+		// Also check for 200 with empty JSON body (some versions return {"fileInfo":{}})
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), "{") {
+			return nil
+		}
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVETelerikRAU,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2019-18935: Telerik RadAsyncUpload endpoint exposed on %s", asset),
+		Description: "The Telerik RadAsyncUpload handler (Telerik.Web.UI.WebResource.axd?type=rau) is " +
+			"internet-accessible. CVE-2019-18935 (CVSS 9.8, KEV) allows unauthenticated .NET deserialization " +
+			"RCE when the Telerik encryption key is known or default. Prior CVEs (2017-11317, 2017-11357) " +
+			"exposed encryption keys that are reused across installations. CISA KEV-listed and exploited " +
+			"by multiple APT groups. Upgrade Telerik UI to R1 2020 SP1 (2020.1.114) or later.",
+		Evidence: map[string]any{
+			"rau_url":     u,
+			"status_code": resp.StatusCode,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sI '%s'\n"+
+				"# Expected: HTTP 200/400/500 with Telerik content — confirms RAU endpoint exposed",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeWebLogicAsync checks for Oracle WebLogic /_async/ endpoint exposure.
+// CVE-2019-2725 (CVSS 9.8, KEV) is a pre-authentication Java deserialization RCE via the
+// AsyncResponseService SOAP endpoint. A WSDL GET is safe and definitively confirms the endpoint.
+func probeWebLogicAsync(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/_async/AsyncResponseService?WSDL"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bLower := strings.ToLower(string(b))
+	if !strings.Contains(bLower, "asyncresponseservice") && !strings.Contains(bLower, "bea.com") &&
+		!strings.Contains(bLower, "weblogic") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEWebLogicAsync,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2019-2725: Oracle WebLogic /_async/ endpoint exposed on %s", asset),
+		Description: "The Oracle WebLogic AsyncResponseService endpoint (/_async/AsyncResponseService) is " +
+			"internet-accessible and returned its WSDL. CVE-2019-2725 (CVSS 9.8, KEV) exploits Java " +
+			"deserialization in this endpoint using an XMLDecoder gadget chain — no authentication required. " +
+			"Also related: CVE-2019-2729 (wls-wsat endpoint, same mechanism). " +
+			"Affected: WebLogic 10.3.6, 12.1.3, 12.2.1.3, 12.2.1.4. " +
+			"Apply the April 2019 Oracle CPU immediately and remove /_async/ and /wls-wsat/ if unused.",
+		Evidence: map[string]any{"async_wsdl_url": u},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -i 'asyncresponseservice\\|bea.com'\n"+
+				"# Expected: WSDL XML with WebLogic namespace — confirms pre-auth deserialization endpoint exposed",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeDrupalgeddon checks Drupal version via CHANGELOG.txt for Drupalgeddon2/3 (CVE-2018-7600/7602).
+// CHANGELOG.txt is present on all default Drupal installations and lists the exact release version.
+// Drupal 8.x < 8.5.1 and 7.x < 7.58 are vulnerable to Drupalgeddon2 (CVSS 9.8, KEV).
+// Drupal 7.x < 7.59 and 8.x < 8.5.3 are also vulnerable to Drupalgeddon3 (CVE-2018-7602).
+func probeDrupalgeddon(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Drupal 8.x uses /core/CHANGELOG.txt; Drupal 7.x uses /CHANGELOG.txt.
+	for _, path := range []string{"/core/CHANGELOG.txt", "/CHANGELOG.txt"} {
+		u := base + path
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		body := string(b)
+		if !strings.Contains(strings.ToLower(body), "drupal") {
+			continue
+		}
+		// Extract version from first line: "Drupal 8.4.5, 2018-02-21"
+		ver := parseDrupalVersion(body)
+		if ver == "" {
+			continue
+		}
+		vuln, cve := isDrupalVulnerable(ver)
+		if !vuln {
+			return nil
+		}
+		return &finding.Finding{
+			CheckID:  finding.CheckCVEDrupalgeddon2,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("%s: Drupal %s vulnerable to Drupalgeddon on %s", cve, ver, asset),
+			Description: fmt.Sprintf(
+				"Drupal %s is internet-accessible and vulnerable to %s (Drupalgeddon2/3, CVSS 9.8, KEV). "+
+					"Drupalgeddon2 (CVE-2018-7600) is a pre-authentication remote code execution vulnerability "+
+					"in Drupal's Form API that allows arbitrary PHP execution. Within hours of disclosure, "+
+					"automated exploit kits began mass-scanning and backdooring vulnerable sites. "+
+					"Drupalgeddon3 (CVE-2018-7602) is a related authenticated RCE. "+
+					"Upgrade Drupal 8.x to ≥ 8.5.1 or Drupal 7.x to ≥ 7.58 immediately.",
+				ver, cve,
+			),
+			Evidence: map[string]any{
+				"drupal_version": ver,
+				"changelog_url":  u,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -s '%s' | head -5\n"+
+					"# Expected: Drupal %s release notes — confirms vulnerable version installed",
+				u, ver),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// parseDrupalVersion extracts the Drupal version number from CHANGELOG.txt content.
+// The first non-empty line is typically "Drupal X.Y.Z, YYYY-MM-DD".
+func parseDrupalVersion(changelog string) string {
+	for _, line := range strings.Split(changelog, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: "Drupal 8.4.5, 2018-02-21"
+		if strings.HasPrefix(strings.ToLower(line), "drupal ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				return strings.TrimRight(parts[1], ",")
+			}
+		}
+		return "" // First non-empty line is not a version line
+	}
+	return ""
+}
+
+// isDrupalVulnerable checks whether the Drupal version is vulnerable to Drupalgeddon2/3.
+// Returns (vulnerable bool, primary CVE string).
+func isDrupalVulnerable(ver string) (bool, string) {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false, ""
+	}
+	var major, minor, patch int
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	switch major {
+	case 8:
+		// Drupalgeddon2: < 8.5.1; also 8.3.x/8.4.x need backport patches
+		if minor < 5 || (minor == 5 && patch < 1) {
+			return true, "CVE-2018-7600"
+		}
+	case 7:
+		// Drupalgeddon2: < 7.58
+		if minor < 58 {
+			return true, "CVE-2018-7600"
+		}
+	}
+	return false, ""
+}
+
+// probeWebLogicWLSWSAT checks for Oracle WebLogic /wls-wsat/ endpoint exposure.
+// CVE-2017-10271 (CVSS 9.8, KEV) — the WLS-WSAT CoordinatorPortType endpoint processes
+// arbitrary XML that gets deserialized before authentication, allowing XMLDecoder-based RCE.
+func probeWebLogicWLSWSAT(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/wls-wsat/CoordinatorPortType"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bLower := strings.ToLower(string(b))
+	if !strings.Contains(bLower, "weblogic") && !strings.Contains(bLower, "wsat") &&
+		!strings.Contains(bLower, "coordinator") && !strings.Contains(bLower, "bea.com") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEWebLogicWLSWSAT,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2017-10271: Oracle WebLogic /wls-wsat/ endpoint exposed on %s", asset),
+		Description: "The Oracle WebLogic WLS-WSAT (Web Services Atomic Transactions) endpoint at " +
+			"/wls-wsat/CoordinatorPortType is internet-accessible. CVE-2017-10271 (CVSS 9.8, KEV) exploits " +
+			"XML deserialization via an XMLDecoder gadget chain in this endpoint — no authentication required. " +
+			"Also related: CVE-2017-3506, CVE-2019-2725 (/_async/ endpoint, same mechanism). " +
+			"Mass-exploited within days of disclosure for cryptomining and backdoor deployment. " +
+			"Apply the October 2017 Oracle CPU and disable WLS-WSAT if unused.",
+		Evidence: map[string]any{"wlswsat_url": u},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -i 'weblogic\\|wsat\\|bea.com'\n"+
+				"# Expected: WLS WSAT service response — confirms pre-auth deserialization endpoint exposed",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeHikvisionISAPI checks for unauthenticated Hikvision IP camera ISAPI access.
+// CVE-2017-7921 (CVSS 9.8, KEV) — Hikvision cameras have broken authentication on the ISAPI
+// management interface, allowing unauthenticated access to camera controls and credentials.
+func probeHikvisionISAPI(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/ISAPI/Security/sessionLogin/capabilities"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bLower := strings.ToLower(string(b))
+	if !strings.Contains(bLower, "sessionlogin") && !strings.Contains(bLower, "isapi") &&
+		!strings.Contains(bLower, "hikvision") && !strings.Contains(bLower, "challenge") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEHikvisionISAPI,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2017-7921: Hikvision IP camera ISAPI accessible on %s", asset),
+		Description: "A Hikvision IP camera ISAPI management interface is internet-accessible without " +
+			"authentication. CVE-2017-7921 (CVSS 9.8, KEV) is an authentication bypass in Hikvision " +
+			"cameras that allows unauthenticated retrieval of device information, credentials, and " +
+			"camera configuration, and can enable full camera control. " +
+			"CISA issued advisories in 2021 and 2022 as Hikvision cameras were actively exploited " +
+			"for botnet recruitment and network lateral movement. " +
+			"Update firmware to the latest version and restrict ISAPI access to management networks.",
+		Evidence: map[string]any{"isapi_url": u},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s'\n"+
+				"# Expected: XML with sessionLogin capabilities — confirms unauthenticated ISAPI access",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeShiroRememberMe detects Apache Shiro installations via the rememberMe=deleteMe oracle.
+// CVE-2016-4437 (CVSS 9.8, KEV) — Shiro's remember-me cookie deserializes untrusted data using
+// a hard-coded default key (kPH+bIxk5D2deZiIxcaaaA==). If the server sets rememberMe=deleteMe
+// in response to a garbage cookie value, Shiro attempted to decrypt/deserialize it — this is the
+// detection signal. The probe is a single GET request and is entirely non-destructive.
+func probeShiroRememberMe(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	if err != nil {
+		return nil
+	}
+	// Set a garbage rememberMe cookie — if Shiro processes it and fails, it sets deleteMe.
+	req.Header.Set("Cookie", "rememberMe=beacon-probe-shiro-1234567890abcdef")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	resp.Body.Close()
+	// Check all Set-Cookie headers for rememberMe=deleteMe.
+	for _, cookie := range resp.Cookies() {
+		if strings.EqualFold(cookie.Name, "rememberMe") && cookie.Value == "deleteMe" {
+			return &finding.Finding{
+				CheckID:  finding.CheckCVEShiroRememberMe,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    asset,
+				Title:    fmt.Sprintf("CVE-2016-4437: Apache Shiro remember-me deserialization on %s", asset),
+				Description: "Apache Shiro is detected via the rememberMe=deleteMe oracle. " +
+					"CVE-2016-4437 (CVSS 9.8, KEV) — Shiro deserializes the rememberMe cookie using AES with " +
+					"a hard-coded default key (kPH+bIxk5D2deZiIxcaaaA==). An attacker who knows the key " +
+					"(public for default configs) can encrypt a Java deserialization payload and achieve " +
+					"unauthenticated RCE as the web application user. Even with a custom key, Shiro < 1.2.5 " +
+					"is vulnerable if the key can be leaked. Upgrade to Shiro ≥ 1.2.5, set a strong random " +
+					"cipherKey, and consider migrating to a stateless authentication model.",
+				Evidence: map[string]any{
+					"url":               base + "/",
+					"shiro_cookie_name": "rememberMe",
+					"shiro_oracle":      "Set-Cookie: rememberMe=deleteMe",
+				},
+				ProofCommand: fmt.Sprintf(
+					"curl -sI -H 'Cookie: rememberMe=garbage' '%s/' | grep -i 'set-cookie.*rememberme'\n"+
+						"# Expected: Set-Cookie: rememberMe=deleteMe — confirms Apache Shiro with cookie deserialization",
+					base),
+				DiscoveredAt: time.Now(),
+			}
+		}
+	}
+	return nil
+}
+
+// probeJBossJMXInvoker checks for the JBoss JMXInvokerServlet pre-auth deserialization endpoint.
+// CVE-2015-7501 (CVSS 9.8, KEV) — JBoss 4.x/5.x/6.x exposes /invoker/JMXInvokerServlet which
+// processes Java serialized objects before authentication. A GET returning 200 with a Java-serialized
+// binary response body (magic bytes 0xACED) confirms the endpoint is accessible and vulnerable.
+func probeJBossJMXInvoker(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/invoker/JMXInvokerServlet"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	// Java serialized object starts with magic bytes 0xACED 0x0005 (STREAM_MAGIC + STREAM_VERSION).
+	if len(b) < 2 || b[0] != 0xAC || b[1] != 0xED {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEJBossJMXInvoker,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2015-7501: JBoss JMXInvokerServlet pre-auth deserialization on %s", asset),
+		Description: "The JBoss JMXInvokerServlet at /invoker/JMXInvokerServlet is internet-accessible and " +
+			"returned a Java-serialized binary response (magic bytes 0xACED). " +
+			"CVE-2015-7501 (CVSS 9.8, KEV) — this endpoint processes Java serialized objects before any " +
+			"authentication check, allowing unauthenticated RCE via known gadget chains (CommonsCollections1-7, etc.). " +
+			"JBoss 4.x, 5.x, and 6.x are affected; JBoss EAP versions through 6.4 require patching. " +
+			"Disable or restrict /invoker/* endpoints immediately and upgrade to a supported JBoss version.",
+		Evidence: map[string]any{
+			"invoker_url":   u,
+			"java_magic":    "0xACED (Java serialized object)",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | xxd | head -2\n"+
+				"# Expected: ac ed 00 05 ... — Java serialized object confirms pre-auth deserialization endpoint",
 			u),
 		DiscoveredAt: time.Now(),
 	}

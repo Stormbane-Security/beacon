@@ -664,6 +664,44 @@ const (
 	CheckCVEFortiOSAuthBypass CheckID = "cve.fortios_auth_bypass"        // CVE-2022-40684 FortiOS/FortiProxy HTTP header auth bypass (CVSS 9.8, KEV)
 	CheckCVEVMwareWorkspaceONE CheckID = "cve.vmware_workspace_one_ssti" // CVE-2022-22954 VMware Workspace ONE Access FreeMarker SSTI → RCE (CVSS 9.8, KEV)
 	CheckCVEWSO2FileUpload     CheckID = "cve.wso2_file_upload_rce"      // CVE-2022-29464 WSO2 API Manager/IS unrestricted file upload → RCE (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2021) ──────────────────────────────────────
+	CheckCVEExchangeProxyLogon   CheckID = "cve.exchange_proxylogon"       // CVE-2021-26855 Exchange ProxyLogon SSRF — pre-auth, version from X-OWA-Version (CVSS 9.8, KEV)
+	CheckCVEExchangeProxyShell   CheckID = "cve.exchange_proxyshell"       // CVE-2021-34473/34523/31207 Exchange ProxyShell — version from X-OWA-Version (CVSS 9.8, KEV)
+	CheckCVEvCenterExposed       CheckID = "cve.vcenter_exposed"           // CVE-2021-21985/22005 VMware vCenter internet-exposed — /sdk version disclosure (CVSS 9.8, KEV)
+	CheckCVEApacheHTTPTraversal  CheckID = "cve.apache_http_path_traversal" // CVE-2021-41773/42013 Apache httpd 2.4.49–2.4.50 path traversal → RCE (CVSS 9.8, KEV)
+	CheckCVEGitLabRCE            CheckID = "cve.gitlab_rce"                // CVE-2021-22205 GitLab ExifTool pre-auth RCE — version from /api/v4/version (CVSS 10.0, KEV)
+	CheckCVESaltStackAPI         CheckID = "cve.saltstack_api_exposed"     // CVE-2021-25281/25282 SaltStack API auth bypass + path traversal (CVSS 9.8, KEV)
+	CheckCVEAccellionFTA         CheckID = "cve.accellion_fta_exposed"     // CVE-2021-27101-27104 Accellion FTA (EOL) — exploitation target for data extortion (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2020) ──────────────────────────────────────
+	CheckCVEF5BigIPTMUI          CheckID = "cve.f5_bigip_tmui_rce"         // CVE-2020-5902 F5 BIG-IP TMUI RCE via /tmui/login.jsp (CVSS 9.8, KEV)
+	CheckCVEWebLogicConsole      CheckID = "cve.weblogic_console_bypass"   // CVE-2020-14882/14883 Oracle WebLogic admin console auth bypass (CVSS 9.8, KEV)
+	CheckCVECitrixADCInfo        CheckID = "cve.citrix_adc_info_leak"      // CVE-2019-19781/2020-8196 Citrix ADC/Gateway unauthenticated info disclosure (CVSS 9.8, KEV)
+	CheckCVESolarWindsOrion      CheckID = "cve.solarwinds_orion_exposed"  // CVE-2020-10148 SolarWinds Orion auth bypass — supply chain + direct login bypass (CVSS 9.8, KEV)
+	CheckCVEApacheUnomi          CheckID = "cve.apache_unomi_rce"          // CVE-2020-13942 Apache Unomi RCE via MVEL/OGNL expression in context.json (CVSS 9.8, KEV)
+	CheckCVELiferayRCE           CheckID = "cve.liferay_jsonws_rce"        // CVE-2020-7961 Liferay Portal Java deserialization via /api/jsonws (CVSS 9.8, KEV)
+	CheckCVEMobileIronRCE        CheckID = "cve.mobileiron_rce"            // CVE-2020-15505 MobileIron MDM RCE via /mifs/user/login.jsp (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2019) ──────────────────────────────────────
+	CheckCVEPulseSecureVPN     CheckID = "cve.pulse_secure_vpn_exposed"   // CVE-2019-11510 Pulse Secure arbitrary file read — login fingerprint (CVSS 10.0, KEV)
+	CheckCVEPANGlobalProtect  CheckID = "cve.pan_globalprotect_exposed"  // CVE-2019-1579 PAN-OS GlobalProtect unauthenticated RCE — version from prelogin (CVSS 9.8, KEV)
+	CheckCVECrowdPdkInstall   CheckID = "cve.crowd_pdkinstall_exposed"   // CVE-2019-11580 Atlassian Crowd pdkinstall plugin endpoint pre-auth accessible (CVSS 9.8, KEV)
+	CheckCVETelerikRAU        CheckID = "cve.telerik_rau_exposed"         // CVE-2019-18935 Telerik RadAsyncUpload endpoint exposed — pre-auth deserialization (CVSS 9.8, KEV)
+	CheckCVEWebLogicAsync     CheckID = "cve.weblogic_async_rce"          // CVE-2019-2725 Oracle WebLogic /_async/ endpoint pre-auth deserialization RCE (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2018) ──────────────────────────────────────
+	CheckCVEDrupalgeddon2 CheckID = "cve.drupal_drupalgeddon2" // CVE-2018-7600/7602 Drupal RCE (Drupalgeddon2/3) — version from CHANGELOG.txt (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
+	CheckCVEWebLogicWLSWSAT  CheckID = "cve.weblogic_wls_wsat"     // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
+	CheckCVEHikvisionISAPI   CheckID = "cve.hikvision_isapi"        // CVE-2017-7921 Hikvision IP camera unauthenticated ISAPI access (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2016) ──────────────────────────────────────
+	CheckCVEShiroRememberMe CheckID = "cve.shiro_remember_me" // CVE-2016-4437 Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2015) ──────────────────────────────────────
+	CheckCVEJBossJMXInvoker CheckID = "cve.jboss_jmx_invoker" // CVE-2015-7501 JBoss JMXInvokerServlet pre-auth Java deserialization RCE (CVSS 9.8, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1240,6 +1278,44 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEFortiOSAuthBypass:   {CheckCVEFortiOSAuthBypass, SeverityCritical, ModeSurface},
 	CheckCVEVMwareWorkspaceONE:  {CheckCVEVMwareWorkspaceONE, SeverityCritical, ModeSurface},
 	CheckCVEWSO2FileUpload:      {CheckCVEWSO2FileUpload, SeverityCritical, ModeSurface},
+
+	// 2021 CVEs
+	CheckCVEExchangeProxyLogon:  {CheckCVEExchangeProxyLogon, SeverityCritical, ModeSurface},
+	CheckCVEExchangeProxyShell:  {CheckCVEExchangeProxyShell, SeverityCritical, ModeSurface},
+	CheckCVEvCenterExposed:      {CheckCVEvCenterExposed, SeverityCritical, ModeSurface},
+	CheckCVEApacheHTTPTraversal: {CheckCVEApacheHTTPTraversal, SeverityCritical, ModeSurface},
+	CheckCVEGitLabRCE:           {CheckCVEGitLabRCE, SeverityCritical, ModeSurface},
+	CheckCVESaltStackAPI:        {CheckCVESaltStackAPI, SeverityCritical, ModeSurface},
+	CheckCVEAccellionFTA:        {CheckCVEAccellionFTA, SeverityHigh, ModeSurface},
+
+	// 2020 CVEs
+	CheckCVEF5BigIPTMUI:     {CheckCVEF5BigIPTMUI, SeverityCritical, ModeSurface},
+	CheckCVEWebLogicConsole: {CheckCVEWebLogicConsole, SeverityCritical, ModeSurface},
+	CheckCVECitrixADCInfo:   {CheckCVECitrixADCInfo, SeverityCritical, ModeSurface},
+	CheckCVESolarWindsOrion: {CheckCVESolarWindsOrion, SeverityCritical, ModeSurface},
+	CheckCVEApacheUnomi:     {CheckCVEApacheUnomi, SeverityCritical, ModeSurface},
+	CheckCVELiferayRCE:      {CheckCVELiferayRCE, SeverityCritical, ModeSurface},
+	CheckCVEMobileIronRCE:   {CheckCVEMobileIronRCE, SeverityCritical, ModeSurface},
+
+	// 2019 CVEs
+	CheckCVEPulseSecureVPN:   {CheckCVEPulseSecureVPN, SeverityCritical, ModeSurface},
+	CheckCVEPANGlobalProtect: {CheckCVEPANGlobalProtect, SeverityCritical, ModeSurface},
+	CheckCVECrowdPdkInstall:  {CheckCVECrowdPdkInstall, SeverityCritical, ModeSurface},
+	CheckCVETelerikRAU:       {CheckCVETelerikRAU, SeverityCritical, ModeSurface},
+	CheckCVEWebLogicAsync:    {CheckCVEWebLogicAsync, SeverityCritical, ModeSurface},
+
+	// 2018 CVEs
+	CheckCVEDrupalgeddon2: {CheckCVEDrupalgeddon2, SeverityCritical, ModeSurface},
+
+	// 2017 CVEs
+	CheckCVEWebLogicWLSWSAT: {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
+	CheckCVEHikvisionISAPI:  {CheckCVEHikvisionISAPI, SeverityCritical, ModeSurface},
+
+	// 2016 CVEs
+	CheckCVEShiroRememberMe: {CheckCVEShiroRememberMe, SeverityCritical, ModeSurface},
+
+	// 2015 CVEs
+	CheckCVEJBossJMXInvoker: {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},
