@@ -730,6 +730,35 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					ev),
 			}
 		}
+		// CVE-2011-4862: BSD telnetd Kerberos encryption buffer overflow.
+		// BSD telnetd (FreeBSD, NetBSD, OpenBSD) with Kerberos encrypt support offers
+		// IAC WILL ENCRYPT (0xFF 0xFB 0x26) in the initial option negotiation.
+		// GNU telnetd (inetutils) does not offer ENCRYPT — distinguishes the two stacks.
+		// A buffer overflow in the AES key exchange allows pre-auth RCE as root.
+		if strings.Contains(banner, "\xFF\xFB\x26") || strings.Contains(banner, "\xFF\xFD\x26") {
+			ev["telnet_encrypt_option"] = true
+			return []finding.Finding{
+				makeF(
+					finding.CheckCVETelnetBSDEncrypt,
+					finding.SeverityCritical,
+					fmt.Sprintf("BSD telnetd with Kerberos ENCRYPT option detected on port %d — CVE-2011-4862", port),
+					"The Telnet server offers IAC WILL/DO ENCRYPT (option 38) in its initial negotiation, "+
+						"identifying this as BSD telnetd with Kerberos encryption support. "+
+						"CVE-2011-4862 (CVSS 10.0) is a buffer overflow in the BSD telnetd AES key exchange handler "+
+						"that allows an unauthenticated attacker to execute arbitrary code as root before login. "+
+						"Affected: FreeBSD (all supported releases before 2011-12-23), NetBSD, and other BSD-derived systems. "+
+						"Disable telnetd immediately and use SSH instead.",
+					ev,
+				),
+				makeF(
+					finding.CheckPortTelnetExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Telnet exposed on port %d", port),
+					"Telnet transmits all data including credentials in plaintext.",
+					map[string]any{"port": port, "service": service, "banner": banner},
+				),
+			}
+		}
 		// Check for GNU telnetd version — CVE-2026-32746 affects GNU telnetd ≤ 2.7.
 		// The banner typically includes "GNU telnetd X.Y" from the inetutils package.
 		if ver := parseGNUTelnetdVersion(banner); ver != "" {

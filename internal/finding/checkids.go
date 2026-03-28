@@ -446,6 +446,7 @@ const (
 	CheckCVEOmnissaSSRF            CheckID = "cve.omnissa_workspace_ssrf"      // CVE-2021-22054 Omnissa Workspace ONE unauthenticated SSRF
 	CheckPortJuniperAnomalyExposed CheckID = "port.juniper_anomaly_exposed"    // CVE-2026-21902 Juniper PTX port 8160 pre-auth RCE
 	CheckPortTelnetdVulnerable     CheckID = "port.telnetd_gnu_vulnerable"     // CVE-2026-32746 GNU telnetd ≤ 2.7 pre-auth stack overflow
+	CheckCVETelnetBSDEncrypt       CheckID = "cve.telnetd_bsd_encrypt_2011"   // CVE-2011-4862 BSD telnetd Kerberos encrypt key buffer overflow → pre-auth RCE (CVSS 10.0)
 	CheckPortOllamaExposed         CheckID = "port.ollama_exposed"             // Ollama LLM server exposed without auth (port 11434)
 
 	// ── CVEs from Oct 2025 – Mar 2026 KEV additions ────────────────────────
@@ -1270,6 +1271,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEOmnissaSSRF:            {CheckCVEOmnissaSSRF, SeverityHigh, ModeSurface},
 	CheckPortJuniperAnomalyExposed: {CheckPortJuniperAnomalyExposed, SeverityCritical, ModeSurface},
 	CheckPortTelnetdVulnerable:     {CheckPortTelnetdVulnerable, SeverityCritical, ModeSurface},
+	CheckCVETelnetBSDEncrypt:       {CheckCVETelnetBSDEncrypt, SeverityCritical, ModeSurface},
 	CheckPortOllamaExposed:         {CheckPortOllamaExposed, SeverityHigh, ModeSurface},
 	CheckCVEIvantiEPMMRCE:          {CheckCVEIvantiEPMMRCE, SeverityCritical, ModeSurface},
 	CheckCVECiscoFMCRCE:            {CheckCVECiscoFMCRCE, SeverityCritical, ModeSurface},
