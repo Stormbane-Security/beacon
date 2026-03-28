@@ -193,6 +193,132 @@ var targets = []sensitiveFile{
 			"Update to EPM 2024 SU5 or later immediately.",
 	},
 
+	// CVE-2025-32432 — Craft CMS pre-authentication code injection (CVSS 10.0, KEV).
+	// /index.php?action=debug/default/view fingerprints Craft CMS and is the initial pivot point.
+	// The actionPreviewFile endpoint enables arbitrary PHP code execution without auth on < 5.6.17.
+	{
+		path:         "/index.php?action=debug/default/view",
+		title:        "CVE-2025-32432: Craft CMS debug panel accessible (pre-auth RCE)",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVECraftCMSRCE,
+		bodyContains: "Craft",
+		description: "The Craft CMS Yii debug panel is accessible without authentication. " +
+			"CVE-2025-32432 (CVSS 10.0, KEV) allows pre-authentication arbitrary PHP code execution " +
+			"on Craft CMS < 5.6.17 / < 4.14.15 via the actionPreviewFile endpoint when allowAdminChanges " +
+			"is enabled. Attackers can read arbitrary files and execute code as the web server user. " +
+			"Upgrade Craft CMS immediately and disable the debug toolbar in production.",
+	},
+
+	// CVE-2025-54068 — Laravel Livewire file upload pre-auth RCE (CVSS 9.8).
+	// GET /livewire/upload-file returning a non-404 response confirms Livewire's upload
+	// endpoint is accessible; the vulnerability exploits PHP deserialization in the upload handler.
+	{
+		path:         "/livewire/upload-file",
+		title:        "CVE-2025-54068: Laravel Livewire file upload endpoint exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVELivewireRCE,
+		description: "The Laravel Livewire file upload endpoint is internet-accessible. " +
+			"CVE-2025-54068 (CVSS 9.8) exploits a PHP object deserialization vulnerability in the " +
+			"Livewire file upload handler, allowing unauthenticated remote code execution. " +
+			"The vulnerability affects Livewire < 3.6.3. Upgrade Livewire and ensure the endpoint " +
+			"is not publicly accessible without authentication.",
+	},
+
+	// CVE-2025-68613 / CVE-2026-21858 — n8n workflow automation pre-auth RCE.
+	// /healthz returns HTTP 200 with {\"status\":\"ok\"} on every n8n instance.
+	// n8n exposed to the internet enables workflow-based SSRF, credential theft, and RCE.
+	{
+		path:         "/healthz",
+		title:        "CVE-2025-68613/2026-21858: n8n workflow automation server exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEN8nRCE,
+		bodyContains: "\"status\"",
+		description: "An n8n workflow automation server is internet-accessible (/healthz confirms the instance). " +
+			"CVE-2025-68613 and CVE-2026-21858 cover pre-authentication SSTI and RCE vulnerabilities " +
+			"in n8n's expression evaluation engine. An exposed n8n instance allows an unauthenticated " +
+			"attacker to create workflows that exfiltrate environment variables (including cloud credentials) " +
+			"and execute OS commands. n8n must never be exposed without authentication.",
+	},
+
+	// CVE-2026-33017 — Langflow AI pipeline platform pre-auth RCE (CVSS 10.0, KEV).
+	// GET /api/v1/health returns {\"status\":\"ok\"} without authentication on every Langflow instance.
+	// The /api/v1/validate/code endpoint allows arbitrary Python execution.
+	{
+		path:         "/api/v1/health",
+		title:        "CVE-2026-33017: Langflow AI platform exposed (pre-auth RCE)",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVELangflowRCE,
+		bodyContains: "\"status\"",
+		description: "A Langflow AI pipeline platform is internet-accessible (/api/v1/health confirms the instance). " +
+			"CVE-2026-33017 (CVSS 10.0, KEV) allows pre-authentication arbitrary Python code execution via " +
+			"the /api/v1/validate/code endpoint, which evaluates Python without requiring credentials. " +
+			"This is equivalent to unauthenticated OS-level RCE on the host. " +
+			"Restrict Langflow to internal networks and apply authentication middleware immediately.",
+	},
+
+	// CVE-2026-20131 — Cisco Firepower Management Center (FMC) pre-auth Java deserialization RCE.
+	// /login.html fingerprints the Cisco FMC web UI. CVSS 9.9, KEV-listed 2026.
+	{
+		path:         "/login.html",
+		title:        "CVE-2026-20131: Cisco Firepower Management Center login exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVECiscoFMCRCE,
+		bodyContains: "Firepower",
+		description: "A Cisco Firepower Management Center (FMC) is internet-accessible. " +
+			"CVE-2026-20131 (CVSS 9.9, KEV-listed) exploits Java deserialization in an unauthenticated " +
+			"API endpoint on FMC, allowing remote code execution without credentials. FMC manages all " +
+			"Firepower IDS/IPS and NGFW policies — compromise gives an attacker full visibility control " +
+			"over the network security posture. Restrict FMC access to out-of-band management networks only.",
+	},
+
+	// CVE-2026-24858 — FortiOS FortiCloud SSO authentication bypass (CVSS 9.8, KEV).
+	// The FortiOS SSL-VPN login at /remote/login is the fingerprinting endpoint.
+	// The SSO bypass allows session hijacking without credentials on affected builds.
+	{
+		path:         "/remote/login",
+		title:        "CVE-2026-24858: Fortinet FortiOS SSL-VPN login exposed (SSO bypass)",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEFortiOSSSOBypass,
+		bodyContains: "Fortinet",
+		description: "A Fortinet FortiOS SSL-VPN login page is internet-accessible. " +
+			"CVE-2026-24858 (CVSS 9.8, KEV) is a FortiCloud SSO authentication bypass that allows " +
+			"an attacker to forge SSO tokens and authenticate to the VPN portal without valid credentials. " +
+			"This enables account takeover for all users configured with FortiCloud SSO. " +
+			"Apply Fortinet patches and disable FortiCloud SSO if not required.",
+	},
+
+	// CVE-2025-64446 — FortiWeb path traversal authentication bypass (CVSS 9.8, KEV).
+	// /api/v2.0/user/login fingerprints the FortiWeb WAF management API.
+	// The path traversal allows accessing authenticated API paths without credentials.
+	{
+		path:         "/api/v2.0/user/login",
+		title:        "CVE-2025-64446: FortiWeb WAF management API exposed (auth bypass)",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEFortiWebAuthBypass,
+		bodyContains: "FortiWeb",
+		description: "The Fortinet FortiWeb WAF management API login endpoint is internet-accessible. " +
+			"CVE-2025-64446 (CVSS 9.8, KEV) exploits a path traversal in the FortiWeb REST API that " +
+			"bypasses authentication for privileged endpoints. An attacker can read and modify WAF policies, " +
+			"add bypass rules to allow malicious traffic, or gain OS-level access. " +
+			"Restrict FortiWeb management access to internal networks and apply available patches.",
+	},
+
+	// CVE-2026-27825 — MCP (Model Context Protocol) server SSRF / RCE (CVSS 9.8).
+	// /.well-known/mcp.json or /sse (Server-Sent Events endpoint) fingerprints an exposed MCP server.
+	// Unauthenticated MCP servers expose tool call execution, file access, and SSRF to attackers.
+	{
+		path:         "/.well-known/mcp.json",
+		title:        "CVE-2026-27825: MCP server exposed without authentication",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVEMCPServerExposed,
+		bodyContains: "mcp",
+		description: "A Model Context Protocol (MCP) server discovery manifest is publicly accessible. " +
+			"CVE-2026-27825 covers SSRF and arbitrary tool execution vulnerabilities in unauthenticated MCP servers. " +
+			"An exposed MCP server allows an attacker to invoke AI tool functions, access connected APIs and " +
+			"file systems, perform SSRF to internal services, and potentially execute code if the server's " +
+			"tools have shell or filesystem access. MCP servers must require OAuth 2.0 authentication.",
+	},
+
 	// CVE-2024-1709 — ConnectWise ScreenConnect setup wizard auth bypass (CVSS 10.0, KEV).
 	// /SetupWizard.aspx on patched versions redirects (302) to /. On vulnerable versions
 	// (< 23.9.8) it returns 200 with the actual setup form, allowing admin account creation.
