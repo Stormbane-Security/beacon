@@ -645,6 +645,25 @@ const (
 	CheckCVEExpeditionRCE         CheckID = "cve.paloalto_expedition_rce"  // CVE-2024-9463 Palo Alto Expedition < 1.2.96 unauthenticated OS command injection (CVSS 9.9, KEV)
 	CheckCVEFortiOSSSLVPN         CheckID = "cve.fortios_ssl_vpn_rce"      // CVE-2024-21762 FortiOS < 7.4.3 SSL VPN out-of-bounds write → unauthenticated RCE (CVSS 9.6, KEV)
 	CheckCVECheckPointFileRead    CheckID = "cve.checkpoint_file_read"     // CVE-2024-24919 Check Point CloudGuard arbitrary file read via /clients/MyCRL (CVSS 8.6, KEV)
+
+	// ── Recent high-severity CVEs (2023) ──────────────────────────────────────
+	CheckCVEOwnCloudPhpInfo     CheckID = "cve.owncloud_phpinfo"              // CVE-2023-49103 ownCloud graphapi phpinfo() leak — admin password in env vars (CVSS 10.0, KEV)
+	CheckCVEMOVEitWebShell      CheckID = "cve.moveit_webshell"               // CVE-2023-34362 MOVEit Transfer — CL0P human2.aspx web shell compromise indicator (CVSS 9.8, KEV)
+	CheckCVEConfluenceSetup     CheckID = "cve.confluence_setup_bypass"       // CVE-2023-22515 Confluence setup wizard accessible — allows unauthenticated admin creation (CVSS 10.0, KEV)
+	CheckCVEConfluenceRestore   CheckID = "cve.confluence_restore_bypass"     // CVE-2023-22518 Confluence restore endpoint accessible — unauthenticated DB restore → RCE (CVSS 10.0, KEV)
+	CheckCVECiscoIOSXEImplant   CheckID = "cve.cisco_iosxe_implant"           // CVE-2023-20198 Cisco IOS XE web UI — BadCandy implant present (CVSS 10.0, KEV)
+	CheckCVEIvantiConnectSecure CheckID = "cve.ivanti_connect_secure_bypass"  // CVE-2023-46805 Ivanti Connect Secure path traversal auth bypass (CVSS 8.2, KEV)
+	CheckCVECitrixBleed         CheckID = "cve.citrix_bleed"                  // CVE-2023-4966 Citrix NetScaler OIDC session token memory leak (CVSS 9.4, KEV)
+	CheckCVEJuniperJWeb         CheckID = "cve.juniper_jweb_php_injection"    // CVE-2023-36844/45 Juniper J-Web PHP env injection → unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVESysAid              CheckID = "cve.sysaid_path_traversal"         // CVE-2023-47246 SysAid On-Prem path traversal → WAR upload → RCE (CVSS 9.8, KEV)
+	CheckCVETeamCityRPC2        CheckID = "cve.teamcity_rpc2_bypass"          // CVE-2023-42793 TeamCity < 2023.05.4 /RPC2 wildcard bypass → admin token (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2022) ──────────────────────────────────────
+	CheckCVEF5BigIPAuthBypass  CheckID = "cve.f5_bigip_icr_auth_bypass"  // CVE-2022-1388 F5 BIG-IP iControl REST unauthenticated RCE via /mgmt/shared/echo (CVSS 9.8, KEV)
+	CheckCVEConfluenceOGNL    CheckID = "cve.confluence_ognl_rce"        // CVE-2022-26134 Confluence OGNL injection → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEFortiOSAuthBypass CheckID = "cve.fortios_auth_bypass"        // CVE-2022-40684 FortiOS/FortiProxy HTTP header auth bypass (CVSS 9.8, KEV)
+	CheckCVEVMwareWorkspaceONE CheckID = "cve.vmware_workspace_one_ssti" // CVE-2022-22954 VMware Workspace ONE Access FreeMarker SSTI → RCE (CVSS 9.8, KEV)
+	CheckCVEWSO2FileUpload     CheckID = "cve.wso2_file_upload_rce"      // CVE-2022-29464 WSO2 API Manager/IS unrestricted file upload → RCE (CVSS 9.8, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1202,6 +1221,25 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEExpeditionRCE:             {CheckCVEExpeditionRCE, SeverityCritical, ModeSurface},
 	CheckCVEFortiOSSSLVPN:             {CheckCVEFortiOSSSLVPN, SeverityCritical, ModeSurface},
 	CheckCVECheckPointFileRead:        {CheckCVECheckPointFileRead, SeverityHigh, ModeSurface},
+
+	// 2023 CVEs
+	CheckCVEOwnCloudPhpInfo:     {CheckCVEOwnCloudPhpInfo, SeverityCritical, ModeSurface},
+	CheckCVEMOVEitWebShell:      {CheckCVEMOVEitWebShell, SeverityCritical, ModeSurface},
+	CheckCVEConfluenceSetup:     {CheckCVEConfluenceSetup, SeverityCritical, ModeSurface},
+	CheckCVEConfluenceRestore:   {CheckCVEConfluenceRestore, SeverityCritical, ModeSurface},
+	CheckCVECiscoIOSXEImplant:   {CheckCVECiscoIOSXEImplant, SeverityCritical, ModeSurface},
+	CheckCVEIvantiConnectSecure: {CheckCVEIvantiConnectSecure, SeverityCritical, ModeSurface},
+	CheckCVECitrixBleed:         {CheckCVECitrixBleed, SeverityCritical, ModeSurface},
+	CheckCVEJuniperJWeb:         {CheckCVEJuniperJWeb, SeverityCritical, ModeSurface},
+	CheckCVESysAid:              {CheckCVESysAid, SeverityHigh, ModeSurface},
+	CheckCVETeamCityRPC2:        {CheckCVETeamCityRPC2, SeverityCritical, ModeDeep},
+
+	// 2022 CVEs
+	CheckCVEF5BigIPAuthBypass:   {CheckCVEF5BigIPAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVEConfluenceOGNL:      {CheckCVEConfluenceOGNL, SeverityCritical, ModeSurface},
+	CheckCVEFortiOSAuthBypass:   {CheckCVEFortiOSAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVEVMwareWorkspaceONE:  {CheckCVEVMwareWorkspaceONE, SeverityCritical, ModeSurface},
+	CheckCVEWSO2FileUpload:      {CheckCVEWSO2FileUpload, SeverityCritical, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

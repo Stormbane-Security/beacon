@@ -294,6 +294,9 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		// CVE-2025-24813 Apache Tomcat partial PUT — writes a 1-byte temp file,
 		// requires --permission-confirmed to avoid unsolicited writes to servers.
 		finding.CheckCVETomcatPartialPUT: true,
+		// CVE-2023-42793 TeamCity /RPC2 bypass — POST creates an admin API token,
+		// a state modification that requires --permission-confirmed.
+		finding.CheckCVETeamCityRPC2: true,
 		// EVM contract vulnerability analysis — active Etherscan + RPC probes
 		finding.CheckContractReentrancy:      true,
 		finding.CheckContractSelfDestruct:    true,
