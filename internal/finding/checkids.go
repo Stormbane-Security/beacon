@@ -755,6 +755,7 @@ const (
 	CheckCVEColdFusionFCKEditor     CheckID = "cve.coldfusion_fckeditor_upload"    // CVE-2018-15961 Adobe ColdFusion FCKEditor unrestricted file upload → RCE (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
+	CheckCVEStruts2OGNL           CheckID = "cve.struts2_ognl_rce"          // CVE-2017-5638 Apache Struts 2 OGNL injection via Content-Type → unauthenticated RCE (CVSS 10.0, KEV, Equifax breach)
 	CheckCVEWebLogicWLSWSAT       CheckID = "cve.weblogic_wls_wsat"          // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
 	CheckCVEHikvisionISAPI        CheckID = "cve.hikvision_isapi"             // CVE-2017-7921 Hikvision IP camera unauthenticated ISAPI access (CVSS 9.8, KEV)
 	CheckCVEIntelAMTAuthBypass    CheckID = "cve.intel_amt_auth_bypass"       // CVE-2017-5689 Intel AMT empty-digest authentication bypass — management engine exposed (CVSS 9.8, KEV)
@@ -768,11 +769,26 @@ const (
 	CheckCVEOXAppSuiteSSRF       CheckID = "cve.ox_appsuite_ssrf"           // CVE-2016-4047 Open-Xchange AppSuite SSRF via unvalidated proxy URL (CVSS 8.8)
 
 	// ── Recent high-severity CVEs (2015) ──────────────────────────────────────
+	CheckCVEJBossJMXConsole            CheckID = "cve.jboss_jmx_console"            // CVE-2010-0738 JBoss JMX HTTP Console unauthenticated access → unauthenticated invoke → RCE (CVSS 7.5, KEV)
 	CheckCVEJBossJMXInvoker            CheckID = "cve.jboss_jmx_invoker"           // CVE-2015-7501 JBoss JMXInvokerServlet pre-auth Java deserialization RCE (CVSS 9.8, KEV)
 	CheckCVEIISHTTPSys                 CheckID = "cve.iis_httpsys_range"            // CVE-2015-1635 (MS15-034) IIS HTTP.sys Range header integer overflow → DoS/RCE (CVSS 10.0, KEV)
 	CheckCVEElasticsearchGroovyRCE     CheckID = "cve.elasticsearch_groovy_rce"     // CVE-2015-1427 Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE (CVSS 10.0)
 	CheckCVEJoomlaObjectInjection      CheckID = "cve.joomla_object_injection"      // CVE-2015-8562 Joomla 1.5–3.4.5 PHP object injection via HTTP User-Agent → RCE (CVSS 9.8, KEV)
 	CheckCVEProFTPDModCopy             CheckID = "cve.proftpd_mod_copy"             // CVE-2015-3306 ProFTPD 1.3.5 mod_copy SITE CPFR/CPTO unauthenticated arbitrary file read/write (CVSS 10.0)
+
+	// ── Pre-2015 high-severity CVEs ───────────────────────────────────────────
+	CheckCVEDrupalgeddon1              CheckID = "cve.drupal_drupalgeddon1"          // CVE-2014-3704 Drupal 7.x < 7.32 SQL injection via form API → unauthenticated admin (CVSS 7.5, KEV)
+	CheckCVEPHPCGIArgInjection2012    CheckID = "cve.php_cgi_arg_injection_2012"    // CVE-2012-1823 PHP-CGI query string argument injection → source disclosure / RCE (CVSS 7.5, KEV)
+
+	// ── Port-level exposure checks added with gap-fill ────────────────────────
+	CheckCVETomcatGhostCat            CheckID = "cve.tomcat_ghostcat"               // CVE-2020-1938 Apache Tomcat AJP connector exposed (port 8009) → file read/inclusion → RCE (CVSS 9.8, KEV)
+	CheckCVEActiveMQRCE               CheckID = "cve.activemq_rce"                  // CVE-2023-46604 Apache ActiveMQ < 5.15.16/5.16.7/5.17.6/5.18.3 ClassInfo deserialization → pre-auth RCE (CVSS 10.0, KEV)
+	CheckPortActiveMQExposed          CheckID = "port.activemq_exposed"             // Apache ActiveMQ broker exposed on port 61616
+	CheckPortvLLMExposed              CheckID = "port.vllm_exposed"                 // vLLM OpenAI-compatible inference server exposed without auth (port 8000)
+	CheckPortComfyUIExposed           CheckID = "port.comfyui_exposed"              // ComfyUI Stable Diffusion web UI exposed without auth (port 8188)
+	CheckPortProxmoxExposed           CheckID = "port.proxmox_exposed"              // Proxmox VE hypervisor management UI exposed (port 8006)
+	CheckPortNetdataExposed           CheckID = "port.netdata_exposed"              // Netdata real-time monitoring dashboard exposed without auth (port 19999)
+	CheckPortLocalAIExposed           CheckID = "port.localai_exposed"              // LocalAI OpenAI-compatible inference server exposed without auth (port 8080)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1437,6 +1453,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEColdFusionFCKEditor:    {CheckCVEColdFusionFCKEditor, SeverityCritical, ModeSurface},
 
 	// 2017 CVEs
+	CheckCVEStruts2OGNL:         {CheckCVEStruts2OGNL, SeverityCritical, ModeSurface},
 	CheckCVEWebLogicWLSWSAT:     {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
 	CheckCVEHikvisionISAPI:      {CheckCVEHikvisionISAPI, SeverityCritical, ModeSurface},
 	CheckCVEIntelAMTAuthBypass:  {CheckCVEIntelAMTAuthBypass, SeverityCritical, ModeSurface},
@@ -1452,12 +1469,23 @@ var Registry = map[CheckID]CheckMeta{
 	// 2012 CVEs
 	CheckCVELibupnpSSDPRCE: {CheckCVELibupnpSSDPRCE, SeverityCritical, ModeSurface},
 
-	// 2015 CVEs
+	// 2010–2015 CVEs
+	CheckCVEJBossJMXConsole:            {CheckCVEJBossJMXConsole, SeverityHigh, ModeSurface},
 	CheckCVEJBossJMXInvoker:            {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},
 	CheckCVEIISHTTPSys:                 {CheckCVEIISHTTPSys, SeverityCritical, ModeSurface},
 	CheckCVEElasticsearchGroovyRCE:     {CheckCVEElasticsearchGroovyRCE, SeverityCritical, ModeSurface},
 	CheckCVEJoomlaObjectInjection:      {CheckCVEJoomlaObjectInjection, SeverityCritical, ModeSurface},
 	CheckCVEProFTPDModCopy:             {CheckCVEProFTPDModCopy, SeverityCritical, ModeSurface},
+	CheckCVEDrupalgeddon1:              {CheckCVEDrupalgeddon1, SeverityHigh, ModeSurface},
+	CheckCVEPHPCGIArgInjection2012:    {CheckCVEPHPCGIArgInjection2012, SeverityHigh, ModeSurface},
+	CheckCVETomcatGhostCat:            {CheckCVETomcatGhostCat, SeverityCritical, ModeSurface},
+	CheckCVEActiveMQRCE:               {CheckCVEActiveMQRCE, SeverityCritical, ModeSurface},
+	CheckPortActiveMQExposed:          {CheckPortActiveMQExposed, SeverityHigh, ModeSurface},
+	CheckPortvLLMExposed:              {CheckPortvLLMExposed, SeverityHigh, ModeSurface},
+	CheckPortComfyUIExposed:           {CheckPortComfyUIExposed, SeverityHigh, ModeSurface},
+	CheckPortProxmoxExposed:           {CheckPortProxmoxExposed, SeverityHigh, ModeSurface},
+	CheckPortNetdataExposed:           {CheckPortNetdataExposed, SeverityMedium, ModeSurface},
+	CheckPortLocalAIExposed:           {CheckPortLocalAIExposed, SeverityHigh, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

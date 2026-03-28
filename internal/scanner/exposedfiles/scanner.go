@@ -973,9 +973,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
-	// CVE-2018-7600/7602 (Drupal Drupalgeddon2/3, CVSS 9.8, KEV):
-	// CHANGELOG.txt reveals Drupal version; 8.x < 8.5.1 / 7.x < 7.58 are vulnerable.
-	if f := probeDrupalgeddon(ctx, client, base, asset); f != nil {
+	// CVE-2018-7600/7602 + CVE-2014-3704 (Drupal RCE family):
+	// CHANGELOG.txt reveals Drupal version. Emits Drupalgeddon1 (< 7.32), Drupalgeddon2/3 (< 7.58/8.5.1).
+	findings = append(findings, probeDrupalgeddon(ctx, client, base, asset)...)
+
+	// CVE-2017-5638 (Apache Struts 2 OGNL injection via Content-Type → RCE, CVSS 10.0, KEV, Equifax):
+	// Struts developer console at /struts/webconsole.html fingerprints Struts 2 apps.
+	if f := probeStruts2OGNL(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -1007,6 +1011,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2015-7501 (JBoss JMXInvokerServlet pre-auth Java deserialization, CVSS 9.8, KEV):
 	// GET /invoker/JMXInvokerServlet returning 200 with Java serialized binary body = vulnerable endpoint exposed.
 	if f := probeJBossJMXInvoker(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2010-0738 (JBoss JMX HTTP console unauthenticated, CVSS 7.5, KEV):
+	// GET /jmx-console/HtmlAdaptor returning 200 without auth = JBoss management console accessible.
+	if f := probeJBossJMXConsole(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2012-1823 (PHP-CGI query string argument injection → source disclosure/RCE, CVSS 7.5, KEV):
+	// GET /?-s returns PHP source code when PHP runs as CGI — confirms argument injection vulnerability.
+	if f := probePHPCGIArgInjection2012(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -3183,11 +3199,11 @@ func probeWebLogicAsync(ctx context.Context, client *http.Client, base, asset st
 	}
 }
 
-// probeDrupalgeddon checks Drupal version via CHANGELOG.txt for Drupalgeddon2/3 (CVE-2018-7600/7602).
-// CHANGELOG.txt is present on all default Drupal installations and lists the exact release version.
-// Drupal 8.x < 8.5.1 and 7.x < 7.58 are vulnerable to Drupalgeddon2 (CVSS 9.8, KEV).
-// Drupal 7.x < 7.59 and 8.x < 8.5.3 are also vulnerable to Drupalgeddon3 (CVE-2018-7602).
-func probeDrupalgeddon(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+// probeDrupalgeddon checks Drupal version via CHANGELOG.txt.
+// Emits CVE-2014-3704 (Drupalgeddon1, SQL injection, 7.x < 7.32) and/or
+// CVE-2018-7600/7602 (Drupalgeddon2/3, pre-auth RCE, 7.x < 7.58 / 8.x < 8.5.1, KEV).
+// CHANGELOG.txt is present on all default Drupal installs and lists the exact version.
+func probeDrupalgeddon(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	// Drupal 8.x uses /core/CHANGELOG.txt; Drupal 7.x uses /CHANGELOG.txt.
 	for _, path := range []string{"/core/CHANGELOG.txt", "/CHANGELOG.txt"} {
 		u := base + path
@@ -3208,43 +3224,237 @@ func probeDrupalgeddon(ctx context.Context, client *http.Client, base, asset str
 		if !strings.Contains(strings.ToLower(body), "drupal") {
 			continue
 		}
-		// Extract version from first line: "Drupal 8.4.5, 2018-02-21"
 		ver := parseDrupalVersion(body)
 		if ver == "" {
 			continue
 		}
-		vuln, cve := isDrupalVulnerable(ver)
-		if !vuln {
-			return nil
+		proof := fmt.Sprintf(
+			"curl -s '%s' | head -5\n"+
+				"# Expected: Drupal %s release notes — confirms vulnerable version installed",
+			u, ver)
+		ev := map[string]any{"drupal_version": ver, "changelog_url": u}
+		var out []finding.Finding
+
+		// CVE-2014-3704 (Drupalgeddon1): Drupal 7.x < 7.32 SQL injection via form API.
+		// An unauthenticated attacker can inject SQL to create an admin account.
+		if isDrupalgeddon1Vulnerable(ver) {
+			out = append(out, finding.Finding{
+				CheckID:  finding.CheckCVEDrupalgeddon1,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Asset:    asset,
+				Title:    fmt.Sprintf("CVE-2014-3704: Drupal %s vulnerable to Drupalgeddon1 (SQL injection) on %s", ver, asset),
+				Description: fmt.Sprintf(
+					"Drupal %s is vulnerable to CVE-2014-3704 (Drupalgeddon1, CVSS 7.5, KEV). "+
+						"A SQL injection vulnerability in the Form API allows an unauthenticated attacker "+
+						"to inject arbitrary SQL, enabling creation of admin accounts or arbitrary database manipulation. "+
+						"Exploited by multiple botnets within hours of public disclosure. "+
+						"Upgrade to Drupal 7.32 or later immediately.",
+					ver),
+				Evidence:     ev,
+				ProofCommand: proof,
+				DiscoveredAt: time.Now(),
+			})
 		}
-		return &finding.Finding{
-			CheckID:  finding.CheckCVEDrupalgeddon2,
-			Module:   "surface",
-			Scanner:  scannerName,
-			Severity: finding.SeverityCritical,
-			Asset:    asset,
-			Title:    fmt.Sprintf("%s: Drupal %s vulnerable to Drupalgeddon on %s", cve, ver, asset),
-			Description: fmt.Sprintf(
-				"Drupal %s is internet-accessible and vulnerable to %s (Drupalgeddon2/3, CVSS 9.8, KEV). "+
-					"Drupalgeddon2 (CVE-2018-7600) is a pre-authentication remote code execution vulnerability "+
-					"in Drupal's Form API that allows arbitrary PHP execution. Within hours of disclosure, "+
-					"automated exploit kits began mass-scanning and backdooring vulnerable sites. "+
-					"Drupalgeddon3 (CVE-2018-7602) is a related authenticated RCE. "+
-					"Upgrade Drupal 8.x to ≥ 8.5.1 or Drupal 7.x to ≥ 7.58 immediately.",
-				ver, cve,
-			),
-			Evidence: map[string]any{
-				"drupal_version": ver,
-				"changelog_url":  u,
-			},
-			ProofCommand: fmt.Sprintf(
-				"curl -s '%s' | head -5\n"+
-					"# Expected: Drupal %s release notes — confirms vulnerable version installed",
-				u, ver),
-			DiscoveredAt: time.Now(),
+
+		// CVE-2018-7600/7602 (Drupalgeddon2/3): pre-auth RCE via Form API.
+		if vuln, cve := isDrupalVulnerable(ver); vuln {
+			out = append(out, finding.Finding{
+				CheckID:  finding.CheckCVEDrupalgeddon2,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    asset,
+				Title:    fmt.Sprintf("%s: Drupal %s vulnerable to Drupalgeddon2/3 on %s", cve, ver, asset),
+				Description: fmt.Sprintf(
+					"Drupal %s is internet-accessible and vulnerable to %s (Drupalgeddon2/3, CVSS 9.8, KEV). "+
+						"Drupalgeddon2 (CVE-2018-7600) allows arbitrary PHP execution via the Form API without authentication. "+
+						"Automated exploit kits began mass-scanning within hours of disclosure. "+
+						"Drupalgeddon3 (CVE-2018-7602) is a related authenticated RCE. "+
+						"Upgrade Drupal 8.x to ≥ 8.5.1 or Drupal 7.x to ≥ 7.58 immediately.",
+					ver, cve),
+				Evidence:     ev,
+				ProofCommand: proof,
+				DiscoveredAt: time.Now(),
+			})
 		}
+
+		if len(out) > 0 {
+			return out
+		}
+		return nil
 	}
 	return nil
+}
+
+// isDrupalgeddon1Vulnerable returns true for Drupal 7.x < 7.32 (CVE-2014-3704).
+func isDrupalgeddon1Vulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	var major, minor int
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	return major == 7 && minor < 32
+}
+
+// probeStruts2OGNL fingerprints Apache Struts 2 applications for CVE-2017-5638 exposure.
+// CVE-2017-5638 (CVSS 10.0, KEV) is an OGNL injection vulnerability in the Jakarta Multipart
+// parser — the Content-Type header is parsed by Struts before authentication, allowing
+// unauthenticated RCE. This was the vector for the 2017 Equifax breach (147M records).
+// Safe probe: the Struts developer console at /struts/webconsole.html fingerprints the framework.
+// The console is only accessible when struts.devMode=true, but its presence confirms Struts 2.
+func probeStruts2OGNL(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/struts/webconsole.html"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if !strings.Contains(bodyLow, "struts") && !strings.Contains(bodyLow, "ognl") &&
+		!strings.Contains(bodyLow, "actionmapping") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEStruts2OGNL,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2017-5638: Apache Struts 2 developer console exposed on %s", asset),
+		Description: "An Apache Struts 2 developer console is accessible at /struts/webconsole.html. " +
+			"CVE-2017-5638 (CVSS 10.0, KEV) is an OGNL injection vulnerability in the Jakarta Multipart " +
+			"parser that allows unauthenticated remote code execution — the Content-Type header is " +
+			"processed by Struts before any authentication check. This was the vector for the 2017 " +
+			"Equifax breach affecting 147 million records. The developer console should never be " +
+			"accessible in production (disable struts.devMode). Upgrade to Struts 2.3.32+ or 2.5.10.1+ " +
+			"and verify Content-Type header sanitization is in place.",
+		Evidence: map[string]any{
+			"url":        u,
+			"body_match": "struts/ognl/actionmapping",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -i struts\n"+
+				"# Struts 2 dev console present — check Content-Type injection CVE-2017-5638", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeJBossJMXConsole tests for CVE-2010-0738 — unauthenticated access to the JBoss JMX HTTP
+// console. The JMX HTTP console at /jmx-console/HtmlAdaptor allows invoking any MBean operation
+// without authentication, enabling arbitrary command execution via the BSHDeployer or MainDeployer
+// MBeans. Distinct from CVE-2015-7501 which targets the JMXInvokerServlet binary endpoint.
+func probeJBossJMXConsole(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/jmx-console/HtmlAdaptor"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	// JBoss JMX console page contains "jmx" and "mbean" or "jboss".
+	if !strings.Contains(bodyLow, "jmx") || (!strings.Contains(bodyLow, "mbean") && !strings.Contains(bodyLow, "jboss")) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEJBossJMXConsole,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2010-0738: JBoss JMX HTTP console accessible unauthenticated on %s", asset),
+		Description: "The JBoss Application Server JMX HTTP console at /jmx-console/HtmlAdaptor is " +
+			"publicly accessible without authentication. CVE-2010-0738 (CVSS 7.5, KEV) allows an " +
+			"unauthenticated attacker to invoke arbitrary MBean operations — including BSHDeployer and " +
+			"MainDeployer — to deploy a WAR file and achieve remote code execution. JBoss 4.x, 5.x, " +
+			"and 6.x are affected. Restrict /jmx-console/ to localhost or remove it entirely, " +
+			"and upgrade to a supported JBoss/WildFly version with security manager enabled.",
+		Evidence: map[string]any{
+			"url":        u,
+			"body_match": "jmx+mbean",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -i 'jmx\\|mbean'\n"+
+				"# Unauthenticated JMX console — CVE-2010-0738 remote code execution risk", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probePHPCGIArgInjection2012 tests for CVE-2012-1823 — PHP-CGI query string argument injection.
+// When PHP is configured to run as a CGI binary, query strings beginning with '-' are treated
+// as PHP CLI arguments. GET /?-s causes PHP to output the source code of the script (information
+// disclosure). GET /?-d allow_url_include=1 /?-d auto_prepend_file=php://input can achieve RCE.
+// Safe probe: GET /?-s and check for PHP source code in the response (<?php tag).
+// Note: CVE-2024-4577 is the Windows Best-Fit variant; this is the original Linux/general case.
+func probePHPCGIArgInjection2012(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/?-s"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// PHP source output starts with <code><span style or <?php — both are distinctive.
+	// The -s flag produces syntax-highlighted HTML output of the PHP source.
+	if !strings.Contains(bodyStr, "<?php") && !strings.Contains(bodyStr, "&lt;?php") &&
+		!strings.Contains(strings.ToLower(bodyStr), "<code>") {
+		return nil
+	}
+	// Additional confirmation: the response should not look like a normal page.
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "text/html") && strings.Contains(bodyStr, "<title>") &&
+		!strings.Contains(strings.ToLower(bodyStr), "php") {
+		return nil // Likely a normal HTML page, not PHP source output
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEPHPCGIArgInjection2012,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2012-1823: PHP-CGI argument injection — source disclosure on %s", asset),
+		Description: "PHP is configured to run as a CGI binary and is vulnerable to CVE-2012-1823 " +
+			"(CVSS 7.5, KEV). A GET request with /?-s causes PHP to output the source code of " +
+			"the script instead of executing it. More critically, /?-d allow_url_include=1 combined " +
+			"with /?-d auto_prepend_file=php://input enables arbitrary code execution by injecting " +
+			"PHP CLI flags via the query string. Affects PHP < 5.3.12 / < 5.4.2 in CGI mode. " +
+			"Upgrade PHP, switch to PHP-FPM, or add a RewriteRule to block requests starting with '-'.",
+		Evidence: map[string]any{
+			"url":        u,
+			"body_match": "<?php source disclosure",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -c '<?php'\n"+
+				"# Non-zero count = PHP source code returned — CVE-2012-1823 confirmed", u),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 // parseDrupalVersion extracts the Drupal version number from CHANGELOG.txt content.

@@ -173,6 +173,10 @@ var extendedPorts = []portEntry{
 	{8265, "ray-dashboard", false},      // Ray distributed ML dashboard (no auth by default)
 	{9097, "tekton-dashboard", false},   // Tekton Pipelines dashboard (no auth by default)
 	{30000, "sglang", false},            // SGLang LLM inference server (no auth by default)
+	{61616, "activemq", false},          // Apache ActiveMQ broker — CVE-2023-46604 pre-auth RCE (CVSS 10.0, KEV)
+	{8009, "ajp", false},               // Tomcat AJP connector — CVE-2020-1938 GhostCat file read/RCE (CVSS 9.8, KEV)
+	{8188, "comfyui", false},            // ComfyUI Stable Diffusion web UI (no auth by default)
+	{8006, "proxmox", false},            // Proxmox VE hypervisor management UI
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -497,7 +501,7 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			)}
 		}
 
-	case 8000: // SaltStack Salt API
+	case 8000: // SaltStack Salt API + vLLM inference server
 		// CVE-2021-25281/25282 (CVSS 9.8, KEV): Salt API auth bypass + path traversal
 		// allows unauthenticated writes to arbitrary files on the Salt Master via the
 		// wheel.pillar_roots.write function. The Salt API root returns a unique JSON
@@ -515,6 +519,26 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"Salt API must never be exposed to the internet. Restrict to internal management networks.",
 				map[string]any{"port": port, "service": "salt-api", "authenticated": false},
 			)}
+		}
+		// vLLM OpenAI-compatible inference server — no auth by default.
+		// Detection: X-Vllm-Request-Id response header or "owned_by":"vllm" in /v1/models JSON.
+		if vbody, vok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); vok {
+			bodyLow := strings.ToLower(vbody)
+			if strings.Contains(bodyLow, "vllm") || strings.Contains(bodyLow, `"owned_by"`) &&
+				strings.Contains(bodyLow, "data") {
+				return []finding.Finding{makeF(
+					finding.CheckPortvLLMExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("vLLM inference server exposed unauthenticated on port %d", port),
+					"A vLLM OpenAI-compatible LLM inference server is publicly accessible without authentication. "+
+						"vLLM is a high-throughput serving framework for large language models. "+
+						"Unauthenticated access allows unlimited inference at the operator's GPU cost, "+
+						"exposure of fine-tuned model capabilities, and potential prompt injection attacks. "+
+						"Add --api-key to require authentication and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "vllm",
+						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
+				)}
+			}
 		}
 
 	case 8888: // Jupyter
@@ -1688,6 +1712,26 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		}
 
 	case 8080:
+		// LocalAI OpenAI-compatible inference server — no auth by default.
+		// Detection: /v1/models returns JSON with "owned_by":"localai" or "Local AI" body substring.
+		if lbody, lok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); lok {
+			bodyLow := strings.ToLower(lbody)
+			if strings.Contains(bodyLow, "localai") || strings.Contains(bodyLow, "local ai") ||
+				strings.Contains(bodyLow, "go-skynet") {
+				return []finding.Finding{makeF(
+					finding.CheckPortLocalAIExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("LocalAI inference server exposed unauthenticated on port %d", port),
+					"A LocalAI OpenAI-compatible LLM inference server is publicly accessible without authentication. "+
+						"LocalAI serves language models, image generation, and audio transcription locally. "+
+						"Unauthenticated access allows unlimited inference at the operator's cost, "+
+						"exposure of locally loaded models, and potential arbitrary model file access. "+
+						"Configure authentication and restrict access to trusted networks.",
+					map[string]any{"port": port, "service": "localai",
+						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
+				)}
+			}
+		}
 		// Apache Pulsar admin API — GET /admin/v2/clusters returns JSON listing broker clusters.
 		// The Pulsar admin API has no authentication by default and provides full cluster control:
 		// create/delete topics, manage namespaces, drain brokers, and read all messages.
@@ -1761,6 +1805,130 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
 				)}
 			}
+		}
+
+	case 8009:
+		// CVE-2020-1938 (Tomcat GhostCat, CVSS 9.8, KEV): the AJP connector on port 8009
+		// allows reading arbitrary files from the Tomcat webapp root and, when combined with
+		// file upload, achieves unauthenticated RCE. AJP is an internal protocol that should
+		// never be internet-facing. The port being open is itself the finding.
+		return []finding.Finding{makeF(
+			finding.CheckCVETomcatGhostCat,
+			finding.SeverityCritical,
+			fmt.Sprintf("CVE-2020-1938: Tomcat AJP connector exposed on port %d (GhostCat)", port),
+			"The Apache Tomcat AJP (Apache JServ Protocol) connector is publicly accessible on port 8009. "+
+				"CVE-2020-1938 (CVSS 9.8, KEV, GhostCat) allows an unauthenticated attacker to read any "+
+				"file from the Tomcat webapp directory. When file upload is possible, this escalates to "+
+				"unauthenticated remote code execution. AJP is an internal connector protocol designed "+
+				"for communication between Tomcat and a front-end web server (Apache httpd) — it must "+
+				"never be exposed to the internet. Disable the AJP connector in server.xml "+
+				"(comment out or delete the Connector port=\"8009\" element) and apply all Tomcat patches.",
+			map[string]any{"port": port, "service": "ajp", "protocol": "AJP/1.3"},
+		)}
+
+	case 8188:
+		// ComfyUI (Stable Diffusion) — no auth by default.
+		// GET /system_stats returns GPU/VRAM info; GET /object_info lists all nodes.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/system_stats"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "vram") || strings.Contains(bodyLow, "ram_total") ||
+				strings.Contains(bodyLow, "comfyui") {
+				return []finding.Finding{makeF(
+					finding.CheckPortComfyUIExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("ComfyUI Stable Diffusion server exposed unauthenticated on port %d", port),
+					"A ComfyUI image generation server is publicly accessible without authentication. "+
+						"ComfyUI is a node-based Stable Diffusion UI with full filesystem access for "+
+						"model loading. Unauthenticated access allows arbitrary image generation, "+
+						"reading model files via the /view endpoint (arbitrary file read traversal), "+
+						"and potentially executing custom nodes with OS-level access. "+
+						"Add authentication (--auth user:pass) and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "comfyui",
+						"url": fmt.Sprintf("http://%s:%d/system_stats", asset, port)},
+				)}
+			}
+		}
+
+	case 8006:
+		// Proxmox VE hypervisor management — exposed admin UI.
+		// GET /api2/json/version returns version info unauthenticated (informational endpoint).
+		// The management UI itself requires auth but default creds (root:proxmox) are common.
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/api2/json/version"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "version") && strings.Contains(bodyLow, "release") {
+				return []finding.Finding{makeF(
+					finding.CheckPortProxmoxExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Proxmox VE hypervisor management UI exposed on port %d", port),
+					"The Proxmox VE hypervisor management interface is publicly accessible. "+
+						"Proxmox VE controls virtual machines, containers, storage, and networking "+
+						"for the entire hypervisor. Default credentials (root:proxmox) or weak "+
+						"passwords combined with internet exposure create critical infrastructure risk. "+
+						"Proxmox management should be restricted to dedicated management VLANs "+
+						"accessible only via VPN. Enable 2FA and change default credentials immediately.",
+					map[string]any{"port": port, "service": "proxmox",
+						"url": fmt.Sprintf("https://%s:%d", asset, port)},
+				)}
+			}
+		}
+
+	case 19999:
+		// Netdata real-time monitoring — older versions have no auth by default.
+		// GET /api/v1/info returns hostname, OS, CPU, memory, disk info unauthenticated.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/api/v1/info"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "netdata") || strings.Contains(bodyLow, "hostname") &&
+				strings.Contains(bodyLow, "os_name") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNetdataExposed,
+					finding.SeverityMedium,
+					fmt.Sprintf("Netdata monitoring dashboard exposed unauthenticated on port %d", port),
+					"A Netdata real-time monitoring dashboard is publicly accessible without authentication. "+
+						"Netdata exposes detailed system metrics: CPU, memory, disk, network, running processes, "+
+						"Docker containers, and application internals. This information significantly aids "+
+						"reconnaissance for targeted attacks. Older Netdata versions allow unauthenticated "+
+						"dashboard access by default. Enable Netdata Cloud authentication or place Netdata "+
+						"behind an authenticated reverse proxy restricted to monitoring networks.",
+					map[string]any{"port": port, "service": "netdata",
+						"url": fmt.Sprintf("http://%s:%d", asset, port)},
+				)}
+			}
+		}
+
+	case 61616:
+		// CVE-2023-46604 (Apache ActiveMQ, CVSS 10.0, KEV): ClassInfo deserialization via
+		// the OpenWire protocol allows unauthenticated RCE. The broker banner on port 61616
+		// exposes the ActiveMQ version string. Vulnerable: < 5.15.16, 5.16.x < 5.16.7,
+		// 5.17.x < 5.17.6, 5.18.x < 5.18.3.
+		// The ActiveMQ banner is binary but contains the version string as a substring.
+		if strings.Contains(banner, "ActiveMQ") || strings.Contains(banner, "activemq") {
+			vuln, verStr := isActiveMQRCE2023Vulnerable(banner)
+			if vuln {
+				return []finding.Finding{makeF(
+					finding.CheckCVEActiveMQRCE,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2023-46604: Apache ActiveMQ %s vulnerable to pre-auth RCE on port %d", verStr, port),
+					fmt.Sprintf("Apache ActiveMQ %s is internet-accessible and vulnerable to CVE-2023-46604 "+
+						"(CVSS 10.0, KEV). The ClassInfo deserialization vulnerability in the OpenWire "+
+						"protocol allows an unauthenticated remote attacker to execute arbitrary code. "+
+						"Exploited by HelloKitty ransomware and multiple APT groups. "+
+						"Upgrade to ActiveMQ 5.15.16+, 5.16.7+, 5.17.6+, or 5.18.3+ immediately. "+
+						"Restrict port 61616 to internal broker networks only.", verStr),
+					map[string]any{"port": port, "service": "activemq", "banner": banner, "version": verStr},
+				)}
+			}
+			// ActiveMQ detected but version not determined or not vulnerable — still report exposure.
+			return []finding.Finding{makeF(
+				finding.CheckPortActiveMQExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("Apache ActiveMQ broker exposed on port %d", port),
+				"An Apache ActiveMQ message broker is publicly accessible. The OpenWire protocol "+
+					"(port 61616) is the primary broker protocol and should be restricted to "+
+					"trusted application networks. Multiple critical CVEs affect ActiveMQ brokers "+
+					"including CVE-2023-46604 (CVSS 10.0, RCE). Verify the version and patch level, "+
+					"and restrict port 61616 to internal networks immediately.",
+				map[string]any{"port": port, "service": "activemq", "banner": banner},
+			)}
 		}
 
 	case 9401, 9419:
@@ -2129,6 +2297,11 @@ var webServicePorts = map[int]string{
 	8265:  "ray-dashboard",
 	9097:  "tekton-dashboard",
 	30000: "sglang",
+	61616: "activemq",
+	8009:  "ajp-tomcat",
+	8188:  "comfyui",
+	8006:  "proxmox",
+	19999: "netdata",
 	16686: "jaeger-ui",
 	4848:  "glassfish-admin",
 	7001:  "weblogic",
@@ -3508,6 +3681,42 @@ func parseEximVersion(banner string) string {
 		return ""
 	}
 	return v
+}
+
+// isActiveMQRCE2023Vulnerable parses the ActiveMQ version from a banner string and
+// returns (true, version) when the version is vulnerable to CVE-2023-46604.
+// The OpenWire binary banner contains the version string as a substring, e.g. "5.16.3".
+// Vulnerable ranges: < 5.15.16, 5.16.x < 5.16.7, 5.17.x < 5.17.6, 5.18.x < 5.18.3.
+func isActiveMQRCE2023Vulnerable(banner string) (bool, string) {
+	// Look for a version pattern like "5.16.3" in the banner.
+	var maj, min, patch int
+	// Scan through the banner string for digit sequences matching x.y.z
+	for i := 0; i < len(banner)-4; i++ {
+		if banner[i] >= '0' && banner[i] <= '9' {
+			n, err := fmt.Sscanf(banner[i:], "%d.%d.%d", &maj, &min, &patch)
+			if err != nil || n != 3 {
+				continue
+			}
+			if maj != 5 {
+				continue
+			}
+			verStr := fmt.Sprintf("%d.%d.%d", maj, min, patch)
+			switch {
+			case min < 15:
+				return true, verStr
+			case min == 15 && patch < 16:
+				return true, verStr
+			case min == 16 && patch < 7:
+				return true, verStr
+			case min == 17 && patch < 6:
+				return true, verStr
+			case min == 18 && patch < 3:
+				return true, verStr
+			}
+			return false, verStr
+		}
+	}
+	return false, ""
 }
 
 // isEximHeapOverflowVulnerable returns true when the Exim version is before 4.90.1,
