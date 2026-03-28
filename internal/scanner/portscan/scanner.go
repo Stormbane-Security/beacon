@@ -982,6 +982,24 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				ev,
 			)}
 		}
+		// CVE-2015-3306: ProFTPD 1.3.5 mod_copy unauthenticated arbitrary file
+		// read/write via SITE CPFR/CPTO commands. Patched in 1.3.5a.
+		// The banner "220 ProFTPD 1.3.5 Server ..." is unambiguous: 1.3.5a would
+		// advertise itself as such, so an exact "ProFTPD 1.3.5" match is reliable.
+		if isProFTPDModCopyVulnerable(fv) {
+			return []finding.Finding{makeF(
+				finding.CheckCVEProFTPDModCopy,
+				finding.SeverityCritical,
+				fmt.Sprintf("ProFTPD 1.3.5 detected on port %d — mod_copy file read/write (CVE-2015-3306)", port),
+				"The FTP banner reports ProFTPD 1.3.5, which is vulnerable to CVE-2015-3306 "+
+					"(CVSS 10.0). The mod_copy module accepts SITE CPFR/CPTO commands from "+
+					"unauthenticated clients, allowing arbitrary file reads and writes on the server. "+
+					"This was exploited extensively to copy web shells into document roots. "+
+					"Upgrade to ProFTPD 1.3.5a or later and disable mod_copy if not required.",
+				ev,
+			)}
+		}
+
 		// CVE-2025-47812: Wing FTP Server ≤ 7.4.3 pre-auth RCE (CISA KEV, CVSS 9.9).
 		if wingVer := parseWingFTPVersion(banner); wingVer != "" {
 			ev["wing_ftp_version"] = wingVer
@@ -2528,6 +2546,14 @@ func isOpenSSHRegreSSHionVulnerable(sv, banner string) bool {
 		return true
 	}
 	return false
+}
+
+// isProFTPDModCopyVulnerable returns true when the FTP version string indicates
+// ProFTPD 1.3.5 without the "a" patch suffix (CVE-2015-3306). ProFTPD 1.3.5a
+// and later report themselves as such, so an exact "ProFTPD 1.3.5" match is
+// an unambiguous indicator of the unpatched release.
+func isProFTPDModCopyVulnerable(fv string) bool {
+	return fv == "ProFTPD 1.3.5"
 }
 
 // parseFTPVersion extracts the server software string from an FTP 220 banner.

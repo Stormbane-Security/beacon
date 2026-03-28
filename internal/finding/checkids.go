@@ -715,6 +715,7 @@ const (
 	CheckCVEJenkinsStaplerRCE       CheckID = "cve.jenkins_stapler_rce_2018"       // CVE-2018-1000861 Jenkins ≤ 2.153 Stapler URL routing pre-auth RCE via ACL bypass (CVSS 9.8)
 	CheckCVEEximHeapOverflow        CheckID = "cve.exim_heap_overflow_2018"        // CVE-2018-6789 Exim < 4.90.1 base64d() off-by-one heap overflow → pre-auth RCE (CVSS 9.8, KEV)
 	CheckCVEApacheTikaRCE           CheckID = "cve.apache_tika_cmd_injection_2018" // CVE-2018-1335 Apache Tika Server 1.7–1.17 X-Tika-OCR* header command injection → RCE (CVSS 9.8)
+	CheckCVEFortiOSCredLeak         CheckID = "cve.fortios_ssl_vpn_cred_leak"      // CVE-2018-13379 FortiOS 5.6.3–5.6.7 / 6.0.0–6.0.4 SSL VPN arbitrary credential file read (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
 	CheckCVEWebLogicWLSWSAT       CheckID = "cve.weblogic_wls_wsat"          // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
@@ -734,6 +735,7 @@ const (
 	CheckCVEIISHTTPSys                 CheckID = "cve.iis_httpsys_range"            // CVE-2015-1635 (MS15-034) IIS HTTP.sys Range header integer overflow → DoS/RCE (CVSS 10.0, KEV)
 	CheckCVEElasticsearchGroovyRCE     CheckID = "cve.elasticsearch_groovy_rce"     // CVE-2015-1427 Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE (CVSS 10.0)
 	CheckCVEJoomlaObjectInjection      CheckID = "cve.joomla_object_injection"      // CVE-2015-8562 Joomla 1.5–3.4.5 PHP object injection via HTTP User-Agent → RCE (CVSS 9.8, KEV)
+	CheckCVEProFTPDModCopy             CheckID = "cve.proftpd_mod_copy"             // CVE-2015-3306 ProFTPD 1.3.5 mod_copy SITE CPFR/CPTO unauthenticated arbitrary file read/write (CVSS 10.0)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1358,6 +1360,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEJenkinsStaplerRCE:      {CheckCVEJenkinsStaplerRCE, SeverityCritical, ModeSurface},
 	CheckCVEEximHeapOverflow:       {CheckCVEEximHeapOverflow, SeverityCritical, ModeSurface},
 	CheckCVEApacheTikaRCE:          {CheckCVEApacheTikaRCE, SeverityCritical, ModeSurface},
+	CheckCVEFortiOSCredLeak:        {CheckCVEFortiOSCredLeak, SeverityCritical, ModeSurface},
 
 	// 2017 CVEs
 	CheckCVEWebLogicWLSWSAT:     {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
@@ -1380,6 +1383,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEIISHTTPSys:                 {CheckCVEIISHTTPSys, SeverityCritical, ModeSurface},
 	CheckCVEElasticsearchGroovyRCE:     {CheckCVEElasticsearchGroovyRCE, SeverityCritical, ModeSurface},
 	CheckCVEJoomlaObjectInjection:      {CheckCVEJoomlaObjectInjection, SeverityCritical, ModeSurface},
+	CheckCVEProFTPDModCopy:             {CheckCVEProFTPDModCopy, SeverityCritical, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

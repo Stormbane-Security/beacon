@@ -881,12 +881,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
-	// CVE-2024-21762 (FortiOS SSL VPN, CVSS 9.6, KEV):
-	// GET /remote/info returns JSON with version on FortiOS < 7.4.3 when
-	// SSL VPN is enabled. Version < 7.4.3 is vulnerable to pre-auth RCE.
-	if f := probeFortiOSSSLVPNVersion(ctx, client, base, asset); f != nil {
-		findings = append(findings, *f)
-	}
+	// CVE-2024-21762 / CVE-2018-13379 (FortiOS SSL VPN):
+	// GET /remote/info returns JSON with version on FortiOS when SSL VPN is
+	// enabled. Depending on version, emits CVE-2024-21762 (pre-auth RCE, CVSS
+	// 9.6) and/or CVE-2018-13379 (arbitrary credential file read, CVSS 9.8).
+	findings = append(findings, probeFortiOSSSLVPNVersion(ctx, client, base, asset)...)
 
 	// CVE-2024-4577 (PHP CGI arg injection, CVSS 9.8, KEV):
 	// GET /?-v on a Windows IIS + PHP-CGI server returns PHP version output.
@@ -1268,10 +1267,10 @@ func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, ass
 }
 
 // probeFortiOSSSLVPNVersion tests for CVE-2024-21762 (FortiOS SSL VPN < 7.4.3,
-// CVSS 9.6, KEV). GET /remote/info returns JSON with version on FortiOS when the
-// SSL VPN blade is enabled. Version < 7.4.3 is vulnerable to out-of-bounds write
-// leading to unauthenticated RCE.
-func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+// CVSS 9.6, KEV) and CVE-2018-13379 (FortiOS 5.6.3–5.6.7 / 6.0.0–6.0.4 credential
+// file read, CVSS 9.8, KEV). GET /remote/info returns JSON with version on FortiOS
+// when the SSL VPN blade is enabled. Both CVEs are checked from the same response.
+func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	u := base + "/remote/info"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -1293,31 +1292,86 @@ func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, a
 	}
 	// Parse version — look for "v7.X.Y" or "7.X.Y" pattern.
 	ver := parseFortiOSVersion(bodyStr)
-	if ver == "" || !isFortiOSSSLVPNVulnerable(ver) {
+	if ver == "" {
 		return nil
 	}
-	return &finding.Finding{
-		CheckID:  finding.CheckCVEFortiOSSSLVPN,
-		Module:   "surface",
-		Scanner:  scannerName,
-		Severity: finding.SeverityCritical,
-		Title:    fmt.Sprintf("CVE-2024-21762: FortiOS %s SSL VPN RCE — version below 7.4.3", ver),
-		Description: fmt.Sprintf(
-			"%s is running FortiOS %s with SSL VPN exposed. CVE-2024-21762 (CVSS 9.6, KEV) "+
-				"is an out-of-bounds write in the SSL VPN HTTP handler allowing unauthenticated RCE. "+
-				"Affects FortiOS 6.0–7.4.2 with SSL VPN enabled. "+
-				"Upgrade to FortiOS 7.4.3 or later and disable SSL VPN if not required.",
-			asset, ver,
-		),
-		Asset: asset,
-		Evidence: map[string]any{
-			"url":     u,
-			"version": ver,
-			"body":    bodyStr[:min(len(bodyStr), 256)],
-		},
-		ProofCommand: fmt.Sprintf("curl -sk '%s'", u),
-		DiscoveredAt: time.Now(),
+	ev := map[string]any{
+		"url":     u,
+		"version": ver,
+		"body":    bodyStr[:min(len(bodyStr), 256)],
 	}
+	proof := fmt.Sprintf("curl -sk '%s'", u)
+
+	var out []finding.Finding
+
+	// CVE-2018-13379: arbitrary file read via SSL VPN portal (CVSS 9.8, KEV).
+	// Affects FortiOS 5.6.3–5.6.7 and 6.0.0–6.0.4.
+	if isFortiOSCredLeakVulnerable(ver) {
+		out = append(out, finding.Finding{
+			CheckID:  finding.CheckCVEFortiOSCredLeak,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2018-13379: FortiOS %s SSL VPN credential file read", ver),
+			Description: fmt.Sprintf(
+				"%s is running FortiOS %s with SSL VPN exposed. CVE-2018-13379 (CVSS 9.8, KEV) "+
+					"allows unauthenticated attackers to read arbitrary files from the system, "+
+					"including the sslvpn_websession file which contains plaintext credentials. "+
+					"Affects FortiOS 5.6.3–5.6.7 and 6.0.0–6.0.4. "+
+					"Upgrade to FortiOS 5.6.8+, 6.0.5+, or 6.2.0+ and rotate all VPN credentials.",
+				asset, ver,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proof,
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// CVE-2024-21762: out-of-bounds write in SSL VPN HTTP handler → unauthenticated RCE (CVSS 9.6, KEV).
+	// Affects FortiOS 6.x through 7.4.2.
+	if isFortiOSSSLVPNVulnerable(ver) {
+		out = append(out, finding.Finding{
+			CheckID:  finding.CheckCVEFortiOSSSLVPN,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2024-21762: FortiOS %s SSL VPN RCE — version below 7.4.3", ver),
+			Description: fmt.Sprintf(
+				"%s is running FortiOS %s with SSL VPN exposed. CVE-2024-21762 (CVSS 9.6, KEV) "+
+					"is an out-of-bounds write in the SSL VPN HTTP handler allowing unauthenticated RCE. "+
+					"Affects FortiOS 6.0–7.4.2 with SSL VPN enabled. "+
+					"Upgrade to FortiOS 7.4.3 or later and disable SSL VPN if not required.",
+				asset, ver,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proof,
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	return out
+}
+
+// isFortiOSCredLeakVulnerable returns true for FortiOS versions affected by
+// CVE-2018-13379: 5.6.3–5.6.7 and 6.0.0–6.0.4.
+func isFortiOSCredLeakVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	fmt.Sscanf(parts[2], "%d", &patch)
+	if maj == 5 && min == 6 && patch >= 3 && patch <= 7 {
+		return true
+	}
+	if maj == 6 && min == 0 && patch <= 4 {
+		return true
+	}
+	return false
 }
 
 // parseFortiOSVersion extracts the version string from /remote/info JSON.
