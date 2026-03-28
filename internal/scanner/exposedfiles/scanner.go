@@ -192,6 +192,55 @@ var targets = []sensitiveFile{
 			"and service account credential blobs from the EPM Credential Vault. " +
 			"Update to EPM 2024 SU5 or later immediately.",
 	},
+
+	// CVE-2024-1709 — ConnectWise ScreenConnect setup wizard auth bypass (CVSS 10.0, KEV).
+	// /SetupWizard.aspx on patched versions redirects (302) to /. On vulnerable versions
+	// (< 23.9.8) it returns 200 with the actual setup form, allowing admin account creation.
+	{
+		path: "/SetupWizard.aspx", title: "CVE-2024-1709: ConnectWise ScreenConnect setup wizard accessible",
+		severity: finding.SeverityCritical, checkID: finding.CheckCVEScreenConnectBypass,
+		bodyContains: "ScreenConnect",
+		description: "The ConnectWise ScreenConnect setup wizard (/SetupWizard.aspx) returned HTTP 200. " +
+			"CVE-2024-1709 (CVSS 10.0, KEV) allows unauthenticated access to the setup wizard on " +
+			"ScreenConnect < 23.9.8, letting an attacker create an admin account and take full control. " +
+			"Upgrade to ScreenConnect 23.9.8 or later immediately.",
+	},
+
+	// CVE-2024-24919 — Check Point CloudGuard/Quantum arbitrary file read (CVSS 8.6, KEV).
+	// /clients/MyCRL is specific to Check Point Mobile Access / SSL VPN blade.
+	// A 200 response confirms the blade is exposed; path traversal exploitation is Deep mode.
+	{
+		path: "/clients/MyCRL", title: "CVE-2024-24919: Check Point Mobile Access blade exposed",
+		severity: finding.SeverityHigh, checkID: finding.CheckCVECheckPointFileRead,
+		description: "The Check Point Mobile Access / SSL VPN endpoint (/clients/MyCRL) is publicly accessible. " +
+			"CVE-2024-24919 (CVSS 8.6, KEV) allows unauthenticated arbitrary file read via path traversal " +
+			"in the Mobile Access blade. Attackers have used this to steal VPN credentials and private keys. " +
+			"Apply hotfix immediately and restrict management access to trusted networks.",
+	},
+
+	// CVE-2024-47575 — FortiManager 'FortiJump' missing auth → rogue device registration (CVSS 9.8, KEV).
+	// /p/login/ fingerprints the FortiManager web UI. The actual FGFM exploit uses port 541.
+	{
+		path: "/p/login/", title: "CVE-2024-47575: Fortinet FortiManager management portal exposed",
+		severity: finding.SeverityCritical, checkID: finding.CheckCVEFortiManagerJump,
+		bodyContains: "FortiManager",
+		description: "The Fortinet FortiManager management portal is internet-accessible. " +
+			"CVE-2024-47575 (CVSS 9.8, KEV, 'FortiJump') — a missing authentication flaw in the FGFM " +
+			"protocol — allowed threat actor UNC5820 to register rogue FortiGate devices and execute " +
+			"arbitrary commands on managed devices. Restrict port 443 and port 541 to internal networks only.",
+	},
+
+	// CVE-2024-9463 — Palo Alto Expedition < 1.2.96 unauthenticated OS command injection (CVSS 9.9, KEV).
+	// /api/v1/version returns version JSON without authentication; compare against 1.2.96 threshold.
+	{
+		path: "/api/v1/version", title: "CVE-2024-9463: Palo Alto Expedition version API exposed",
+		severity: finding.SeverityCritical, checkID: finding.CheckCVEExpeditionRCE,
+		bodyContains: "version",
+		description: "The Palo Alto Expedition migration tool version API is publicly accessible. " +
+			"CVE-2024-9463 (CVSS 9.9, KEV) allows unauthenticated OS command injection on Expedition < 1.2.96. " +
+			"Expedition stores PAN-OS credentials and firewall configurations — compromise of this server " +
+			"exposes all managed device credentials. Upgrade to 1.2.96 or later and isolate from the internet.",
+	},
 }
 
 // Scanner actively probes for exposed sensitive files.
@@ -291,6 +340,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				"snippet": snippet,
 			},
 		})
+	}
+
+	// CVE-2024-27198 (TeamCity auth bypass, CVSS 9.8, KEV):
+	// GET /app/rest/server;.ico bypasses Spring Security filter chain on
+	// TeamCity < 2023.11.4 and returns server XML with version information.
+	if f := probeTeamCityAuthBypass(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2024-21762 (FortiOS SSL VPN, CVSS 9.6, KEV):
+	// GET /remote/info returns JSON with version on FortiOS < 7.4.3 when
+	// SSL VPN is enabled. Version < 7.4.3 is vulnerable to pre-auth RCE.
+	if f := probeFortiOSSSLVPNVersion(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2024-4577 (PHP CGI arg injection, CVSS 9.8, KEV):
+	// GET /?-v on a Windows IIS + PHP-CGI server returns PHP version output.
+	// Any version < 8.1.29 / 8.2.20 / 8.3.8 is vulnerable.
+	if f := probePHPCGIVersion(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
 	}
 
 	// CVE-2025-24813 (Deep only): Apache Tomcat partial PUT to .session path.
@@ -413,6 +483,271 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 		DiscoveredAt: time.Now(),
 	}
 	return f
+}
+
+// probeTeamCityAuthBypass tests for CVE-2024-27198 (JetBrains TeamCity < 2023.11.4,
+// CVSS 9.8, KEV). The Spring Security filter chain can be bypassed by appending
+// ;.ico to REST API paths. GET /app/rest/server;.ico returns XML with server
+// version on vulnerable instances instead of the expected 401 Unauthorized.
+func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Step 1: fingerprint TeamCity via the login page.
+	loginReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/login.html", nil)
+	if err != nil {
+		return nil
+	}
+	loginResp, err := client.Do(loginReq)
+	if err != nil {
+		return nil
+	}
+	loginBody, _ := io.ReadAll(io.LimitReader(loginResp.Body, 4096))
+	loginResp.Body.Close()
+	if !strings.Contains(strings.ToLower(string(loginBody)), "teamcity") {
+		return nil
+	}
+
+	// Step 2: attempt the path-confusion bypass.
+	bypassURL := base + "/app/rest/server;.ico"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bypassURL, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// The server XML contains <version> on unpatched instances.
+	if !strings.Contains(bodyStr, "<version>") && !strings.Contains(bodyStr, "version") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVETeamCityAuthBypass,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2024-27198: JetBrains TeamCity auth bypass confirmed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is running JetBrains TeamCity with CVE-2024-27198 (CVSS 9.8, KEV) — "+
+				"a Spring Security filter-chain bypass via path suffix confusion. "+
+				"Appending ;.ico to REST API paths bypasses authentication. "+
+				"GET /app/rest/server;.ico returned HTTP 200 with server version XML instead of 401. "+
+				"On vulnerable versions (< 2023.11.4) this allows unauthenticated admin user creation. "+
+				"Upgrade to TeamCity 2023.11.4 or later immediately.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"bypass_url":    bypassURL,
+			"bypass_status": resp.StatusCode,
+			"body_excerpt":  bodyStr[:min(len(bodyStr), 256)],
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -sk '%s' | grep -i version",
+			bypassURL,
+		),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeFortiOSSSLVPNVersion tests for CVE-2024-21762 (FortiOS SSL VPN < 7.4.3,
+// CVSS 9.6, KEV). GET /remote/info returns JSON with version on FortiOS when the
+// SSL VPN blade is enabled. Version < 7.4.3 is vulnerable to out-of-bounds write
+// leading to unauthenticated RCE.
+func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/remote/info"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// FortiOS /remote/info returns JSON like {"serial":"FGVM...","version":"v7.2.4",...}
+	if !strings.Contains(bodyStr, "serial") && !strings.Contains(bodyStr, "version") {
+		return nil
+	}
+	// Parse version — look for "v7.X.Y" or "7.X.Y" pattern.
+	ver := parseFortiOSVersion(bodyStr)
+	if ver == "" || !isFortiOSSSLVPNVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEFortiOSSSLVPN,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2024-21762: FortiOS %s SSL VPN RCE — version below 7.4.3", ver),
+		Description: fmt.Sprintf(
+			"%s is running FortiOS %s with SSL VPN exposed. CVE-2024-21762 (CVSS 9.6, KEV) "+
+				"is an out-of-bounds write in the SSL VPN HTTP handler allowing unauthenticated RCE. "+
+				"Affects FortiOS 6.0–7.4.2 with SSL VPN enabled. "+
+				"Upgrade to FortiOS 7.4.3 or later and disable SSL VPN if not required.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+			"body":    bodyStr[:min(len(bodyStr), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s'", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// parseFortiOSVersion extracts the version string from /remote/info JSON.
+func parseFortiOSVersion(body string) string {
+	// Look for "version":"v7.2.4" or "version":"7.2.4"
+	idx := strings.Index(body, `"version"`)
+	if idx == -1 {
+		return ""
+	}
+	rest := body[idx+9:]
+	// Skip : and optional whitespace/quotes
+	colon := strings.IndexByte(rest, ':')
+	if colon == -1 {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[colon+1:])
+	rest = strings.Trim(rest, `"v `)
+	// Extract up to comma or closing brace
+	end := strings.IndexAny(rest, `,"} `)
+	if end != -1 {
+		rest = rest[:end]
+	}
+	rest = strings.TrimPrefix(rest, "v")
+	return rest
+}
+
+// isFortiOSSSLVPNVulnerable returns true for FortiOS versions < 7.4.3.
+func isFortiOSSSLVPNVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	// Affected: 6.x, 7.0.x, 7.1.x, 7.2.x, 7.3.x, 7.4.0–7.4.2
+	if maj < 7 {
+		return true
+	}
+	if maj == 7 && min < 4 {
+		return true
+	}
+	if maj == 7 && min == 4 {
+		patch := 0
+		if len(parts) >= 3 {
+			fmt.Sscanf(parts[2], "%d", &patch)
+		}
+		return patch < 3
+	}
+	return false
+}
+
+// probePHPCGIVersion tests for CVE-2024-4577 (PHP CGI argument injection on Windows,
+// CVSS 9.8, KEV). GET /?-v on a server running PHP in CGI mode returns the PHP version
+// string. Versions < 8.1.29, < 8.2.20, < 8.3.8 are vulnerable.
+// The probe is surface-safe: no code execution — only the version flag is passed.
+func probePHPCGIVersion(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/?-v"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// PHP-CGI -v output: "PHP 8.1.28 (cgi-fcgi) ..."
+	if !strings.Contains(bodyStr, "PHP ") || !strings.Contains(bodyStr, "cgi") {
+		return nil
+	}
+	ver := parsePHPCGIVersion(bodyStr)
+	if ver == "" || !isPHPCGIVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEPHPCGIArgInjection,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2024-4577: PHP-CGI %s argument injection on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running PHP %s in CGI mode and is vulnerable to CVE-2024-4577 (CVSS 9.8, KEV). "+
+				"On Windows with Best-Fit character encoding, the soft hyphen (%%AD) maps to '-', "+
+				"allowing injection of PHP-CGI arguments via the URL query string. "+
+				"This enables remote code execution by injecting -d auto_prepend_file=php://input. "+
+				"Affects PHP < 8.1.29 / < 8.2.20 / < 8.3.8 on Windows. "+
+				"Upgrade PHP immediately or disable CGI mode.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+			"body":    bodyStr[:min(len(bodyStr), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s'", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// parsePHPCGIVersion extracts the version from PHP -v output.
+func parsePHPCGIVersion(body string) string {
+	// "PHP 8.1.28 (cgi-fcgi)" → "8.1.28"
+	idx := strings.Index(body, "PHP ")
+	if idx == -1 {
+		return ""
+	}
+	rest := strings.TrimSpace(body[idx+4:])
+	end := strings.IndexAny(rest, " (")
+	if end != -1 {
+		rest = rest[:end]
+	}
+	return rest
+}
+
+// isPHPCGIVulnerable returns true for PHP versions < 8.1.29 / 8.2.20 / 8.3.8.
+func isPHPCGIVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	fmt.Sscanf(parts[2], "%d", &patch)
+	if maj != 8 {
+		return false
+	}
+	switch min {
+	case 1:
+		return patch < 29
+	case 2:
+		return patch < 20
+	case 3:
+		return patch < 8
+	}
+	return false
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

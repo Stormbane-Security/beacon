@@ -67,6 +67,7 @@ var wordpressPlugins = []pluginCheck{
 	{"classic-editor", "readme.txt", "Stable tag:", "", ""},
 	{"really-simple-ssl", "readme.txt", "Stable tag:", "7.0.2", "CVE-2023-4996"},
 	{"litespeed-cache", "readme.txt", "Stable tag:", "5.6", "CVE-2023-40000"},
+	{"sitepress-multilingual-cms", "readme.txt", "Stable tag:", "4.6.12", "CVE-2024-6061"}, // WPML SSTI via Twig shortcode — Contributor → RCE
 }
 
 // drupalModules is the curated list of Drupal core/contrib modules to probe.

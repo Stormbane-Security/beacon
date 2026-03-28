@@ -634,6 +634,17 @@ const (
 	CheckCVEViteFileRead              CheckID = "cve.vite_file_read"               // CVE-2025-30208 Vite dev server arbitrary file read via /@fs/ path double-query confusion (CVSS 9.1)
 	CheckCVEIngressNightmare          CheckID = "cve.ingress_nightmare"            // CVE-2025-1974 ingress-nginx admission webhook exposed — pre-auth RCE via annotation injection (CVSS 9.8, KEV)
 	CheckCVETomcatPartialPUT          CheckID = "cve.tomcat_partial_put"           // CVE-2025-24813 Apache Tomcat partial PUT accepted on .session path — deserialization RCE vector (CVSS 9.8, KEV)
+
+	// ── Recent high-severity CVEs (2024) ──────────────────────────────────────
+	CheckCVEOpenSSHRegreSSHion    CheckID = "cve.openssh_regresshion"      // CVE-2024-6387 OpenSSH 8.5p1–9.7p1 signal handler race → unauthenticated RCE (CVSS 8.1, KEV)
+	CheckCVEJenkinsCLIFileRead    CheckID = "cve.jenkins_cli_file_read"    // CVE-2024-23897 Jenkins < 2.442 args4j @file CLI arbitrary file read (CVSS 9.8, KEV)
+	CheckCVEScreenConnectBypass   CheckID = "cve.screenconnect_setup_bypass" // CVE-2024-1709 ConnectWise ScreenConnect < 23.9.8 setup wizard auth bypass (CVSS 10.0, KEV)
+	CheckCVETeamCityAuthBypass    CheckID = "cve.teamcity_auth_bypass"     // CVE-2024-27198 JetBrains TeamCity < 2023.11.4 REST API path-confusion auth bypass (CVSS 9.8, KEV)
+	CheckCVEFortiManagerJump      CheckID = "cve.fortimanager_fortijump"   // CVE-2024-47575 FortiManager FGFM missing auth → rogue device register + RCE (CVSS 9.8, KEV)
+	CheckCVEPHPCGIArgInjection    CheckID = "cve.php_cgi_arg_injection"    // CVE-2024-4577 PHP CGI on Windows Best-Fit arg injection → RCE (CVSS 9.8, KEV)
+	CheckCVEExpeditionRCE         CheckID = "cve.paloalto_expedition_rce"  // CVE-2024-9463 Palo Alto Expedition < 1.2.96 unauthenticated OS command injection (CVSS 9.9, KEV)
+	CheckCVEFortiOSSSLVPN         CheckID = "cve.fortios_ssl_vpn_rce"      // CVE-2024-21762 FortiOS < 7.4.3 SSL VPN out-of-bounds write → unauthenticated RCE (CVSS 9.6, KEV)
+	CheckCVECheckPointFileRead    CheckID = "cve.checkpoint_file_read"     // CVE-2024-24919 Check Point CloudGuard arbitrary file read via /clients/MyCRL (CVSS 8.6, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1182,6 +1193,15 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEViteFileRead:              {CheckCVEViteFileRead, SeverityCritical, ModeSurface},
 	CheckCVEIngressNightmare:          {CheckCVEIngressNightmare, SeverityCritical, ModeSurface},
 	CheckCVETomcatPartialPUT:          {CheckCVETomcatPartialPUT, SeverityCritical, ModeDeep},
+	CheckCVEOpenSSHRegreSSHion:        {CheckCVEOpenSSHRegreSSHion, SeverityHigh, ModeSurface},
+	CheckCVEJenkinsCLIFileRead:        {CheckCVEJenkinsCLIFileRead, SeverityCritical, ModeSurface},
+	CheckCVEScreenConnectBypass:       {CheckCVEScreenConnectBypass, SeverityCritical, ModeSurface},
+	CheckCVETeamCityAuthBypass:        {CheckCVETeamCityAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVEFortiManagerJump:          {CheckCVEFortiManagerJump, SeverityCritical, ModeSurface},
+	CheckCVEPHPCGIArgInjection:        {CheckCVEPHPCGIArgInjection, SeverityCritical, ModeSurface},
+	CheckCVEExpeditionRCE:             {CheckCVEExpeditionRCE, SeverityCritical, ModeSurface},
+	CheckCVEFortiOSSSLVPN:             {CheckCVEFortiOSSSLVPN, SeverityCritical, ModeSurface},
+	CheckCVECheckPointFileRead:        {CheckCVECheckPointFileRead, SeverityHigh, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

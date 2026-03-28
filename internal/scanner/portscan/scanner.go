@@ -584,6 +584,24 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			))
 		}
 
+		// CVE-2024-6387 (regreSSHion): OpenSSH 8.5p1–9.7p1 on Linux/glibc.
+		if isOpenSSHRegreSSHionVulnerable(sv, banner) {
+			netDevFindings = append(netDevFindings, makeF(
+				finding.CheckCVEOpenSSHRegreSSHion,
+				finding.SeverityHigh,
+				fmt.Sprintf("CVE-2024-6387 (regreSSHion): OpenSSH %s may be vulnerable to unauthenticated RCE", sv),
+				fmt.Sprintf(
+					"SSH banner reports %s, which is in the CVE-2024-6387 vulnerable range (8.5p1–9.7p1). "+
+						"regreSSHion is a signal-handler race condition in OpenSSH's SIGALRM handler that can "+
+						"lead to pre-authentication unauthenticated remote code execution as root on glibc-based "+
+						"Linux systems. Exploitation requires sustained effort (~10,000 attempts over hours). "+
+						"Upgrade to OpenSSH 9.8p1 or later. Restrict SSH to known IP ranges as a defence-in-depth measure.",
+					sv,
+				),
+				ev,
+			))
+		}
+
 		sshFinding := makeF(
 			finding.CheckPortSSHExposed,
 			finding.SeverityHigh,
@@ -2197,6 +2215,46 @@ func parseSSHVersion(banner string) string {
 		software = software[:sp]
 	}
 	return software
+}
+
+// isOpenSSHRegreSSHionVulnerable returns true when the SSH banner indicates an
+// OpenSSH version in the CVE-2024-6387 (regreSSHion) vulnerable range:
+// 8.5p1 ≤ version ≤ 9.7p1 on a glibc-based (non-OpenBSD) system.
+// The bug is a signal-handler race allowing pre-auth RCE as root on Linux.
+// Version 9.8p1 contains the fix; OpenBSD-based builds are not affected.
+func isOpenSSHRegreSSHionVulnerable(sv, banner string) bool {
+	if !strings.HasPrefix(sv, "OpenSSH_") {
+		return false
+	}
+	// OpenBSD builds are not affected by the glibc race.
+	if strings.Contains(strings.ToLower(banner), "openbsd") {
+		return false
+	}
+	// Parse version number from "OpenSSH_X.Yp1" → X.Y as float.
+	verStr := sv[len("OpenSSH_"):] // e.g. "9.7p1" or "8.5p2"
+	dotIdx := strings.IndexByte(verStr, '.')
+	if dotIdx == -1 {
+		return false
+	}
+	pIdx := strings.IndexAny(verStr, "p ")
+	endIdx := len(verStr)
+	if pIdx != -1 {
+		endIdx = pIdx
+	}
+	major := verStr[:dotIdx]
+	minor := verStr[dotIdx+1 : endIdx]
+	maj := 0
+	min := 0
+	fmt.Sscanf(major, "%d", &maj)
+	fmt.Sscanf(minor, "%d", &min)
+	// Vulnerable: 8.5 ≤ version ≤ 9.7
+	if maj == 8 && min >= 5 {
+		return true
+	}
+	if maj == 9 && min <= 7 {
+		return true
+	}
+	return false
 }
 
 // parseFTPVersion extracts the server software string from an FTP 220 banner.
