@@ -660,11 +660,17 @@ const (
 	CheckCVEConfluenceSetup     CheckID = "cve.confluence_setup_bypass"       // CVE-2023-22515 Confluence setup wizard accessible — allows unauthenticated admin creation (CVSS 10.0, KEV)
 	CheckCVEConfluenceRestore   CheckID = "cve.confluence_restore_bypass"     // CVE-2023-22518 Confluence restore endpoint accessible — unauthenticated DB restore → RCE (CVSS 10.0, KEV)
 	CheckCVECiscoIOSXEImplant   CheckID = "cve.cisco_iosxe_implant"           // CVE-2023-20198 Cisco IOS XE web UI — BadCandy implant present (CVSS 10.0, KEV)
-	CheckCVEIvantiConnectSecure CheckID = "cve.ivanti_connect_secure_bypass"  // CVE-2023-46805 Ivanti Connect Secure path traversal auth bypass (CVSS 8.2, KEV)
-	CheckCVECitrixBleed         CheckID = "cve.citrix_bleed"                  // CVE-2023-4966 Citrix NetScaler OIDC session token memory leak (CVSS 9.4, KEV)
-	CheckCVEJuniperJWeb         CheckID = "cve.juniper_jweb_php_injection"    // CVE-2023-36844/45 Juniper J-Web PHP env injection → unauthenticated RCE (CVSS 9.8, KEV)
-	CheckCVESysAid              CheckID = "cve.sysaid_path_traversal"         // CVE-2023-47246 SysAid On-Prem path traversal → WAR upload → RCE (CVSS 9.8, KEV)
-	CheckCVETeamCityRPC2        CheckID = "cve.teamcity_rpc2_bypass"          // CVE-2023-42793 TeamCity < 2023.05.4 /RPC2 wildcard bypass → admin token (CVSS 9.8, KEV)
+	CheckCVEIvantiConnectSecure    CheckID = "cve.ivanti_connect_secure_bypass"      // CVE-2023-46805 Ivanti Connect Secure path traversal auth bypass (CVSS 8.2, KEV)
+	CheckCVEIvantiCMDInjection    CheckID = "cve.ivanti_connect_secure_cmd_injection" // CVE-2024-21887 Ivanti Connect Secure command injection via authenticated API (CVSS 9.1, KEV) — chain with CVE-2023-46805
+	CheckCVECitrixBleed           CheckID = "cve.citrix_bleed"                        // CVE-2023-4966 Citrix NetScaler OIDC session token memory leak (CVSS 9.4, KEV)
+	CheckCVEJuniperJWeb           CheckID = "cve.juniper_jweb_php_injection"          // CVE-2023-36844/45 Juniper J-Web PHP env injection → unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVESysAid                CheckID = "cve.sysaid_path_traversal"               // CVE-2023-47246 SysAid On-Prem path traversal → WAR upload → RCE (CVSS 9.8, KEV)
+	CheckCVETeamCityRPC2          CheckID = "cve.teamcity_rpc2_bypass"                // CVE-2023-42793 TeamCity < 2023.05.4 /RPC2 wildcard bypass → admin token (CVSS 9.8, KEV)
+	CheckCVETeamCityDirTraversal  CheckID = "cve.teamcity_dir_traversal"              // CVE-2024-27199 TeamCity < 2023.11.4 alternate path-traversal auth bypass via ;/../ (CVSS 7.3, KEV)
+	CheckCVEBarracudaESG          CheckID = "cve.barracuda_esg_rce"                   // CVE-2023-2868 Barracuda ESG pre-auth command injection via email attachment filename (CVSS 9.8, KEV)
+	CheckCVEOpenfire              CheckID = "cve.openfire_path_traversal"             // CVE-2023-32315 Openfire < 4.7.5 auth bypass via path traversal on setup pages (CVSS 9.8, KEV)
+	CheckCVECiscoASASSLVPN        CheckID = "cve.cisco_asa_ssl_vpn"                   // CVE-2023-20269 Cisco ASA/FTD SSL VPN brute-force / unauthorized session (CVSS 9.1, KEV)
+	CheckCVERoundcube             CheckID = "cve.roundcube_xss_rce"                   // CVE-2023-43770 Roundcube < 1.4.14/1.5.4/1.6.3 stored XSS → victim RCE (CVSS 6.1)
 
 	// ── Recent high-severity CVEs (2022) ──────────────────────────────────────
 	CheckCVEF5BigIPAuthBypass  CheckID = "cve.f5_bigip_icr_auth_bypass"  // CVE-2022-1388 F5 BIG-IP iControl REST unauthenticated RCE via /mgmt/shared/echo (CVSS 9.8, KEV)
@@ -677,6 +683,7 @@ const (
 	CheckCVESophosFW           CheckID = "cve.sophos_firewall_exposed"    // CVE-2022-3236/1040 Sophos Firewall auth bypass/RCE — login fingerprint (CVSS 9.8, KEV)
 	CheckCVEManageEngineSAML   CheckID = "cve.manageengine_saml_rce"      // CVE-2022-47966 ManageEngine SAML pre-auth RCE via SAML endpoint (CVSS 9.8, KEV)
 	CheckCVEMagentoRCE         CheckID = "cve.magento_template_rce"       // CVE-2022-24086 Adobe Commerce/Magento unauthenticated template injection (CVSS 9.8, KEV)
+	CheckCVEOracleEBS          CheckID = "cve.oracle_ebs_rfjsp"           // CVE-2022-21587 Oracle E-Business Suite RF.jsp unauthenticated arbitrary file read (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2021) ──────────────────────────────────────
 	CheckCVEExchangeProxyLogon   CheckID = "cve.exchange_proxylogon"       // CVE-2021-26855 Exchange ProxyLogon SSRF — pre-auth, version from X-OWA-Version (CVSS 9.8, KEV)
@@ -685,7 +692,9 @@ const (
 	CheckCVEApacheHTTPTraversal  CheckID = "cve.apache_http_path_traversal" // CVE-2021-41773/42013 Apache httpd 2.4.49–2.4.50 path traversal → RCE (CVSS 9.8, KEV)
 	CheckCVEGitLabRCE            CheckID = "cve.gitlab_rce"                // CVE-2021-22205 GitLab ExifTool pre-auth RCE — version from /api/v4/version (CVSS 10.0, KEV)
 	CheckCVESaltStackAPI         CheckID = "cve.saltstack_api_exposed"     // CVE-2021-25281/25282 SaltStack API auth bypass + path traversal (CVSS 9.8, KEV)
-	CheckCVEAccellionFTA         CheckID = "cve.accellion_fta_exposed"     // CVE-2021-27101-27104 Accellion FTA (EOL) — exploitation target for data extortion (CVSS 9.8, KEV)
+	CheckCVEAccellionFTA             CheckID = "cve.accellion_fta_exposed"        // CVE-2021-27101-27104 Accellion FTA (EOL) — exploitation target for data extortion (CVSS 9.8, KEV)
+	CheckCVEManageEngineADSelfSvc   CheckID = "cve.manageengine_adss_rce"        // CVE-2021-40539 ManageEngine ADSelfService Plus REST API auth bypass → RCE (CVSS 9.8, KEV)
+	CheckCVESonicWallSMAExposed     CheckID = "cve.sonicwall_sma_exposed"         // CVE-2021-20028 SonicWall SMA 100/200/400/500v pre-auth SQL injection (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2020) ──────────────────────────────────────
 	CheckCVEF5BigIPTMUI          CheckID = "cve.f5_bigip_tmui_rce"         // CVE-2020-5902 F5 BIG-IP TMUI RCE via /tmui/login.jsp (CVSS 9.8, KEV)
@@ -695,6 +704,7 @@ const (
 	CheckCVEApacheUnomi          CheckID = "cve.apache_unomi_rce"          // CVE-2020-13942 Apache Unomi RCE via MVEL/OGNL expression in context.json (CVSS 9.8, KEV)
 	CheckCVELiferayRCE           CheckID = "cve.liferay_jsonws_rce"        // CVE-2020-7961 Liferay Portal Java deserialization via /api/jsonws (CVSS 9.8, KEV)
 	CheckCVEMobileIronRCE        CheckID = "cve.mobileiron_rce"            // CVE-2020-15505 MobileIron MDM RCE via /mifs/user/login.jsp (CVSS 9.8, KEV)
+	CheckCVEvBulletin5xRCE      CheckID = "cve.vbulletin_5x_rce"          // CVE-2020-17496 vBulletin 5.5.4–5.6.2 widget PHP eval → unauthenticated RCE (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2019) ──────────────────────────────────────
 	CheckCVEPulseSecureVPN    CheckID = "cve.pulse_secure_vpn_exposed"   // CVE-2019-11510 Pulse Secure arbitrary file read — login fingerprint (CVSS 10.0, KEV)
@@ -716,6 +726,7 @@ const (
 	CheckCVEEximHeapOverflow        CheckID = "cve.exim_heap_overflow_2018"        // CVE-2018-6789 Exim < 4.90.1 base64d() off-by-one heap overflow → pre-auth RCE (CVSS 9.8, KEV)
 	CheckCVEApacheTikaRCE           CheckID = "cve.apache_tika_cmd_injection_2018" // CVE-2018-1335 Apache Tika Server 1.7–1.17 X-Tika-OCR* header command injection → RCE (CVSS 9.8)
 	CheckCVEFortiOSCredLeak         CheckID = "cve.fortios_ssl_vpn_cred_leak"      // CVE-2018-13379 FortiOS 5.6.3–5.6.7 / 6.0.0–6.0.4 SSL VPN arbitrary credential file read (CVSS 9.8, KEV)
+	CheckCVEColdFusionFCKEditor     CheckID = "cve.coldfusion_fckeditor_upload"    // CVE-2018-15961 Adobe ColdFusion FCKEditor unrestricted file upload → RCE (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
 	CheckCVEWebLogicWLSWSAT       CheckID = "cve.weblogic_wls_wsat"          // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
@@ -1304,12 +1315,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEConfluenceSetup:     {CheckCVEConfluenceSetup, SeverityCritical, ModeSurface},
 	CheckCVEConfluenceRestore:   {CheckCVEConfluenceRestore, SeverityCritical, ModeSurface},
 	CheckCVECiscoIOSXEImplant:   {CheckCVECiscoIOSXEImplant, SeverityCritical, ModeSurface},
-	CheckCVEIvantiConnectSecure: {CheckCVEIvantiConnectSecure, SeverityCritical, ModeSurface},
-	CheckCVECitrixBleed:         {CheckCVECitrixBleed, SeverityCritical, ModeSurface},
-	CheckCVEJuniperJWeb:         {CheckCVEJuniperJWeb, SeverityCritical, ModeSurface},
-	CheckCVESysAid:              {CheckCVESysAid, SeverityHigh, ModeSurface},
-	CheckCVETeamCityRPC2:        {CheckCVETeamCityRPC2, SeverityCritical, ModeDeep},
-	CheckCVESharePointJWT:       {CheckCVESharePointJWT, SeverityCritical, ModeSurface},
+	CheckCVEIvantiConnectSecure:   {CheckCVEIvantiConnectSecure, SeverityCritical, ModeSurface},
+	CheckCVEIvantiCMDInjection:    {CheckCVEIvantiCMDInjection, SeverityCritical, ModeSurface},
+	CheckCVECitrixBleed:           {CheckCVECitrixBleed, SeverityCritical, ModeSurface},
+	CheckCVEJuniperJWeb:           {CheckCVEJuniperJWeb, SeverityCritical, ModeSurface},
+	CheckCVESysAid:                {CheckCVESysAid, SeverityHigh, ModeSurface},
+	CheckCVETeamCityRPC2:          {CheckCVETeamCityRPC2, SeverityCritical, ModeDeep},
+	CheckCVETeamCityDirTraversal:  {CheckCVETeamCityDirTraversal, SeverityHigh, ModeSurface},
+	CheckCVEBarracudaESG:          {CheckCVEBarracudaESG, SeverityCritical, ModeSurface},
+	CheckCVEOpenfire:              {CheckCVEOpenfire, SeverityCritical, ModeSurface},
+	CheckCVECiscoASASSLVPN:        {CheckCVECiscoASASSLVPN, SeverityCritical, ModeSurface},
+	CheckCVERoundcube:             {CheckCVERoundcube, SeverityHigh, ModeSurface},
+	CheckCVESharePointJWT:         {CheckCVESharePointJWT, SeverityCritical, ModeSurface},
 
 	// 2022 CVEs
 	CheckCVEF5BigIPAuthBypass:   {CheckCVEF5BigIPAuthBypass, SeverityCritical, ModeSurface},
@@ -1322,6 +1339,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVESophosFW:            {CheckCVESophosFW, SeverityCritical, ModeSurface},
 	CheckCVEManageEngineSAML:    {CheckCVEManageEngineSAML, SeverityCritical, ModeSurface},
 	CheckCVEMagentoRCE:          {CheckCVEMagentoRCE, SeverityCritical, ModeSurface},
+	CheckCVEOracleEBS:           {CheckCVEOracleEBS, SeverityCritical, ModeSurface},
 
 	// 2021 CVEs
 	CheckCVEExchangeProxyLogon:  {CheckCVEExchangeProxyLogon, SeverityCritical, ModeSurface},
@@ -1330,7 +1348,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEApacheHTTPTraversal: {CheckCVEApacheHTTPTraversal, SeverityCritical, ModeSurface},
 	CheckCVEGitLabRCE:           {CheckCVEGitLabRCE, SeverityCritical, ModeSurface},
 	CheckCVESaltStackAPI:        {CheckCVESaltStackAPI, SeverityCritical, ModeSurface},
-	CheckCVEAccellionFTA:        {CheckCVEAccellionFTA, SeverityHigh, ModeSurface},
+	CheckCVEAccellionFTA:            {CheckCVEAccellionFTA, SeverityHigh, ModeSurface},
+	CheckCVEManageEngineADSelfSvc:  {CheckCVEManageEngineADSelfSvc, SeverityCritical, ModeSurface},
+	CheckCVESonicWallSMAExposed:    {CheckCVESonicWallSMAExposed, SeverityCritical, ModeSurface},
 
 	// 2020 CVEs
 	CheckCVEF5BigIPTMUI:     {CheckCVEF5BigIPTMUI, SeverityCritical, ModeSurface},
@@ -1340,6 +1360,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEApacheUnomi:     {CheckCVEApacheUnomi, SeverityCritical, ModeSurface},
 	CheckCVELiferayRCE:      {CheckCVELiferayRCE, SeverityCritical, ModeSurface},
 	CheckCVEMobileIronRCE:   {CheckCVEMobileIronRCE, SeverityCritical, ModeSurface},
+	CheckCVEvBulletin5xRCE:  {CheckCVEvBulletin5xRCE, SeverityCritical, ModeSurface},
 
 	// 2019 CVEs
 	CheckCVEPulseSecureVPN:   {CheckCVEPulseSecureVPN, SeverityCritical, ModeSurface},
@@ -1361,6 +1382,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEEximHeapOverflow:       {CheckCVEEximHeapOverflow, SeverityCritical, ModeSurface},
 	CheckCVEApacheTikaRCE:          {CheckCVEApacheTikaRCE, SeverityCritical, ModeSurface},
 	CheckCVEFortiOSCredLeak:        {CheckCVEFortiOSCredLeak, SeverityCritical, ModeSurface},
+	CheckCVEColdFusionFCKEditor:    {CheckCVEColdFusionFCKEditor, SeverityCritical, ModeSurface},
 
 	// 2017 CVEs
 	CheckCVEWebLogicWLSWSAT:     {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},

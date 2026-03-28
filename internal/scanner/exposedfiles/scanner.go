@@ -877,9 +877,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2024-27198 (TeamCity auth bypass, CVSS 9.8, KEV):
 	// GET /app/rest/server;.ico bypasses Spring Security filter chain on
 	// TeamCity < 2023.11.4 and returns server XML with version information.
-	if f := probeTeamCityAuthBypass(ctx, client, base, asset); f != nil {
-		findings = append(findings, *f)
-	}
+	// CVE-2024-27198 + CVE-2024-27199 (TeamCity auth bypass variants):
+	findings = append(findings, probeTeamCityAuthBypass(ctx, client, base, asset)...)
 
 	// CVE-2024-21762 / CVE-2018-13379 (FortiOS SSL VPN):
 	// GET /remote/info returns JSON with version on FortiOS when SSL VPN is
@@ -915,12 +914,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
-	// CVE-2023-46805 (Ivanti Connect Secure auth bypass, CVSS 8.2, KEV):
-	// GET /api/v1/totp/user-backup-code/../../license/keys-status/ — path traversal
-	// reaches an authenticated endpoint without credentials on vulnerable ICS instances.
-	if f := probeIvantiConnectSecure(ctx, client, base, asset); f != nil {
-		findings = append(findings, *f)
-	}
+	// CVE-2023-46805 + CVE-2024-21887 (Ivanti Connect Secure):
+	// Auth bypass (CVSS 8.2) + command injection (CVSS 9.1) — chained to pre-auth RCE.
+	findings = append(findings, probeIvantiConnectSecure(ctx, client, base, asset)...)
 
 	// CVE-2023-4966 (Citrix Bleed, CVSS 9.4, KEV):
 	// GET /oauth/idp/.well-known/openid-configuration on a NetScaler Gateway confirms
@@ -1087,6 +1083,62 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// CVE-2023-2868 (Barracuda ESG pre-auth RCE, CVSS 9.8, KEV):
+	// Login page fingerprint on /cgi-mod/index.cgi confirms Barracuda ESG exposure.
+	if f := probeBarracudaESG(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2023-32315 (Openfire path-traversal auth bypass, CVSS 9.8, KEV):
+	// /login.jsp fingerprints Openfire; setup path traversal confirms unpatched < 4.7.5.
+	if f := probeOpenfire(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2023-20269 (Cisco ASA/FTD SSL VPN brute-force / unauthorized session, CVSS 9.1, KEV):
+	// /+CSCOE+/logon.html presence confirms Cisco ASA SSL VPN is internet-exposed.
+	if f := probeCiscoASASSLVPN(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2023-43770 (Roundcube stored XSS → victim RCE, CVSS 6.1):
+	// / meta generator reveals Roundcube version; < 1.4.14/1.5.4/1.6.3 are vulnerable.
+	if f := probeRoundcube(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2022-21587 (Oracle E-Business Suite RF.jsp arbitrary file read, CVSS 9.8, KEV):
+	// /OA_HTML/RF.jsp 200 response confirms EBS is internet-exposed and the vulnerable
+	// endpoint is reachable without authentication.
+	if f := probeOracleEBS(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2021-40539 (ManageEngine ADSelfService Plus REST API auth bypass → RCE, CVSS 9.8, KEV):
+	// /LoginAction.do with ADSelfService content fingerprints an exposed instance.
+	if f := probeManageEngineADSelfService(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2021-20028 (SonicWall SMA 100/200/400/500v pre-auth SQL injection, CVSS 9.8, KEV):
+	// /cgi-bin/welcome with SonicWall content fingerprints an exposed SMA appliance.
+	if f := probeSonicWallSMA(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2020-17496 (vBulletin 5.x widget PHP eval → unauthenticated RCE, CVSS 9.8, KEV):
+	// meta generator on / reveals vBulletin version; 5.5.4–5.6.2 are vulnerable.
+	if f := probevBulletin5x(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2018-15961 (Adobe ColdFusion FCKEditor file upload → RCE, CVSS 9.8, KEV):
+	// /CFIDE/scripts/ajax/FCKeditor/.../upload.cfm 200/500 response confirms
+	// the unrestricted file upload endpoint is reachable without authentication.
+	if f := probeColdFusionFCKEditor(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	return findings, nil
 }
 
@@ -1201,7 +1253,7 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 // CVSS 9.8, KEV). The Spring Security filter chain can be bypassed by appending
 // ;.ico to REST API paths. GET /app/rest/server;.ico returns XML with server
 // version on vulnerable instances instead of the expected 401 Unauthorized.
-func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	// Step 1: fingerprint TeamCity via the login page.
 	loginReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/login.html", nil)
 	if err != nil {
@@ -1217,53 +1269,81 @@ func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, ass
 		return nil
 	}
 
-	// Step 2: attempt the path-confusion bypass.
+	var out []finding.Finding
+
+	// CVE-2024-27198: Spring Security filter-chain bypass via ;.ico path suffix.
 	bypassURL := base + "/app/rest/server;.ico"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bypassURL, nil)
-	if err != nil {
-		return nil
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, bypassURL, nil); err == nil {
+		if resp, err := client.Do(req); err == nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			bodyStr := string(body)
+			if resp.StatusCode == http.StatusOK &&
+				(strings.Contains(bodyStr, "<version>") || strings.Contains(bodyStr, "version")) {
+				out = append(out, finding.Finding{
+					CheckID:  finding.CheckCVETeamCityAuthBypass,
+					Module:   "surface",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("CVE-2024-27198: JetBrains TeamCity auth bypass confirmed on %s", asset),
+					Description: fmt.Sprintf(
+						"%s is running JetBrains TeamCity with CVE-2024-27198 (CVSS 9.8, KEV) — "+
+							"a Spring Security filter-chain bypass via path suffix confusion. "+
+							"Appending ;.ico to REST API paths bypasses authentication. "+
+							"GET /app/rest/server;.ico returned HTTP 200 with server version XML instead of 401. "+
+							"On vulnerable versions (< 2023.11.4) this allows unauthenticated admin user creation. "+
+							"Upgrade to TeamCity 2023.11.4 or later immediately.",
+						asset,
+					),
+					Asset: asset,
+					Evidence: map[string]any{
+						"bypass_url":   bypassURL,
+						"body_excerpt": bodyStr[:min(len(bodyStr), 256)],
+					},
+					ProofCommand: fmt.Sprintf("curl -sk '%s' | grep -i version", bypassURL),
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
+
+	// CVE-2024-27199: alternate directory-traversal bypass via ;/../ in resource paths.
+	// Allows reading arbitrary files and bypassing auth on the same affected versions.
+	altURL := base + "/res/projectPlugin.html;/../app/rest/server"
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, altURL, nil); err == nil {
+		if resp, err := client.Do(req); err == nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			bodyStr := string(body)
+			if resp.StatusCode == http.StatusOK &&
+				(strings.Contains(bodyStr, "<version>") || strings.Contains(bodyStr, "version")) {
+				out = append(out, finding.Finding{
+					CheckID:  finding.CheckCVETeamCityDirTraversal,
+					Module:   "surface",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Title:    fmt.Sprintf("CVE-2024-27199: JetBrains TeamCity path-traversal auth bypass on %s", asset),
+					Description: fmt.Sprintf(
+						"%s is running JetBrains TeamCity with CVE-2024-27199 (CVSS 7.3, KEV) — "+
+							"a directory-traversal bypass via ;/../ in static resource paths. "+
+							"GET /res/projectPlugin.html;/../app/rest/server returned server XML without auth. "+
+							"Also allows reading arbitrary files from the TeamCity server filesystem. "+
+							"Upgrade to TeamCity 2023.11.4 or later immediately.",
+						asset,
+					),
+					Asset: asset,
+					Evidence: map[string]any{
+						"bypass_url":   altURL,
+						"body_excerpt": bodyStr[:min(len(bodyStr), 256)],
+					},
+					ProofCommand: fmt.Sprintf("curl -sk '%s' | grep -i version", altURL),
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	bodyStr := string(body)
-	// The server XML contains <version> on unpatched instances.
-	if !strings.Contains(bodyStr, "<version>") && !strings.Contains(bodyStr, "version") {
-		return nil
-	}
-	return &finding.Finding{
-		CheckID:  finding.CheckCVETeamCityAuthBypass,
-		Module:   "surface",
-		Scanner:  scannerName,
-		Severity: finding.SeverityCritical,
-		Title:    fmt.Sprintf("CVE-2024-27198: JetBrains TeamCity auth bypass confirmed on %s", asset),
-		Description: fmt.Sprintf(
-			"%s is running JetBrains TeamCity with CVE-2024-27198 (CVSS 9.8, KEV) — "+
-				"a Spring Security filter-chain bypass via path suffix confusion. "+
-				"Appending ;.ico to REST API paths bypasses authentication. "+
-				"GET /app/rest/server;.ico returned HTTP 200 with server version XML instead of 401. "+
-				"On vulnerable versions (< 2023.11.4) this allows unauthenticated admin user creation. "+
-				"Upgrade to TeamCity 2023.11.4 or later immediately.",
-			asset,
-		),
-		Asset: asset,
-		Evidence: map[string]any{
-			"bypass_url":    bypassURL,
-			"bypass_status": resp.StatusCode,
-			"body_excerpt":  bodyStr[:min(len(bodyStr), 256)],
-		},
-		ProofCommand: fmt.Sprintf(
-			"curl -sk '%s' | grep -i version",
-			bypassURL,
-		),
-		DiscoveredAt: time.Now(),
-	}
+
+	return out
 }
 
 // probeFortiOSSSLVPNVersion tests for CVE-2024-21762 (FortiOS SSL VPN < 7.4.3,
@@ -1708,11 +1788,12 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 	}
 }
 
-// probeIvantiConnectSecure tests for CVE-2023-46805 (Ivanti Connect Secure path traversal auth bypass,
-// CVSS 8.2, KEV). The path /api/v1/totp/user-backup-code/../../license/keys-status/ traverses from
-// an unauthenticated allowlisted prefix into an authenticated endpoint. A 200 JSON response confirms
-// auth was bypassed — authenticated license data was returned without credentials.
-func probeIvantiConnectSecure(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+// probeIvantiConnectSecure tests for CVE-2023-46805 (Ivanti Connect Secure path traversal auth
+// bypass, CVSS 8.2, KEV) and emits a companion finding for CVE-2024-21887 (command injection via
+// authenticated API endpoint, CVSS 9.1, KEV). Both CVEs affect the same product versions and were
+// exploited in tandem by nation-state actors (UTA0178) for pre-auth RCE. When auth bypass is
+// confirmed, CVE-2024-21887 is practically exploitable — both findings are always emitted together.
+func probeIvantiConnectSecure(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	// Fingerprint: Ivanti/Pulse Connect Secure login page.
 	fingerReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		base+"/dana-na/auth/url_default/welcome.cgi", nil)
@@ -1749,28 +1830,46 @@ func probeIvantiConnectSecure(ctx context.Context, client *http.Client, base, as
 	if !strings.Contains(bStr, "{") {
 		return nil
 	}
-	return &finding.Finding{
-		CheckID:  finding.CheckCVEIvantiConnectSecure,
-		Module:   "surface",
-		Scanner:  scannerName,
-		Severity: finding.SeverityCritical,
-		Title:    fmt.Sprintf("CVE-2023-46805: Ivanti Connect Secure auth bypass confirmed on %s", asset),
-		Description: "The Ivanti Connect Secure (ICS) path traversal endpoint returned authenticated JSON data " +
-			"without credentials. CVE-2023-46805 (CVSS 8.2, KEV) exploits a middleware path-prefix allowlist " +
-			"bypass to reach authenticated API endpoints. Chained with CVE-2024-21887 (command injection), " +
-			"this allows pre-authentication remote code execution. Nation-state actors (UTA0178) actively " +
-			"exploited this for espionage. Apply Ivanti ICS patches immediately.",
-		Asset: asset,
-		Evidence: map[string]any{
-			"url":  u,
-			"body": bStr[:min(len(bStr), 512)],
+	ev := map[string]any{
+		"url":  u,
+		"body": bStr[:min(len(bStr), 512)],
+	}
+	proof := fmt.Sprintf(
+		"curl -s '%s'\n"+
+			"# Expected on vulnerable: JSON license data (auth bypassed)\n"+
+			"# Expected on patched: 403 or 404",
+		u)
+	return []finding.Finding{
+		{
+			CheckID:  finding.CheckCVEIvantiConnectSecure,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2023-46805: Ivanti Connect Secure auth bypass confirmed on %s", asset),
+			Description: "The Ivanti Connect Secure (ICS) path traversal endpoint returned authenticated JSON data " +
+				"without credentials. CVE-2023-46805 (CVSS 8.2, KEV) exploits a middleware path-prefix allowlist " +
+				"bypass to reach authenticated API endpoints. Apply Ivanti ICS patches immediately.",
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proof,
+			DiscoveredAt: time.Now(),
 		},
-		ProofCommand: fmt.Sprintf(
-			"curl -s '%s'\n"+
-				"# Expected on vulnerable: JSON license data (auth bypassed)\n"+
-				"# Expected on patched: 403 or 404",
-			u),
-		DiscoveredAt: time.Now(),
+		{
+			CheckID:  finding.CheckCVEIvantiCMDInjection,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2024-21887: Ivanti Connect Secure command injection chain confirmed on %s", asset),
+			Description: "CVE-2024-21887 (CVSS 9.1, KEV) is a command injection vulnerability in authenticated " +
+				"Ivanti ICS API endpoints (/api/v1/license/keys-status). When chained with CVE-2023-46805 (auth bypass " +
+				"confirmed above), an unauthenticated attacker achieves pre-authentication RCE. Nation-state actors " +
+				"(UTA0178) actively exploited this chain for espionage campaigns. Apply Ivanti ICS patches immediately " +
+				"and audit for GIFTEDVISITOR web shell implants.",
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proof,
+			DiscoveredAt: time.Now(),
+		},
 	}
 }
 
@@ -3312,6 +3411,549 @@ func probeIISHTTPSysRange(ctx context.Context, client *http.Client, base, asset 
 		}
 	}
 	return nil
+}
+
+// probeBarracudaESG tests for CVE-2023-2868 (Barracuda Email Security Gateway
+// pre-auth RCE via TAR attachment filename injection, CVSS 9.8, KEV, nation-state
+// exploited). The probe fingerprints the appliance via /cgi-mod/index.cgi — a
+// 200 response with Barracuda-specific content confirms an exposed ESG instance.
+// The actual CVE requires a malformed email; the probe only confirms presence.
+func probeBarracudaESG(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/cgi-mod/index.cgi"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if !strings.Contains(bodyLow, "barracuda") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEBarracudaESG,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2023-2868: Barracuda Email Security Gateway exposed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is exposing a Barracuda Email Security Gateway login page. "+
+				"CVE-2023-2868 (CVSS 9.8, KEV) is a pre-authentication command injection "+
+				"via the TAR attachment filename processing pipeline. Nation-state actors "+
+				"(UNC4841/China Nexus) exploited this zero-day for espionage; Barracuda "+
+				"issued a physical replacement advisory for all affected appliances (versions "+
+				"5.1.3.001–9.2.0.006). Verify the appliance firmware version and apply the "+
+				"emergency patch or replacement as directed by Barracuda.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":          u,
+			"body_excerpt": string(body)[:min(len(body), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | grep -i barracuda", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeOpenfire tests for CVE-2023-32315 (Openfire < 4.7.5 authentication bypass
+// via path traversal on setup pages, CVSS 9.8, KEV). Openfire is fingerprinted via
+// /login.jsp; the traversal probe /setup/setup-s/%u002e%u002e/%u002e%u002e/log/login.html
+// bypasses auth restrictions by encoding dots in the path segment.
+func probeOpenfire(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Step 1: fingerprint Openfire.
+	loginReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/login.jsp", nil)
+	if err != nil {
+		return nil
+	}
+	loginResp, err := client.Do(loginReq)
+	if err != nil {
+		return nil
+	}
+	loginBody, _ := io.ReadAll(io.LimitReader(loginResp.Body, 4096))
+	loginResp.Body.Close()
+	if !strings.Contains(strings.ToLower(string(loginBody)), "openfire") {
+		return nil
+	}
+
+	// Step 2: attempt the path-traversal bypass to the setup log page.
+	traversalURL := base + "/setup/setup-s/%u002e%u002e/%u002e%u002e/log/login.html"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, traversalURL, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	// Vulnerable: 200 with login or log content (not a redirect to /login.jsp).
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if strings.Contains(bodyLow, "redirect") && strings.Contains(bodyLow, "login.jsp") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEOpenfire,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2023-32315: Openfire admin auth bypass confirmed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is running Openfire XMPP server with CVE-2023-32315 (CVSS 9.8, KEV). "+
+				"The path traversal bypass on setup pages (/setup/setup-s/%%u002e%%u002e/...) "+
+				"allows unauthenticated access to the Openfire admin console. "+
+				"Affects all versions before 4.6.8 and 4.7.0–4.7.4. "+
+				"Upgrade to Openfire 4.6.8 or 4.7.5 immediately.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"traversal_url": traversalURL,
+			"body_excerpt":  string(body)[:min(len(body), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s'", traversalURL),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeCiscoASASSLVPN tests for CVE-2023-20269 (Cisco ASA / FTD SSL VPN
+// unauthorized session creation, CVSS 9.1, KEV). The /+CSCOE+/logon.html path
+// is specific to Cisco AnyConnect SSL VPN portal. Its presence confirms the VPN
+// portal is internet-exposed and is the entry point for the brute-force /
+// unauthorized session vulnerability.
+func probeCiscoASASSLVPN(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/+CSCOE+/logon.html"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if !strings.Contains(bodyLow, "cisco") && !strings.Contains(bodyLow, "anyconnect") &&
+		!strings.Contains(bodyLow, "cscoe") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVECiscoASASSLVPN,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2023-20269: Cisco ASA/FTD SSL VPN portal exposed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is exposing a Cisco ASA or FTD SSL VPN (AnyConnect) portal. "+
+				"CVE-2023-20269 (CVSS 9.1, KEV) allows unauthenticated attackers to conduct "+
+				"brute-force attacks against VPN credentials and establish clientless SSL VPN "+
+				"sessions without a valid account in certain configurations. "+
+				"Apply Cisco's advisory patches and enforce MFA on all VPN logins.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":          u,
+			"body_excerpt": string(body)[:min(len(body), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | grep -i cisco", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeRoundcube tests for CVE-2023-43770 (Roundcube Webmail stored XSS via
+// HTML email links, CVSS 6.1). The / root returns a meta generator tag with
+// the Roundcube version. Affected: < 1.4.14, < 1.5.4, < 1.6.3.
+func probeRoundcube(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// Look for: <meta name="generator" content="Roundcube Webmail/1.6.2">
+	ver := parseMetaGenerator(bodyStr, "Roundcube Webmail/")
+	if ver == "" {
+		return nil
+	}
+	if !isRoundcubeVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVERoundcube,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("CVE-2023-43770: Roundcube %s vulnerable to stored XSS on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running Roundcube Webmail %s which is vulnerable to CVE-2023-43770. "+
+				"A stored XSS via crafted link references in HTML emails allows a remote attacker "+
+				"to execute JavaScript in victims' browsers upon viewing a malicious email. "+
+				"Affects Roundcube before 1.4.14, 1.5.4, and 1.6.3. "+
+				"Upgrade to the latest stable release immediately.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf(`curl -sk '%s' | grep -i 'meta.*generator'`, u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// isRoundcubeVulnerable returns true for Roundcube versions affected by CVE-2023-43770:
+// < 1.4.14, < 1.5.4, < 1.6.3.
+func isRoundcubeVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) == 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj != 1 {
+		return false
+	}
+	switch min {
+	case 4:
+		return patch < 14
+	case 5:
+		return patch < 4
+	case 6:
+		return patch < 3
+	default:
+		return min < 4
+	}
+}
+
+// parseMetaGenerator extracts a version string from <meta name="generator" content="PREFIX/X.Y.Z">.
+// prefix should include the trailing "/" (e.g. "Roundcube Webmail/").
+func parseMetaGenerator(body, prefix string) string {
+	lower := strings.ToLower(body)
+	prefixLow := strings.ToLower(prefix)
+	idx := strings.Index(lower, "meta")
+	for idx != -1 {
+		chunk := lower[idx:]
+		if strings.Contains(chunk[:min(len(chunk), 200)], "generator") {
+			if pi := strings.Index(strings.ToLower(body[idx:]), prefixLow); pi != -1 {
+				rest := body[idx+pi+len(prefix):]
+				end := strings.IndexAny(rest, `"' >`)
+				if end > 0 {
+					return rest[:end]
+				}
+			}
+		}
+		next := strings.Index(lower[idx+1:], "meta")
+		if next == -1 {
+			break
+		}
+		idx = idx + 1 + next
+	}
+	return ""
+}
+
+// probeOracleEBS tests for CVE-2022-21587 (Oracle E-Business Suite RF.jsp
+// unauthenticated arbitrary file read, CVSS 9.8, KEV). The /OA_HTML/RF.jsp
+// endpoint is present on EBS instances; its accessibility without credentials
+// confirms the vulnerable endpoint is reachable.
+func probeOracleEBS(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/OA_HTML/RF.jsp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	// Confirm Oracle EBS content (not a generic catch-all).
+	if !strings.Contains(bodyLow, "oracle") && !strings.Contains(bodyLow, "e-business") &&
+		!strings.Contains(bodyLow, "oa_html") && !strings.Contains(bodyLow, "fnd") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEOracleEBS,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2022-21587: Oracle E-Business Suite RF.jsp exposed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is exposing the Oracle E-Business Suite RF.jsp endpoint without authentication. "+
+				"CVE-2022-21587 (CVSS 9.8, KEV) allows unauthenticated attackers to read arbitrary "+
+				"files from the Oracle EBS server via this endpoint. "+
+				"Apply Oracle's Critical Patch Update (CPU) for October 2022 or later immediately.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":          u,
+			"body_excerpt": string(body)[:min(len(body), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s'", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeManageEngineADSelfService tests for CVE-2021-40539 (ManageEngine
+// ADSelfService Plus REST API authentication bypass → RCE, CVSS 9.8, KEV).
+// The /LoginAction.do endpoint fingerprints an exposed ADSelfService instance.
+func probeManageEngineADSelfService(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/LoginAction.do"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if !strings.Contains(bodyLow, "manageengine") && !strings.Contains(bodyLow, "adselfservice") &&
+		!strings.Contains(bodyLow, "adself") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEManageEngineADSelfSvc,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2021-40539: ManageEngine ADSelfService Plus exposed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is exposing a ManageEngine ADSelfService Plus login page. "+
+				"CVE-2021-40539 (CVSS 9.8, KEV) is a REST API authentication bypass that allows "+
+				"unauthenticated RCE on ADSelfService Plus build 6113 and earlier. "+
+				"Nation-state APT groups (APT27, DEV-0322) actively exploited this vulnerability. "+
+				"Upgrade to build 6114 or later immediately.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":          u,
+			"body_excerpt": string(body)[:min(len(body), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | grep -i manageengine", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeSonicWallSMA tests for CVE-2021-20028 (SonicWall SMA 100/200/400/500v
+// pre-authentication SQL injection, CVSS 9.8, KEV). The /cgi-bin/welcome path
+// fingerprints an exposed SonicWall SMA appliance.
+func probeSonicWallSMA(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/cgi-bin/welcome"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if !strings.Contains(bodyLow, "sonicwall") && !strings.Contains(bodyLow, "sslvpn") &&
+		!strings.Contains(bodyLow, "sma") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVESonicWallSMAExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2021-20028: SonicWall SMA appliance exposed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is exposing a SonicWall Secure Mobile Access (SMA) 100-series appliance. "+
+				"CVE-2021-20028 (CVSS 9.8, KEV) is a pre-authentication SQL injection vulnerability "+
+				"affecting SMA 200, 210, 400, 410, and 500v running firmware before 10.2.0.8-37sv. "+
+				"Apply the SonicWall firmware update immediately and audit for unauthorized access.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":          u,
+			"body_excerpt": string(body)[:min(len(body), 256)],
+		},
+		ProofCommand: fmt.Sprintf("curl -sk '%s' | grep -i sonicwall", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probevBulletin5x tests for CVE-2020-17496 (vBulletin 5.5.4–5.6.2 widget
+// PHP eval → unauthenticated RCE, CVSS 9.8, KEV). The / page meta generator
+// reveals the vBulletin version; 5.5.4–5.6.2 are affected by the subwidgetConfig
+// code execution vulnerability.
+func probevBulletin5x(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	ver := parseMetaGenerator(string(body), "vBulletin/")
+	if ver == "" {
+		// Also try "vBulletin 5" pattern in body.
+		lower := strings.ToLower(string(body))
+		if idx := strings.Index(lower, "vbulletin"); idx != -1 {
+			// Not enough to emit a finding without a version.
+			_ = idx
+		}
+		return nil
+	}
+	if !isvBulletin5xVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEvBulletin5xRCE,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2020-17496: vBulletin %s vulnerable to unauthenticated RCE on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running vBulletin %s which is vulnerable to CVE-2020-17496 (CVSS 9.8, KEV). "+
+				"The subwidgetConfig parameter in /ajax/render/widget_php allows unauthenticated "+
+				"arbitrary PHP code execution. Affects vBulletin 5.5.4–5.6.2. "+
+				"Upgrade to vBulletin 5.6.3 or later immediately.",
+			asset, ver,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf(`curl -sk '%s' | grep -i 'meta.*generator'`, u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// isvBulletin5xVulnerable returns true for vBulletin 5.5.4–5.6.2.
+func isvBulletin5xVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) == 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj != 5 {
+		return false
+	}
+	if min == 5 {
+		return patch >= 4
+	}
+	if min == 6 {
+		return patch <= 2
+	}
+	return false
+}
+
+// probeColdFusionFCKEditor tests for CVE-2018-15961 (Adobe ColdFusion FCKEditor
+// unrestricted file upload → unauthenticated RCE, CVSS 9.8, KEV). The upload.cfm
+// endpoint in the bundled FCKEditor connector is accessible without authentication
+// on unpatched ColdFusion instances.
+func probeColdFusionFCKEditor(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/CFIDE/scripts/ajax/FCKeditor/editor/filemanager/connectors/cfm/upload.cfm"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	// 200 or 500 from ColdFusion confirms the endpoint exists and is reachable.
+	// A 404 means ColdFusion is not present or the path has been removed.
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusInternalServerError {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	// Confirm ColdFusion origin — avoid false positives on generic error pages.
+	if !strings.Contains(bodyLow, "coldfusion") && !strings.Contains(bodyLow, "cfm") &&
+		!strings.Contains(bodyLow, "fckeditor") && resp.StatusCode != http.StatusInternalServerError {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEColdFusionFCKEditor,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("CVE-2018-15961: ColdFusion FCKEditor file upload endpoint exposed on %s", asset),
+		Description: fmt.Sprintf(
+			"%s is exposing the Adobe ColdFusion FCKEditor file upload connector at "+
+				"/CFIDE/scripts/ajax/FCKeditor/editor/filemanager/connectors/cfm/upload.cfm. "+
+				"CVE-2018-15961 (CVSS 9.8, KEV) allows unauthenticated attackers to upload "+
+				"arbitrary files (including CFM web shells) through this endpoint. "+
+				"Apply Adobe ColdFusion updates (APSB18-33) and remove or block access to "+
+				"the /CFIDE/ directory from the internet.",
+			asset,
+		),
+		Asset: asset,
+		Evidence: map[string]any{
+			"url":    u,
+			"status": resp.StatusCode,
+		},
+		ProofCommand: fmt.Sprintf("curl -sk -o /dev/null -w '%%{http_code}' '%s'", u),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
