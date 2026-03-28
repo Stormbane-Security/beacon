@@ -803,6 +803,18 @@ const (
 	CheckPortNacosExposed             CheckID = "port.nacos_exposed"                 // Nacos service discovery/config exposed without auth (port 8848) — default nacos:nacos credentials
 	CheckPortConsulNoACL              CheckID = "port.consul_no_acl"                 // HashiCorp Consul /v1/catalog/nodes responds without auth — full cluster topology exposed (port 8500)
 	CheckPortNiFiExposed              CheckID = "port.nifi_exposed"                  // Apache NiFi data pipeline UI exposed without auth (port 8080/8443) — full workflow control
+
+	// ── Wave 3: credential checks, additional CVEs, new service probes ──────────
+	CheckCVEFortiOSWSAuthBypass    CheckID = "cve.fortios_ws_auth_bypass"      // CVE-2024-55591 FortiOS 7.0/7.2 Node.js WebSocket management auth bypass (CVSS 9.6, KEV)
+	CheckCVEIvantiCS2025           CheckID = "cve.ivanti_cs_2025_0282"         // CVE-2025-0282 Ivanti Connect Secure stack overflow pre-auth RCE (CVSS 9.0, KEV, Jan 2025)
+	CheckCVESAPNetWeaver2025       CheckID = "cve.sap_netweaver_2025_31324"    // CVE-2025-31324 SAP NetWeaver Visual Composer unauthenticated file upload → RCE (CVSS 10.0, KEV)
+	CheckPortRabbitMQDefaultCreds  CheckID = "port.rabbitmq_default_creds"     // RabbitMQ management API accepts default guest:guest credentials (port 15672)
+	CheckPortMySQLNoAuth           CheckID = "port.mysql_no_auth"              // MySQL/MariaDB root login accepted with empty password (port 3306)
+	CheckPortPostgreSQLTrust       CheckID = "port.postgresql_trust"           // PostgreSQL trust authentication — connects as postgres with no password (port 5432)
+	CheckPortMSSQLDefaultCreds     CheckID = "port.mssql_default_creds"        // Microsoft SQL Server sa login accepted with blank/default password (port 1433)
+	CheckPortArtifactoryExposed    CheckID = "port.artifactory_exposed"        // JFrog Artifactory repository manager exposed — unauthenticated or default admin:password (port 8081/8082)
+	CheckPortNexusExposed          CheckID = "port.nexus_exposed"              // Sonatype Nexus Repository Manager exposed — unauthenticated or default admin:admin123 (port 8081)
+	CheckPortGRPCReflectionEnabled CheckID = "port.grpc_reflection_enabled"   // gRPC server reflection enabled — lists all services/methods without authentication (port 50051)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1514,6 +1526,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortNacosExposed:             {CheckPortNacosExposed, SeverityHigh, ModeSurface},
 	CheckPortConsulNoACL:              {CheckPortConsulNoACL, SeverityHigh, ModeSurface},
 	CheckPortNiFiExposed:              {CheckPortNiFiExposed, SeverityHigh, ModeSurface},
+
+	// Wave 3
+	CheckCVEFortiOSWSAuthBypass:    {CheckCVEFortiOSWSAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVEIvantiCS2025:           {CheckCVEIvantiCS2025, SeverityCritical, ModeSurface},
+	CheckCVESAPNetWeaver2025:       {CheckCVESAPNetWeaver2025, SeverityCritical, ModeSurface},
+	CheckPortRabbitMQDefaultCreds:  {CheckPortRabbitMQDefaultCreds, SeverityCritical, ModeSurface},
+	CheckPortMySQLNoAuth:           {CheckPortMySQLNoAuth, SeverityCritical, ModeSurface},
+	CheckPortPostgreSQLTrust:       {CheckPortPostgreSQLTrust, SeverityCritical, ModeSurface},
+	CheckPortMSSQLDefaultCreds:     {CheckPortMSSQLDefaultCreds, SeverityCritical, ModeSurface},
+	CheckPortArtifactoryExposed:    {CheckPortArtifactoryExposed, SeverityHigh, ModeSurface},
+	CheckPortNexusExposed:          {CheckPortNexusExposed, SeverityHigh, ModeSurface},
+	CheckPortGRPCReflectionEnabled: {CheckPortGRPCReflectionEnabled, SeverityHigh, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

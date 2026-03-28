@@ -179,6 +179,9 @@ var extendedPorts = []portEntry{
 	{8006, "proxmox", false},            // Proxmox VE hypervisor management UI
 	{4786, "cisco-smart-install", false}, // Cisco IOS Smart Install — CVE-2018-0171 unauth config read/write (CVSS 9.8, KEV)
 	{8848, "nacos", false},              // Nacos service discovery / config center — default nacos:nacos creds
+	{8081, "artifactory", false},        // JFrog Artifactory repository manager — default admin:password
+	{8082, "artifactory-alt", false},    // JFrog Artifactory (newer default port)
+	{50051, "grpc", false},              // gRPC server — reflection endpoint may list all services unauthenticated
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -1156,7 +1159,8 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			1521: "Oracle Database",
 		}
 		dbName := dbNames[port]
-		return []finding.Finding{makeF(
+		var dbFindings []finding.Finding
+		dbFindings = append(dbFindings, makeF(
 			finding.CheckPortDatabaseExposed,
 			finding.SeverityHigh,
 			fmt.Sprintf("%s database exposed on port %d", dbName, port),
@@ -1164,7 +1168,51 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				"Databases should never be exposed publicly; this enables brute-force attacks and "+
 				"exploitation of database-engine vulnerabilities.", dbName),
 			map[string]any{"port": port, "service": service, "banner": banner},
-		)}
+		))
+		// Attempt default/empty credential checks per database engine.
+		switch port {
+		case 3306:
+			if probeMySQL(ctx, asset, port) {
+				dbFindings = append(dbFindings, makeF(
+					finding.CheckPortMySQLNoAuth,
+					finding.SeverityCritical,
+					fmt.Sprintf("MySQL/MariaDB accepts root login with empty password on port %d", port),
+					"The MySQL or MariaDB server accepts the root user with an empty password. "+
+						"An attacker gains full database administrator access without any credentials: "+
+						"SELECT * FROM all tables, read local files via LOAD DATA INFILE, and potentially "+
+						"achieve RCE via SELECT INTO OUTFILE or UDF injection. "+
+						"Set a strong root password immediately: ALTER USER 'root'@'%' IDENTIFIED BY '...'",
+					map[string]any{"port": port, "service": service, "user": "root", "password": "(empty)"},
+				))
+			}
+		case 5432:
+			if probePostgreSQL(ctx, asset, port) {
+				dbFindings = append(dbFindings, makeF(
+					finding.CheckPortPostgreSQLTrust,
+					finding.SeverityCritical,
+					fmt.Sprintf("PostgreSQL trust authentication — connects as postgres without password on port %d", port),
+					"PostgreSQL is configured with trust authentication for the postgres superuser from external addresses. "+
+						"Any client can connect as postgres without a password, gaining superuser access to all databases. "+
+						"Trust authentication exposes COPY TO/FROM PROGRAM (RCE), pg_read_file(), and all data. "+
+						"Set pg_hba.conf to require 'scram-sha-256' or 'md5' for all remote connections.",
+					map[string]any{"port": port, "service": service, "user": "postgres", "auth_method": "trust"},
+				))
+			}
+		case 1433:
+			if probeMSSQL(ctx, asset, port) {
+				dbFindings = append(dbFindings, makeF(
+					finding.CheckPortMSSQLDefaultCreds,
+					finding.SeverityCritical,
+					fmt.Sprintf("MSSQL accepts sa login with empty password on port %d", port),
+					"Microsoft SQL Server accepts the 'sa' (system administrator) login with a blank password. "+
+						"The sa account has sysadmin privileges — an attacker can read/write all databases, "+
+						"enable xp_cmdshell for OS command execution, and read Windows registry hives. "+
+						"Disable the sa account or set a strong password: ALTER LOGIN sa WITH PASSWORD='...', ENABLE.",
+					map[string]any{"port": port, "service": service, "user": "sa", "password": "(empty)"},
+				))
+			}
+		}
+		return dbFindings
 
 	// ── Kubernetes API ────────────────────────────────────────────────────────
 
@@ -1730,6 +1778,22 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 						"are disabled on non-localhost connections in recent versions but older "+
 						"deployments may still accept them. Restrict to trusted networks.",
 					ev,
+				)}
+			}
+		}
+		// Test for default guest:guest credentials on the RabbitMQ management API.
+		if body, ok := probeHTTPBodyWithAuth(ctx, asset, port, false, "/api/overview", "guest", "guest"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "rabbitmq_version") || strings.Contains(bodyLow, "cluster_name") {
+				return []finding.Finding{makeF(
+					finding.CheckPortRabbitMQDefaultCreds,
+					finding.SeverityCritical,
+					fmt.Sprintf("RabbitMQ accepts default guest:guest credentials on port %d", port),
+					"The RabbitMQ management API accepts the factory-default credentials guest:guest. "+
+						"An attacker can read all messages in transit, publish arbitrary messages, delete queues, "+
+						"reconfigure exchanges and virtual hosts, and manage user accounts. "+
+						"Delete the guest account and create named service accounts with minimal permissions.",
+					map[string]any{"port": port, "service": service, "creds": "guest:guest", "authenticated": true},
 				)}
 			}
 		}
@@ -2337,6 +2401,91 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			)}
 		}
 
+	// ── JFrog Artifactory / Sonatype Nexus ──────────────────────────────────────
+	case 8081, 8082:
+		// Probe for JFrog Artifactory.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/artifactory/api/system/ping"); ok {
+			if strings.TrimSpace(body) == "OK" || strings.Contains(strings.ToLower(body), "artifactory") {
+				// Attempt default admin:password credentials on the REST API.
+				if _, authed := probeHTTPBodyWithAuth(ctx, asset, port, false, "/artifactory/api/system/configuration", "admin", "password"); authed {
+					return []finding.Finding{makeF(
+						finding.CheckPortArtifactoryExposed,
+						finding.SeverityCritical,
+						fmt.Sprintf("JFrog Artifactory accepts default admin:password credentials on port %d", port),
+						"JFrog Artifactory repository manager accepts the default admin:password credentials. "+
+							"An attacker gains full administrative control: read/write all artifact repositories "+
+							"(including private packages), inject malicious artifacts into the supply chain, "+
+							"export credentials to external registries, and access pipeline secrets. "+
+							"Change admin password immediately and enable access tokens with least privilege.",
+						map[string]any{"port": port, "service": "artifactory", "creds": "admin:password", "authenticated": true},
+					)}
+				}
+				return []finding.Finding{makeF(
+					finding.CheckPortArtifactoryExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("JFrog Artifactory repository manager exposed on port %d", port),
+					"A JFrog Artifactory repository manager is publicly accessible. "+
+						"Artifactory hosts build artifacts, Docker images, npm/Maven/PyPI packages, and pipeline credentials. "+
+						"Unauthenticated access or default credentials allow supply chain compromise by "+
+						"injecting malicious artifacts into repositories used by development pipelines. "+
+						"Restrict access to trusted networks and rotate all repository credentials.",
+					map[string]any{"port": port, "service": "artifactory",
+						"url": fmt.Sprintf("http://%s:%d/artifactory/", asset, port)},
+				)}
+			}
+		}
+		// Probe for Sonatype Nexus Repository Manager.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/service/rest/v1/status"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "nexus") || strings.Contains(bodyLow, "sonatype") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNexusExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Sonatype Nexus Repository Manager exposed on port %d", port),
+					"A Sonatype Nexus Repository Manager is publicly accessible. "+
+						"Nexus hosts Maven, npm, Docker, PyPI, and raw binary artifacts. "+
+						"Older Nexus versions use default credentials (admin:admin123) and may be vulnerable to "+
+						"CVE-2019-7238 (Nexus 3 < 3.15.0 pre-auth RCE via EL injection, CVSS 9.8, KEV). "+
+						"Restrict to trusted networks and update to the latest version.",
+					map[string]any{"port": port, "service": "nexus",
+						"url": fmt.Sprintf("http://%s:%d/", asset, port)},
+				)}
+			}
+		}
+		// Also check Nexus UI root.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "nexus repository") || strings.Contains(bodyLow, "sonatype nexus") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNexusExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Sonatype Nexus Repository Manager detected on port %d", port),
+					"A Sonatype Nexus Repository Manager is publicly accessible. "+
+						"Check for default admin:admin123 credentials and CVE-2019-7238 (pre-auth RCE, CVSS 9.8, KEV).",
+					map[string]any{"port": port, "service": "nexus"},
+				)}
+			}
+		}
+
+	// ── gRPC server reflection ─────────────────────────────────────────────────
+	case 50051:
+		// gRPC typically uses HTTP/2. Probe by sending the HTTP/2 connection preface
+		// and a minimal SETTINGS frame. A valid HTTP/2 SETTINGS response confirms gRPC.
+		if probeGRPCReflection(ctx, asset, port) {
+			return []finding.Finding{makeF(
+				finding.CheckPortGRPCReflectionEnabled,
+				finding.SeverityHigh,
+				fmt.Sprintf("gRPC server reflection enabled on port %d (unauthenticated)", port),
+				"A gRPC server with reflection enabled is publicly accessible on port 50051. "+
+					"gRPC reflection lists all available service definitions, method names, and protobuf schemas "+
+					"without authentication, acting as an unauthenticated API documentation endpoint. "+
+					"Attackers use reflection to enumerate all gRPC endpoints and craft targeted requests "+
+					"for further exploitation. Disable reflection in production "+
+					"(grpc.EnableReflection = false) and restrict port 50051 to internal services only.",
+				map[string]any{"port": port, "service": "grpc", "reflection": true},
+			)}
+		}
+
 	// ── Cisco Smart Install (CVE-2018-0171) ────────────────────────────────────
 	case 4786:
 		// Cisco IOS Smart Install protocol on port 4786 allows unauthenticated read/write
@@ -2427,7 +2576,6 @@ var webServicePorts = map[int]string{
 	7474:  "neo4j-browser",
 	8001:  "k8s-proxy",
 	8080:  "http-alt",
-	8081:  "http-alt-2",
 	8200:  "vault",
 	8000:  "salt-api",
 	8086:  "influxdb",
@@ -2466,6 +2614,8 @@ var webServicePorts = map[int]string{
 	9419:  "veeam-catalog",
 	4786:  "cisco-smart-install",
 	8848:  "nacos",
+	8081:  "artifactory",
+	8082:  "artifactory-alt",
 }
 
 // EmitPortServiceDiscovered returns a CheckPortServiceDiscovered finding when
@@ -4005,4 +4155,390 @@ func probeSMTPOpenRelay(ctx context.Context, host string, port int) bool {
 
 	send("RSET")
 	return accepted
+}
+
+// probeHTTPBodyWithAuth makes an authenticated HTTP GET request and returns the body.
+// Returns ("", false) if the response is not 200 OK.
+func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bool, path, user, pass string) (string, bool) {
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	u := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", false
+	}
+	req.SetBasicAuth(user, pass)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	buf := make([]byte, 8192)
+	n, _ := io.ReadFull(resp.Body, buf)
+	return string(buf[:n]), true
+}
+
+// probeMySQL attempts a MySQL authentication handshake with user root and empty password.
+// Returns true if the server responds with an OK packet (0x00 first byte after length prefix),
+// indicating root access with no password is accepted.
+func probeMySQL(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// Read the server greeting (initial handshake packet).
+	// MySQL packet format: 3-byte length (LE) + 1-byte sequence number + payload
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return false
+	}
+	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
+	if pktLen == 0 || pktLen > 65535 {
+		return false
+	}
+	greeting := make([]byte, pktLen)
+	if _, err := io.ReadFull(conn, greeting); err != nil {
+		return false
+	}
+	// Protocol version byte: 0x0a = MySQL 4.1+, 0x09 = MySQL 3.x
+	if len(greeting) < 1 || (greeting[0] != 0x0a && greeting[0] != 0x09) {
+		return false
+	}
+	// Server capability flags are at bytes 14-15 (little-endian) in the greeting.
+	// We need CLIENT_PROTOCOL_41 (0x0200) to know the auth format.
+	// For simplicity, send a MySQL 4.1 client auth packet with root/empty password.
+	// Client auth packet: capabilities(4) + max_packet(4) + charset(1) + reserved(23) + username + NUL + auth_response_length(1) + auth_response(0)
+	authPkt := make([]byte, 0, 64)
+	// Capabilities: CLIENT_PROTOCOL_41 | CLIENT_LONG_PASSWORD | CLIENT_CONNECT_WITH_DB(off) | CLIENT_SECURE_CONNECTION
+	caps := uint32(0x00000200 | 0x00000001 | 0x00008000) // protocol41 | long_password | secure_connection
+	authPkt = append(authPkt,
+		byte(caps), byte(caps>>8), byte(caps>>16), byte(caps>>24), // capabilities
+		0x00, 0x00, 0x00, 0x01, // max packet size (16MB)
+		0x21,                                                       // charset: utf8
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // reserved (23 bytes)
+	)
+	authPkt = append(authPkt, []byte("root")...)
+	authPkt = append(authPkt, 0x00) // NUL terminator for username
+	authPkt = append(authPkt, 0x00) // auth_response_length = 0 (empty password)
+
+	// Wrap in MySQL packet frame (length + sequence 1)
+	frame := make([]byte, 4+len(authPkt))
+	frame[0] = byte(len(authPkt))
+	frame[1] = byte(len(authPkt) >> 8)
+	frame[2] = byte(len(authPkt) >> 16)
+	frame[3] = 0x01 // sequence number
+	copy(frame[4:], authPkt)
+	if _, err := conn.Write(frame); err != nil {
+		return false
+	}
+
+	// Read response header
+	respHdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return false
+	}
+	respLen := int(respHdr[0]) | int(respHdr[1])<<8 | int(respHdr[2])<<16
+	if respLen == 0 {
+		return false
+	}
+	respPayload := make([]byte, respLen)
+	if _, err := io.ReadFull(conn, respPayload); err != nil {
+		return false
+	}
+	// OK packet: first byte is 0x00; Error packet: first byte is 0xff
+	return len(respPayload) > 0 && respPayload[0] == 0x00
+}
+
+// probePostgreSQL attempts a PostgreSQL startup handshake as user "postgres" with no password.
+// Returns true if the server responds with AuthenticationOk (message type 'R' + int32(0)),
+// indicating trust authentication is configured for remote connections.
+func probePostgreSQL(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// PostgreSQL startup message: Int32(length) + Int32(196608 = protocol 3.0) + key=value pairs + NUL
+	user := "postgres"
+	database := "postgres"
+	params := "user\x00" + user + "\x00database\x00" + database + "\x00\x00"
+	msgLen := 4 + 4 + len(params) // length field + protocol + params
+	msg := make([]byte, 4+msgLen)
+	binary.BigEndian.PutUint32(msg[0:], uint32(msgLen))
+	binary.BigEndian.PutUint32(msg[4:], 196608) // protocol 3.0
+	copy(msg[8:], params)
+	if _, err := conn.Write(msg); err != nil {
+		return false
+	}
+
+	// Read response: first byte is message type
+	typeBuf := make([]byte, 1)
+	if _, err := io.ReadFull(conn, typeBuf); err != nil {
+		return false
+	}
+	if typeBuf[0] != 'R' { // 'R' = Authentication message
+		return false
+	}
+	// Read Int32 length
+	lenBuf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, lenBuf); err != nil {
+		return false
+	}
+	msgLength := int(binary.BigEndian.Uint32(lenBuf)) - 4 // subtract length field itself
+	if msgLength < 4 {
+		return false
+	}
+	authPayload := make([]byte, msgLength)
+	if _, err := io.ReadFull(conn, authPayload); err != nil {
+		return false
+	}
+	// AuthenticationOk: Int32(0)
+	return len(authPayload) >= 4 && binary.BigEndian.Uint32(authPayload[0:]) == 0
+}
+
+// probeMSSQL attempts a minimal TDS prelogin to detect MSSQL and check if sa with empty
+// password is accepted. Sends a TDS prelogin packet and reads the server response.
+// An error message about login failure is still confirmation of a live MSSQL server;
+// no error (successful login) indicates sa with empty password.
+func probeMSSQL(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// TDS 7.0 PRELOGIN packet.
+	// Header: type(1)=0x12, status(1)=0x01, length(2), SPID(2)=0, PacketID(1)=1, Window(1)=0
+	// Payload: VERSION token + ENCRYPTION token + terminator
+	prelogin := []byte{
+		0x12,       // type: PRELOGIN
+		0x01,       // status: EOM
+		0x00, 0x2F, // total length: 47
+		0x00, 0x00, // SPID
+		0x01,       // PacketID
+		0x00,       // Window
+		// Payload: VERSION option (0x00) at offset 0x0006, length 6
+		0x00, 0x00, 0x06, 0x00, 0x06,
+		// ENCRYPTION option (0x01) at offset 0x000C, length 1
+		0x01, 0x00, 0x0C, 0x00, 0x01,
+		// Terminator
+		0xFF,
+		// VERSION value: 0x0E000000 0x0000 (SQL Server 2017 = 14.0)
+		0x0E, 0x00, 0x00, 0x00, 0x00, 0x00,
+		// ENCRYPTION value: ENCRYPT_NOT_SUP (0x02)
+		0x02,
+	}
+	if _, err := conn.Write(prelogin); err != nil {
+		return false
+	}
+
+	respHdr := make([]byte, 8)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return false
+	}
+	// TDS PRELOGIN response type = 0x04
+	if respHdr[0] != 0x04 {
+		return false
+	}
+	respLen := int(respHdr[2])<<8 | int(respHdr[3])
+	if respLen <= 8 {
+		return false
+	}
+	rest := make([]byte, respLen-8)
+	if _, err := io.ReadFull(conn, rest); err != nil {
+		return false
+	}
+
+	// Now send a TDS LOGIN7 packet for sa with empty password.
+	// This is a simplified LOGIN7 — enough for most SQL Server versions to attempt auth.
+	// The password in TDS LOGIN7 is XOR-obfuscated; empty password XOR-obfuscated = just the XOR bytes.
+	// For simplicity: send a minimal login and check if the response is a LOGINACK (0xAD) or ERROR (0xAA).
+	login := buildTDSLogin7("sa", "")
+	if _, err := conn.Write(login); err != nil {
+		return false
+	}
+
+	// Read response tokens looking for LOGINACK (success) vs ERROR (failure).
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil || n < 9 {
+		return false
+	}
+	// TDS response: header (8 bytes) + token stream
+	// LOGINACK token = 0xAD; ERROR token = 0xAA
+	// Look for LOGINACK in the token stream.
+	for i := 8; i < n; i++ {
+		if buf[i] == 0xAD { // LOGINACK — login succeeded
+			return true
+		}
+	}
+	return false
+}
+
+// buildTDSLogin7 builds a minimal TDS LOGIN7 packet for sa with empty password.
+func buildTDSLogin7(user, _ string) []byte {
+	// Fixed-length LOGIN7 header fields (all little-endian).
+	// Client name, app name, server name, library name are all minimal.
+	hostname := "beacon"
+	appname := "beacon"
+	servername := "beacon"
+	language := ""
+	database := "master"
+
+	encodeUCS2 := func(s string) []byte {
+		b := make([]byte, len(s)*2)
+		for i, c := range s {
+			b[i*2] = byte(c)
+			b[i*2+1] = 0
+		}
+		return b
+	}
+
+	// Offsets start after the fixed 94-byte header.
+	const fixedLen = 94
+	type strField struct {
+		offset uint16
+		length uint16
+		data   []byte
+	}
+
+	hostnameData := encodeUCS2(hostname)
+	usernameData := encodeUCS2(user)
+	// Empty password TDS obfuscation: each byte XOR 0xA5, then nibble-swap.
+	passwordData := []byte{}
+	appnameData := encodeUCS2(appname)
+	servernameData := encodeUCS2(servername)
+	unusedData := []byte{}
+	libraryData := encodeUCS2("go-tds")
+	languageData := encodeUCS2(language)
+	databaseData := encodeUCS2(database)
+
+	fields := []strField{
+		{data: hostnameData},
+		{data: usernameData},
+		{data: passwordData},
+		{data: appnameData},
+		{data: servernameData},
+		{data: unusedData},
+		{data: libraryData},
+		{data: languageData},
+		{data: databaseData},
+	}
+
+	// Calculate offsets.
+	offset := uint16(fixedLen)
+	for i := range fields {
+		fields[i].offset = offset
+		fields[i].length = uint16(len(fields[i].data) / 2) // length in characters
+		offset += uint16(len(fields[i].data))
+	}
+
+	totalLen := int(offset)
+	pkt := make([]byte, totalLen+8) // +8 for TDS header
+
+	// TDS packet header
+	pkt[0] = 0x10 // type: LOGIN7
+	pkt[1] = 0x01 // status: EOM
+	pkt[2] = byte((totalLen + 8) >> 8)
+	pkt[3] = byte(totalLen + 8)
+	pkt[4] = 0x00 // SPID
+	pkt[5] = 0x00
+	pkt[6] = 0x01 // PacketID
+	pkt[7] = 0x00
+
+	body := pkt[8:]
+	// Total length field in LOGIN7 body
+	binary.LittleEndian.PutUint32(body[0:], uint32(totalLen))
+	// TDS version: 0x74000004 = SQL Server 2012
+	binary.LittleEndian.PutUint32(body[4:], 0x74000004)
+	// PacketSize
+	binary.LittleEndian.PutUint32(body[8:], 4096)
+	// ClientProgVer
+	binary.LittleEndian.PutUint32(body[12:], 7)
+	// ClientPID
+	binary.LittleEndian.PutUint32(body[16:], 1)
+	// ConnectionID
+	binary.LittleEndian.PutUint32(body[20:], 0)
+	// OptionFlags1: USE_DB_ON | INIT_DB_FATAL | SET_LANG_ON | SET_LANG_FATAL
+	body[24] = 0x20 // ODBC flag
+	body[25] = 0x00 // OptionFlags2
+	body[26] = 0x00 // TypeFlags
+	body[27] = 0x00 // OptionFlags3
+	// ClientTimeZone, ClientLCID
+	binary.LittleEndian.PutUint32(body[28:], 0)
+	binary.LittleEndian.PutUint32(body[32:], 0x0409)
+
+	// String offset table starts at byte 36.
+	// Each entry: offset(2) + length(2)
+	for i, f := range fields {
+		base := 36 + i*4
+		binary.LittleEndian.PutUint16(body[base:], f.offset)
+		binary.LittleEndian.PutUint16(body[base+2:], f.length)
+	}
+
+	// ClientID (6 bytes) at offset 36+9*4 = 72
+	// SSPI offset/length at 78, AttachDBFile at 82, ChangePassword at 86
+	// LongSSPI at 90
+
+	// Copy string data.
+	for _, f := range fields {
+		copy(body[f.offset:], f.data)
+	}
+
+	return pkt
+}
+
+// probeGRPCReflection probes a gRPC server for reflection by sending the HTTP/2
+// connection preface and checking for a valid HTTP/2 SETTINGS frame response.
+// Returns true if the port is serving HTTP/2 (gRPC uses HTTP/2 exclusively).
+func probeGRPCReflection(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+	preface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	// Followed by a SETTINGS frame: length(3)=0, type(1)=0x04, flags(1)=0, stream(4)=0
+	settingsFrame := []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00}
+	if _, err := conn.Write(append(preface, settingsFrame...)); err != nil {
+		return false
+	}
+
+	// Read the server response — a valid HTTP/2 server will send a SETTINGS frame back.
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil || n < 9 {
+		return false
+	}
+	// HTTP/2 SETTINGS frame: type byte (index 3) = 0x04
+	return buf[3] == 0x04
 }

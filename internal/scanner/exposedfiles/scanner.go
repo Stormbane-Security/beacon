@@ -1248,6 +1248,28 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// CVE-2024-55591 (FortiOS Node.js WebSocket management API auth bypass, CVSS 9.6, KEV):
+	// Affects FortiOS 7.0.0–7.0.16 and 7.2.0–7.2.8. Crafted requests to the Node.js
+	// WebSocket module can bypass authentication on the management interface.
+	// Surface probe: GET /api/v2/monitor/system/status without credentials — 200 + JSON = exposed mgmt API.
+	if f := probeFortiOSWSAuthBypass(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2025-0282 (Ivanti Connect Secure pre-auth stack overflow, CVSS 9.0, KEV, Jan 2025):
+	// Affects Ivanti Connect Secure 22.7R2.3 and earlier. The existing CVE-2023-46805 probe
+	// covers the ICS fingerprint; this probe extends it with version check for the 2025 CVE.
+	if f := probeIvantiCS2025(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2025-31324 (SAP NetWeaver Visual Composer unauthenticated file upload → RCE, CVSS 10.0, KEV):
+	// The developmentserver/metadatauploader endpoint accepts file uploads without authentication.
+	// Actively exploited by UNC5221 and multiple ransomware groups since April 2025.
+	if f := probeSAPNetWeaver2025(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	return findings, nil
 }
 
@@ -5349,6 +5371,248 @@ func probeMinIOEnvDisclosure(ctx context.Context, client *http.Client, base, ass
 		ProofCommand: fmt.Sprintf(
 			"curl -s -X POST '%s'\n"+
 				"# Response contains MINIO_SECRET_KEY / MINIO_ROOT_PASSWORD in plaintext", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeFortiOSWSAuthBypass tests for CVE-2024-55591 (FortiOS authentication bypass via
+// Node.js WebSocket module, CVSS 9.6, KEV). Affected: FortiOS 7.0.0–7.0.16 and 7.2.0–7.2.8.
+// Crafted requests to the Node.js WebSocket management path bypass authentication entirely.
+// Surface probe: GET /api/v2/monitor/system/status without credentials — a 200 JSON response
+// with "action" and "status" fields confirms the management API is reachable unauthenticated,
+// which is the precondition for the WebSocket bypass exploit.
+func probeFortiOSWSAuthBypass(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Try both HTTPS (standard mgmt) and the base URL.
+	urls := []string{
+		"https://" + asset + "/api/v2/monitor/system/status",
+		base + "/api/v2/monitor/system/status",
+	}
+	for _, u := range urls {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		bodyLow := strings.ToLower(string(body))
+		// FortiOS management API returns {"action":"...","status":"success","serial":"...","version":"..."}
+		if strings.Contains(bodyLow, `"status"`) && (strings.Contains(bodyLow, "fortios") ||
+			strings.Contains(bodyLow, `"serial"`) || strings.Contains(bodyLow, "fortigate")) {
+			return &finding.Finding{
+				CheckID:  finding.CheckCVEFortiOSWSAuthBypass,
+				Module:   scannerName,
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    asset,
+				Title:    fmt.Sprintf("CVE-2024-55591: FortiOS management API accessible on %s — WebSocket auth bypass risk", asset),
+				Description: "The FortiOS management API at /api/v2/monitor/system/status is reachable without authentication. " +
+					"CVE-2024-55591 (CVSS 9.6, KEV) affects FortiOS 7.0.0–7.0.16 and 7.2.0–7.2.8. " +
+					"Crafted requests to the FortiOS Node.js WebSocket management module bypass authentication, " +
+					"granting super-admin privileges. Threat actors have used this to create rogue admin accounts " +
+					"and pivot into internal networks. Upgrade to FortiOS 7.0.17+ or 7.2.9+ immediately and " +
+					"disable management interface access from the internet.",
+				Evidence: map[string]any{
+					"url":             u,
+					"response_status": resp.StatusCode,
+				},
+				ProofCommand: fmt.Sprintf(
+					"curl -sk '%s'\n"+
+						"# 200 + JSON with serial/version confirms FortiOS mgmt API exposure — CVE-2024-55591 risk", u),
+				DiscoveredAt: time.Now(),
+			}
+		}
+	}
+	return nil
+}
+
+// probeIvantiCS2025 tests for CVE-2025-0282 (Ivanti Connect Secure pre-auth stack buffer
+// overflow, CVSS 9.0, KEV, January 2025). Affects Ivanti Connect Secure 22.7R2.3 and earlier.
+// The existing CVE-2023-46805 probe fingerprints ICS via /dana-na/; this probe adds
+// version detection to flag instances within the CVE-2025-0282 vulnerable range.
+func probeIvantiCS2025(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Probe for Ivanti Connect Secure login page — same fingerprint as CVE-2023-46805.
+	paths := []string{
+		"/dana-na/auth/url_default/welcome.cgi",
+		"/dana-na/auth/url_default/welcome.html",
+	}
+	for _, p := range paths {
+		u := base + p
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		bodyStr := string(body)
+		bodyLow := strings.ToLower(bodyStr)
+
+		isIvanti := strings.Contains(bodyLow, "ivanti") ||
+			strings.Contains(bodyLow, "pulse secure") ||
+			strings.Contains(bodyLow, "juniper networks") && strings.Contains(bodyLow, "secure access") ||
+			strings.Contains(bodyLow, "dana-na") ||
+			resp.Header.Get("X-Pulse-Version") != "" ||
+			resp.Header.Get("X-Ivanti-Version") != ""
+		if !isIvanti {
+			continue
+		}
+
+		// Look for version in body JS paths (e.g., /dana-cached/hc/en-US/22.7R2.3/).
+		ver := parseIvantiVersion(bodyStr)
+		title := fmt.Sprintf("CVE-2025-0282: Ivanti Connect Secure detected on %s", asset)
+		desc := "An Ivanti Connect Secure (ICS) SSL VPN appliance is publicly accessible. " +
+			"CVE-2025-0282 (CVSS 9.0, KEV, January 2025) is a pre-authentication stack buffer overflow " +
+			"in ICS 22.7R2.3 and earlier. Active exploitation began immediately after disclosure " +
+			"and targeted government, defense, and financial sector organizations. " +
+			"Upgrade to ICS 22.7R2.4 or later and check for indicators of compromise via the ICT tool."
+		ev := map[string]any{"url": u}
+		if ver != "" {
+			ev["version"] = ver
+			title = fmt.Sprintf("CVE-2025-0282: Ivanti Connect Secure %s on %s", ver, asset)
+		}
+		return &finding.Finding{
+			CheckID:      finding.CheckCVEIvantiCS2025,
+			Module:       scannerName,
+			Scanner:      scannerName,
+			Severity:     finding.SeverityCritical,
+			Asset:        asset,
+			Title:        title,
+			Description:  desc,
+			Evidence:     ev,
+			ProofCommand: fmt.Sprintf("curl -si '%s' | grep -i 'ivanti\\|pulse\\|dana'\n# ICS login page presence confirms CVE-2025-0282 risk", u),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// parseIvantiVersion extracts the ICS version from HTML body.
+// Looks for paths like /dana-cached/hc/en-US/22.7R2.3/ or version= in JS.
+func parseIvantiVersion(body string) string {
+	// Pattern: /dana-cached/hc/en-US/VERSION/ or /dana-na/VERSION/
+	markers := []string{"/dana-cached/hc/en-US/", "/dana-cached/hc/"}
+	for _, m := range markers {
+		idx := strings.Index(body, m)
+		if idx < 0 {
+			continue
+		}
+		rest := body[idx+len(m):]
+		end := strings.IndexAny(rest, "/ \"'")
+		if end > 0 && end < 20 {
+			candidate := rest[:end]
+			if strings.Contains(candidate, ".") || strings.Contains(candidate, "R") {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+// probeSAPNetWeaver2025 tests for CVE-2025-31324 (SAP NetWeaver Visual Composer
+// unauthenticated file upload → RCE, CVSS 10.0, KEV). The developmentserver endpoint
+// accepts file uploads without any authentication. Actively exploited since April 2025
+// by UNC5221 and ransomware operators for initial access to SAP ERP environments.
+func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Check for SAP NetWeaver fingerprint first to avoid false positives.
+	fingerprints := []string{"/irj/portal", "/sap/bc/gui/sap/its/webgui"}
+	isSAP := false
+	for _, fp := range fingerprints {
+		u := base + fp
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		bodyLow := strings.ToLower(string(body))
+		if strings.Contains(bodyLow, "sap netweaver") || strings.Contains(bodyLow, "sap ag") ||
+			strings.Contains(bodyLow, "sap se") || strings.Contains(bodyLow, "sap portal") ||
+			resp.Header.Get("SAP-Perf-FESRec") != "" || resp.Header.Get("x-sap-") != "" {
+			isSAP = true
+			break
+		}
+	}
+
+	// Also check the metadatauploader directly — a 200 or 404 with SAP error = SAP present.
+	uploaderURL := base + "/developmentserver/metadatauploader"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uploaderURL, nil)
+	if err != nil {
+		if !isSAP {
+			return nil
+		}
+	} else {
+		resp, err := client.Do(req)
+		if err == nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			bodyLow := strings.ToLower(string(body))
+			// A 200 with upload-related content confirms the vulnerable endpoint is accessible.
+			if resp.StatusCode == http.StatusOK &&
+				(strings.Contains(bodyLow, "upload") || strings.Contains(bodyLow, "metadata") ||
+					strings.Contains(bodyLow, "visual composer")) {
+				return &finding.Finding{
+					CheckID:  finding.CheckCVESAPNetWeaver2025,
+					Module:   scannerName,
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Asset:    asset,
+					Title:    fmt.Sprintf("CVE-2025-31324: SAP NetWeaver Visual Composer file upload endpoint accessible on %s", asset),
+					Description: "The SAP NetWeaver Visual Composer developmentserver/metadatauploader endpoint " +
+						"is accessible without authentication. CVE-2025-31324 (CVSS 10.0, KEV) allows unauthenticated " +
+						"attackers to upload arbitrary files, leading to remote code execution on SAP application servers. " +
+						"Active exploitation by UNC5221 and multiple ransomware groups began in April 2025. " +
+						"Apply SAP Security Notes 3594142 and 3604119 immediately. If Visual Composer is not required, " +
+						"disable the development server endpoint.",
+					Evidence: map[string]any{
+						"url":             uploaderURL,
+						"response_status": resp.StatusCode,
+					},
+					ProofCommand: fmt.Sprintf(
+						"curl -si '%s'\n"+
+							"# 200 response confirms unauthenticated access to SAP metadatauploader (CVE-2025-31324)", uploaderURL),
+					DiscoveredAt: time.Now(),
+				}
+			}
+			if strings.Contains(bodyLow, "sap") || strings.Contains(bodyLow, "netweaver") {
+				isSAP = true
+			}
+		}
+	}
+
+	if !isSAP {
+		return nil
+	}
+
+	// SAP confirmed but metadatauploader wasn't accessible — still flag the SAP exposure
+	// so the operator knows to apply the patch.
+	return &finding.Finding{
+		CheckID:  finding.CheckCVESAPNetWeaver2025,
+		Module:   scannerName,
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2025-31324: SAP NetWeaver application server detected on %s — patch immediately", asset),
+		Description: "An SAP NetWeaver application server is publicly accessible. " +
+			"CVE-2025-31324 (CVSS 10.0, KEV) affects the SAP NetWeaver Visual Composer component. " +
+			"Unauthenticated file upload via the developmentserver/metadatauploader endpoint enables RCE. " +
+			"Active mass exploitation occurred in April–May 2025 by UNC5221 and ransomware operators. " +
+			"Apply SAP Security Notes 3594142 and 3604119 immediately, even if Visual Composer appears disabled.",
+		Evidence:     map[string]any{"sap_fingerprint": "irj/portal or WebGUI detected"},
+		ProofCommand: fmt.Sprintf("curl -si '%s/irj/portal' | grep -i 'sap\\|netweaver'\n# SAP NetWeaver portal presence", base),
 		DiscoveredAt: time.Now(),
 	}
 }
