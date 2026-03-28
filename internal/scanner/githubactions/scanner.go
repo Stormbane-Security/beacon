@@ -58,6 +58,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return nil, nil
 	}
 	owner, repo := disc.Owner, disc.Repo
+	if owner == "" || repo == "" {
+		return nil, nil
+	}
 
 	// Fetch all workflow files.
 	workflows, err := s.fetchWorkflows(ctx, client, owner, repo)

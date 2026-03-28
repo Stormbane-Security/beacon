@@ -305,7 +305,11 @@ func RunDeterministicCorrelations(ctx context.Context, st store.Store, scanRunID
 		return out, true
 	}
 
-	emitted := make(map[string]bool) // deduplicate by title
+	// Deduplicate by title. Multiple rules share the same CheckID but have
+	// distinct trigger conditions and titles (e.g. two CICD variants). Using
+	// title prevents the same narrative from firing twice if conditions overlap,
+	// while allowing sibling rules with the same ID to fire independently.
+	emitted := make(map[string]bool)
 	var corrResults []store.CorrelationFinding
 	var plainFindings []finding.Finding
 

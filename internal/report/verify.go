@@ -115,6 +115,7 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckJSSourceMapExposed: "curl -sI https://{asset}/static/main.js.map | grep 'HTTP/'",
 	finding.CheckCookieMissingSecure:   "curl -sI https://{asset} | grep -i 'set-cookie' | grep -iv 'secure'",
 	finding.CheckCookieMissingHTTPOnly: "curl -sI https://{asset} | grep -i 'set-cookie' | grep -iv 'httponly'",
+	finding.CheckCookieMissingSameSite: "curl -sI https://{asset} | grep -i 'set-cookie' | grep -iv 'samesite=strict\\|samesite=lax'",
 
 	// ── HTTP Methods ─────────────────────────────────────────────────────────
 	finding.CheckWebDangerousMethodEnabled: "curl -sI -X OPTIONS https://{asset} | grep -i allow",

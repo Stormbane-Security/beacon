@@ -209,25 +209,34 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 		}
 
-		// Catch-all guard for the preflight probe: if a random path returns 200
-		// with credentialed CORS, this server echoes headers for every path and the
-		// preflight would be a false positive. GET probes above already fired on
-		// the real path, so we only gate the OPTIONS probe here.
+		// Catch-all guard for the preflight probe: a framework that blindly echoes
+		// CORS headers on every path (including 404s) will reflect credentials on
+		// random paths. Probe 3 distinct random paths; only declare catch-all if
+		// ALL 3 return credentialed CORS — a single random path matching is
+		// insufficient because some error handlers legitimately set CORS headers.
 		preflightIsCatchAll := false
-		canaryURL := fmt.Sprintf("%s/beacon-canary-%016x", target, rand.Int63())
-		canaryReq, _ := http.NewRequestWithContext(ctx, http.MethodOptions, canaryURL, nil)
-		if canaryReq != nil {
+		catchAllHits := 0
+		for range 3 {
+			canaryURL := fmt.Sprintf("%s/beacon-canary-%016x", target, rand.Int63())
+			canaryReq, err := http.NewRequestWithContext(ctx, http.MethodOptions, canaryURL, nil)
+			if err != nil {
+				break
+			}
 			canaryReq.Header.Set("Origin", preflightOrigin)
 			canaryReq.Header.Set("Access-Control-Request-Method", "POST")
-			if cResp, err := client.Do(canaryReq); err == nil {
-				cResp.Body.Close()
-				cacao := cResp.Header.Get("Access-Control-Allow-Origin")
-				cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
-				// A catch-all returns 200 + reflects origin + credentials on random paths.
-				if cResp.StatusCode == 200 && strings.EqualFold(cacao, preflightOrigin) && cacac == "true" {
-					preflightIsCatchAll = true
-				}
+			cResp, err := client.Do(canaryReq)
+			if err != nil {
+				break
 			}
+			cResp.Body.Close()
+			cacao := cResp.Header.Get("Access-Control-Allow-Origin")
+			cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
+			if strings.EqualFold(cacao, preflightOrigin) && cacac == "true" {
+				catchAllHits++
+			}
+		}
+		if catchAllHits == 3 {
+			preflightIsCatchAll = true
 		}
 
 		if !alreadyCaught && !preflightIsCatchAll {

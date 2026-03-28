@@ -328,15 +328,19 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 		bodyStr := string(respBody)
 		bodyLower := strings.ToLower(bodyStr)
 
-		// 400 with an OAuth error response (invalid_client, invalid_request) is correct.
-		// 401 is also correct — client authentication required.
-		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
-			if strings.Contains(bodyLower, "invalid_client") ||
-				strings.Contains(bodyLower, "invalid_request") ||
-				strings.Contains(bodyLower, "unauthorized_client") ||
-				strings.Contains(bodyLower, "client authentication") {
-				return nil // endpoint is correctly rejecting unauthenticated requests
-			}
+		// RFC 6749 §5.2 defines the set of error codes a properly configured
+		// token endpoint must return when rejecting an unauthenticated request.
+		// All of these confirm the server IS enforcing authentication.
+		isProperRejection := strings.Contains(bodyLower, "invalid_client") ||
+			strings.Contains(bodyLower, "invalid_request") ||
+			strings.Contains(bodyLower, "unauthorized_client") ||
+			strings.Contains(bodyLower, "client authentication") ||
+			// invalid_grant: credential missing or expired — server is checking
+			strings.Contains(bodyLower, "invalid_grant") ||
+			// 401 Unauthorized always means the server enforces auth
+			resp.StatusCode == http.StatusUnauthorized
+		if isProperRejection {
+			return nil
 		}
 
 		// 403 is also acceptable — access denied.
@@ -368,13 +372,17 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 
 		// Only flag 2xx responses or 400s that look like misbehaving OAuth endpoints.
 		// A 200 with no credentials is always a misconfiguration.
-		// A 400 that doesn't use standard OAuth rejection words (invalid_client,
-		// invalid_request, etc.) is only flagged when the response body has
-		// positive OAuth signals — preventing false positives from generic APIs
-		// (e.g. blockchain explorers using /api/token with module/action patterns)
-		// that happen to return application/json 400s for unrelated reasons.
+		// A 400 is suspicious when the body has positive OAuth signals (proving
+		// this is an OAuth endpoint) but the server didn't reject with a proper
+		// RFC 6749 error code (handled above). We exclude only the specific
+		// credential-rejection codes here — NOT the broad string "invalid", which
+		// would swallow "invalid_scope" and "invalid_token" (both indicate the
+		// server is processing the request without verifying the client identity).
 		is400Misconfig := resp.StatusCode == http.StatusBadRequest &&
-			!strings.Contains(bodyLower, "invalid") &&
+			!strings.Contains(bodyLower, "invalid_client") &&
+			!strings.Contains(bodyLower, "invalid_request") &&
+			!strings.Contains(bodyLower, "unauthorized_client") &&
+			!strings.Contains(bodyLower, "invalid_grant") &&
 			(strings.Contains(bodyLower, "grant_type") ||
 				strings.Contains(bodyLower, "access_token") ||
 				strings.Contains(bodyLower, "token_type") ||

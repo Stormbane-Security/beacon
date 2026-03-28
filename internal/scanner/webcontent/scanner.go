@@ -229,6 +229,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 				Description:  fmt.Sprintf("The cookie '%s' on %s does not have the Secure flag set. It can be transmitted over unencrypted HTTP connections, exposing session data.", cookie.Name, asset),
 				Asset:        asset,
 				Evidence:     map[string]any{"cookie_name": cookie.Name},
+				ProofCommand: fmt.Sprintf("curl -sI https://%s | grep -i 'set-cookie' | grep -i '%s' | grep -iv 'secure'", asset, cookie.Name),
 				DiscoveredAt: now,
 			})
 		}
@@ -243,6 +244,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 				Description:  fmt.Sprintf("The cookie '%s' on %s does not have the HttpOnly flag. JavaScript can read it, making session hijacking via XSS easier.", cookie.Name, asset),
 				Asset:        asset,
 				Evidence:     map[string]any{"cookie_name": cookie.Name},
+				ProofCommand: fmt.Sprintf("curl -sI https://%s | grep -i 'set-cookie' | grep -i '%s' | grep -iv 'httponly'", asset, cookie.Name),
 				DiscoveredAt: now,
 			})
 		}
@@ -257,6 +259,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 				Description:  fmt.Sprintf("The cookie '%s' on %s has no SameSite attribute or is set to None. This increases CSRF attack risk.", cookie.Name, asset),
 				Asset:        asset,
 				Evidence:     map[string]any{"cookie_name": cookie.Name, "samesite": cookie.SameSite},
+				ProofCommand: fmt.Sprintf("curl -sI https://%s | grep -i 'set-cookie' | grep -i '%s' | grep -iv 'samesite=strict\\|samesite=lax'", asset, cookie.Name),
 				DiscoveredAt: now,
 			})
 		}
