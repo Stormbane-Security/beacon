@@ -66,7 +66,7 @@ SCAN FLAGS:
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
-  --format <fmt>             Output format: text (default), html, json, markdown
+  --format <fmt>             Output format: text (default), html, json, markdown, ocsf
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
@@ -75,7 +75,7 @@ SCAN FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown
+  --format <fmt>             Output format: text (default), html, json, markdown, ocsf
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
@@ -3662,7 +3662,7 @@ func filterBySeverity(enriched []enrichment.EnrichedFinding, severityFlag string
 }
 
 // renderFormat produces the report string in the requested format.
-// format is one of: "text" (default), "html", "json", "markdown".
+// format is one of: "text" (default), "html", "json", "markdown", "ocsf".
 func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution) (string, error) {
 	switch strings.ToLower(format) {
 	case "html":
@@ -3671,6 +3671,11 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 		return report.RenderJSON(run, enriched, summary)
 	case "markdown", "md":
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
+	case "ocsf":
+		// OCSF 1.4.0 NDJSON — one Vulnerability Finding event per line.
+		// Compatible with AWS Security Lake, Splunk, OpenSearch Security Analytics,
+		// Panther, Chronicle, and any OCSF-consuming SIEM or data lake.
+		return report.RenderOCSF(run, enriched)
 	default: // "text" or empty
 		return report.RenderText(run, enriched, summary, executions), nil
 	}
