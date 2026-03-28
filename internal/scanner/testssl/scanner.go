@@ -85,6 +85,7 @@ var idToCheckID = map[string]finding.CheckID{
 	"EXPORT":      finding.CheckTLSWeakCipher,
 	"LOW":         finding.CheckTLSWeakCipher,
 	"3DES_IDEA":   finding.CheckTLSWeakCipher,
+	"CCS":         finding.CheckTLSCCSInjection, // CVE-2014-0224 OpenSSL ChangeCipherSpec injection
 }
 
 func parseOutput(asset string, data []byte) ([]finding.Finding, error) {

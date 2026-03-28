@@ -36,10 +36,11 @@ const (
 	CheckTLSProtocolTLS10       CheckID = "tls.protocol_tls10"
 	CheckTLSProtocolTLS11       CheckID = "tls.protocol_tls11"
 	CheckTLSWeakCipher          CheckID = "tls.weak_cipher"
-	CheckTLSBEAST               CheckID = "tls.beast"      // CBC ciphers in TLS 1.0 (BEAST attack)
+	CheckTLSBEAST               CheckID = "tls.beast"              // CBC ciphers in TLS 1.0 (BEAST attack)
 	CheckTLSHeartbleed          CheckID = "tls.heartbleed"
 	CheckTLSPOODLE              CheckID = "tls.poodle"
 	CheckTLSROBOT               CheckID = "tls.robot"
+	CheckTLSCCSInjection        CheckID = "cve.tls_ccs_injection"  // CVE-2014-0224 OpenSSL CCS injection MitM — premature ChangeCipherSpec (CVSS 6.8)
 
 	// New TLS checks — native Go implementation (no external binary required)
 	CheckTLSCertWeakKey          CheckID = "tls.cert_weak_key"           // RSA<2048 or EC<224 — High, Surface
@@ -183,6 +184,7 @@ const (
 	CheckPortTelnetExposed       CheckID = "port.telnet_exposed"                // Telnet (plaintext)
 	CheckPortFTPExposed          CheckID = "port.ftp_exposed"                   // FTP accessible from internet
 	CheckPortFTPAnonymous        CheckID = "port.ftp_anonymous"                 // FTP accepts anonymous login (no credentials)
+	CheckPortFTPVsftpdBackdoor   CheckID = "cve.vsftpd_backdoor_2011"           // CVE-2011-2523 vsftpd 2.3.4 supply-chain backdoor — banner identifies compromised version (CVSS 10.0)
 	CheckPortSMBExposed          CheckID = "port.smb_exposed"                   // SMB/Windows filesharing exposed
 	CheckPortSMBNullSession      CheckID = "port.smb_null_session"              // SMB accepts null session (unauthenticated share list)
 	CheckPortSMBv1Enabled        CheckID = "port.smb_v1_enabled"                // SMBv1 protocol accepted — EternalBlue/WannaCry risk (CVE-2017-0144)
@@ -546,6 +548,7 @@ const (
 	CheckPortNTPAmplification   CheckID = "port.ntp_amplification"     // NTP monlist enabled (CVE-2013-5211) — DDoS amplification source
 	CheckPortTFTPAnonymous      CheckID = "port.tftp_anonymous"        // TFTP server responds to RRQ without authentication
 	CheckPortSSDPExposed        CheckID = "port.ssdp_exposed"          // SSDP/UPnP responds on UDP 1900 — IoT/router internet exposure
+	CheckCVELibupnpSSDPRCE      CheckID = "cve.libupnp_ssdp_overflow"  // CVE-2012-5958 libupnp ≤ 1.6.17 SSDP SUBSCRIBE buffer overflow → RCE (CVSS 10.0)
 	CheckPortIKEExposed         CheckID = "port.ike_exposed"           // IKE/IPSec VPN endpoint on UDP 500
 	CheckPortNetBIOSNSExposed   CheckID = "port.netbios_ns_exposed"    // NetBIOS Name Service on UDP 137 — Windows name service internet-facing
 	CheckPortSTUNExposed        CheckID = "port.stun_exposed"          // STUN server on UDP 3478 — IP leakage and TURN relay abuse
@@ -869,6 +872,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckTLSHeartbleed:           {CheckTLSHeartbleed, SeverityCritical, ModeDeep},
 	CheckTLSPOODLE:               {CheckTLSPOODLE, SeverityHigh, ModeDeep},
 	CheckTLSROBOT:                {CheckTLSROBOT, SeverityHigh, ModeDeep},
+	CheckTLSCCSInjection:         {CheckTLSCCSInjection, SeverityHigh, ModeDeep},
 
 	// New native TLS checks
 	CheckTLSCertWeakKey:           {CheckTLSCertWeakKey, SeverityHigh, ModeSurface},
@@ -1011,6 +1015,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortTelnetExposed:       {CheckPortTelnetExposed, SeverityHigh, ModeSurface},
 	CheckPortFTPExposed:          {CheckPortFTPExposed, SeverityMedium, ModeSurface},
 	CheckPortFTPAnonymous:        {CheckPortFTPAnonymous, SeverityHigh, ModeSurface},
+	CheckPortFTPVsftpdBackdoor:   {CheckPortFTPVsftpdBackdoor, SeverityCritical, ModeSurface},
 	CheckPortSMBExposed:          {CheckPortSMBExposed, SeverityHigh, ModeSurface},
 	CheckPortSMBNullSession:      {CheckPortSMBNullSession, SeverityCritical, ModeSurface},
 	CheckPortSMBv1Enabled:        {CheckPortSMBv1Enabled, SeverityCritical, ModeSurface},
@@ -1362,6 +1367,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEWebSphereConsole: {CheckCVEWebSphereConsole, SeverityHigh, ModeSurface},
 	CheckCVESpringOAuthSpEL:  {CheckCVESpringOAuthSpEL, SeverityCritical, ModeSurface},
 	CheckCVEOXAppSuiteSSRF:   {CheckCVEOXAppSuiteSSRF, SeverityHigh, ModeSurface},
+
+	// 2012 CVEs
+	CheckCVELibupnpSSDPRCE: {CheckCVELibupnpSSDPRCE, SeverityCritical, ModeSurface},
 
 	// 2015 CVEs
 	CheckCVEJBossJMXInvoker:            {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},

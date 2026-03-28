@@ -302,6 +302,8 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckContractSelfDestruct:    true,
 		finding.CheckContractUncheckedCall:   true,
 		finding.CheckContractIntegerOverflow: true,
+		// CVE-2014-0224 OpenSSL CCS injection — testssl.sh sends malformed TLS handshake
+		finding.CheckTLSCCSInjection: true,
 	}
 
 	for id, meta := range finding.Registry {

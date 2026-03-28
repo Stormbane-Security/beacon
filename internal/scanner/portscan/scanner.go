@@ -935,6 +935,24 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		if fv != "" {
 			ev["ftp_software"] = fv
 		}
+		// CVE-2011-2523: vsftpd 2.3.4 supply-chain backdoor.
+		// The compromised tarball distributed via vsftpd.beasts.org bound a shell
+		// to TCP 6200 when the username contained ":)". Distro packages were not
+		// affected, but banner alone cannot distinguish the two — any 2.3.4 banner
+		// should be investigated immediately.
+		if fv == "vsFTPd 2.3.4" {
+			return []finding.Finding{makeF(
+				finding.CheckPortFTPVsftpdBackdoor,
+				finding.SeverityCritical,
+				fmt.Sprintf("vsftpd 2.3.4 detected on port %d — supply-chain backdoor (CVE-2011-2523)", port),
+				"The FTP banner reports vsftpd 2.3.4, the exact version in which a supply-chain "+
+					"backdoor was inserted into the official source tarball in July 2011. "+
+					"The backdoor binds a root shell to TCP port 6200 when the username contains \":)\". "+
+					"If this binary was installed from the compromised tarball (not a distro package), "+
+					"the system is fully compromised. Replace vsftpd immediately and audit all accounts.",
+				ev,
+			)}
+		}
 		// CVE-2025-47812: Wing FTP Server ≤ 7.4.3 pre-auth RCE (CISA KEV, CVSS 9.9).
 		if wingVer := parseWingFTPVersion(banner); wingVer != "" {
 			ev["wing_ftp_version"] = wingVer

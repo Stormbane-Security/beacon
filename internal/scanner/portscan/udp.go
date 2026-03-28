@@ -23,6 +23,7 @@ package portscan
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -334,11 +335,45 @@ func probeSSDPUDP(ctx context.Context, host string) *finding.Finding {
 	if _, err := conn.Write(ssdpMSearch); err != nil {
 		return nil
 	}
-	buf := make([]byte, 1024)
+	buf := make([]byte, 2048)
 	n, err := conn.Read(buf)
 	resp := string(buf[:n])
 	if err != nil || !strings.Contains(resp, "HTTP/1.1") {
 		return nil
+	}
+
+	ev := map[string]any{"port": 1900, "service": "ssdp", "protocol": "udp"}
+
+	// CVE-2012-5958: libupnp ≤ 1.6.17 SSDP SUBSCRIBE buffer overflow → pre-auth RCE.
+	// The Server: header in the SSDP response often identifies the SDK version.
+	// "Portable SDK for UPnP devices/1.6.17" or earlier is vulnerable.
+	if libupnpVer := parseLibupnpVersion(resp); libupnpVer != "" {
+		ev["libupnp_version"] = libupnpVer
+		if isLibupnpVulnerable(libupnpVer) {
+			return &finding.Finding{
+				CheckID:  finding.CheckCVELibupnpSSDPRCE,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    host,
+				Title:    fmt.Sprintf("libupnp %s vulnerable to CVE-2012-5958 (pre-auth RCE via SSDP)", libupnpVer),
+				Description: fmt.Sprintf(
+					"The SSDP response identifies libupnp %s (\"Portable SDK for UPnP devices\"). "+
+						"libupnp ≤ 1.6.17 contains a buffer overflow in the SSDP SUBSCRIBE and NOTIFY "+
+						"request handlers (CVE-2012-5958, CVSS 10.0). An attacker on the network can "+
+						"send a crafted SSDP packet to trigger pre-authentication remote code execution "+
+						"as root on the embedded device. Affected vendors include Belkin, D-Link, "+
+						"Linksys, Netgear, Sony, and hundreds of others. Upgrade the device firmware.",
+					libupnpVer,
+				),
+				Evidence: ev,
+				ProofCommand: fmt.Sprintf(
+					"# Send SSDP M-SEARCH and read Server header:\n"+
+						"echo -e 'M-SEARCH * HTTP/1.1\\r\\nHOST: 239.255.255.250:1900\\r\\nMAN: \"ssdp:discover\"\\r\\nMX: 1\\r\\nST: ssdp:all\\r\\n\\r\\n' | nc -u %s 1900",
+					host),
+				DiscoveredAt: time.Now(),
+			}
+		}
 	}
 
 	f := finding.Finding{
@@ -353,10 +388,53 @@ func probeSSDPUDP(ctx context.Context, host string) *finding.Finding {
 			"Internet-facing UPnP is exploited for: port mapping attacks (opening firewall holes), " +
 			"CVE-2020-12695 (CallStranger SSRF/DDoS via SUBSCRIBE callbacks), and IoT device compromise. " +
 			"Block UDP 1900 at the network perimeter and disable UPnP on routers and IoT devices.",
-		Evidence:    map[string]any{"port": 1900, "service": "ssdp", "protocol": "udp"},
+		Evidence:     ev,
 		DiscoveredAt: time.Now(),
 	}
 	return &f
+}
+
+// parseLibupnpVersion extracts the libupnp SDK version from an SSDP response.
+// The Server: header format is: "OS/version UPnP/1.0 Portable SDK for UPnP devices/X.Y.Z"
+func parseLibupnpVersion(resp string) string {
+	const marker = "portable sdk for upnp devices/"
+	lower := strings.ToLower(resp)
+	idx := strings.Index(lower, marker)
+	if idx == -1 {
+		return ""
+	}
+	rest := resp[idx+len(marker):]
+	// Read until whitespace, CR, or end of line.
+	end := strings.IndexAny(rest, " \t\r\n")
+	if end == -1 {
+		return rest
+	}
+	return rest[:end]
+}
+
+// isLibupnpVulnerable returns true when the libupnp version is ≤ 1.6.17
+// (CVE-2012-5958 SSDP SUBSCRIBE buffer overflow).
+func isLibupnpVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj != 1 {
+		return false
+	}
+	if min < 6 {
+		return true
+	}
+	if min == 6 {
+		return patch <= 17
+	}
+	return false
 }
 
 // ── IKE / IPSec ──────────────────────────────────────────────────────────────
