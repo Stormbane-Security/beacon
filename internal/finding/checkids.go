@@ -507,6 +507,10 @@ const (
 	CheckPortAirflowExposed        CheckID = "port.airflow_exposed"             // Apache Airflow web server exposed without auth (port 8080)
 	CheckCVEAirflowDAGRCE          CheckID = "cve.airflow_dag_rce"              // CVE-2024-39877 Airflow < 2.10.0 DAG author code execution via malicious dags (CVSS 8.8)
 	CheckPortOpenWebUIExposed      CheckID = "port.openwebui_exposed"           // Open WebUI exposed (port 8080) — CVE-2024-1520 OS command injection via /open_code_folder
+	CheckPortPulsarAdminExposed    CheckID = "port.pulsar_admin_exposed"        // Apache Pulsar admin API exposed without auth (port 8080) — full cluster control
+	CheckPortSGLangExposed         CheckID = "port.sglang_exposed"              // SGLang inference server exposed without auth (port 30000) — LLM API with no auth by default
+	CheckPortAdGuardExposed        CheckID = "port.adguard_exposed"             // AdGuard Home admin UI exposed (port 3000) — DNS hijack risk
+	CheckPortStepCAExposed         CheckID = "port.step_ca_exposed"             // step-ca certificate authority SCEP endpoint exposed — CA control surface
 
 	// ── Additional network vendor identification ──────────────────────────────
 	CheckNetDeviceF5Detected       CheckID = "netdev.f5_detected"         // F5 BIG-IP load balancer identified (/tmui/login.jsp)
@@ -1263,6 +1267,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortAirflowExposed:         {CheckPortAirflowExposed, SeverityHigh, ModeSurface},
 	CheckCVEAirflowDAGRCE:           {CheckCVEAirflowDAGRCE, SeverityHigh, ModeSurface},
 	CheckPortOpenWebUIExposed:       {CheckPortOpenWebUIExposed, SeverityHigh, ModeSurface},
+	CheckPortPulsarAdminExposed:     {CheckPortPulsarAdminExposed, SeverityHigh, ModeSurface},
+	CheckPortSGLangExposed:          {CheckPortSGLangExposed, SeverityHigh, ModeSurface},
+	CheckPortAdGuardExposed:         {CheckPortAdGuardExposed, SeverityHigh, ModeSurface},
+	CheckPortStepCAExposed:          {CheckPortStepCAExposed, SeverityMedium, ModeSurface},
 	CheckNetDeviceF5Detected:       {CheckNetDeviceF5Detected, SeverityInfo, ModeSurface},
 	CheckNetDeviceSonicWallDetected: {CheckNetDeviceSonicWallDetected, SeverityInfo, ModeSurface},
 	CheckNetDeviceCheckPointDetected: {CheckNetDeviceCheckPointDetected, SeverityInfo, ModeSurface},

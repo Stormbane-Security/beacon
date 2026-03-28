@@ -1188,6 +1188,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// step-ca SCEP endpoint exposure:
+	// /scep?operation=GetCACert returns a PKCS#7 blob — confirms CA is reachable.
+	if f := probeStepCASCEP(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	return findings, nil
 }
 
@@ -4773,6 +4779,62 @@ func probeOpenWebUI(ctx context.Context, client *http.Client, base, asset string
 			"curl -s '%s' | grep -i 'open webui'\n# Expected: title or meta content matching 'Open WebUI'", u),
 		DiscoveredAt: time.Now(),
 	}
+}
+
+// probeStepCASCEP tests for an exposed step-ca SCEP (Simple Certificate Enrollment Protocol)
+// endpoint. SCEP is used for automated certificate issuance. An exposed step-ca SCEP endpoint
+// allows unauthenticated clients to request certificates from the CA, potentially enabling
+// rogue certificate issuance. The GetCACert operation returns a PKCS#7 blob without auth.
+func probeStepCASCEP(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	// Try both common step-ca SCEP paths.
+	paths := []string{"/scep", "/1.0/scep"}
+	for _, p := range paths {
+		u := base + p + "?operation=GetCACert&message=test"
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		ct := resp.Header.Get("Content-Type")
+		// SCEP GetCACert response is application/x-x509-ca-cert or application/x-pki-message,
+		// or may contain raw DER binary starting with the ASN.1 SEQUENCE tag (0x30).
+		isPKCS7 := strings.Contains(ct, "x-pki-message") || strings.Contains(ct, "x-x509-ca-cert") ||
+			strings.Contains(ct, "pkcs") || (len(body) > 2 && body[0] == 0x30)
+		if !isPKCS7 {
+			continue
+		}
+		return &finding.Finding{
+			CheckID:  finding.CheckPortStepCAExposed,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    asset,
+			Title:    fmt.Sprintf("step-ca SCEP endpoint accessible unauthenticated on %s", asset),
+			Description: "The step-ca certificate authority SCEP endpoint is publicly accessible. " +
+				"SCEP (Simple Certificate Enrollment Protocol) allows automated certificate issuance. " +
+				"An unauthenticated SCEP endpoint expands the attack surface of your PKI: " +
+				"depending on configuration, clients may be able to enroll for certificates without " +
+				"challenge password validation. Restrict SCEP access to trusted enrollment networks " +
+				"and ensure challenge password or pre-shared key validation is enforced.",
+			Evidence: map[string]any{
+				"url":          u,
+				"content_type": ct,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -s -o /dev/null -w '%%{http_code} %%{content_type}' '%s'\n"+
+					"# Expected: 200 application/x-pki-message — confirms SCEP CA cert endpoint reachable", u),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

@@ -172,6 +172,7 @@ var extendedPorts = []portEntry{
 	{8222, "nats-monitoring", false},    // NATS message broker monitoring API — multiple auth bypass CVEs
 	{8265, "ray-dashboard", false},      // Ray distributed ML dashboard (no auth by default)
 	{9097, "tekton-dashboard", false},   // Tekton Pipelines dashboard (no auth by default)
+	{30000, "sglang", false},            // SGLang LLM inference server (no auth by default)
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -1686,6 +1687,82 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			}
 		}
 
+	case 8080:
+		// Apache Pulsar admin API — GET /admin/v2/clusters returns JSON listing broker clusters.
+		// The Pulsar admin API has no authentication by default and provides full cluster control:
+		// create/delete topics, manage namespaces, drain brokers, and read all messages.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/admin/v2/clusters"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "standalone") || strings.Contains(bodyLow, "pulsar") ||
+				(strings.HasPrefix(strings.TrimSpace(body), "[") && strings.Contains(body, `"`)) {
+				return []finding.Finding{makeF(
+					finding.CheckPortPulsarAdminExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Apache Pulsar admin API exposed unauthenticated on port %d", port),
+					"The Apache Pulsar broker admin REST API at /admin/v2/clusters is accessible without "+
+						"authentication. The Pulsar admin API provides full control over the messaging cluster: "+
+						"creating and deleting topics and namespaces, managing subscriptions, offloading data, "+
+						"and reading broker configuration. Unauthenticated access can expose all topic data "+
+						"and allow a attacker to drain, corrupt, or delete message queues. "+
+						"Enable Pulsar authentication (JWT or TLS mutual auth) and restrict the admin port "+
+						"to trusted management networks.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/admin/v2/clusters", asset, port)},
+				)}
+			}
+		}
+
+	case 3000:
+		// AdGuard Home admin UI — GET /control/status returns JSON with DNS state.
+		// AdGuard Home is a network-wide DNS sinkhole. Unauthenticated access to the
+		// admin UI allows an attacker to reconfigure DNS upstream servers (DNS hijack),
+		// disable filtering, or establish a persistent backdoor on all network clients.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/control/status"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "dns_addresses") || strings.Contains(bodyLow, "running") &&
+				strings.Contains(bodyLow, "version") {
+				return []finding.Finding{makeF(
+					finding.CheckPortAdGuardExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("AdGuard Home admin UI exposed unauthenticated on port %d", port),
+					"The AdGuard Home admin API at /control/status is accessible without authentication. "+
+						"AdGuard Home controls DNS resolution for all devices on the network. "+
+						"Unauthenticated access allows an attacker to reconfigure upstream DNS servers "+
+						"(enabling DNS hijacking of the entire network), disable ad/malware filtering, "+
+						"read DNS query logs, and modify access control lists. "+
+						"Enable authentication in AdGuard Home settings and restrict access to the "+
+						"admin interface to trusted internal addresses only.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/control/status", asset, port)},
+				)}
+			}
+		}
+
+	case 30000:
+		// SGLang LLM inference server — GET /health confirms the service;
+		// GET /v1/models lists available models. SGLang has no authentication by default.
+		// Unauthenticated access allows arbitrary LLM inference at the operator's cost
+		// and may expose fine-tuned model weights or training data via the API.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "data") && strings.Contains(bodyLow, "model") {
+				return []finding.Finding{makeF(
+					finding.CheckPortSGLangExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("SGLang LLM inference server exposed unauthenticated on port %d", port),
+					"An SGLang LLM inference server is publicly accessible without authentication. "+
+						"SGLang is a high-throughput serving framework for large language models. "+
+						"Unauthenticated access allows unlimited inference at the operator's infrastructure cost, "+
+						"potential prompt injection attacks, and exposure of fine-tuned model capabilities "+
+						"or system prompts. If fine-tuned on proprietary data, model inversion may be possible. "+
+						"Add an API key requirement (--api-key) and place the inference server behind "+
+						"an authenticated reverse proxy or VPN.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
+				)}
+			}
+		}
+
 	case 9401, 9419:
 		portDesc := map[int]string{
 			9401: "Veeam Backup & Replication Enterprise Manager",
@@ -2051,6 +2128,7 @@ var webServicePorts = map[int]string{
 	8222:  "nats-monitoring",
 	8265:  "ray-dashboard",
 	9097:  "tekton-dashboard",
+	30000: "sglang",
 	16686: "jaeger-ui",
 	4848:  "glassfish-admin",
 	7001:  "weblogic",
