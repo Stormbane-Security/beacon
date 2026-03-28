@@ -166,6 +166,7 @@ var extendedPorts = []portEntry{
 	{8728, "routeros-api", false}, // MikroTik RouterOS API (plaintext)
 	{264, "checkpoint-topology", false}, // Check Point FW-1 topology / cpstat discovery
 	{179, "bgp", false},               // BGP routing protocol — internet-facing router exposure
+	{9998, "tika-server", false},       // Apache Tika Server REST API — CVE-2018-1335 header injection RCE
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -649,6 +650,25 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			))
 		}
 
+		// CVE-2018-15473: OpenSSH < 7.7 username enumeration via malformed public-key auth packet.
+		// A behavioral difference (USERAUTH_FAILURE vs disconnect) allows enumerating valid usernames
+		// without authentication. Fixed in OpenSSH 7.7p1 (April 2018). Severity Medium — no direct
+		// code execution, but enables targeted brute-force and credential-stuffing attacks.
+		if isOpenSSHUsernameEnumVulnerable(sv) {
+			netDevFindings = append(netDevFindings, makeF(
+				finding.CheckCVEOpenSSHUsernameEnum,
+				finding.SeverityMedium,
+				fmt.Sprintf("CVE-2018-15473: OpenSSH %s vulnerable to username enumeration", sv),
+				fmt.Sprintf("OpenSSH %s is in the range vulnerable to CVE-2018-15473 (OpenSSH < 7.7p1). "+
+					"An unauthenticated attacker can distinguish valid from invalid usernames by observing "+
+					"the server response difference to a malformed public-key auth request: valid users cause "+
+					"a connection reset while invalid users receive a standard auth failure response. "+
+					"This enables targeted brute-force attacks against confirmed valid accounts. "+
+					"Upgrade to OpenSSH 7.7p1 or later.", sv),
+				ev,
+			))
+		}
+
 		// CVE-2024-6387 (regreSSHion): OpenSSH 8.5p1–9.7p1 on Linux/glibc.
 		if isOpenSSHRegreSSHionVulnerable(sv, banner) {
 			netDevFindings = append(netDevFindings, makeF(
@@ -1036,14 +1056,34 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			8001: "kubectl proxy",
 		}
 		k8sName := k8sNames[port]
-		return []finding.Finding{makeF(
+		var k8sFindings []finding.Finding
+		k8sFindings = append(k8sFindings, makeF(
 			finding.CheckPortK8sAPIExposed,
 			finding.SeverityHigh,
 			fmt.Sprintf("%s exposed on port %d", k8sName, port),
 			fmt.Sprintf("The %s is publicly reachable. "+
 				"Misconfigured RBAC or anonymous access on the Kubernetes API allows full cluster compromise.", k8sName),
 			map[string]any{"port": port, "service": service, "banner": banner},
-		)}
+		))
+		// CVE-2018-1002105: Kubernetes ≤ 1.12.2 API server WebSocket upgrade privilege escalation.
+		// GET /version is unauthenticated by default — returns gitVersion for version comparison.
+		// The flaw allows an anonymous user to establish a raw TCP bridge through the API server
+		// to a backend aggregated API, inheriting the API server's cluster-admin credentials.
+		if k8sVer := probeK8sVersion(ctx, asset, port); k8sVer != "" && isKubernetesPrivEscVulnerable(k8sVer) {
+			k8sFindings = append(k8sFindings, makeF(
+				finding.CheckCVEKubernetesPrivEsc,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2018-1002105: Kubernetes %s vulnerable to unauthenticated cluster-admin privilege escalation", k8sVer),
+				fmt.Sprintf("Kubernetes %s is internet-accessible and vulnerable to CVE-2018-1002105 (CVSS 9.8, KEV). "+
+					"An unauthenticated attacker can send a WebSocket upgrade request to an aggregated API endpoint "+
+					"and establish a raw TCP bridge through the API server. The bridge runs with the API server's "+
+					"cluster-admin credentials, granting full cluster access without any authentication. "+
+					"This affects Kubernetes < 1.10.11, < 1.11.5, and < 1.12.3. "+
+					"Upgrade Kubernetes immediately.", k8sVer),
+				map[string]any{"port": port, "service": service, "k8s_version": k8sVer, "cve": "CVE-2018-1002105"},
+			))
+		}
+		return k8sFindings
 
 	// ── Windows Remote Management ─────────────────────────────────────────────
 
@@ -1438,6 +1478,23 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				eximVer := parseEximVersion(banner)
 				ev := map[string]any{"port": port, "service": service, "banner": banner, "exim_version": eximVer}
 
+				// CVE-2018-6789: Exim < 4.90.1 base64d() off-by-one heap overflow → pre-auth RCE (KEV).
+				// The base64 decode buffer is undersized by 1 byte for inputs of length 4n+3,
+				// overwriting the next heap chunk's metadata and enabling arbitrary write.
+				if eximVer != "" && isEximHeapOverflowVulnerable(eximVer) {
+					return []finding.Finding{makeF(
+						finding.CheckCVEEximHeapOverflow,
+						finding.SeverityCritical,
+						fmt.Sprintf("CVE-2018-6789: Exim %s vulnerable to pre-auth heap overflow RCE on port %d", eximVer, port),
+						fmt.Sprintf("Exim %s is internet-accessible and vulnerable to CVE-2018-6789 (CVSS 9.8, KEV). "+
+							"A one-byte heap overflow in the base64d() decoder allows an unauthenticated remote attacker "+
+							"to corrupt heap metadata and achieve arbitrary write, leading to remote code execution "+
+							"as the Exim daemon user. All Exim versions before 4.90.1 are affected. "+
+							"Exploited by multiple botnets. Upgrade to Exim 4.90.1 or later immediately.", eximVer),
+						ev,
+					)}
+				}
+
 				// CVE-2019-10149: Exim 4.87–4.91 local-part expansion RCE (KEV).
 				// The DELIVER_FAIL_STR expansion uses an unchecked snprintf replacement
 				// that evaluates ${run{...}} in the local-part — full RCE without auth.
@@ -1624,6 +1681,44 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				"Restrict port 179 to known BGP peer IP addresses with firewall rules.",
 			map[string]any{"port": port, "service": service, "banner": banner},
 		)}
+
+	// ── Apache Tika Server ────────────────────────────────────────────────────
+
+	case 9998: // Apache Tika Server REST API
+		// CVE-2018-1335: Apache Tika Server 1.7–1.17 allows command injection via
+		// X-Tika-OCR* HTTP headers which are passed unsanitized to external tool invocations.
+		// GET /version returns the Tika version; GET /tika returns "This is Tika Server".
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/version"); ok {
+			ev := map[string]any{"port": port, "service": service, "banner": banner}
+			tikaVer := strings.TrimSpace(body)
+			if strings.HasPrefix(strings.ToLower(tikaVer), "apache tika ") {
+				tikaVer = tikaVer[len("apache tika "):]
+			}
+			ev["tika_version"] = tikaVer
+			if isApacheTikaRCEVulnerable(tikaVer) {
+				return []finding.Finding{makeF(
+					finding.CheckCVEApacheTikaRCE,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2018-1335: Apache Tika Server %s vulnerable to command injection RCE", tikaVer),
+					fmt.Sprintf("Apache Tika Server %s is internet-accessible and vulnerable to CVE-2018-1335 (CVSS 9.8). "+
+						"The X-Tika-OCRTesseractPath and X-Tika-OCRLanguage HTTP headers are passed unsanitized to "+
+						"external process invocations (Tesseract OCR), enabling OS command injection via a PUT request "+
+						"to /tika with Content-Type: image/jp2. Upgrade to Apache Tika Server ≥ 1.18 immediately and "+
+						"restrict the Tika Server REST API to trusted internal networks.", tikaVer),
+					ev,
+				)}
+			}
+			// Tika found but version is safe or unknown — still flag exposure.
+			return []finding.Finding{makeF(
+				finding.CheckCVEApacheTikaRCE,
+				finding.SeverityHigh,
+				fmt.Sprintf("Apache Tika Server REST API exposed on port %d", port),
+				"An Apache Tika Server REST API is internet-accessible without authentication. "+
+					"Tika Server is a document parsing service not designed for direct internet exposure. "+
+					"Verify the version is ≥ 1.18 (CVE-2018-1335 command injection) and restrict to internal networks.",
+				ev,
+			)}
+		}
 
 	// ── Kibana ────────────────────────────────────────────────────────────────
 
@@ -2319,6 +2414,35 @@ func parseSSHVersion(banner string) string {
 	return software
 }
 
+// isOpenSSHUsernameEnumVulnerable returns true when the OpenSSH version is < 7.7p1,
+// the range affected by CVE-2018-15473 username enumeration. Fixed in 7.7p1 (Apr 2018).
+func isOpenSSHUsernameEnumVulnerable(sv string) bool {
+	if !strings.HasPrefix(sv, "OpenSSH_") {
+		return false
+	}
+	verStr := sv[len("OpenSSH_"):]
+	dotIdx := strings.IndexByte(verStr, '.')
+	if dotIdx == -1 {
+		return false
+	}
+	pIdx := strings.IndexAny(verStr, "p ")
+	endIdx := len(verStr)
+	if pIdx != -1 {
+		endIdx = pIdx
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(verStr[:dotIdx], "%d", &maj)
+	fmt.Sscanf(verStr[dotIdx+1:endIdx], "%d", &min)
+	// Vulnerable: any version < 7.7
+	if maj < 7 {
+		return true
+	}
+	if maj == 7 && min < 7 {
+		return true
+	}
+	return false
+}
+
 // isOpenSSHRegreSSHionVulnerable returns true when the SSH banner indicates an
 // OpenSSH version in the CVE-2024-6387 (regreSSHion) vulnerable range:
 // 8.5p1 ≤ version ≤ 9.7p1 on a glibc-based (non-OpenBSD) system.
@@ -2415,6 +2539,64 @@ func isElasticsearchGroovyVulnerable(ver string) bool {
 	fmt.Sscanf(parts[0], "%d", &major)
 	fmt.Sscanf(parts[1], "%d", &minor)
 	return major == 1 && minor < 6
+}
+
+// probeK8sVersion fetches the Kubernetes /version endpoint (unauthenticated by
+// default) and returns the gitVersion string (e.g. "v1.11.4"). Returns "" on error.
+func probeK8sVersion(ctx context.Context, host string, port int) string {
+	body, ok := probeHTTPBody(ctx, host, port, true, "/version")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, false, "/version")
+		if !ok {
+			return ""
+		}
+	}
+	ver := parseJSONStringField(body, "gitVersion")
+	return strings.TrimPrefix(ver, "v")
+}
+
+// isKubernetesPrivEscVulnerable returns true when the Kubernetes gitVersion is
+// in a range affected by CVE-2018-1002105 (WebSocket upgrade privilege escalation):
+// < 1.10.11, < 1.11.5, or < 1.12.3.
+func isKubernetesPrivEscVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	// Strip pre-release suffix from minor/patch (e.g. "11-gke.1" → 11)
+	fmt.Sscanf(parts[1], "%d", &min)
+	fmt.Sscanf(parts[2], "%d", &patch)
+	if maj != 1 {
+		return false
+	}
+	switch {
+	case min <= 9:
+		return true // all 1.x where x < 10 are vulnerable
+	case min == 10:
+		return patch < 11
+	case min == 11:
+		return patch < 5
+	case min == 12:
+		return patch < 3
+	default:
+		return false // 1.13+ patched
+	}
+}
+
+// isApacheTikaRCEVulnerable returns true when the Tika Server version is in
+// the range affected by CVE-2018-1335 (X-Tika-OCR* command injection): 1.7–1.17.
+// Fixed in 1.18.
+func isApacheTikaRCEVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	return maj == 1 && min >= 7 && min <= 17
 }
 
 // isVulnerableKibana returns true when the Kibana version falls in the range
@@ -2984,6 +3166,32 @@ func parseEximVersion(banner string) string {
 		return ""
 	}
 	return v
+}
+
+// isEximHeapOverflowVulnerable returns true when the Exim version is before 4.90.1,
+// the fix for CVE-2018-6789 (base64d() off-by-one heap overflow → pre-auth RCE).
+// All Exim versions through 4.90.0 are affected; 4.90.1 contains the fix.
+func isEximHeapOverflowVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	major, minor, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if major != 4 {
+		return false
+	}
+	if minor < 90 {
+		return true
+	}
+	if minor == 90 {
+		return patch < 1
+	}
+	return false
 }
 
 // isEximRCE2019Vulnerable returns true when the Exim version is in the range

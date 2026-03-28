@@ -705,6 +705,11 @@ const (
 	// ── Recent high-severity CVEs (2018) ──────────────────────────────────────
 	CheckCVEDrupalgeddon2           CheckID = "cve.drupal_drupalgeddon2"           // CVE-2018-7600/7602 Drupal RCE (Drupalgeddon2/3) — version from CHANGELOG.txt (CVSS 9.8, KEV)
 	CheckCVEManageEngineDesktopCVE  CheckID = "cve.manageengine_desktop_central"   // CVE-2020-10189 ManageEngine Desktop Central pre-auth file upload → RCE (CVSS 9.8, KEV)
+	CheckCVEOpenSSHUsernameEnum     CheckID = "cve.openssh_username_enum_2018"     // CVE-2018-15473 OpenSSH ≤ 7.7 username enumeration via malformed auth packet (CVSS 5.3)
+	CheckCVEKubernetesPrivEsc       CheckID = "cve.kubernetes_priv_esc_2018"       // CVE-2018-1002105 Kubernetes ≤ 1.12.2 API server WebSocket upgrade priv esc → cluster admin (CVSS 9.8, KEV)
+	CheckCVEJenkinsStaplerRCE       CheckID = "cve.jenkins_stapler_rce_2018"       // CVE-2018-1000861 Jenkins ≤ 2.153 Stapler URL routing pre-auth RCE via ACL bypass (CVSS 9.8)
+	CheckCVEEximHeapOverflow        CheckID = "cve.exim_heap_overflow_2018"        // CVE-2018-6789 Exim < 4.90.1 base64d() off-by-one heap overflow → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEApacheTikaRCE           CheckID = "cve.apache_tika_cmd_injection_2018" // CVE-2018-1335 Apache Tika Server 1.7–1.17 X-Tika-OCR* header command injection → RCE (CVSS 9.8)
 
 	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
 	CheckCVEWebLogicWLSWSAT       CheckID = "cve.weblogic_wls_wsat"          // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
@@ -1339,6 +1344,11 @@ var Registry = map[CheckID]CheckMeta{
 	// 2018 CVEs
 	CheckCVEDrupalgeddon2:          {CheckCVEDrupalgeddon2, SeverityCritical, ModeSurface},
 	CheckCVEManageEngineDesktopCVE: {CheckCVEManageEngineDesktopCVE, SeverityCritical, ModeSurface},
+	CheckCVEOpenSSHUsernameEnum:    {CheckCVEOpenSSHUsernameEnum, SeverityMedium, ModeSurface},
+	CheckCVEKubernetesPrivEsc:      {CheckCVEKubernetesPrivEsc, SeverityCritical, ModeSurface},
+	CheckCVEJenkinsStaplerRCE:      {CheckCVEJenkinsStaplerRCE, SeverityCritical, ModeSurface},
+	CheckCVEEximHeapOverflow:       {CheckCVEEximHeapOverflow, SeverityCritical, ModeSurface},
+	CheckCVEApacheTikaRCE:          {CheckCVEApacheTikaRCE, SeverityCritical, ModeSurface},
 
 	// 2017 CVEs
 	CheckCVEWebLogicWLSWSAT:     {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
