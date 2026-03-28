@@ -366,11 +366,22 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 			return nil
 		}
 
-		// Only flag 2xx responses — a token endpoint that returns 200 without
-		// requiring credentials is genuinely misconfigured. Non-2xx non-4xx
-		// responses (5xx, etc.) are server errors, not auth bypasses.
-		if resp.StatusCode == http.StatusOK || (resp.StatusCode == http.StatusBadRequest &&
-			!strings.Contains(bodyLower, "invalid")) {
+		// Only flag 2xx responses or 400s that look like misbehaving OAuth endpoints.
+		// A 200 with no credentials is always a misconfiguration.
+		// A 400 that doesn't use standard OAuth rejection words (invalid_client,
+		// invalid_request, etc.) is only flagged when the response body has
+		// positive OAuth signals — preventing false positives from generic APIs
+		// (e.g. blockchain explorers using /api/token with module/action patterns)
+		// that happen to return application/json 400s for unrelated reasons.
+		is400Misconfig := resp.StatusCode == http.StatusBadRequest &&
+			!strings.Contains(bodyLower, "invalid") &&
+			(strings.Contains(bodyLower, "grant_type") ||
+				strings.Contains(bodyLower, "access_token") ||
+				strings.Contains(bodyLower, "token_type") ||
+				strings.Contains(bodyLower, `"error":`) ||
+				strings.Contains(bodyLower, "client_id") ||
+				strings.Contains(bodyLower, "oauth"))
+		if resp.StatusCode == http.StatusOK || is400Misconfig {
 			return &finding.Finding{
 				CheckID:  finding.CheckOAuthMissingState, // reuse closest check; ideally a dedicated ID
 				Module:   "surface",

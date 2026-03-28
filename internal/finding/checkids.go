@@ -306,6 +306,9 @@ const (
 	CheckGHActionPATUsedInWorkflow      CheckID = "ghaction.pat_used_in_workflow"
 	// Informational: deploy targets extracted from workflow files for cross-scan correlation.
 	CheckGHActionDeployTargets          CheckID = "ghaction.deploy_targets"
+	// Informational: records how a GitHub repository was linked to a scanned domain.
+	// Evidence includes discovery_method (package_json, html_link) and source_url.
+	CheckGHActionRepoDiscovered         CheckID = "ghaction.repo_discovered"
 	// AI-generated attack path connecting CI/CD findings to deployed infrastructure.
 	CheckCICDAttackPath                 CheckID = "cicd.attack_path"
 
@@ -1030,6 +1033,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGHActionScheduledWrite:          {CheckGHActionScheduledWrite, SeverityHigh, ModeSurface},
 	CheckGHActionMissingJobTimeout:       {CheckGHActionMissingJobTimeout, SeverityMedium, ModeSurface},
 	CheckGHActionContinueOnErrorSecurity: {CheckGHActionContinueOnErrorSecurity, SeverityMedium, ModeSurface},
+	CheckGHActionDeployTargets:           {CheckGHActionDeployTargets, SeverityInfo, ModeSurface},
+	CheckGHActionRepoDiscovered:          {CheckGHActionRepoDiscovered, SeverityInfo, ModeSurface},
 	// GitHub repo hardening
 	CheckGitHubNoCodeowners:    {CheckGitHubNoCodeowners, SeverityMedium, ModeSurface},
 	CheckGitHubNoTagProtection: {CheckGitHubNoTagProtection, SeverityMedium, ModeSurface},

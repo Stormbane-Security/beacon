@@ -546,6 +546,14 @@ Type exactly: I have written authorization for %s
 		fatalf("save findings: %v", err)
 	}
 
+	// Run deterministic compound-attack correlation rules synchronously.
+	// These fire without AI and appear in the TUI even when AI is skipped.
+	if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
+		fmt.Fprintf(os.Stderr, "beacon: deterministic correlations: %v\n", err)
+	} else if len(corrFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "beacon: %d compound attack chain(s) detected\n", len(corrFindings))
+	}
+
 	// Apply severity filter before enrichment so below-threshold findings are
 	// never sent to the Claude API — saves tokens and keeps prompts focused.
 	minSev := finding.ParseSeverity(severityFlag)
@@ -954,6 +962,11 @@ type browseState struct {
 	// copyFlash is set to a short status message when 'y' is pressed.
 	// Shown in the detail header for one render cycle, then cleared.
 	copyFlash string
+
+	// Asset detail scroll state.
+	assetDetailOff      int  // scroll offset for the full evidence/findings lines view
+	assetDetailFindLine int  // absolute line index where findings begin (set by render, used by Enter)
+	assetDetailFromDetail bool // entered browseModeAssetDetail via [a] from browseModeDetail
 }
 
 var browseSpinChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -1545,6 +1558,21 @@ func browseInteractive(cfg *config.Config) browseResult {
 					bs.copyFlash = "\x1b[90mNo proof command to copy\x1b[0m"
 				}
 			}
+			if b[0] == 'a' && bs.selectedFinding != nil {
+				asset := bs.selectedFinding.Finding.Asset
+				for i, ex := range bs.executions {
+					if ex.Asset == asset {
+						bs.selectedExec = &bs.executions[i]
+						bs.assetDetailOff = 0
+						bs.assetDetailFindLine = 0
+						bs.execFindCursor = 0
+						bs.execFindOff = 0
+						bs.assetDetailFromDetail = true
+						bs.mode = browseModeAssetDetail
+						break
+					}
+				}
+			}
 
 		case browseModeAssets:
 			if isQ {
@@ -1578,14 +1606,34 @@ func browseInteractive(cfg *config.Config) browseResult {
 				return browseResult{}
 			}
 			if isEsc || b[0] == 'b' {
-				bs.mode = browseModeAssets
-				bs.selectedExec = nil
+				if bs.assetDetailFromDetail {
+					bs.assetDetailFromDetail = false
+					bs.mode = browseModeDetail
+				} else {
+					bs.mode = browseModeAssets
+					bs.selectedExec = nil
+				}
 			}
 			if isDown {
-				bs.execFindCursor++
+				bs.assetDetailOff++
+				// Keep finding cursor in sync with scroll position in findings section.
+				if bs.assetDetailFindLine > 0 {
+					rel := bs.assetDetailOff - bs.assetDetailFindLine
+					if rel > 0 {
+						bs.execFindCursor = rel
+					}
+				}
 			}
-			if isUp && bs.execFindCursor > 0 {
-				bs.execFindCursor--
+			if isUp && bs.assetDetailOff > 0 {
+				bs.assetDetailOff--
+				if bs.assetDetailFindLine > 0 {
+					rel := bs.assetDetailOff - bs.assetDetailFindLine
+					if rel > 0 {
+						bs.execFindCursor = rel
+					} else {
+						bs.execFindCursor = 0
+					}
+				}
 			}
 			if isEnter && bs.selectedExec != nil {
 				af := browseAssetFindings(bs)
@@ -1593,6 +1641,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 					f := af[bs.execFindCursor]
 					bs.selectedFinding = &f
 					bs.detailOff = 0
+					bs.assetDetailFromDetail = false
 					bs.mode = browseModeDetail
 				}
 			}
@@ -2132,7 +2181,7 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 		fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[90m[j/k] scroll  [b/q] back\x1b[0m\n", bs.copyFlash)
 		bs.copyFlash = "" // clear after one render
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [b/q] back\x1b[0m\n")
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [a] asset  [b/q] back\x1b[0m\n")
 	}
 
 	end := bs.detailOff + bodyLines
@@ -2261,56 +2310,260 @@ func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH
 	ex := bs.selectedExec
 	ev := ex.Evidence
 
-	// Build content lines — header block first, then findings list.
-	lineCount := 0
-
-	name := ex.Asset
-	if len(name) > 50 {
-		name = "…" + name[len(name)-49:]
+	// Build all content as scrollable lines (like browseRenderDetail).
+	var lines []string
+	kv := func(label string, value string) {
+		lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", label, value))
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m◀\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[b/q] back  [j/k] move  [↵] finding detail\x1b[0m\n", name)
-	lineCount++
 
-	// Network info line.
-	var infoParts []string
+	// ── Discovery & Classification ────────────────────────────────────────
+	lines = append(lines, "\x1b[1mDiscovery & Classification\x1b[0m")
+	if ex.ExpandedFrom != "" {
+		kv("expanded from", ex.ExpandedFrom)
+	}
+	src := ev.ClassificationSource
+	if src == "" {
+		src = "deterministic rules"
+	}
+	kv("classification", src)
+	if ex.ClassifyDurationMs > 0 {
+		kv("classify duration", fmt.Sprintf("%dms", ex.ClassifyDurationMs))
+	}
+	if len(ex.ScannersRun) > 0 {
+		// Wrap long scanner lists.
+		scanners := strings.Join(ex.ScannersRun, ", ")
+		if len(scanners) > termW-32 {
+			scanners = scanners[:termW-35] + "…"
+		}
+		kv("scanners run", scanners)
+	}
+	if len(ex.MatchedPlaybooks) > 0 {
+		kv("matched playbooks", strings.Join(ex.MatchedPlaybooks, ", "))
+	}
+	lines = append(lines, "")
+
+	// ── Network ───────────────────────────────────────────────────────────
+	lines = append(lines, "\x1b[1mNetwork\x1b[0m")
 	if ev.IP != "" {
-		infoParts = append(infoParts, "IP: "+ev.IP)
+		kv("ip", ev.IP)
 	}
 	if ev.ASNOrg != "" {
-		org := ev.ASNOrg
-		if len(org) > 22 {
-			org = org[:21] + "…"
+		asn := ev.ASNOrg
+		if ev.ASNNum != "" {
+			asn += " (" + ev.ASNNum + ")"
 		}
-		infoParts = append(infoParts, "ASN: "+org)
-	}
-	if ev.StatusCode > 0 {
-		infoParts = append(infoParts, fmt.Sprintf("HTTP %d", ev.StatusCode))
-	}
-	if ws := ev.ServiceVersions["web_server"]; ws != "" {
-		if i := strings.IndexAny(ws, "/ "); i > 0 {
-			ws = ws[:i]
-		}
-		infoParts = append(infoParts, ws)
-	}
-	if ev.CloudProvider != "" {
-		infoParts = append(infoParts, "cloud:"+ev.CloudProvider)
-	}
-	if ev.Framework != "" {
-		infoParts = append(infoParts, "fw:"+ev.Framework)
+		kv("asn", asn)
 	}
 	if len(ev.CNAMEChain) > 0 {
-		cn := ev.CNAMEChain[0]
-		if len(cn) > 30 {
-			cn = "…" + cn[len(cn)-29:]
-		}
-		infoParts = append(infoParts, "→ "+cn)
+		kv("cname chain", strings.Join(ev.CNAMEChain, " → "))
 	}
-	if len(infoParts) > 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Join(infoParts, "  "))
-		lineCount++
+	if ev.StatusCode > 0 {
+		kv("http status", fmt.Sprintf("%d", ev.StatusCode))
+	}
+	if ev.CloudProvider != "" {
+		kv("cloud", ev.CloudProvider)
+	}
+	if ev.InfraLayer != "" {
+		kv("infra layer", ev.InfraLayer)
+	}
+	if ev.ProxyType != "" {
+		kv("proxy", ev.ProxyType)
+	}
+	if ev.Framework != "" {
+		kv("framework", ev.Framework)
+	}
+	if ev.AuthSystem != "" {
+		kv("auth system", ev.AuthSystem)
+	}
+	if ev.AuthScheme != "" {
+		kv("auth scheme", ev.AuthScheme)
+	}
+	if ev.IsServerless {
+		kv("serverless", "yes")
+	}
+	if ev.IsKubernetes {
+		kv("kubernetes", "yes")
+	}
+	if ev.IsReverseProxy {
+		kv("reverse proxy", "yes")
+	}
+	if ev.HTTP2Enabled {
+		kv("http2", "yes")
+	}
+	if ev.MXProvider != "" {
+		kv("mx provider", ev.MXProvider)
+	}
+	if len(ev.BackendServices) > 0 {
+		kv("backend services", strings.Join(ev.BackendServices, ", "))
+	}
+	lines = append(lines, "")
+
+	// ── TLS ───────────────────────────────────────────────────────────────
+	if ev.CertIssuer != "" || len(ev.CertSANs) > 0 || ev.JARMFingerprint != "" {
+		lines = append(lines, "\x1b[1mTLS\x1b[0m")
+		if ev.CertIssuer != "" {
+			kv("cert issuer", ev.CertIssuer)
+		}
+		if len(ev.CertSANs) > 0 {
+			shown := ev.CertSANs
+			if len(shown) > 6 {
+				shown = shown[:6]
+			}
+			kv("cert SANs", strings.Join(shown, ", "))
+			if len(ev.CertSANs) > 6 {
+				kv("", fmt.Sprintf("(+%d more)", len(ev.CertSANs)-6))
+			}
+		}
+		if ev.JARMFingerprint != "" {
+			kv("jarm", ev.JARMFingerprint)
+		}
+		lines = append(lines, "")
 	}
 
-	// Open ports line from portscan findings.
+	// ── HTTP Headers & Fingerprints ───────────────────────────────────────
+	interestingHeaders := []string{
+		"server", "x-powered-by", "x-aspnet-version", "via",
+		"x-cache", "x-amz-cf-id", "cf-ray", "x-vercel-id",
+		"x-forwarded-server", "x-generator",
+	}
+	var headerLines []string
+	for _, h := range interestingHeaders {
+		if v, ok := ev.Headers[h]; ok && v != "" {
+			headerLines = append(headerLines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", h, v))
+		}
+	}
+	if len(headerLines) > 0 || len(ev.ServiceVersions) > 0 || ev.FaviconHash != "" || len(ev.CookieNames) > 0 {
+		lines = append(lines, "\x1b[1mHTTP / Fingerprints\x1b[0m")
+		lines = append(lines, headerLines...)
+		// Service versions not already shown via headers.
+		svOrder := []string{"web_server", "powered_by", "aspnet_version", "ssh_software", "ftp_software"}
+		shownSV := map[string]bool{}
+		for _, k := range svOrder {
+			if v, ok := ev.ServiceVersions[k]; ok && v != "" {
+				lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", k, v))
+				shownSV[k] = true
+			}
+		}
+		for k, v := range ev.ServiceVersions {
+			if !shownSV[k] && v != "" {
+				lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", k, v))
+			}
+		}
+		if ev.FaviconHash != "" {
+			kv("favicon hash", ev.FaviconHash)
+		}
+		if len(ev.CookieNames) > 0 {
+			kv("cookies", strings.Join(ev.CookieNames, ", "))
+		}
+		if len(ev.VendorSignals) > 0 {
+			kv("vendor signals", strings.Join(ev.VendorSignals, ", "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── Responding Paths ─────────────────────────────────────────────────
+	if len(ev.RespondingPaths) > 0 || len(ev.RobotsTxtPaths) > 0 {
+		lines = append(lines, "\x1b[1mPaths\x1b[0m")
+		if len(ev.RespondingPaths) > 0 {
+			shown := ev.RespondingPaths
+			if len(shown) > 10 {
+				shown = shown[:10]
+			}
+			kv("responding paths", strings.Join(shown, "  "))
+			if len(ev.RespondingPaths) > 10 {
+				kv("", fmt.Sprintf("(+%d more)", len(ev.RespondingPaths)-10))
+			}
+		}
+		if len(ev.RobotsTxtPaths) > 0 {
+			shown := ev.RobotsTxtPaths
+			if len(shown) > 8 {
+				shown = shown[:8]
+			}
+			kv("robots.txt disallow", strings.Join(shown, "  "))
+		}
+		if len(ex.DirbustPathsFound) > 0 {
+			shown := ex.DirbustPathsFound
+			if len(shown) > 10 {
+				shown = shown[:10]
+			}
+			kv("dirbust hits", strings.Join(shown, "  "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── DNS ───────────────────────────────────────────────────────────────
+	hasDNS := len(ev.TXTRecords) > 0 || len(ev.NSRecords) > 0 || ev.SOARecord != "" ||
+		len(ev.MXRecords) > 0 || len(ev.AAAARecords) > 0 || ev.HasDMARC || len(ev.SPFIPs) > 0
+	if hasDNS {
+		lines = append(lines, "\x1b[1mDNS\x1b[0m")
+		if ev.SOARecord != "" {
+			kv("soa", ev.SOARecord)
+		}
+		if len(ev.NSRecords) > 0 {
+			kv("ns", strings.Join(ev.NSRecords, ", "))
+		}
+		if len(ev.MXRecords) > 0 {
+			kv("mx", strings.Join(ev.MXRecords, ", "))
+		}
+		if ev.HasDMARC {
+			dmarc := "present"
+			if ev.DMARCPolicy != "" {
+				dmarc += " (p=" + ev.DMARCPolicy + ")"
+			}
+			kv("dmarc", dmarc)
+		}
+		if len(ev.SPFIPs) > 0 {
+			kv("spf ips", strings.Join(ev.SPFIPs, ", "))
+		}
+		if len(ev.TXTRecords) > 0 {
+			shown := ev.TXTRecords
+			if len(shown) > 4 {
+				shown = shown[:4]
+			}
+			for _, t := range shown {
+				if len(t) > termW-32 {
+					t = t[:termW-35] + "…"
+				}
+				lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", "txt", t))
+			}
+		}
+		if len(ev.AAAARecords) > 0 {
+			kv("ipv6", strings.Join(ev.AAAARecords, ", "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── Web3 ─────────────────────────────────────────────────────────────
+	if len(ev.Web3Signals) > 0 || len(ev.ContractAddresses) > 0 {
+		lines = append(lines, "\x1b[1mWeb3\x1b[0m")
+		if len(ev.Web3Signals) > 0 {
+			kv("signals", strings.Join(ev.Web3Signals, ", "))
+		}
+		if len(ev.ContractAddresses) > 0 {
+			kv("contracts", strings.Join(ev.ContractAddresses, ", "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── AI / LLM ─────────────────────────────────────────────────────────
+	if len(ev.AIEndpoints) > 0 || ev.LLMProvider != "" {
+		lines = append(lines, "\x1b[1mAI / LLM\x1b[0m")
+		if ev.LLMProvider != "" {
+			kv("llm provider", ev.LLMProvider)
+		}
+		if len(ev.AIEndpoints) > 0 {
+			kv("ai endpoints", strings.Join(ev.AIEndpoints, ", "))
+		}
+		if ev.HasAISSE {
+			kv("sse streaming", "yes")
+		}
+		if ev.HasAgentTools {
+			kv("agent tools", "yes")
+		}
+		lines = append(lines, "")
+	}
+
+	// ── Open Ports (from portscan findings) ──────────────────────────────
 	var portParts []string
 	for _, ef := range bs.findings {
 		f := ef.Finding
@@ -2330,86 +2583,76 @@ func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH
 		}
 	}
 	if len(portParts) > 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mports: %s\x1b[0m\n", strings.Join(portParts, "  "))
-		lineCount++
+		lines = append(lines, "\x1b[1mOpen Ports\x1b[0m")
+		kv("ports", strings.Join(portParts, "  "))
+		lines = append(lines, "")
 	}
 
-	// Matched playbooks.
-	if len(ex.MatchedPlaybooks) > 0 {
-		pb := strings.Join(ex.MatchedPlaybooks, ", ")
-		if len(pb) > termW-14 {
-			pb = pb[:termW-17] + "…"
-		}
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mplaybooks: %s\x1b[0m\n", pb)
-		lineCount++
-	}
-
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Repeat("─", min(termW-4, 70)))
-	lineCount++
-
-	// Findings list for this asset.
+	// ── Findings ─────────────────────────────────────────────────────────
+	lines = append(lines, "\x1b[90m"+strings.Repeat("─", min(termW-4, 70))+"\x1b[0m")
 	af := browseAssetFindings(bs)
-	total := len(af)
-	bodyLines := termH - lineCount - 1
-	if bodyLines < 1 {
-		bodyLines = 1
-	}
+	bs.assetDetailFindLine = len(lines) // record where findings start
 
-	// Clamp cursor and scroll.
+	total := len(af)
 	if total == 0 {
-		bs.execFindCursor = 0
+		lines = append(lines, "\x1b[32mNo findings — clean asset\x1b[0m")
 	} else {
+		// Clamp finding cursor.
 		if bs.execFindCursor >= total {
 			bs.execFindCursor = total - 1
 		}
+		for i, ef := range af {
+			f := ef.Finding
+			col := severityColor(f.Severity)
+			sev := strings.ToUpper(f.Severity.String())
+			if len(sev) > 4 {
+				sev = sev[:4]
+			}
+			title := f.Title
+			maxTitle := termW - 14
+			if maxTitle < 20 {
+				maxTitle = 20
+			}
+			if len(title) > maxTitle {
+				title = title[:maxTitle-1] + "…"
+			}
+			cursor := "  "
+			if i == bs.execFindCursor {
+				cursor = "\x1b[1;33m▶\x1b[0m "
+			}
+			lines = append(lines, fmt.Sprintf("%s%s%-4s\x1b[0m  %s", cursor, col, sev, title))
+		}
+		lines = append(lines, fmt.Sprintf("\x1b[90m%d finding(s)\x1b[0m", total))
 	}
-	if bs.execFindCursor < bs.execFindOff {
-		bs.execFindOff = bs.execFindCursor
+
+	// ── Render ───────────────────────────────────────────────────────────
+	name := ex.Asset
+	if len(name) > 50 {
+		name = "…" + name[len(name)-49:]
 	}
-	if bs.execFindCursor >= bs.execFindOff+bodyLines {
-		bs.execFindOff = bs.execFindCursor - bodyLines + 1
+	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m◀\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[j/k] scroll  [↵] open finding  [b/q] back\x1b[0m\n", name)
+
+	bodyLines := termH - 2
+	if bodyLines < 1 {
+		bodyLines = 1
 	}
-	maxOff := total - bodyLines
+	maxOff := len(lines) - bodyLines
 	if maxOff < 0 {
 		maxOff = 0
 	}
-	if bs.execFindOff > maxOff {
-		bs.execFindOff = maxOff
+	if bs.assetDetailOff > maxOff {
+		bs.assetDetailOff = maxOff
 	}
 
-	offEnd := bs.execFindOff + bodyLines
-	if offEnd > total {
-		offEnd = total
+	end := bs.assetDetailOff + bodyLines
+	if end > len(lines) {
+		end = len(lines)
 	}
-	for i := bs.execFindOff; i < offEnd; i++ {
-		f := af[i].Finding
-		col := severityColor(f.Severity)
-		sev := strings.ToUpper(f.Severity.String())
-		if len(sev) > 4 {
-			sev = sev[:4]
-		}
-		title := f.Title
-		maxTitle := termW - 20
-		if maxTitle < 20 {
-			maxTitle = 20
-		}
-		if len(title) > maxTitle {
-			title = title[:maxTitle-1] + "…"
-		}
-		cursor := "  "
-		if i == bs.execFindCursor {
-			cursor = "\x1b[1;33m▶\x1b[0m "
-		}
-		fmt.Fprintf(buf, "\x1b[2K\r%s%s%-4s\x1b[0m  %s\n", cursor, col, sev, title)
-		lineCount++
-	}
-
-	if total == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[32mNo findings — clean asset\x1b[0m\n")
-	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d findings\x1b[0m\n", bs.execFindCursor+1, total)
+	for _, l := range lines[bs.assetDetailOff:end] {
+		fmt.Fprintf(buf, "\x1b[2K\r  %s\n", l)
 	}
 }
+
 
 // severityTag returns a coloured severity badge matching the live TUI style.
 func severityTag(sev finding.Severity) string {

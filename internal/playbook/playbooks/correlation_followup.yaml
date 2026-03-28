@@ -1,0 +1,108 @@
+name: correlation_followup
+description: >
+  Activated when individual findings are detected that are components of known
+  compound attack chains — patterns where two or more low/medium findings
+  combine into a critical attack path. This playbook adds targeted follow-up
+  scanners to confirm or deepen each compound risk.
+
+  Covered chains:
+  1. CI/CD secret leakage → production compromise: GitHub Actions workflows
+     echo secrets or use pull_request_target unsafely; confirms whether those
+     secrets control reachable infrastructure.
+  2. Email spoofing → account takeover: weak DMARC/SPF combined with an OAuth
+     or login portal enables password-reset hijacking.
+  3. CORS misconfiguration → credential exfiltration: permissive CORS allows
+     cross-origin reads of authenticated API responses or leaked credentials.
+  4. Subdomain takeover → OAuth redirect hijacking: a dangling CNAME combined
+     with OAuth allows redirect_uri hijacking.
+  5. Script injection + self-hosted runner → runner host RCE.
+  6. Credential leakage → lateral movement: leaked API keys or database URLs
+     that may be reused across environments.
+
+  Fires via the Phase B convergence loop — no additional scan invocation needed.
+  Check the findings list for correlation.* findings to see which chains fired.
+
+match:
+  any:
+    # ── CI/CD chains ────────────────────────────────────────────────────────
+    - check_id: "ghaction.secrets_echoed"
+    - check_id: "ghaction.pull_request_target_unsafe"
+    - check_id: "ghaction.script_injection"
+    - check_id: "ghaction.self_hosted_on_public_repo"
+    - check_id: "ghaction.deploy_targets"
+    # ── Email spoofing chains ────────────────────────────────────────────────
+    - check_id: "email.dmarc_missing"
+    - check_id: "email.dmarc_policy_none"
+    - check_id: "email.spf_missing"
+    - check_id: "email.spf_softfail"
+    # ── CORS chains ─────────────────────────────────────────────────────────
+    - check_id: "web.cors_misconfiguration"
+    # ── Subdomain takeover chains ────────────────────────────────────────────
+    - check_id: "subdomain.takeover"
+    # ── Credential leakage chains ────────────────────────────────────────────
+    - check_id: "dlp.api_key"
+    - check_id: "dlp.database_url"
+    - check_id: "dlp.private_key"
+
+surface:
+  scanners:
+    # Re-run email to confirm SPF/DMARC and collect MX provider for spoofing context.
+    - email
+    # Re-run DLP to catch any additional credential patterns in adjacent paths.
+    - dlp
+    # Enumerate subdomains to find additional dangling CNAMEs.
+    - subdomain
+  nuclei_tags:
+    - exposure
+    - misconfiguration
+    - takeovers
+
+deep:
+  scanners:
+    # OAuth scanner: confirm whether login flows accept spoofed redirect_uris.
+    - oauth
+    # CORS: confirm credentialed cross-origin reads succeed.
+    - cors
+    # Rate limit: confirm whether credential-stuffing is rate-limited.
+    - ratelimit
+    # Re-run githubactions with deeper analysis of deploy targets.
+    - githubactions
+    # Web content: look for additional secrets in JS bundles.
+    - webcontent
+    # Exposed files: check for .env, credentials.json, and key files.
+    - exposedfiles
+  nuclei_tags:
+    - exposure
+    - misconfiguration
+    - takeovers
+    - token-spray
+    - default-logins
+  dictionary:
+    # Credential and key file locations commonly leaked
+    - /.env
+    - /.env.local
+    - /.env.production
+    - /.env.backup
+    - /credentials.json
+    - /secrets.json
+    - /config/secrets.yml
+    - /config/database.yml
+    - /.aws/credentials
+    - /.ssh/id_rsa
+    - /.ssh/id_ed25519
+    # OAuth / OIDC discovery — confirm what flows are exposed
+    - /.well-known/openid-configuration
+    - /.well-known/oauth-authorization-server
+    - /oauth/token
+    - /oauth/authorize
+    - /auth/token
+    - /api/auth/session
+    - /api/auth/providers
+    # GitHub-linked apps — check for CI/CD config exposure
+    - /.github/workflows
+    - /Makefile
+    - /docker-compose.yml
+    - /docker-compose.prod.yml
+    - /docker-compose.override.yml
+    - /.circleci/config.yml
+    - /.travis.yml
