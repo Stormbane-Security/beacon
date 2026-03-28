@@ -60,7 +60,9 @@ USAGE:
   beacon playbook    open-pr --id <id>           Open a GitHub PR for a suggestion
 
 SCAN FLAGS:
-  --domain <domain>          Target domain (required)
+  --domain <domain>          Target domain (required unless --asset or --targets is used)
+  --asset <domain>           Add a target domain; repeatable for multi-asset sessions
+  --targets <file>           File with one domain per line (enables multi-asset mode)
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
@@ -89,6 +91,8 @@ EXAMPLES:
   beacon scan --domain example.com --server https://beacon.example.com --api-key sk-...
   beacon scan --domain example.com --out report.html --format html
   beacon scan --domain example.com --deep --permission-confirmed
+  beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
+  beacon scan --targets hosts.txt --deep --permission-confirmed
   beacon report --id <id> --format markdown
   beacon analyze
   beacon playbook suggestions
@@ -191,6 +195,8 @@ func cmdInstall() {
 func cmdScan(cfg *config.Config, args []string) {
 	var (
 		domain              string
+		assets              []string
+		targetsFile         string
 		githubOrg           string
 		deep                bool
 		permissionConfirmed bool
@@ -254,8 +260,31 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				extraCIDRs = append(extraCIDRs, args[i])
 			}
+		case "--asset":
+			i++
+			if i < len(args) {
+				assets = append(assets, args[i])
+			}
+		case "--targets":
+			i++
+			if i < len(args) {
+				targetsFile = args[i]
+			}
 		}
 	}
+
+	// Build unified target list from --domain, --asset, and --targets file.
+	if domain != "" {
+		assets = append([]string{domain}, assets...)
+	}
+	if targetsFile != "" {
+		lines, err := readTargetsFile(targetsFile)
+		if err != nil {
+			fatalf("read --targets: %v", err)
+		}
+		assets = append(assets, lines...)
+	}
+	assets = uniqueStrings(assets)
 
 	// GitHub Actions scan mode — mutually exclusive with domain scan.
 	if githubOrg != "" {
@@ -263,9 +292,18 @@ func cmdScan(cfg *config.Config, args []string) {
 		return
 	}
 
-	if domain == "" {
-		fatalf("--domain or --github is required\n\n%s", usageText)
+	if len(assets) == 0 {
+		fatalf("--domain, --asset, or --targets is required\n\n%s", usageText)
 	}
+
+	// Multi-asset mode: scan all targets in a single session.
+	if len(assets) > 1 {
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, serverURL, apiKey, extraCIDRs)
+		return
+	}
+
+	// Single-asset: fall through to the existing scan path.
+	domain = assets[0]
 
 	if deep && !permissionConfirmed {
 		fatalf(`--deep requires --permission-confirmed
@@ -683,6 +721,354 @@ Type exactly: I have written authorization for %s
 		}
 	}
 	fmt.Fprintf(os.Stderr, "beacon: done — scan ID: %s\n", run.ID)
+}
+
+// ---------- multi-asset scan ----------
+
+// assetScanResult holds the outcome of a single-domain scan within a
+// multi-asset session.
+type assetScanResult struct {
+	domain   string
+	run      *store.ScanRun
+	findings []finding.Finding
+}
+
+// cmdScanMultiAsset runs one scan session against multiple root domains.
+// Each domain gets its own ScanRun in the store. After all individual scans
+// complete, cross-asset correlations are computed over the combined findings.
+func cmdScanMultiAsset(
+	cfg *config.Config,
+	targets []string,
+	deep, permissionConfirmed, authorized bool,
+	outPath, format, severityFlag string,
+	verbose bool,
+	serverURL, apiKey string,
+	extraCIDRs []string,
+) {
+	scanType := module.ScanSurface
+	if deep {
+		scanType = module.ScanDeep
+	}
+	if authorized {
+		scanType = module.ScanAuthorized
+	}
+
+	if deep && !permissionConfirmed {
+		fatalf(`--deep requires --permission-confirmed
+
+Deep scans send active probes to ALL listed targets. Only run this against
+systems you own or have explicit written permission to test.
+
+By passing --permission-confirmed you confirm that you have explicit written
+authorization from the owner of every listed target and accept full legal
+responsibility for your use of --deep mode.`)
+	}
+
+	if authorized && (!deep || !permissionConfirmed) {
+		fatalf("--authorized requires --deep and --permission-confirmed")
+	}
+	if authorized {
+		targetList := "  • " + strings.Join(targets, "\n  • ")
+		fmt.Fprintf(os.Stderr, `
+AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This mode enables active exploitation probes against %d targets:
+%s
+
+These actions constitute unauthorized computer access in most jurisdictions
+unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
+
+Type exactly: I have written authorization for all listed targets
+> `, len(targets), targetList)
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
+			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+		}
+		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
+	}
+
+	// Resolve server URL.
+	if serverURL == "" {
+		serverURL = cfg.Server.URL
+	}
+	if apiKey == "" {
+		apiKey = cfg.Server.APIKey
+	}
+
+	// Remote multi-asset: delegate each target to the remote server.
+	if serverURL != "" {
+		for _, d := range targets {
+			cmdScanRemote(serverURL, apiKey, d, deep, permissionConfirmed, outPath)
+		}
+		return
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
+		_ = seedErr
+	}
+
+	warnMissingAPIKeys(cfg)
+
+	mod, err := surface.New(surface.Config{
+		NucleiBin:            cfg.NucleiBin,
+		SubfinderBin:         "subfinder",
+		AmmassBin:            cfg.AmmassBin,
+		TestsslBin:           cfg.TestsslBin,
+		GauBin:               cfg.GauBin,
+		KatanaBin:            cfg.KatanaBin,
+		GowitnessBin:         cfg.GowitnessBin,
+		AnthropicAPIKey:      cfg.AnthropicAPIKey,
+		ShodanAPIKey:         cfg.ShodanAPIKey,
+		HIBPAPIKey:           cfg.HIBPAPIKey,
+		BingAPIKey:           cfg.BingAPIKey,
+		OTXAPIKey:            cfg.OTXAPIKey,
+		VirusTotalAPIKey:     cfg.VirusTotalAPIKey,
+		SecurityTrailsAPIKey: cfg.SecurityTrailsAPIKey,
+		CensysAPIID:          cfg.CensysAPIID,
+		CensysAPISecret:      cfg.CensysAPISecret,
+		GreyNoiseAPIKey:      cfg.GreyNoiseAPIKey,
+		NmapBin:              cfg.NmapBin,
+		Store:                st,
+		HttpxBin:             cfg.HttpxBin,
+		DnsxBin:              cfg.DnsxBin,
+		FfufBin:              cfg.FfufBin,
+		AdaptiveRecon:        cfg.AdaptiveRecon,
+		ProxyPool:            cfg.ProxyPool,
+		RequestJitterMs:      cfg.RequestJitterMs,
+		ClaudeModel:          cfg.ClaudeModel,
+		Auth:                 cfg.Auth,
+		GitHubToken:          cfg.GitHubToken,
+	})
+	if err != nil {
+		fatalf("init scanner: %v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "beacon: multi-asset scan — %d targets (%s)\n", len(targets), scanType)
+	for _, t := range targets {
+		fmt.Fprintf(os.Stderr, "  • %s\n", t)
+	}
+
+	var (
+		allResults  []assetScanResult
+		allFindings []finding.Finding
+	)
+
+	for idx, domain := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Build peers list (every other target in this session).
+		peers := make([]string, 0, len(targets)-1)
+		for j, t := range targets {
+			if j != idx {
+				peers = append(peers, t)
+			}
+		}
+
+		target, err := st.UpsertTarget(ctx, domain)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: upsert target %s: %v\n", domain, err)
+			continue
+		}
+
+		run := &store.ScanRun{
+			TargetID:  target.ID,
+			Domain:    domain,
+			ScanType:  scanType,
+			Modules:   []string{"surface"},
+			Status:    store.StatusPending,
+			StartedAt: time.Now(),
+		}
+		if err := st.CreateScanRun(ctx, run); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: create scan run %s: %v\n", domain, err)
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "\nbeacon: [%d/%d] scanning %s\n", idx+1, len(targets), domain)
+		run.Status = store.StatusRunning
+		_ = st.UpdateScanRun(ctx, run)
+
+		pr := newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+		pr.cancelFn = cancel
+		defer pr.Done()
+
+		input := module.Input{
+			Domain:              domain,
+			Peers:               peers,
+			PermissionConfirmed: permissionConfirmed,
+			ScanRunID:           run.ID,
+			Progress:            pr.Handle,
+			ExtraCIDRs:          extraCIDRs,
+		}
+
+		findings, scanErr := mod.Run(ctx, input, scanType)
+		pr.Done()
+
+		if scanErr != nil {
+			if scanErr == context.Canceled || strings.Contains(scanErr.Error(), "context canceled") {
+				run.Status = store.StatusStopped
+				run.Error = "stopped by user"
+				_ = st.UpdateScanRun(ctx, run)
+				if len(findings) > 0 {
+					_ = st.SaveFindings(ctx, run.ID, findings)
+				}
+				fmt.Fprintf(os.Stderr, "beacon: scan stopped for %s — %d findings saved\n", domain, len(findings))
+				break
+			}
+			fmt.Fprintf(os.Stderr, "beacon: scan failed for %s: %v\n", domain, scanErr)
+			run.Status = store.StatusFailed
+			run.Error = scanErr.Error()
+			_ = st.UpdateScanRun(ctx, run)
+			continue
+		}
+
+		if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", domain, err)
+		}
+
+		if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: correlations %s: %v\n", domain, err)
+		} else if len(corrFindings) > 0 {
+			fmt.Fprintf(os.Stderr, "beacon: %d compound chain(s) on %s\n", len(corrFindings), domain)
+		}
+
+		now := time.Now()
+		run.Status = store.StatusCompleted
+		run.CompletedAt = &now
+		run.FindingCount = len(findings)
+		_ = st.UpdateScanRun(ctx, run)
+
+		fmt.Fprintf(os.Stderr, "beacon: %s — %d finding(s) [run ID: %s]\n", domain, len(findings), run.ID)
+		allResults = append(allResults, assetScanResult{domain, run, findings})
+		allFindings = append(allFindings, findings...)
+	}
+
+	// Cross-asset correlation: same vulnerability across multiple targets
+	// indicates a systemic misconfiguration in a shared deployment.
+	if len(allResults) >= 2 {
+		crossFindings := crossAssetCorrelate(allResults)
+		if len(crossFindings) > 0 {
+			fmt.Fprintf(os.Stderr, "\nbeacon: cross-asset — %d systemic finding(s)\n", len(crossFindings))
+			for _, cf := range crossFindings {
+				fmt.Fprintf(os.Stderr, "  [%s] %s\n", cf.Severity, cf.Title)
+			}
+			_ = st.SaveCorrelationFindings(ctx, crossFindings)
+		}
+	}
+
+	// Summary.
+	fmt.Fprintf(os.Stderr, "\nbeacon: multi-asset scan complete\n")
+	total := 0
+	for _, res := range allResults {
+		total += len(res.findings)
+		fmt.Fprintf(os.Stderr, "  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), res.run.ID)
+	}
+	fmt.Fprintf(os.Stderr, "  %-40s  %3d total\n", "", total)
+	fmt.Fprintf(os.Stderr, "\nTo view results: beacon browse\n")
+	fmt.Fprintf(os.Stderr, "To report on a run: beacon report --id <run-id>\n")
+	_ = allFindings // available for future combined-report output
+}
+
+// crossAssetCorrelate identifies the same vulnerability appearing across
+// multiple target domains in the same session — a signal of systemic
+// misconfiguration in a shared deployment or common infrastructure.
+func crossAssetCorrelate(results []assetScanResult) []store.CorrelationFinding {
+	if len(results) < 2 {
+		return nil
+	}
+
+	type checkInfo struct {
+		title    string
+		severity finding.Severity
+		domains  []string
+		runIDs   []string
+	}
+	checkMap := make(map[finding.CheckID]*checkInfo)
+
+	for _, res := range results {
+		seen := make(map[finding.CheckID]bool)
+		for _, f := range res.findings {
+			if seen[f.CheckID] {
+				continue
+			}
+			seen[f.CheckID] = true
+			if _, ok := checkMap[f.CheckID]; !ok {
+				checkMap[f.CheckID] = &checkInfo{
+					title:    f.Title,
+					severity: f.Severity,
+				}
+			}
+			checkMap[f.CheckID].domains = append(checkMap[f.CheckID].domains, res.domain)
+			checkMap[f.CheckID].runIDs = append(checkMap[f.CheckID].runIDs, res.run.ID)
+		}
+	}
+
+	var out []store.CorrelationFinding
+	for checkID, info := range checkMap {
+		if len(info.domains) < 2 {
+			continue
+		}
+		// Attach to the first matching run so it's visible in the store.
+		out = append(out, store.CorrelationFinding{
+			ScanRunID: info.runIDs[0],
+			Domain:    info.domains[0],
+			Title:     fmt.Sprintf("[Cross-asset] %s", info.title),
+			Severity:  info.severity,
+			Description: fmt.Sprintf(
+				"The same vulnerability (%s) was detected across %d of %d targets in this session: %s. "+
+					"This indicates a systemic misconfiguration — likely a shared deployment template, "+
+					"common software version, or shared infrastructure.",
+				checkID, len(info.domains), len(results), strings.Join(info.domains, ", "),
+			),
+			AffectedAssets:     info.domains,
+			ContributingChecks: []string{string(checkID)},
+			Remediation:        "Remediate across all affected targets simultaneously to avoid incomplete fixes.",
+			CreatedAt:          time.Now(),
+		})
+	}
+	return out
+}
+
+// readTargetsFile reads a file with one domain per line, ignoring blank
+// lines and lines beginning with '#'.
+func readTargetsFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out, nil
+}
+
+// uniqueStrings returns ss with duplicates removed, preserving order.
+func uniqueStrings(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	out := ss[:0]
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ---------- remote scan ----------

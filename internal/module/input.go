@@ -19,6 +19,12 @@ type Input struct {
 	// Used by: Surface
 	ExtraCIDRs []string
 
+	// Peers are the other root domains in the same multi-asset scan session.
+	// Empty for single-asset scans. Used for cross-asset fingerprinting (shared
+	// TLS SANs, shared IPs, shared software stacks).
+	// Used by: Surface
+	Peers []string
+
 	// GitHub — used by: GitHub/CI module (Phase 2)
 	GitHubOrg   string
 	GitHubRepo  string
