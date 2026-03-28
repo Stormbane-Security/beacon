@@ -87,6 +87,7 @@ var highPorts = []portEntry{
 	{3260, "iscsi", false},        // iSCSI storage target
 	{502, "modbus", false},        // Modbus TCP SCADA/ICS
 	{830, "netconf", false},       // NETCONF network device management
+	{8000, "salt-api", false},      // SaltStack Salt API — CVE-2021-25281/25282 unauth RCE
 	{8291, "winbox", false},       // MikroTik Winbox management
 	{623, "ipmi", false},          // IPMI/BMC server management
 	{8443, "https-alt", false},    // HTTPS alt (network device web UIs)
@@ -442,6 +443,26 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				"A Memcached instance is accessible without authentication. "+
 					"Cache contents (which may include session tokens or PII) can be read or poisoned.",
 				map[string]any{"port": port, "service": service, "authenticated": false, "banner": banner},
+			)}
+		}
+
+	case 8000: // SaltStack Salt API
+		// CVE-2021-25281/25282 (CVSS 9.8, KEV): Salt API auth bypass + path traversal
+		// allows unauthenticated writes to arbitrary files on the Salt Master via the
+		// wheel.pillar_roots.write function. The Salt API root returns a unique JSON
+		// welcome message with the supported client list — no auth required.
+		body, ok := probeHTTPBody(ctx, asset, port, false, "/")
+		if ok && strings.Contains(body, "wheel_async") {
+			return []finding.Finding{makeF(
+				finding.CheckCVESaltStackAPI,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2021-25281/25282: SaltStack Salt API exposed on port %d", port),
+				"A SaltStack Salt API (salt-api) is internet-accessible without authentication. "+
+					"CVE-2021-25281 (CVSS 9.8, KEV) allows unauthenticated access to the wheel client, "+
+					"and CVE-2021-25282 is an arbitrary file write via wheel.pillar_roots.write — "+
+					"an attacker can write to /etc/crontab or any system file to achieve root RCE. "+
+					"Salt API must never be exposed to the internet. Restrict to internal management networks.",
+				map[string]any{"port": port, "service": "salt-api", "authenticated": false},
 			)}
 		}
 
@@ -1586,6 +1607,7 @@ var webServicePorts = map[int]string{
 	8080:  "http-alt",
 	8081:  "http-alt-2",
 	8200:  "vault",
+	8000:  "salt-api",
 	8086:  "influxdb",
 	8089:  "splunk-mgmt",
 	8443:  "https-alt",
