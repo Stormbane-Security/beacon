@@ -33,9 +33,13 @@ type Input struct {
 	// IaC — used by: IaC module (Phase 2)
 	IaCRepoPath string
 
-	// Cloud — used by: Cloud module (Phase 3)
-	AWSProfile         string
-	GCPCredentialsFile string
+	// Cloud — used by: Cloud module.
+	// Set CloudEnabled to true to run cloud posture checks using ambient
+	// credentials (ADC, AWS env vars, Azure DefaultAzureCredential).
+	// Override individual fields to use non-default credentials.
+	CloudEnabled        bool
+	AWSProfile          string
+	GCPCredentialsFile  string
 	AzureSubscriptionID string
 
 	// Kubernetes — used by: Kubernetes module (Phase 3)

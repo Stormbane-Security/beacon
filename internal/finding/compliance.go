@@ -116,4 +116,30 @@ var complianceMap = map[CheckID][]string{
 	CheckWiFiWPA2TKIP:       {"PCI-4.2.1", "SOC2-CC6.7"},
 	CheckWiFiGatewayExposed: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
 	CheckWiFiPMKID:          {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.DS"},
+
+	// Cloud — GCP
+	CheckCloudGCPIAMPrimitiveRole:     {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC", "ISO27001-A.9.2"},
+	CheckCloudGCPServiceAccountKey:    {"SOC2-CC6.1", "PCI-8.3.1", "NIST-PR.AC"},
+	CheckCloudGCPServiceAccountKeyOld: {"SOC2-CC6.1", "PCI-8.3.6", "NIST-PR.AC"},
+	CheckCloudGCPBucketPublic:         {"SOC2-CC6.6", "PCI-1.3", "HIPAA-164.312(a)(1)", "NIST-PR.DS"},
+	CheckCloudGCPComputeDefaultSA:     {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC"},
+	CheckCloudGCPGKEPublicEndpoint:    {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCloudGCPGKENoBinaryAuth:      {"SOC2-CC7.2", "PCI-6.3", "NIST-PR.DS"},
+
+	// Cloud — AWS
+	CheckCloudAWSIAMRootAccessKey:  {"SOC2-CC6.1", "PCI-8.3.1", "NIST-PR.AC", "ISO27001-A.9.2"},
+	CheckCloudAWSIAMRootNoMFA:      {"SOC2-CC6.1", "PCI-8.4.2", "NIST-PR.AC", "ISO27001-A.9.4"},
+	CheckCloudAWSIAMUserNoMFA:      {"SOC2-CC6.1", "PCI-8.4.2", "NIST-PR.AC"},
+	CheckCloudAWSIAMAccessKeyOld:   {"SOC2-CC6.1", "PCI-8.3.6", "NIST-PR.AC"},
+	CheckCloudAWSIAMPolicyWildcard: {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC", "ISO27001-A.9.2"},
+	CheckCloudAWSS3BucketPublic:    {"SOC2-CC6.6", "PCI-1.3", "HIPAA-164.312(a)(1)", "NIST-PR.DS"},
+	CheckCloudAWSS3NoEncryption:    {"SOC2-CC6.1", "PCI-3.5", "HIPAA-164.312(a)(2)", "NIST-PR.DS"},
+	CheckCloudAWSEC2PublicSG:       {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCloudAWSEKSPublicEndpoint: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+
+	// Cloud — Azure
+	CheckCloudAzureBlobPublic:        {"SOC2-CC6.6", "PCI-1.3", "HIPAA-164.312(a)(1)", "NIST-PR.DS"},
+	CheckCloudAzureStorageHTTP:       {"SOC2-CC6.7", "PCI-4.2.1", "HIPAA-164.312(e)(2)", "NIST-PR.DS"},
+	CheckCloudAzureAKSPublicEndpoint: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCloudAzureOwnerDirect:       {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC", "ISO27001-A.9.2"},
 }

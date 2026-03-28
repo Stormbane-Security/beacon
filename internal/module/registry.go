@@ -52,7 +52,7 @@ func inputSatisfied(required []InputType, input Input) bool {
 				return false
 			}
 		case InputCloud:
-			if input.AWSProfile == "" && input.GCPCredentialsFile == "" && input.AzureSubscriptionID == "" {
+			if !input.CloudEnabled && input.AWSProfile == "" && input.GCPCredentialsFile == "" && input.AzureSubscriptionID == "" {
 				return false
 			}
 		case InputKubernetes:

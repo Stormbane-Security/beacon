@@ -529,6 +529,169 @@ resource "aws_security_group_rule" "grpc_restrict" {
 		DocSummary: "An unprotected selfdestruct call allows any caller to permanently destroy the contract and send all its ETH to an arbitrary address.",
 		TerraformExample: "",
 	},
+
+	// ---- Cloud — GCP ----
+	"cloud.gcp.iam_primitive_role": {
+		DocSummary: "GCP primitive roles (roles/owner, roles/editor) grant broad project-wide permissions and violate least privilege. Google recommends replacing them with predefined or custom roles scoped to specific resources.",
+		TerraformExample: `# Remove primitive role — grant a predefined role instead
+resource "google_project_iam_member" "least_priv" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"  # narrow role
+  member  = "serviceAccount:sa@project.iam.gserviceaccount.com"
+}`,
+	},
+	"cloud.gcp.service_account_key": {
+		DocSummary: "User-managed service account keys are long-lived credentials that, if leaked, allow full impersonation of the service account. Google recommends using short-lived token methods (Workload Identity, impersonation) instead.",
+		TerraformExample: `# Prefer Workload Identity over SA keys
+resource "google_service_account_iam_member" "wi_binding" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project}.svc.id.goog[${var.namespace}/${var.k8s_sa}]"
+}`,
+	},
+	"cloud.gcp.bucket_public": {
+		DocSummary: "A GCS bucket with allUsers or allAuthenticatedUsers IAM bindings makes all objects readable by anyone on the internet. Enable uniform bucket-level access and remove public IAM members.",
+		TerraformExample: `resource "google_storage_bucket" "secure" {
+  name                        = "my-bucket"
+  uniform_bucket_level_access = true
+  # Do NOT add allUsers / allAuthenticatedUsers to IAM
+}`,
+	},
+	"cloud.gcp.compute_default_sa": {
+		DocSummary: "GCE instances using the default compute service account inherit editor-level permissions across the project. Assign a dedicated SA with only the permissions the instance requires.",
+		TerraformExample: `resource "google_compute_instance" "vm" {
+  service_account {
+    email  = google_service_account.app_vm.email
+    scopes = ["cloud-platform"]
+  }
+}`,
+	},
+	"cloud.gcp.gke_public_endpoint": {
+		DocSummary: "A GKE cluster with a public API server endpoint and no authorized networks allows any IP to reach the Kubernetes API. Enable authorized networks or use a private cluster.",
+		TerraformExample: `resource "google_container_cluster" "main" {
+  master_authorized_networks_config {
+    cidr_blocks {
+      cidr_block   = "203.0.113.0/24"
+      display_name = "corp-vpn"
+    }
+  }
+  private_cluster_config {
+    enable_private_endpoint = false
+    enable_private_nodes    = true
+    master_ipv4_cidr_block  = "172.16.0.0/28"
+  }
+}`,
+	},
+	"cloud.gcp.gke_no_binary_auth": {
+		DocSummary: "Binary Authorization enforces that only signed, trusted container images can be deployed to GKE. Without it, any image — including compromised or malicious images — can run in the cluster.",
+		TerraformExample: `resource "google_container_cluster" "main" {
+  binary_authorization {
+    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
+  }
+}`,
+	},
+
+	// ---- Cloud — AWS ----
+	"cloud.aws.iam_root_access_key": {
+		DocSummary: "AWS root account access keys bypass all IAM policies and cannot be restricted. Delete them immediately and use IAM users or roles for programmatic access.",
+		TerraformExample: `# There is no Terraform resource to delete root keys — use the AWS Console
+# or: aws iam delete-access-key --access-key-id <key-id>
+# Ensure all automation uses IAM roles, not root keys.`,
+	},
+	"cloud.aws.iam_root_no_mfa": {
+		DocSummary: "The AWS root account controls all resources in the account. Without MFA a stolen password grants unrestricted access. Enable a virtual or hardware MFA device on the root account.",
+		TerraformExample: `# MFA cannot be enforced via Terraform for root accounts.
+# Use the AWS Console: My Security Credentials → Multi-factor authentication.`,
+	},
+	"cloud.aws.iam_policy_wildcard": {
+		DocSummary: "An IAM policy with Action:* and Resource:* grants full administrative access equivalent to root. Replace with fine-grained policies that allow only the specific actions the principal needs.",
+		TerraformExample: `resource "aws_iam_policy" "least_priv" {
+  name   = "app-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:PutObject"]
+      Resource = "arn:aws:s3:::my-bucket/*"
+    }]
+  })
+}`,
+	},
+	"cloud.aws.s3_bucket_public": {
+		DocSummary: "S3 Public Access Block settings prevent buckets and objects from being made public via ACLs or bucket policies. All four settings should be enabled unless the bucket intentionally hosts public content.",
+		TerraformExample: `resource "aws_s3_bucket_public_access_block" "block" {
+  bucket                  = aws_s3_bucket.main.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}`,
+	},
+	"cloud.aws.s3_no_encryption": {
+		DocSummary: "S3 server-side encryption (SSE-S3 or SSE-KMS) ensures objects are encrypted at rest. Without a default encryption policy, objects may be stored in plaintext.",
+		TerraformExample: `resource "aws_s3_bucket_server_side_encryption_configuration" "enc" {
+  bucket = aws_s3_bucket.main.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+      kms_master_key_id = aws_kms_key.s3.arn
+    }
+  }
+}`,
+	},
+	"cloud.aws.ec2_public_sg": {
+		DocSummary: "A security group that allows inbound traffic from 0.0.0.0/0 on sensitive ports (SSH, RDP, database, etc.) exposes those services to the entire internet. Restrict ingress to known CIDR ranges or use a bastion / VPN.",
+		TerraformExample: `resource "aws_security_group_rule" "ssh_restricted" {
+  type        = "ingress"
+  from_port   = 22
+  to_port     = 22
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # internal only
+  security_group_id = aws_security_group.app.id
+}`,
+	},
+	"cloud.aws.eks_public_endpoint": {
+		DocSummary: "An EKS cluster with a public API endpoint and no CIDR restrictions exposes the Kubernetes API to the internet. Add authorized CIDR blocks or disable the public endpoint and use a VPN.",
+		TerraformExample: `resource "aws_eks_cluster" "main" {
+  vpc_config {
+    endpoint_public_access  = true
+    endpoint_private_access = true
+    public_access_cidrs     = ["203.0.113.0/24"]  # restrict to known IPs
+  }
+}`,
+	},
+
+	// ---- Cloud — Azure ----
+	"cloud.azure.blob_public": {
+		DocSummary: "When AllowBlobPublicAccess is enabled on an Azure storage account, container-level public access can be set on individual containers. Disable it at the account level unless the account is a static website host.",
+		TerraformExample: `resource "azurerm_storage_account" "main" {
+  allow_nested_items_to_be_public = false
+}`,
+	},
+	"cloud.azure.storage_http": {
+		DocSummary: "Azure storage accounts with https_traffic_only_enabled = false allow unencrypted HTTP access to blob, queue, table, and file services. All traffic should be forced over HTTPS.",
+		TerraformExample: `resource "azurerm_storage_account" "main" {
+  https_traffic_only_enabled = true
+  min_tls_version            = "TLS1_2"
+}`,
+	},
+	"cloud.azure.aks_public_endpoint": {
+		DocSummary: "An AKS cluster with an internet-facing API server and no authorized IP ranges allows any host to reach the Kubernetes API. Restrict access using authorized_ip_ranges or enable a private cluster.",
+		TerraformExample: `resource "azurerm_kubernetes_cluster" "main" {
+  api_server_access_profile {
+    authorized_ip_ranges = ["203.0.113.0/24"]
+  }
+}`,
+	},
+	"cloud.azure.owner_direct": {
+		DocSummary: "Assigning users directly as Owner or Contributor at subscription scope grants unrestricted control over all resources. Use groups, require PIM (just-in-time) elevation, and prefer narrower built-in roles.",
+		TerraformExample: `# Assign to a group with PIM eligibility rather than direct user assignment
+resource "azurerm_role_assignment" "contrib" {
+  scope                = data.azurerm_subscription.main.id
+  role_definition_name = "Contributor"
+  principal_id         = azuread_group.ops.object_id
+}`,
+	},
 }
 
 // referenceFor returns the checkReference for a given check ID, or zero value

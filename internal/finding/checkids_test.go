@@ -306,6 +306,29 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckTLSCCSInjection: true,
 		// WiFi PMKID capture via bettercap/hcxdumptool — requires --permission-confirmed
 		finding.CheckWiFiPMKID: true,
+		// Cloud posture checks — require authenticated API access to the cloud account
+		finding.CheckCloudGCPScanError:            true,
+		finding.CheckCloudGCPIAMPrimitiveRole:     true,
+		finding.CheckCloudGCPServiceAccountKey:    true,
+		finding.CheckCloudGCPServiceAccountKeyOld: true,
+		finding.CheckCloudGCPBucketPublic:         true,
+		finding.CheckCloudGCPComputeDefaultSA:     true,
+		finding.CheckCloudGCPGKEPublicEndpoint:    true,
+		finding.CheckCloudGCPGKENoBinaryAuth:      true,
+		finding.CheckCloudAWSIAMRootAccessKey:  true,
+		finding.CheckCloudAWSIAMRootNoMFA:      true,
+		finding.CheckCloudAWSIAMUserNoMFA:      true,
+		finding.CheckCloudAWSIAMAccessKeyOld:   true,
+		finding.CheckCloudAWSIAMPolicyWildcard: true,
+		finding.CheckCloudAWSS3BucketPublic:    true,
+		finding.CheckCloudAWSS3NoEncryption:    true,
+		finding.CheckCloudAWSEC2PublicSG:       true,
+		finding.CheckCloudAWSEKSPublicEndpoint: true,
+		finding.CheckCloudAzureScanError:         true,
+		finding.CheckCloudAzureBlobPublic:        true,
+		finding.CheckCloudAzureStorageHTTP:       true,
+		finding.CheckCloudAzureAKSPublicEndpoint: true,
+		finding.CheckCloudAzureOwnerDirect:       true,
 	}
 
 	for id, meta := range finding.Registry {

@@ -532,6 +532,14 @@ const (
 	CheckPortRADIUSExposed        CheckID = "port.radius_exposed"         // RADIUS authentication server reachable from internet (UDP 1812)
 	CheckDLPWifiCredential        CheckID = "dlp.wifi_credential"         // WiFi PSK/WPA passphrase in exposed file or config
 
+	// ── Local WiFi environment scanning ──────────────────────────────────────
+	CheckWiFiOpenNetwork    CheckID = "wifi.open_network"      // WiFi network with no encryption (NONE security)
+	CheckWiFiWEPNetwork     CheckID = "wifi.wep_network"       // WiFi network using deprecated WEP encryption (breakable in minutes)
+	CheckWiFiWPSEnabled     CheckID = "wifi.wps_enabled"       // WPS enabled on access point (PIN brute-force or PixieDust attack possible)
+	CheckWiFiWPA2TKIP       CheckID = "wifi.wpa2_tkip"         // WPA2 network using TKIP cipher (deprecated, prefer AES/CCMP)
+	CheckWiFiGatewayExposed CheckID = "wifi.gateway_exposed"   // Default gateway has exposed management interface on the local network
+	CheckWiFiPMKID          CheckID = "wifi.pmkid_capture"     // PMKID hash captured — offline cracking of WPA2 passphrase possible
+
 	// ── Industrial Control Systems (ICS/SCADA/OT) ───────────────────────────
 	// Any ICS protocol on the internet is a Critical finding regardless of version.
 	CheckPortS7CommExposed      CheckID = "port.s7comm_exposed"       // Siemens S7 PLC accessible (port 102)
@@ -877,6 +885,34 @@ const (
 	// AI fingerprinting and cross-asset analysis
 	CheckAIFPCrossAsset    CheckID = "aifp.cross_asset_finding"   // AI-identified cross-asset vulnerability
 	CheckAIFPUnknownTech   CheckID = "aifp.unknown_technology"    // AI classified unknown tech — verify and review rule
+
+	// GCP authenticated cloud scanning
+	CheckCloudGCPScanError            CheckID = "cloud.gcp.scan_error"                // GCP project scan failed
+	CheckCloudGCPIAMPrimitiveRole     CheckID = "cloud.gcp.iam_primitive_role"        // owner/editor primitive role granted
+	CheckCloudGCPServiceAccountKey    CheckID = "cloud.gcp.service_account_key"       // user-managed SA key exists
+	CheckCloudGCPServiceAccountKeyOld CheckID = "cloud.gcp.service_account_key_old"  // SA key older than 90 days
+	CheckCloudGCPBucketPublic         CheckID = "cloud.gcp.bucket_public"             // GCS bucket publicly accessible
+	CheckCloudGCPComputeDefaultSA     CheckID = "cloud.gcp.compute_default_sa"        // instance using default compute SA
+	CheckCloudGCPGKEPublicEndpoint    CheckID = "cloud.gcp.gke_public_endpoint"       // GKE cluster with unrestricted public endpoint
+	CheckCloudGCPGKENoBinaryAuth      CheckID = "cloud.gcp.gke_no_binary_auth"        // GKE cluster with Binary Authorization disabled
+
+	// AWS authenticated cloud scanning
+	CheckCloudAWSIAMRootAccessKey CheckID = "cloud.aws.iam_root_access_key"  // root account has active access keys
+	CheckCloudAWSIAMRootNoMFA     CheckID = "cloud.aws.iam_root_no_mfa"      // root account MFA not enabled
+	CheckCloudAWSIAMUserNoMFA     CheckID = "cloud.aws.iam_user_no_mfa"      // IAM user with console access has no MFA
+	CheckCloudAWSIAMAccessKeyOld  CheckID = "cloud.aws.iam_access_key_old"   // IAM access key older than 90 days
+	CheckCloudAWSIAMPolicyWildcard CheckID = "cloud.aws.iam_policy_wildcard" // IAM policy grants Action:* Resource:*
+	CheckCloudAWSS3BucketPublic   CheckID = "cloud.aws.s3_bucket_public"     // S3 bucket public access block not fully enabled
+	CheckCloudAWSS3NoEncryption   CheckID = "cloud.aws.s3_no_encryption"     // S3 bucket has no default encryption
+	CheckCloudAWSEC2PublicSG      CheckID = "cloud.aws.ec2_public_sg"        // security group allows 0.0.0.0/0 on sensitive port
+	CheckCloudAWSEKSPublicEndpoint CheckID = "cloud.aws.eks_public_endpoint" // EKS cluster public endpoint unrestricted
+
+	// Azure authenticated cloud scanning
+	CheckCloudAzureScanError       CheckID = "cloud.azure.scan_error"            // Azure subscription scan failed
+	CheckCloudAzureBlobPublic      CheckID = "cloud.azure.blob_public"           // storage account allows public blob access
+	CheckCloudAzureStorageHTTP     CheckID = "cloud.azure.storage_http"          // storage account allows HTTP traffic
+	CheckCloudAzureAKSPublicEndpoint CheckID = "cloud.azure.aks_public_endpoint" // AKS cluster public API endpoint unrestricted
+	CheckCloudAzureOwnerDirect     CheckID = "cloud.azure.owner_direct"          // direct Owner/Contributor assignment at subscription scope
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1343,6 +1379,14 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortRADIUSExposed:       {CheckPortRADIUSExposed, SeverityHigh, ModeSurface},
 	CheckDLPWifiCredential:       {CheckDLPWifiCredential, SeverityHigh, ModeSurface},
 
+	// Local WiFi environment
+	CheckWiFiOpenNetwork:    {CheckWiFiOpenNetwork, SeverityHigh, ModeSurface},
+	CheckWiFiWEPNetwork:     {CheckWiFiWEPNetwork, SeverityCritical, ModeSurface},
+	CheckWiFiWPSEnabled:     {CheckWiFiWPSEnabled, SeverityMedium, ModeSurface},
+	CheckWiFiWPA2TKIP:       {CheckWiFiWPA2TKIP, SeverityLow, ModeSurface},
+	CheckWiFiGatewayExposed: {CheckWiFiGatewayExposed, SeverityHigh, ModeSurface},
+	CheckWiFiPMKID:          {CheckWiFiPMKID, SeverityCritical, ModeDeep},
+
 	CheckPortS7CommExposed:         {CheckPortS7CommExposed, SeverityCritical, ModeSurface},
 	CheckPortEtherNetIPExposed:     {CheckPortEtherNetIPExposed, SeverityCritical, ModeSurface},
 	CheckPortDNP3Exposed:           {CheckPortDNP3Exposed, SeverityCritical, ModeSurface},
@@ -1710,6 +1754,34 @@ var Registry = map[CheckID]CheckMeta{
 	// AI fingerprinting / cross-asset
 	CheckAIFPCrossAsset:  {CheckAIFPCrossAsset, SeverityMedium, ModeSurface},
 	CheckAIFPUnknownTech: {CheckAIFPUnknownTech, SeverityInfo, ModeSurface},
+
+	// GCP authenticated cloud scanning — requires valid credentials (ADC or SA key)
+	CheckCloudGCPScanError:            {CheckCloudGCPScanError, SeverityInfo, ModeDeep},
+	CheckCloudGCPIAMPrimitiveRole:     {CheckCloudGCPIAMPrimitiveRole, SeverityHigh, ModeDeep},
+	CheckCloudGCPServiceAccountKey:    {CheckCloudGCPServiceAccountKey, SeverityMedium, ModeDeep},
+	CheckCloudGCPServiceAccountKeyOld: {CheckCloudGCPServiceAccountKeyOld, SeverityHigh, ModeDeep},
+	CheckCloudGCPBucketPublic:         {CheckCloudGCPBucketPublic, SeverityCritical, ModeDeep},
+	CheckCloudGCPComputeDefaultSA:     {CheckCloudGCPComputeDefaultSA, SeverityMedium, ModeDeep},
+	CheckCloudGCPGKEPublicEndpoint:    {CheckCloudGCPGKEPublicEndpoint, SeverityHigh, ModeDeep},
+	CheckCloudGCPGKENoBinaryAuth:      {CheckCloudGCPGKENoBinaryAuth, SeverityMedium, ModeDeep},
+
+	// AWS authenticated cloud scanning — requires valid AWS credentials
+	CheckCloudAWSIAMRootAccessKey:  {CheckCloudAWSIAMRootAccessKey, SeverityCritical, ModeDeep},
+	CheckCloudAWSIAMRootNoMFA:      {CheckCloudAWSIAMRootNoMFA, SeverityCritical, ModeDeep},
+	CheckCloudAWSIAMUserNoMFA:      {CheckCloudAWSIAMUserNoMFA, SeverityHigh, ModeDeep},
+	CheckCloudAWSIAMAccessKeyOld:   {CheckCloudAWSIAMAccessKeyOld, SeverityMedium, ModeDeep},
+	CheckCloudAWSIAMPolicyWildcard: {CheckCloudAWSIAMPolicyWildcard, SeverityHigh, ModeDeep},
+	CheckCloudAWSS3BucketPublic:    {CheckCloudAWSS3BucketPublic, SeverityHigh, ModeDeep},
+	CheckCloudAWSS3NoEncryption:    {CheckCloudAWSS3NoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudAWSEC2PublicSG:       {CheckCloudAWSEC2PublicSG, SeverityHigh, ModeDeep},
+	CheckCloudAWSEKSPublicEndpoint: {CheckCloudAWSEKSPublicEndpoint, SeverityHigh, ModeDeep},
+
+	// Azure authenticated cloud scanning — requires valid Azure credentials
+	CheckCloudAzureScanError:         {CheckCloudAzureScanError, SeverityInfo, ModeDeep},
+	CheckCloudAzureBlobPublic:        {CheckCloudAzureBlobPublic, SeverityHigh, ModeDeep},
+	CheckCloudAzureStorageHTTP:       {CheckCloudAzureStorageHTTP, SeverityMedium, ModeDeep},
+	CheckCloudAzureAKSPublicEndpoint: {CheckCloudAzureAKSPublicEndpoint, SeverityHigh, ModeDeep},
+	CheckCloudAzureOwnerDirect:       {CheckCloudAzureOwnerDirect, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

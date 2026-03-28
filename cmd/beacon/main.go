@@ -33,6 +33,7 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/module"
+	cloudmodule "github.com/stormbane/beacon/internal/modules/cloud"
 	githubmodule "github.com/stormbane/beacon/internal/modules/github"
 	"github.com/stormbane/beacon/internal/modules/surface"
 	"github.com/stormbane/beacon/internal/playbook"
@@ -99,6 +100,16 @@ EXAMPLES:
   beacon playbook import --id <suggestion-id>
   beacon playbook open-pr --id <suggestion-id>
   beacon terraform <path> [<path>...]
+  beacon cloud       [flags]               Run cloud posture scan (GCP/AWS/Azure)
+
+CLOUD FLAGS:
+  --aws-profile <profile>    AWS CLI profile (default: env/default)
+  --gcp-credentials <file>   GCP service account key JSON path (default: ADC)
+  --azure-subscription <id>  Azure subscription ID (default: all accessible)
+  --domain <domain>          Asset label to associate findings with
+  --format <fmt>             Output format: text (default), json, markdown
+  --out <path>               Write report to file instead of stdout
+  --severity <level>         Minimum severity: critical, high, medium, low, info (default)
 `
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -157,6 +168,8 @@ func main() {
 		cmdFingerprints(cfg, os.Args[2:])
 	case "terraform":
 		cmdTerraform(cfg, os.Args[2:])
+	case "cloud":
+		cmdScanCloud(cfg, os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -3614,6 +3627,180 @@ func printTerraformText(enriched []enrichment.EnrichedFinding) {
 			}
 		}
 		fmt.Println()
+	}
+}
+
+func cmdScanCloud(cfg *config.Config, args []string) {
+	var (
+		awsProfile         string
+		gcpCredentials     string
+		azureSubscription  string
+		domain             string
+		format             = "text"
+		outPath            string
+		severityFlag       string
+	)
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--aws-profile":
+			if i+1 < len(args) {
+				i++
+				awsProfile = args[i]
+			}
+		case "--gcp-credentials":
+			if i+1 < len(args) {
+				i++
+				gcpCredentials = args[i]
+			}
+		case "--azure-subscription":
+			if i+1 < len(args) {
+				i++
+				azureSubscription = args[i]
+			}
+		case "--domain":
+			if i+1 < len(args) {
+				i++
+				domain = args[i]
+			}
+		case "--format", "-f":
+			if i+1 < len(args) {
+				i++
+				format = args[i]
+			}
+		case "--out", "-o":
+			if i+1 < len(args) {
+				i++
+				outPath = args[i]
+			}
+		case "--severity", "-s":
+			if i+1 < len(args) {
+				i++
+				severityFlag = args[i]
+			}
+		}
+	}
+
+	inp := module.Input{
+		CloudEnabled:        true,
+		AWSProfile:          awsProfile,
+		GCPCredentialsFile:  gcpCredentials,
+		AzureSubscriptionID: azureSubscription,
+		Domain:              domain,
+	}
+
+	ctx := context.Background()
+	m := cloudmodule.New()
+	findings, err := m.Run(ctx, inp, module.ScanDeep)
+	if err != nil {
+		fatalf("cloud scan: %v", err)
+	}
+
+	// Apply severity filter.
+	minSev := finding.ParseSeverity(severityFlag)
+	if minSev > finding.SeverityInfo {
+		var filtered []finding.Finding
+		for _, f := range findings {
+			if f.Severity >= minSev {
+				filtered = append(filtered, f)
+			}
+		}
+		findings = filtered
+	}
+
+	if len(findings) == 0 {
+		fmt.Println("No cloud posture issues found.")
+		return
+	}
+
+	// Enrich with AI if configured.
+	enriched := make([]enrichment.EnrichedFinding, len(findings))
+	for i, f := range findings {
+		enriched[i] = enrichment.EnrichedFinding{Finding: f}
+	}
+	if ai := cfg.ActiveAI(); ai != nil {
+		if enricher, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL); err == nil {
+			if ef, err := enricher.Enrich(ctx, findings); err == nil {
+				enriched = ef
+			}
+		}
+	}
+
+	// Render output.
+	var w io.Writer = os.Stdout
+	if outPath != "" {
+		f, err := os.Create(outPath)
+		if err != nil {
+			fatalf("cloud: create output file: %v", err)
+		}
+		defer f.Close()
+		w = f
+	}
+
+	switch format {
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(enriched)
+	case "markdown", "md":
+		printCloudMarkdown(w, enriched)
+	default:
+		printCloudText(w, enriched)
+	}
+}
+
+func printCloudText(w io.Writer, enriched []enrichment.EnrichedFinding) {
+	counts := map[finding.Severity]int{}
+	for _, ef := range enriched {
+		counts[ef.Finding.Severity]++
+	}
+	fmt.Fprintf(w, "Cloud posture scan: %d finding(s)\n", len(enriched))
+	for _, sev := range []finding.Severity{finding.SeverityCritical, finding.SeverityHigh, finding.SeverityMedium, finding.SeverityLow, finding.SeverityInfo} {
+		if n := counts[sev]; n > 0 {
+			fmt.Fprintf(w, "  %s: %d\n", sev, n)
+		}
+	}
+	fmt.Fprintln(w)
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Fprintf(w, "[%s] %s\n", f.Severity, f.Title)
+		fmt.Fprintf(w, "  Asset: %s\n", f.Asset)
+		if ef.Explanation != "" && ef.Explanation != f.Description {
+			fmt.Fprintf(w, "  %s\n", ef.Explanation)
+		} else {
+			fmt.Fprintf(w, "  %s\n", f.Description)
+		}
+		if f.ProofCommand != "" {
+			fmt.Fprintf(w, "  Proof: %s\n", f.ProofCommand)
+		}
+		if ef.Remediation != "" {
+			fmt.Fprintf(w, "  Fix: %s\n", ef.Remediation)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func printCloudMarkdown(w io.Writer, enriched []enrichment.EnrichedFinding) {
+	fmt.Fprintf(w, "# Cloud Posture Scan Results\n\n%d finding(s)\n\n", len(enriched))
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Fprintf(w, "## [%s] %s\n\n", f.Severity, f.Title)
+		fmt.Fprintf(w, "**Asset:** `%s`\n\n", f.Asset)
+		if ef.Explanation != "" {
+			fmt.Fprintf(w, "%s\n\n", ef.Explanation)
+		} else if f.Description != "" {
+			fmt.Fprintf(w, "%s\n\n", f.Description)
+		}
+		if ef.Impact != "" {
+			fmt.Fprintf(w, "**Impact:** %s\n\n", ef.Impact)
+		}
+		if ef.Remediation != "" {
+			fmt.Fprintf(w, "**Remediation:** %s\n\n", ef.Remediation)
+		}
+		if f.ProofCommand != "" {
+			fmt.Fprintf(w, "**Proof:** `%s`\n\n", f.ProofCommand)
+		}
+		fmt.Fprintf(w, "---\n\n")
 	}
 }
 
