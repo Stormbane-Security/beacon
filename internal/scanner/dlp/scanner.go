@@ -122,6 +122,13 @@ var dlpPatterns = []pattern{
 		"EVM contract/wallet address",
 		regexp.MustCompile(`(?i)(?:address|contract|wallet|from|to)["\s]*[:=]\s*["']?(0x[0-9a-fA-F]{40})\b`),
 	},
+	// WiFi PSK / WPA passphrase — exposed in router config exports, wpa_supplicant.conf,
+	// OpenWRT backup archives, or misconfigured admin panels.
+	{
+		finding.CheckDLPWifiCredential,
+		"WiFi PSK/WPA passphrase",
+		regexp.MustCompile(`(?i)(?:wpa[_\-]?passphrase|wpa[_\-]?psk|wifi[_\-]?pass(?:word|phrase)?|wireless[_\-]?key|network[_\-]?key|psk)\s*[=:]\s*["']?([^\s"'<>]{8,63})`),
+	},
 }
 
 // apiKeyPatterns are applied against high-value config/env dump paths.

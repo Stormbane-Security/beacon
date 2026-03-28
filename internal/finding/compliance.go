@@ -98,4 +98,14 @@ var complianceMap = map[CheckID][]string{
 	CheckPortArtifactoryExposed:    {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
 	CheckPortNexusExposed:          {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
 	CheckPortGRPCReflectionEnabled: {"SOC2-CC6.6", "NIST-PR.IP"},
+
+	// Wireless management infrastructure
+	CheckNetDeviceUniFiExposed:   {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCVEUniFiLog4Shell:       {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckNetDeviceTPLinkOmada:    {"SOC2-CC6.6", "PCI-1.3"},
+	CheckCVETPLinkOmadaRCE:      {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckNetDeviceArubaInstant:   {"SOC2-CC6.6", "PCI-1.3"},
+	CheckNetDeviceOpenWRTExposed: {"SOC2-CC6.6", "PCI-1.3"},
+	CheckPortRADIUSExposed:       {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckDLPWifiCredential:       {"SOC2-CC6.1", "PCI-6.3.1"},
 }

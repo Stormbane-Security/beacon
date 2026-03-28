@@ -440,6 +440,60 @@ resource "aws_security_group_rule" "grpc_restrict" {
 }`,
 	},
 
+	// ---- Wireless management infrastructure ----
+	"netdev.unifi_exposed": {
+		DocSummary: "Ubiquiti UniFi Network Application manages enterprise WiFi deployments. An internet-exposed controller leaks network topology, SSID names, connected client MACs, and AP locations. UniFi < 6.5.54 is vulnerable to Log4Shell (CVE-2021-44228, CVSS 10.0, KEV).",
+		TerraformExample: `resource "aws_security_group_rule" "unifi_restrict" {
+  type        = "ingress"
+  from_port   = 8443
+  to_port     = 8443
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # management access internal only
+}`,
+	},
+	"cve.unifi_log4shell": {
+		DocSummary: "CVE-2021-44228 (Log4Shell, CVSS 10.0, KEV) affects Ubiquiti UniFi Network Application < 6.5.54. Unauthenticated attackers can trigger JNDI injection via the login endpoint, achieving RCE on the controller server. Upgrade to 6.5.54+ immediately.",
+		TerraformExample: "",
+	},
+	"netdev.tplink_omada": {
+		DocSummary: "TP-Link Omada Network Management System manages enterprise WiFi, switches, and routers. Internet-exposed Omada controllers are vulnerable to CVE-2023-1389 (pre-auth RCE, CVSS 9.8, KEV). Restrict to internal management networks.",
+		TerraformExample: `resource "aws_security_group_rule" "omada_restrict" {
+  type        = "ingress"
+  from_port   = 8043
+  to_port     = 8043
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"cve.tplink_omada_rce": {
+		DocSummary: "CVE-2023-1389 (CVSS 9.8, KEV) is a pre-authentication command injection in TP-Link Omada controllers <= 5.9.32. Attackers inject OS commands via the locale parameter in the login API, achieving unauthenticated RCE. Upgrade to 5.9.33+.",
+		TerraformExample: "",
+	},
+	"netdev.aruba_instant": {
+		DocSummary: "Aruba Instant Access Point management interface exposed to the internet allows attackers to reconfigure WiFi SSIDs, extract PSK credentials, and potentially exploit firmware vulnerabilities. Restrict management access to trusted VLANs only.",
+		TerraformExample: "",
+	},
+	"netdev.openwrt_exposed": {
+		DocSummary: "OpenWRT LuCI web administration panel exposed allows unauthenticated attackers to access router configuration, extract WiFi PSK credentials, modify firewall rules, and gain full router control. The default admin account often has no password set.",
+		TerraformExample: "",
+	},
+	"port.radius_exposed": {
+		DocSummary: "RADIUS (RFC 2865, UDP/1812) authenticates VPN, WPA-Enterprise WiFi, and network device logins. Internet-exposed RADIUS servers are vulnerable to CVE-2024-3596 (Blast RADIUS — MD5 collision to forge Access-Accept responses) and offline dictionary attacks. Restrict to NAS device subnets only.",
+		TerraformExample: `resource "aws_network_acl_rule" "block_radius" {
+  network_acl_id = aws_network_acl.main.id
+  rule_number    = 200
+  protocol       = "udp"
+  rule_action    = "deny"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 1812
+  to_port        = 1813
+}`,
+	},
+	"dlp.wifi_credential": {
+		DocSummary: "WiFi PSK or WPA passphrase exposed in a publicly accessible file or config endpoint. An attacker can use the credential to join the wireless network and pivot to internal assets.",
+		TerraformExample: "",
+	},
+
 	// ---- Contract ----
 	"contract.reentrancy": {
 		DocSummary: "A reentrancy vulnerability allows an attacker to repeatedly call a function before the first invocation completes, draining contract funds. The DAO hack exploited this pattern and lost $60M.",

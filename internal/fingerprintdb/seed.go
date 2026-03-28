@@ -97,4 +97,14 @@ var builtinRules = []store.FingerprintRule{
 	{SignalType: "header", SignalKey: "x-consul-index", SignalValue: "", Field: "backend_services", Value: "consul", Source: "builtin", Status: "active", Confidence: 1.0},
 	{SignalType: "body", SignalKey: "", SignalValue: "\"grpc_server_reflection_version\"", Field: "backend_services", Value: "grpc", Source: "builtin", Status: "active", Confidence: 0.95},
 	{SignalType: "header", SignalKey: "content-type", SignalValue: "application/grpc", Field: "backend_services", Value: "grpc", Source: "builtin", Status: "active", Confidence: 1.0},
+
+	// ── Wireless management infrastructure ────────────────────────────────────
+	{SignalType: "body", SignalKey: "", SignalValue: "unifi network", Field: "backend_services", Value: "unifi", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "network.unifi", Field: "backend_services", Value: "unifi", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "path", SignalKey: "", SignalValue: "/manage/account/login", Field: "backend_services", Value: "unifi", Source: "builtin", Status: "active", Confidence: 0.95},
+	{SignalType: "body", SignalKey: "", SignalValue: "omada controller", Field: "backend_services", Value: "omada", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "aruba instant", Field: "backend_services", Value: "aruba-instant", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "aruba networks", Field: "backend_services", Value: "aruba", Source: "builtin", Status: "active", Confidence: 0.9},
+	{SignalType: "body", SignalKey: "", SignalValue: "luci", Field: "backend_services", Value: "openwrt", Source: "builtin", Status: "active", Confidence: 0.9},
+	{SignalType: "body", SignalKey: "", SignalValue: "openwrt", Field: "backend_services", Value: "openwrt", Source: "builtin", Status: "active", Confidence: 1.0},
 }

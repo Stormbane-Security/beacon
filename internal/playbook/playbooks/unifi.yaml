@@ -1,0 +1,40 @@
+name: unifi
+description: >
+  Ubiquiti UniFi Network Application is accessible. UniFi manages enterprise
+  WiFi deployments — an exposed controller leaks SSID configurations, connected
+  client MAC addresses, AP locations, and network topology. UniFi Network
+  versions prior to 6.5.54 are vulnerable to CVE-2021-44228 (Log4Shell,
+  CVSS 10.0, KEV) via unauthenticated JNDI injection in the login endpoint.
+  Upgrade to 6.5.54+ and restrict management access to trusted networks.
+match:
+  any:
+    - check_id: "netdev.unifi_exposed"
+    - check_id: "cve.unifi_log4shell"
+    - path_responds: "/manage/account/login"
+    - path_responds: "/api/self"
+    - title_contains: "UniFi"
+    - service_version_contains: "unifi"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  dictionary:
+    - /api/self
+    - /api/s/default/stat/sta
+    - /api/s/default/stat/device
+    - /api/s/default/rest/networkconf
+    - /api/s/default/rest/wlanconf
+    - /manage/account/login
+    - /api/login
+  nuclei_tags:
+    - unifi
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - unifi
+    - default-logins
+    - cves
+    - log4j

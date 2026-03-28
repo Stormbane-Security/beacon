@@ -522,6 +522,16 @@ const (
 	CheckNetDeviceNetgearDetected  CheckID = "netdev.netgear_detected"    // Netgear SOHO router identified
 	CheckNetDeviceAsteriskDetected CheckID = "netdev.asterisk_detected"   // Asterisk/FreePBX VoIP PBX identified
 
+	// ── Wireless management infrastructure ───────────────────────────────────
+	CheckNetDeviceUniFiExposed    CheckID = "netdev.unifi_exposed"        // Ubiquiti UniFi Network Application web UI accessible
+	CheckCVEUniFiLog4Shell        CheckID = "cve.unifi_log4shell"         // CVE-2021-44228 Log4Shell in UniFi Network < 6.5.54 (CVSS 10.0, KEV)
+	CheckNetDeviceTPLinkOmada     CheckID = "netdev.tplink_omada"         // TP-Link Omada Network Management exposed
+	CheckCVETPLinkOmadaRCE       CheckID = "cve.tplink_omada_rce"        // CVE-2023-1389 TP-Link Omada auth bypass + RCE (CVSS 9.8, KEV)
+	CheckNetDeviceArubaInstant    CheckID = "netdev.aruba_instant"        // Aruba Instant Access Point admin UI exposed
+	CheckNetDeviceOpenWRTExposed  CheckID = "netdev.openwrt_exposed"      // OpenWRT LuCI web admin panel accessible without auth
+	CheckPortRADIUSExposed        CheckID = "port.radius_exposed"         // RADIUS authentication server reachable from internet (UDP 1812)
+	CheckDLPWifiCredential        CheckID = "dlp.wifi_credential"         // WiFi PSK/WPA passphrase in exposed file or config
+
 	// ── Industrial Control Systems (ICS/SCADA/OT) ───────────────────────────
 	// Any ICS protocol on the internet is a Critical finding regardless of version.
 	CheckPortS7CommExposed      CheckID = "port.s7comm_exposed"       // Siemens S7 PLC accessible (port 102)
@@ -1321,6 +1331,17 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNetDeviceDLinkDetected:    {CheckNetDeviceDLinkDetected, SeverityInfo, ModeSurface},
 	CheckNetDeviceNetgearDetected:  {CheckNetDeviceNetgearDetected, SeverityInfo, ModeSurface},
 	CheckNetDeviceAsteriskDetected: {CheckNetDeviceAsteriskDetected, SeverityInfo, ModeSurface},
+
+	// Wireless management infrastructure
+	CheckNetDeviceUniFiExposed:   {CheckNetDeviceUniFiExposed, SeverityHigh, ModeSurface},
+	CheckCVEUniFiLog4Shell:       {CheckCVEUniFiLog4Shell, SeverityCritical, ModeSurface},
+	CheckNetDeviceTPLinkOmada:    {CheckNetDeviceTPLinkOmada, SeverityHigh, ModeSurface},
+	CheckCVETPLinkOmadaRCE:      {CheckCVETPLinkOmadaRCE, SeverityCritical, ModeSurface},
+	CheckNetDeviceArubaInstant:   {CheckNetDeviceArubaInstant, SeverityHigh, ModeSurface},
+	CheckNetDeviceOpenWRTExposed: {CheckNetDeviceOpenWRTExposed, SeverityHigh, ModeSurface},
+	CheckPortRADIUSExposed:       {CheckPortRADIUSExposed, SeverityHigh, ModeSurface},
+	CheckDLPWifiCredential:       {CheckDLPWifiCredential, SeverityHigh, ModeSurface},
+
 	CheckPortS7CommExposed:         {CheckPortS7CommExposed, SeverityCritical, ModeSurface},
 	CheckPortEtherNetIPExposed:     {CheckPortEtherNetIPExposed, SeverityCritical, ModeSurface},
 	CheckPortDNP3Exposed:           {CheckPortDNP3Exposed, SeverityCritical, ModeSurface},

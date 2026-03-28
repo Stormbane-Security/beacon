@@ -9,14 +9,15 @@ package portscan
 // response pattern within a short deadline (udpTimeout).
 //
 // Services probed:
-//   - NTP (123/UDP):   version request + monlist amplification check
-//   - SNMP (161/UDP):  GetRequest with "public" community string
-//   - TFTP (69/UDP):   Read Request for a non-existent file
-//   - SSDP (1900/UDP): UPnP M-SEARCH discovery request
-//   - IKE (500/UDP):   IKEv2 SA_INIT initiation header
+//   - NTP (123/UDP):    version request + monlist amplification check
+//   - SNMP (161/UDP):   GetRequest with "public" community string
+//   - TFTP (69/UDP):    Read Request for a non-existent file
+//   - SSDP (1900/UDP):  UPnP M-SEARCH discovery request
+//   - IKE (500/UDP):    IKEv2 SA_INIT initiation header
 //   - NetBIOS-NS (137/UDP): Name Service status query
-//   - STUN (3478/UDP): Binding Request
-//   - mDNS (5353/UDP): DNS-SD service discovery query
+//   - STUN (3478/UDP):  Binding Request
+//   - mDNS (5353/UDP):  DNS-SD service discovery query
+//   - RADIUS (1812/UDP): Access-Request with empty credentials
 //
 // All UDP probes use a 2-second timeout. False negatives (filtered → no
 // response) are acceptable — better than false positives from unreliable UDP.
@@ -69,6 +70,10 @@ func runUDP(ctx context.Context, host string) []finding.Finding {
 	// mDNS
 	if mdnsF := probeMDNS(ctx, host); mdnsF != nil {
 		findings = append(findings, *mdnsF)
+	}
+	// RADIUS
+	if radiusF := probeRADIUS(ctx, host); radiusF != nil {
+		findings = append(findings, *radiusF)
 	}
 
 	return findings
@@ -672,6 +677,68 @@ func probeMDNS(ctx context.Context, host string) *finding.Finding {
 			"the internet. An internet-facing mDNS service leaks internal service names, hostnames, " +
 			"and network topology. Disable mDNS on internet-facing interfaces.",
 		Evidence:    map[string]any{"port": 5353, "service": "mdns", "protocol": "udp"},
+		DiscoveredAt: time.Now(),
+	}
+	return &f
+}
+
+// radiusAccessRequest is a minimal RADIUS Access-Request packet (RFC 2865).
+// Code=1 (Access-Request), ID=1, Length=20 (header only, no attributes),
+// Authenticator=16 zero bytes. Any RADIUS server will respond with
+// Access-Reject (code 3) or Access-Challenge (code 11) even to an empty request,
+// confirming the service is reachable.
+var radiusAccessRequest = []byte{
+	0x01,       // Code: Access-Request
+	0x01,       // Identifier: 1
+	0x00, 0x14, // Length: 20 (just the header)
+	// Authenticator: 16 bytes (zeros — acceptable for server detection)
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+}
+
+// probeRADIUS sends a minimal RADIUS Access-Request to UDP/1812 and returns
+// a finding if any valid RADIUS response is received. Any response
+// (Access-Reject, Access-Challenge, etc.) confirms a RADIUS server is listening.
+// RADIUS servers reachable from the internet are a high-severity finding because
+// they authenticate VPN, WiFi (802.1X/WPA-Enterprise), and network device access.
+func probeRADIUS(ctx context.Context, host string) *finding.Finding {
+	conn, err := dialUDP(ctx, host, 1812)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write(radiusAccessRequest); err != nil {
+		return nil
+	}
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil || n < 4 {
+		return nil
+	}
+	// Valid RADIUS response codes: 2=Access-Accept, 3=Access-Reject,
+	// 11=Access-Challenge, 5=Accounting-Response
+	code := buf[0]
+	if code != 2 && code != 3 && code != 11 && code != 5 {
+		return nil
+	}
+
+	f := finding.Finding{
+		CheckID:  finding.CheckPortRADIUSExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    host,
+		Title:    "RADIUS authentication server reachable from internet (UDP 1812)",
+		Description: "A RADIUS authentication server (RFC 2865) is responding to UDP/1812 from the " +
+			"internet. RADIUS is used for VPN authentication, WPA-Enterprise WiFi (802.1X), " +
+			"and network device (switch/router) login. Internet-exposed RADIUS servers are " +
+			"vulnerable to offline dictionary attacks against captured Access-Request packets, " +
+			"amplification abuse, and CVE-2024-3596 (RADIUS/MD5 Blast RADIUS — forge any response). " +
+			"RADIUS should only be reachable from NAS devices on internal networks. " +
+			"Implement firewall rules to block UDP/1812 from all external sources.",
+		Evidence:    map[string]any{"port": 1812, "service": "radius", "protocol": "udp", "response_code": int(code)},
+		ProofCommand: fmt.Sprintf("echo -n | nc -u -w1 %s 1812 | xxd | head", host),
 		DiscoveredAt: time.Now(),
 	}
 	return &f

