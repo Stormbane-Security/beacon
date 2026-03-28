@@ -337,6 +337,55 @@ var targets = []sensitiveFile{
 			"after disclosure. Apply VMware VMSA-2022-0011 patches immediately.",
 	},
 
+	// CVE-2022-3236/1040 — Sophos Firewall auth bypass / RCE (CVSS 9.8, KEV).
+	// /webconsole/webpages/login.jsp fingerprints Sophos Firewall (SFOS).
+	// CVE-2022-1040 (auth bypass → arbitrary code execution) and CVE-2022-3236 (code injection)
+	// were both exploited by nation-state actors targeting exposed management interfaces.
+	{
+		path:         "/webconsole/webpages/login.jsp",
+		title:        "CVE-2022-3236/1040: Sophos Firewall management interface exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVESophosFW,
+		bodyContains: "Sophos",
+		description: "The Sophos Firewall (SFOS) management console is internet-accessible. " +
+			"CVE-2022-1040 (CVSS 9.8, KEV) is an authentication bypass in the User Portal and WebAdmin " +
+			"that allows unauthenticated remote code execution. CVE-2022-3236 (CVSS 9.8, KEV) is a code injection " +
+			"vulnerability in the same interface. Both were actively exploited by China-nexus threat actors (Volt Typhoon). " +
+			"Firewall management interfaces must never be exposed to the internet.",
+	},
+
+	// CVE-2022-47966 — ManageEngine products SAML pre-auth RCE (CVSS 9.8, KEV).
+	// /samlLogin/67 is the SAML SSO endpoint present in many ManageEngine products when SAML is enabled.
+	// The vulnerability is in the Apache Santuario XML signature validation (xmlsec library).
+	{
+		path:         "/samlLogin/67",
+		title:        "CVE-2022-47966: ManageEngine SAML authentication endpoint exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEManageEngineSAML,
+		bodyContains: "ManageEngine",
+		description: "A ManageEngine product SAML SSO endpoint is internet-accessible. " +
+			"CVE-2022-47966 (CVSS 9.8, KEV) exploits a vulnerable version of Apache Santuario (xmlsec) used by " +
+			"30+ ManageEngine products (ServiceDesk Plus, ADSelfService Plus, PAM360, etc.) when SAML SSO is enabled. " +
+			"An unauthenticated attacker can send a crafted SAML response to execute arbitrary code as SYSTEM. " +
+			"Exploited by APT groups including Sandworm. Apply ManageEngine patches and disable SAML if unused.",
+	},
+
+	// CVE-2022-24086 — Adobe Commerce / Magento unauthenticated template injection → RCE (CVSS 9.8, KEV).
+	// /index.php/customer/account/createpost/ is the account creation endpoint where the injection occurs.
+	// Checking for the Magento admin panel path confirms the product is deployed.
+	{
+		path:         "/index.php/admin",
+		title:        "CVE-2022-24086: Adobe Commerce / Magento admin panel exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEMagentoRCE,
+		bodyContains: "Magento",
+		description: "An Adobe Commerce / Magento 2 admin panel is internet-accessible. " +
+			"CVE-2022-24086 (CVSS 9.8, KEV) is an improper input validation vulnerability that allows " +
+			"unauthenticated remote code execution via template injection in the checkout flow. " +
+			"CVE-2022-24087 is a related bypass. Both were exploited immediately after disclosure for " +
+			"payment card skimming and credential theft. Restrict the admin panel and apply Adobe Commerce patches.",
+	},
+
 	// ── 2021 CVE-specific endpoint probes ─────────────────────────────────────
 
 	// CVE-2021-21985/22005 — VMware vCenter Server internet-exposed (CVSS 9.8, KEV).
@@ -779,6 +828,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2019-19781/2020-8196 (Citrix ADC Nitro API unauthenticated access, CVSS 9.8, KEV):
 	// GET /nitro/v1/config/nsversion without credentials confirms unauthenticated Nitro API exposure.
 	if f := probeCitrixADCNitro(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2022-22965 (Spring4Shell, CVSS 9.8, KEV):
+	// GET /?class.module.classLoader.URLs[0]=0 → 400 from Spring MVC with classLoader binding
+	// confirms the vulnerable pattern; 400 from unrelated causes is disambiguated by body.
+	if f := probeSpring4Shell(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2022-37042 (Zimbra mboximport auth bypass, CVSS 9.8, KEV):
+	// GET /service/extension/backup/mboximport → 500 (not 401/403) confirms the endpoint
+	// is reachable without authentication, indicating unpatched Zimbra.
+	if f := probeZimbraAuthBypass(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -2117,6 +2180,117 @@ func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset s
 		ProofCommand: fmt.Sprintf(
 			"curl -s '%s'\n"+
 				"# Expected: JSON with ns_platform/ns_build — confirms unauthenticated Nitro API access",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeSpring4Shell tests for CVE-2022-22965 (Spring4Shell, CVSS 9.8, KEV).
+// Spring MVC on JDK 9+ binds HTTP parameters to model attributes by default; the class
+// attribute chain class.module.classLoader.URLs exposes the ClassLoader, allowing an
+// attacker to overwrite the logging configuration and drop a JSP webshell.
+// The safe probe sends class.module.classLoader.URLs[0]=0 and looks for a Spring-specific
+// 400 "data binding" error — a generic 400 from unrelated servers is disambiguated by body.
+func probeSpring4Shell(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/?class.module.classLoader.URLs[0]=0"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		return nil
+	}
+	bodyLower := strings.ToLower(string(b))
+	// Spring returns a Whitelabel Error Page or JSON error mentioning "classLoader" or "data binding"
+	if !strings.Contains(bodyLower, "classloader") &&
+		!strings.Contains(bodyLower, "data binding") &&
+		!strings.Contains(bodyLower, "spring") &&
+		!strings.Contains(bodyLower, "whitelabel") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVESpring4Shell,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2022-22965 (Spring4Shell): Spring MVC classLoader binding detected on %s", asset),
+		Description: "The server responded to a Spring MVC classLoader binding probe with a data-binding error " +
+			"consistent with an unpatched Spring Framework. CVE-2022-22965 (CVSS 9.8, KEV) exploits the " +
+			"class.module.classLoader.URLs parameter chain on Spring MVC running on JDK 9+ with a WAR deployment, " +
+			"allowing unauthenticated remote code execution via logging configuration overwrite and JSP drop. " +
+			"Upgrade to Spring Framework 5.3.18+ / 5.2.20+ and restrict classLoader data binding.",
+		Evidence: map[string]any{
+			"probe_url":   u,
+			"status_code": resp.StatusCode,
+			"body_snip":   string(b)[:min(len(b), 256)],
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s -o /dev/null -w '%%{http_code}' '%s'\n"+
+				"# Expected: 400 with Spring classLoader binding error in body",
+			u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeZimbraAuthBypass tests for CVE-2022-37042 (Zimbra Collaboration auth bypass → RCE, CVSS 9.8, KEV).
+// The mboximport servlet endpoint is supposed to require authentication; on unpatched Zimbra versions
+// a parameter confusion flaw allows the auth check to be bypassed. A GET returning HTTP 500 (rather
+// than 401/403) indicates the servlet is reachable without credentials, confirming the bypass.
+func probeZimbraAuthBypass(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/service/extension/backup/mboximport"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	// 401 or 403 means auth is enforced — not vulnerable.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil
+	}
+	// We need to reach the servlet (500 = processing error after auth bypass, 200 also possible).
+	if resp.StatusCode != http.StatusInternalServerError && resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLower := strings.ToLower(string(b))
+	// Require Zimbra-specific content to avoid false positives from other servers.
+	if !strings.Contains(bodyLower, "zimbra") && !strings.Contains(bodyLower, "mboximport") &&
+		!strings.Contains(bodyLower, "zcs") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEZimbraAuthBypass,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2022-37042: Zimbra mboximport endpoint reachable without authentication on %s", asset),
+		Description: "The Zimbra mboximport backup servlet (/service/extension/backup/mboximport) returned a " +
+			"non-auth response (HTTP 500/200), indicating the authentication bypass is present. " +
+			"CVE-2022-37042 (CVSS 9.8, KEV) allows an unauthenticated attacker to upload and execute arbitrary JSP " +
+			"code via the mboximport endpoint, leading to full server compromise. This was exploited as a zero-day " +
+			"and observed delivering webshells and cryptocurrency miners. " +
+			"Apply Zimbra security patches 9.0.0 P27 / 8.8.15 P34 or later immediately.",
+		Evidence: map[string]any{
+			"endpoint":    u,
+			"status_code": resp.StatusCode,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s -o /dev/null -w '%%{http_code}' '%s'\n"+
+				"# Expected: 500 (not 401/403) — confirms mboximport reachable without authentication",
 			u),
 		DiscoveredAt: time.Now(),
 	}

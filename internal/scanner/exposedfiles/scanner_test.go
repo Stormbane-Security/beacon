@@ -183,3 +183,97 @@ func TestExposedFiles_DeepOnlyProbedInDeep(t *testing.T) {
 	}
 	_ = found // deepOnly paths vary; just confirm no panic in deep mode
 }
+
+func TestExposedFiles_Spring4ShellDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" && strings.Contains(r.URL.RawQuery, "class.module.classLoader") {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintln(w, "Whitelabel Error Page - Spring data binding error for classLoader")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "spring4shell") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected Spring4Shell finding, got none")
+	}
+}
+
+func TestExposedFiles_Spring4ShellNotFlaggedOn404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "spring4shell") {
+			t.Errorf("unexpected Spring4Shell finding on 404 server: %v", f)
+		}
+	}
+}
+
+func TestExposedFiles_ZimbraAuthBypassDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/service/extension/backup/mboximport" {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintln(w, "Zimbra mboximport error: missing required parameter")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "zimbra") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected Zimbra auth bypass finding, got none")
+	}
+}
+
+func TestExposedFiles_ZimbraNotFlaggedOn401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/service/extension/backup/mboximport" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "zimbra") {
+			t.Errorf("unexpected Zimbra finding when server returns 401: %v", f)
+		}
+	}
+}

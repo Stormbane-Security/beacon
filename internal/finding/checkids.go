@@ -667,6 +667,11 @@ const (
 	CheckCVEFortiOSAuthBypass CheckID = "cve.fortios_auth_bypass"        // CVE-2022-40684 FortiOS/FortiProxy HTTP header auth bypass (CVSS 9.8, KEV)
 	CheckCVEVMwareWorkspaceONE CheckID = "cve.vmware_workspace_one_ssti" // CVE-2022-22954 VMware Workspace ONE Access FreeMarker SSTI → RCE (CVSS 9.8, KEV)
 	CheckCVEWSO2FileUpload     CheckID = "cve.wso2_file_upload_rce"      // CVE-2022-29464 WSO2 API Manager/IS unrestricted file upload → RCE (CVSS 9.8, KEV)
+	CheckCVESpring4Shell       CheckID = "cve.spring4shell"               // CVE-2022-22965 Spring MVC classloader RCE via class.module.classLoader (CVSS 9.8, KEV)
+	CheckCVEZimbraAuthBypass   CheckID = "cve.zimbra_auth_bypass"         // CVE-2022-37042 Zimbra mboximport auth bypass → RCE (CVSS 9.8, KEV)
+	CheckCVESophosFW           CheckID = "cve.sophos_firewall_exposed"    // CVE-2022-3236/1040 Sophos Firewall auth bypass/RCE — login fingerprint (CVSS 9.8, KEV)
+	CheckCVEManageEngineSAML   CheckID = "cve.manageengine_saml_rce"      // CVE-2022-47966 ManageEngine SAML pre-auth RCE via SAML endpoint (CVSS 9.8, KEV)
+	CheckCVEMagentoRCE         CheckID = "cve.magento_template_rce"       // CVE-2022-24086 Adobe Commerce/Magento unauthenticated template injection (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2021) ──────────────────────────────────────
 	CheckCVEExchangeProxyLogon   CheckID = "cve.exchange_proxylogon"       // CVE-2021-26855 Exchange ProxyLogon SSRF — pre-auth, version from X-OWA-Version (CVSS 9.8, KEV)
@@ -1285,6 +1290,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEFortiOSAuthBypass:   {CheckCVEFortiOSAuthBypass, SeverityCritical, ModeSurface},
 	CheckCVEVMwareWorkspaceONE:  {CheckCVEVMwareWorkspaceONE, SeverityCritical, ModeSurface},
 	CheckCVEWSO2FileUpload:      {CheckCVEWSO2FileUpload, SeverityCritical, ModeSurface},
+	CheckCVESpring4Shell:        {CheckCVESpring4Shell, SeverityCritical, ModeSurface},
+	CheckCVEZimbraAuthBypass:    {CheckCVEZimbraAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVESophosFW:            {CheckCVESophosFW, SeverityCritical, ModeSurface},
+	CheckCVEManageEngineSAML:    {CheckCVEManageEngineSAML, SeverityCritical, ModeSurface},
+	CheckCVEMagentoRCE:          {CheckCVEMagentoRCE, SeverityCritical, ModeSurface},
 
 	// 2021 CVEs
 	CheckCVEExchangeProxyLogon:  {CheckCVEExchangeProxyLogon, SeverityCritical, ModeSurface},
