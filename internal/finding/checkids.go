@@ -699,6 +699,8 @@ const (
 	CheckCVETelerikRAU        CheckID = "cve.telerik_rau_exposed"         // CVE-2019-18935 Telerik RadAsyncUpload endpoint exposed — pre-auth deserialization (CVSS 9.8, KEV)
 	CheckCVEWebLogicAsync     CheckID = "cve.weblogic_async_rce"          // CVE-2019-2725 Oracle WebLogic /_async/ endpoint pre-auth deserialization RCE (CVSS 9.8, KEV)
 	CheckCVESolrAdminExposed  CheckID = "cve.solr_admin_exposed"          // CVE-2019-17558 Apache Solr unauthenticated admin API — SSTI via Velocity template (CVSS 9.8, KEV)
+	CheckCVEEximRCE2019       CheckID = "cve.exim_rce_2019"               // CVE-2019-10149 Exim 4.87–4.91 DELIVER_FAIL_STR local part expansion → RCE (CVSS 9.8, KEV)
+	CheckCVEDLinkHNAP         CheckID = "cve.dlink_hnap_rce"              // CVE-2019-16920 D-Link HNAP API unauthenticated remote command injection (CVSS 9.8)
 
 	// ── Recent high-severity CVEs (2018) ──────────────────────────────────────
 	CheckCVEDrupalgeddon2           CheckID = "cve.drupal_drupalgeddon2"           // CVE-2018-7600/7602 Drupal RCE (Drupalgeddon2/3) — version from CHANGELOG.txt (CVSS 9.8, KEV)
@@ -718,7 +720,10 @@ const (
 	CheckCVEOXAppSuiteSSRF       CheckID = "cve.ox_appsuite_ssrf"           // CVE-2016-4047 Open-Xchange AppSuite SSRF via unvalidated proxy URL (CVSS 8.8)
 
 	// ── Recent high-severity CVEs (2015) ──────────────────────────────────────
-	CheckCVEJBossJMXInvoker CheckID = "cve.jboss_jmx_invoker" // CVE-2015-7501 JBoss JMXInvokerServlet pre-auth Java deserialization RCE (CVSS 9.8, KEV)
+	CheckCVEJBossJMXInvoker            CheckID = "cve.jboss_jmx_invoker"           // CVE-2015-7501 JBoss JMXInvokerServlet pre-auth Java deserialization RCE (CVSS 9.8, KEV)
+	CheckCVEIISHTTPSys                 CheckID = "cve.iis_httpsys_range"            // CVE-2015-1635 (MS15-034) IIS HTTP.sys Range header integer overflow → DoS/RCE (CVSS 10.0, KEV)
+	CheckCVEElasticsearchGroovyRCE     CheckID = "cve.elasticsearch_groovy_rce"     // CVE-2015-1427 Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE (CVSS 10.0)
+	CheckCVEJoomlaObjectInjection      CheckID = "cve.joomla_object_injection"      // CVE-2015-8562 Joomla 1.5–3.4.5 PHP object injection via HTTP User-Agent → RCE (CVSS 9.8, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1328,6 +1333,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVETelerikRAU:       {CheckCVETelerikRAU, SeverityCritical, ModeSurface},
 	CheckCVEWebLogicAsync:    {CheckCVEWebLogicAsync, SeverityCritical, ModeSurface},
 	CheckCVESolrAdminExposed: {CheckCVESolrAdminExposed, SeverityHigh, ModeSurface},
+	CheckCVEEximRCE2019:      {CheckCVEEximRCE2019, SeverityCritical, ModeSurface},
+	CheckCVEDLinkHNAP:        {CheckCVEDLinkHNAP, SeverityCritical, ModeSurface},
 
 	// 2018 CVEs
 	CheckCVEDrupalgeddon2:          {CheckCVEDrupalgeddon2, SeverityCritical, ModeSurface},
@@ -1347,7 +1354,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEOXAppSuiteSSRF:   {CheckCVEOXAppSuiteSSRF, SeverityHigh, ModeSurface},
 
 	// 2015 CVEs
-	CheckCVEJBossJMXInvoker: {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},
+	CheckCVEJBossJMXInvoker:            {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},
+	CheckCVEIISHTTPSys:                 {CheckCVEIISHTTPSys, SeverityCritical, ModeSurface},
+	CheckCVEElasticsearchGroovyRCE:     {CheckCVEElasticsearchGroovyRCE, SeverityCritical, ModeSurface},
+	CheckCVEJoomlaObjectInjection:      {CheckCVEJoomlaObjectInjection, SeverityCritical, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

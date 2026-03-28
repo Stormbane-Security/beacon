@@ -386,13 +386,33 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				description = "An OpenSearch cluster is accessible without credentials. " +
 					"All indexed data can be read, modified, or deleted by anyone with network access."
 			}
-			return []finding.Finding{makeF(
+			var esFindings []finding.Finding
+			esFindings = append(esFindings, makeF(
 				finding.CheckPortElasticsearchUnauth,
 				finding.SeverityCritical,
 				fmt.Sprintf("%s exposed on port %d", serviceLabel, port),
 				description,
 				map[string]any{"port": port, "service": serviceName, "authenticated": false, "banner": banner},
-			)}
+			))
+			// CVE-2015-1427: Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE.
+			// Dynamic Groovy scripting was enabled by default in Elasticsearch 1.x and sandboxed
+			// via GroovySandbox; the sandbox was bypassable allowing full OS command execution.
+			// Fixed in Elasticsearch 1.6.0 (scripting disabled by default) and 2.0.0 (removed).
+			if esVer := parseJSONStringField(body, "number"); serviceName == "Elasticsearch" && isElasticsearchGroovyVulnerable(esVer) {
+				esFindings = append(esFindings, makeF(
+					finding.CheckCVEElasticsearchGroovyRCE,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2015-1427: Elasticsearch %s Groovy sandbox escape → unauthenticated RCE on port %d", esVer, port),
+					fmt.Sprintf("Elasticsearch %s has dynamic Groovy scripting enabled by default. "+
+						"CVE-2015-1427 (CVSS 10.0) — the Groovy sandbox in Elasticsearch < 1.6.0 is bypassable, "+
+						"allowing an unauthenticated attacker to execute arbitrary OS commands by sending "+
+						"crafted Groovy scripts via the _search or _msearch API. "+
+						"Upgrade to Elasticsearch ≥ 1.6.0 and disable dynamic scripting "+
+						"(`script.disable_dynamic: true` in elasticsearch.yml).", esVer),
+					map[string]any{"port": port, "service": serviceName, "es_version": esVer, "cve": "CVE-2015-1427"},
+				))
+			}
+			return esFindings
 		}
 
 	case 9090: // Prometheus
@@ -1413,30 +1433,48 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		// Banner grab is already done above; parse for software/version.
 		// Any internet-facing SMTP port warrants a finding.
 		if banner != "" {
-			var f finding.Finding
 			lbanner := strings.ToLower(banner)
-			switch {
-			case strings.Contains(lbanner, "exim"):
-				f = makeF(
+			if strings.Contains(lbanner, "exim") {
+				eximVer := parseEximVersion(banner)
+				ev := map[string]any{"port": port, "service": service, "banner": banner, "exim_version": eximVer}
+
+				// CVE-2019-10149: Exim 4.87–4.91 local-part expansion RCE (KEV).
+				// The DELIVER_FAIL_STR expansion uses an unchecked snprintf replacement
+				// that evaluates ${run{...}} in the local-part — full RCE without auth.
+				if eximVer != "" && isEximRCE2019Vulnerable(eximVer) {
+					return []finding.Finding{makeF(
+						finding.CheckCVEEximRCE2019,
+						finding.SeverityCritical,
+						fmt.Sprintf("CVE-2019-10149: Exim %s vulnerable to unauthenticated RCE on port %d", eximVer, port),
+						fmt.Sprintf("Exim %s is internet-accessible and vulnerable to CVE-2019-10149 (CVSS 9.8, KEV). "+
+							"The DELIVER_FAIL_STR expansion in Exim 4.87–4.91 allows a remote attacker to execute "+
+							"arbitrary OS commands by crafting a malicious local part in the RCPT TO address. "+
+							"The vulnerability is exploited by sending a specially-crafted bounce message. "+
+							"Exploited by the Gitpaste-12 botnet and multiple threat actors. "+
+							"Upgrade to Exim 4.92 or later immediately.", eximVer),
+						ev,
+					)}
+				}
+
+				// CVE-2025-26794: Exim 4.98 < 4.98.1 SQL injection via ETRN (CVSS 9.8).
+				return []finding.Finding{makeF(
 					finding.CheckPortExImVulnerable,
 					finding.SeverityCritical,
-					fmt.Sprintf("Exim MTA exposed on port %d — check for CVE-2025-26794", port),
+					fmt.Sprintf("Exim MTA exposed on port %d — verify CVE-2025-26794 (4.98 < 4.98.1)", port),
 					"Exim SMTP server is internet-accessible. CVE-2025-26794 (CVSS 9.8) is an unauthenticated SQL injection "+
 						"in Exim 4.98 before 4.98.1 via the ETRN serialization path. Verify version from banner and update immediately.",
-					map[string]any{"port": port, "service": service, "banner": banner},
-				)
-			default:
-				f = makeF(
-					finding.CheckPortSMTPExposed,
-					finding.SeverityMedium,
-					fmt.Sprintf("SMTP server exposed on port %d", port),
-					"An SMTP server is publicly accessible. The banner may reveal internal hostnames, MTA software, and version. "+
-						"Internet-facing SMTP is expected for mail delivery (port 25) but should be version-hardened. "+
-						"Submission port 587 should require authentication (AUTH PLAIN/LOGIN over TLS only).",
-					map[string]any{"port": port, "service": service, "banner": banner},
-				)
+					ev,
+				)}
 			}
-			return []finding.Finding{f}
+			return []finding.Finding{makeF(
+				finding.CheckPortSMTPExposed,
+				finding.SeverityMedium,
+				fmt.Sprintf("SMTP server exposed on port %d", port),
+				"An SMTP server is publicly accessible. The banner may reveal internal hostnames, MTA software, and version. "+
+					"Internet-facing SMTP is expected for mail delivery (port 25) but should be version-hardened. "+
+					"Submission port 587 should require authentication (AUTH PLAIN/LOGIN over TLS only).",
+				map[string]any{"port": port, "service": service, "banner": banner},
+			)}
 		}
 
 	case 143, 993: // IMAP / IMAPS
@@ -2361,6 +2399,24 @@ func parseJSONStringField(body, key string) string {
 	return rest[:end]
 }
 
+// isElasticsearchGroovyVulnerable returns true when the Elasticsearch version is
+// in the range that has dynamic Groovy scripting enabled by default (≤ 1.5.x).
+// CVE-2015-1427: the Groovy sandbox is bypassable, allowing unauthenticated RCE.
+// Fixed in Elasticsearch 1.6.0 (scripting disabled by default); removed in 2.0.
+func isElasticsearchGroovyVulnerable(ver string) bool {
+	if ver == "" {
+		return false
+	}
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, minor := 0, 0
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	return major == 1 && minor < 6
+}
+
 // isVulnerableKibana returns true when the Kibana version falls in the range
 // 8.15.0–8.17.2 affected by CVE-2025-25015 (prototype pollution → RCE, CVSS 9.9).
 // Patched in 8.17.3.
@@ -2903,6 +2959,45 @@ func probeSMBNullSession(ctx context.Context, host string) bool {
 	}
 	// If we got a success status with no action byte, treat as null session.
 	return true
+}
+
+// ── Exim version parsing ──────────────────────────────────────────────────────
+
+// parseEximVersion extracts the Exim version number from an SMTP banner.
+// Banners look like: "220 hostname ESMTP Exim 4.89 Mon, 28 Mar 2026 ..."
+// Returns empty string if not found.
+func parseEximVersion(banner string) string {
+	lower := strings.ToLower(banner)
+	idx := strings.Index(lower, "exim ")
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(banner[idx+5:])
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	// First token after "exim " is the version (e.g. "4.89", "4.98.1")
+	v := fields[0]
+	// Validate it looks like a version (starts with a digit)
+	if len(v) == 0 || v[0] < '0' || v[0] > '9' {
+		return ""
+	}
+	return v
+}
+
+// isEximRCE2019Vulnerable returns true when the Exim version is in the range
+// 4.87–4.91 vulnerable to CVE-2019-10149 (DELIVER_FAIL_STR local-part expansion RCE).
+// Fixed in Exim 4.92 released 2019-06-04.
+func isEximRCE2019Vulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	major, minor := 0, 0
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	return major == 4 && minor >= 87 && minor <= 91
 }
 
 // ── SMTP open relay probe ─────────────────────────────────────────────────────

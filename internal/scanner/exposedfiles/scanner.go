@@ -739,6 +739,40 @@ var targets = []sensitiveFile{
 			"critical misconfiguration regardless of patch level. " +
 			"Restrict WebSphere admin console access to management networks only.",
 	},
+
+	// CVE-2015-8562 — Joomla PHP object injection via HTTP User-Agent → RCE (CVSS 9.8, KEV).
+	// /administrator/manifests/files/joomla.xml exposes the installed Joomla version without auth.
+	// Joomla 1.5–3.4.5 deserializes untrusted User-Agent/X-Forwarded-For headers — unauth RCE.
+	// CVE-2015-7857 (SQL injection in com_contenthistory) affects Joomla 2.5.x–3.4.4.
+	{
+		path:         "/administrator/manifests/files/joomla.xml",
+		title:        "CVE-2015-8562/7857: Joomla version manifest exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEJoomlaObjectInjection,
+		bodyContains: "files_joomla",
+		description: "The Joomla CMS version manifest is publicly accessible at " +
+			"/administrator/manifests/files/joomla.xml. This XML file discloses the exact Joomla version. " +
+			"CVE-2015-8562 (CVSS 9.8, KEV) — PHP object injection via User-Agent header — affects Joomla 1.5–3.4.5. " +
+			"CVE-2015-7857 (SQL injection via com_contenthistory) affects Joomla 2.5.x–3.4.4. " +
+			"Compare the disclosed version and patch immediately. Restrict /administrator/ access to trusted IPs.",
+	},
+
+	// CVE-2019-16920 — D-Link HNAP unauthenticated command injection (CVSS 9.8).
+	// GET /HNAP1/ returns the list of supported HNAP actions without authentication.
+	// D-Link DIR-655, DIR-806, DIR-859, and related SOHO routers expose the HNAP API;
+	// the GetDeviceSettings/SetNetworkSettings actions allow command injection without auth.
+	{
+		path:         "/HNAP1/",
+		title:        "CVE-2019-16920: D-Link HNAP API exposed",
+		severity:     finding.SeverityCritical,
+		checkID:      finding.CheckCVEDLinkHNAP,
+		bodyContains: "GetDeviceSettings",
+		description: "A D-Link router HNAP (Home Network Administration Protocol) API is internet-accessible " +
+			"at /HNAP1/ without authentication. CVE-2019-16920 (CVSS 9.8) allows an unauthenticated attacker " +
+			"to inject OS commands via the GetDeviceSettings and SetNetworkSettings SOAP actions. " +
+			"Affected models include D-Link DIR-655, DIR-806, DIR-859, and others running firmware prior to October 2019. " +
+			"Disable remote management and apply firmware updates from D-Link immediately.",
+	},
 }
 
 // Scanner actively probes for exposed sensitive files.
@@ -980,6 +1014,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2015-7501 (JBoss JMXInvokerServlet pre-auth Java deserialization, CVSS 9.8, KEV):
 	// GET /invoker/JMXInvokerServlet returning 200 with Java serialized binary body = vulnerable endpoint exposed.
 	if f := probeJBossJMXInvoker(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2015-1635 (MS15-034, IIS HTTP.sys Range header integer overflow, CVSS 10.0, KEV):
+	// GET / with Range: bytes=6000-18446744073709551615 → 416 from Microsoft-IIS = vulnerable HTTP.sys.
+	// Patched IIS returns 400 Bad Request for the overflowed UINT64_MAX range value.
+	if f := probeIISHTTPSysRange(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -3091,6 +3132,71 @@ func probeJBossJMXInvoker(ctx context.Context, client *http.Client, base, asset 
 			u),
 		DiscoveredAt: time.Now(),
 	}
+}
+
+// probeIISHTTPSysRange detects CVE-2015-1635 (MS15-034) — IIS HTTP.sys Range header integer
+// overflow leading to denial-of-service or (in theory) RCE. The probe sends an HTTP GET request
+// with a Range header whose end byte is UINT64_MAX (18446744073709551615). On vulnerable IIS
+// (HTTP.sys), the server parses the range through the overflow-vulnerable code path and returns
+// 416 Requested Range Not Satisfiable. Patched IIS rejects the malformed overflowed range with
+// 400 Bad Request. The Server: Microsoft-IIS header confirms the target is IIS.
+//
+// This probe is detection-only — it does not send additional requests or trigger the overflow path
+// that causes a BSOD. The 416 response indicates the vulnerable code path was entered but the
+// range check (not the memory operation) is what terminates the request.
+func probeIISHTTPSysRange(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	for _, scheme := range []string{"https", "http"} {
+		u := scheme + "://" + asset + "/"
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		// UINT64_MAX = 18446744073709551615. This overflows when IIS HTTP.sys computes
+		// the range size (end - start + 1), triggering the vulnerable code path.
+		req.Header.Set("Range", "bytes=6000-18446744073709551615")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		server := strings.ToLower(resp.Header.Get("Server"))
+		if !strings.Contains(server, "microsoft-iis") {
+			continue
+		}
+		// Patched IIS returns 400 for the invalid overflowed range.
+		// Vulnerable IIS enters the overflow path and returns 416.
+		if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+			continue
+		}
+		return &finding.Finding{
+			CheckID:  finding.CheckCVEIISHTTPSys,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2015-1635 (MS15-034): IIS HTTP.sys Range header integer overflow on %s", asset),
+			Description: "IIS HTTP.sys returned HTTP 416 for a Range header containing UINT64_MAX as the end byte. " +
+				"Patched IIS rejects this with 400 Bad Request; returning 416 indicates the vulnerable HTTP.sys " +
+				"code path was entered. CVE-2015-1635 (MS15-034, CVSS 10.0, KEV) is an integer overflow in the " +
+				"Windows HTTP.sys kernel driver that allows an unauthenticated attacker to cause a Blue Screen of " +
+				"Death (kernel crash/DoS) and potentially read kernel memory. Affects Windows Server 2003–2012 R2 " +
+				"with IIS 6.0–8.5 before the May 2015 security update (KB3042553). " +
+				"Apply MS15-034 immediately. This affects all internet-facing IIS servers on unpatched Windows.",
+			Evidence: map[string]any{
+				"url":    u,
+				"server": resp.Header.Get("Server"),
+				"range":  "bytes=6000-18446744073709551615",
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -s -o /dev/null -w '%%{http_code}' -H 'Range: bytes=6000-18446744073709551615' '%s'\n"+
+					"# Vulnerable: 416 — Patched: 400 Bad Request",
+				u),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
