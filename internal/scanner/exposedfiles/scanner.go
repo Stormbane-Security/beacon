@@ -466,6 +466,54 @@ var targets = []sensitiveFile{
 			"initial access to government and healthcare networks. " +
 			"Upgrade MobileIron Core to 10.6 or later and restrict MDM management access.",
 	},
+
+	// CVE-2020-10189 — ManageEngine Desktop Central pre-auth file upload → RCE (CVSS 9.8, KEV).
+	// /configurations.do fingerprints ManageEngine Desktop Central. Exploited by APT41 within hours
+	// of CVE disclosure in March 2020 to backdoor targets in the healthcare and defense sectors.
+	{
+		path:         "/configurations.do",
+		title:        "CVE-2020-10189: ManageEngine Desktop Central management interface exposed",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVEManageEngineDesktopCVE,
+		bodyContains: "ManageEngine",
+		description: "ManageEngine Desktop Central (enterprise endpoint management) is internet-accessible. " +
+			"CVE-2020-10189 (CVSS 9.8, KEV) is an unauthenticated file upload vulnerability allowing RCE in " +
+			"Desktop Central build 10.0.473 and earlier. APT41 exploited this within 5 hours of CVE disclosure. " +
+			"Upgrade to build 10.0.479 or later and restrict management access to internal networks.",
+	},
+
+	// CVE-2019-17558 — Apache Solr SSTI RCE via Velocity template (CVSS 9.8, KEV).
+	// /solr/admin/info/system is accessible without authentication in default deployments.
+	// Solr 5.0.0–8.3.1 allows enabling the Velocity template parser via the admin API,
+	// which is then exploitable for server-side template injection → RCE.
+	{
+		path:         "/solr/admin/info/system",
+		title:        "CVE-2019-17558: Apache Solr admin API unauthenticated — SSTI/RCE exposure",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVESolrAdminExposed,
+		bodyContains: "solr",
+		description: "The Apache Solr admin API at /solr/admin/info/system is internet-accessible without " +
+			"authentication. CVE-2019-17558 (CVSS 9.8, KEV) allows an attacker to enable the Velocity " +
+			"template query parser via the admin API and achieve unauthenticated RCE. An open Solr admin " +
+			"API also exposes all indexed data, core configurations, and JVM environment. " +
+			"Restrict Solr admin access to localhost/management networks and upgrade to Solr ≥ 8.3.1.",
+	},
+
+	// CVE-2016-5983 — IBM WebSphere Application Server admin console deserialization RCE (CVSS 9.8).
+	// /ibm/console/login.do fingerprints the WebSphere admin console. Even without CVE-2016-5983,
+	// an internet-facing WebSphere admin console is a critical misconfiguration.
+	{
+		path:         "/ibm/console/login.do",
+		title:        "CVE-2016-5983: IBM WebSphere admin console internet-exposed",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVEWebSphereConsole,
+		bodyContains: "WebSphere",
+		description: "The IBM WebSphere Application Server admin console at /ibm/console/ is internet-accessible. " +
+			"CVE-2016-5983 (CVSS 9.8) allows an authenticated user to execute arbitrary OS commands via the " +
+			"WebSphere admin console script interface. Exposure of the admin console to the internet is a " +
+			"critical misconfiguration regardless of patch level. " +
+			"Restrict WebSphere admin console access to management networks only.",
+	},
 }
 
 // Scanner actively probes for exposed sensitive files.

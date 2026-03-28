@@ -684,21 +684,24 @@ const (
 	CheckCVEMobileIronRCE        CheckID = "cve.mobileiron_rce"            // CVE-2020-15505 MobileIron MDM RCE via /mifs/user/login.jsp (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2019) ──────────────────────────────────────
-	CheckCVEPulseSecureVPN     CheckID = "cve.pulse_secure_vpn_exposed"   // CVE-2019-11510 Pulse Secure arbitrary file read — login fingerprint (CVSS 10.0, KEV)
+	CheckCVEPulseSecureVPN    CheckID = "cve.pulse_secure_vpn_exposed"   // CVE-2019-11510 Pulse Secure arbitrary file read — login fingerprint (CVSS 10.0, KEV)
 	CheckCVEPANGlobalProtect  CheckID = "cve.pan_globalprotect_exposed"  // CVE-2019-1579 PAN-OS GlobalProtect unauthenticated RCE — version from prelogin (CVSS 9.8, KEV)
 	CheckCVECrowdPdkInstall   CheckID = "cve.crowd_pdkinstall_exposed"   // CVE-2019-11580 Atlassian Crowd pdkinstall plugin endpoint pre-auth accessible (CVSS 9.8, KEV)
 	CheckCVETelerikRAU        CheckID = "cve.telerik_rau_exposed"         // CVE-2019-18935 Telerik RadAsyncUpload endpoint exposed — pre-auth deserialization (CVSS 9.8, KEV)
 	CheckCVEWebLogicAsync     CheckID = "cve.weblogic_async_rce"          // CVE-2019-2725 Oracle WebLogic /_async/ endpoint pre-auth deserialization RCE (CVSS 9.8, KEV)
+	CheckCVESolrAdminExposed  CheckID = "cve.solr_admin_exposed"          // CVE-2019-17558 Apache Solr unauthenticated admin API — SSTI via Velocity template (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2018) ──────────────────────────────────────
-	CheckCVEDrupalgeddon2 CheckID = "cve.drupal_drupalgeddon2" // CVE-2018-7600/7602 Drupal RCE (Drupalgeddon2/3) — version from CHANGELOG.txt (CVSS 9.8, KEV)
+	CheckCVEDrupalgeddon2           CheckID = "cve.drupal_drupalgeddon2"           // CVE-2018-7600/7602 Drupal RCE (Drupalgeddon2/3) — version from CHANGELOG.txt (CVSS 9.8, KEV)
+	CheckCVEManageEngineDesktopCVE  CheckID = "cve.manageengine_desktop_central"   // CVE-2020-10189 ManageEngine Desktop Central pre-auth file upload → RCE (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
 	CheckCVEWebLogicWLSWSAT  CheckID = "cve.weblogic_wls_wsat"     // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
 	CheckCVEHikvisionISAPI   CheckID = "cve.hikvision_isapi"        // CVE-2017-7921 Hikvision IP camera unauthenticated ISAPI access (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2016) ──────────────────────────────────────
-	CheckCVEShiroRememberMe CheckID = "cve.shiro_remember_me" // CVE-2016-4437 Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle (CVSS 9.8, KEV)
+	CheckCVEShiroRememberMe    CheckID = "cve.shiro_remember_me"        // CVE-2016-4437 Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle (CVSS 9.8, KEV)
+	CheckCVEWebSphereConsole   CheckID = "cve.websphere_console_exposed" // CVE-2016-5983 IBM WebSphere admin console exposed — deserialization RCE (CVSS 9.8)
 
 	// ── Recent high-severity CVEs (2015) ──────────────────────────────────────
 	CheckCVEJBossJMXInvoker CheckID = "cve.jboss_jmx_invoker" // CVE-2015-7501 JBoss JMXInvokerServlet pre-auth Java deserialization RCE (CVSS 9.8, KEV)
@@ -1303,16 +1306,19 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVECrowdPdkInstall:  {CheckCVECrowdPdkInstall, SeverityCritical, ModeSurface},
 	CheckCVETelerikRAU:       {CheckCVETelerikRAU, SeverityCritical, ModeSurface},
 	CheckCVEWebLogicAsync:    {CheckCVEWebLogicAsync, SeverityCritical, ModeSurface},
+	CheckCVESolrAdminExposed: {CheckCVESolrAdminExposed, SeverityHigh, ModeSurface},
 
 	// 2018 CVEs
-	CheckCVEDrupalgeddon2: {CheckCVEDrupalgeddon2, SeverityCritical, ModeSurface},
+	CheckCVEDrupalgeddon2:          {CheckCVEDrupalgeddon2, SeverityCritical, ModeSurface},
+	CheckCVEManageEngineDesktopCVE: {CheckCVEManageEngineDesktopCVE, SeverityCritical, ModeSurface},
 
 	// 2017 CVEs
 	CheckCVEWebLogicWLSWSAT: {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
 	CheckCVEHikvisionISAPI:  {CheckCVEHikvisionISAPI, SeverityCritical, ModeSurface},
 
 	// 2016 CVEs
-	CheckCVEShiroRememberMe: {CheckCVEShiroRememberMe, SeverityCritical, ModeSurface},
+	CheckCVEShiroRememberMe:  {CheckCVEShiroRememberMe, SeverityCritical, ModeSurface},
+	CheckCVEWebSphereConsole: {CheckCVEWebSphereConsole, SeverityHigh, ModeSurface},
 
 	// 2015 CVEs
 	CheckCVEJBossJMXInvoker: {CheckCVEJBossJMXInvoker, SeverityCritical, ModeSurface},
