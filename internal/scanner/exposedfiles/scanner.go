@@ -1210,6 +1210,44 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// CVE-2023-50164 (Apache Struts S2-066, CVSS 9.8, KEV):
+	// File upload path traversal via manipulated filename in multipart POST.
+	// Surface probe: /index.action returning 200 with Struts signature in headers
+	// or body fingerprints a Struts 2 app; combine with version from struts2-showcase.
+	if f := probeStruts2S2066(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2013-0156 (Rails XML parameter parsing RCE, CVSS 10.0, KEV):
+	// Ruby on Rails before 2.3.15 / 3.0.19 / 3.1.10 / 3.2.11 evaluated YAML and
+	// Symbol XML types in parameters, enabling unauthenticated RCE.
+	// Surface probe: X-Runtime header identifies Rails apps; version from error pages.
+	if f := probeRailsXMLRCE(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2014-6287 (Rejetto HFS 2.3x RCE, CVSS 10.0, KEV):
+	// HFS exposes version string in HTTP response body. Version 2.3x (before 2.3c) is
+	// vulnerable to unauthenticated RCE via the search macro %00 null byte bypass.
+	// Surface probe: GET / — HFS includes "HFS X.Y" in the body or Server header.
+	if f := probeHFSRejetto(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2021-44077 (ManageEngine ServiceDesk Plus < 11305 file upload → RCE, CVSS 9.8, KEV):
+	// The /helpdesk/WebObjects/helpdesk.woa/wa/ProductVersion endpoint returns version JSON
+	// without authentication. Versions < 11305 are vulnerable to unauthenticated file upload.
+	if f := probeManageEngineServiceDesk(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2023-28432 (MinIO environment variable disclosure, CVSS 7.5, KEV):
+	// POST /minio/health/cluster?verify with empty body returns MINIO_SECRET_KEY and
+	// MINIO_ROOT_PASSWORD in plaintext on unpatched MinIO installations.
+	if f := probeMinIOEnvDisclosure(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	return findings, nil
 }
 
@@ -5045,6 +5083,274 @@ func probeStepCASCEP(ctx context.Context, client *http.Client, base, asset strin
 		}
 	}
 	return nil
+}
+
+// probeStruts2S2066 tests for CVE-2023-50164 (Apache Struts S2-066, CVSS 9.8, KEV).
+// S2-066 allows unauthenticated file upload path traversal via manipulated multipart
+// filenames in Struts 2.0.0–6.3.0.1. Surface probe: probe common .action entry points
+// and check for Struts 2 framework fingerprints in body or response headers.
+func probeStruts2S2066(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	paths := []string{"/index.action", "/login.action", "/struts2-showcase/", "/"}
+	for _, p := range paths {
+		u := base + p
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		bodyLow := strings.ToLower(string(body))
+		isStruts := strings.Contains(bodyLow, "apache struts") ||
+			strings.Contains(bodyLow, "struts2") ||
+			strings.Contains(bodyLow, "struts 2") ||
+			strings.Contains(bodyLow, "there is no action mapped") ||
+			resp.Header.Get("X-Struts-Version") != ""
+		if !isStruts {
+			continue
+		}
+		return &finding.Finding{
+			CheckID:  finding.CheckCVEStruts2S2066,
+			Module:   scannerName,
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2023-50164: Apache Struts 2 (S2-066) detected on %s", asset),
+			Description: "An Apache Struts 2 application is publicly accessible. " +
+				"CVE-2023-50164 (CVSS 9.8, KEV, S2-066) allows unauthenticated attackers to perform " +
+				"file upload path traversal by manipulating the filename parameter in multipart requests. " +
+				"Affected versions: Struts 2.0.0 through 6.3.0.1. Upgrade to Struts 6.3.0.2 or later and " +
+				"ensure file upload actions use the recommended ActionFileUploadInterceptor configuration.",
+			Evidence: map[string]any{
+				"url":              u,
+				"struts_indicator": p,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -si '%s' | grep -i 'struts\\|action mapped'\n"+
+					"# Struts fingerprint in response confirms S2-066 exposure risk", u),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// probeRailsXMLRCE tests for CVE-2013-0156 (Ruby on Rails XML parameter parsing RCE,
+// CVSS 10.0, KEV). Affected versions: Rails < 2.3.15, < 3.0.19, < 3.1.10, < 3.2.11.
+// Rails evaluated YAML and Symbol types embedded in XML parameters, enabling pre-auth RCE.
+// Surface probe: the X-Runtime response header is unique to Ruby on Rails.
+func probeRailsXMLRCE(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+
+	xRuntime := resp.Header.Get("X-Runtime")
+	if xRuntime == "" {
+		return nil
+	}
+	// X-Runtime is a Rails-specific header (milliseconds elapsed).
+	// Additionally confirm via Server header or body markers.
+	server := resp.Header.Get("Server")
+	bodyLow := strings.ToLower(string(body))
+	railsConfirmed := strings.Contains(strings.ToLower(server), "passenger") ||
+		strings.Contains(strings.ToLower(server), "puma") ||
+		strings.Contains(strings.ToLower(server), "thin") ||
+		strings.Contains(strings.ToLower(server), "webrick") ||
+		strings.Contains(bodyLow, "ruby on rails") ||
+		strings.Contains(bodyLow, "rails") ||
+		strings.Contains(resp.Header.Get("Set-Cookie"), "_session_id")
+	if !railsConfirmed {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVERailsXMLRCE,
+		Module:   scannerName,
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2013-0156: Ruby on Rails application detected on %s — XML RCE if unpatched", asset),
+		Description: "A Ruby on Rails application is publicly accessible (identified via X-Runtime header). " +
+			"CVE-2013-0156 (CVSS 10.0, KEV) affects Rails < 2.3.15 / 3.0.19 / 3.1.10 / 3.2.11. " +
+			"Vulnerable applications evaluate YAML and Symbol types embedded in XML request parameters, " +
+			"enabling unauthenticated remote code execution via a crafted XML body. " +
+			"Ensure Rails is upgraded to a supported version and XML parameter parsing is restricted.",
+		Evidence: map[string]any{
+			"url":       u,
+			"x_runtime": xRuntime,
+			"server":    server,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -si '%s' | grep -i 'x-runtime\\|server'\n"+
+				"# X-Runtime header confirms Ruby on Rails — verify version is >= 3.2.11", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeHFSRejetto tests for CVE-2014-6287 (Rejetto HFS HTTP File Server 2.3x RCE,
+// CVSS 10.0, KEV). HFS includes its version in the HTTP response body and Server header.
+// Versions 2.3x before 2.3c are vulnerable to unauthenticated RCE via the %00 null byte
+// search macro bypass.
+func probeHFSRejetto(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+
+	server := resp.Header.Get("Server")
+	bodyStr := string(body)
+	bodyLow := strings.ToLower(bodyStr)
+
+	isHFS := strings.Contains(strings.ToLower(server), "hfs") ||
+		strings.Contains(bodyLow, "hfs ") ||
+		strings.Contains(bodyLow, "httpfileserver") ||
+		strings.Contains(bodyLow, "http file server")
+	if !isHFS {
+		return nil
+	}
+
+	// Extract version string if present for confirmation.
+	versionStr := ""
+	if strings.Contains(strings.ToLower(server), "hfs") {
+		versionStr = server
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEHFSRejetto,
+		Module:   scannerName,
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2014-6287: Rejetto HFS HTTP File Server detected on %s", asset),
+		Description: "A Rejetto HFS (HTTP File Server) instance is publicly accessible. " +
+			"CVE-2014-6287 (CVSS 10.0, KEV) affects HFS versions 2.3x before 2.3c. " +
+			"Unauthenticated attackers can execute arbitrary commands on the server by exploiting " +
+			"the search functionality's failure to handle %00 null bytes, which allows macro injection. " +
+			"Upgrade to HFS 2.3c or later, or replace HFS with a maintained file sharing solution.",
+		Evidence: map[string]any{
+			"url":     u,
+			"server":  server,
+			"version": versionStr,
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -si '%s' | grep -i 'server\\|hfs'\n"+
+				"# HFS in Server header or body confirms exposure — version 2.3x is critical", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeManageEngineServiceDesk tests for CVE-2021-44077 (ManageEngine ServiceDesk Plus
+// < 11305 unauthenticated file upload → RCE, CVSS 9.8, KEV).
+// The /helpdesk/WebObjects/helpdesk.woa/wa/ProductVersion endpoint returns build number
+// and version JSON without authentication. Build numbers below 11305 are vulnerable.
+func probeManageEngineServiceDesk(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/helpdesk/WebObjects/helpdesk.woa/wa/ProductVersion"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyLow := strings.ToLower(string(body))
+	if !strings.Contains(bodyLow, "build_num") && !strings.Contains(bodyLow, "buildnumber") &&
+		!strings.Contains(bodyLow, "productversion") && !strings.Contains(bodyLow, "servicedesk") {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEManageEngineServiceDesk,
+		Module:   scannerName,
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2021-44077: ManageEngine ServiceDesk Plus detected on %s", asset),
+		Description: "A ManageEngine ServiceDesk Plus instance exposes its version endpoint without authentication. " +
+			"CVE-2021-44077 (CVSS 9.8, KEV) affects ServiceDesk Plus versions below build 11305. " +
+			"Unauthenticated attackers can upload arbitrary files to the server and achieve remote code execution. " +
+			"Upgrade to ServiceDesk Plus build 11305 or later and restrict the management interface to trusted networks.",
+		Evidence: map[string]any{
+			"url":              u,
+			"version_response": string(body),
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s'\n"+
+				"# build_num < 11305 confirms CVE-2021-44077 (unauthenticated RCE)", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeMinIOEnvDisclosure tests for CVE-2023-28432 (MinIO environment variable disclosure,
+// CVSS 7.5, KEV). Unpatched MinIO instances respond to POST /minio/health/cluster?verify
+// with MINIO_SECRET_KEY and MINIO_ROOT_PASSWORD in plaintext.
+func probeMinIOEnvDisclosure(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/minio/health/cluster?verify"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(""))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	resp.Body.Close()
+
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "MINIO_SECRET_KEY") && !strings.Contains(bodyStr, "MINIO_ROOT_PASSWORD") &&
+		!strings.Contains(bodyStr, "MINIO_ROOT_USER") {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEMinIOEnvDisclosure,
+		Module:   scannerName,
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2023-28432: MinIO environment variable disclosure on %s", asset),
+		Description: "The MinIO object storage server discloses sensitive environment variables without authentication. " +
+			"CVE-2023-28432 (CVSS 7.5, KEV) affects MinIO versions before RELEASE.2023-03-13T19-46-17Z. " +
+			"A POST to /minio/health/cluster?verify returns MINIO_SECRET_KEY and MINIO_ROOT_PASSWORD in plaintext, " +
+			"allowing complete storage access. Upgrade MinIO immediately and rotate all exposed credentials.",
+		Evidence: map[string]any{
+			"url":             u,
+			"response_snippet": func() string {
+				if len(bodyStr) > 300 {
+					return bodyStr[:300] + "…"
+				}
+				return bodyStr
+			}(),
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s -X POST '%s'\n"+
+				"# Response contains MINIO_SECRET_KEY / MINIO_ROOT_PASSWORD in plaintext", u),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

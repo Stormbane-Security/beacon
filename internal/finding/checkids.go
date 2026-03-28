@@ -779,6 +779,8 @@ const (
 	// ── Pre-2015 high-severity CVEs ───────────────────────────────────────────
 	CheckCVEDrupalgeddon1              CheckID = "cve.drupal_drupalgeddon1"          // CVE-2014-3704 Drupal 7.x < 7.32 SQL injection via form API → unauthenticated admin (CVSS 7.5, KEV)
 	CheckCVEPHPCGIArgInjection2012    CheckID = "cve.php_cgi_arg_injection_2012"    // CVE-2012-1823 PHP-CGI query string argument injection → source disclosure / RCE (CVSS 7.5, KEV)
+	CheckCVERailsXMLRCE               CheckID = "cve.rails_xml_rce_2013"            // CVE-2013-0156 Ruby on Rails XML parameter parsing RCE — X-Runtime header fingerprint (CVSS 10.0, KEV)
+	CheckCVEHFSRejetto                CheckID = "cve.hfs_rejetto_rce_2014"           // CVE-2014-6287 Rejetto HFS 2.3x HTTP File Server version in body → RCE (CVSS 10.0, KEV)
 
 	// ── Port-level exposure checks added with gap-fill ────────────────────────
 	CheckCVETomcatGhostCat            CheckID = "cve.tomcat_ghostcat"               // CVE-2020-1938 Apache Tomcat AJP connector exposed (port 8009) → file read/inclusion → RCE (CVSS 9.8, KEV)
@@ -789,6 +791,18 @@ const (
 	CheckPortProxmoxExposed           CheckID = "port.proxmox_exposed"              // Proxmox VE hypervisor management UI exposed (port 8006)
 	CheckPortNetdataExposed           CheckID = "port.netdata_exposed"              // Netdata real-time monitoring dashboard exposed without auth (port 19999)
 	CheckPortLocalAIExposed           CheckID = "port.localai_exposed"              // LocalAI OpenAI-compatible inference server exposed without auth (port 8080)
+
+	// ── Additional gap-fill CVEs and exposure checks ──────────────────────────
+	CheckCVEStruts2S2066              CheckID = "cve.struts2_s2066"                 // CVE-2023-50164 Apache Struts S2-066 file upload path traversal → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEManageEngineServiceDesk   CheckID = "cve.manageengine_servicedesk_rce"  // CVE-2021-44077 ManageEngine ServiceDesk Plus < 11305 unauthenticated file upload → RCE (CVSS 9.8, KEV)
+	CheckCVEMinIOEnvDisclosure        CheckID = "cve.minio_env_disclosure"           // CVE-2023-28432 MinIO unauthenticated POST /minio/health/cluster?verify → MINIO_SECRET_KEY leak (CVSS 7.5, KEV)
+	CheckPortCiscoSmartInstall        CheckID = "port.cisco_smart_install"           // CVE-2018-0171 Cisco IOS Smart Install port 4786 exposed — unauthenticated config read/write (CVSS 9.8, KEV)
+	CheckPortHuggingFaceTGIExposed    CheckID = "port.huggingface_tgi_exposed"       // HuggingFace Text Generation Inference server exposed without auth — /info discloses model config
+	CheckPortAutomatic1111Exposed     CheckID = "port.automatic1111_exposed"         // Automatic1111 Stable Diffusion WebUI exposed without auth — /sdapi/v1/options discloses model paths
+	CheckCVEOllamaPathTraversal       CheckID = "cve.ollama_path_traversal"          // GHSA-q3jj-7xxq-6mgr Ollama < 0.1.47 directory traversal via model blob endpoint → arbitrary file read
+	CheckPortNacosExposed             CheckID = "port.nacos_exposed"                 // Nacos service discovery/config exposed without auth (port 8848) — default nacos:nacos credentials
+	CheckPortConsulNoACL              CheckID = "port.consul_no_acl"                 // HashiCorp Consul /v1/catalog/nodes responds without auth — full cluster topology exposed (port 8500)
+	CheckPortNiFiExposed              CheckID = "port.nifi_exposed"                  // Apache NiFi data pipeline UI exposed without auth (port 8080/8443) — full workflow control
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -1486,6 +1500,20 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortProxmoxExposed:           {CheckPortProxmoxExposed, SeverityHigh, ModeSurface},
 	CheckPortNetdataExposed:           {CheckPortNetdataExposed, SeverityMedium, ModeSurface},
 	CheckPortLocalAIExposed:           {CheckPortLocalAIExposed, SeverityHigh, ModeSurface},
+
+	// Additional gap-fill CVEs and exposures
+	CheckCVEStruts2S2066:              {CheckCVEStruts2S2066, SeverityCritical, ModeSurface},
+	CheckCVERailsXMLRCE:               {CheckCVERailsXMLRCE, SeverityCritical, ModeSurface},
+	CheckCVEHFSRejetto:                {CheckCVEHFSRejetto, SeverityCritical, ModeSurface},
+	CheckCVEManageEngineServiceDesk:   {CheckCVEManageEngineServiceDesk, SeverityCritical, ModeSurface},
+	CheckCVEMinIOEnvDisclosure:        {CheckCVEMinIOEnvDisclosure, SeverityHigh, ModeSurface},
+	CheckPortCiscoSmartInstall:        {CheckPortCiscoSmartInstall, SeverityCritical, ModeSurface},
+	CheckPortHuggingFaceTGIExposed:    {CheckPortHuggingFaceTGIExposed, SeverityHigh, ModeSurface},
+	CheckPortAutomatic1111Exposed:     {CheckPortAutomatic1111Exposed, SeverityHigh, ModeSurface},
+	CheckCVEOllamaPathTraversal:       {CheckCVEOllamaPathTraversal, SeverityHigh, ModeSurface},
+	CheckPortNacosExposed:             {CheckPortNacosExposed, SeverityHigh, ModeSurface},
+	CheckPortConsulNoACL:              {CheckPortConsulNoACL, SeverityHigh, ModeSurface},
+	CheckPortNiFiExposed:              {CheckPortNiFiExposed, SeverityHigh, ModeSurface},
 
 	// JWT / OIDC / JWKS advanced checks
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},

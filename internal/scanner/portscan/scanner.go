@@ -177,6 +177,8 @@ var extendedPorts = []portEntry{
 	{8009, "ajp", false},               // Tomcat AJP connector — CVE-2020-1938 GhostCat file read/RCE (CVSS 9.8, KEV)
 	{8188, "comfyui", false},            // ComfyUI Stable Diffusion web UI (no auth by default)
 	{8006, "proxmox", false},            // Proxmox VE hypervisor management UI
+	{4786, "cisco-smart-install", false}, // Cisco IOS Smart Install — CVE-2018-0171 unauth config read/write (CVSS 9.8, KEV)
+	{8848, "nacos", false},              // Nacos service discovery / config center — default nacos:nacos creds
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -847,6 +849,27 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				ev,
 			)}
 		}
+		// GHSA-q3jj-7xxq-6mgr: Ollama < 0.1.47 directory traversal via model blob endpoint.
+		// GET /api/version reveals the version string unauthenticated.
+		if vbody, ok := probeHTTPBody(ctx, asset, port, false, "/api/version"); ok {
+			if strings.Contains(vbody, "version") {
+				ev["api_version_response"] = vbody
+				var findings []finding.Finding
+				if isVulnerableOllamaVersion(vbody) {
+					findings = append(findings, makeF(
+						finding.CheckCVEOllamaPathTraversal,
+						finding.SeverityHigh,
+						fmt.Sprintf("Ollama < 0.1.47 path traversal (GHSA-q3jj-7xxq-6mgr) on port %d", port),
+						"GHSA-q3jj-7xxq-6mgr: Ollama versions before 0.1.47 allow directory traversal via the "+
+							"model blob endpoint (/api/blobs/:digest). An unauthenticated attacker can read "+
+							"arbitrary files from the server by crafting a path traversal in the digest parameter. "+
+							"Upgrade Ollama to 0.1.47 or later.",
+						ev,
+					))
+				}
+				return findings
+			}
+		}
 		return nil
 
 	// ── MQTT (IoT message broker) ─────────────────────────────────────────────
@@ -1487,7 +1510,7 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			}}
 		}
 
-	// ── Gradio ML demo server ─────────────────────────────────────────────────
+	// ── Gradio ML demo server / Automatic1111 SD WebUI ───────────────────────
 	case 7860:
 		if body, ok := probeHTTPBody(ctx, asset, port, false, "/info"); ok && strings.Contains(body, "gradio") {
 			return []finding.Finding{makeF(
@@ -1499,6 +1522,26 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"SSRF, prompt injection, or unauthorized model access.",
 				map[string]any{"port": port, "service": service, "banner": banner},
 			)}
+		}
+		// Automatic1111 Stable Diffusion WebUI also runs on 7860 by default.
+		// GET /sdapi/v1/options returns model paths and all SD config without auth.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/sdapi/v1/options"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "sd_model_checkpoint") || strings.Contains(bodyLow, "stable_diffusion") ||
+				strings.Contains(bodyLow, "sdapi") || strings.Contains(bodyLow, "samples_format") {
+				return []finding.Finding{makeF(
+					finding.CheckPortAutomatic1111Exposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Automatic1111 Stable Diffusion WebUI exposed unauthenticated on port %d", port),
+					"An Automatic1111 Stable Diffusion WebUI instance is publicly accessible without authentication. "+
+						"The /sdapi/v1/options endpoint discloses model paths, output directories, and all SD configuration. "+
+						"Unauthenticated access allows arbitrary image generation at the operator's compute cost, "+
+						"model file path disclosure (aiding local file read attacks), and SSRF via "+
+						"the extensions system. Enable authentication (--gradio-auth) and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "automatic1111",
+						"url": fmt.Sprintf("http://%s:%d/sdapi/v1/options", asset, port)},
+				)}
+			}
 		}
 
 	// ── Webmin ────────────────────────────────────────────────────────────────
@@ -1755,6 +1798,26 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				)}
 			}
 		}
+		// Apache NiFi — GET /nifi/ redirects or returns the NiFi UI without auth in older versions.
+		// NiFi provides full data flow control (source connectors, processors, destinations).
+		// Unauthenticated access allows reading all flow data and modifying pipeline routing.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/nifi/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "nifi") || strings.Contains(bodyLow, "apache nifi") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNiFiExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Apache NiFi data pipeline UI accessible on port %d", port),
+					"An Apache NiFi data pipeline instance is publicly accessible. "+
+						"NiFi provides a web-based interface for designing, controlling, and monitoring data flows. "+
+						"Unauthenticated access (or default credentials) allows full control over data routing, "+
+						"reading all data in transit, modifying processor configurations, and connecting "+
+						"to internal data sources. Enable NiFi authentication and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "nifi",
+						"url": fmt.Sprintf("http://%s:%d/nifi/", asset, port)},
+				)}
+			}
+		}
 
 	case 3000:
 		// AdGuard Home admin UI — GET /control/status returns JSON with DNS state.
@@ -1778,6 +1841,25 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 						"admin interface to trusted internal addresses only.",
 					map[string]any{"port": port, "service": service,
 						"url": fmt.Sprintf("http://%s:%d/control/status", asset, port)},
+				)}
+			}
+		}
+
+		// HuggingFace Text Generation Inference (TGI) — probe /info for model_id disclosure.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/info"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "model_id") && strings.Contains(bodyLow, "max_input_length") {
+				return []finding.Finding{makeF(
+					finding.CheckPortHuggingFaceTGIExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("HuggingFace Text Generation Inference server exposed unauthenticated on port %d", port),
+					"A HuggingFace Text Generation Inference (TGI) server is publicly accessible without authentication. "+
+						"The /info endpoint discloses the loaded model ID, maximum input/output lengths, and server configuration. "+
+						"Unauthenticated access allows unlimited LLM inference at the operator's compute cost, "+
+						"model identification for targeted attacks, and potential prompt injection against downstream applications. "+
+						"Add authentication via a reverse proxy and restrict the port to trusted networks.",
+					map[string]any{"port": port, "service": "huggingface-tgi",
+						"url": fmt.Sprintf("http://%s:%d/info", asset, port)},
 				)}
 			}
 		}
@@ -2255,6 +2337,76 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			)}
 		}
 
+	// ── Cisco Smart Install (CVE-2018-0171) ────────────────────────────────────
+	case 4786:
+		// Cisco IOS Smart Install protocol on port 4786 allows unauthenticated read/write
+		// of device configuration (CVSS 9.8, KEV, actively exploited by threat actors).
+		// The port being open and accepting a TCP connection is itself the finding —
+		// Smart Install has no authentication layer whatsoever.
+		return []finding.Finding{makeF(
+			finding.CheckPortCiscoSmartInstall,
+			finding.SeverityCritical,
+			fmt.Sprintf("CVE-2018-0171: Cisco Smart Install protocol exposed on port %d", port),
+			"The Cisco IOS Smart Install protocol is accessible on port 4786. "+
+				"CVE-2018-0171 (CVSS 9.8, KEV) allows unauthenticated attackers to read and write "+
+				"the device configuration, change the TFTP server, and reload the device. "+
+				"Smart Install is actively exploited by state-sponsored threat actors for network infrastructure "+
+				"takeover. Disable Smart Install with 'no vstack' in IOS configuration and block port 4786 "+
+				"at the network perimeter.",
+			map[string]any{"port": port, "service": service, "protocol": "smart-install", "banner": banner},
+		)}
+
+	// ── Nacos service discovery / config center ────────────────────────────────
+	case 8848:
+		// Nacos service discovery and configuration management platform.
+		// Default credentials nacos:nacos allow full cluster control.
+		// GET /nacos/v1/cs/configs?dataId=&group=&tenant= lists all config entries.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/nacos/v1/cs/configs?dataId=&group=&tenant="); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "pageitems") || strings.Contains(bodyLow, "nacos") ||
+				strings.Contains(bodyLow, "totalcount") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNacosExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Nacos service discovery/config center exposed unauthenticated on port %d", port),
+					"A Nacos service discovery and configuration management platform is publicly accessible. "+
+						"Nacos installations often ship with default credentials (nacos:nacos) and no network restriction. "+
+						"Unauthenticated or default-credential access exposes all service registrations, "+
+						"configuration data (including secrets and database passwords), and allows "+
+						"arbitrary configuration injection to all connected microservices. "+
+						"Enable Nacos authentication mode (nacos.core.auth.enabled=true) and rotate default credentials.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/nacos/v1/cs/configs", asset, port)},
+				)}
+			}
+		}
+
+	// ── HashiCorp Consul (no ACL) ──────────────────────────────────────────────
+	case 8500:
+		// Consul REST API — GET /v1/catalog/nodes returns all nodes without auth when ACLs are disabled.
+		// No-ACL Consul exposes full cluster topology, service endpoints, key-value store (often with secrets),
+		// and allows arbitrary service registration / deregistration.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/v1/catalog/nodes"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.HasPrefix(strings.TrimSpace(body), "[") &&
+				(strings.Contains(bodyLow, "node") || strings.Contains(bodyLow, "address") ||
+					strings.Contains(bodyLow, "datacenter")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortConsulNoACL,
+					finding.SeverityHigh,
+					fmt.Sprintf("HashiCorp Consul responds without ACL authentication on port %d", port),
+					"A HashiCorp Consul service mesh instance returns cluster node information without authentication. "+
+						"With ACLs disabled, the Consul API exposes full cluster topology, all registered services "+
+						"and their network endpoints, and the key-value store (which often contains secrets, "+
+						"TLS certificates, and database credentials). An attacker can also register malicious "+
+						"services to redirect internal traffic. Enable Consul ACLs "+
+						"(acl { enabled = true }) and restrict the HTTP port to trusted networks.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/v1/catalog/nodes", asset, port)},
+				)}
+			}
+		}
+
 	}
 
 	// No structured check for this service — return nothing.
@@ -2312,6 +2464,8 @@ var webServicePorts = map[int]string{
 	55000: "wazuh-api",
 	9401:  "veeam-mgmt",
 	9419:  "veeam-catalog",
+	4786:  "cisco-smart-install",
+	8848:  "nacos",
 }
 
 // EmitPortServiceDiscovered returns a CheckPortServiceDiscovered finding when
@@ -3142,6 +3296,47 @@ func isVulnerableKibana(version string) bool {
 		return false // patched
 	}
 	return true
+}
+
+// isVulnerableOllamaVersion returns true when the /api/version JSON body indicates
+// an Ollama version below 0.1.47, which is vulnerable to GHSA-q3jj-7xxq-6mgr
+// (directory traversal via the model blob endpoint).
+func isVulnerableOllamaVersion(body string) bool {
+	// Body is JSON like {"version":"0.1.45"}
+	idx := strings.Index(body, `"version":"`)
+	if idx < 0 {
+		return false
+	}
+	after := body[idx+len(`"version":"`):]
+	end := strings.IndexByte(after, '"')
+	if end < 0 {
+		return false
+	}
+	ver := after[:end]
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil || major != 0 {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return false
+	}
+	// Vulnerable: < 0.1.47
+	if minor < 1 {
+		return true
+	}
+	if minor == 1 && patch < 47 {
+		return true
+	}
+	return false
 }
 
 // probeMinIODefaultCreds attempts to log in to the MinIO console with the
