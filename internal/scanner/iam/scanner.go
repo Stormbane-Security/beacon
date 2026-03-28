@@ -171,6 +171,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// 8. Keycloak SAML bypass — CVE-2026-3047 (CVSS 9.1) version check from /realms/master
+	if f := checkKeycloakSAMLBypass(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
 	// Exploitation probes require --authorized (beyond --deep).
 	if scanType != module.ScanAuthorized {
 		return findings, nil
@@ -727,4 +732,129 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// checkKeycloakSAMLBypass probes for CVE-2026-3047 (CVSS 9.1) — a SAML signature
+// validation bypass in Keycloak < 26.0.6 allowing unauthenticated identity assertion forgery.
+// The /realms/master endpoint responds with realm metadata including a version field in
+// recent Keycloak versions. If the version is < 26.0.6, the SAML bypass applies.
+func checkKeycloakSAMLBypass(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
+	u := base + "/realms/master"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// Must contain "realm" key — Keycloak-specific response structure.
+	if !strings.Contains(bodyStr, `"realm"`) {
+		return nil
+	}
+	// Parse the keycloak-version or version field if present.
+	ver := extractJSONString(bodyStr, "keycloak-version")
+	if ver == "" {
+		ver = extractJSONString(bodyStr, "version")
+	}
+	// If we can confirm it's Keycloak but can't extract version, still emit exposure
+	// with advisory noting the version range — operators must verify.
+	if ver == "" {
+		// Keycloak /realms/master is confirmed accessible; can't determine version.
+		return &finding.Finding{
+			CheckID:  finding.CheckCVEKeycloakSAMLBypass,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2026-3047: Keycloak realm endpoint exposed on %s — SAML bypass if < 26.0.6", asset),
+			Description: "The Keycloak /realms/master endpoint is publicly accessible. " +
+				"CVE-2026-3047 (CVSS 9.1) is a SAML signature validation bypass in Keycloak < 26.0.6 " +
+				"allowing an attacker to forge SAML assertions and authenticate as any user without valid credentials. " +
+				"Version could not be determined from this endpoint. " +
+				"Verify the Keycloak version and upgrade to 26.0.6 or later if affected. " +
+				"Restrict the Keycloak admin and realm endpoints to internal networks.",
+			Evidence: map[string]any{
+				"url":     u,
+				"snippet": truncate(bodyStr, 256),
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s' | jq '{realm:.realm, version:.version}'", u),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	if !isKeycloakSAMLBypassVulnerable(ver) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEKeycloakSAMLBypass,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2026-3047: Keycloak %s vulnerable to SAML signature bypass on %s", ver, asset),
+		Description: fmt.Sprintf(
+			"%s is running Keycloak %s which is vulnerable to CVE-2026-3047 (CVSS 9.1). "+
+				"A SAML signature validation bypass allows an unauthenticated attacker to forge SAML "+
+				"assertions and authenticate as any user, achieving full identity provider compromise. "+
+				"Upgrade to Keycloak 26.0.6 or later immediately.",
+			asset, ver,
+		),
+		Evidence: map[string]any{
+			"url":     u,
+			"version": ver,
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | jq '{realm:.realm, version:.version}'", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// extractJSONString extracts a string value for the given key from a JSON body
+// without importing a full JSON parser — sufficient for simple flat objects.
+func extractJSONString(body, key string) string {
+	needle := `"` + key + `"`
+	idx := strings.Index(body, needle)
+	if idx < 0 {
+		return ""
+	}
+	rest := body[idx+len(needle):]
+	// Skip whitespace and colon.
+	rest = strings.TrimLeft(rest, " \t\r\n:")
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	rest = rest[1:]
+	end := strings.IndexByte(rest, '"')
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+// isKeycloakSAMLBypassVulnerable returns true for Keycloak < 26.0.6.
+func isKeycloakSAMLBypassVulnerable(ver string) bool {
+	ver = strings.TrimPrefix(ver, "v")
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) == 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj < 26 {
+		return true
+	}
+	if maj == 26 && min == 0 && patch < 6 {
+		return true
+	}
+	return false
 }

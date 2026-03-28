@@ -1044,9 +1044,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// CVE-2019-19781/2020-8196 (Citrix ADC Nitro API unauthenticated access, CVSS 9.8, KEV):
 	// GET /nitro/v1/config/nsversion without credentials confirms unauthenticated Nitro API exposure.
-	if f := probeCitrixADCNitro(ctx, client, base, asset); f != nil {
-		findings = append(findings, *f)
-	}
+	// CVE-2023-3519 (CVSS 9.8, KEV): same endpoint reveals version — emit RCE finding if vulnerable.
+	findings = append(findings, probeCitrixADCNitro(ctx, client, base, asset)...)
 
 	// CVE-2022-22965 (Spring4Shell, CVSS 9.8, KEV):
 	// GET /?class.module.classLoader.URLs[0]=0 → 400 from Spring MVC with classLoader binding
@@ -1170,6 +1169,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2022-30781 (Gitea < 1.16.7 shell command injection, CVSS 9.8):
 	// /api/v1/version exposes Gitea version unauthenticated.
 	if f := probeGiteaCMDInjection(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// CVE-2024-21591 (Juniper J-Web < 23.4R1 type confusion → pre-auth RCE as root, CVSS 9.8, KEV):
+	// Re-probe /webauth_operation.php to emit companion finding alongside CVE-2023-36844.
+	if f := probeJuniperJWeb2024(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// Apache Airflow exposure + CVE-2024-39877 (DAG code execution, CVSS 8.8):
+	// /api/v1/health confirms Airflow; /api/v1/version reveals version < 2.10.0.
+	findings = append(findings, probeApacheAirflow(ctx, client, base, asset)...)
+
+	// Open WebUI exposure (CVE-2024-1520 OS command injection via /open_code_folder):
+	// GET / and check for "Open WebUI" in page title.
+	if f := probeOpenWebUI(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -2549,8 +2564,9 @@ func probeWebLogicConsole(ctx context.Context, client *http.Client, base, asset 
 // probeCitrixADCNitro tests for unauthenticated access to the Citrix ADC (NetScaler) Nitro API.
 // CVE-2019-19781 (CVSS 9.8, KEV) allows path traversal and unauthenticated RCE on Citrix ADC/Gateway.
 // CVE-2020-8196 covers unauthenticated information disclosure via the Nitro API.
+// CVE-2023-3519 (CVSS 9.8, KEV): stack buffer overflow → unauthenticated RCE; version parsed from same response.
 // A JSON response from /nitro/v1/config/nsversion without credentials confirms exposure.
-func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	u := base + "/nitro/v1/config/nsversion"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -2570,7 +2586,12 @@ func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset s
 		!strings.Contains(bStr, "nsversion") {
 		return nil
 	}
-	return &finding.Finding{
+	snippet := string(b)
+	if len(snippet) > 256 {
+		snippet = snippet[:256]
+	}
+	var findings []finding.Finding
+	findings = append(findings, finding.Finding{
 		CheckID:  finding.CheckCVECitrixADCInfo,
 		Module:   "surface",
 		Scanner:  scannerName,
@@ -2584,14 +2605,89 @@ func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset s
 			"Restrict Nitro API access to management networks and apply all available patches.",
 		Evidence: map[string]any{
 			"nitro_url": u,
-			"response":  string(b)[:min(len(string(b)), 256)],
+			"response":  snippet,
 		},
 		ProofCommand: fmt.Sprintf(
 			"curl -s '%s'\n"+
 				"# Expected: JSON with ns_platform/ns_build — confirms unauthenticated Nitro API access",
 			u),
 		DiscoveredAt: time.Now(),
+	})
+	// CVE-2023-3519: check if version is in a vulnerable range.
+	// The nsversion field looks like "NetScaler NS13.1: Build 48.47.nc..." — parse maj.min and build.
+	if isCitrixADCRCE2023Vulnerable(string(b)) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCVECitrixADCRCE2023,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2023-3519: Citrix ADC/Gateway vulnerable to unauthenticated RCE on %s", asset),
+			Description: "CVE-2023-3519 (CVSS 9.8, KEV) is a stack buffer overflow in Citrix ADC and Gateway " +
+				"that allows unauthenticated remote code execution when the appliance is configured as a Gateway " +
+				"(SSL VPN, ICA Proxy, CVPN, RDP Proxy) or AAA virtual server. Exploited in the wild by ransomware " +
+				"operators. Vulnerable versions: < 13.1-49.15, < 13.0-91.13, < 12.1-65.25 (12.1 EOL). " +
+				"Patch immediately to 13.1-49.15+ or 13.0-91.13+.",
+			Evidence: map[string]any{
+				"nitro_url": u,
+				"response":  snippet,
+			},
+			ProofCommand: fmt.Sprintf(
+				"curl -s '%s'\n"+
+					"# Check nsversion field — NS13.1 < Build 49.15, NS13.0 < Build 91.13, NS12.1 any build = vulnerable",
+				u),
+			DiscoveredAt: time.Now(),
+		})
 	}
+	return findings
+}
+
+// isCitrixADCRCE2023Vulnerable parses the NetScaler version string from a Nitro API response body
+// and returns true if the version falls within a range vulnerable to CVE-2023-3519.
+// Version format in JSON: "NetScaler NS13.1: Build 48.47.nc..." or similar.
+func isCitrixADCRCE2023Vulnerable(body string) bool {
+	// Extract the nsversion value — look for pattern NSx.y: Build b1.b2
+	lower := strings.ToLower(body)
+	idx := strings.Index(lower, "ns")
+	for idx >= 0 && idx < len(body)-4 {
+		// Try to parse NSx.y: Build b1.b2
+		rest := body[idx+2:] // skip "NS"
+		var maj, minor, build1, build2 int
+		n, err := fmt.Sscanf(rest, "%d.%d", &maj, &minor)
+		if err != nil || n != 2 {
+			idx = strings.Index(lower[idx+1:], "ns")
+			if idx >= 0 {
+				idx += idx + 1
+			}
+			break
+		}
+		// Look for "Build b1.b2" after the major.minor
+		buildIdx := strings.Index(strings.ToLower(rest), "build ")
+		if buildIdx < 0 {
+			break
+		}
+		buildStr := rest[buildIdx+6:]
+		n, err = fmt.Sscanf(buildStr, "%d.%d", &build1, &build2)
+		if err != nil || n != 2 {
+			break
+		}
+		switch {
+		case maj == 13 && minor == 1:
+			// Vulnerable if < 13.1 Build 49.15
+			return build1 < 49 || (build1 == 49 && build2 < 15)
+		case maj == 13 && minor == 0:
+			// Vulnerable if < 13.0 Build 91.13
+			return build1 < 91 || (build1 == 91 && build2 < 13)
+		case maj == 12 && minor == 1:
+			// 12.1 is EOL — all versions vulnerable
+			return true
+		case maj == 12 && minor == 0:
+			// 12.0 EOL — vulnerable
+			return true
+		}
+		break
+	}
+	return false
 }
 
 // probeSpringOAuthSpEL tests for CVE-2016-4977 (Spring Security OAuth2 SpEL injection, CVSS 9.8).
@@ -4477,6 +4573,206 @@ func isGiteaCMDInjectionVulnerable(ver string) bool {
 		return true
 	}
 	return false
+}
+
+// probeJuniperJWeb2024 tests for CVE-2024-21591 (CVSS 9.8, KEV) — a type confusion
+// vulnerability in Juniper Junos OS J-Web < 23.4R1 allowing unauthenticated RCE as root.
+// The probe confirms J-Web presence via /webauth_operation.php (same fingerprint as
+// CVE-2023-36844) — any exposed J-Web instance may be affected if unpatched.
+func probeJuniperJWeb2024(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/webauth_operation.php"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	if !strings.Contains(string(body), "Juniper") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckCVEJuniperJWeb2024,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CVE-2024-21591: Juniper J-Web exposed — pre-auth RCE risk on %s", asset),
+		Description: "A Juniper J-Web interface is publicly accessible. CVE-2024-21591 (CVSS 9.8, KEV) " +
+			"is a type confusion vulnerability in Junos OS J-Web affecting versions before 23.4R1. " +
+			"An unauthenticated attacker can achieve remote code execution as root or perform a " +
+			"denial of service by sending crafted HTTP requests. Affected platforms include SRX, EX, " +
+			"MX, and ACX series running Junos OS. " +
+			"Upgrade to Junos OS 20.4R3-S9, 21.2R3-S7, 21.4R3-S5, 22.2R3-S3, 22.3R3-S2, " +
+			"22.4R2-S2/R3, 23.2R1-S1/R2, 23.4R1 or later, or disable J-Web.",
+		Evidence: map[string]any{
+			"url":        u,
+			"body_match": "Juniper",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -i juniper\n"+
+				"# Exposed J-Web — verify Junos version is >= 23.4R1 to confirm patch", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeApacheAirflow tests for an exposed Apache Airflow web server and checks for
+// CVE-2024-39877 (CVSS 8.8) — DAG author code execution via malicious Python DAG files.
+// Affects Airflow < 2.10.0. The /api/v1/health endpoint confirms Airflow; /api/v1/version
+// reveals the version. Both endpoints are unauthenticated by default in many deployments.
+func probeApacheAirflow(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
+	healthURL := base + "/api/v1/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := strings.ToLower(string(body))
+	// Airflow health response contains "scheduler" and "metadatabase" keys.
+	if !strings.Contains(bodyStr, "scheduler") || !strings.Contains(bodyStr, "metadatabase") {
+		return nil
+	}
+	var findings []finding.Finding
+	findings = append(findings, finding.Finding{
+		CheckID:  finding.CheckPortAirflowExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    asset,
+		Title:    fmt.Sprintf("Apache Airflow web server exposed unauthenticated on %s", asset),
+		Description: "The Apache Airflow REST API health endpoint at /api/v1/health responded " +
+			"without authentication, indicating the Airflow web server is publicly accessible. " +
+			"Airflow orchestrates sensitive data pipelines and DAG execution. " +
+			"Unauthenticated access can expose pipeline configuration, credentials, and connection strings. " +
+			"Restrict Airflow to internal networks or enable authentication.",
+		Evidence: map[string]any{
+			"url":  healthURL,
+			"body": string(body)[:min(len(string(body)), 256)],
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s'\n# Expected: JSON with scheduler/metadatabase health fields", healthURL),
+		DiscoveredAt: time.Now(),
+	})
+	// Fetch version to check CVE-2024-39877.
+	verURL := base + "/api/v1/version"
+	vreq, err := http.NewRequestWithContext(ctx, http.MethodGet, verURL, nil)
+	if err != nil {
+		return findings
+	}
+	vresp, err := client.Do(vreq)
+	if err != nil {
+		return findings
+	}
+	vbody, _ := io.ReadAll(io.LimitReader(vresp.Body, 512))
+	vresp.Body.Close()
+	if vresp.StatusCode != http.StatusOK {
+		return findings
+	}
+	ver := parseJSONField(string(vbody), "version")
+	if ver == "" {
+		return findings
+	}
+	if isAirflowDAGRCEVulnerable(ver) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCVEAirflowDAGRCE,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2024-39877: Apache Airflow %s vulnerable to DAG code execution on %s", ver, asset),
+			Description: fmt.Sprintf(
+				"%s is running Apache Airflow %s which is vulnerable to CVE-2024-39877 (CVSS 8.8). "+
+					"A DAG author can execute arbitrary code on the Airflow worker by crafting a malicious DAG file. "+
+					"This affects Airflow < 2.10.0. Upgrade to Apache Airflow 2.10.0 or later.",
+				asset, ver,
+			),
+			Evidence: map[string]any{
+				"url":     verURL,
+				"version": ver,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s' | jq .version", verURL),
+			DiscoveredAt: time.Now(),
+		})
+	}
+	return findings
+}
+
+// isAirflowDAGRCEVulnerable returns true for Apache Airflow < 2.10.0.
+func isAirflowDAGRCEVulnerable(ver string) bool {
+	ver = strings.TrimPrefix(ver, "v")
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if maj < 2 {
+		return true
+	}
+	if maj == 2 && min < 10 {
+		return true
+	}
+	return false
+}
+
+// probeOpenWebUI tests for an exposed Open WebUI instance (CVE-2024-1520).
+// CVE-2024-1520 is an OS command injection vulnerability via the /open_code_folder endpoint.
+// The probe checks the root page for "Open WebUI" in the title — product-unique fingerprint.
+func probeOpenWebUI(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := strings.ToLower(string(body))
+	// "open webui" appears in <title> and meta tags — sufficiently product-specific.
+	if !strings.Contains(bodyStr, "open webui") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckPortOpenWebUIExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    asset,
+		Title:    fmt.Sprintf("Open WebUI exposed on %s — CVE-2024-1520 OS command injection risk", asset),
+		Description: "An Open WebUI instance is publicly accessible on this host. " +
+			"CVE-2024-1520 is an OS command injection vulnerability in Open WebUI's /open_code_folder endpoint " +
+			"that allows authenticated users to execute arbitrary OS commands on the server. " +
+			"Exposing Open WebUI publicly increases the attack surface significantly. " +
+			"Restrict access to trusted users or internal networks and ensure the instance is fully patched.",
+		Evidence: map[string]any{
+			"url":        u,
+			"body_match": "open webui",
+		},
+		ProofCommand: fmt.Sprintf(
+			"curl -s '%s' | grep -i 'open webui'\n# Expected: title or meta content matching 'Open WebUI'", u),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {

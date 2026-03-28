@@ -458,6 +458,7 @@ const (
 	CheckCVEFortiWebAuthBypass CheckID = "cve.fortiweb_auth_bypass"     // CVE-2025-64446 FortiWeb path traversal auth bypass (CVSS 9.8, KEV)
 	CheckCVECiscoASARCE        CheckID = "cve.cisco_asa_ftd_rce"        // CVE-2025-20333/20362 Cisco ASA/FTD pre-auth RCE (KEV)
 	CheckCVEMCPServerExposed   CheckID = "cve.mcp_server_exposed"       // CVE-2026-27825 MCP server unauthenticated SSRF/RCE
+	CheckCVEKeycloakSAMLBypass CheckID = "cve.keycloak_saml_bypass"     // CVE-2026-3047 Keycloak < 26.0.6 SAML signature validation bypass → auth bypass (CVSS 9.1)
 
 	// ── Non-HTTP protocol exposure (IoT, industrial, telecom) ────────────────
 	CheckPortMQTTExposed    CheckID = "port.mqtt_exposed"     // MQTT broker accessible without auth (port 1883/8883)
@@ -503,6 +504,9 @@ const (
 	CheckCVEZabbixSessionForge     CheckID = "cve.zabbix_session_forgery"      // CVE-2024-36466/36467 Zabbix session cookie forgery + API auth bypass (CVSS 9.9)
 	CheckCVEpgAdminValidateRCE     CheckID = "cve.pgadmin_validate_rce"        // CVE-2024-3116 pgAdmin ≤ 8.4 validate binary path → command injection RCE (EPSS 90.7%)
 	CheckCVEGiteaCMDInjection      CheckID = "cve.gitea_cmd_injection"         // CVE-2022-30781 Gitea < 1.16.7 shell command injection in repository management (CVSS 9.8)
+	CheckPortAirflowExposed        CheckID = "port.airflow_exposed"             // Apache Airflow web server exposed without auth (port 8080)
+	CheckCVEAirflowDAGRCE          CheckID = "cve.airflow_dag_rce"              // CVE-2024-39877 Airflow < 2.10.0 DAG author code execution via malicious dags (CVSS 8.8)
+	CheckPortOpenWebUIExposed      CheckID = "port.openwebui_exposed"           // Open WebUI exposed (port 8080) — CVE-2024-1520 OS command injection via /open_code_folder
 
 	// ── Additional network vendor identification ──────────────────────────────
 	CheckNetDeviceF5Detected       CheckID = "netdev.f5_detected"         // F5 BIG-IP load balancer identified (/tmui/login.jsp)
@@ -679,7 +683,9 @@ const (
 	CheckCVEIvantiConnectSecure    CheckID = "cve.ivanti_connect_secure_bypass"      // CVE-2023-46805 Ivanti Connect Secure path traversal auth bypass (CVSS 8.2, KEV)
 	CheckCVEIvantiCMDInjection    CheckID = "cve.ivanti_connect_secure_cmd_injection" // CVE-2024-21887 Ivanti Connect Secure command injection via authenticated API (CVSS 9.1, KEV) — chain with CVE-2023-46805
 	CheckCVECitrixBleed           CheckID = "cve.citrix_bleed"                        // CVE-2023-4966 Citrix NetScaler OIDC session token memory leak (CVSS 9.4, KEV)
+	CheckCVECitrixADCRCE2023      CheckID = "cve.citrix_adc_rce_2023"                 // CVE-2023-3519 Citrix ADC/Gateway unauthenticated RCE via stack buffer overflow — version < 13.1-49.15 / < 13.0-91.13 / < 12.1-65.25 (CVSS 9.8, KEV)
 	CheckCVEJuniperJWeb           CheckID = "cve.juniper_jweb_php_injection"          // CVE-2023-36844/45 Juniper J-Web PHP env injection → unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVEJuniperJWeb2024       CheckID = "cve.juniper_jweb_2024_rce"               // CVE-2024-21591 Juniper J-Web < 23.4R1 type confusion → pre-auth RCE as root (CVSS 9.8, KEV)
 	CheckCVESysAid                CheckID = "cve.sysaid_path_traversal"               // CVE-2023-47246 SysAid On-Prem path traversal → WAR upload → RCE (CVSS 9.8, KEV)
 	CheckCVETeamCityRPC2          CheckID = "cve.teamcity_rpc2_bypass"                // CVE-2023-42793 TeamCity < 2023.05.4 /RPC2 wildcard bypass → admin token (CVSS 9.8, KEV)
 	CheckCVETeamCityDirTraversal  CheckID = "cve.teamcity_dir_traversal"              // CVE-2024-27199 TeamCity < 2023.11.4 alternate path-traversal auth bypass via ;/../ (CVSS 7.3, KEV)
@@ -1254,6 +1260,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEZabbixSessionForge:      {CheckCVEZabbixSessionForge, SeverityCritical, ModeSurface},
 	CheckCVEpgAdminValidateRCE:      {CheckCVEpgAdminValidateRCE, SeverityCritical, ModeSurface},
 	CheckCVEGiteaCMDInjection:       {CheckCVEGiteaCMDInjection, SeverityCritical, ModeSurface},
+	CheckPortAirflowExposed:         {CheckPortAirflowExposed, SeverityHigh, ModeSurface},
+	CheckCVEAirflowDAGRCE:           {CheckCVEAirflowDAGRCE, SeverityHigh, ModeSurface},
+	CheckPortOpenWebUIExposed:       {CheckPortOpenWebUIExposed, SeverityHigh, ModeSurface},
 	CheckNetDeviceF5Detected:       {CheckNetDeviceF5Detected, SeverityInfo, ModeSurface},
 	CheckNetDeviceSonicWallDetected: {CheckNetDeviceSonicWallDetected, SeverityInfo, ModeSurface},
 	CheckNetDeviceCheckPointDetected: {CheckNetDeviceCheckPointDetected, SeverityInfo, ModeSurface},
@@ -1327,6 +1336,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEFortiWebAuthBypass:     {CheckCVEFortiWebAuthBypass, SeverityCritical, ModeSurface},
 	CheckCVECiscoASARCE:            {CheckCVECiscoASARCE, SeverityCritical, ModeSurface},
 	CheckCVEMCPServerExposed:          {CheckCVEMCPServerExposed, SeverityHigh, ModeSurface},
+	CheckCVEKeycloakSAMLBypass:        {CheckCVEKeycloakSAMLBypass, SeverityCritical, ModeSurface},
 	CheckCVENextJSMiddlewareBypass:    {CheckCVENextJSMiddlewareBypass, SeverityCritical, ModeSurface},
 	CheckCVEViteFileRead:              {CheckCVEViteFileRead, SeverityCritical, ModeSurface},
 	CheckCVEIngressNightmare:          {CheckCVEIngressNightmare, SeverityCritical, ModeSurface},
@@ -1350,7 +1360,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEIvantiConnectSecure:   {CheckCVEIvantiConnectSecure, SeverityCritical, ModeSurface},
 	CheckCVEIvantiCMDInjection:    {CheckCVEIvantiCMDInjection, SeverityCritical, ModeSurface},
 	CheckCVECitrixBleed:           {CheckCVECitrixBleed, SeverityCritical, ModeSurface},
+	CheckCVECitrixADCRCE2023:      {CheckCVECitrixADCRCE2023, SeverityCritical, ModeSurface},
 	CheckCVEJuniperJWeb:           {CheckCVEJuniperJWeb, SeverityCritical, ModeSurface},
+	CheckCVEJuniperJWeb2024:       {CheckCVEJuniperJWeb2024, SeverityCritical, ModeSurface},
 	CheckCVESysAid:                {CheckCVESysAid, SeverityHigh, ModeSurface},
 	CheckCVETeamCityRPC2:          {CheckCVETeamCityRPC2, SeverityCritical, ModeDeep},
 	CheckCVETeamCityDirTraversal:  {CheckCVETeamCityDirTraversal, SeverityHigh, ModeSurface},
