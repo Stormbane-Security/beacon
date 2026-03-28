@@ -958,9 +958,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// CVE-2019-1579 (PAN-OS GlobalProtect pre-auth RCE, CVSS 9.8, KEV):
 	// /global-protect/prelogin.esp returns XML with <panos-version> on unpatched PAN-OS.
-	if f := probePANGlobalProtect(ctx, client, base, asset); f != nil {
-		findings = append(findings, *f)
-	}
+	findings = append(findings, probePANGlobalProtect(ctx, client, base, asset)...)
 
 	// CVE-2019-11580 (Atlassian Crowd pdkinstall pre-auth RCE, CVSS 9.8, KEV):
 	// GET /crowd/plugins/servlet/pdkinstall returning 200 with upload form = pre-auth plugin install exposed.
@@ -2632,10 +2630,11 @@ func probePulseSecureVPN(ctx context.Context, client *http.Client, base, asset s
 }
 
 // probePANGlobalProtect checks for PAN-OS GlobalProtect VPN prelogin exposure.
-// CVE-2019-1579 (CVSS 9.8, KEV) is a buffer overflow in the GlobalProtect portal/gateway
-// prelogin handler that allows unauthenticated RCE. The prelogin endpoint returns an XML
-// response that includes the PAN-OS version, enabling version-based detection.
-func probePANGlobalProtect(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+// The prelogin endpoint returns XML with the PAN-OS version, enabling detection of:
+//   - CVE-2019-1579 (CVSS 9.8, KEV): pre-auth buffer overflow in PAN-OS < 7.1.19/8.0.12/8.1.3
+//   - CVE-2024-3400 (CVSS 10.0, KEV): OS command injection in PAN-OS 10.2/11.0/11.1 with
+//     GlobalProtect enabled; actively exploited by nation-state actor UTA0178
+func probePANGlobalProtect(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	u := base + "/global-protect/prelogin.esp"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -2668,25 +2667,87 @@ func probePANGlobalProtect(ctx context.Context, client *http.Client, base, asset
 	if ver != "" {
 		ev["panos_version"] = ver
 	}
-	title := fmt.Sprintf("CVE-2019-1579: PAN-OS GlobalProtect portal exposed on %s", asset)
-	if ver != "" {
-		title = fmt.Sprintf("CVE-2019-1579: PAN-OS %s GlobalProtect portal exposed on %s", ver, asset)
+	proofCmd := fmt.Sprintf("curl -s '%s' | grep -i 'panos-version\\|globalprotect'", u)
+
+	var findings []finding.Finding
+
+	// CVE-2024-3400: OS command injection via GlobalProtect cookie (CVSS 10.0, KEV).
+	// Affects PAN-OS 10.2.0–10.2.8, 11.0.0–11.0.3, 11.1.0–11.1.2 when GlobalProtect
+	// is enabled. Actively exploited by UTA0178 (nation-state) before patch availability.
+	if ver != "" && isPANOSCMDInjectionVulnerable(ver) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCVEPANGlobalProtectCMD,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("CVE-2024-3400: PAN-OS %s vulnerable to unauthenticated OS command injection", ver),
+			Description: fmt.Sprintf(
+				"PAN-OS %s is internet-accessible and vulnerable to CVE-2024-3400 (CVSS 10.0, KEV). "+
+					"An unauthenticated attacker can execute arbitrary OS commands as root on the firewall "+
+					"via a crafted GlobalProtect session cookie. Affected: PAN-OS 10.2.0–10.2.8, 11.0.0–11.0.3, "+
+					"and 11.1.0–11.1.2 with GlobalProtect gateway or portal enabled. "+
+					"This vulnerability was actively exploited by nation-state actor UTA0178 before patching. "+
+					"Upgrade to PAN-OS 10.2.9+, 11.0.4+, or 11.1.3+ immediately.",
+				ver,
+			),
+			Evidence:     ev,
+			ProofCommand: proofCmd,
+			DiscoveredAt: time.Now(),
+		})
 	}
-	return &finding.Finding{
+
+	// CVE-2019-1579: pre-auth buffer overflow in GlobalProtect prelogin handler.
+	// Affects PAN-OS < 7.1.19, < 8.0.12, < 8.1.3.
+	title2019 := fmt.Sprintf("CVE-2019-1579: PAN-OS GlobalProtect portal exposed on %s", asset)
+	if ver != "" {
+		title2019 = fmt.Sprintf("CVE-2019-1579: PAN-OS %s GlobalProtect portal exposed on %s", ver, asset)
+	}
+	findings = append(findings, finding.Finding{
 		CheckID:  finding.CheckCVEPANGlobalProtect,
 		Module:   "surface",
 		Scanner:  scannerName,
 		Severity: finding.SeverityCritical,
 		Asset:    asset,
-		Title:    title,
+		Title:    title2019,
 		Description: "A Palo Alto Networks GlobalProtect VPN portal or gateway is internet-accessible. " +
 			"CVE-2019-1579 (CVSS 9.8, KEV) is a pre-authentication buffer overflow in the GlobalProtect " +
 			"prelogin handler affecting PAN-OS < 7.1.19, < 8.0.12, < 8.1.3. " +
 			"An unauthenticated attacker can achieve remote code execution on the VPN appliance. " +
 			"Patch to the fixed versions and consider restricting the portal to known source IPs.",
 		Evidence:     ev,
-		ProofCommand: fmt.Sprintf("curl -s '%s' | grep -i 'panos-version\\|globalprotect'", u),
+		ProofCommand: proofCmd,
 		DiscoveredAt: time.Now(),
+	})
+
+	return findings
+}
+
+// isPANOSCMDInjectionVulnerable returns true when the PAN-OS version string is in
+// the range affected by CVE-2024-3400 (OS command injection via GlobalProtect cookie):
+//   - 10.2.0 – 10.2.8  (patched: 10.2.9)
+//   - 11.0.0 – 11.0.3  (patched: 11.0.4)
+//   - 11.1.0 – 11.1.2  (patched: 11.1.3)
+func isPANOSCMDInjectionVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	switch {
+	case maj == 10 && min == 2:
+		return patch <= 8
+	case maj == 11 && min == 0:
+		return patch <= 3
+	case maj == 11 && min == 1:
+		return patch <= 2
+	default:
+		return false
 	}
 }
 

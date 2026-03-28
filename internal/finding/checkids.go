@@ -698,7 +698,8 @@ const (
 
 	// ── Recent high-severity CVEs (2019) ──────────────────────────────────────
 	CheckCVEPulseSecureVPN    CheckID = "cve.pulse_secure_vpn_exposed"   // CVE-2019-11510 Pulse Secure arbitrary file read — login fingerprint (CVSS 10.0, KEV)
-	CheckCVEPANGlobalProtect  CheckID = "cve.pan_globalprotect_exposed"  // CVE-2019-1579 PAN-OS GlobalProtect unauthenticated RCE — version from prelogin (CVSS 9.8, KEV)
+	CheckCVEPANGlobalProtect       CheckID = "cve.pan_globalprotect_exposed"       // CVE-2019-1579 PAN-OS GlobalProtect unauthenticated RCE — version from prelogin (CVSS 9.8, KEV)
+	CheckCVEPANGlobalProtectCMD    CheckID = "cve.pan_globalprotect_cmd_injection" // CVE-2024-3400 PAN-OS 10.2/11.0/11.1 GlobalProtect OS command injection — version from prelogin (CVSS 10.0, KEV, nation-state exploited)
 	CheckCVECrowdPdkInstall   CheckID = "cve.crowd_pdkinstall_exposed"   // CVE-2019-11580 Atlassian Crowd pdkinstall plugin endpoint pre-auth accessible (CVSS 9.8, KEV)
 	CheckCVETelerikRAU        CheckID = "cve.telerik_rau_exposed"         // CVE-2019-18935 Telerik RadAsyncUpload endpoint exposed — pre-auth deserialization (CVSS 9.8, KEV)
 	CheckCVEWebLogicAsync     CheckID = "cve.weblogic_async_rce"          // CVE-2019-2725 Oracle WebLogic /_async/ endpoint pre-auth deserialization RCE (CVSS 9.8, KEV)
@@ -1340,7 +1341,8 @@ var Registry = map[CheckID]CheckMeta{
 
 	// 2019 CVEs
 	CheckCVEPulseSecureVPN:   {CheckCVEPulseSecureVPN, SeverityCritical, ModeSurface},
-	CheckCVEPANGlobalProtect: {CheckCVEPANGlobalProtect, SeverityCritical, ModeSurface},
+	CheckCVEPANGlobalProtect:    {CheckCVEPANGlobalProtect, SeverityCritical, ModeSurface},
+	CheckCVEPANGlobalProtectCMD: {CheckCVEPANGlobalProtectCMD, SeverityCritical, ModeSurface},
 	CheckCVECrowdPdkInstall:  {CheckCVECrowdPdkInstall, SeverityCritical, ModeSurface},
 	CheckCVETelerikRAU:       {CheckCVETelerikRAU, SeverityCritical, ModeSurface},
 	CheckCVEWebLogicAsync:    {CheckCVEWebLogicAsync, SeverityCritical, ModeSurface},
