@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -2722,16 +2723,19 @@ func isVulnerableRedis(version string) bool {
 		patch, _ = strconv.Atoi(parts[2])
 	}
 	switch {
+	case major < 7:
+		return true // all older majors unpatched
 	case major == 7 && minor == 2:
 		return patch < 11
 	case major == 7 && minor == 4:
 		return patch < 6
+	case major == 7:
+		// 7.0, 7.1, 7.3, etc. are EOL and unpatched for this CVE
+		return true
 	case major == 8 && minor == 0:
 		return patch < 4
 	case major == 8 && minor == 2:
 		return patch < 2
-	case major < 7:
-		return true // all older majors unpatched
 	default:
 		return false
 	}
@@ -3516,7 +3520,14 @@ func probeMinIODefaultCreds(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	return strings.Contains(string(b), "token") || strings.Contains(string(b), "sessionId")
+	var loginResp struct {
+		Token     string `json:"token"`
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(b, &loginResp); err != nil {
+		return false
+	}
+	return loginResp.Token != "" || loginResp.SessionID != ""
 }
 
 // parseWingFTPVersion extracts the version number from a Wing FTP Server banner.

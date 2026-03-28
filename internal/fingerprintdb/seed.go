@@ -85,4 +85,16 @@ var builtinRules = []store.FingerprintRule{
 	{SignalType: "cookie", SignalKey: "", SignalValue: "asp.net_sessionid", Field: "framework", Value: "aspnet", Source: "builtin", Status: "active", Confidence: 1.0},
 	{SignalType: "cookie", SignalKey: "", SignalValue: "laravel_session", Field: "framework", Value: "laravel", Source: "builtin", Status: "active", Confidence: 1.0},
 	{SignalType: "cookie", SignalKey: "", SignalValue: "django", Field: "framework", Value: "django", Source: "builtin", Status: "active", Confidence: 0.85},
+
+	// ── Backend services — new Wave 2/3 services ───────────────────────────
+	{SignalType: "header", SignalKey: "x-artifactory-id", SignalValue: "", Field: "backend_services", Value: "artifactory", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "path", SignalKey: "", SignalValue: "/artifactory/api/system/ping", Field: "backend_services", Value: "artifactory", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "path", SignalKey: "", SignalValue: "/service/rest/v1/status", Field: "backend_services", Value: "nexus", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "nexus repository", Field: "backend_services", Value: "nexus", Source: "builtin", Status: "active", Confidence: 0.95},
+	{SignalType: "path", SignalKey: "", SignalValue: "/nacos/v1/cs/configs", Field: "backend_services", Value: "nacos", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "nacos server", Field: "backend_services", Value: "nacos", Source: "builtin", Status: "active", Confidence: 0.95},
+	{SignalType: "path", SignalKey: "", SignalValue: "/v1/catalog/nodes", Field: "backend_services", Value: "consul", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "header", SignalKey: "x-consul-index", SignalValue: "", Field: "backend_services", Value: "consul", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "\"grpc_server_reflection_version\"", Field: "backend_services", Value: "grpc", Source: "builtin", Status: "active", Confidence: 0.95},
+	{SignalType: "header", SignalKey: "content-type", SignalValue: "application/grpc", Field: "backend_services", Value: "grpc", Source: "builtin", Status: "active", Confidence: 1.0},
 }

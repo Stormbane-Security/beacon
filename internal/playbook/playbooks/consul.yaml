@@ -1,0 +1,41 @@
+name: consul
+description: >
+  HashiCorp Consul service registry is accessible without ACL enforcement.
+  An unauthenticated attacker can enumerate all registered services and their
+  network addresses, read the full KV store (which often contains secrets,
+  tokens, and certificates), and register rogue services to poison service
+  discovery. CVE-2021-37219 (Raft RPC privilege escalation) and
+  CVE-2022-29153 (SSRF via prepared queries) are relevant for exposed instances.
+match:
+  any:
+    - check_id: "port.consul_no_acl"
+    - path_responds: "/v1/catalog/nodes"
+    - path_responds: "/v1/kv/"
+    - title_contains: "Consul"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  dictionary:
+    - /v1/catalog/nodes
+    - /v1/catalog/services
+    - /v1/kv/
+    - /v1/agent/members
+    - /v1/acl/tokens
+    - /v1/acl/policies
+    - /ui/
+  nuclei_tags:
+    - consul
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+  dictionary:
+    - /v1/kv/?recurse=true
+    - /v1/snapshot
+    - /v1/operator/raft/configuration
+  nuclei_tags:
+    - consul
+    - default-logins
+    - misconfiguration

@@ -66,4 +66,36 @@ var complianceMap = map[CheckID][]string{
 	// JS / CI
 	CheckJSHardcodedSecret:  {"SOC2-CC6.1", "PCI-6.3.1"},
 	CheckCICDScriptInjection: {"SOC2-CC8.1", "PCI-6.4"},
+
+	// Wave 2 — KEV CVEs
+	CheckCVEStruts2S2066:            {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVERailsXMLRCE:             {"PCI-6.3.3", "SOC2-CC6.6"},
+	CheckCVEHFSRejetto:              {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVEManageEngineServiceDesk: {"PCI-6.3.3", "SOC2-CC6.6"},
+	CheckCVEMinIOEnvDisclosure:      {"SOC2-CC6.1", "PCI-6.3.1", "HIPAA-164.312(a)(1)"},
+
+	// Wave 2 — port exposures
+	CheckPortCiscoSmartInstall:     {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortHuggingFaceTGIExposed: {"SOC2-CC6.6", "PCI-1.3"},
+	CheckPortAutomatic1111Exposed:  {"SOC2-CC6.6", "PCI-1.3"},
+	CheckCVEOllamaPathTraversal:    {"PCI-6.3.3", "SOC2-CC6.6"},
+	CheckPortNacosExposed:          {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortConsulNoACL:           {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortNiFiExposed:           {"SOC2-CC6.6", "PCI-1.3"},
+
+	// Wave 3 — CVEs
+	CheckCVEFortiOSWSAuthBypass: {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVEIvantiCS2025:        {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVESAPNetWeaver2025:    {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+
+	// Wave 3 — default credentials
+	CheckPortRabbitMQDefaultCreds: {"SOC2-CC6.2", "PCI-8.3.9", "NIST-PR.AC"},
+	CheckPortMySQLNoAuth:          {"SOC2-CC6.2", "PCI-8.3.9", "HIPAA-164.312(a)(1)", "NIST-PR.AC"},
+	CheckPortPostgreSQLTrust:      {"SOC2-CC6.2", "PCI-8.3.9", "HIPAA-164.312(a)(1)", "NIST-PR.AC"},
+	CheckPortMSSQLDefaultCreds:    {"SOC2-CC6.2", "PCI-8.3.9", "HIPAA-164.312(a)(1)", "NIST-PR.AC"},
+
+	// Wave 3 — artifact repositories / infra
+	CheckPortArtifactoryExposed:    {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortNexusExposed:          {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortGRPCReflectionEnabled: {"SOC2-CC6.6", "NIST-PR.IP"},
 }

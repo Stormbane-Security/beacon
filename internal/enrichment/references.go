@@ -290,6 +290,156 @@ resource "google_compute_instance" "app" {
 		TerraformExample: "",
 	},
 
+	// ---- Wave 2/3 CVEs ----
+	"cve.struts2_s2066": {
+		DocSummary: "CVE-2024-53677 (S2-066) is a critical file upload path traversal in Apache Struts 2 (< 6.4.0). An unauthenticated attacker can upload files to arbitrary paths via manipulated file upload parameters, enabling RCE via JSP shells.",
+		TerraformExample: "",
+	},
+	"cve.rails_xml_rce": {
+		DocSummary: "Ruby on Rails versions < 3.2.12 parse XML with YAML type coercion enabled by default, allowing unauthenticated RCE via crafted XML bodies (CVE-2013-0156). Upgrade to Rails 3.2.12+ or disable XML parsing.",
+		TerraformExample: "",
+	},
+	"cve.hfs_rejetto": {
+		DocSummary: "CVE-2024-23692 is a critical unauthenticated RCE in HFS (HTTP File Server) 2.x via Rejetto template injection. Attackers send crafted HTTP requests to execute arbitrary commands. Upgrade to HFS 3.x or apply the vendor patch.",
+		TerraformExample: "",
+	},
+	"cve.manage_engine_service_desk": {
+		DocSummary: "CVE-2021-44077 is a critical unauthenticated RCE in ManageEngine ServiceDesk Plus versions < 11306. The /RestAPI/ImportTechnicians endpoint allows unauthenticated file upload and code execution.",
+		TerraformExample: "",
+	},
+	"cve.minio_env_disclosure": {
+		DocSummary: "CVE-2023-28432 is a high-severity information disclosure in MinIO < RELEASE.2023-03-13T19-46-17Z. The /minio/health/cluster?verify endpoint returns the full MINIO_ROOT_PASSWORD and other environment variables without authentication.",
+		TerraformExample: `# Restrict MinIO console and API access to internal networks only
+resource "aws_security_group_rule" "minio_restrict" {
+  type      = "ingress"
+  from_port = 9000
+  to_port   = 9001
+  protocol  = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"cve.fortios_ws_auth_bypass": {
+		DocSummary: "CVE-2024-55591 is a critical authentication bypass in FortiOS 7.0.0–7.0.16 and 7.2.0–7.2.12. The Node.js WebSocket management module can be exploited by unauthenticated attackers to gain super-admin privileges via crafted requests to /api/v2/cmdb/system/admin.",
+		TerraformExample: "",
+	},
+	"cve.ivanti_cs_2025_0282": {
+		DocSummary: "CVE-2025-0282 is a critical stack-based buffer overflow in Ivanti Connect Secure < 22.7R2.5 and Policy Secure < 22.7R1.2. Unauthenticated attackers can achieve RCE. KEV-listed with active exploitation in the wild since December 2024.",
+		TerraformExample: "",
+	},
+	"cve.sap_netweaver_2025_31324": {
+		DocSummary: "CVE-2025-31324 (CVSS 10.0, KEV) is an unauthenticated arbitrary file upload in SAP NetWeaver Visual Composer Metadata Uploader. Attackers upload JSP webshells to /developmentserver/metadatauploader and achieve RCE. Actively exploited in mass attacks.",
+		TerraformExample: "",
+	},
+
+	// ---- Wave 2/3 port exposures ----
+	"port.cisco_smart_install": {
+		DocSummary: "Cisco Smart Install (TCP/4786) allows unauthenticated remote configuration of Cisco switches. An attacker can overwrite the startup config, upload malicious IOS images, or steal device credentials. Disable Smart Install with 'no vstack' on IOS.",
+		TerraformExample: `# Block Smart Install (TCP/4786) at the perimeter
+resource "aws_network_acl_rule" "block_smart_install" {
+  network_acl_id = aws_network_acl.main.id
+  rule_number    = 100
+  protocol       = "tcp"
+  rule_action    = "deny"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 4786
+  to_port        = 4786
+}`,
+	},
+	"port.nacos_exposed": {
+		DocSummary: "Alibaba Nacos service registry (TCP/8848) exposed without ACL allows any attacker to enumerate all registered microservices, read/write configuration values, and access stored credentials. The default nacos:nacos credentials grant full admin access.",
+		TerraformExample: `resource "aws_security_group_rule" "nacos_restrict" {
+  type        = "ingress"
+  from_port   = 8848
+  to_port     = 8848
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # internal only
+}`,
+	},
+	"port.consul_no_acl": {
+		DocSummary: "HashiCorp Consul without ACLs (TCP/8500) exposes the full service catalog, KV store, and node topology to unauthenticated access. Attackers can enumerate all services and their addresses, read stored secrets, and register rogue services.",
+		TerraformExample: `# Enable Consul ACL in Terraform
+resource "consul_acl_policy" "deny_all" {
+  name  = "deny-all"
+  rules = ""
+}
+# Set ACL default policy to deny in consul.hcl:
+# acl { enabled = true, default_policy = "deny" }`,
+	},
+	"port.rabbitmq_default_creds": {
+		DocSummary: "RabbitMQ management UI and API (TCP/15672) with default credentials guest:guest allow any attacker to read all queued messages, publish arbitrary messages, create/delete queues, and execute server commands via the HTTP API.",
+		TerraformExample: `resource "aws_security_group_rule" "rabbitmq_restrict" {
+  type        = "ingress"
+  from_port   = 15672
+  to_port     = 15672
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # management UI internal only
+}`,
+	},
+	"port.mysql_no_auth": {
+		DocSummary: "MySQL root account accessible without a password allows complete database takeover. An attacker can read all databases, exfiltrate PII/financial data, execute OS commands via LOAD DATA and UDF plugins.",
+		TerraformExample: `# Restrict MySQL port to application subnets only
+resource "aws_security_group_rule" "mysql_restrict" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.app.id
+}`,
+	},
+	"port.postgresql_trust": {
+		DocSummary: "PostgreSQL configured with trust authentication allows any user connecting from a matching host to authenticate without a password. This often applies to all local/network connections, enabling full database access with no credentials.",
+		TerraformExample: `# Use RDS with IAM authentication instead of trust auth
+resource "aws_db_instance" "postgres" {
+  engine                  = "postgres"
+  iam_database_authentication_enabled = true
+  publicly_accessible     = false
+  vpc_security_group_ids  = [aws_security_group.db.id]
+}`,
+	},
+	"port.mssql_default_creds": {
+		DocSummary: "Microsoft SQL Server with the 'sa' account enabled and blank password allows complete database server compromise. Attackers gain DBO access to all databases and can enable xp_cmdshell for OS command execution.",
+		TerraformExample: `resource "aws_security_group_rule" "mssql_restrict" {
+  type                     = "ingress"
+  from_port                = 1433
+  to_port                  = 1433
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.app.id
+}`,
+	},
+	"port.artifactory_exposed": {
+		DocSummary: "JFrog Artifactory artifact repository (TCP/8081-8082) exposed without authentication allows download of all artifacts including internal binaries, SDKs, and dependencies that may contain embedded secrets or proprietary code.",
+		TerraformExample: `resource "aws_security_group_rule" "artifactory_restrict" {
+  type        = "ingress"
+  from_port   = 8081
+  to_port     = 8082
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"port.nexus_exposed": {
+		DocSummary: "Sonatype Nexus Repository Manager (TCP/8081) exposed allows unauthenticated browsing and download of all hosted artifacts. Default admin:admin123 credentials allow full repository management and potential supply chain compromise.",
+		TerraformExample: `resource "aws_security_group_rule" "nexus_restrict" {
+  type        = "ingress"
+  from_port   = 8081
+  to_port     = 8081
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"port.grpc_reflection_enabled": {
+		DocSummary: "gRPC server reflection (TCP/50051) allows any client to enumerate all available RPC services, methods, and their protobuf schemas without authentication. This enables attackers to map the full internal API surface and craft targeted payloads.",
+		TerraformExample: `# Disable gRPC reflection in production (Go example)
+# Remove grpc_reflection.Register(server) from your server setup
+# Restrict port 50051 to internal networks:
+resource "aws_security_group_rule" "grpc_restrict" {
+  type        = "ingress"
+  from_port   = 50051
+  to_port     = 50051
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+
 	// ---- Contract ----
 	"contract.reentrancy": {
 		DocSummary: "A reentrancy vulnerability allows an attacker to repeatedly call a function before the first invocation completes, draining contract funds. The DAO hack exploited this pattern and lost $60M.",

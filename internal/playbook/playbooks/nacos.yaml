@@ -1,0 +1,37 @@
+name: nacos
+description: >
+  Alibaba Nacos service registry and configuration management (TCP/8848) is
+  exposed without ACL controls. An attacker can enumerate all registered
+  microservices, read and modify configuration values (which frequently contain
+  database credentials, API keys, and JWT secrets), and disrupt service
+  discovery. The default credentials nacos:nacos grant full admin access.
+  CVE-2021-29441 (auth bypass via user-agent spoofing) affects Nacos < 1.4.1.
+match:
+  any:
+    - check_id: "port.nacos_exposed"
+    - path_responds: "/nacos/v1/cs/configs"
+    - path_responds: "/nacos/v1/auth/users/login"
+    - service_version_contains: "nacos"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  dictionary:
+    - /nacos/v1/cs/configs
+    - /nacos/v1/ns/instance/list
+    - /nacos/v1/auth/users
+    - /nacos/v1/auth/roles
+    - /nacos/v1/auth/permissions
+    - /nacos/actuator
+    - /nacos/actuator/env
+  nuclei_tags:
+    - nacos
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - nacos
+    - default-logins
+    - cves

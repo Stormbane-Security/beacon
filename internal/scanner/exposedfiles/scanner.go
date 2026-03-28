@@ -1878,7 +1878,7 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 	// The implant returns exactly an 18-byte lowercase hex string (36 hex chars).
 	// Validate the response is hex-only (no HTML, no whitespace).
 	body := strings.TrimSpace(string(b))
-	if len(body) < 16 || len(body) > 64 {
+	if len(body) < 28 || len(body) > 40 { // implant returns exactly 36 hex chars; small tolerance
 		return nil
 	}
 	isHex := true
@@ -2737,11 +2737,12 @@ func isCitrixADCRCE2023Vulnerable(body string) bool {
 		var maj, minor, build1, build2 int
 		n, err := fmt.Sscanf(rest, "%d.%d", &maj, &minor)
 		if err != nil || n != 2 {
-			idx = strings.Index(lower[idx+1:], "ns")
-			if idx >= 0 {
-				idx += idx + 1
+			newIdx := strings.Index(lower[idx+1:], "ns")
+			if newIdx < 0 {
+				break
 			}
-			break
+			idx = idx + 1 + newIdx
+			continue
 		}
 		// Look for "Build b1.b2" after the major.minor
 		buildIdx := strings.Index(strings.ToLower(rest), "build ")
@@ -3532,7 +3533,7 @@ func parseDrupalVersion(changelog string) string {
 				return strings.TrimRight(parts[1], ",")
 			}
 		}
-		return "" // First non-empty line is not a version line
+		// Continue searching — CHANGELOG may have comment lines before the version
 	}
 	return ""
 }
