@@ -674,6 +674,40 @@ var targets = []sensitiveFile{
 			"Restrict Solr admin access to localhost/management networks and upgrade to Solr ≥ 8.3.1.",
 	},
 
+	// CVE-2017-0929 — DotNetNuke (DNN) DnnImageHandler path traversal → machineKey leak → RCE (CVSS 9.8).
+	// /DnnImageHandler.ashx is specific to DNN and is accessible without authentication.
+	// Path traversal via the `file` parameter leaks web.config, exposing the machineKey used to
+	// forge ViewState and cookie deserialization payloads (CVE-2017-9822).
+	{
+		path:         "/DnnImageHandler.ashx",
+		title:        "CVE-2017-0929: DotNetNuke DnnImageHandler endpoint exposed",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVEDotNetNukeTraversal,
+		bodyContains: "DotNetNuke",
+		description: "The DotNetNuke (DNN) image handler endpoint (/DnnImageHandler.ashx) is internet-accessible. " +
+			"CVE-2017-0929 (CVSS 9.8) allows path traversal via the `file` parameter to read arbitrary files " +
+			"from the web server, including web.config. The machineKey in web.config can then be used to forge " +
+			"signed .NET ViewState and cookie payloads, enabling CVE-2017-9822 (deserialization RCE via the " +
+			"DNNPersonalization cookie). Upgrade DNN and remove or restrict the image handler endpoint.",
+	},
+
+	// CVE-2017-1000486 — Primefaces EL injection via hardcoded/predictable secret key (CVSS 9.8).
+	// /javax.faces.resource/dynamiccontent.properties.xhtml is the Primefaces ResourceServlet path.
+	// The endpoint decrypts the `ln` parameter with a hardcoded default key (DES/AES) and evaluates
+	// the result as an EL expression — any Primefaces instance with default keys is vulnerable.
+	{
+		path:         "/javax.faces.resource/dynamiccontent.properties.xhtml",
+		title:        "CVE-2017-1000486: Primefaces ResourceServlet EL injection endpoint exposed",
+		severity:     finding.SeverityHigh,
+		checkID:      finding.CheckCVEPrimefacesEL,
+		description: "The Primefaces JSF component framework ResourceServlet endpoint is internet-accessible. " +
+			"CVE-2017-1000486 (CVSS 9.8) exploits the Primefaces dynamic resource endpoint by supplying an " +
+			"encrypted EL expression (forged using the hardcoded default key) that is evaluated server-side, " +
+			"leading to unauthenticated remote code execution. Primefaces versions before 5.1.14, 5.2.21, " +
+			"5.3.8, and 6.0.2 use the default key 'primefaces'. Set a strong secret key in web.xml and " +
+			"upgrade Primefaces to a patched version.",
+	},
+
 	// CVE-2016-5983 — IBM WebSphere Application Server admin console deserialization RCE (CVSS 9.8).
 	// /ibm/console/login.do fingerprints the WebSphere admin console. Even without CVE-2016-5983,
 	// an internet-facing WebSphere admin console is a critical misconfiguration.

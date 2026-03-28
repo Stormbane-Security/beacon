@@ -87,6 +87,7 @@ var highPorts = []portEntry{
 	{3260, "iscsi", false},        // iSCSI storage target
 	{502, "modbus", false},        // Modbus TCP SCADA/ICS
 	{830, "netconf", false},       // NETCONF network device management
+	{16992, "intel-amt", false},    // Intel AMT management interface — CVE-2017-5689 empty-digest auth bypass
 	{8000, "salt-api", false},      // SaltStack Salt API — CVE-2021-25281/25282 unauth RCE
 	{8291, "winbox", false},       // MikroTik Winbox management
 	{623, "ipmi", false},          // IPMI/BMC server management
@@ -443,6 +444,29 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				"A Memcached instance is accessible without authentication. "+
 					"Cache contents (which may include session tokens or PII) can be read or poisoned.",
 				map[string]any{"port": port, "service": service, "authenticated": false, "banner": banner},
+			)}
+		}
+
+	case 16992: // Intel Active Management Technology (AMT) web interface
+		// CVE-2017-5689 (CVSS 9.8, KEV): Intel AMT firmware 6.x–11.6 accepts an empty
+		// Digest auth response (response="" in Authorization header), granting full
+		// management access below the OS. AMT runs on a dedicated ME microcontroller —
+		// a compromised AMT instance survives OS reinstalls. Port 16992 is exclusively
+		// used by Intel AMT; any open port here warrants a critical finding.
+		body, ok := probeHTTPBody(ctx, asset, port, false, "/index.htm")
+		if ok && strings.Contains(strings.ToLower(body), "intel") {
+			return []finding.Finding{makeF(
+				finding.CheckCVEIntelAMTAuthBypass,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2017-5689: Intel AMT management interface exposed on port %d", port),
+				"The Intel Active Management Technology (AMT) web interface is internet-accessible. "+
+					"CVE-2017-5689 (CVSS 9.8, KEV) allows unauthenticated access by sending an empty "+
+					"Digest authentication response (Authorization: Digest response=\"\"). "+
+					"AMT runs on the Intel Management Engine (ME) — a dedicated microcontroller separate "+
+					"from the main CPU and OS — providing full KVM, remote console, and power control. "+
+					"A compromised AMT instance survives OS reinstalls and disk wipes. "+
+					"Disable AMT if not needed, update firmware, and block port 16992/16993 at the firewall.",
+				map[string]any{"port": port, "service": "intel-amt"},
 			)}
 		}
 
@@ -1609,6 +1633,7 @@ var webServicePorts = map[int]string{
 	8200:  "vault",
 	8000:  "salt-api",
 	8086:  "influxdb",
+	16992: "intel-amt",
 	8089:  "splunk-mgmt",
 	8443:  "https-alt",
 	8500:  "consul",

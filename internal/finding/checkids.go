@@ -704,8 +704,11 @@ const (
 	CheckCVEManageEngineDesktopCVE  CheckID = "cve.manageengine_desktop_central"   // CVE-2020-10189 ManageEngine Desktop Central pre-auth file upload → RCE (CVSS 9.8, KEV)
 
 	// ── Recent high-severity CVEs (2017) ──────────────────────────────────────
-	CheckCVEWebLogicWLSWSAT  CheckID = "cve.weblogic_wls_wsat"     // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
-	CheckCVEHikvisionISAPI   CheckID = "cve.hikvision_isapi"        // CVE-2017-7921 Hikvision IP camera unauthenticated ISAPI access (CVSS 9.8, KEV)
+	CheckCVEWebLogicWLSWSAT       CheckID = "cve.weblogic_wls_wsat"          // CVE-2017-10271 Oracle WebLogic wls-wsat pre-auth XXE → RCE — endpoint exposed (CVSS 9.8, KEV)
+	CheckCVEHikvisionISAPI        CheckID = "cve.hikvision_isapi"             // CVE-2017-7921 Hikvision IP camera unauthenticated ISAPI access (CVSS 9.8, KEV)
+	CheckCVEIntelAMTAuthBypass    CheckID = "cve.intel_amt_auth_bypass"       // CVE-2017-5689 Intel AMT empty-digest authentication bypass — management engine exposed (CVSS 9.8, KEV)
+	CheckCVEDotNetNukeTraversal   CheckID = "cve.dnn_imagehandler_traversal"  // CVE-2017-0929 DotNetNuke DnnImageHandler path traversal → machineKey leak → RCE (CVSS 9.8)
+	CheckCVEPrimefacesEL          CheckID = "cve.primefaces_el_injection"     // CVE-2017-1000486 Primefaces EL injection via default hardcoded secret key (CVSS 9.8)
 
 	// ── Recent high-severity CVEs (2016) ──────────────────────────────────────
 	CheckCVEShiroRememberMe    CheckID = "cve.shiro_remember_me"        // CVE-2016-4437 Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle (CVSS 9.8, KEV)
@@ -1327,8 +1330,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEManageEngineDesktopCVE: {CheckCVEManageEngineDesktopCVE, SeverityCritical, ModeSurface},
 
 	// 2017 CVEs
-	CheckCVEWebLogicWLSWSAT: {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
-	CheckCVEHikvisionISAPI:  {CheckCVEHikvisionISAPI, SeverityCritical, ModeSurface},
+	CheckCVEWebLogicWLSWSAT:     {CheckCVEWebLogicWLSWSAT, SeverityCritical, ModeSurface},
+	CheckCVEHikvisionISAPI:      {CheckCVEHikvisionISAPI, SeverityCritical, ModeSurface},
+	CheckCVEIntelAMTAuthBypass:  {CheckCVEIntelAMTAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVEDotNetNukeTraversal: {CheckCVEDotNetNukeTraversal, SeverityHigh, ModeSurface},
+	CheckCVEPrimefacesEL:        {CheckCVEPrimefacesEL, SeverityHigh, ModeSurface},
 
 	// 2016 CVEs
 	CheckCVEShiroRememberMe:  {CheckCVEShiroRememberMe, SeverityCritical, ModeSurface},
