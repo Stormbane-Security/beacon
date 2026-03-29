@@ -14,7 +14,7 @@ func TestRenderJSON_ValidJSON(t *testing.T) {
 	findings := []enrichment.EnrichedFinding{
 		enrichedWith(finding.SeverityHigh, "Exposed Admin", "admin.example.com"),
 	}
-	out, err := RenderJSON(run, findings, "Executive summary text")
+	out, err := RenderJSON(run, findings, "Executive summary text", nil)
 	if err != nil {
 		t.Fatalf("RenderJSON error: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestRenderJSON_ValidJSON(t *testing.T) {
 }
 
 func TestRenderJSON_ContainsDomain(t *testing.T) {
-	out, err := RenderJSON(testRun(), nil, "")
+	out, err := RenderJSON(testRun(), nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestRenderJSON_FindingCountMatchesSlice(t *testing.T) {
 		enrichedWith(finding.SeverityLow, "B", "y"),
 		enrichedWith(finding.SeverityInfo, "C", "z"),
 	}
-	out, err := RenderJSON(testRun(), findings, "")
+	out, err := RenderJSON(testRun(), findings, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRenderJSON_FindingCountMatchesSlice(t *testing.T) {
 }
 
 func TestRenderJSON_ExecutiveSummaryIncluded(t *testing.T) {
-	out, err := RenderJSON(testRun(), nil, "Top-level risk: SQL injection")
+	out, err := RenderJSON(testRun(), nil, "Top-level risk: SQL injection", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestRenderJSON_ExecutiveSummaryIncluded(t *testing.T) {
 }
 
 func TestRenderJSON_EmptyExecutiveSummaryOmitted(t *testing.T) {
-	out, err := RenderJSON(testRun(), nil, "")
+	out, err := RenderJSON(testRun(), nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestRenderJSON_EmptyExecutiveSummaryOmitted(t *testing.T) {
 }
 
 func TestRenderJSON_CompletedAtPresent(t *testing.T) {
-	out, err := RenderJSON(testRun(), nil, "")
+	out, err := RenderJSON(testRun(), nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestRenderJSON_CompletedAtPresent(t *testing.T) {
 }
 
 func TestRenderJSON_NoFindings_EmptyArray(t *testing.T) {
-	out, err := RenderJSON(testRun(), []enrichment.EnrichedFinding{}, "")
+	out, err := RenderJSON(testRun(), []enrichment.EnrichedFinding{}, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestRenderNonStringEvidence(t *testing.T) {
 	_ = RenderMarkdown(run, findings, "", nil)
 
 	// JSON must not panic and must produce valid JSON
-	out, err := RenderJSON(run, findings, "")
+	out, err := RenderJSON(run, findings, "", nil)
 	if err != nil {
 		t.Fatalf("RenderJSON error with non-string evidence: %v", err)
 	}

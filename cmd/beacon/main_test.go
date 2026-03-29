@@ -136,7 +136,7 @@ func TestFilterBySeverity_EmptyInput_ReturnsEmpty(t *testing.T) {
 // --- renderFormat ---
 
 func TestRenderFormat_DefaultIsText(t *testing.T) {
-	out, err := renderFormat("", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatalf("renderFormat error: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestRenderFormat_DefaultIsText(t *testing.T) {
 }
 
 func TestRenderFormat_TextExplicit(t *testing.T) {
-	out, err := renderFormat("text", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("text", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestRenderFormat_TextExplicit(t *testing.T) {
 }
 
 func TestRenderFormat_HTML_ReturnsFakeHTMLContent(t *testing.T) {
-	out, err := renderFormat("html", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("html", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestRenderFormat_JSON_IsValidJSON(t *testing.T) {
 	import_json := func(s string) bool {
 		return len(s) > 0 && s[0] == '{'
 	}
-	out, err := renderFormat("json", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("json", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestRenderFormat_JSON_IsValidJSON(t *testing.T) {
 }
 
 func TestRenderFormat_Markdown_ContainsH1(t *testing.T) {
-	out, err := renderFormat("markdown", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("markdown", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestRenderFormat_Markdown_ContainsH1(t *testing.T) {
 }
 
 func TestRenderFormat_MarkdownAlias_md(t *testing.T) {
-	out, err := renderFormat("md", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("md", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRenderFormat_MarkdownAlias_md(t *testing.T) {
 }
 
 func TestRenderFormat_CaseInsensitive(t *testing.T) {
-	out, err := renderFormat("JSON", scanRun(), nil, "", fakeReport(), nil)
+	out, err := renderFormat("JSON", scanRun(), nil, "", fakeReport(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

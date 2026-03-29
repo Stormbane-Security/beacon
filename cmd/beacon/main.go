@@ -68,7 +68,7 @@ SCAN FLAGS:
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
-  --format <fmt>             Output format: text (default), html, json, markdown, ocsf
+  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
@@ -77,7 +77,7 @@ SCAN FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown, ocsf
+  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
@@ -96,6 +96,7 @@ EXAMPLES:
   beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
   beacon scan --targets hosts.txt --deep --permission-confirmed
   beacon report --id <id> --format markdown
+  beacon scan --domain example.com --format graph | dot -Tsvg -o topology.svg
   beacon analyze
   beacon playbook suggestions
   beacon playbook import --id <suggestion-id>
@@ -629,6 +630,40 @@ Type exactly: I have written authorization for %s
 		fmt.Fprintf(os.Stderr, "beacon: %d compound attack chain(s) detected\n", len(corrFindings))
 	}
 
+	// Build asset graph for this single-domain scan.
+	graphBuilder := asset.NewBuilder(run.ID, domain)
+	graphBuilder.AddDomainAsset(domain, nil, "surface")
+	graphBuilder.AddFindings(findings)
+	scanGraph := graphBuilder.Build()
+
+	// Persist the graph so `beacon report --format graph` can retrieve it later.
+	if graphJSON, err := json.Marshal(scanGraph); err == nil {
+		_ = st.SaveAssetGraph(ctx, run.ID, graphJSON)
+	}
+
+	// AI fingerprint enrichment: analyse collected evidence to find
+	// version-specific vulnerabilities and configuration anomalies.
+	if ai := cfg.ActiveAI(); ai != nil {
+		if execs, execErr := st.ListAssetExecutions(ctx, run.ID); execErr == nil && len(execs) > 0 {
+			var fpInputs []enrichment.FingerprintInput
+			for _, ex := range execs {
+				fpInputs = append(fpInputs, enrichment.FingerprintInputFromEvidence(ex.Asset, ex.Evidence))
+			}
+			ce, ceErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+			if ceErr == nil {
+				fmt.Fprintf(os.Stderr, "beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
+				fpResult, fpErr := ce.EnrichFingerprints(ctx, fpInputs)
+				if fpErr != nil {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint enrichment: %v\n", fpErr)
+				} else if len(fpResult.Findings) > 0 {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
+					findings = append(findings, fpResult.Findings...)
+					_ = st.SaveFindings(ctx, run.ID, fpResult.Findings)
+				}
+			}
+		}
+	}
+
 	// Apply severity filter before enrichment so below-threshold findings are
 	// never sent to the Claude API — saves tokens and keeps prompts focused.
 	minSev := finding.ParseSeverity(severityFlag)
@@ -703,8 +738,11 @@ Type exactly: I have written authorization for %s
 	}
 
 	// Deliver in the requested format.
+	// Retrieve persisted graph JSON so renderFormat can include it in JSON
+	// reports or render DOT output for --format graph.
+	persistedGraphJSON, _ := st.GetAssetGraph(ctx, run.ID)
 	executions, _ := st.ListAssetExecutions(ctx, run.ID)
-	output, err := renderFormat(format, *run, enriched, summary, rep, executions)
+	output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON)
 	if err != nil {
 		fatalf("render report: %v", err)
 	}
@@ -1056,6 +1094,16 @@ Type exactly: I have written authorization for all listed targets
 	// ── Asset graph construction ───────────────────────────────────────────────
 	graph := buildSessionAssetGraph(allResults, cloudFindings, ipToCloudCtx)
 
+	// Persist the graph for every scan run in the session so
+	// `beacon report --id <any-run> --format graph` works for any run.
+	if graphJSON, gErr := json.Marshal(graph); gErr == nil {
+		for _, res := range allResults {
+			if res.run != nil {
+				_ = st.SaveAssetGraph(ctx, res.run.ID, graphJSON)
+			}
+		}
+	}
+
 	// ── Cross-asset correlation ────────────────────────────────────────────────
 	if len(allResults) >= 2 {
 		crossFindings := crossAssetCorrelate(allResults)
@@ -1065,6 +1113,36 @@ Type exactly: I have written authorization for all listed targets
 				fmt.Fprintf(os.Stderr, "  [%s] %s\n", cf.Severity, cf.Title)
 			}
 			_ = st.SaveCorrelationFindings(ctx, crossFindings)
+		}
+	}
+
+	// ── AI fingerprint enrichment (multi-asset) ─────────────────────────────
+	// Analyse collected fingerprint evidence across all assets to find
+	// version-specific vulnerabilities and configuration anomalies.
+	if ai := cfg.ActiveAI(); ai != nil {
+		var fpInputs []enrichment.FingerprintInput
+		for _, res := range allResults {
+			if execs, execErr := st.ListAssetExecutions(ctx, res.run.ID); execErr == nil {
+				for _, ex := range execs {
+					fpInputs = append(fpInputs, enrichment.FingerprintInputFromEvidence(ex.Asset, ex.Evidence))
+				}
+			}
+		}
+		if len(fpInputs) > 0 {
+			ce, ceErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+			if ceErr == nil {
+				fmt.Fprintf(os.Stderr, "beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
+				fpResult, fpErr := ce.EnrichFingerprints(ctx, fpInputs)
+				if fpErr != nil {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint enrichment: %v\n", fpErr)
+				} else if len(fpResult.Findings) > 0 {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
+					allFindings = append(allFindings, fpResult.Findings...)
+					if len(allResults) > 0 {
+						_ = st.SaveFindings(ctx, allResults[0].run.ID, fpResult.Findings)
+					}
+				}
+			}
 		}
 	}
 
@@ -1160,9 +1238,15 @@ Type exactly: I have written authorization for all listed targets
 
 	// ── Graph output ───────────────────────────────────────────────────────────
 	if format == "graph" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(graph)
+		dot := report.RenderGraphDOT(graph)
+		if outPath != "" {
+			if err := os.WriteFile(outPath, []byte(dot), 0o644); err != nil {
+				fatalf("write graph file: %v", err)
+			}
+			fmt.Fprintf(os.Stderr, "beacon: graph written to %s\n", outPath)
+		} else {
+			fmt.Print(dot)
+		}
 	}
 }
 
@@ -1245,6 +1329,9 @@ func buildSessionAssetGraph(results []assetScanResult, cloudFindings []finding.F
 
 	for _, res := range results {
 		b.AddDomainAsset(res.domain, nil, "surface")
+		// Feed surface scan findings into the graph so every discovered asset
+		// has its finding refs attached.
+		b.AddFindings(res.findings)
 	}
 
 	for _, f := range cloudFindings {
@@ -1811,6 +1898,16 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		_ = st.UpdateScanRun(bgCtx, run)
 		if len(findings) > 0 {
 			_ = st.SaveFindings(bgCtx, run.ID, findings)
+		}
+
+		// Build and persist the asset graph so it is available for
+		// `beacon report --format graph` and included in JSON reports.
+		graphBuilder := asset.NewBuilder(run.ID, domain)
+		graphBuilder.AddDomainAsset(domain, nil, "surface")
+		graphBuilder.AddFindings(findings)
+		g := graphBuilder.Build()
+		if graphJSON, gErr := json.Marshal(g); gErr == nil {
+			_ = st.SaveAssetGraph(bgCtx, run.ID, graphJSON)
 		}
 	}()
 
@@ -3430,8 +3527,9 @@ func cmdReport(cfg *config.Config, args []string) {
 		fatalf("get scan run: %v", err)
 	}
 
+	graphJSON, _ := st.GetAssetGraph(ctx, id)
 	executions, _ := st.ListAssetExecutions(ctx, run.ID)
-	output, err := renderFormat(format, *run, enriched, rep.Summary, rep, executions)
+	output, err := renderFormat(format, *run, enriched, rep.Summary, rep, executions, graphJSON)
 	if err != nil {
 		fatalf("render report: %v", err)
 	}
@@ -4145,13 +4243,15 @@ func filterBySeverity(enriched []enrichment.EnrichedFinding, severityFlag string
 }
 
 // renderFormat produces the report string in the requested format.
-// format is one of: "text" (default), "html", "json", "markdown", "ocsf".
-func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution) (string, error) {
+// format is one of: "text" (default), "html", "json", "markdown", "ocsf", "graph".
+// graphJSON is the persisted asset graph blob; it is included in the JSON report
+// when non-nil and used to render DOT output for the "graph" format.
+func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte) (string, error) {
 	switch strings.ToLower(format) {
 	case "html":
 		return rep.HTMLContent, nil
 	case "json":
-		return report.RenderJSON(run, enriched, summary)
+		return report.RenderJSON(run, enriched, summary, graphJSON)
 	case "markdown", "md":
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
 	case "ocsf":
@@ -4159,6 +4259,14 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 		// Compatible with AWS Security Lake, Splunk, OpenSearch Security Analytics,
 		// Panther, Chronicle, and any OCSF-consuming SIEM or data lake.
 		return report.RenderOCSF(run, enriched)
+	case "graph":
+		if len(graphJSON) > 0 {
+			var g asset.AssetGraph
+			if err := json.Unmarshal(graphJSON, &g); err == nil {
+				return report.RenderGraphDOT(g), nil
+			}
+		}
+		return "", fmt.Errorf("no asset graph available for this scan run")
 	default: // "text" or empty
 		return report.RenderText(run, enriched, summary, executions), nil
 	}
@@ -4169,7 +4277,7 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 // ingest it with the same schema as `beacon scan --output json`.
 // Errors are non-fatal — a failed webhook never blocks the scan report.
 func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string) error {
-	payload, err := report.RenderJSON(run, enriched, summary)
+	payload, err := report.RenderJSON(run, enriched, summary, nil)
 	if err != nil {
 		return fmt.Errorf("render webhook payload: %w", err)
 	}
