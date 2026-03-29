@@ -145,6 +145,9 @@ func (b *Builder) AddFindings(scanFindings []finding.Finding) {
 	defer b.mu.Unlock()
 	for i, f := range scanFindings {
 		assetID := fmt.Sprintf("domain:%s", f.Asset)
+		if f.Module == "cloud" || f.Module == "github" || strings.Contains(f.Asset, ":") {
+			assetID = f.Asset
+		}
 		// If this asset exists as a cloud asset (via alias), prefer that ID.
 		tags := finding.ComplianceTags(f.CheckID)
 		b.findingRefs = append(b.findingRefs, FindingRef{
@@ -196,6 +199,7 @@ func (b *Builder) CrossReferenceByIP() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	var newRels []Relationship
 	for _, a := range b.assets {
 		if a.Type != AssetTypeGCPInstance && a.Type != AssetTypeAWSEC2 && a.Type != AssetTypeAzureVM {
 			continue
@@ -205,10 +209,9 @@ func (b *Builder) CrossReferenceByIP() {
 			continue
 		}
 		ipID := fmt.Sprintf("ip:%s", extIP)
-		// Find any domain that points_to this IP.
 		for _, rel := range b.relationships {
 			if rel.Type == RelPointsTo && rel.ToID == ipID {
-				b.relationships = append(b.relationships, Relationship{
+				newRels = append(newRels, Relationship{
 					FromID:     rel.FromID,
 					ToID:       a.ID,
 					Type:       RelLikelySameAs,
@@ -218,6 +221,7 @@ func (b *Builder) CrossReferenceByIP() {
 			}
 		}
 	}
+	b.relationships = append(b.relationships, newRels...)
 }
 
 // Build assembles the final AssetGraph.

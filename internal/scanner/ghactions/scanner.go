@@ -1071,6 +1071,20 @@ type compromisedAction struct {
 // Keep entries sorted by incident date (newest first) so the list is easy to audit.
 var knownCompromisedActions = []compromisedAction{
 	{
+		// June 2026: xygeni/xygeni-action had its v5 tag silently moved to a
+		// backdoored commit containing a full C2 reverse shell. The malicious
+		// commit was pushed via compromised maintainer accounts and a Xygeni-owned
+		// GitHub App. PRs were opened and closed without merging; the v5 tag was
+		// moved to the malicious commit on an unmerged branch.
+		Slug:         "xygeni/xygeni-action",
+		AffectedRefs: []string{"v5"},
+		CVE:          "",
+		GHSA:         "",
+		IncidentDate: "2026-03-28",
+		Summary:      "The v5 tag was silently moved to a backdoored commit containing a C2 reverse shell that registered with 91.214.78.178, polled for commands every 2-7 seconds, and executed arbitrary code via eval. Pushed via compromised maintainer accounts.",
+		Remediation:  "Remove all references to xygeni/xygeni-action@v5 immediately. Pin to a verified commit SHA or remove the action entirely. Audit CI runner logs for connections to 91.214.78.178. Rotate any secrets accessible to workflows that ran this action.",
+	},
+	{
 		// March 14-15 2025: all tags on tj-actions/changed-files were moved to a
 		// malicious commit that printed CI runner secrets to workflow logs.
 		Slug:         "tj-actions/changed-files",

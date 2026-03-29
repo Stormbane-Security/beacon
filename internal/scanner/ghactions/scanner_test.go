@@ -577,6 +577,40 @@ jobs:
 	}
 }
 
+func TestKnownCompromised_Xygeni_V5_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: xygeni/xygeni-action@v5
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected known_compromised_action finding for xygeni/xygeni-action@v5, got none")
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("expected Critical severity, got %v", findings[0].Severity)
+	}
+}
+
+func TestKnownCompromised_Xygeni_V4_NoFinding(t *testing.T) {
+	// v4 was not affected — only v5 was compromised.
+	yaml := `
+on: push
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: xygeni/xygeni-action@v4
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for xygeni/xygeni-action@v4, got %d", len(findings))
+	}
+}
+
 func TestWorkflowDispatchInjection_NoPushTrigger_NoFinding(t *testing.T) {
 	yaml := `
 on: push
