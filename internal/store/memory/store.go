@@ -27,6 +27,7 @@ type Store struct {
 	ecache       map[finding.CheckID][3]string // [explanation, impact, remediation]
 	correlations []store.CorrelationFinding
 	suppressions map[string]*store.FindingSuppression // id -> suppression
+	assetGraphs  map[string][]byte                      // scanRunID -> graph JSON
 }
 
 func New() *Store {
@@ -434,6 +435,35 @@ func (s *Store) PurgeOrphanedRuns(_ context.Context, olderThan time.Time) (int, 
 		}
 	}
 	return deleted, nil
+}
+
+// SaveAssetGraph stores the asset graph JSON for a scan run.
+func (s *Store) SaveAssetGraph(_ context.Context, scanRunID string, graphJSON []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.assetGraphs == nil {
+		s.assetGraphs = make(map[string][]byte)
+	}
+	cp := make([]byte, len(graphJSON))
+	copy(cp, graphJSON)
+	s.assetGraphs[scanRunID] = cp
+	return nil
+}
+
+// GetAssetGraph retrieves the asset graph JSON for a scan run.
+func (s *Store) GetAssetGraph(_ context.Context, scanRunID string) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.assetGraphs == nil {
+		return nil, nil
+	}
+	data, ok := s.assetGraphs[scanRunID]
+	if !ok {
+		return nil, nil
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	return cp, nil
 }
 
 // Ensure Store satisfies the store.Store interface at compile time.

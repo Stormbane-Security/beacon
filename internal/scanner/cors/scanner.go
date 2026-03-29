@@ -139,7 +139,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					ProofCommand: fmt.Sprintf("curl -sI -H 'Origin: %s' '%s' | grep -i 'access-control'", origin, target),
 					DiscoveredAt: time.Now(),
 				})
-				continue
+				// Fall through to Case 4 so the compound check can also fire.
 			}
 
 			// Case 2: wildcard with credentials (invalid but some servers do it)

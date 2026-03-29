@@ -240,6 +240,12 @@ CREATE TABLE IF NOT EXISTS fingerprint_rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fingerprint_rules_status ON fingerprint_rules(status);
+
+CREATE TABLE IF NOT EXISTS asset_graphs (
+    scan_run_id TEXT PRIMARY KEY,
+    graph_json  BLOB NOT NULL,
+    FOREIGN KEY (scan_run_id) REFERENCES scan_runs(id) ON DELETE CASCADE
+);
 `
 
 // Store is a SQLite-backed implementation of store.Store.
@@ -1415,6 +1421,26 @@ func (s *Store) DeleteFingerprintRule(ctx context.Context, id int64) error {
 func (s *Store) IncrementFingerprintRuleSeen(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE fingerprint_rules SET seen_count = seen_count + 1 WHERE id = ?`, id)
 	return err
+}
+
+// SaveAssetGraph stores the asset graph JSON for a scan run.
+func (s *Store) SaveAssetGraph(ctx context.Context, scanRunID string, graphJSON []byte) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO asset_graphs (scan_run_id, graph_json) VALUES (?, ?)
+		 ON CONFLICT(scan_run_id) DO UPDATE SET graph_json = excluded.graph_json`,
+		scanRunID, graphJSON)
+	return err
+}
+
+// GetAssetGraph retrieves the asset graph JSON for a scan run.
+func (s *Store) GetAssetGraph(ctx context.Context, scanRunID string) ([]byte, error) {
+	var data []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT graph_json FROM asset_graphs WHERE scan_run_id = ?`, scanRunID).Scan(&data)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return data, err
 }
 
 // ScanType needs to be stored as its string value.

@@ -302,3 +302,142 @@ func TestCheckReflection_SetCookie_BaselineAlreadyHasValue_NotReflected(t *testi
 		t.Error("should not flag Set-Cookie domain already present in baseline")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Cache poisoning severity elevation: X-Cache: HIT → Critical
+// ---------------------------------------------------------------------------
+
+// TestRun_DeepMode_CachePoisoning_XCacheHIT_Critical verifies that when the
+// server reflects the injected host header AND returns X-Cache: HIT, the
+// finding is elevated to SeverityCritical with cache-specific title/evidence.
+func TestRun_DeepMode_CachePoisoning_XCacheHIT_Critical(t *testing.T) {
+	// Server reflects X-Forwarded-Host in the response body (not in the
+	// baseline) and returns X-Cache: HIT to simulate a cached response.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		xfh := r.Header.Get("X-Forwarded-Host")
+		if xfh != "" {
+			// Respond with the injected value in the body and a cache HIT.
+			w.Header().Set("X-Cache", "HIT")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<html><body>Welcome to " + xfh + "</body></html>"))
+			return
+		}
+		// Baseline: no reflection, no cache header.
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Welcome</body></html>"))
+	}))
+	defer srv.Close()
+
+	s := New()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+
+	// Expect at least one finding with Critical severity due to X-Cache: HIT.
+	var foundCritical bool
+	for _, f := range findings {
+		if f.CheckID != finding.CheckHostHeaderInjection {
+			continue
+		}
+		if f.Severity == finding.SeverityCritical {
+			foundCritical = true
+
+			// Verify title mentions cache poisoning.
+			if !strings.Contains(f.Title, "cache poisoning") {
+				t.Errorf("expected title to mention 'cache poisoning', got: %s", f.Title)
+			}
+
+			// Verify evidence includes cached marker.
+			cachedVal, ok := f.Evidence["cached"]
+			if !ok {
+				t.Error("expected Evidence to contain 'cached' key for cache poisoning finding")
+			} else if cachedVal != "true" {
+				t.Errorf("expected Evidence['cached'] = 'true', got %v", cachedVal)
+			}
+		}
+	}
+	if !foundCritical {
+		t.Error("expected SeverityCritical finding when X-Cache: HIT is present (cache poisoning elevation)")
+	}
+}
+
+// TestRun_DeepMode_CachePoisoning_CFCacheStatus_Critical verifies that
+// CF-Cache-Status: HIT (Cloudflare variant) also triggers cache poisoning elevation.
+func TestRun_DeepMode_CachePoisoning_CFCacheStatus_Critical(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		xfh := r.Header.Get("X-Forwarded-Host")
+		if xfh != "" {
+			w.Header().Set("CF-Cache-Status", "HIT")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<html><body>Cached content for " + xfh + "</body></html>"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Normal content</body></html>"))
+	}))
+	defer srv.Close()
+
+	s := New()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+
+	var foundCritical bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckHostHeaderInjection && f.Severity == finding.SeverityCritical {
+			foundCritical = true
+		}
+	}
+	if !foundCritical {
+		t.Error("expected SeverityCritical finding when CF-Cache-Status: HIT is present")
+	}
+}
+
+// TestRun_DeepMode_NoCacheHeader_SeverityHigh verifies that host header
+// injection WITHOUT a cache HIT header stays at SeverityHigh (not Critical).
+func TestRun_DeepMode_NoCacheHeader_SeverityHigh(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		xfh := r.Header.Get("X-Forwarded-Host")
+		if xfh != "" {
+			// Reflect the injected value in the body but NO cache header.
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("<html><body>Hello " + xfh + "</body></html>"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("<html><body>Hello</body></html>"))
+	}))
+	defer srv.Close()
+
+	s := New()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+
+	for _, f := range findings {
+		if f.CheckID != finding.CheckHostHeaderInjection {
+			continue
+		}
+		if f.Severity == finding.SeverityCritical {
+			t.Errorf("expected SeverityHigh (not Critical) when no cache HIT header is present, got Critical for: %s", f.Title)
+		}
+	}
+
+	// Also verify at least one finding was emitted.
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckHostHeaderInjection {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected at least one HostHeaderInjection finding when X-Forwarded-Host is reflected")
+	}
+}

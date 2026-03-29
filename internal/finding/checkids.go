@@ -898,6 +898,8 @@ const (
 	// AI fingerprinting and cross-asset analysis
 	CheckAIFPCrossAsset    CheckID = "aifp.cross_asset_finding"   // AI-identified cross-asset vulnerability
 	CheckAIFPUnknownTech   CheckID = "aifp.unknown_technology"    // AI classified unknown tech — verify and review rule
+	CheckAIFPVulnVersion   CheckID = "aifp.vulnerable_version"    // AI identified version-specific known vulnerability
+	CheckAIFPConfigAnomaly CheckID = "aifp.config_anomaly"        // AI identified configuration anomaly in fingerprint data
 
 	// GCP authenticated cloud scanning
 	CheckCloudGCPScanError            CheckID = "cloud.gcp.scan_error"                // GCP project scan failed
@@ -1788,6 +1790,8 @@ var Registry = map[CheckID]CheckMeta{
 	// AI fingerprinting / cross-asset
 	CheckAIFPCrossAsset:  {CheckAIFPCrossAsset, SeverityMedium, ModeSurface},
 	CheckAIFPUnknownTech: {CheckAIFPUnknownTech, SeverityInfo, ModeSurface},
+	CheckAIFPVulnVersion: {CheckAIFPVulnVersion, SeverityHigh, ModeSurface},
+	CheckAIFPConfigAnomaly: {CheckAIFPConfigAnomaly, SeverityMedium, ModeSurface},
 
 	// GCP authenticated cloud scanning — requires valid credentials (ADC or SA key)
 	CheckCloudGCPScanError:            {CheckCloudGCPScanError, SeverityInfo, ModeDeep},

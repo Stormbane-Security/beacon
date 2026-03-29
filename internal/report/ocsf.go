@@ -1,7 +1,7 @@
 package report
 
 // RenderOCSF returns scan findings as NDJSON (newline-delimited JSON) where each
-// line is a standalone OCSF 1.4.0 Vulnerability Finding event (class_uid 2002).
+// line is a standalone OCSF 1.3.0 Vulnerability Finding event (class_uid 5001).
 //
 // OCSF (Open Cybersecurity Schema Framework) is the standard schema used by
 // AWS Security Lake, Splunk Enterprise Security, Microsoft Sentinel, OpenSearch
@@ -12,12 +12,11 @@ package report
 //	beacon scan --domain example.com --format ocsf | curl -H "Content-Type: application/x-ndjson" --data-binary @- http://splunk:8088/services/collector
 //
 // Each event contains:
-//   - finding_info: check ID, title, description, finding type
-//   - vulnerabilities[]: CVE ID (parsed from title/desc), severity, exploit status
-//   - resources[]: affected asset (hostname)
+//   - finding_info: check ID (uid), title, description, created_time, src_url (proof command)
+//   - vulnerabilities[]: CVE ID (parsed from title/desc), title, severity
+//   - resource: affected asset (name, uid, type)
 //   - remediation: step-by-step fix (from AI enrichment when available)
-//   - compliance_tags: mapped from enriched ComplianceTags (SOC2, PCI, etc.)
-//   - unmapped: beacon-specific fields (proof_command, scanner, module, evidence)
+//   - unmapped: beacon-specific fields (scanner, module, evidence, compliance_tags)
 //
 // Feeding this into an intelligence brain / LLM pipeline: each OCSF event is
 // self-contained and machine-readable. A downstream LLM can consume the stream
@@ -36,13 +35,13 @@ import (
 )
 
 // ocsfVersion is the OCSF schema version this output conforms to.
-const ocsfVersion = "1.4.0"
+const ocsfVersion = "1.3.0"
 
 // cvePattern matches CVE identifiers in text (e.g. "CVE-2023-3519").
 var cvePattern = regexp.MustCompile(`CVE-\d{4}-\d{4,}`)
 
-// ocsfEvent is the OCSF 1.4.0 Vulnerability Finding event (class_uid 2002).
-// Fields follow the OCSF spec: https://schema.ocsf.io/1.4.0/classes/vulnerability_finding
+// ocsfEvent is the OCSF 1.3.0 Vulnerability Finding event (class_uid 5001).
+// Fields follow the OCSF spec: https://schema.ocsf.io/1.3.0/classes/vulnerability_finding
 type ocsfEvent struct {
 	ClassUID     int    `json:"class_uid"`
 	ClassName    string `json:"class_name"`
@@ -61,7 +60,7 @@ type ocsfEvent struct {
 	FindingInfo ocsfFindingInfo `json:"finding_info"`
 
 	Vulnerabilities []ocsfVulnerability `json:"vulnerabilities,omitempty"`
-	Resources       []ocsfResource      `json:"resources"`
+	Resource        ocsfResource        `json:"resource"`
 	Remediation     *ocsfRemediation    `json:"remediation,omitempty"`
 	Evidences       []ocsfEvidence      `json:"evidences,omitempty"`
 
@@ -80,23 +79,20 @@ type ocsfMetadata struct {
 type ocsfProduct struct {
 	Name       string `json:"name"`
 	VendorName string `json:"vendor_name"`
-	URLString  string `json:"url_string"`
 }
 
 type ocsfFindingInfo struct {
-	UID           string   `json:"uid"`   // check_id
-	Title         string   `json:"title"`
-	Desc          string   `json:"desc"`
-	Types         []string `json:"types"`            // e.g. ["CVE"], ["Misconfiguration"]
-	FirstSeenTime int64    `json:"first_seen_time"`  // Unix milliseconds
-	LastSeenTime  int64    `json:"last_seen_time"`   // Unix milliseconds
+	UID         string `json:"uid"`          // check_id
+	Title       string `json:"title"`
+	Desc        string `json:"desc"`
+	CreatedTime int64  `json:"created_time"` // Unix milliseconds
+	SrcURL      string `json:"src_url"`      // proof command or verification URL
 }
 
 type ocsfVulnerability struct {
-	CVE               *ocsfCVE `json:"cve,omitempty"`
-	Desc              string   `json:"desc"`
-	Severity          string   `json:"severity"`
-	IsExploitAvailable bool    `json:"is_exploit_available"`
+	CVE      *ocsfCVE `json:"cve,omitempty"`
+	Title    string   `json:"title"`
+	Severity string   `json:"severity"`
 }
 
 type ocsfCVE struct {
@@ -104,10 +100,9 @@ type ocsfCVE struct {
 }
 
 type ocsfResource struct {
-	UID      string `json:"uid"`
-	Hostname string `json:"hostname"`
-	Type     string `json:"type"`
-	TypeID   int    `json:"type_id"`
+	Type string `json:"type"`
+	Name string `json:"name"` // asset hostname or identifier
+	UID  string `json:"uid"`
 }
 
 type ocsfRemediation struct {
@@ -136,34 +131,23 @@ func ocsfSeverity(s finding.Severity) (int, string) {
 }
 
 // ocsfFindingTypes infers the OCSF finding type from a Beacon check ID.
-// OCSF type strings are free-form but conventions include "CVE", "Misconfiguration",
-// "Exposure", "Default Credentials", "Policy Violation".
-func ocsfFindingTypes(checkID string) []string {
+// Used to classify resources in the OCSF event.
+func ocsfResourceType(checkID string) string {
 	switch {
-	case strings.HasPrefix(checkID, "cve."):
-		return []string{"CVE"}
-	case strings.HasPrefix(checkID, "tls."):
-		return []string{"Misconfiguration"}
-	case strings.HasPrefix(checkID, "email."):
-		return []string{"Misconfiguration"}
 	case strings.HasPrefix(checkID, "port."):
-		return []string{"Exposure"}
+		return "Network"
+	case strings.HasPrefix(checkID, "tls."):
+		return "Web Server"
+	case strings.HasPrefix(checkID, "email."):
+		return "DNS"
 	case strings.HasPrefix(checkID, "iam."):
-		return []string{"Misconfiguration"}
-	case strings.HasPrefix(checkID, "web."):
-		return []string{"Misconfiguration"}
+		return "Cloud Account"
+	case strings.HasPrefix(checkID, "cloud."):
+		return "Cloud Resource"
 	case strings.HasPrefix(checkID, "secret."), strings.HasPrefix(checkID, "dlp."):
-		return []string{"Data Exposure"}
-	case strings.HasPrefix(checkID, "authfuzz."):
-		return []string{"Policy Violation"}
-	case strings.HasPrefix(checkID, "cors."):
-		return []string{"Misconfiguration"}
-	case strings.HasPrefix(checkID, "gateway."), strings.HasPrefix(checkID, "cdn."):
-		return []string{"Exposure"}
-	case strings.HasPrefix(checkID, "netdev."):
-		return []string{"Exposure"}
+		return "Data Store"
 	default:
-		return []string{"Other"}
+		return "Web Server"
 	}
 }
 
@@ -181,7 +165,8 @@ func extractCVEs(text string) []string {
 	return out
 }
 
-// toOCSFEvent converts one enriched finding to an OCSF Vulnerability Finding event.
+// toOCSFEvent converts one enriched finding to an OCSF 1.3.0 Vulnerability
+// Finding event (class_uid 5001, category_uid 5 "Discovery").
 func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 	f := ef.Finding
 	ts := f.DiscoveredAt.UnixMilli()
@@ -189,7 +174,6 @@ func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 		ts = now
 	}
 	sevID, sevStr := ocsfSeverity(f.Severity)
-	types := ocsfFindingTypes(string(f.CheckID))
 
 	// Combine title and description to search for CVE IDs.
 	combined := f.Title + " " + f.Description
@@ -199,28 +183,28 @@ func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 	if len(cves) > 0 {
 		for _, cid := range cves {
 			vulns = append(vulns, ocsfVulnerability{
-				CVE:               &ocsfCVE{UID: cid},
-				Desc:              f.Description,
-				Severity:          sevStr,
-				IsExploitAvailable: strings.Contains(strings.ToLower(combined), "kev") ||
-					strings.Contains(strings.ToLower(combined), "exploit"),
+				CVE:      &ocsfCVE{UID: cid},
+				Title:    f.Title,
+				Severity: sevStr,
 			})
 		}
-	} else if types[0] == "CVE" {
+	} else if strings.HasPrefix(string(f.CheckID), "cve.") {
 		// check_id starts with "cve." but we couldn't parse the ID from text.
 		vulns = append(vulns, ocsfVulnerability{
-			Desc:     f.Description,
+			Title:    f.Title,
 			Severity: sevStr,
 		})
 	}
 
 	// Build resource entry from asset.
 	resource := ocsfResource{
-		UID:      f.Asset,
-		Hostname: f.Asset,
-		Type:     "WebServer",
-		TypeID:   1,
+		Type: ocsfResourceType(string(f.CheckID)),
+		Name: f.Asset,
+		UID:  f.Asset,
 	}
+
+	// src_url: use proof command as the verification source.
+	srcURL := f.ProofCommand
 
 	// Remediation from AI enrichment when available.
 	var remediation *ocsfRemediation
@@ -236,10 +220,9 @@ func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 
 	// Unmapped: Beacon-specific fields that don't fit OCSF.
 	unmapped := map[string]any{
-		"check_id":      string(f.CheckID),
-		"module":        f.Module,
-		"scanner":       f.Scanner,
-		"proof_command": f.ProofCommand,
+		"check_id": string(f.CheckID),
+		"module":   f.Module,
+		"scanner":  f.Scanner,
 	}
 	if ef.Impact != "" {
 		unmapped["impact"] = ef.Impact
@@ -261,10 +244,10 @@ func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 	}
 
 	return ocsfEvent{
-		ClassUID:     2002,
+		ClassUID:     5001,
 		ClassName:    "Vulnerability Finding",
-		CategoryUID:  2,
-		CategoryName: "Findings",
+		CategoryUID:  5,
+		CategoryName: "Discovery",
 		ActivityID:   1,
 		ActivityName: "Create",
 		SeverityID:   sevID,
@@ -277,22 +260,20 @@ func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 			Version: ocsfVersion,
 			Product: ocsfProduct{
 				Name:       "Beacon",
-				VendorName: "Stormbane Security",
-				URLString:  "https://github.com/Stormbane-Security/beacon",
+				VendorName: "Stormbane",
 			},
 			UID:        string(f.CheckID),
 			LoggedTime: now,
 		},
 		FindingInfo: ocsfFindingInfo{
-			UID:           string(f.CheckID),
-			Title:         f.Title,
-			Desc:          f.Description,
-			Types:         types,
-			FirstSeenTime: ts,
-			LastSeenTime:  ts,
+			UID:         string(f.CheckID),
+			Title:       f.Title,
+			Desc:        f.Description,
+			CreatedTime: ts,
+			SrcURL:      srcURL,
 		},
 		Vulnerabilities: vulns,
-		Resources:       []ocsfResource{resource},
+		Resource:        resource,
 		Remediation:     remediation,
 		Evidences:       evidences,
 		Unmapped:        unmapped,
@@ -300,18 +281,18 @@ func toOCSFEvent(ef enrichment.EnrichedFinding, now int64) ocsfEvent {
 }
 
 // RenderOCSF returns scan findings as NDJSON where each line is a valid
-// OCSF 1.4.0 Vulnerability Finding event. The output can be piped directly
-// into any OCSF-compatible SIEM or security data lake.
+// OCSF 1.3.0 Vulnerability Finding event (class_uid 5001). The output can be
+// piped directly into any OCSF-compatible SIEM or security data lake.
 //
-// The first line is always a scan metadata event (class_uid 2000, Detection
-// Finding) describing the scan run itself so consumers can correlate all
-// finding events back to a single scan execution.
+// The first line is always a scan metadata event (class_uid 5001) describing
+// the scan run itself so consumers can correlate all finding events back to
+// a single scan execution.
 func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (string, error) {
 	now := time.Now().UnixMilli()
 	var sb strings.Builder
 
-	// Emit a scan-start envelope event (OCSF Detection Finding, class_uid 2004)
-	// so consumers can correlate all findings back to a single scan execution.
+	// Emit a scan-start envelope event so consumers can correlate all findings
+	// back to a single scan execution.
 	type scanEnvelope struct {
 		ClassUID     int            `json:"class_uid"`
 		ClassName    string         `json:"class_name"`
@@ -332,10 +313,10 @@ func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (strin
 		endTime = run.CompletedAt.UnixMilli()
 	}
 	envelope := scanEnvelope{
-		ClassUID:     2004,
-		ClassName:    "Detection Finding",
-		CategoryUID:  2,
-		CategoryName: "Findings",
+		ClassUID:     5001,
+		ClassName:    "Vulnerability Finding",
+		CategoryUID:  5,
+		CategoryName: "Discovery",
 		ActivityID:   1,
 		ActivityName: "Create",
 		SeverityID:   1,
@@ -346,8 +327,7 @@ func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (strin
 			Version: ocsfVersion,
 			Product: ocsfProduct{
 				Name:       "Beacon",
-				VendorName: "Stormbane Security",
-				URLString:  "https://github.com/Stormbane-Security/beacon",
+				VendorName: "Stormbane",
 			},
 			UID:        "beacon.scan",
 			LoggedTime: now,

@@ -348,6 +348,11 @@ type Store interface {
 	DeleteFingerprintRule(ctx context.Context, id int64) error
 	IncrementFingerprintRuleSeen(ctx context.Context, id int64) error
 
+	// Asset graph — persisted graph of assets and relationships for a scan run.
+	// The graph is built after all modules complete and stored as a JSON blob.
+	SaveAssetGraph(ctx context.Context, scanRunID string, graphJSON []byte) error
+	GetAssetGraph(ctx context.Context, scanRunID string) ([]byte, error)
+
 	// Lifecycle
 	Close() error
 }
