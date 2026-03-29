@@ -201,6 +201,7 @@ const (
 	CheckGraphQLIntrospection         CheckID = "graphql.introspection_enabled"      // introspection leaks full schema
 	CheckGraphQLBatchQuery             CheckID = "graphql.batch_query_enabled"        // batch queries amplify request count
 	CheckGraphQLPersistedQueryBypass  CheckID = "graphql.persisted_query_bypass"     // server accepts arbitrary persisted queries
+	CheckGraphQLGETEnabled           CheckID = "graphql.get_enabled"                // mutations via GET enable CSRF attacks
 
 	// Email deliverability — SMTP probe (passive observation, no mail sent) → Surface
 	CheckEmailSMTPOpenRelay   CheckID = "email.smtp_open_relay"     // SMTP server accepts mail for external domains
@@ -242,6 +243,11 @@ const (
 	CheckJWTLongExpiry        CheckID = "jwt.long_expiry"       // token never expires or > 7 days
 	CheckJWTSensitivePayload  CheckID = "jwt.sensitive_payload" // PII/role data in unencrypted payload
 
+	// JWT deep-mode active probes — require --permission-confirmed → Deep
+	CheckJWTAlgNoneVariant   CheckID = "jwt.alg_none_variant"    // server accepts alg:None/NONE/nOnE case variants
+	CheckJWTEmptySecret      CheckID = "jwt.empty_secret"        // server accepts JWT signed with empty HMAC secret
+	CheckJWTKidInjection     CheckID = "jwt.kid_sql_injection"   // kid header SQL injection accepted by server
+
 	// HIBP — query public breach API for domain exposure → Surface
 	CheckHIBPBreach CheckID = "asset.hibp_breach" // domain's users found in known breach database
 
@@ -251,7 +257,10 @@ const (
 	CheckHarvesterUnavailable CheckID = "osint.harvester_unavailable" // theHarvester not installed — scan skipped
 
 	// CORS misconfiguration — active test with attacker Origin values → Deep
-	CheckCORSMisconfiguration CheckID = "web.cors_misconfiguration"
+	CheckCORSMisconfiguration        CheckID = "web.cors_misconfiguration"
+	CheckCORSNullOrigin              CheckID = "web.cors_null_origin"               // null Origin reflected — sandbox/iframe bypass
+	CheckCORSPreflightMisconfig      CheckID = "web.cors_preflight_misconfiguration" // OPTIONS preflight with dangerous method/headers reflected
+	CheckCORSCredentialedReflection  CheckID = "web.cors_credentialed_reflection"   // origin reflected AND credentials: true — highest-severity compound
 
 	// Bing dork search — passive search engine query for exposed files → Surface
 	CheckBingDorkExposure CheckID = "asset.dork_exposure"
@@ -350,11 +359,13 @@ const (
 
 	// OAuth / OIDC / JWKS security — active probe for auth flow weaknesses → Deep
 	CheckOAuthMissingState    CheckID = "oauth.missing_state"        // state parameter absent → CSRF
+	CheckOAuthWeakState       CheckID = "oauth.weak_state"           // state parameter < 16 chars or predictable (counter/timestamp)
 	CheckOAuthMissingPKCE     CheckID = "oauth.missing_pkce"         // PKCE not enforced → auth code interception
 	CheckOAuthOpenRedirect    CheckID = "oauth.open_redirect"        // redirect_uri accepts arbitrary domains
 	CheckOAuthTokenLeakReferer CheckID = "oauth.token_leak_referer"  // access token appears in Referer header
 	CheckJWKSExposed          CheckID = "oauth.jwks_exposed"         // JWKS endpoint publicly enumerable
 	CheckOIDCImplicitFlow     CheckID = "oauth.implicit_flow"        // deprecated implicit flow in use
+	CheckOAuthImplicitAccepted CheckID = "oauth.implicit_flow_accepted" // server actively accepts response_type=token (deep)
 	CheckJWTNoVerification    CheckID = "jwt.no_server_verification" // server accepts tampered/invalid JWT
 
 	// GitHub / CI (Phase 2)
@@ -428,7 +439,9 @@ const (
 	CheckWebCRLFInjection     CheckID = "web.crlf_injection"         // CRLF injection in headers
 	CheckWebPrototypePollution CheckID = "web.prototype_pollution"   // Node.js prototype pollution
 	CheckWebXXE               CheckID = "web.xxe"                    // XML external entity injection
-	CheckWebInsecureDeserialize CheckID = "web.insecure_deserialize" // insecure deserialization
+	CheckWebInsecureDeserialize    CheckID = "web.insecure_deserialize"     // insecure deserialization
+	CheckWebDotNetDeserialize      CheckID = "web.dotnet_deserialize"      // .NET ViewState/EventValidation deserialization surface
+	CheckWebSSRFRedirectMetadata   CheckID = "web.ssrf_redirect_metadata"  // SSRF via redirect to cloud metadata endpoint
 	CheckWebHPP               CheckID = "web.http_parameter_pollution" // HTTP parameter pollution
 	CheckWebNginxAliasTraversal CheckID = "web.nginx_alias_traversal" // nginx alias path traversal
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
@@ -895,6 +908,10 @@ const (
 	CheckCloudGCPComputeDefaultSA     CheckID = "cloud.gcp.compute_default_sa"        // instance using default compute SA
 	CheckCloudGCPGKEPublicEndpoint    CheckID = "cloud.gcp.gke_public_endpoint"       // GKE cluster with unrestricted public endpoint
 	CheckCloudGCPGKENoBinaryAuth      CheckID = "cloud.gcp.gke_no_binary_auth"        // GKE cluster with Binary Authorization disabled
+	CheckCloudGCPComputeSerialPort    CheckID = "cloud.gcp.compute_serial_port"       // instance with serial port access enabled
+	CheckCloudGCPComputeNoOSLogin    CheckID = "cloud.gcp.compute_no_os_login"       // instance without OS Login enabled
+	CheckCloudGCPGKENoWorkloadIdentity CheckID = "cloud.gcp.gke_no_workload_identity" // GKE cluster without Workload Identity
+	CheckCloudGCPGKENoMasterAuthNetworks CheckID = "cloud.gcp.gke_no_master_auth_networks" // GKE cluster without master authorized networks
 
 	// AWS authenticated cloud scanning
 	CheckCloudAWSIAMRootAccessKey CheckID = "cloud.aws.iam_root_access_key"  // root account has active access keys
@@ -906,6 +923,9 @@ const (
 	CheckCloudAWSS3NoEncryption   CheckID = "cloud.aws.s3_no_encryption"     // S3 bucket has no default encryption
 	CheckCloudAWSEC2PublicSG      CheckID = "cloud.aws.ec2_public_sg"        // security group allows 0.0.0.0/0 on sensitive port
 	CheckCloudAWSEKSPublicEndpoint CheckID = "cloud.aws.eks_public_endpoint" // EKS cluster public endpoint unrestricted
+	CheckCloudAWSEC2IMDSv1        CheckID = "cloud.aws.ec2_imdsv1"          // EC2 instance accepts IMDSv1 (SSRF credential theft risk)
+	CheckCloudAWSEBSUnencrypted   CheckID = "cloud.aws.ebs_unencrypted"     // EBS volume not encrypted at rest
+	CheckCloudAWSEKSNoLogging     CheckID = "cloud.aws.eks_no_logging"      // EKS cluster without audit logging enabled
 
 	// Azure authenticated cloud scanning
 	CheckCloudAzureScanError       CheckID = "cloud.azure.scan_error"            // Azure subscription scan failed
@@ -913,6 +933,9 @@ const (
 	CheckCloudAzureStorageHTTP     CheckID = "cloud.azure.storage_http"          // storage account allows HTTP traffic
 	CheckCloudAzureAKSPublicEndpoint CheckID = "cloud.azure.aks_public_endpoint" // AKS cluster public API endpoint unrestricted
 	CheckCloudAzureOwnerDirect     CheckID = "cloud.azure.owner_direct"          // direct Owner/Contributor assignment at subscription scope
+	CheckCloudAzureAKSNoRBAC       CheckID = "cloud.azure.aks_no_rbac"           // AKS cluster without RBAC enabled
+	CheckCloudAzureAKSNoNetPolicy  CheckID = "cloud.azure.aks_no_net_policy"     // AKS cluster without network policy
+	CheckCloudAzureStorageSharedKey CheckID = "cloud.azure.storage_shared_key"   // storage account allows shared key access
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1162,6 +1185,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGraphQLIntrospection:        {CheckGraphQLIntrospection, SeverityMedium, ModeSurface},
 	CheckGraphQLBatchQuery:            {CheckGraphQLBatchQuery, SeverityMedium, ModeDeep},
 	CheckGraphQLPersistedQueryBypass:  {CheckGraphQLPersistedQueryBypass, SeverityMedium, ModeDeep},
+	CheckGraphQLGETEnabled:           {CheckGraphQLGETEnabled, SeverityMedium, ModeDeep},
 
 	// Email SMTP — connecting to the published MX server is what any mail agent does → Surface
 	CheckEmailSMTPOpenRelay:  {CheckEmailSMTPOpenRelay, SeverityCritical, ModeSurface},
@@ -1210,7 +1234,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckHarvesterUnavailable: {CheckHarvesterUnavailable, SeverityInfo, ModeSurface},
 
 	// CORS → Deep
-	CheckCORSMisconfiguration: {CheckCORSMisconfiguration, SeverityCritical, ModeDeep},
+	CheckCORSMisconfiguration:       {CheckCORSMisconfiguration, SeverityCritical, ModeDeep},
+	CheckCORSNullOrigin:             {CheckCORSNullOrigin, SeverityHigh, ModeDeep},
+	CheckCORSPreflightMisconfig:     {CheckCORSPreflightMisconfig, SeverityCritical, ModeDeep},
+	CheckCORSCredentialedReflection: {CheckCORSCredentialedReflection, SeverityCritical, ModeDeep},
 
 	// Bing dorks → Surface
 	CheckBingDorkExposure: {CheckBingDorkExposure, SeverityHigh, ModeSurface},
@@ -1231,13 +1258,15 @@ var Registry = map[CheckID]CheckMeta{
 	CheckRateLimitNoRetryAfter: {CheckRateLimitNoRetryAfter, SeverityInfo, ModeDeep},
 
 	// OAuth / OIDC → Deep
-	CheckOAuthMissingState:     {CheckOAuthMissingState, SeverityHigh, ModeDeep},
-	CheckOAuthMissingPKCE:      {CheckOAuthMissingPKCE, SeverityMedium, ModeDeep},
-	CheckOAuthOpenRedirect:     {CheckOAuthOpenRedirect, SeverityCritical, ModeDeep},
-	CheckOAuthTokenLeakReferer: {CheckOAuthTokenLeakReferer, SeverityHigh, ModeDeep},
-	CheckJWKSExposed:           {CheckJWKSExposed, SeverityInfo, ModeSurface},
-	CheckOIDCImplicitFlow:      {CheckOIDCImplicitFlow, SeverityMedium, ModeSurface},
-	CheckJWTNoVerification:     {CheckJWTNoVerification, SeverityCritical, ModeDeep},
+	CheckOAuthMissingState:      {CheckOAuthMissingState, SeverityHigh, ModeDeep},
+	CheckOAuthWeakState:         {CheckOAuthWeakState, SeverityMedium, ModeDeep},
+	CheckOAuthMissingPKCE:       {CheckOAuthMissingPKCE, SeverityMedium, ModeDeep},
+	CheckOAuthOpenRedirect:      {CheckOAuthOpenRedirect, SeverityCritical, ModeDeep},
+	CheckOAuthTokenLeakReferer:  {CheckOAuthTokenLeakReferer, SeverityHigh, ModeDeep},
+	CheckJWKSExposed:            {CheckJWKSExposed, SeverityInfo, ModeSurface},
+	CheckOIDCImplicitFlow:       {CheckOIDCImplicitFlow, SeverityMedium, ModeSurface},
+	CheckOAuthImplicitAccepted:  {CheckOAuthImplicitAccepted, SeverityHigh, ModeDeep},
+	CheckJWTNoVerification:      {CheckJWTNoVerification, SeverityCritical, ModeDeep},
 
 	// GitHub / CI — queries public GitHub API and reads public repo content → Surface
 	// Credential/secret scanning is passive (reading committed content) → Surface
@@ -1610,6 +1639,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckJWTAlgorithmConfusion:  {CheckJWTAlgorithmConfusion, SeverityCritical, ModeDeep},
 	CheckJWTAudienceMissing:     {CheckJWTAudienceMissing, SeverityHigh, ModeDeep},
 	CheckJWTIssuerNotValidated:  {CheckJWTIssuerNotValidated, SeverityHigh, ModeDeep},
+	CheckJWTAlgNoneVariant:     {CheckJWTAlgNoneVariant, SeverityCritical, ModeDeep},
+	CheckJWTEmptySecret:        {CheckJWTEmptySecret, SeverityCritical, ModeDeep},
+	CheckJWTKidInjection:       {CheckJWTKidInjection, SeverityCritical, ModeDeep},
 	CheckJWTEncryptionMissing:   {CheckJWTEncryptionMissing, SeverityMedium, ModeSurface},
 	CheckJWTReplayMissing:       {CheckJWTReplayMissing, SeverityMedium, ModeDeep},
 	CheckJWKSWeakKey:            {CheckJWKSWeakKey, SeverityHigh, ModeSurface},
@@ -1651,7 +1683,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebCRLFInjection:      {CheckWebCRLFInjection, SeverityHigh, ModeDeep},
 	CheckWebPrototypePollution: {CheckWebPrototypePollution, SeverityHigh, ModeDeep},
 	CheckWebXXE:                {CheckWebXXE, SeverityCritical, ModeDeep},
-	CheckWebInsecureDeserialize: {CheckWebInsecureDeserialize, SeverityCritical, ModeDeep},
+	CheckWebInsecureDeserialize:  {CheckWebInsecureDeserialize, SeverityCritical, ModeDeep},
+	CheckWebDotNetDeserialize:   {CheckWebDotNetDeserialize, SeverityHigh, ModeDeep},
+	CheckWebSSRFRedirectMetadata: {CheckWebSSRFRedirectMetadata, SeverityCritical, ModeDeep},
 	CheckWebHPP:                {CheckWebHPP, SeverityMedium, ModeDeep},
 	CheckWebNginxAliasTraversal: {CheckWebNginxAliasTraversal, SeverityCritical, ModeSurface},
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
@@ -1763,7 +1797,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudGCPBucketPublic:         {CheckCloudGCPBucketPublic, SeverityCritical, ModeDeep},
 	CheckCloudGCPComputeDefaultSA:     {CheckCloudGCPComputeDefaultSA, SeverityMedium, ModeDeep},
 	CheckCloudGCPGKEPublicEndpoint:    {CheckCloudGCPGKEPublicEndpoint, SeverityHigh, ModeDeep},
-	CheckCloudGCPGKENoBinaryAuth:      {CheckCloudGCPGKENoBinaryAuth, SeverityMedium, ModeDeep},
+	CheckCloudGCPGKENoBinaryAuth:          {CheckCloudGCPGKENoBinaryAuth, SeverityMedium, ModeDeep},
+	CheckCloudGCPComputeSerialPort:        {CheckCloudGCPComputeSerialPort, SeverityMedium, ModeDeep},
+	CheckCloudGCPComputeNoOSLogin:         {CheckCloudGCPComputeNoOSLogin, SeverityMedium, ModeDeep},
+	CheckCloudGCPGKENoWorkloadIdentity:    {CheckCloudGCPGKENoWorkloadIdentity, SeverityHigh, ModeDeep},
+	CheckCloudGCPGKENoMasterAuthNetworks:  {CheckCloudGCPGKENoMasterAuthNetworks, SeverityHigh, ModeDeep},
 
 	// AWS authenticated cloud scanning — requires valid AWS credentials
 	CheckCloudAWSIAMRootAccessKey:  {CheckCloudAWSIAMRootAccessKey, SeverityCritical, ModeDeep},
@@ -1775,13 +1813,19 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAWSS3NoEncryption:    {CheckCloudAWSS3NoEncryption, SeverityMedium, ModeDeep},
 	CheckCloudAWSEC2PublicSG:       {CheckCloudAWSEC2PublicSG, SeverityHigh, ModeDeep},
 	CheckCloudAWSEKSPublicEndpoint: {CheckCloudAWSEKSPublicEndpoint, SeverityHigh, ModeDeep},
+	CheckCloudAWSEC2IMDSv1:         {CheckCloudAWSEC2IMDSv1, SeverityHigh, ModeDeep},
+	CheckCloudAWSEBSUnencrypted:    {CheckCloudAWSEBSUnencrypted, SeverityMedium, ModeDeep},
+	CheckCloudAWSEKSNoLogging:      {CheckCloudAWSEKSNoLogging, SeverityMedium, ModeDeep},
 
 	// Azure authenticated cloud scanning — requires valid Azure credentials
 	CheckCloudAzureScanError:         {CheckCloudAzureScanError, SeverityInfo, ModeDeep},
 	CheckCloudAzureBlobPublic:        {CheckCloudAzureBlobPublic, SeverityHigh, ModeDeep},
 	CheckCloudAzureStorageHTTP:       {CheckCloudAzureStorageHTTP, SeverityMedium, ModeDeep},
 	CheckCloudAzureAKSPublicEndpoint: {CheckCloudAzureAKSPublicEndpoint, SeverityHigh, ModeDeep},
-	CheckCloudAzureOwnerDirect:       {CheckCloudAzureOwnerDirect, SeverityHigh, ModeDeep},
+	CheckCloudAzureOwnerDirect:        {CheckCloudAzureOwnerDirect, SeverityHigh, ModeDeep},
+	CheckCloudAzureAKSNoRBAC:          {CheckCloudAzureAKSNoRBAC, SeverityHigh, ModeDeep},
+	CheckCloudAzureAKSNoNetPolicy:     {CheckCloudAzureAKSNoNetPolicy, SeverityMedium, ModeDeep},
+	CheckCloudAzureStorageSharedKey:    {CheckCloudAzureStorageSharedKey, SeverityMedium, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

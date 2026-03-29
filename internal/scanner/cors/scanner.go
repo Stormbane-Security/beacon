@@ -168,10 +168,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				continue
 			}
 
-			// Case 3: null origin reflected (sandbox bypass)
+			// Case 3: null origin reflected (sandbox bypass) — dedicated check ID
 			if origin == "null" && strings.EqualFold(acao, "null") {
 				findings = append(findings, finding.Finding{
-					CheckID:  finding.CheckCORSMisconfiguration,
+					CheckID:  finding.CheckCORSNullOrigin,
 					Module:   "deep",
 					Scanner:  scannerName,
 					Severity: finding.SeverityHigh,
@@ -179,16 +179,53 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					Description: fmt.Sprintf(
 						"%s reflects Origin: null in Access-Control-Allow-Origin. "+
 							"Sandboxed iframes and local HTML files send a null origin, allowing "+
-							"attacker-controlled sandboxed pages to make cross-origin requests.",
+							"attacker-controlled sandboxed pages to make cross-origin requests. "+
+							"Many CORS implementations have a whitelist that incorrectly includes 'null'. "+
+							"An attacker can exploit this from a sandboxed iframe: "+
+							"<iframe sandbox='allow-scripts' src='data:text/html,...'>.",
 						asset,
 					),
 					Asset: asset,
 					Evidence: map[string]any{
-						"url":                         target,
-						"injected_origin":             origin,
-						"access_control_allow_origin": acao,
+						"url":                              target,
+						"injected_origin":                  origin,
+						"access_control_allow_origin":      acao,
+						"access_control_allow_credentials": acac,
 					},
 					ProofCommand: fmt.Sprintf("curl -sI -H 'Origin: null' '%s' | grep -i 'access-control'", target),
+					DiscoveredAt: time.Now(),
+				})
+			}
+
+			// Case 4: compound check — origin reflected AND credentials enabled.
+			// This is the most dangerous CORS misconfiguration pattern and gets its
+			// own dedicated finding for triaging separately from Cases 1-3.
+			if strings.EqualFold(acao, origin) && acac == "true" && origin != "null" {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckCORSCredentialedReflection,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("CORS: origin reflected with credentials enabled on %s (compound)", asset),
+					Description: fmt.Sprintf(
+						"%s reflects the attacker-supplied Origin %q in Access-Control-Allow-Origin and "+
+							"simultaneously sets Access-Control-Allow-Credentials: true. This compound "+
+							"misconfiguration allows an attacker-controlled page to make fully credentialed "+
+							"cross-origin requests (with cookies, Authorization headers, and TLS client "+
+							"certificates) and read the authenticated responses. This is the most dangerous "+
+							"CORS misconfiguration — it enables account takeover, data exfiltration, and "+
+							"CSRF bypass from any attacker-controlled domain.",
+						asset, origin,
+					),
+					Asset: asset,
+					Evidence: map[string]any{
+						"url":                              target,
+						"injected_origin":                  origin,
+						"access_control_allow_origin":      acao,
+						"access_control_allow_credentials": acac,
+						"compound":                         true,
+					},
+					ProofCommand: fmt.Sprintf("curl -sI -H 'Origin: %s' '%s' | grep -i 'access-control'", origin, target),
 					DiscoveredAt: time.Now(),
 				})
 			}
@@ -240,6 +277,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		if !alreadyCaught && !preflightIsCatchAll {
+			// Preflight probe 1: POST + Authorization (existing check)
 			preReq, err := http.NewRequestWithContext(ctx, http.MethodOptions, target, nil)
 			if err == nil {
 				preReq.Header.Set("Origin", preflightOrigin)
@@ -255,7 +293,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					allowsOrigin := strings.EqualFold(preACAO, preflightOrigin) || preACAO == "*"
 					if allowsOrigin && preACAC == "true" {
 						findings = append(findings, finding.Finding{
-							CheckID:  finding.CheckCORSMisconfiguration,
+							CheckID:  finding.CheckCORSPreflightMisconfig,
 							Module:   "deep",
 							Scanner:  scannerName,
 							Severity: finding.SeverityCritical,
@@ -274,9 +312,70 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 								"access_control_allow_origin":      preACAO,
 								"access_control_allow_credentials": preACAC,
 								"via":                              "preflight",
+								"request_method":                   "POST",
+								"request_headers":                  "Authorization",
 							},
 							ProofCommand: fmt.Sprintf(
 								"curl -sI -X OPTIONS -H 'Origin: %s' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: Authorization' '%s' | grep -i 'access-control'",
+								preflightOrigin, target),
+							DiscoveredAt: time.Now(),
+						})
+					}
+				}
+			}
+
+			// Preflight probe 2: PUT + X-Custom — catches servers that allow
+			// dangerous methods and custom headers via permissive preflight
+			// responses. Some implementations only restrict POST but allow PUT
+			// or accept any custom header prefix.
+			preReq2, err := http.NewRequestWithContext(ctx, http.MethodOptions, target, nil)
+			if err == nil {
+				preReq2.Header.Set("Origin", preflightOrigin)
+				preReq2.Header.Set("Access-Control-Request-Method", "PUT")
+				preReq2.Header.Set("Access-Control-Request-Headers", "X-Custom")
+
+				if preResp2, err := client.Do(preReq2); err == nil {
+					preResp2.Body.Close()
+
+					preACAO2 := preResp2.Header.Get("Access-Control-Allow-Origin")
+					preACAC2 := strings.ToLower(preResp2.Header.Get("Access-Control-Allow-Credentials"))
+					preACAM2 := preResp2.Header.Get("Access-Control-Allow-Methods")
+					preACAH2 := preResp2.Header.Get("Access-Control-Allow-Headers")
+
+					allowsOrigin2 := strings.EqualFold(preACAO2, preflightOrigin) || preACAO2 == "*"
+					allowsPUT := strings.Contains(strings.ToUpper(preACAM2), "PUT") || preACAM2 == "*"
+					if allowsOrigin2 && allowsPUT {
+						sev := finding.SeverityHigh
+						if preACAC2 == "true" {
+							sev = finding.SeverityCritical
+						}
+						findings = append(findings, finding.Finding{
+							CheckID:  finding.CheckCORSPreflightMisconfig,
+							Module:   "deep",
+							Scanner:  scannerName,
+							Severity: sev,
+							Title:    fmt.Sprintf("CORS: preflight allows PUT with custom headers on %s", asset),
+							Description: fmt.Sprintf(
+								"%s responded to an OPTIONS preflight requesting PUT method and X-Custom header "+
+									"with Access-Control-Allow-Origin: %q and Access-Control-Allow-Methods including PUT. "+
+									"This indicates the server allows dangerous cross-origin write operations. "+
+									"Attackers can use PUT requests from malicious pages to modify server-side resources.",
+								asset, preACAO2,
+							),
+							Asset: asset,
+							Evidence: map[string]any{
+								"url":                              target,
+								"injected_origin":                  preflightOrigin,
+								"access_control_allow_origin":      preACAO2,
+								"access_control_allow_methods":     preACAM2,
+								"access_control_allow_headers":     preACAH2,
+								"access_control_allow_credentials": preACAC2,
+								"via":                              "preflight",
+								"request_method":                   "PUT",
+								"request_headers":                  "X-Custom",
+							},
+							ProofCommand: fmt.Sprintf(
+								"curl -sI -X OPTIONS -H 'Origin: %s' -H 'Access-Control-Request-Method: PUT' -H 'Access-Control-Request-Headers: X-Custom' '%s' | grep -i 'access-control'",
 								preflightOrigin, target),
 							DiscoveredAt: time.Now(),
 						})

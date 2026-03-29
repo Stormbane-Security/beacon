@@ -297,6 +297,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 
+	// ── Deprecated protocol version checks ───────────────────────────────────
+	// Attempt connections with TLS 1.0 and TLS 1.1 as the maximum version.
+	// If the server accepts these deprecated protocols, emit a finding.
+	if f := checkDeprecatedProtocol(ctx, host, port, asset, tls.VersionTLS10, "TLS 1.0", finding.CheckTLSProtocolTLS10, finding.SeverityHigh, now); f != nil {
+		findings = append(findings, *f)
+	}
+	if f := checkDeprecatedProtocol(ctx, host, port, asset, tls.VersionTLS11, "TLS 1.1", finding.CheckTLSProtocolTLS11, finding.SeverityMedium, now); f != nil {
+		findings = append(findings, *f)
+	}
+
 	// ── HSTS header checks ────────────────────────────────────────────────────
 	hstsFindings := checkHSTS(ctx, asset, now)
 	findings = append(findings, hstsFindings...)
@@ -473,8 +483,10 @@ func parseHSTSFindings(hsts, asset string, now time.Time) []finding.Finding {
 		}
 	}
 
-	// max-age < 180 days (15552000 seconds)
-	if maxAge > 0 && maxAge < 15552000 {
+	// max-age < 1 year (31536000 seconds) — OWASP, Google, and the HSTS preload
+	// list all require at least 1 year. Anything shorter risks SSL-strip attacks
+	// when browser caches expire or users switch devices.
+	if maxAge > 0 && maxAge < 31536000 {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckTLSHSTSShortMaxAge,
 			Module:   "surface",
@@ -483,8 +495,8 @@ func parseHSTSFindings(hsts, asset string, now time.Time) []finding.Finding {
 			Asset:    asset,
 			Title:    fmt.Sprintf("HSTS max-age too short: %d seconds (%d days)", maxAge, maxAge/86400),
 			Description: fmt.Sprintf(
-				"%s sets HSTS with max-age=%d (%d days). OWASP and Google recommend at least "+
-					"180 days (15552000 seconds). Short max-age allows SSL-strip attacks shortly "+
+				"%s sets HSTS with max-age=%d (%d days). OWASP and the HSTS preload list require "+
+					"at least 31536000 seconds (1 year). Short max-age allows SSL-strip attacks shortly "+
 					"after a browser cache clears. Set max-age=31536000 (1 year) or higher.",
 				asset, maxAge, maxAge/86400),
 			Evidence:     map[string]any{"hsts_header": hsts, "max_age_seconds": maxAge},
@@ -556,6 +568,44 @@ func tlsHandshake(ctx context.Context, host, port string, cfg *tls.Config) (*tls
 
 	state := tlsConn.ConnectionState()
 	return tlsConn, state, state.PeerCertificates, nil
+}
+
+// checkDeprecatedProtocol attempts a TLS handshake with the given version as
+// both MinVersion and MaxVersion. If the server accepts the connection, it
+// returns a finding indicating the deprecated protocol is still enabled.
+func checkDeprecatedProtocol(ctx context.Context, host, port, asset string, version uint16, versionName string, checkID finding.CheckID, sev finding.Severity, now time.Time) *finding.Finding {
+	conn, _, _, err := tlsHandshake(ctx, host, port, &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+		MinVersion:         version,
+		MaxVersion:         version,
+	})
+	if err != nil {
+		return nil // server rejected — not vulnerable
+	}
+	conn.Close()
+
+	return &finding.Finding{
+		CheckID:  checkID,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: sev,
+		Asset:    asset,
+		Title:    fmt.Sprintf("Server accepts deprecated %s connections", versionName),
+		Description: fmt.Sprintf(
+			"%s accepted a %s connection. %s is deprecated by RFC 8996 (March 2021) and "+
+				"contains known vulnerabilities (BEAST, POODLE, Lucky13). All major browsers "+
+				"have disabled %s support. Disable %s on the server and require TLS 1.2 or higher. "+
+				"For nginx: ssl_protocols TLSv1.2 TLSv1.3; "+
+				"For Apache: SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1;",
+			asset, versionName, versionName, versionName, versionName),
+		Evidence: map[string]any{
+			"accepted_version": versionName,
+		},
+		ProofCommand: fmt.Sprintf("echo | openssl s_client -connect %s:%s -%s 2>&1 | head -5",
+			host, port, strings.ReplaceAll(strings.ToLower(versionName), " ", "")),
+		DiscoveredAt: now,
+	}
 }
 
 // supportsTLS13 returns true if host:port accepts a TLS 1.3-only connection.

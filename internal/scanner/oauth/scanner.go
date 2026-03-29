@@ -182,6 +182,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if f := checkOpenRedirect(ctx, client, asset, authEndpoint, pc); f != nil {
 			findings = append(findings, *f)
 		}
+		// 4a. Weak state parameter — checks state entropy if present
+		if f := checkWeakState(ctx, client, asset, authEndpoint, pc); f != nil {
+			findings = append(findings, *f)
+		}
 	}
 
 	// 5. OAuth token leak via Referer — implicit flow redirects token in URL
@@ -189,12 +193,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// 5a. Active implicit flow check — if response_type=token is accepted, the
+	// deprecated implicit flow is live (not just advertised in the OIDC doc).
+	if authEndpoint != "" {
+		if f := checkImplicitFlowAccepted(ctx, client, asset, authEndpoint, pc); f != nil {
+			findings = append(findings, *f)
+		}
+	}
+
 	// 6. Refresh token not rotated — attempt to use the same refresh token twice.
 	if f := checkRefreshNotRotated(ctx, client, asset, base, tokenEndpoint); f != nil {
 		findings = append(findings, *f)
 	}
 
-	// 6. JWT no-verification probe
+	// 7. JWT no-verification probe
 	if f := checkJWTNoVerification(ctx, client, asset, base); f != nil {
 		findings = append(findings, *f)
 	}
@@ -824,6 +836,157 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 		}
 	}
 	return nil
+}
+
+// checkWeakState probes the authorization endpoint WITH a state parameter and
+// inspects the state value the server echoes back (or the one the client would
+// send). If the state parameter is too short (< 16 characters) or appears to
+// be a simple counter or timestamp, it lacks sufficient entropy for CSRF
+// protection.
+func checkWeakState(ctx context.Context, client *http.Client, asset, authEndpoint string, pc probeClientID) *finding.Finding {
+	// Send a legitimate-looking request with a proper state to get a redirect.
+	// Then inspect the Location header for the state parameter the server echoes.
+	params := url.Values{}
+	params.Set("response_type", "code")
+	params.Set("client_id", pc.id)
+	params.Set("redirect_uri", "https://example.com/callback")
+	params.Set("state", "a1") // deliberately short — 2 chars
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authEndpoint+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	resp.Body.Close()
+
+	bodyStr := strings.ToLower(string(body))
+	loc := resp.Header.Get("Location")
+
+	// If the server rejected the client before reaching state validation, skip.
+	if strings.Contains(bodyStr, "invalid_client") || strings.Contains(bodyStr, "client not found") {
+		return nil
+	}
+
+	// Check if the server accepted the short state without complaint.
+	// A secure server should either reject short states or at minimum echo
+	// the state back in the redirect. If it redirects with our short state,
+	// it accepted a low-entropy CSRF token.
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	// Check if the 2-char state was echoed in the redirect Location.
+	if loc != "" && strings.Contains(loc, "state=a1") {
+		ev, note := confidenceNote(pc)
+		ev["endpoint"] = authEndpoint
+		ev["weak_state"] = "a1"
+		ev["state_length"] = 2
+		return &finding.Finding{
+			CheckID:  finding.CheckOAuthWeakState,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    asset,
+			Title:    fmt.Sprintf("OAuth: weak state parameter accepted at %s", authEndpoint),
+			Description: "The OAuth authorization endpoint accepted a state parameter with only 2 " +
+				"characters of entropy. The state parameter must be a cryptographically random, " +
+				"unguessable value of at least 16 characters to prevent CSRF attacks on the OAuth " +
+				"flow. Short states, simple counters, or timestamps can be guessed or brute-forced " +
+				"by an attacker. Generate state values using a CSPRNG with at least 128 bits (16 bytes) " +
+				"of entropy, base64url-encoded." + note,
+			Evidence:     ev,
+			ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=code&client_id=%s&redirect_uri=https://example.com/callback&state=a1' | grep -i 'location'", authEndpoint, pc.id),
+			DiscoveredAt: time.Now(),
+		}
+	}
+
+	return nil
+}
+
+// checkImplicitFlowAccepted sends response_type=token to the authorization
+// endpoint and checks if the server actively accepts it (returns a redirect
+// with an access token or a consent page). This is distinct from the surface
+// check that only examines the OIDC discovery document — this confirms the
+// deprecated implicit flow is actually functional.
+func checkImplicitFlowAccepted(ctx context.Context, client *http.Client, asset, authEndpoint string, pc probeClientID) *finding.Finding {
+	params := url.Values{}
+	params.Set("response_type", "token")
+	params.Set("client_id", pc.id)
+	params.Set("redirect_uri", "https://example.com/callback")
+	params.Set("state", "beaconimplicitcheck")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authEndpoint+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	bodyStr := strings.ToLower(string(body))
+
+	// If the server rejected the client first, we can't conclude anything.
+	if strings.Contains(bodyStr, "invalid_client") || strings.Contains(bodyStr, "client not found") {
+		return nil
+	}
+
+	// The server should reject response_type=token with an error like
+	// "unsupported_response_type". If instead it redirects to a login/consent
+	// page or returns an access_token, the implicit flow is active.
+	if strings.Contains(bodyStr, "unsupported_response_type") ||
+		strings.Contains(bodyStr, "response_type") && strings.Contains(bodyStr, "not supported") {
+		return nil // properly rejected
+	}
+
+	// Evidence of acceptance: redirect with access_token in fragment, or
+	// a consent/login page (302/200 without rejection).
+	accepted := false
+	if strings.Contains(loc, "access_token=") || strings.Contains(loc, "#access_token") {
+		accepted = true
+	} else if (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusFound) &&
+		!strings.Contains(bodyStr, "error") &&
+		!strings.Contains(bodyStr, "invalid") &&
+		!strings.Contains(bodyStr, "unsupported") {
+		// Server returned a page (likely login/consent) without rejecting
+		// the response_type=token — the implicit flow is enabled.
+		accepted = true
+	}
+
+	if !accepted {
+		return nil
+	}
+
+	ev, note := confidenceNote(pc)
+	ev["endpoint"] = authEndpoint
+	ev["response_type"] = "token"
+	ev["status_code"] = resp.StatusCode
+	ev["location"] = loc
+
+	return &finding.Finding{
+		CheckID:  finding.CheckOAuthImplicitAccepted,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    asset,
+		Title:    fmt.Sprintf("OAuth: implicit flow (response_type=token) accepted at %s", authEndpoint),
+		Description: "The OAuth authorization endpoint accepted response_type=token, confirming " +
+			"the deprecated implicit flow is actively functional. In the implicit flow, access " +
+			"tokens are returned directly in the URL fragment (#access_token=...), exposing them " +
+			"in browser history, Referer headers, proxy logs, and browser extensions. " +
+			"The implicit flow is deprecated in OAuth 2.1 (draft-ietf-oauth-v2-1-10). " +
+			"Migrate all clients to the authorization code flow with PKCE." + note,
+		Evidence:     ev,
+		ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=token&client_id=%s&redirect_uri=https://example.com/callback&state=test' | grep -i 'location\\|HTTP/'", authEndpoint, pc.id),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 func checkTokenLeakReferer(ctx context.Context, client *http.Client, asset, authEndpoint string, pc probeClientID) *finding.Finding {

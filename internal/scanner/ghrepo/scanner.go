@@ -600,7 +600,7 @@ type secretPattern struct {
 var secretPatterns = []secretPattern{
 	{
 		name:    "AWS access key ID",
-		pattern: regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+		pattern: regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 		oidcGuidance: "OIDC migration: replace this long-lived key with GitHub OIDC role assumption. " +
 			"Add `id-token: write` to your workflow permissions and use aws-actions/configure-aws-credentials " +
@@ -618,7 +618,7 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "GitHub classic personal access token (ghp_)",
-		pattern: regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`),
+		pattern: regexp.MustCompile(`\bghp_[0-9a-zA-Z]{36}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 		oidcGuidance: "This is a classic PAT — the most dangerous PAT type. Classic PATs grant " +
 			"account-level permissions across every repository the owner can access and have no " +
@@ -631,8 +631,41 @@ var secretPatterns = []secretPattern{
 			"tied to any individual's account.",
 	},
 	{
+		name:    "GitHub OAuth access token (gho_)",
+		pattern: regexp.MustCompile(`\bgho_[0-9a-zA-Z]{36}\b`),
+		checkID: finding.CheckGitHubSecretInCode,
+		oidcGuidance: "This is a GitHub OAuth access token. OAuth tokens grant access to the " +
+			"GitHub API on behalf of a user. Revoke it immediately in the OAuth app settings. " +
+			"Use ${{ secrets.GITHUB_TOKEN }} for CI workflows instead.",
+	},
+	{
+		name:    "GitHub user-to-server token (ghu_)",
+		pattern: regexp.MustCompile(`\bghu_[0-9a-zA-Z]{36}\b`),
+		checkID: finding.CheckGitHubSecretInCode,
+		oidcGuidance: "This is a GitHub App user-to-server (installation) token. These tokens " +
+			"are generated when a user authorizes a GitHub App and grant the App's permissions " +
+			"on the user's behalf. Revoke it by revoking the App authorization in GitHub settings.",
+	},
+	{
+		name:    "GitHub server-to-server token (ghs_)",
+		pattern: regexp.MustCompile(`\bghs_[0-9a-zA-Z]{36}\b`),
+		checkID: finding.CheckGitHubSecretInCode,
+		oidcGuidance: "This is a GitHub App server-to-server (installation) token. These tokens " +
+			"act as the GitHub App installation itself. While they are short-lived (1 hour), " +
+			"a leaked token grants full App permissions on all repositories the App is installed on. " +
+			"Ensure the App's private key is not also exposed.",
+	},
+	{
+		name:    "GitHub refresh token (ghr_)",
+		pattern: regexp.MustCompile(`\bghr_[0-9a-zA-Z]{36}\b`),
+		checkID: finding.CheckGitHubSecretInCode,
+		oidcGuidance: "This is a GitHub App refresh token used to obtain new user-to-server tokens. " +
+			"A leaked refresh token allows persistent access renewal. Revoke it by revoking the " +
+			"App authorization in the user's GitHub settings.",
+	},
+	{
 		name:    "GitHub fine-grained personal access token (github_pat_)",
-		pattern: regexp.MustCompile(`github_pat_[0-9a-zA-Z_]{82}`),
+		pattern: regexp.MustCompile(`\bgithub_pat_[0-9a-zA-Z_]{82}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 		oidcGuidance: "This is a fine-grained PAT — better than a classic PAT (repo-scoped, " +
 			"permission-limited, supports expiry) but still a long-lived credential tied to one " +
@@ -643,7 +676,7 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "npm publish token",
-		pattern: regexp.MustCompile(`npm_[0-9a-zA-Z]{36}`),
+		pattern: regexp.MustCompile(`\bnpm_[0-9a-zA-Z]{36}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 		oidcGuidance: "OIDC migration: switch to npm Provenance / OIDC Trusted Publishing. " +
 			"Add `id-token: write` to your publish workflow and use `npm publish --provenance`. " +
@@ -651,17 +684,17 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "Stripe secret key",
-		pattern: regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24}`),
+		pattern: regexp.MustCompile(`\bsk_live_[0-9a-zA-Z]{24}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "Stripe publishable key",
-		pattern: regexp.MustCompile(`pk_live_[0-9a-zA-Z]{24}`),
+		pattern: regexp.MustCompile(`\bpk_live_[0-9a-zA-Z]{24}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "Slack bot/user token",
-		pattern: regexp.MustCompile(`xox[baprs]-[0-9a-zA-Z-]{10,}`),
+		pattern: regexp.MustCompile(`\bxox[baprs]-[0-9a-zA-Z-]{10,}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
@@ -671,7 +704,7 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "Twilio auth token",
-		pattern: regexp.MustCompile(`SK[0-9a-f]{32}`),
+		pattern: regexp.MustCompile(`\bSK[0-9a-f]{32}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
@@ -681,12 +714,12 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "Anthropic API key",
-		pattern: regexp.MustCompile(`sk-ant-[0-9a-zA-Z_-]{95}`),
+		pattern: regexp.MustCompile(`\bsk-ant-[0-9a-zA-Z_-]{95}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "OpenAI API key",
-		pattern: regexp.MustCompile(`sk-[0-9a-zA-Z]{48}`),
+		pattern: regexp.MustCompile(`\bsk-[0-9a-zA-Z]{48}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
@@ -739,7 +772,7 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "PyPI API token",
-		pattern: regexp.MustCompile(`pypi-[0-9a-zA-Z_-]{40,}`),
+		pattern: regexp.MustCompile(`\bpypi-[0-9a-zA-Z_-]{40,}`),
 		checkID: finding.CheckGitHubSecretInCode,
 		oidcGuidance: "OIDC migration: switch to PyPI Trusted Publishing. Configure your PyPI project to " +
 			"trust your GitHub Actions workflow, then use pypa/gh-action-pypi-publish with OIDC " +
@@ -748,27 +781,27 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "Google API key",
-		pattern: regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`),
+		pattern: regexp.MustCompile(`\bAIza[0-9A-Za-z\-_]{35}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "HuggingFace token (hf_)",
-		pattern: regexp.MustCompile(`hf_[A-Za-z0-9]{34}`),
+		pattern: regexp.MustCompile(`\bhf_[A-Za-z0-9]{34}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "Databricks token",
-		pattern: regexp.MustCompile(`dapi[0-9a-f]{32}`),
+		pattern: regexp.MustCompile(`\bdapi[0-9a-f]{32}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "Shopify Admin Access Token",
-		pattern: regexp.MustCompile(`shpat_[0-9a-fA-F]{32}`),
+		pattern: regexp.MustCompile(`\bshpat_[0-9a-fA-F]{32}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
 		name:    "HashiCorp Vault service token",
-		pattern: regexp.MustCompile(`hvs\.[A-Za-z0-9_-]{90,}`),
+		pattern: regexp.MustCompile(`\bhvs\.[A-Za-z0-9_-]{90,}`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 	{
@@ -778,17 +811,7 @@ var secretPatterns = []secretPattern{
 	},
 	{
 		name:    "Twilio Account SID",
-		pattern: regexp.MustCompile(`AC[0-9a-f]{32}`),
-		checkID: finding.CheckGitHubSecretInCode,
-	},
-	{
-		name:    "Stripe publishable key",
-		pattern: regexp.MustCompile(`pk_live_[0-9a-zA-Z]{24}`),
-		checkID: finding.CheckGitHubSecretInCode,
-	},
-	{
-		name:    "Slack webhook URL",
-		pattern: regexp.MustCompile(`https://hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9a-zA-Z]+`),
+		pattern: regexp.MustCompile(`\bAC[0-9a-f]{32}\b`),
 		checkID: finding.CheckGitHubSecretInCode,
 	},
 }
@@ -799,6 +822,12 @@ var scanPaths = []string{
 	".env.local",
 	".env.production",
 	".env.staging",
+	".env.development",
+	".env.test",
+	".env.example",
+	".env.backup",
+	".env.dev",
+	".env.prod",
 	"config.json",
 	"config/database.yml",
 	"config/secrets.yml",

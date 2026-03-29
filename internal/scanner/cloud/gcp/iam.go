@@ -74,70 +74,71 @@ func scanIAM(ctx context.Context, projectID, asset string, opts []option.ClientO
 		return nil, fmt.Errorf("iam service: %w", err)
 	}
 
-	saResp, err := iamSvc.Projects.ServiceAccounts.List("projects/" + projectID).Context(ctx).Do()
-	if err != nil {
-		return nil, fmt.Errorf("list service accounts: %w", err)
-	}
+	if err := iamSvc.Projects.ServiceAccounts.List("projects/"+projectID).Pages(ctx,
+		func(page *iamapi.ListServiceAccountsResponse) error {
+			for _, sa := range page.Accounts {
+				keysResp, err := iamSvc.Projects.ServiceAccounts.Keys.List(sa.Name).
+					KeyTypes("USER_MANAGED").
+					Context(ctx).Do()
+				if err != nil {
+					continue
+				}
 
-	for _, sa := range saResp.Accounts {
-		keysResp, err := iamSvc.Projects.ServiceAccounts.Keys.List(sa.Name).
-			KeyTypes("USER_MANAGED").
-			Context(ctx).Do()
-		if err != nil {
-			continue
-		}
+				for _, key := range keysResp.Keys {
+					// Flag any user-managed key existence.
+					findings = append(findings, finding.Finding{
+						CheckID: finding.CheckCloudGCPServiceAccountKey,
+						Title:   fmt.Sprintf("GCP service account has user-managed key: %s", sa.Email),
+						Description: fmt.Sprintf(
+							"Service account %s has a user-managed key. Keys are long-lived credentials "+
+								"that cannot be automatically rotated. Prefer Workload Identity Federation "+
+								"or short-lived tokens via the metadata server.",
+							sa.Email,
+						),
+						Severity:     finding.SeverityMedium,
+						Asset:        asset,
+						Scanner:      "cloud/gcp",
+						ProofCommand: fmt.Sprintf("gcloud iam service-accounts keys list --iam-account=%s", sa.Email),
+						Evidence: map[string]any{
+							"project_id":      projectID,
+							"service_account": sa.Email,
+							"key_name":        key.Name,
+							"valid_after":     key.ValidAfterTime,
+						},
+						DiscoveredAt: time.Now(),
+					})
 
-		for _, key := range keysResp.Keys {
-			// Flag any user-managed key existence.
-			findings = append(findings, finding.Finding{
-				CheckID: finding.CheckCloudGCPServiceAccountKey,
-				Title:   fmt.Sprintf("GCP service account has user-managed key: %s", sa.Email),
-				Description: fmt.Sprintf(
-					"Service account %s has a user-managed key. Keys are long-lived credentials "+
-						"that cannot be automatically rotated. Prefer Workload Identity Federation "+
-						"or short-lived tokens via the metadata server.",
-					sa.Email,
-				),
-				Severity:     finding.SeverityMedium,
-				Asset:        asset,
-				Scanner:      "cloud/gcp",
-				ProofCommand: fmt.Sprintf("gcloud iam service-accounts keys list --iam-account=%s", sa.Email),
-				Evidence: map[string]any{
-					"project_id":      projectID,
-					"service_account": sa.Email,
-					"key_name":        key.Name,
-					"valid_after":     key.ValidAfterTime,
-				},
-				DiscoveredAt: time.Now(),
-			})
-
-			// Flag keys older than 90 days.
-			created, err := time.Parse(time.RFC3339, key.ValidAfterTime)
-			if err == nil && time.Since(created) > 90*24*time.Hour {
-				findings = append(findings, finding.Finding{
-					CheckID: finding.CheckCloudGCPServiceAccountKeyOld,
-					Title:   fmt.Sprintf("GCP service account key older than 90 days: %s", sa.Email),
-					Description: fmt.Sprintf(
-						"Service account %s has a key created %s ago. Keys older than 90 days "+
-							"indicate a rotation failure and increase the blast radius if compromised. "+
-							"Rotate or delete the key and migrate to Workload Identity Federation.",
-						sa.Email, formatAge(created),
-					),
-					Severity:     finding.SeverityHigh,
-					Asset:        asset,
-					Scanner:      "cloud/gcp",
-					ProofCommand: fmt.Sprintf("gcloud iam service-accounts keys list --iam-account=%s", sa.Email),
-					Evidence: map[string]any{
-						"project_id":      projectID,
-						"service_account": sa.Email,
-						"key_name":        key.Name,
-						"created":         key.ValidAfterTime,
-						"age_days":        int(time.Since(created).Hours() / 24),
-					},
-					DiscoveredAt: time.Now(),
-				})
+					// Flag keys older than 90 days.
+					created, err := time.Parse(time.RFC3339, key.ValidAfterTime)
+					if err == nil && time.Since(created) > 90*24*time.Hour {
+						findings = append(findings, finding.Finding{
+							CheckID: finding.CheckCloudGCPServiceAccountKeyOld,
+							Title:   fmt.Sprintf("GCP service account key older than 90 days: %s", sa.Email),
+							Description: fmt.Sprintf(
+								"Service account %s has a key created %s ago. Keys older than 90 days "+
+									"indicate a rotation failure and increase the blast radius if compromised. "+
+									"Rotate or delete the key and migrate to Workload Identity Federation.",
+								sa.Email, formatAge(created),
+							),
+							Severity:     finding.SeverityHigh,
+							Asset:        asset,
+							Scanner:      "cloud/gcp",
+							ProofCommand: fmt.Sprintf("gcloud iam service-accounts keys list --iam-account=%s", sa.Email),
+							Evidence: map[string]any{
+								"project_id":      projectID,
+								"service_account": sa.Email,
+								"key_name":        key.Name,
+								"created":         key.ValidAfterTime,
+								"age_days":        int(time.Since(created).Hours() / 24),
+							},
+							DiscoveredAt: time.Now(),
+						})
+					}
+				}
 			}
-		}
+			return nil
+		}); err != nil {
+		return nil, fmt.Errorf("list service accounts: %w", err)
 	}
 
 	return findings, nil

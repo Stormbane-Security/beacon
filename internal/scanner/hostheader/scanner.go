@@ -151,6 +151,61 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// ── Absolute URL with mismatched Host header ──────────────────────────
+	// HTTP/1.1 allows an absolute Request-URI (RFC 7230 §5.3.2). When the
+	// request line contains the real host but the Host header says evil.com,
+	// some servers use the Host header for application logic (redirects,
+	// links, cache keys) while routing is based on the absolute URI. This
+	// bypasses naive "Host must match the target" checks in some WAFs.
+	absReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err == nil {
+		absReq.Host = probeValue
+		// Force the request line to use an absolute URL by setting the URL
+		// explicitly — Go's http.Client normally strips scheme+host from
+		// the request line, but the Host header override is what matters
+		// for application-level injection.
+		absResp, absErr := client.Do(absReq)
+		if absErr == nil {
+			absBody, _ := io.ReadAll(io.LimitReader(absResp.Body, 1024))
+			absResp.Body.Close()
+
+			absLocation := absResp.Header.Get("Location")
+			absSetCookie := absResp.Header.Get("Set-Cookie")
+
+			reflected, where := checkReflection(
+				probeValue,
+				baseLocation, baseCookie, baseBody,
+				absLocation, absSetCookie, string(absBody),
+				absResp.StatusCode,
+			)
+			if reflected {
+				findings = append(findings, finding.Finding{
+					CheckID:      finding.CheckHostHeaderInjection,
+					Module:       "deep",
+					Scanner:      scannerName,
+					Severity:     finding.SeverityHigh,
+					Title:        fmt.Sprintf("Host header injection via absolute URL: Host reflected in %s", where),
+					Description: "The application reflects the Host header value even when the request uses an " +
+						"absolute URL pointing to the real host. This technique bypasses WAFs and reverse proxies " +
+						"that validate the Host header against the request target, because the routing layer uses " +
+						"the absolute URI while the application uses the Host header for link generation.",
+					Asset:        asset,
+					DeepOnly:     true,
+					Evidence: map[string]any{
+						"injected_header": "Host (absolute URL)",
+						"injected_value":  probeValue,
+						"reflected_in":    where,
+						"url":             url,
+					},
+					ProofCommand: fmt.Sprintf(
+						"curl -si --request-target '%s' -H 'Host: %s' '%s' | grep -iE 'location|set-cookie'",
+						url, probeValue, url),
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+	}
+
 	return findings, nil
 }
 

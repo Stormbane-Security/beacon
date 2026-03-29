@@ -1068,29 +1068,75 @@ Type exactly: I have written authorization for all listed targets
 		}
 	}
 
-	// ── Attack-path analysis + follow-up probes (requires AI + multi-module) ──
+	// ── Unified cross-module enrichment ─────────────────────────────────────
+	// Enrich ALL findings (surface + cloud + GitHub) together so the AI sees
+	// the full picture: an exposed port on a GKE node with cluster-admin, a
+	// leaked secret in GitHub Actions, and a misconfigured CORS on the same
+	// domain are all enriched with cross-module context in a single pass.
 	if ai := cfg.ActiveAI(); ai != nil && len(allFindings) > 0 {
 		enricher, enrichErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if enrichErr == nil {
-			enriched, _ := enricher.Enrich(ctx, allFindings)
+			enricher.WithCache(st)
 
-			if analysis, err := enricher.AnalyzeAttackPaths(ctx, enriched, strings.Join(targets, ", ")); err == nil && analysis != "" {
-				fmt.Fprintf(os.Stderr, "\n\x1b[1mAttack Path Analysis:\x1b[0m\n%s\n", analysis)
-			}
+			fmt.Fprintf(os.Stderr, "beacon: enriching %d findings across all modules...\n", len(allFindings))
+			allEnriched, enrichErr := enricher.Enrich(ctx, allFindings)
+			if enrichErr != nil {
+				fmt.Fprintf(os.Stderr, "beacon: enrichment failed: %v\n", enrichErr)
+			} else {
+				// Contextual analysis — cross-module compound risk identification.
+				domainStr := strings.Join(targets, ", ")
+				allEnriched, summary, _ := enricher.ContextualizeAndSummarize(ctx, allEnriched, domainStr)
+				if summary != "" {
+					fmt.Fprintf(os.Stderr, "\n\x1b[1mExecutive Summary:\x1b[0m\n%s\n", summary)
+				}
 
-			if permissionConfirmed {
-				probes, _ := enricher.GenerateFollowUpProbes(ctx, enriched, strings.Join(targets, ", "))
-				if len(probes) > 0 {
-					fmt.Fprintf(os.Stderr, "\n\x1b[1mSuggested follow-up probes (%d):\x1b[0m\n", len(probes))
-					for i, p := range probes {
-						fmt.Fprintf(os.Stderr, "  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
+				// Partition enriched findings back to each scan run and save them.
+				// Build an index: asset → scan run ID for fast lookup.
+				assetToRunID := make(map[string]string)
+				for _, res := range allResults {
+					for _, f := range res.findings {
+						assetToRunID[f.Asset] = res.run.ID
 					}
-					if term.IsTerminal(int(os.Stdin.Fd())) {
-						fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
-						reader := bufio.NewReader(os.Stdin)
-						line, _ := reader.ReadString('\n')
-						if strings.TrimSpace(strings.ToLower(line)) == "y" {
-							fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
+				}
+				byRunID := make(map[string][]enrichment.EnrichedFinding)
+				for _, ef := range allEnriched {
+					runID := assetToRunID[ef.Finding.Asset]
+					if runID == "" {
+						// Cloud/GitHub findings — assign to first run as fallback.
+						if len(allResults) > 0 {
+							runID = allResults[0].run.ID
+						}
+					}
+					if runID != "" {
+						byRunID[runID] = append(byRunID[runID], ef)
+					}
+				}
+				for runID, enrichedSlice := range byRunID {
+					if err := st.SaveEnrichedFindings(ctx, runID, enrichedSlice); err != nil {
+						fmt.Fprintf(os.Stderr, "beacon: save enriched findings %s: %v\n", runID, err)
+					}
+				}
+
+				// Attack-path analysis — cross-module attack chain reasoning.
+				if analysis, err := enricher.AnalyzeAttackPaths(ctx, allEnriched, domainStr); err == nil && analysis != "" {
+					fmt.Fprintf(os.Stderr, "\n\x1b[1mAttack Path Analysis:\x1b[0m\n%s\n", analysis)
+				}
+
+				// Follow-up probes — suggested targeted checks.
+				if permissionConfirmed {
+					probes, _ := enricher.GenerateFollowUpProbes(ctx, allEnriched, domainStr)
+					if len(probes) > 0 {
+						fmt.Fprintf(os.Stderr, "\n\x1b[1mSuggested follow-up probes (%d):\x1b[0m\n", len(probes))
+						for i, p := range probes {
+							fmt.Fprintf(os.Stderr, "  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
+						}
+						if term.IsTerminal(int(os.Stdin.Fd())) {
+							fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
+							reader := bufio.NewReader(os.Stdin)
+							line, _ := reader.ReadString('\n')
+							if strings.TrimSpace(strings.ToLower(line)) == "y" {
+								fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
+							}
 						}
 					}
 				}

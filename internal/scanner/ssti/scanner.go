@@ -57,6 +57,11 @@ var payloads = []payload{
 	{expr: "<%= 7*7 %>", expect: "49", engine: "ERB/JSP"},
 	{expr: "#{7*7}", expect: "49", engine: "Ruby/Pebble"},
 	{expr: "{{7*'7'}}", expect: "7777777", engine: "Jinja2"},
+	// Polyglot payload — triggers across multiple template engines simultaneously.
+	// If any engine evaluates the embedded expression, "49" appears in the response.
+	{expr: `${{<%[%'"}}%\`, expect: "49", engine: "Polyglot"},
+	// Engine-specific additional payloads
+	{expr: "${7*7}", expect: "49", engine: "Java EL"},
 }
 
 // wordBoundary49 matches "49" as a standalone word (not part of a longer number).

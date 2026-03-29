@@ -220,6 +220,12 @@ func AllKnownPorts() []int {
 // Name returns the scanner identifier.
 func (s *Scanner) Name() string { return scannerName }
 
+// maxPortFindings caps the number of port findings reported to avoid
+// overwhelming output when many ports are open (e.g., a router or honeypot).
+// The most impactful ports (critical) are scanned first, so the cap
+// preserves the highest-value findings.
+const maxPortFindings = 50
+
 // Run executes the port scan against asset, returning all findings.
 // Surface mode scans the top 30 most impactful ports (critical + high).
 // Deep mode scans all 50+ ports including the extended list.
@@ -289,10 +295,17 @@ collectResults:
 	}
 
 	// Run UDP probes for services not reachable via TCP connect.
+	// Deep mode runs all UDP probes; surface mode runs the basic set only.
 	if ctx.Err() == nil {
-		if udpFs := runUDP(ctx, asset); len(udpFs) > 0 {
+		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
 		}
+	}
+
+	// Cap total findings to avoid overwhelming output when many ports are open
+	// (e.g. a honeypot or misconfigured device with dozens of open services).
+	if len(findings) > maxPortFindings {
+		findings = findings[:maxPortFindings]
 	}
 
 	return findings, nil

@@ -148,6 +148,32 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	findings = append(findings, jwksFindings...)
 
+	// ── Deep-mode checks ─────────────────────────────────────────────────────
+	// These are active probes that submit forged tokens to the server.
+	if scanType == module.ScanDeep {
+		if base == "http://"+asset {
+			// already resolved above; reuse the working base
+		} else {
+			base = "https://" + asset
+		}
+
+		// alg:none case variants — many JWT libraries only reject lowercase "none"
+		// but accept "None", "NONE", "nOnE" etc.
+		algNoneFindings := checkAlgNoneVariants(ctx, client, asset, base)
+		findings = append(findings, algNoneFindings...)
+
+		// Empty-secret HMAC — sign with "" as the HMAC secret. Some servers
+		// misconfigure HMAC verification with an empty or unset secret key.
+		if f := checkEmptySecretHMAC(ctx, client, asset, base); f != nil {
+			findings = append(findings, *f)
+		}
+
+		// kid header SQL injection — set kid to SQL injection payloads
+		// and check if the server accepts the forged token.
+		kidFindings := checkKidSQLInjection(ctx, client, asset, base)
+		findings = append(findings, kidFindings...)
+	}
+
 	// Algorithm confusion check — exploitation probes require --authorized (beyond --deep).
 	if scanType == module.ScanAuthorized {
 		if base == "http://"+asset {
@@ -895,4 +921,179 @@ func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// ── Deep-mode active JWT probes ──────────────────────────────────────────────
+
+// algNoneVariants are case variations of "none" that bypass naive string
+// comparisons in JWT libraries. Many libraries only reject lowercase "none"
+// but accept mixed-case variants, treating them as valid unsigned tokens.
+var algNoneVariants = []string{"None", "NONE", "nOnE"}
+
+// checkAlgNoneVariants crafts JWTs with case-variant alg:none headers and
+// submits them to common API endpoints. If the server returns HTTP 200 with
+// a JSON body, the server is accepting unsigned tokens.
+func checkAlgNoneVariants(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
+	if isCatchAll(ctx, client, base) {
+		return nil
+	}
+
+	var findings []finding.Finding
+	iat := time.Now().Unix()
+
+	for _, algVariant := range algNoneVariants {
+		headerJSON := fmt.Sprintf(`{"alg":"%s","typ":"JWT"}`, algVariant)
+		payloadJSON := fmt.Sprintf(`{"sub":"beacon-test","iat":%d}`, iat)
+
+		header := base64.RawURLEncoding.EncodeToString([]byte(headerJSON))
+		payload := base64.RawURLEncoding.EncodeToString([]byte(payloadJSON))
+		// alg:none tokens have an empty signature segment
+		token := header + "." + payload + "."
+
+		if endpoint := submitTokenProbe(ctx, client, base, token); endpoint != "" {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckJWTAlgNoneVariant,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    asset,
+				Title:    fmt.Sprintf("JWT alg:%s bypass accepted at %s", algVariant, endpoint),
+				Description: fmt.Sprintf(
+					"The server at %s accepted a JWT with alg:\"%s\" (a case variant of \"none\") "+
+						"and an empty signature. Many JWT libraries only reject the exact lowercase "+
+						"string \"none\" but accept mixed-case variants, treating the token as validly "+
+						"unsigned. An attacker can forge arbitrary JWT claims without any secret or key. "+
+						"Fix: reject all case variations of \"none\" in the alg header, or use an "+
+						"allow-list of accepted algorithms (e.g. RS256, ES256 only).",
+					endpoint, algVariant,
+				),
+				Evidence: map[string]any{
+					"endpoint":     endpoint,
+					"alg_variant":  algVariant,
+					"forged_token": truncate(token, 80),
+				},
+				ProofCommand: fmt.Sprintf(
+					"echo -n '{\"alg\":\"%s\",\"typ\":\"JWT\"}' | base64 -w0 | tr '+/' '-_' | tr -d '=' > /tmp/h && "+
+						"echo -n '{\"sub\":\"test\"}' | base64 -w0 | tr '+/' '-_' | tr -d '=' > /tmp/p && "+
+						"curl -s -H \"Authorization: Bearer $(cat /tmp/h).$(cat /tmp/p).\" '%s'",
+					algVariant, endpoint),
+				DiscoveredAt: time.Now(),
+			})
+			break // one variant is sufficient to prove the vulnerability
+		}
+	}
+
+	return findings
+}
+
+// checkEmptySecretHMAC signs a JWT with an empty string "" as the HMAC-SHA256
+// secret and submits it. Some servers misconfigure their HMAC verification
+// with an empty or unset secret key, causing them to accept these tokens.
+func checkEmptySecretHMAC(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
+	if isCatchAll(ctx, client, base) {
+		return nil
+	}
+
+	// Sign with empty secret ("")
+	token := craftHS256JWT([]byte(""))
+
+	if endpoint := submitTokenProbe(ctx, client, base, token); endpoint != "" {
+		return &finding.Finding{
+			CheckID:  finding.CheckJWTEmptySecret,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    asset,
+			Title:    fmt.Sprintf("JWT signed with empty HMAC secret accepted at %s", endpoint),
+			Description: fmt.Sprintf(
+				"The server at %s accepted a JWT signed with HMAC-SHA256 using an empty string "+
+					"as the secret key. This indicates the server's JWT verification is configured "+
+					"with an empty or unset secret, allowing any party to forge valid tokens. "+
+					"This is commonly caused by an unset JWT_SECRET environment variable that "+
+					"defaults to an empty string. Set a strong, randomly generated HMAC secret "+
+					"of at least 256 bits.",
+				endpoint,
+			),
+			Evidence: map[string]any{
+				"endpoint":     endpoint,
+				"secret":       "(empty string)",
+				"forged_token": truncate(token, 80),
+			},
+			ProofCommand: fmt.Sprintf(
+				`python3 -c "import base64,hmac,hashlib,json; `+
+					`h=base64.urlsafe_b64encode(b'{\"alg\":\"HS256\",\"typ\":\"JWT\"}').rstrip(b'=').decode(); `+
+					`p=base64.urlsafe_b64encode(b'{\"sub\":\"test\"}').rstrip(b'=').decode(); `+
+					`sig=base64.urlsafe_b64encode(hmac.new(b'',f'{h}.{p}'.encode(),hashlib.sha256).digest()).rstrip(b'=').decode(); `+
+					`print(f'{h}.{p}.{sig}')" | xargs -I TOKEN curl -s -H 'Authorization: Bearer TOKEN' '%s'`,
+				endpoint),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// kidSQLInjectionPayloads are SQL injection strings to place in the JWT kid
+// header. When a server uses the kid value in a database query without
+// parameterisation, these payloads may cause the query to return a key that
+// matches the attacker's chosen secret.
+var kidSQLInjectionPayloads = []struct {
+	kid    string
+	secret string // HMAC secret to sign with — must match what the SQL returns
+}{
+	// Classic tautology — makes any WHERE clause true, returning the first key
+	{`' OR '1'='1`, ""},
+	// Comment termination — truncates the rest of the query
+	{`'; --`, ""},
+}
+
+// checkKidSQLInjection crafts JWTs with SQL injection payloads in the kid
+// header field and signs them with empty HMAC secrets. If the server accepts
+// the token, the kid parameter is being used unsafely in a SQL query.
+func checkKidSQLInjection(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
+	if isCatchAll(ctx, client, base) {
+		return nil
+	}
+
+	var findings []finding.Finding
+	iat := time.Now().Unix()
+
+	for _, payload := range kidSQLInjectionPayloads {
+		headerJSON := fmt.Sprintf(`{"alg":"HS256","typ":"JWT","kid":"%s"}`, payload.kid)
+		payloadJSON := fmt.Sprintf(`{"sub":"beacon-test","iat":%d}`, iat)
+
+		token := craftJWT(headerJSON, payloadJSON, []byte(payload.secret))
+
+		if endpoint := submitTokenProbe(ctx, client, base, token); endpoint != "" {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckJWTKidInjection,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    asset,
+				Title:    fmt.Sprintf("JWT kid header SQL injection accepted at %s", endpoint),
+				Description: fmt.Sprintf(
+					"The server at %s accepted a JWT whose kid (Key ID) header contained a SQL "+
+						"injection payload (%q). This indicates the server uses the kid value in a "+
+						"database query without proper parameterisation. An attacker can manipulate "+
+						"the query to return a known signing key (or empty key), forge arbitrary "+
+						"tokens, and gain full authentication bypass. "+
+						"Fix: use parameterised queries for kid lookups, or validate kid against an "+
+						"allow-list of known key identifiers.",
+					endpoint, payload.kid,
+				),
+				Evidence: map[string]any{
+					"endpoint":     endpoint,
+					"kid_payload":  payload.kid,
+					"forged_token": truncate(token, 80),
+				},
+				ProofCommand: fmt.Sprintf(
+					"curl -s -H 'Authorization: Bearer %s' '%s'",
+					truncate(token, 200), endpoint),
+				DiscoveredAt: time.Now(),
+			})
+			break // one payload is sufficient to prove the vulnerability
+		}
+	}
+
+	return findings
 }

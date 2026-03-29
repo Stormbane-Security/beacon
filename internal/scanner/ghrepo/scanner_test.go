@@ -163,7 +163,7 @@ func TestSecretPattern_AWSKey(t *testing.T) {
 }
 
 func TestSecretPattern_GHPToken(t *testing.T) {
-	content := "token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789012"
+	content := "token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXyz1234567890"
 	findings := runSecretPatternsOnContent(content, "org/repo", "config.json")
 	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
 }

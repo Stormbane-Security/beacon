@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
 )
 
 // startUDPServer starts a UDP server on a random port and calls handler for each packet.
@@ -341,7 +342,7 @@ func TestRunUDP_NoFindings(t *testing.T) {
 	// 127.0.0.2 is a loopback address that typically has nothing listening on
 	// the relevant ports. We don't check the count — we just verify no panic.
 	ctx := t.Context()
-	findings := runUDP(ctx, "127.0.0.1")
+	findings := runUDP(ctx, "127.0.0.1", module.ScanDeep)
 	// We can't assert 0 findings because the test machine might have services.
 	// Assert only that we got a valid (non-nil) slice.
 	_ = findings

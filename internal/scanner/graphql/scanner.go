@@ -121,7 +121,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Deep-mode probes — batch queries and persisted query bypass.
+	// Deep-mode probes — batch queries, persisted query bypass, and CSRF via GET.
 	// Only run against confirmed GraphQL endpoints found above.
 	if scanType == module.ScanDeep {
 		for _, endpointURL := range confirmedEndpoints {
@@ -129,6 +129,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				findings = append(findings, *f)
 			}
 			if f := checkPersistedQueryBypass(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkGraphQLGET(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)
 			}
 		}
@@ -360,6 +363,58 @@ func checkPersistedQueryBypass(ctx context.Context, client *http.Client, asset, 
 			"url":             url,
 			"response_snippet": compactSnippet(raw, 300),
 		},
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// checkGraphQLGET tests whether the GraphQL endpoint accepts queries via HTTP GET.
+// GraphQL over GET enables CSRF attacks because browsers send GET requests with
+// cookies automatically — an attacker can craft a link that executes a mutation
+// on behalf of an authenticated user.
+func checkGraphQLGET(ctx context.Context, client *http.Client, asset, endpoint string) *finding.Finding {
+	// Strip any query string from the endpoint URL before appending ours.
+	base := endpoint
+	if idx := strings.Index(base, "?"); idx != -1 {
+		base = base[:idx]
+	}
+	getURL := base + "?query=" + "{__typename}"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return nil
+	}
+	responseBody := string(raw)
+	if !strings.Contains(responseBody, `"data"`) || !strings.Contains(responseBody, `"__typename"`) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckGraphQLGETEnabled,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("GraphQL queries accepted via GET at %s", endpoint),
+		Description: "The GraphQL endpoint executes queries submitted via HTTP GET with a " +
+			"?query= parameter. Because browsers automatically attach cookies to GET requests, " +
+			"an attacker can craft a URL that executes arbitrary GraphQL queries (including " +
+			"mutations on some implementations) on behalf of an authenticated user — a classic CSRF vector.",
+		Evidence: map[string]any{
+			"url":              getURL,
+			"response_snippet": compactSnippet(raw, 300),
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s'", getURL),
 		DiscoveredAt: time.Now(),
 	}
 }

@@ -54,6 +54,59 @@ func scanAKS(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID
 					})
 				}
 			}
+
+			// RBAC disabled.
+			// Without RBAC, any authenticated user has full cluster access,
+			// making it impossible to enforce least privilege.
+			if props.EnableRBAC == nil || !*props.EnableRBAC {
+				findings = append(findings, finding.Finding{
+					CheckID: finding.CheckCloudAzureAKSNoRBAC,
+					Title:   fmt.Sprintf("AKS cluster does not have RBAC enabled: %s", name),
+					Description: fmt.Sprintf(
+						"AKS cluster %s does not have Kubernetes RBAC enabled. Without RBAC, "+
+							"any authenticated user has full cluster access including the ability to "+
+							"create, modify, and delete any resource. Enable RBAC to enforce "+
+							"role-based access control and least privilege.",
+						name,
+					),
+					Severity:     finding.SeverityHigh,
+					Asset:        asset,
+					Scanner:      "cloud/azure",
+					ProofCommand: fmt.Sprintf("az aks show --name %s --query 'enableRbac'", name),
+					Evidence:     map[string]any{"cluster_name": name, "subscription_id": subID},
+					DiscoveredAt: time.Now(),
+				})
+			}
+
+			// Network policy not configured.
+			// Without a network policy plugin, all pods can communicate with
+			// all other pods, enabling lateral movement after compromise.
+			networkPolicyConfigured := false
+			if props.NetworkProfile != nil && props.NetworkProfile.NetworkPolicy != nil {
+				policy := string(*props.NetworkProfile.NetworkPolicy)
+				if policy != "" && policy != "none" {
+					networkPolicyConfigured = true
+				}
+			}
+			if !networkPolicyConfigured {
+				findings = append(findings, finding.Finding{
+					CheckID: finding.CheckCloudAzureAKSNoNetPolicy,
+					Title:   fmt.Sprintf("AKS cluster does not have network policy enabled: %s", name),
+					Description: fmt.Sprintf(
+						"AKS cluster %s does not have a network policy plugin configured. "+
+							"Without network policy, all pods can communicate with all other pods "+
+							"in the cluster, enabling unrestricted lateral movement after a pod "+
+							"compromise. Enable Azure or Calico network policy.",
+						name,
+					),
+					Severity:     finding.SeverityMedium,
+					Asset:        asset,
+					Scanner:      "cloud/azure",
+					ProofCommand: fmt.Sprintf("az aks show --name %s --query 'networkProfile.networkPolicy'", name),
+					Evidence:     map[string]any{"cluster_name": name, "subscription_id": subID},
+					DiscoveredAt: time.Now(),
+				})
+			}
 		}
 	}
 	return findings, nil

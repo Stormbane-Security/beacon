@@ -68,6 +68,10 @@ func (s *Store) ListTargets(_ context.Context) ([]store.Target, error) {
 	for _, t := range s.targets {
 		out = append(out, *t)
 	}
+	// Sort by CreatedAt descending for deterministic ordering.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
 	return out, nil
 }
 
@@ -112,6 +116,10 @@ func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun,
 			out = append(out, *r)
 		}
 	}
+	// Sort by StartedAt descending for deterministic ordering (map iteration is random).
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
 	return out, nil
 }
 

@@ -152,7 +152,92 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// TE.TE obfuscation probes — test Transfer-Encoding variants that some
+	// proxies fail to normalise, causing one side to see chunked and the other
+	// to fall back to Content-Length.
+	teObfuscations := []struct {
+		label string
+		value string
+	}{
+		{"xchunked", "xchunked"},
+		{"chunked-space", "chunked "},
+		{"tab-chunked", " \tchunked"},
+		{"chunked-cap", "Chunked"},
+	}
+	for _, te := range teObfuscations {
+		if vulnerable, elapsed := probeTETEObfuscation(ctx, host, port, asset, useTLS, te.value); vulnerable {
+			findings = append(findings, finding.Finding{
+				CheckID:  checkID,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Asset:    asset,
+				Title:    fmt.Sprintf("HTTP request smuggling (TE.TE obfuscation %q) detected on %s", te.label, asset),
+				Description: fmt.Sprintf(
+					"The server appears vulnerable to TE.TE request smuggling via Transfer-Encoding "+
+						"obfuscation. The header value %q caused the front-end and back-end to "+
+						"disagree on chunked transfer encoding parsing. One server processes the "+
+						"obfuscated TE header while the other falls back to Content-Length, enabling "+
+						"request smuggling.", te.value),
+				ProofCommand: fmt.Sprintf(
+					"# TE.TE obfuscation timing probe — connection should hang for ~%ds if vulnerable:\n"+
+						"python3 -c \"\nimport socket, ssl, time\n"+
+						"host='%s'\n"+
+						"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+						"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+						"Content-Length: 11\\r\\nTransfer-Encoding: %s\\r\\n\\r\\n"+
+						"0\\r\\n\\r\\nX')\n"+
+						"ctx=ssl.create_default_context()\n"+
+						"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
+						"c.send(payload.encode()); t=time.time()\n"+
+						"try: c.recv(4096)\nexcept: pass\n"+
+						"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+					int(smuggleDelay.Seconds()), asset, asset, te.value),
+				Evidence: map[string]any{
+					"type":             "TE.TE",
+					"obfuscation":      te.label,
+					"te_value":         te.value,
+					"url":              targetURL,
+					"baseline_ms":      baseline.Milliseconds(),
+					"probe_elapsed_ms": elapsed.Milliseconds(),
+				},
+				DiscoveredAt: time.Now(),
+			})
+			// One TE.TE finding is sufficient.
+			break
+		}
+	}
+
 	return findings, nil
+}
+
+// probeTETEObfuscation sends a smuggling probe with an obfuscated
+// Transfer-Encoding value. If one hop recognises the TE value and the other
+// doesn't, they'll disagree on body framing — producing a measurable timeout.
+// The probe is sent twice; both must time out to be flagged.
+func probeTETEObfuscation(ctx context.Context, host, port, asset string, useTLS bool, teValue string) (bool, time.Duration) {
+	body := "0\r\n\r\nX"
+	raw := fmt.Sprintf(
+		"POST / HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"Content-Type: application/x-www-form-urlencoded\r\n"+
+			"Content-Length: %d\r\n"+
+			"Transfer-Encoding: %s\r\n"+
+			"\r\n"+
+			"%s",
+		asset, len(body)+5, teValue, body,
+	)
+	hits := 0
+	var lastElapsed time.Duration
+	for i := 0; i < 2; i++ {
+		start := time.Now()
+		err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
+		lastElapsed = time.Since(start)
+		if isTimeoutError(err) && lastElapsed >= smuggleDelay {
+			hits++
+		}
+	}
+	return hits >= 2, lastElapsed
 }
 
 // resolveTarget finds a reachable host:port for the asset and returns

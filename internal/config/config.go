@@ -229,6 +229,9 @@ func Load() (*Config, error) {
 	}
 
 	applyEnv(cfg)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
+	}
 	return cfg, nil
 }
 
@@ -301,6 +304,38 @@ func (c *Config) Redacted() Config {
 	}
 	r.Auth = redactedAuth
 	return r
+}
+
+// Validate checks the Config for logical errors that would cause runtime failures.
+// Called automatically by Load.
+func (c *Config) Validate() error {
+	validAuthMethods := map[string]bool{
+		"bearer": true, "api_key": true, "cookie": true, "basic": true,
+		"oidc": true, "web3_evm": true, "web3_sol": true,
+	}
+	for i, a := range c.Auth {
+		if a.Method == "" {
+			return fmt.Errorf("auth[%d]: method is required", i)
+		}
+		if !validAuthMethods[a.Method] {
+			return fmt.Errorf("auth[%d]: unknown method %q (valid: bearer, api_key, cookie, basic, oidc, web3_evm, web3_sol)", i, a.Method)
+		}
+		if a.Asset == "" {
+			return fmt.Errorf("auth[%d]: asset is required (use \"*\" for all assets)", i)
+		}
+	}
+	if c.RequestJitterMs < 0 {
+		return fmt.Errorf("request_jitter_ms must be >= 0, got %d", c.RequestJitterMs)
+	}
+	validProviders := map[string]bool{
+		"": true, "claude": true, "openai": true, "gemini": true,
+		"ollama": true, "mistral": true, "grok": true, "groq": true,
+	}
+	p := strings.ToLower(strings.TrimSpace(c.AI.Provider))
+	if !validProviders[p] {
+		return fmt.Errorf("ai.provider %q is not supported (valid: claude, openai, gemini, ollama, mistral, grok, groq)", c.AI.Provider)
+	}
+	return nil
 }
 
 // MustLoad calls Load and panics on error. Suitable for use in main().

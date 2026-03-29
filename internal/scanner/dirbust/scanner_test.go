@@ -71,9 +71,10 @@ func TestRateLimit_BackoffAndNoFinding(t *testing.T) {
 		t.Errorf("expected no CheckDirbustFound findings after 429 exhaustion, got %d", len(found))
 	}
 
-	// The scanner should have made maxRetries (3) attempts.
-	if got := requestCount.Load(); got != 3 {
-		t.Errorf("expected 3 attempts (maxRetries) for a 429-only path, got %d", got)
+	// The scanner should have made maxRetries (3) probe attempts + 1 canary request
+	// for soft-404 detection = 4 total requests.
+	if got := requestCount.Load(); got != 4 {
+		t.Errorf("expected 4 attempts (1 canary + 3 maxRetries) for a 429-only path, got %d", got)
 	}
 
 	// With Retry-After: 1 the scanner should wait at least 1 second between retries.

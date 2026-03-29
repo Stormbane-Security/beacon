@@ -81,6 +81,68 @@ func checkCluster(cluster *containerapi.Cluster, projectID, asset string) []find
 		}
 	}
 
+	// Workload Identity disabled.
+	// Without Workload Identity, pods use the node's GCP service account credentials,
+	// giving all pods on a node access to the same GCP resources.
+	if cluster.WorkloadIdentityConfig == nil || cluster.WorkloadIdentityConfig.WorkloadPool == "" {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGCPGKENoWorkloadIdentity,
+			Title:   fmt.Sprintf("GKE cluster does not have Workload Identity enabled: %s", cluster.Name),
+			Description: fmt.Sprintf(
+				"Cluster %s in project %s does not have Workload Identity enabled. Without it, "+
+					"pods use the node's GCP service account, giving all pods on the node access to "+
+					"the same GCP credentials. Enable Workload Identity to assign per-pod Google "+
+					"service accounts via Kubernetes service account annotation.",
+				cluster.Name, projectID,
+			),
+			Severity:     finding.SeverityHigh,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud container clusters describe %s --location=%s --format='get(workloadIdentityConfig)'", cluster.Name, cluster.Location),
+			Evidence: map[string]any{
+				"cluster":           cluster.Name,
+				"instance_id":       cluster.Name,
+				"resource_type":     "gke_cluster",
+				"project_id":        projectID,
+				"location":          cluster.Location,
+				"region":            cluster.Location,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Master Authorized Networks disabled.
+	// Without master authorized networks, the Kubernetes API server is reachable
+	// from any IP address, increasing the attack surface.
+	masterAuth := cluster.MasterAuthorizedNetworksConfig
+	if masterAuth == nil || !masterAuth.Enabled {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGCPGKENoMasterAuthNetworks,
+			Title:   fmt.Sprintf("GKE cluster does not have master authorized networks enabled: %s", cluster.Name),
+			Description: fmt.Sprintf(
+				"Cluster %s in project %s does not have master authorized networks enabled. "+
+					"This means the Kubernetes API server can be reached from any IP address. "+
+					"Enable master authorized networks and restrict access to trusted CIDRs.",
+				cluster.Name, projectID,
+			),
+			Severity:     finding.SeverityHigh,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud container clusters describe %s --location=%s --format='get(masterAuthorizedNetworksConfig)'", cluster.Name, cluster.Location),
+			Evidence: map[string]any{
+				"cluster":           cluster.Name,
+				"instance_id":       cluster.Name,
+				"resource_type":     "gke_cluster",
+				"project_id":        projectID,
+				"location":          cluster.Location,
+				"region":            cluster.Location,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	// Binary Authorization disabled.
 	if cluster.BinaryAuthorization == nil || !cluster.BinaryAuthorization.Enabled {
 		findings = append(findings, finding.Finding{

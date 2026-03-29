@@ -11,8 +11,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1108,6 +1110,30 @@ var knownCompromisedActions = []compromisedAction{
 	},
 }
 
+// cdnForkDomains are repository namespaces that host CDN-mirrored forks of
+// popular actions. These forks share the same action name but are distinct
+// repos served from CDN infrastructure. We skip them to avoid false positives
+// when checking for known-compromised actions.
+var cdnForkDomains = []string{
+	"github-mirror/",
+	"ghproxy/",
+	"cdn-actions/",
+	"actions-mirror/",
+	"cached-actions/",
+}
+
+// isCDNFork returns true if the action path appears to be a CDN-hosted fork
+// rather than the canonical upstream action.
+func isCDNFork(actionPath string) bool {
+	lower := strings.ToLower(actionPath)
+	for _, prefix := range cdnForkDomains {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkKnownCompromisedActions flags any `uses:` step referencing a known-compromised action.
 func checkKnownCompromisedActions(workflowYAML, repo string) []finding.Finding {
 	var findings []finding.Finding
@@ -1125,6 +1151,12 @@ func checkKnownCompromisedActions(workflowYAML, repo string) []finding.Finding {
 		}
 
 		actionPath := strings.ToLower(actionBase(fullRef))
+
+		// Skip CDN-hosted forks that share the same action name but are
+		// different repos — these should not be flagged as compromised.
+		if isCDNFork(actionPath) {
+			continue
+		}
 
 		for _, bad := range knownCompromisedActions {
 			if strings.ToLower(bad.Slug) != actionPath {
@@ -1407,7 +1439,15 @@ func (s *Scanner) isRepoPublic(ctx context.Context, owner, repo string) (bool, e
 }
 
 // apiGet performs an authenticated (if token is set) GET against the GitHub API.
+// If the API returns 403 with rate limit headers, it logs a warning and waits
+// for the rate limit to reset before retrying (once).
 func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
+	return s.apiGetRetry(ctx, url, true)
+}
+
+// apiGetRetry is the internal implementation of apiGet with an optional single retry
+// after a rate limit backoff.
+func (s *Scanner) apiGetRetry(ctx context.Context, url string, retryOnRateLimit bool) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -1423,6 +1463,38 @@ func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
+	if resp.StatusCode == http.StatusForbidden {
+		remaining := resp.Header.Get("X-RateLimit-Remaining")
+		resetHeader := resp.Header.Get("X-RateLimit-Reset")
+
+		if remaining == "0" && resetHeader != "" && retryOnRateLimit {
+			resetUnix, err := strconv.ParseInt(resetHeader, 10, 64)
+			if err == nil {
+				resetTime := time.Unix(resetUnix, 0)
+				waitDuration := time.Until(resetTime)
+
+				// Cap the wait to 60 seconds to avoid blocking too long.
+				if waitDuration > 60*time.Second {
+					log.Printf("[ghactions] GitHub API rate limit exceeded for %s; reset in %s (too long to wait, skipping)", url, waitDuration)
+					return nil, fmt.Errorf("GitHub API %s: rate limit exceeded, resets at %s", url, resetTime.Format(time.RFC3339))
+				}
+
+				if waitDuration > 0 {
+					log.Printf("[ghactions] GitHub API rate limit hit; waiting %s for reset before retrying %s", waitDuration.Round(time.Second), url)
+					select {
+					case <-time.After(waitDuration):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+					return s.apiGetRetry(ctx, url, false) // single retry
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("GitHub API %s: HTTP %d (rate limited)", url, resp.StatusCode)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API %s: HTTP %d", url, resp.StatusCode)

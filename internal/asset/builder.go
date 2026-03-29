@@ -11,6 +11,17 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 )
 
+// normalizeIP returns the canonical string representation of an IP address.
+// This ensures IPv6 addresses in different formats (e.g., "::1" vs
+// "0:0:0:0:0:0:0:1") map to the same asset ID.
+func normalizeIP(s string) string {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return s
+	}
+	return ip.String()
+}
+
 // Builder accumulates assets, relationships, and findings during a scan
 // and produces an AssetGraph at the end.
 type Builder struct {
@@ -70,13 +81,13 @@ func (b *Builder) AddAsset(a Asset) {
 	}
 	b.assets[a.ID] = &a
 
-	// Index IPs for cross-referencing.
+	// Index IPs for cross-referencing (normalized for IPv6 consistency).
 	if a.Type == AssetTypeIP {
-		b.ipIndex[a.Name] = a.ID
+		b.ipIndex[normalizeIP(a.Name)] = a.ID
 	}
 	if a.Type == AssetTypeGCPInstance || a.Type == AssetTypeAWSEC2 || a.Type == AssetTypeAzureVM {
 		if ip, ok := a.Metadata["external_ip"].(string); ok && ip != "" {
-			b.ipIndex[ip] = a.ID
+			b.ipIndex[normalizeIP(ip)] = a.ID
 		}
 	}
 }
@@ -102,12 +113,13 @@ func (b *Builder) AddDomainAsset(hostname string, resolvedIPs []string, discover
 		if net.ParseIP(ip) == nil {
 			continue
 		}
-		ipID := fmt.Sprintf("ip:%s", ip)
+		normIP := normalizeIP(ip)
+		ipID := fmt.Sprintf("ip:%s", normIP)
 		b.AddAsset(Asset{
 			ID:           ipID,
 			Type:         AssetTypeIP,
 			Provider:     "network",
-			Name:         ip,
+			Name:         normIP,
 			DiscoveredBy: discoveredBy,
 			Confidence:   1.0,
 		})
@@ -208,7 +220,7 @@ func (b *Builder) CrossReferenceByIP() {
 		if extIP == "" {
 			continue
 		}
-		ipID := fmt.Sprintf("ip:%s", extIP)
+		ipID := fmt.Sprintf("ip:%s", normalizeIP(extIP))
 		for _, rel := range b.relationships {
 			if rel.Type == RelPointsTo && rel.ToID == ipID {
 				newRels = append(newRels, Relationship{

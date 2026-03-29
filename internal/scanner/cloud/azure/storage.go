@@ -69,6 +69,32 @@ func scanStorage(ctx context.Context, cred *azidentity.DefaultAzureCredential, s
 					DiscoveredAt: time.Now(),
 				})
 			}
+
+			// Check for shared key access enabled.
+			// When AllowSharedKeyAccess is true (or nil, which defaults to true),
+			// the storage account accepts shared key authentication in addition to
+			// Azure AD. Shared keys are long-lived secrets that cannot be scoped
+			// to specific operations or enforced with conditional access.
+			if props.AllowSharedKeyAccess == nil || *props.AllowSharedKeyAccess {
+				findings = append(findings, finding.Finding{
+					CheckID: finding.CheckCloudAzureStorageSharedKey,
+					Title:   fmt.Sprintf("Azure storage account allows shared key access: %s", name),
+					Description: fmt.Sprintf(
+						"Storage account %s allows shared key (account key) authentication. "+
+							"Shared keys are long-lived secrets that grant full access to the storage "+
+							"account and cannot be scoped to specific operations or enforced with "+
+							"conditional access policies. Disable shared key access and use Azure AD "+
+							"authentication exclusively.",
+						name,
+					),
+					Severity:     finding.SeverityMedium,
+					Asset:        asset,
+					Scanner:      "cloud/azure",
+					ProofCommand: fmt.Sprintf("az storage account show --name %s --query 'allowSharedKeyAccess'", name),
+					Evidence:     map[string]any{"account_name": name, "subscription_id": subID},
+					DiscoveredAt: time.Now(),
+				})
+			}
 		}
 	}
 	return findings, nil

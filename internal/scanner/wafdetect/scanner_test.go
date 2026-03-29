@@ -18,7 +18,7 @@ func TestDetectVendorCloudflare(t *testing.T) {
 		"cf-ray":          "abc123-LAX",
 		"cf-cache-status": "HIT",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "Cloudflare" {
 		t.Errorf("detectVendor = %q; want Cloudflare", got)
 	}
@@ -29,7 +29,7 @@ func TestDetectVendorAWSWAF(t *testing.T) {
 		"x-amzn-requestid": "abc-123",
 		"content-type":     "text/html",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "AWS WAF" {
 		t.Errorf("detectVendor = %q; want AWS WAF", got)
 	}
@@ -39,7 +39,7 @@ func TestDetectVendorAWSCloudFront(t *testing.T) {
 	headers := map[string]string{
 		"x-amz-cf-id": "DEADBEEF==",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "AWS CloudFront/WAF" {
 		t.Errorf("detectVendor = %q; want AWS CloudFront/WAF", got)
 	}
@@ -47,7 +47,7 @@ func TestDetectVendorAWSCloudFront(t *testing.T) {
 
 func TestDetectVendorImperva(t *testing.T) {
 	headers := map[string]string{"x-iinfo": "something"}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "Imperva Incapsula" {
 		t.Errorf("detectVendor = %q; want Imperva Incapsula", got)
 	}
@@ -55,7 +55,7 @@ func TestDetectVendorImperva(t *testing.T) {
 
 func TestDetectVendorSucuri(t *testing.T) {
 	headers := map[string]string{"x-sucuri-id": "12345"}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "Sucuri WAF" {
 		t.Errorf("detectVendor = %q; want Sucuri WAF", got)
 	}
@@ -63,7 +63,7 @@ func TestDetectVendorSucuri(t *testing.T) {
 
 func TestDetectVendorModSecurity(t *testing.T) {
 	headers := map[string]string{"x-mod-security-id": "abc"}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "ModSecurity" {
 		t.Errorf("detectVendor = %q; want ModSecurity", got)
 	}
@@ -74,16 +74,16 @@ func TestDetectVendorNone(t *testing.T) {
 		"content-type":  "text/html",
 		"cache-control": "no-store",
 	}
-	if got := detectVendor(headers); got != "" {
+	if got := detectVendor(headers, ""); got != "" {
 		t.Errorf("detectVendor = %q; want empty", got)
 	}
 }
 
 func TestDetectVendorEmpty(t *testing.T) {
-	if got := detectVendor(map[string]string{}); got != "" {
+	if got := detectVendor(map[string]string{}, ""); got != "" {
 		t.Errorf("detectVendor(empty) = %q; want empty", got)
 	}
-	if got := detectVendor(nil); got != "" {
+	if got := detectVendor(nil, ""); got != "" {
 		t.Errorf("detectVendor(nil) = %q; want empty", got)
 	}
 }
@@ -122,7 +122,7 @@ func TestDetectVendorCaseInsensitive(t *testing.T) {
 	headers := map[string]string{
 		"cf-ray": "abc123", // already lowercase as probeHeaders produces
 	}
-	if got := detectVendor(headers); got != "Cloudflare" {
+	if got := detectVendor(headers, ""); got != "Cloudflare" {
 		t.Errorf("detectVendor (lowercase key) = %q; want Cloudflare", got)
 	}
 }
@@ -191,12 +191,12 @@ func TestWAFDetect_CaseInsensitiveVendor(t *testing.T) {
 		Transport: &http.Transport{},
 	}
 
-	headers, _, err := probeHeaders(ctx, client, strings.TrimPrefix(srv.URL, "http://"))
+	headers, _, body, err := probeHeaders(ctx, client, strings.TrimPrefix(srv.URL, "http://"))
 	if err != nil {
 		t.Fatalf("probeHeaders: %v", err)
 	}
 
-	vendor := detectVendor(headers)
+	vendor := detectVendor(headers, body)
 	if vendor != "Cloudflare" {
 		t.Errorf("detectVendor = %q; want Cloudflare (mixed-case CF-Ray header must be normalised)", vendor)
 	}
@@ -222,7 +222,7 @@ func TestWAFDetect_MultipleVendors(t *testing.T) {
 		"cf-ray":      "abc123-LAX",
 		"x-sucuri-id": "99999",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	// Either vendor is a valid detection — what matters is exactly one is returned.
 	if got != "Cloudflare" && got != "Sucuri WAF" {
 		t.Errorf("detectVendor with two vendors = %q; want one of Cloudflare or Sucuri WAF", got)

@@ -32,8 +32,9 @@ import (
 
 const (
 	scannerName       = "dlp"
-	maxBodyBytes      = 512 * 1024 // 512 KB — enough to catch patterns without buffering huge files
-	emailListMinCount = 25         // flag if this many unique email addresses appear on one page
+	maxBodyBytes      = 512 * 1024       // 512 KB — enough to catch patterns without buffering huge files
+	maxRegexBodyBytes = 1024 * 1024      // 1 MB — skip regex matching on bodies larger than this
+	emailListMinCount = 25               // flag if this many unique email addresses appear on one page
 	// 25 reduces false positives on contact pages, blog author lists, and event
 	// pages that legitimately show 10-20 addresses. A true data dump typically
 	// contains hundreds of distinct addresses.
@@ -128,6 +129,14 @@ var dlpPatterns = []pattern{
 		finding.CheckDLPWifiCredential,
 		"WiFi PSK/WPA passphrase",
 		regexp.MustCompile(`(?i)(?:wpa[_\-]?passphrase|wpa[_\-]?psk|wifi[_\-]?pass(?:word|phrase)?|wireless[_\-]?key|network[_\-]?key|psk)\s*[=:]\s*["']?([^\s"'<>]{8,63})`),
+	},
+	// .env file KEY=VALUE patterns — exposed .env files leak credentials.
+	// Matches common secret variable names followed by = and a non-empty value.
+	// Only fires when multiple KEY=VALUE lines are present (anchored to secrets).
+	{
+		finding.CheckDLPAPIKey,
+		"Exposed .env file credentials",
+		regexp.MustCompile(`(?im)^(?:DATABASE_URL|DB_PASSWORD|SECRET_KEY|API_KEY|API_SECRET|AWS_SECRET_ACCESS_KEY|STRIPE_SECRET_KEY|PRIVATE_KEY|JWT_SECRET|APP_SECRET|ENCRYPTION_KEY|REDIS_PASSWORD|MAIL_PASSWORD|SMTP_PASSWORD)\s*=\s*\S+`),
 	},
 }
 
@@ -369,7 +378,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 					if len(body) == 0 {
 						continue
 					}
-					bodyStr := string(body)
+					// Truncate for regex matching on large crawled pages.
+					crawlBody := body
+					if len(crawlBody) > maxRegexBodyBytes {
+						crawlBody = crawlBody[:maxRegexBodyBytes]
+					}
+					bodyStr := string(crawlBody)
 					now := time.Now()
 
 					for _, p := range dlpPatterns {
@@ -421,7 +435,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	var findings []finding.Finding
 	now := time.Now()
-	bodyStr := string(body)
+
+	// Body size guard: skip regex matching on very large responses (>1 MB)
+	// to avoid excessive CPU usage on binary blobs or large data dumps.
+	// Truncate the body used for pattern matching to maxRegexBodyBytes.
+	regexBody := body
+	if len(regexBody) > maxRegexBodyBytes {
+		regexBody = regexBody[:maxRegexBodyBytes]
+	}
+	bodyStr := string(regexBody)
 
 	for _, p := range dlpPatterns {
 		match := p.re.FindString(bodyStr)
@@ -556,7 +578,12 @@ func scanPath(ctx context.Context, client *http.Client, asset, url string, alrea
 	if len(body) == 0 {
 		return nil
 	}
-	bodyStr := string(body)
+	// Truncate body for regex matching to avoid excessive CPU on large responses.
+	regexBody := body
+	if len(regexBody) > maxRegexBodyBytes {
+		regexBody = regexBody[:maxRegexBodyBytes]
+	}
+	bodyStr := string(regexBody)
 
 	var findings []finding.Finding
 	for _, p := range apiKeyPatterns {

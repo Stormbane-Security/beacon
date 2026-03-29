@@ -30,15 +30,19 @@ import (
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
 )
 
 const udpTimeout = 2 * time.Second
 
-// RunUDP runs all UDP probes against host and returns any findings.
+// runUDP runs UDP probes against host and returns any findings.
 // It is called from Scanner.Run() after the TCP connect phase.
-func runUDP(ctx context.Context, host string) []finding.Finding {
+// Surface mode runs only NTP, SNMP, and DNS probes (common, high-value services).
+// Deep mode runs all UDP probes including TFTP, SSDP, IKE, NetBIOS, STUN, mDNS, and RADIUS.
+func runUDP(ctx context.Context, host string, scanType module.ScanType) []finding.Finding {
 	var findings []finding.Finding
 
+	// ── Always run: high-value UDP services ──────────────────────────────────
 	// NTP
 	if ntpFs := probeNTP(ctx, host); len(ntpFs) > 0 {
 		findings = append(findings, ntpFs...)
@@ -47,33 +51,41 @@ func runUDP(ctx context.Context, host string) []finding.Finding {
 	if snmpFs := probeSNMPUDP(ctx, host); len(snmpFs) > 0 {
 		findings = append(findings, snmpFs...)
 	}
-	// TFTP
-	if tftpF := probeTFTP(ctx, host); tftpF != nil {
-		findings = append(findings, *tftpF)
+	// DNS open resolver
+	if dnsF := probeDNSResolver(ctx, host); dnsF != nil {
+		findings = append(findings, *dnsF)
 	}
-	// SSDP/UPnP
-	if ssdpF := probeSSDPUDP(ctx, host); ssdpF != nil {
-		findings = append(findings, *ssdpF)
-	}
-	// IKE/IPSec
-	if ikeF := probeIKEUDP(ctx, host); ikeF != nil {
-		findings = append(findings, *ikeF)
-	}
-	// NetBIOS Name Service
-	if nbF := probeNetBIOSNS(ctx, host); nbF != nil {
-		findings = append(findings, *nbF)
-	}
-	// STUN
-	if stunF := probeSTUN(ctx, host); stunF != nil {
-		findings = append(findings, *stunF)
-	}
-	// mDNS
-	if mdnsF := probeMDNS(ctx, host); mdnsF != nil {
-		findings = append(findings, *mdnsF)
-	}
-	// RADIUS
-	if radiusF := probeRADIUS(ctx, host); radiusF != nil {
-		findings = append(findings, *radiusF)
+
+	// ── Deep mode only: extended UDP probes ──────────────────────────────────
+	if scanType == module.ScanDeep {
+		// TFTP
+		if tftpF := probeTFTP(ctx, host); tftpF != nil {
+			findings = append(findings, *tftpF)
+		}
+		// SSDP/UPnP
+		if ssdpF := probeSSDPUDP(ctx, host); ssdpF != nil {
+			findings = append(findings, *ssdpF)
+		}
+		// IKE/IPSec
+		if ikeF := probeIKEUDP(ctx, host); ikeF != nil {
+			findings = append(findings, *ikeF)
+		}
+		// NetBIOS Name Service
+		if nbF := probeNetBIOSNS(ctx, host); nbF != nil {
+			findings = append(findings, *nbF)
+		}
+		// STUN
+		if stunF := probeSTUN(ctx, host); stunF != nil {
+			findings = append(findings, *stunF)
+		}
+		// mDNS
+		if mdnsF := probeMDNS(ctx, host); mdnsF != nil {
+			findings = append(findings, *mdnsF)
+		}
+		// RADIUS
+		if radiusF := probeRADIUS(ctx, host); radiusF != nil {
+			findings = append(findings, *radiusF)
+		}
 	}
 
 	return findings
@@ -745,6 +757,80 @@ func probeRADIUS(ctx context.Context, host string) *finding.Finding {
 }
 
 // itoa converts an int to a string decimal representation.
+// ── DNS open resolver ───────────────────────────────────────────────────────
+
+// dnsQueryExample is a minimal DNS query for "example.com" type A.
+// This is a well-formed recursive query that any open resolver will answer.
+// Header: ID=0x1234, Flags=0x0100 (RD=1), QDCOUNT=1
+// Question: example.com, type A (1), class IN (1)
+var dnsQueryExample = []byte{
+	0x12, 0x34, // Transaction ID
+	0x01, 0x00, // Flags: standard query, recursion desired
+	0x00, 0x01, // Questions: 1
+	0x00, 0x00, // Answer RRs: 0
+	0x00, 0x00, // Authority RRs: 0
+	0x00, 0x00, // Additional RRs: 0
+	// QNAME: example.com
+	0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
+	0x03, 'c', 'o', 'm',
+	0x00,       // null terminator
+	0x00, 0x01, // QTYPE: A
+	0x00, 0x01, // QCLASS: IN
+}
+
+// probeDNSResolver sends a recursive DNS query for example.com to UDP port 53.
+// If the server answers with a valid DNS response, it is an open resolver.
+func probeDNSResolver(ctx context.Context, host string) *finding.Finding {
+	conn, err := dialUDP(ctx, host, 53)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write(dnsQueryExample); err != nil {
+		return nil
+	}
+
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil || n < 12 {
+		return nil
+	}
+
+	// Validate: transaction ID must match, QR bit must be set (response),
+	// and RCODE should be NOERROR (0) or NXDOMAIN (3).
+	if buf[0] != 0x12 || buf[1] != 0x34 {
+		return nil // wrong transaction ID
+	}
+	if buf[2]&0x80 == 0 {
+		return nil // QR bit not set — not a response
+	}
+	rcode := buf[3] & 0x0F
+	if rcode != 0 && rcode != 3 {
+		return nil // unexpected RCODE — server refused or error
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckPortDNSOpenResolver,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    host,
+		Title:    fmt.Sprintf("DNS open resolver on %s:53/UDP", host),
+		Description: fmt.Sprintf(
+			"The DNS server at %s:53 answers recursive queries for external domains. "+
+				"An open resolver can be abused for DNS amplification DDoS attacks "+
+				"and may leak internal DNS data. Restrict recursion to trusted clients.",
+			host),
+		Evidence: map[string]any{
+			"port":     53,
+			"protocol": "udp",
+			"service":  "dns",
+			"rcode":    int(rcode),
+		},
+	}
+}
+
 // Used to avoid importing strconv just for JoinHostPort.
 func itoa(n int) string {
 	if n == 0 {

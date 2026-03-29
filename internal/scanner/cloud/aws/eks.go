@@ -65,6 +65,53 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					DiscoveredAt: time.Now(),
 				})
 			}
+
+			// Check for audit logging disabled.
+			// Without audit logging, security-relevant events (authentication,
+			// authorization, API calls) are not recorded, making incident
+			// response and forensics difficult.
+			auditLogEnabled := false
+			if cluster.Logging != nil {
+				for _, logSetup := range cluster.Logging.ClusterLogging {
+					if logSetup.Enabled != nil && *logSetup.Enabled {
+						for _, logType := range logSetup.Types {
+							if string(logType) == "audit" {
+								auditLogEnabled = true
+								break
+							}
+						}
+					}
+					if auditLogEnabled {
+						break
+					}
+				}
+			}
+			if !auditLogEnabled {
+				findings = append(findings, finding.Finding{
+					CheckID: finding.CheckCloudAWSEKSNoLogging,
+					Title:   fmt.Sprintf("EKS cluster does not have audit logging enabled: %s", name),
+					Description: fmt.Sprintf(
+						"EKS cluster %s in %s does not have audit logging enabled. Without audit logs, "+
+							"Kubernetes API calls are not recorded, making it impossible to detect "+
+							"unauthorized access, privilege escalation, or lateral movement within the cluster. "+
+							"Enable the 'audit' log type in the cluster logging configuration.",
+						name, region,
+					),
+					Severity:     finding.SeverityMedium,
+					Asset:        asset,
+					Scanner:      "cloud/aws",
+					ProofCommand: fmt.Sprintf("aws eks describe-cluster --name %s --region %s --query 'cluster.logging'", name, region),
+					Evidence: map[string]any{
+						"account_id":        accountID,
+						"cluster_name":      name,
+						"instance_id":       name,
+						"resource_type":     "eks_cluster",
+						"region":            region,
+						"resource_snapshot": clusterSnapshot,
+					},
+					DiscoveredAt: time.Now(),
+				})
+			}
 		}
 	}
 	return findings, nil

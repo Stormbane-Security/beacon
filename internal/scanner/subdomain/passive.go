@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -129,20 +130,75 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 		return nil, nil
 	}
 
+	// ── Wildcard DNS detection ────────────────────────────────────────────────
+	// Before building the subdomain list, check if *.asset resolves. If it does,
+	// any subdomain resolving to the same wildcard IP set is a false positive
+	// from the wildcard record, not a unique discovery.
+	wildcardIPs := detectWildcardDNS(runCtx, asset)
+	isWildcard := len(wildcardIPs) > 0
+
 	// Return discovered subdomains as findings.
 	// The pipeline reads asset.subdomain_discovered findings to build its target list.
 	var all []string
+	var wildcardFiltered int
 	for sub := range subdomains {
-		if sub != asset {
-			all = append(all, sub)
+		if sub == asset {
+			continue
 		}
+		// Filter wildcard false positives: resolve each subdomain and check
+		// if ALL its IPs are in the wildcard set.
+		if isWildcard {
+			addrs, err := net.DefaultResolver.LookupHost(runCtx, sub)
+			if err == nil && len(addrs) > 0 {
+				allWild := true
+				for _, a := range addrs {
+					if _, ok := wildcardIPs[a]; !ok {
+						allWild = false
+						break
+					}
+				}
+				if allWild {
+					wildcardFiltered++
+					continue
+				}
+			}
+		}
+		all = append(all, sub)
 	}
 
 	if len(all) == 0 {
 		return nil, nil
 	}
 
-	return []finding.Finding{{
+	var findings []finding.Finding
+
+	// If wildcard DNS was detected, emit an informational finding.
+	if isWildcard {
+		var wcIPs []string
+		for ip := range wildcardIPs {
+			wcIPs = append(wcIPs, ip)
+		}
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckDNSWildcard,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityInfo,
+			Title:    fmt.Sprintf("Wildcard DNS detected for *.%s", asset),
+			Description: fmt.Sprintf(
+				"*.%s resolves to %v. %d subdomain results were filtered as wildcard "+
+					"false positives. Remaining %d subdomains resolve to unique IPs.",
+				asset, wcIPs, wildcardFiltered, len(all)),
+			Asset: asset,
+			Evidence: map[string]any{
+				"wildcard_ips":     wcIPs,
+				"filtered_count":   wildcardFiltered,
+				"remaining_count":  len(all),
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	findings = append(findings, finding.Finding{
 		CheckID:      "asset.subdomains_discovered",
 		Module:       "surface",
 		Scanner:      scannerName,
@@ -152,7 +208,25 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 		Asset:        asset,
 		Evidence:     map[string]any{"subdomains": all, "count": len(all)},
 		DiscoveredAt: time.Now(),
-	}}, nil
+	})
+
+	return findings, nil
+}
+
+// detectWildcardDNS resolves a random subdomain under domain. If it resolves,
+// the domain has wildcard DNS configured. Returns the set of wildcard IPs, or
+// nil if no wildcard is detected.
+func detectWildcardDNS(ctx context.Context, domain string) map[string]struct{} {
+	probe := "beacon-wc-probe-z9x8w7v6." + domain
+	addrs, err := net.DefaultResolver.LookupHost(ctx, probe)
+	if err != nil || len(addrs) == 0 {
+		return nil
+	}
+	ips := make(map[string]struct{}, len(addrs))
+	for _, a := range addrs {
+		ips[a] = struct{}{}
+	}
+	return ips
 }
 
 // Subdomains extracts the list of discovered subdomains from a subdomain discovery finding.

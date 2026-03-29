@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -500,7 +501,9 @@ func scanRun(row scanner) (*store.ScanRun, error) {
 		return nil, err
 	}
 
-	_ = json.Unmarshal([]byte(modsJSON), &r.Modules)
+	if err := json.Unmarshal([]byte(modsJSON), &r.Modules); err != nil {
+		log.Printf("sqlite: failed to unmarshal scan run modules: %v", err)
+	}
 	if completedAt.Valid {
 		r.CompletedAt = &completedAt.Time
 	}
@@ -572,7 +575,9 @@ func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Find
 			return nil, err
 		}
 		f.Severity = finding.ParseSeverity(sevStr)
-		_ = json.Unmarshal([]byte(evJSON), &f.Evidence)
+		if err := json.Unmarshal([]byte(evJSON), &f.Evidence); err != nil {
+			log.Printf("sqlite: failed to unmarshal evidence for finding %s: %v", f.CheckID, err)
+		}
 		f.DeepOnly = deepOnly == 1
 		out = append(out, f)
 	}
@@ -641,7 +646,9 @@ func (s *Store) GetEnrichedFindings(_ context.Context, scanRunID string) ([]enri
 		if err := rows.Scan(&fJSON, &ef.Explanation, &ef.Impact, &ef.Remediation); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(fJSON), &ef.Finding)
+		if err := json.Unmarshal([]byte(fJSON), &ef.Finding); err != nil {
+			log.Printf("sqlite: failed to unmarshal enriched finding JSON: %v", err)
+		}
 		out = append(out, ef)
 	}
 	return out, rows.Err()
@@ -762,12 +769,22 @@ func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]stor
 		); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(evJSON), &e.Evidence)
-		_ = json.Unmarshal([]byte(playbooks), &e.MatchedPlaybooks)
-		_ = json.Unmarshal([]byte(scanners), &e.ScannersRun)
-		_ = json.Unmarshal([]byte(tags), &e.NucleiTagsRun)
-		_ = json.Unmarshal([]byte(dbRun), &e.DirbustPathsRun)
-		_ = json.Unmarshal([]byte(dbFound), &e.DirbustPathsFound)
+		for _, pair := range []struct {
+			data string
+			dest any
+			name string
+		}{
+			{evJSON, &e.Evidence, "evidence"},
+			{playbooks, &e.MatchedPlaybooks, "matched_playbooks"},
+			{scanners, &e.ScannersRun, "scanners_run"},
+			{tags, &e.NucleiTagsRun, "nuclei_tags_run"},
+			{dbRun, &e.DirbustPathsRun, "dirbust_paths_run"},
+			{dbFound, &e.DirbustPathsFound, "dirbust_paths_found"},
+		} {
+			if err := json.Unmarshal([]byte(pair.data), pair.dest); err != nil {
+				log.Printf("sqlite: failed to unmarshal asset_execution %s for %s: %v", pair.name, e.Asset, err)
+			}
+		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -813,7 +830,9 @@ func (s *Store) ListUnmatchedAssets(_ context.Context) ([]store.UnmatchedAsset, 
 		if err := rows.Scan(&u.ID, &u.ScanRunID, &u.Fingerprint, &u.Asset, &evJSON, &u.CreatedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(evJSON), &u.Evidence)
+		if err := json.Unmarshal([]byte(evJSON), &u.Evidence); err != nil {
+			log.Printf("sqlite: failed to unmarshal unmatched_asset evidence for %s: %v", u.Asset, err)
+		}
 		out = append(out, u)
 	}
 	return out, rows.Err()
@@ -881,7 +900,9 @@ func (s *Store) ListPlaybookSuggestions(_ context.Context, status string) ([]sto
 		); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(affectedDomainsJSON), &sg.AffectedDomains)
+		if err := json.Unmarshal([]byte(affectedDomainsJSON), &sg.AffectedDomains); err != nil {
+			log.Printf("sqlite: failed to unmarshal playbook_suggestion affected_domains: %v", err)
+		}
 		out = append(out, sg)
 	}
 	return out, rows.Err()
@@ -984,8 +1005,12 @@ func (s *Store) ListCorrelationFindings(_ context.Context, domain string) ([]sto
 			return nil, err
 		}
 		f.Severity = finding.ParseSeverity(sevStr)
-		_ = json.Unmarshal([]byte(assetsJSON), &f.AffectedAssets)
-		_ = json.Unmarshal([]byte(checksJSON), &f.ContributingChecks)
+		if err := json.Unmarshal([]byte(assetsJSON), &f.AffectedAssets); err != nil {
+			log.Printf("sqlite: failed to unmarshal correlation affected_assets: %v", err)
+		}
+		if err := json.Unmarshal([]byte(checksJSON), &f.ContributingChecks); err != nil {
+			log.Printf("sqlite: failed to unmarshal correlation contributing_checks: %v", err)
+		}
 		out = append(out, f)
 	}
 	return out, rows.Err()

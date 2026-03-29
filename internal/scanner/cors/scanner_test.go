@@ -134,10 +134,10 @@ func TestNullOriginReflected_High(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
-		t.Error("expected CheckCORSMisconfiguration finding when null origin is reflected")
+	if !hasCheckID(findings, finding.CheckCORSNullOrigin) {
+		t.Error("expected CheckCORSNullOrigin finding when null origin is reflected")
 	}
-	if !hasSeverity(findings, finding.CheckCORSMisconfiguration, finding.SeverityHigh) {
+	if !hasSeverity(findings, finding.CheckCORSNullOrigin, finding.SeverityHigh) {
 		t.Error("expected SeverityHigh for null origin reflection")
 	}
 }
@@ -377,8 +377,8 @@ func TestPreflightOnly_CriticalFinding(t *testing.T) {
 	}
 	// GET probes return no CORS; canary OPTIONS returns 404 (no catch-all).
 	// Preflight on root should fire and produce a Critical finding.
-	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
-		t.Error("expected CheckCORSMisconfiguration via preflight probe when GET returns no CORS headers but OPTIONS does")
+	if !hasCheckID(findings, finding.CheckCORSPreflightMisconfig) {
+		t.Error("expected CheckCORSPreflightMisconfig via preflight probe when GET returns no CORS headers but OPTIONS does")
 	}
 }
 

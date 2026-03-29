@@ -252,13 +252,20 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 		}
 	}
 
-	// Call Claude for uncached check types.
+	// Call the LLM for uncached check types, in batches to avoid token limits.
+	const enrichBatchSize = 20
 	newEnrich := make(map[finding.CheckID]cached)
-	if len(uncached) > 0 {
+	for batchStart := 0; batchStart < len(uncached); batchStart += enrichBatchSize {
+		batchEnd := batchStart + enrichBatchSize
+		if batchEnd > len(uncached) {
+			batchEnd = len(uncached)
+		}
+		batch := uncached[batchStart:batchEnd]
+
 		// Wrap each finding with its per-CheckID reference material so the template
 		// can inject documentation excerpts and Terraform examples into the prompt.
-		withRefs := make([]findingWithRef, len(uncached))
-		for i, f := range uncached {
+		withRefs := make([]findingWithRef, len(batch))
+		for i, f := range batch {
 			withRefs[i] = findingWithRef{Finding: f, Reference: referenceFor(string(f.CheckID))}
 		}
 		var promptBuf bytes.Buffer
@@ -267,27 +274,28 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 		}
 		responseText, err := c.callLLM(ctx, c.findingModel, promptBuf.String())
 		if err != nil {
-			return nil, fmt.Errorf("claude enrich: %w", err)
+			return nil, fmt.Errorf("claude enrich batch %d: %w", batchStart/enrichBatchSize+1, err)
 		}
-		parsed, err := parseEnrichedResponse(uncached, responseText)
+		parsed, err := parseEnrichedResponse(batch, responseText)
 		if err != nil {
 			return nil, err
 		}
 		for _, ef := range parsed {
 			newEnrich[ef.Finding.CheckID] = cached{explanation: ef.Explanation, impact: ef.Impact, remediation: ef.Remediation, terraformFix: ef.TerraformFix}
 		}
-		// Save new results to cache — but only when the explanation looks like
-		// human-readable prose, not a raw JSON blob from a failed parse.
-		if c.cache != nil {
-			for id, e := range newEnrich {
-				if looksLikeRawJSON(e.explanation) {
-					continue // skip — would pollute cache with bad data
-				}
-				if err := c.cache.SaveEnrichmentCache(ctx, id, e.explanation, e.impact, e.remediation); err != nil {
-					// Log but don't fail — the enrichment itself succeeded; missing
-					// cache only means the next scan re-computes this check type.
-					fmt.Fprintf(os.Stderr, "enrichment: cache write failed for %s: %v\n", id, err)
-				}
+	}
+
+	// Save new results to cache — but only when the explanation looks like
+	// human-readable prose, not a raw JSON blob from a failed parse.
+	if c.cache != nil {
+		for id, e := range newEnrich {
+			if looksLikeRawJSON(e.explanation) {
+				continue // skip — would pollute cache with bad data
+			}
+			if err := c.cache.SaveEnrichmentCache(ctx, id, e.explanation, e.impact, e.remediation); err != nil {
+				// Log but don't fail — the enrichment itself succeeded; missing
+				// cache only means the next scan re-computes this check type.
+				fmt.Fprintf(os.Stderr, "enrichment: cache write failed for %s: %v\n", id, err)
 			}
 		}
 	}
