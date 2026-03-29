@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -34,6 +35,15 @@ func scanGKE(ctx context.Context, projectID, asset string, opts []option.ClientO
 func checkCluster(cluster *containerapi.Cluster, projectID, asset string) []finding.Finding {
 	var findings []finding.Finding
 
+	// Marshal full cluster JSON for resource snapshot.
+	var resourceSnapshot string
+	if b, err := json.Marshal(cluster); err == nil {
+		if len(b) > 32768 {
+			b = b[:32768]
+		}
+		resourceSnapshot = string(b)
+	}
+
 	// Public endpoint with no authorized networks.
 	// A nil PrivateClusterConfig or EnablePrivateEndpoint==false means the API server
 	// is reachable on a public IP.
@@ -57,10 +67,14 @@ func checkCluster(cluster *containerapi.Cluster, projectID, asset string) []find
 				Scanner:      "cloud/gcp",
 				ProofCommand: fmt.Sprintf("gcloud container clusters describe %s --location=%s --format='get(masterAuthorizedNetworksConfig,privateClusterConfig)'", cluster.Name, cluster.Location),
 				Evidence: map[string]any{
-					"cluster":    cluster.Name,
-					"project_id": projectID,
-					"location":   cluster.Location,
-					"endpoint":   cluster.Endpoint,
+					"cluster":           cluster.Name,
+					"instance_id":       cluster.Name,
+					"resource_type":     "gke_cluster",
+					"project_id":        projectID,
+					"location":          cluster.Location,
+					"region":            cluster.Location,
+					"endpoint":          cluster.Endpoint,
+					"resource_snapshot": resourceSnapshot,
 				},
 				DiscoveredAt: time.Now(),
 			})
@@ -84,9 +98,13 @@ func checkCluster(cluster *containerapi.Cluster, projectID, asset string) []find
 			Scanner:      "cloud/gcp",
 			ProofCommand: fmt.Sprintf("gcloud container clusters describe %s --location=%s --format='get(binaryAuthorization)'", cluster.Name, cluster.Location),
 			Evidence: map[string]any{
-				"cluster":    cluster.Name,
-				"project_id": projectID,
-				"location":   cluster.Location,
+				"cluster":           cluster.Name,
+				"instance_id":       cluster.Name,
+				"resource_type":     "gke_cluster",
+				"project_id":        projectID,
+				"location":          cluster.Location,
+				"region":            cluster.Location,
+				"resource_snapshot": resourceSnapshot,
 			},
 			DiscoveredAt: time.Now(),
 		})

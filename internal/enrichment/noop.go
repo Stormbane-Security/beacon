@@ -27,6 +27,14 @@ func (n *NoopEnricher) Enrich(_ context.Context, findings []finding.Finding) ([]
 	return out, nil
 }
 
+func (n *NoopEnricher) AnalyzeAttackPaths(_ context.Context, _ []EnrichedFinding, _ string) (string, error) {
+	return "(AI enrichment not configured — set BEACON_ANTHROPIC_API_KEY for attack-path analysis)", nil
+}
+
+func (n *NoopEnricher) GenerateFollowUpProbes(_ context.Context, _ []EnrichedFinding, _ string) ([]FollowUpProbe, error) {
+	return nil, nil
+}
+
 func (n *NoopEnricher) ContextualizeAndSummarize(_ context.Context, enriched []EnrichedFinding, domain string) ([]EnrichedFinding, string, error) {
 	critical, high, medium, low := 0, 0, 0, 0
 	for _, e := range enriched {

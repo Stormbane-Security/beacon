@@ -1,5 +1,21 @@
 package playbook
 
+// CloudContext holds metadata from an authenticated cloud scan that was
+// cross-referenced to this asset by IP match. Populated by the multi-module
+// scan pipeline after the cloud module runs.
+type CloudContext struct {
+	Provider       string            `json:"provider"`                  // "gcp", "aws", "azure"
+	InstanceID     string            `json:"instance_id"`               // GCP: instance name; AWS: i-xxxx; Azure: VM name
+	ResourceType   string            `json:"resource_type"`             // "compute_instance", "gke_cluster", "eks_cluster", "sql_instance", etc.
+	Project        string            `json:"project"`                   // GCP: project ID; AWS: account ID; Azure: subscription ID
+	Region         string            `json:"region"`                    // e.g. "us-central1", "us-east-1"
+	Zone           string            `json:"zone,omitempty"`            // GCP zone (e.g. "us-central1-a")
+	Tags           map[string]string `json:"tags,omitempty"`            // GCP labels / AWS tags / Azure tags
+	IAMRoles       []string          `json:"iam_roles,omitempty"`       // IAM roles/permissions attached to this resource
+	ContainerImage string            `json:"container_image,omitempty"` // running container image:tag if applicable
+	ResourceSnapshot string          `json:"resource_snapshot,omitempty"` // full JSON of cloud resource (for Bosun IaC generation)
+}
+
 // Evidence is the set of observable facts collected about a single asset
 // before playbook matching. Collected by internal/scanner/classify.
 type Evidence struct {
@@ -124,4 +140,19 @@ type Evidence struct {
 	// at the named confidence tier. Displayed in the TUI with an [AI] badge and
 	// carried into findings so analysts know which were AI-guided.
 	ClassificationSource string
+
+	// OSVersion is the detected operating system and version.
+	// Examples: "Ubuntu 22.04", "Amazon Linux 2", "Windows Server 2022"
+	// Populated from SSH banners, cloud instance metadata, or Shodan data.
+	OSVersion string
+
+	// RuntimeVersion is the detected application runtime and version.
+	// Examples: "Node.js 18.12.0", "Python 3.11.2", "Java 17.0.5"
+	// Populated from HTTP headers (X-Powered-By), error pages, or cloud metadata.
+	RuntimeVersion string
+
+	// CloudCtx is injected after the cloud module runs and cross-references
+	// this asset's IP against cloud instance IPs. Nil when no cross-reference
+	// was found or when no cloud scan was performed.
+	CloudCtx *CloudContext
 }

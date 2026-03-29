@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -30,6 +31,13 @@ func scanEC2(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 						toPort := awscfg.ToInt32(perm.ToPort)
 						// Flag broadly open rules on sensitive ports.
 						if isSensitivePort(fromPort, toPort) {
+							var sgSnapshot string
+							if b, merr := json.Marshal(sg); merr == nil {
+								if len(b) > 32768 {
+									b = b[:32768]
+								}
+								sgSnapshot = string(b)
+							}
 							findings = append(findings, finding.Finding{
 								CheckID: finding.CheckCloudAWSEC2PublicSG,
 								Title:   fmt.Sprintf("AWS security group allows 0.0.0.0/0 on sensitive port: %s (%d-%d)", awscfg.ToString(sg.GroupName), fromPort, toPort),
@@ -43,12 +51,14 @@ func scanEC2(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 								Scanner:      "cloud/aws",
 								ProofCommand: fmt.Sprintf("aws ec2 describe-security-groups --group-ids %s --region %s", awscfg.ToString(sg.GroupId), region),
 								Evidence: map[string]any{
-									"account_id": accountID,
-									"sg_id":      awscfg.ToString(sg.GroupId),
-									"sg_name":    awscfg.ToString(sg.GroupName),
-									"from_port":  fromPort,
-									"to_port":    toPort,
-									"region":     region,
+									"account_id":        accountID,
+									"sg_id":             awscfg.ToString(sg.GroupId),
+									"sg_name":           awscfg.ToString(sg.GroupName),
+									"from_port":         fromPort,
+									"to_port":           toPort,
+									"region":            region,
+									"resource_type":     "security_group",
+									"resource_snapshot": sgSnapshot,
 								},
 								DiscoveredAt: time.Now(),
 							})

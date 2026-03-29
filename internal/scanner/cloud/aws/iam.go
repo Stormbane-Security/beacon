@@ -32,7 +32,7 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 				Asset:        asset,
 				Scanner:      "cloud/aws",
 				ProofCommand: fmt.Sprintf("aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent' --profile %s", accountID),
-				Evidence:     map[string]any{"account_id": accountID},
+				Evidence:     map[string]any{"account_id": accountID, "resource_type": "iam_user"},
 				DiscoveredAt: time.Now(),
 			})
 		}
@@ -47,7 +47,7 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 				Asset:        asset,
 				Scanner:      "cloud/aws",
 				ProofCommand: "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'",
-				Evidence:     map[string]any{"account_id": accountID},
+				Evidence:     map[string]any{"account_id": accountID, "resource_type": "iam_user"},
 				DiscoveredAt: time.Now(),
 			})
 		}
@@ -82,7 +82,7 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 						Asset:        asset,
 						Scanner:      "cloud/aws",
 						ProofCommand: fmt.Sprintf("aws iam list-mfa-devices --user-name %s", userName),
-						Evidence:     map[string]any{"account_id": accountID, "user_name": userName},
+						Evidence:     map[string]any{"account_id": accountID, "user_name": userName, "resource_type": "iam_user"},
 						DiscoveredAt: time.Now(),
 					})
 				}
@@ -110,11 +110,12 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 								Scanner:      "cloud/aws",
 								ProofCommand: fmt.Sprintf("aws iam list-access-keys --user-name %s", userName),
 								Evidence: map[string]any{
-									"account_id": accountID,
-									"user_name":  userName,
-									"key_id":     keyID,
-									"age_days":   int(age.Hours() / 24),
-									"created":    key.CreateDate.Format(time.RFC3339),
+									"account_id":    accountID,
+									"user_name":     userName,
+									"key_id":        keyID,
+									"age_days":      int(age.Hours() / 24),
+									"created":       key.CreateDate.Format(time.RFC3339),
+									"resource_type": "iam_user",
 								},
 								DiscoveredAt: time.Now(),
 							})
@@ -159,9 +160,10 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 					Scanner:      "cloud/aws",
 					ProofCommand: fmt.Sprintf("aws iam get-policy-version --policy-arn %s --version-id %s", awscfg.ToString(policy.Arn), awscfg.ToString(policy.DefaultVersionId)),
 					Evidence: map[string]any{
-						"account_id":  accountID,
-						"policy_name": awscfg.ToString(policy.PolicyName),
-						"policy_arn":  awscfg.ToString(policy.Arn),
+						"account_id":    accountID,
+						"policy_name":   awscfg.ToString(policy.PolicyName),
+						"policy_arn":    awscfg.ToString(policy.Arn),
+						"resource_type": "iam_policy",
 					},
 					DiscoveredAt: time.Now(),
 				})

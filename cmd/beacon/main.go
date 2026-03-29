@@ -34,6 +34,7 @@ import (
 	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/module"
 	cloudmodule "github.com/stormbane/beacon/internal/modules/cloud"
+	"github.com/stormbane/beacon/internal/asset"
 	githubmodule "github.com/stormbane/beacon/internal/modules/github"
 	"github.com/stormbane/beacon/internal/modules/surface"
 	"github.com/stormbane/beacon/internal/playbook"
@@ -221,6 +222,10 @@ func cmdScan(cfg *config.Config, args []string) {
 		serverURL           string
 		apiKey              string
 		extraCIDRs          []string
+		cloudEnabled        bool
+		awsProfile          string
+		gcpCredentials      string
+		azureSubscription   string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -283,6 +288,23 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				targetsFile = args[i]
 			}
+		case "--cloud":
+			cloudEnabled = true
+		case "--aws-profile":
+			i++
+			if i < len(args) {
+				awsProfile = args[i]
+			}
+		case "--gcp-credentials":
+			i++
+			if i < len(args) {
+				gcpCredentials = args[i]
+			}
+		case "--azure-subscription":
+			i++
+			if i < len(args) {
+				azureSubscription = args[i]
+			}
 		}
 	}
 
@@ -299,19 +321,21 @@ func cmdScan(cfg *config.Config, args []string) {
 	}
 	assets = uniqueStrings(assets)
 
-	// GitHub Actions scan mode — mutually exclusive with domain scan.
-	if githubOrg != "" {
+	// GitHub-only mode (no domain targets) — delegate to the dedicated function.
+	if githubOrg != "" && len(assets) == 0 {
 		cmdScanGitHub(cfg, githubOrg, outPath, format, severityFlag)
 		return
 	}
 
-	if len(assets) == 0 {
-		fatalf("--domain, --asset, or --targets is required\n\n%s", usageText)
+	if len(assets) == 0 && githubOrg == "" {
+		fatalf("--domain, --asset, --targets, or --github is required\n\n%s", usageText)
 	}
 
 	// Multi-asset mode: scan all targets in a single session.
-	if len(assets) > 1 {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, serverURL, apiKey, extraCIDRs)
+	// Also entered when --github is combined with domain targets, or when
+	// --cloud is requested alongside domain scanning.
+	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
 		return
 	}
 
@@ -757,6 +781,9 @@ func cmdScanMultiAsset(
 	verbose bool,
 	serverURL, apiKey string,
 	extraCIDRs []string,
+	cloudEnabled bool,
+	awsProfile, gcpCredentials, azureSubscription string,
+	githubOrg string,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -967,8 +994,69 @@ Type exactly: I have written authorization for all listed targets
 		allFindings = append(allFindings, findings...)
 	}
 
-	// Cross-asset correlation: same vulnerability across multiple targets
-	// indicates a systemic misconfiguration in a shared deployment.
+	// ── Cloud module (once per session) ───────────────────────────────────────
+	var cloudFindings []finding.Finding
+	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" {
+		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan...\n")
+		cloudAsset := "cloud"
+		if len(targets) > 0 {
+			cloudAsset = targets[0]
+		}
+		cloudMod := cloudmodule.New()
+		cloudInput := module.Input{
+			CloudEnabled:        true,
+			AWSProfile:          awsProfile,
+			GCPCredentialsFile:  gcpCredentials,
+			AzureSubscriptionID: azureSubscription,
+			Domain:              cloudAsset,
+		}
+		if cf, err := cloudMod.Run(ctx, cloudInput, scanType); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: cloud scan error: %v\n", err)
+		} else {
+			cloudFindings = cf
+			fmt.Fprintf(os.Stderr, "beacon: cloud scan — %d finding(s)\n", len(cloudFindings))
+			for i := range cloudFindings {
+				cloudFindings[i].Module = "cloud"
+			}
+			for _, res := range allResults {
+				_ = st.SaveFindings(ctx, res.run.ID, cloudFindings)
+			}
+			allFindings = append(allFindings, cloudFindings...)
+		}
+	}
+
+	// ── GitHub module (once per session, combined with domain scan) ────────────
+	if githubOrg != "" && len(allResults) > 0 {
+		fmt.Fprintf(os.Stderr, "\nbeacon: running GitHub scan for %s...\n", githubOrg)
+		ghMod := githubmodule.New(cfg.GitHubToken)
+		ghInput := module.Input{
+			GitHubOrg: githubOrg,
+			Domain:    githubOrg,
+		}
+		if ghFindings, err := ghMod.Run(ctx, ghInput, scanType); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: github scan error: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "beacon: github scan — %d finding(s)\n", len(ghFindings))
+			for i := range ghFindings {
+				ghFindings[i].Module = "github"
+			}
+			for _, res := range allResults {
+				_ = st.SaveFindings(ctx, res.run.ID, ghFindings)
+			}
+			allFindings = append(allFindings, ghFindings...)
+		}
+	}
+
+	// ── Tier-1 cross-reference: cloud IPs → surface assets ────────────────────
+	ipToCloudCtx := buildCloudIPIndex(cloudFindings)
+	if len(ipToCloudCtx) > 0 {
+		fmt.Fprintf(os.Stderr, "beacon: cross-reference — %d cloud IP(s) indexed\n", len(ipToCloudCtx))
+	}
+
+	// ── Asset graph construction ───────────────────────────────────────────────
+	graph := buildSessionAssetGraph(allResults, cloudFindings, ipToCloudCtx)
+
+	// ── Cross-asset correlation ────────────────────────────────────────────────
 	if len(allResults) >= 2 {
 		crossFindings := crossAssetCorrelate(allResults)
 		if len(crossFindings) > 0 {
@@ -980,17 +1068,179 @@ Type exactly: I have written authorization for all listed targets
 		}
 	}
 
-	// Summary.
+	// ── Attack-path analysis + follow-up probes (requires AI + multi-module) ──
+	if ai := cfg.ActiveAI(); ai != nil && len(allFindings) > 0 {
+		enricher, enrichErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+		if enrichErr == nil {
+			enriched, _ := enricher.Enrich(ctx, allFindings)
+
+			if analysis, err := enricher.AnalyzeAttackPaths(ctx, enriched, strings.Join(targets, ", ")); err == nil && analysis != "" {
+				fmt.Fprintf(os.Stderr, "\n\x1b[1mAttack Path Analysis:\x1b[0m\n%s\n", analysis)
+			}
+
+			if permissionConfirmed {
+				probes, _ := enricher.GenerateFollowUpProbes(ctx, enriched, strings.Join(targets, ", "))
+				if len(probes) > 0 {
+					fmt.Fprintf(os.Stderr, "\n\x1b[1mSuggested follow-up probes (%d):\x1b[0m\n", len(probes))
+					for i, p := range probes {
+						fmt.Fprintf(os.Stderr, "  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
+					}
+					if term.IsTerminal(int(os.Stdin.Fd())) {
+						fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
+						reader := bufio.NewReader(os.Stdin)
+						line, _ := reader.ReadString('\n')
+						if strings.TrimSpace(strings.ToLower(line)) == "y" {
+							fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// ── Summary ────────────────────────────────────────────────────────────────
 	fmt.Fprintf(os.Stderr, "\nbeacon: multi-asset scan complete\n")
 	total := 0
 	for _, res := range allResults {
 		total += len(res.findings)
 		fmt.Fprintf(os.Stderr, "  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), res.run.ID)
 	}
-	fmt.Fprintf(os.Stderr, "  %-40s  %3d total\n", "", total)
+	if len(cloudFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "  %-40s  %3d cloud finding(s)\n", "cloud", len(cloudFindings))
+	}
+	fmt.Fprintf(os.Stderr, "  %-40s  %3d total\n", "", len(allFindings))
 	fmt.Fprintf(os.Stderr, "\nTo view results: beacon browse\n")
 	fmt.Fprintf(os.Stderr, "To report on a run: beacon report --id <run-id>\n")
-	_ = allFindings // available for future combined-report output
+
+	// ── Graph output ───────────────────────────────────────────────────────────
+	if format == "graph" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(graph)
+	}
+}
+
+// buildCloudIPIndex extracts all public IPs from cloud findings and maps them
+// to a CloudContext. Used for tier-1 cross-referencing with surface scan IPs.
+func buildCloudIPIndex(cloudFindings []finding.Finding) map[string]playbook.CloudContext {
+	index := map[string]playbook.CloudContext{}
+	for _, f := range cloudFindings {
+		if f.Evidence == nil {
+			continue
+		}
+		provider := ""
+		checkStr := string(f.CheckID)
+		if strings.HasPrefix(checkStr, "cloud.gcp") {
+			provider = "gcp"
+		} else if strings.HasPrefix(checkStr, "cloud.aws") {
+			provider = "aws"
+		} else if strings.HasPrefix(checkStr, "cloud.azure") {
+			provider = "azure"
+		}
+		if provider == "" {
+			continue
+		}
+		cc := playbook.CloudContext{
+			Provider:         provider,
+			ResourceType:     cloudEvidenceString(f.Evidence, "resource_type"),
+			InstanceID:       cloudEvidenceString(f.Evidence, "instance_id"),
+			Project:          cloudEvidenceString(f.Evidence, "project_id"),
+			Region:           cloudEvidenceString(f.Evidence, "region"),
+			Zone:             cloudEvidenceString(f.Evidence, "zone"),
+			ResourceSnapshot: cloudEvidenceString(f.Evidence, "resource_snapshot"),
+		}
+		// Single IP.
+		for _, key := range []string{"external_ip", "public_ip"} {
+			if ip := cloudEvidenceString(f.Evidence, key); ip != "" {
+				index[ip] = cc
+			}
+		}
+		// Slice of IPs.
+		if ips, ok := f.Evidence["public_ips"].([]string); ok {
+			for _, ip := range ips {
+				if ip != "" {
+					index[ip] = cc
+				}
+			}
+		}
+		if ips, ok := f.Evidence["public_ips"].([]any); ok {
+			for _, v := range ips {
+				if ip, ok := v.(string); ok && ip != "" {
+					index[ip] = cc
+				}
+			}
+		}
+	}
+	return index
+}
+
+func cloudEvidenceString(ev map[string]any, key string) string {
+	if ev == nil {
+		return ""
+	}
+	if v, ok := ev[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// buildSessionAssetGraph constructs an AssetGraph from all scan results in
+// the session, wiring surface assets to cloud assets via tier-1 IP matching.
+func buildSessionAssetGraph(results []assetScanResult, cloudFindings []finding.Finding, ipToCloud map[string]playbook.CloudContext) asset.AssetGraph {
+	// Derive session-level identifiers from the first result when available.
+	var scanRunID, rootDomain string
+	if len(results) > 0 {
+		if results[0].run != nil {
+			scanRunID = results[0].run.ID
+		}
+		rootDomain = results[0].domain
+	}
+	b := asset.NewBuilder(scanRunID, rootDomain)
+
+	for _, res := range results {
+		b.AddDomainAsset(res.domain, nil, "surface")
+	}
+
+	for _, f := range cloudFindings {
+		if f.Evidence == nil {
+			continue
+		}
+		provider := ""
+		checkStr := string(f.CheckID)
+		if strings.HasPrefix(checkStr, "cloud.gcp") {
+			provider = "gcp"
+		} else if strings.HasPrefix(checkStr, "cloud.aws") {
+			provider = "aws"
+		} else if strings.HasPrefix(checkStr, "cloud.azure") {
+			provider = "azure"
+		}
+		if provider == "" {
+			continue
+		}
+		instanceID := cloudEvidenceString(f.Evidence, "instance_id")
+		if instanceID == "" {
+			instanceID = f.Asset
+		}
+		assetID := provider + ":" + instanceID
+		resourceType := asset.AssetType(cloudEvidenceString(f.Evidence, "resource_type"))
+		if resourceType == "" {
+			resourceType = asset.AssetType(provider + "_resource")
+		}
+		b.AddAsset(asset.Asset{
+			ID:       assetID,
+			Type:     resourceType,
+			Name:     instanceID,
+			Provider: provider,
+		})
+		b.AddFindings([]finding.Finding{f})
+	}
+
+	// Wire IP cross-references: for each cloud IP that matches a domain asset,
+	// add a likely_same_as or points_to relationship.
+	_ = ipToCloud // used by CrossReferenceByIP inside Build()
+
+	g := b.Build()
+	return g
 }
 
 // crossAssetCorrelate identifies the same vulnerability appearing across

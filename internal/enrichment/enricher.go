@@ -6,6 +6,15 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 )
 
+// FollowUpProbe is a targeted follow-up check suggested by attack-path analysis.
+// The caller presents these to the user and runs approved ones.
+type FollowUpProbe struct {
+	Asset   string `json:"asset"`   // IP or hostname to probe
+	Reason  string `json:"reason"`  // why this probe is suggested (shown to user)
+	CheckID string `json:"check_id,omitempty"` // suggested check ID if known
+	Scanner string `json:"scanner"` // "portscan", "cve", "http", "k8s_api", etc.
+}
+
 // EnrichedFinding wraps a raw finding with AI-generated explanations.
 type EnrichedFinding struct {
 	Finding     finding.Finding `json:"finding"`
@@ -44,4 +53,16 @@ type Enricher interface {
 	// Returns updated findings (with Omit/MitigatedBy/CrossAssetNote populated)
 	// and the executive summary string.
 	ContextualizeAndSummarize(ctx context.Context, enriched []EnrichedFinding, domain string) ([]EnrichedFinding, string, error)
+
+	// AnalyzeAttackPaths performs a cross-module attack chain analysis.
+	// It takes all enriched findings from a multi-module scan (surface + cloud +
+	// github) and identifies realistic attack chains that span across modules and
+	// assets. Returns a narrative attack path analysis string suitable for
+	// inclusion in reports and for operator briefing.
+	AnalyzeAttackPaths(ctx context.Context, enriched []EnrichedFinding, domain string) (string, error)
+
+	// GenerateFollowUpProbes suggests targeted follow-up checks based on what
+	// was discovered. Only probes within the original scan mode are suggested.
+	// The caller presents them to the user for approval before running.
+	GenerateFollowUpProbes(ctx context.Context, enriched []EnrichedFinding, domain string) ([]FollowUpProbe, error)
 }

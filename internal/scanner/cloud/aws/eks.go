@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,6 +28,15 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 				continue
 			}
 			cluster := desc.Cluster
+
+			var clusterSnapshot string
+			if b, merr := json.Marshal(cluster); merr == nil {
+				if len(b) > 32768 {
+					b = b[:32768]
+				}
+				clusterSnapshot = string(b)
+			}
+
 			ep := cluster.ResourcesVpcConfig
 			if ep != nil && ep.EndpointPublicAccess && len(ep.PublicAccessCidrs) == 0 {
 				findings = append(findings, finding.Finding{
@@ -43,11 +53,14 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					Scanner:      "cloud/aws",
 					ProofCommand: fmt.Sprintf("aws eks describe-cluster --name %s --region %s --query 'cluster.resourcesVpcConfig'", name, region),
 					Evidence: map[string]any{
-						"account_id":    accountID,
-						"cluster_name":  name,
-						"region":        region,
-						"endpoint":      awscfg.ToString(cluster.Endpoint),
-						"public_access": ep.EndpointPublicAccess,
+						"account_id":        accountID,
+						"cluster_name":      name,
+						"instance_id":       name,
+						"resource_type":     "eks_cluster",
+						"region":            region,
+						"endpoint":          awscfg.ToString(cluster.Endpoint),
+						"public_access":     ep.EndpointPublicAccess,
+						"resource_snapshot": clusterSnapshot,
 					},
 					DiscoveredAt: time.Now(),
 				})

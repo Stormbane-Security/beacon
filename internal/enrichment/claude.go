@@ -825,3 +825,6 @@ func parseEnrichedResponse(findings []finding.Finding, text string) ([]EnrichedF
 	}
 	return out, nil
 }
+
+// AnalyzeAttackPaths — implemented in attackpath.go
+// GenerateFollowUpProbes — implemented in attackpath.go

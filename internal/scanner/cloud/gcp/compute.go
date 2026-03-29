@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -44,15 +45,23 @@ func scanCompute(ctx context.Context, projectID, asset string, opts []option.Cli
 func checkInstance(inst *computeapi.Instance, projectID, asset string) []finding.Finding {
 	var findings []finding.Finding
 
-	// Check for public IP.
-	var externalIP string
+	// Collect all public IPs.
+	var publicIPs []string
 	for _, iface := range inst.NetworkInterfaces {
 		for _, ac := range iface.AccessConfigs {
 			if ac.NatIP != "" {
-				externalIP = ac.NatIP
-				break
+				publicIPs = append(publicIPs, ac.NatIP)
 			}
 		}
+	}
+
+	// Marshal full instance JSON for resource snapshot.
+	var resourceSnapshot string
+	if b, err := json.Marshal(inst); err == nil {
+		if len(b) > 32768 {
+			b = b[:32768]
+		}
+		resourceSnapshot = string(b)
 	}
 
 	// Check for default service account.
@@ -72,11 +81,14 @@ func checkInstance(inst *computeapi.Instance, projectID, asset string) []finding
 				Scanner:      "cloud/gcp",
 				ProofCommand: fmt.Sprintf("gcloud compute instances describe %s --zone=%s --format='get(serviceAccounts)'", inst.Name, zoneFromSelfLink(inst.Zone)),
 				Evidence: map[string]any{
-					"instance":        inst.Name,
-					"project_id":      projectID,
-					"zone":            zoneFromSelfLink(inst.Zone),
-					"service_account": sa.Email,
-					"external_ip":     externalIP,
+					"instance":          inst.Name,
+					"instance_id":       inst.Name,
+					"resource_type":     "compute_instance",
+					"project_id":        projectID,
+					"zone":              zoneFromSelfLink(inst.Zone),
+					"service_account":   sa.Email,
+					"public_ips":        publicIPs,
+					"resource_snapshot": resourceSnapshot,
 				},
 				DiscoveredAt: time.Now(),
 			})
