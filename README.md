@@ -536,7 +536,7 @@ Scanners run concurrently within the surface module, gated by per-asset run plan
 
 ## Playbooks
 
-Playbooks are YAML files embedded in the binary at build time from `internal/playbook/playbooks/`. They encode the security knowledge that drives what Beacon checks on each discovered asset.
+Playbooks are deterministic scans defined by YAML files.
 
 **Playbook structure:**
 
