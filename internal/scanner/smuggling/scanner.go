@@ -36,12 +36,21 @@ import (
 )
 
 const (
-	scannerName   = "smuggling"
-	checkID       = finding.CheckWebHTTPRequestSmuggling
-	probeTimeout  = 6 * time.Second
-	baselineMax   = 2 * time.Second // skip target if baseline is already slow
-	smuggleDelay  = 4 * time.Second // if response takes longer than this, flag it
+	scannerName = "smuggling"
+	checkID     = finding.CheckWebHTTPRequestSmuggling
 )
+
+// Timing thresholds — variables so that tests can override them to avoid
+// multi-second waits.
+var (
+	probeTimeout = 6 * time.Second
+	baselineMax  = 2 * time.Second // skip target if baseline is already slow
+	smuggleDelay = 4 * time.Second // if response takes longer than this, flag it
+)
+
+// dialConnFunc is the function used to establish TCP (optionally TLS) connections.
+// Tests replace this to inject mock servers without modifying production code paths.
+var dialConnFunc = dialConn
 
 // Scanner probes for HTTP request smuggling via timing-based detection.
 type Scanner struct{}
@@ -251,7 +260,7 @@ func resolveTarget(ctx context.Context, asset string) (string, string, bool) {
 		{"443", true},
 		{"80", false},
 	} {
-		conn, err := dialConn(ctx, asset, entry.port, entry.useTLS)
+		conn, err := dialConnFunc(ctx, asset, entry.port, entry.useTLS)
 		if err != nil {
 			continue
 		}
@@ -355,7 +364,7 @@ func buildRawGET(asset string) string {
 // sendRaw opens a TCP (optionally TLS) connection, writes the raw request,
 // and reads until EOF or deadline. Returns nil on clean read, error otherwise.
 func sendRaw(ctx context.Context, host, port string, useTLS bool, raw string, timeout time.Duration, _ []byte) error {
-	conn, err := dialConn(ctx, host, port, useTLS)
+	conn, err := dialConnFunc(ctx, host, port, useTLS)
 	if err != nil {
 		return err
 	}
