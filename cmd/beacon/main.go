@@ -53,7 +53,9 @@ USAGE:
   beacon scan        --domain <domain> [flags]   Run a surface/deep scan
   beacon scan        --github <org> [flags]      Scan a GitHub org's Actions workflows
   beacon browse                                  Interactive TUI browser for past scans
-  beacon history     --domain <domain>           List past scans
+  beacon scans       [--limit N]                 List all past scans (no TUI)
+  beacon history     --domain <domain>           List past scans for a domain
+  beacon stop        --id <scan-id>              Mark a running scan as stopped
   beacon report      --id <scan-id> [flags]      Print a past report
   beacon analyze     [--id <run-id>] [--out <file>]  Playbook analysis + finding accuracy review
   beacon playbook    suggestions                 List AI playbook suggestions
@@ -72,6 +74,7 @@ SCAN FLAGS:
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
+  --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
   --server <url>             Run against a remote beacond instance
   --api-key <key>            API key for the remote server
 
@@ -144,6 +147,10 @@ func main() {
 		cmdScan(cfg, os.Args[2:])
 	case "browse":
 		cmdBrowse(cfg)
+	case "scans":
+		cmdScans(cfg, os.Args[2:])
+	case "stop":
+		cmdStop(cfg, os.Args[2:])
 	case "history":
 		cmdHistory(cfg, os.Args[2:])
 	case "report":
@@ -220,6 +227,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		format              string
 		severityFlag        string
 		verbose             bool
+		noTUI               bool
 		serverURL           string
 		apiKey              string
 		extraCIDRs          []string
@@ -264,6 +272,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			}
 		case "--verbose":
 			verbose = true
+		case "--no-tui":
+			noTUI = true
 		case "--server":
 			i++
 			if i < len(args) {
@@ -336,7 +346,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
 		return
 	}
 
@@ -504,7 +514,12 @@ Type exactly: I have written authorization for %s
 		fatalf("init scanner: %v", err)
 	}
 
-	pr := newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+	var pr *progressRenderer
+	if noTUI {
+		pr = newPlainRenderer(verbose, finding.ParseSeverity(severityFlag))
+	} else {
+		pr = newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+	}
 	pr.cancelFn = cancel // allow the live UI to stop the scan via 's' or Ctrl+C
 	defer pr.Done()      // always restore terminal, even on panic
 	input := module.Input{
@@ -565,7 +580,9 @@ Type exactly: I have written authorization for %s
 					_ = st.SaveFindings(ctx, run.ID, res.findings)
 				}
 				fmt.Fprintf(os.Stderr, "beacon: scan stopped — %d findings saved\n", len(res.findings))
-				cmdBrowse(cfg)
+				if !noTUI {
+					cmdBrowse(cfg)
+				}
 				return
 			}
 			run.Status = store.StatusFailed
@@ -668,7 +685,7 @@ Type exactly: I have written authorization for %s
 	// never sent to the Claude API — saves tokens and keeps prompts focused.
 	minSev := finding.ParseSeverity(severityFlag)
 	if minSev > finding.SeverityInfo {
-		filtered := findings[:0]
+		var filtered []finding.Finding
 		for _, f := range findings {
 			if f.Severity >= minSev {
 				filtered = append(filtered, f)
@@ -816,7 +833,7 @@ func cmdScanMultiAsset(
 	targets []string,
 	deep, permissionConfirmed, authorized bool,
 	outPath, format, severityFlag string,
-	verbose bool,
+	verbose, noTUI bool,
 	serverURL, apiKey string,
 	extraCIDRs []string,
 	cloudEnabled bool,
@@ -977,7 +994,12 @@ Type exactly: I have written authorization for all listed targets
 		run.Status = store.StatusRunning
 		_ = st.UpdateScanRun(ctx, run)
 
-		pr := newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+		var pr *progressRenderer
+		if noTUI {
+			pr = newPlainRenderer(verbose, finding.ParseSeverity(severityFlag))
+		} else {
+			pr = newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+		}
 		pr.cancelFn = cancel
 		defer pr.Done()
 
@@ -1457,7 +1479,7 @@ func readTargetsFile(path string) ([]string, error) {
 // uniqueStrings returns ss with duplicates removed, preserving order.
 func uniqueStrings(ss []string) []string {
 	seen := make(map[string]bool, len(ss))
-	out := ss[:0]
+	var out []string
 	for _, s := range ss {
 		if !seen[s] {
 			seen[s] = true
@@ -1601,6 +1623,99 @@ func cmdHistory(cfg *config.Config, args []string) {
 			r.StartedAt.Format("2006-01-02 15:04"))
 	}
 	w.Flush()
+}
+
+// ---------- scans (list all) ----------
+
+func cmdScans(cfg *config.Config, args []string) {
+	limit := 50
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--limit" {
+			i++
+			if i < len(args) {
+				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+					limit = n
+				}
+			}
+		}
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	runs, err := st.ListAllScanRuns(ctx, limit)
+	if err != nil {
+		fatalf("list scans: %v", err)
+	}
+
+	if len(runs) == 0 {
+		fmt.Fprintln(os.Stderr, "no scans found")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tDOMAIN\tTYPE\tSTATUS\tFINDINGS\tSTARTED\tDURATION")
+	for _, r := range runs {
+		dur := ""
+		if r.CompletedAt != nil {
+			dur = r.CompletedAt.Sub(r.StartedAt).Truncate(time.Second).String()
+		} else if r.Status == store.StatusRunning {
+			dur = time.Since(r.StartedAt).Truncate(time.Second).String() + " (running)"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			r.ID, r.Domain, r.ScanType, r.Status, r.FindingCount,
+			r.StartedAt.Format("2006-01-02 15:04"), dur)
+	}
+	w.Flush()
+}
+
+// ---------- stop ----------
+
+func cmdStop(cfg *config.Config, args []string) {
+	var id string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--id" {
+			i++
+			if i < len(args) {
+				id = args[i]
+			}
+		}
+	}
+	if id == "" {
+		fatalf("--id is required")
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	run, err := st.GetScanRun(ctx, id)
+	if err != nil {
+		fatalf("get scan: %v", err)
+	}
+	if run.Status != store.StatusRunning && run.Status != store.StatusPending {
+		fmt.Fprintf(os.Stderr, "scan %s is already %s\n", id, run.Status)
+		return
+	}
+
+	// If this scan is running in the current process, cancel its context too.
+	if j, ok := getLiveJob(id); ok {
+		j.Stop()
+	}
+
+	run.Status = store.StatusStopped
+	run.Error = "stopped via CLI"
+	if err := st.UpdateScanRun(ctx, run); err != nil {
+		fatalf("update scan: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "beacon: scan %s marked as stopped\n", id)
 }
 
 // ---------- live job registry ----------
@@ -3463,8 +3578,14 @@ func severityTag(sev finding.Severity) string {
 }
 
 func truncate(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if len(s) <= n {
 		return s
+	}
+	if n == 1 {
+		return "…"
 	}
 	return s[:n-1] + "…"
 }
@@ -4233,7 +4354,7 @@ func filterBySeverity(enriched []enrichment.EnrichedFinding, severityFlag string
 	if min <= finding.SeverityInfo {
 		return enriched
 	}
-	out := enriched[:0]
+	var out []enrichment.EnrichedFinding
 	for _, ef := range enriched {
 		if ef.Finding.Severity >= min {
 			out = append(out, ef)
@@ -4308,7 +4429,7 @@ func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.Sc
 // filterOmitted drops findings Claude marked as having no actionable value
 // given other controls present in the scan.
 func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedFinding {
-	out := enriched[:0]
+	var out []enrichment.EnrichedFinding
 	for _, ef := range enriched {
 		if !ef.Omit {
 			out = append(out, ef)
@@ -4628,6 +4749,28 @@ func newHeadlessRenderer(minSeverity finding.Severity) *progressRenderer {
 		activeOps:    make(map[string]string),
 		scannerStart: make(map[string]time.Time),
 		headless:     true,
+	}
+}
+
+// newPlainRenderer creates a progressRenderer that outputs line-by-line text
+// to stderr with no interactive TUI, no raw terminal mode, and no render ticker.
+// Used with --no-tui for headless / CI / scripting scenarios.
+func newPlainRenderer(verbose bool, minSeverity finding.Severity) *progressRenderer {
+	return &progressRenderer{
+		phase:        "discovering",
+		mode:         "progress",
+		verbose:      verbose,
+		ansi:         false, // force line-by-line output, never TUI
+		start:        time.Now(),
+		stop:         make(chan struct{}),
+		detached:     make(chan struct{}),
+		assetStart:   make(map[string]time.Time),
+		assetIdx:     make(map[string]int),
+		minSeverity:  minSeverity,
+		topoEvidence: make(map[string]playbook.Evidence),
+		topoServices: make(map[string][]liveService),
+		activeOps:    make(map[string]string),
+		scannerStart: make(map[string]time.Time),
 	}
 }
 
@@ -8074,7 +8217,10 @@ func (r *progressRenderer) eta() time.Duration {
 // Safe to call multiple times.
 func (r *progressRenderer) Done() {
 	r.stopOnce.Do(func() { close(r.stop) })
-	if r.headless {
+	r.mu.Lock()
+	headless := r.headless
+	r.mu.Unlock()
+	if headless {
 		// Load pending review counts for the post-scan notice.
 		if r.st != nil {
 			ctx := context.Background()

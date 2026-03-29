@@ -420,6 +420,30 @@ func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun,
 	return out, rows.Err()
 }
 
+func (s *Store) ListAllScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`
+		SELECT id, target_id, domain, scan_type, modules, status,
+		       started_at, completed_at, finding_count, error
+		FROM scan_runs ORDER BY started_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []store.ScanRun
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *r)
+	}
+	return out, rows.Err()
+}
+
 // DeleteScanRun removes a scan run and all associated data in a single transaction.
 func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 	tx, err := s.db.Begin()
@@ -437,6 +461,7 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 		"scanner_metrics",
 		"discovery_audit",
 		"correlation_findings",
+		"asset_graphs",
 	}
 	for _, tbl := range tables {
 		if _, err := tx.Exec(`DELETE FROM `+tbl+` WHERE scan_run_id = ?`, id); err != nil {

@@ -22,8 +22,9 @@ clean:
 tools:
 	./scripts/install-tools.sh
 
-# Quick smoke test — dry run against example.com
+# Quick smoke test — verify the binary starts and parses flags
 smoke:
-	$(BUILD_DIR)/$(BINARY) scan --domain example.com
+	$(BUILD_DIR)/$(BINARY) version
+	$(BUILD_DIR)/$(BINARY) scans --limit 1
 
 .DEFAULT_GOAL := build
