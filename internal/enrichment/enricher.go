@@ -65,4 +65,14 @@ type Enricher interface {
 	// was discovered. Only probes within the original scan mode are suggested.
 	// The caller presents them to the user for approval before running.
 	GenerateFollowUpProbes(ctx context.Context, enriched []EnrichedFinding, domain string) ([]FollowUpProbe, error)
+
+	// EnrichFingerprints analyzes collected fingerprint evidence (server headers,
+	// technology signatures, version strings) using AI to identify:
+	//   - Version-specific known vulnerabilities (→ aifp.vulnerable_version findings)
+	//   - Configuration anomalies (→ aifp.config_anomaly findings)
+	//   - Technology stack relationships and suggested follow-up scanners
+	//
+	// Called after scanning completes; returned findings are merged into the
+	// main finding list before the standard enrichment pass.
+	EnrichFingerprints(ctx context.Context, inputs []FingerprintInput) (*FingerprintResult, error)
 }

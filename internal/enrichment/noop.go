@@ -35,6 +35,10 @@ func (n *NoopEnricher) GenerateFollowUpProbes(_ context.Context, _ []EnrichedFin
 	return nil, nil
 }
 
+func (n *NoopEnricher) EnrichFingerprints(_ context.Context, _ []FingerprintInput) (*FingerprintResult, error) {
+	return &FingerprintResult{}, nil
+}
+
 func (n *NoopEnricher) ContextualizeAndSummarize(_ context.Context, enriched []EnrichedFinding, domain string) ([]EnrichedFinding, string, error) {
 	critical, high, medium, low := 0, 0, 0, 0
 	for _, e := range enriched {

@@ -50,8 +50,9 @@ surface:
     - email
     # Re-run DLP to catch any additional credential patterns in adjacent paths.
     - dlp
-    # Enumerate subdomains to find additional dangling CNAMEs.
-    - subdomain
+    # Re-run takeover to detect dangling CNAMEs eligible for subdomain hijacking.
+    # (Subdomain enumeration is driven by the module discovery pipeline, not a scanner.)
+    - takeover
   nuclei_tags:
     - exposure
     - misconfiguration
