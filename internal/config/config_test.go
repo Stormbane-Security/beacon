@@ -872,3 +872,156 @@ server:
 		t.Errorf("Server.URL = %q, want %q", cfg.Server.URL, "https://beacon.example.com")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Validate — SMTP port range
+// ---------------------------------------------------------------------------
+
+func TestValidate_SMTPPortNegative(t *testing.T) {
+	cfg := defaults()
+	cfg.SMTP.Port = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail for negative SMTP port")
+	}
+}
+
+func TestValidate_SMTPPortTooHigh(t *testing.T) {
+	cfg := defaults()
+	cfg.SMTP.Port = 70000
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() should fail for SMTP port > 65535")
+	}
+}
+
+func TestValidate_SMTPPortValidBoundary(t *testing.T) {
+	for _, port := range []int{0, 1, 587, 465, 65535} {
+		cfg := defaults()
+		cfg.SMTP.Port = port
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() should pass for SMTP port %d, got: %v", port, err)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Validate — AI provider case-insensitive normalization
+// ---------------------------------------------------------------------------
+
+func TestValidate_AIProviderCaseInsensitive(t *testing.T) {
+	for _, p := range []string{"Claude", "OPENAI", " Gemini ", "OLLAMA"} {
+		cfg := defaults()
+		cfg.AI.Provider = p
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() should accept provider %q (case-insensitive), got: %v", p, err)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Validate — auth method-specific field validation
+// ---------------------------------------------------------------------------
+
+func TestValidate_AuthBearerWithoutToken(t *testing.T) {
+	// bearer with empty token is structurally valid (token may come from env at runtime).
+	cfg := defaults()
+	cfg.Auth = []AuthConfig{{Asset: "example.com", Method: "bearer", Token: ""}}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() should pass for bearer with empty token, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ActiveAI — whitespace-only provider treated as empty
+// ---------------------------------------------------------------------------
+
+func TestActiveAI_WhitespaceProvider_ReturnsNil(t *testing.T) {
+	cfg := defaults()
+	cfg.AI.Provider = "   "
+	ai := cfg.ActiveAI()
+	if ai != nil {
+		t.Errorf("ActiveAI() = %+v, want nil for whitespace-only provider", ai)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Redacted — original Auth slice length unchanged
+// ---------------------------------------------------------------------------
+
+func TestRedacted_AuthSliceLengthPreserved(t *testing.T) {
+	cfg := defaults()
+	cfg.Auth = []AuthConfig{
+		{Asset: "a.com", Method: "bearer", Token: "tok1"},
+		{Asset: "b.com", Method: "basic", Password: "pass1"},
+	}
+	r := cfg.Redacted()
+	if len(r.Auth) != 2 {
+		t.Errorf("Redacted().Auth length = %d, want 2", len(r.Auth))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// applyEnv — BEACON_AUTH_TOKEN idempotent with empty existing auth
+// ---------------------------------------------------------------------------
+
+func TestApplyEnv_AuthToken_NoExistingAuth(t *testing.T) {
+	cfg := defaults()
+	cfg.Auth = nil
+	t.Setenv("BEACON_AUTH_TOKEN", "global-tok")
+	applyEnv(cfg)
+
+	if len(cfg.Auth) != 1 {
+		t.Fatalf("Auth length = %d, want 1", len(cfg.Auth))
+	}
+	if cfg.Auth[0].Asset != "*" || cfg.Auth[0].Method != "bearer" || cfg.Auth[0].Token != "global-tok" {
+		t.Errorf("Auth[0] = %+v, want global bearer entry", cfg.Auth[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// applyEnv — BEACON_SMTP_PORT invalid string is ignored
+// ---------------------------------------------------------------------------
+
+func TestApplyEnv_SMTPPort_InvalidString_Ignored(t *testing.T) {
+	cfg := defaults()
+	t.Setenv("BEACON_SMTP_PORT", "not-a-number")
+	applyEnv(cfg)
+
+	if cfg.SMTP.Port != 587 {
+		t.Errorf("SMTP.Port = %d, want default 587 (invalid env should be ignored)", cfg.SMTP.Port)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Load — empty config file (valid YAML, no fields set)
+// ---------------------------------------------------------------------------
+
+func TestLoad_EmptyConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgFile, []byte(""), 0644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+	t.Setenv("BEACON_CONFIG", cfgFile)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error on empty file: %v", err)
+	}
+	// Should have defaults.
+	if cfg.ClaudeModel != "claude-sonnet-4-6" {
+		t.Errorf("ClaudeModel = %q, want default", cfg.ClaudeModel)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// defaults — Store.Path is always absolute (not relative)
+// ---------------------------------------------------------------------------
+
+func TestDefaults_StorePathIsAbsolute(t *testing.T) {
+	cfg := defaults()
+	if !filepath.IsAbs(cfg.Store.Path) {
+		t.Errorf("defaults().Store.Path = %q, want absolute path", cfg.Store.Path)
+	}
+}

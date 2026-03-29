@@ -350,3 +350,175 @@ func TestRenderOCSF_NoRemediationOmitted(t *testing.T) {
 		t.Error("expected remediation to be omitted when empty")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// OCSF severity mapping: verify informational maps to severity_id 1
+// ---------------------------------------------------------------------------
+
+func TestOcsfSeverity_DefaultIsInformational(t *testing.T) {
+	// SeverityInfo maps to "info" via String(), but OCSF returns "Informational".
+	id, name := ocsfSeverity(finding.SeverityInfo)
+	if id != 1 {
+		t.Errorf("SeverityInfo: want severity_id 1, got %d", id)
+	}
+	if name != "Informational" {
+		t.Errorf("SeverityInfo: want 'Informational', got %q", name)
+	}
+}
+
+func TestOcsfSeverity_UnknownSeverity(t *testing.T) {
+	// A severity value not in the switch should default to Informational.
+	id, name := ocsfSeverity(finding.Severity(99))
+	if id != 1 || name != "Informational" {
+		t.Errorf("unknown severity: want (1, 'Informational'), got (%d, %q)", id, name)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OCSF resource type mapping
+// ---------------------------------------------------------------------------
+
+func TestOcsfResourceType_AllPrefixes(t *testing.T) {
+	tests := []struct {
+		checkID  string
+		wantType string
+	}{
+		{"port.open_http", "Network"},
+		{"tls.weak_cipher", "Web Server"},
+		{"email.spf_missing", "DNS"},
+		{"iam.primitive_role", "Cloud Account"},
+		{"cloud.gcp.bucket_public", "Cloud Resource"},
+		{"secret.exposed_key", "Data Store"},
+		{"dlp.pii_exposed", "Data Store"},
+		{"cors.wildcard", "Web Server"},     // default
+		{"unknown.check", "Web Server"},     // default
+	}
+	for _, tt := range tests {
+		t.Run(tt.checkID, func(t *testing.T) {
+			got := ocsfResourceType(tt.checkID)
+			if got != tt.wantType {
+				t.Errorf("ocsfResourceType(%q) = %q, want %q", tt.checkID, got, tt.wantType)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OCSF CVE extraction edge cases
+// ---------------------------------------------------------------------------
+
+func TestExtractCVEs_MultipleSameCVE(t *testing.T) {
+	text := "CVE-2023-3519 is referenced twice: see CVE-2023-3519"
+	cves := extractCVEs(text)
+	if len(cves) != 1 {
+		t.Errorf("expected 1 unique CVE, got %d: %v", len(cves), cves)
+	}
+}
+
+func TestExtractCVEs_NoCVEs(t *testing.T) {
+	cves := extractCVEs("No vulnerabilities here")
+	if len(cves) != 0 {
+		t.Errorf("expected 0 CVEs, got %d: %v", len(cves), cves)
+	}
+}
+
+func TestExtractCVEs_MultipleDifferentCVEs(t *testing.T) {
+	text := "Affected by CVE-2023-3519 and CVE-2024-12345"
+	cves := extractCVEs(text)
+	if len(cves) != 2 {
+		t.Errorf("expected 2 CVEs, got %d: %v", len(cves), cves)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OCSF: zero DiscoveredAt falls back to now
+// ---------------------------------------------------------------------------
+
+func TestRenderOCSF_ZeroDiscoveredAtUsesNow(t *testing.T) {
+	ef := enrichment.EnrichedFinding{
+		Finding: finding.Finding{
+			CheckID:  "test.check",
+			Severity: finding.SeverityLow,
+			Title:    "Test",
+			Asset:    "test.example.com",
+			// DiscoveredAt is zero value
+		},
+	}
+	out, err := RenderOCSF(testRun(), []enrichment.EnrichedFinding{ef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	var m map[string]any
+	json.Unmarshal([]byte(lines[1]), &m)
+	ts := int64(m["time"].(float64))
+	if ts <= 0 {
+		t.Error("zero DiscoveredAt should fall back to a positive timestamp (now)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OCSF: special characters in finding fields
+// ---------------------------------------------------------------------------
+
+func TestRenderOCSF_SpecialCharactersInTitle(t *testing.T) {
+	ef := enrichment.EnrichedFinding{
+		Finding: finding.Finding{
+			CheckID:     "test.check",
+			Severity:    finding.SeverityHigh,
+			Title:       `SQL injection via "param' OR 1=1--`,
+			Description: "Contains <html> and \"quotes\" and\nnewlines",
+			Asset:       "test.example.com",
+		},
+	}
+	out, err := RenderOCSF(testRun(), []enrichment.EnrichedFinding{ef})
+	if err != nil {
+		t.Fatalf("RenderOCSF should handle special characters: %v", err)
+	}
+	// Verify each line is valid JSON.
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	for i, line := range lines {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Errorf("line %d is not valid JSON after special char encoding: %v", i, err)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OCSF: nil CompletedAt in scan run
+// ---------------------------------------------------------------------------
+
+func TestRenderOCSF_NilCompletedAt(t *testing.T) {
+	run := testRun()
+	run.CompletedAt = nil
+
+	out, err := RenderOCSF(run, nil)
+	if err != nil {
+		t.Fatalf("RenderOCSF with nil CompletedAt: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	var m map[string]any
+	json.Unmarshal([]byte(lines[0]), &m)
+	unmapped := m["unmapped"].(map[string]any)
+	// completed_at should be 0 (int64 zero value from nil pointer).
+	if unmapped["completed_at"].(float64) != 0 {
+		t.Errorf("expected completed_at 0 for nil CompletedAt, got %v", unmapped["completed_at"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OCSF: empty findings list
+// ---------------------------------------------------------------------------
+
+func TestRenderOCSF_EmptyFindings(t *testing.T) {
+	out, err := RenderOCSF(testRun(), []enrichment.EnrichedFinding{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	// Only the envelope event should be present.
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line (envelope only), got %d", len(lines))
+	}
+}

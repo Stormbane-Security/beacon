@@ -879,22 +879,26 @@ func TestDeleteSuppression_NoErrorForMissingID(t *testing.T) {
 func TestPurgeOrphanedRuns_DeletesFailedAndStoppedOlderThanThreshold(t *testing.T) {
 	s := newStore()
 	threshold := time.Now().Add(-1 * time.Hour)
+	// orphanThreshold = threshold - 2h = -3h from now
 
-	// Old failed run (should be purged).
+	// Old failed run, 2h ago (should be purged — failed + older than threshold).
 	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-failed", Domain: "a.com", Status: store.StatusFailed, StartedAt: time.Now().Add(-2 * time.Hour)})
 	s.SaveFindings(ctx(), "old-failed", []finding.Finding{{CheckID: "x"}})
 
-	// Old stopped run (should be purged).
+	// Old stopped run, 3h ago (should be purged — stopped + older than threshold).
 	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-stopped", Domain: "a.com", Status: store.StatusStopped, StartedAt: time.Now().Add(-3 * time.Hour)})
 
-	// Old completed run (should NOT be purged).
+	// Old completed run, 4h ago (should NOT be purged — completed runs are never purged).
 	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-completed", Domain: "a.com", Status: store.StatusCompleted, StartedAt: time.Now().Add(-4 * time.Hour)})
 
-	// Old running run (should NOT be purged).
+	// Old running run, 5h ago (SHOULD be purged — orphaned running, older than orphanThreshold -3h).
 	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-running", Domain: "a.com", Status: store.StatusRunning, StartedAt: time.Now().Add(-5 * time.Hour)})
 
-	// Old pending run (should NOT be purged).
+	// Old pending run, 6h ago (SHOULD be purged — orphaned pending, older than orphanThreshold -3h).
 	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-pending", Domain: "a.com", Status: store.StatusPending, StartedAt: time.Now().Add(-6 * time.Hour)})
+
+	// Recent running run, 2h ago (should NOT be purged — newer than orphanThreshold).
+	s.CreateScanRun(ctx(), &store.ScanRun{ID: "recent-running", Domain: "a.com", Status: store.StatusRunning, StartedAt: time.Now().Add(-2 * time.Hour)})
 
 	// Recent failed run (should NOT be purged — newer than threshold).
 	s.CreateScanRun(ctx(), &store.ScanRun{ID: "new-failed", Domain: "a.com", Status: store.StatusFailed, StartedAt: time.Now()})
@@ -903,8 +907,8 @@ func TestPurgeOrphanedRuns_DeletesFailedAndStoppedOlderThanThreshold(t *testing.
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if deleted != 2 {
-		t.Errorf("deleted = %d; want 2 (old-failed and old-stopped)", deleted)
+	if deleted != 4 {
+		t.Errorf("deleted = %d; want 4 (old-failed, old-stopped, old-running, old-pending)", deleted)
 	}
 
 	// Verify old-failed is gone along with its findings.
@@ -916,9 +920,22 @@ func TestPurgeOrphanedRuns_DeletesFailedAndStoppedOlderThanThreshold(t *testing.
 		t.Error("findings for old-failed still exist after purge")
 	}
 
+	// Verify orphaned running/pending are gone.
+	if _, err := s.GetScanRun(ctx(), "old-running"); err == nil {
+		t.Error("old-running still exists after purge (should be orphaned)")
+	}
+	if _, err := s.GetScanRun(ctx(), "old-pending"); err == nil {
+		t.Error("old-pending still exists after purge (should be orphaned)")
+	}
+
 	// Verify old-completed is preserved.
 	if _, err := s.GetScanRun(ctx(), "old-completed"); err != nil {
 		t.Errorf("old-completed was purged unexpectedly: %v", err)
+	}
+
+	// Verify recent-running is preserved.
+	if _, err := s.GetScanRun(ctx(), "recent-running"); err != nil {
+		t.Errorf("recent-running was purged unexpectedly: %v", err)
 	}
 
 	// Verify new-failed is preserved.
@@ -1277,4 +1294,721 @@ func TestConcurrentReadWrites_MixedOperations(t *testing.T) {
 	}
 	wg.Wait()
 	// If we reach here without a race-detector failure, the test passes.
+}
+
+// --- Edge Case Tests ---
+
+func TestSaveFindings_NilSlice(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+	// Saving nil should be a no-op, not error.
+	if err := s.SaveFindings(ctx(), run.ID, nil); err != nil {
+		t.Fatalf("SaveFindings(nil): %v", err)
+	}
+	got, _ := s.GetFindings(ctx(), run.ID)
+	if len(got) != 0 {
+		t.Errorf("len = %d; want 0 after saving nil", len(got))
+	}
+}
+
+func TestSaveFindings_EmptySlice(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+	if err := s.SaveFindings(ctx(), run.ID, []finding.Finding{}); err != nil {
+		t.Fatalf("SaveFindings(empty): %v", err)
+	}
+	got, _ := s.GetFindings(ctx(), run.ID)
+	if len(got) != 0 {
+		t.Errorf("len = %d; want 0 after saving empty slice", len(got))
+	}
+}
+
+func TestSaveFindings_CallerMutationDoesNotCorrupt(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	findings := []finding.Finding{{CheckID: "orig.check", Asset: "example.com"}}
+	s.SaveFindings(ctx(), run.ID, findings)
+
+	// Mutate the caller's slice after saving.
+	findings[0].CheckID = "mutated.check"
+
+	got, _ := s.GetFindings(ctx(), run.ID)
+	if len(got) != 1 {
+		t.Fatalf("len = %d; want 1", len(got))
+	}
+	if got[0].CheckID != "orig.check" {
+		t.Errorf("CheckID = %q; want %q (caller mutation leaked into store)", got[0].CheckID, "orig.check")
+	}
+}
+
+func TestGetFindings_ReturnedSliceMutationDoesNotCorrupt(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: "a.check", Asset: "a.com"}})
+
+	got, _ := s.GetFindings(ctx(), run.ID)
+	got[0].CheckID = "mutated"
+
+	got2, _ := s.GetFindings(ctx(), run.ID)
+	if got2[0].CheckID != "a.check" {
+		t.Errorf("CheckID = %q; want %q (returned slice mutation leaked)", got2[0].CheckID, "a.check")
+	}
+}
+
+func TestSaveEnrichedFindings_CallerMutationDoesNotCorrupt(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	ef := []enrichment.EnrichedFinding{{Explanation: "original"}}
+	s.SaveEnrichedFindings(ctx(), run.ID, ef)
+
+	ef[0].Explanation = "mutated"
+
+	got, _ := s.GetEnrichedFindings(ctx(), run.ID)
+	if got[0].Explanation != "original" {
+		t.Errorf("Explanation = %q; want %q (caller mutation leaked)", got[0].Explanation, "original")
+	}
+}
+
+func TestGetEnrichedFindings_ReturnedSliceMutationDoesNotCorrupt(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	s.SaveEnrichedFindings(ctx(), run.ID, []enrichment.EnrichedFinding{{Explanation: "original"}})
+
+	got, _ := s.GetEnrichedFindings(ctx(), run.ID)
+	got[0].Explanation = "mutated"
+
+	got2, _ := s.GetEnrichedFindings(ctx(), run.ID)
+	if got2[0].Explanation != "original" {
+		t.Errorf("Explanation = %q; want %q (returned slice mutation leaked)", got2[0].Explanation, "original")
+	}
+}
+
+func TestDeleteScanRun_CleansReportsAndCorrelations(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "test"})
+	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+		{ScanRunID: run.ID, Domain: "example.com", Title: "chain"},
+	})
+	s.SaveAssetGraph(ctx(), run.ID, []byte(`{"nodes":[]}`))
+
+	if err := s.DeleteScanRun(ctx(), run.ID); err != nil {
+		t.Fatalf("DeleteScanRun: %v", err)
+	}
+
+	// Report should be gone.
+	if _, err := s.GetReport(ctx(), run.ID); err == nil {
+		t.Error("report still exists after DeleteScanRun")
+	}
+
+	// Correlation findings should be gone.
+	corrs, _ := s.ListCorrelationFindings(ctx(), "example.com")
+	if len(corrs) != 0 {
+		t.Errorf("correlation findings len = %d; want 0 after delete", len(corrs))
+	}
+
+	// Asset graph should be gone.
+	graph, _ := s.GetAssetGraph(ctx(), run.ID)
+	if graph != nil {
+		t.Error("asset graph still exists after DeleteScanRun")
+	}
+}
+
+func TestPurgeOrphanedRuns_CleansReportsAndCorrelations(t *testing.T) {
+	s := newStore()
+	threshold := time.Now().Add(-1 * time.Hour)
+
+	s.CreateScanRun(ctx(), &store.ScanRun{
+		ID: "purge-me", Domain: "a.com", Status: store.StatusFailed,
+		StartedAt: time.Now().Add(-2 * time.Hour),
+	})
+	s.SaveReport(ctx(), &store.Report{ScanRunID: "purge-me", Summary: "test"})
+	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+		{ScanRunID: "purge-me", Domain: "a.com", Title: "chain"},
+	})
+
+	deleted, err := s.PurgeOrphanedRuns(ctx(), threshold)
+	if err != nil {
+		t.Fatalf("PurgeOrphanedRuns: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d; want 1", deleted)
+	}
+
+	if _, err := s.GetReport(ctx(), "purge-me"); err == nil {
+		t.Error("report still exists after purge")
+	}
+
+	corrs, _ := s.ListCorrelationFindings(ctx(), "a.com")
+	if len(corrs) != 0 {
+		t.Errorf("correlations len = %d; want 0 after purge", len(corrs))
+	}
+}
+
+func TestPurgeOrphanedRuns_OrphanedRunningRuns(t *testing.T) {
+	s := newStore()
+	threshold := time.Now().Add(-1 * time.Hour)
+	// orphanThreshold = threshold - 2h = -3h from now
+
+	// Running run from 4 hours ago — orphaned.
+	s.CreateScanRun(ctx(), &store.ScanRun{
+		ID: "orphan-run", Domain: "a.com", Status: store.StatusRunning,
+		StartedAt: time.Now().Add(-4 * time.Hour),
+	})
+
+	// Running run from 2 hours ago — not yet orphaned.
+	s.CreateScanRun(ctx(), &store.ScanRun{
+		ID: "active-run", Domain: "a.com", Status: store.StatusRunning,
+		StartedAt: time.Now().Add(-2 * time.Hour),
+	})
+
+	deleted, err := s.PurgeOrphanedRuns(ctx(), threshold)
+	if err != nil {
+		t.Fatalf("PurgeOrphanedRuns: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d; want 1 (only the 4h-old orphan)", deleted)
+	}
+
+	if _, err := s.GetScanRun(ctx(), "orphan-run"); err == nil {
+		t.Error("orphan-run still exists after purge")
+	}
+	if _, err := s.GetScanRun(ctx(), "active-run"); err != nil {
+		t.Error("active-run was purged unexpectedly")
+	}
+}
+
+func TestGetPreviousEnrichedFindings_SkipsCompletedRunsWithNilCompletedAt(t *testing.T) {
+	s := newStore()
+
+	// Completed run without CompletedAt (malformed) — should be skipped.
+	s.CreateScanRun(ctx(), &store.ScanRun{
+		ID: "no-completed-at", Domain: "example.com", Status: store.StatusCompleted,
+		StartedAt: time.Now().Add(-1 * time.Hour),
+		// CompletedAt intentionally nil
+	})
+	s.SaveEnrichedFindings(ctx(), "no-completed-at", []enrichment.EnrichedFinding{{Explanation: "malformed"}})
+
+	current := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	got, err := s.GetPreviousEnrichedFindings(ctx(), "example.com", current.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v; want nil (completed run without CompletedAt should be skipped)", got)
+	}
+}
+
+func TestSaveFindings_EmptyScanRunID(t *testing.T) {
+	s := newStore()
+	// Saving with empty scan run ID should still work (store doesn't validate).
+	err := s.SaveFindings(ctx(), "", []finding.Finding{{CheckID: "test.check"}})
+	if err != nil {
+		t.Fatalf("SaveFindings with empty scanRunID: %v", err)
+	}
+	got, _ := s.GetFindings(ctx(), "")
+	if len(got) != 1 {
+		t.Errorf("len = %d; want 1", len(got))
+	}
+}
+
+func TestSaveCorrelationFindings_EmptySlice(t *testing.T) {
+	s := newStore()
+	// Empty slice should be a no-op.
+	if err := s.SaveCorrelationFindings(ctx(), nil); err != nil {
+		t.Fatalf("SaveCorrelationFindings(nil): %v", err)
+	}
+	if err := s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{}); err != nil {
+		t.Fatalf("SaveCorrelationFindings(empty): %v", err)
+	}
+}
+
+func TestAssetGraph_Roundtrip(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	data := []byte(`{"nodes":[{"id":"a.com"}],"edges":[]}`)
+	if err := s.SaveAssetGraph(ctx(), run.ID, data); err != nil {
+		t.Fatalf("SaveAssetGraph: %v", err)
+	}
+
+	got, err := s.GetAssetGraph(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetAssetGraph: %v", err)
+	}
+	if string(got) != string(data) {
+		t.Errorf("graph = %q; want %q", string(got), string(data))
+	}
+}
+
+func TestAssetGraph_CallerMutationDoesNotCorrupt(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	data := []byte(`{"nodes":[]}`)
+	s.SaveAssetGraph(ctx(), run.ID, data)
+
+	// Mutate the original slice.
+	data[0] = 'X'
+
+	got, _ := s.GetAssetGraph(ctx(), run.ID)
+	if got[0] == 'X' {
+		t.Error("caller mutation of input corrupted stored data")
+	}
+
+	// Mutate the returned slice.
+	got[0] = 'Y'
+
+	got2, _ := s.GetAssetGraph(ctx(), run.ID)
+	if got2[0] == 'Y' {
+		t.Error("mutation of returned slice corrupted stored data")
+	}
+}
+
+func TestAssetGraph_NotFound(t *testing.T) {
+	s := newStore()
+	got, err := s.GetAssetGraph(ctx(), "nonexistent")
+	if err != nil {
+		t.Fatalf("GetAssetGraph: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v; want nil for missing graph", got)
+	}
+}
+
+func TestDeleteScanRun_DoesNotAffectOtherRuns(t *testing.T) {
+	s := newStore()
+	run1 := mustCreateRun(t, s, "a.com", module.ScanSurface)
+	run2 := mustCreateRun(t, s, "b.com", module.ScanSurface)
+
+	s.SaveFindings(ctx(), run1.ID, []finding.Finding{{CheckID: "f1", Asset: "a.com"}})
+	s.SaveFindings(ctx(), run2.ID, []finding.Finding{{CheckID: "f2", Asset: "b.com"}})
+	s.SaveEnrichedFindings(ctx(), run1.ID, []enrichment.EnrichedFinding{{Explanation: "e1"}})
+	s.SaveEnrichedFindings(ctx(), run2.ID, []enrichment.EnrichedFinding{{Explanation: "e2"}})
+	s.SaveReport(ctx(), &store.Report{ScanRunID: run1.ID, Summary: "r1"})
+	s.SaveReport(ctx(), &store.Report{ScanRunID: run2.ID, Summary: "r2"})
+	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+		{ScanRunID: run1.ID, Domain: "a.com", Title: "c1"},
+		{ScanRunID: run2.ID, Domain: "b.com", Title: "c2"},
+	})
+
+	s.DeleteScanRun(ctx(), run1.ID)
+
+	// run2 should be unaffected.
+	if _, err := s.GetScanRun(ctx(), run2.ID); err != nil {
+		t.Errorf("run2 was affected by deleting run1: %v", err)
+	}
+	f2, _ := s.GetFindings(ctx(), run2.ID)
+	if len(f2) != 1 {
+		t.Errorf("run2 findings len = %d; want 1", len(f2))
+	}
+	e2, _ := s.GetEnrichedFindings(ctx(), run2.ID)
+	if len(e2) != 1 {
+		t.Errorf("run2 enriched len = %d; want 1", len(e2))
+	}
+	r2, err := s.GetReport(ctx(), run2.ID)
+	if err != nil {
+		t.Errorf("run2 report error: %v", err)
+	}
+	if r2.Summary != "r2" {
+		t.Errorf("run2 report summary = %q; want %q", r2.Summary, "r2")
+	}
+	c2, _ := s.ListCorrelationFindings(ctx(), "b.com")
+	if len(c2) != 1 {
+		t.Errorf("run2 correlations len = %d; want 1", len(c2))
+	}
+}
+
+func TestConcurrentDeleteAndRead(t *testing.T) {
+	s := newStore()
+	const goroutines = 20
+	var wg sync.WaitGroup
+
+	// Create runs and populate data.
+	for i := 0; i < goroutines; i++ {
+		run := &store.ScanRun{
+			ID:      fmt.Sprintf("run-%d", i),
+			Domain:  "concurrent.com",
+			Status:  store.StatusFailed,
+			StartedAt: time.Now(),
+		}
+		s.CreateScanRun(ctx(), run)
+		s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: finding.CheckID(fmt.Sprintf("c.%d", i))}})
+	}
+
+	// Concurrently delete and read.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(2)
+		go func(n int) {
+			defer wg.Done()
+			s.DeleteScanRun(ctx(), fmt.Sprintf("run-%d", n))
+		}(i)
+		go func(n int) {
+			defer wg.Done()
+			s.GetFindings(ctx(), fmt.Sprintf("run-%d", n))
+			s.ListScanRuns(ctx(), "concurrent.com")
+		}(i)
+	}
+	wg.Wait()
+	// If we reach here without a race-detector failure, the test passes.
+}
+
+// --- ListAllScanRuns tests ---
+
+func TestListAllScanRuns_EmptyStore(t *testing.T) {
+	s := newStore()
+	runs, err := s.ListAllScanRuns(ctx(), 10)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("len = %d; want 0", len(runs))
+	}
+}
+
+func TestListAllScanRuns_ReturnsAllDomains(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "a.com")
+	mustUpsertTarget(t, s, "b.com")
+	mustCreateRun(t, s, "a.com", module.ScanSurface)
+	mustCreateRun(t, s, "b.com", module.ScanSurface)
+	mustCreateRun(t, s, "a.com", module.ScanDeep)
+
+	runs, err := s.ListAllScanRuns(ctx(), 50)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Errorf("len = %d; want 3", len(runs))
+	}
+}
+
+func TestListAllScanRuns_SortedByStartedAtDesc(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "x.com")
+
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		run := &store.ScanRun{
+			ID:        fmt.Sprintf("run-%d", i),
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: now.Add(time.Duration(i) * time.Minute),
+		}
+		s.CreateScanRun(ctx(), run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx(), 50)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	for i := 1; i < len(runs); i++ {
+		if runs[i].StartedAt.After(runs[i-1].StartedAt) {
+			t.Errorf("runs[%d].StartedAt (%v) > runs[%d].StartedAt (%v); want descending",
+				i, runs[i].StartedAt, i-1, runs[i-1].StartedAt)
+		}
+	}
+}
+
+func TestListAllScanRuns_RespectsLimit(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "x.com")
+	for i := 0; i < 10; i++ {
+		mustCreateRun(t, s, "x.com", module.ScanSurface)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx(), 3)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Errorf("len = %d; want 3", len(runs))
+	}
+}
+
+func TestListAllScanRuns_LimitZeroDefaultsTo50(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "x.com")
+	for i := 0; i < 60; i++ {
+		run := &store.ScanRun{
+			ID:        fmt.Sprintf("run-zero-%d", i),
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}
+		s.CreateScanRun(ctx(), run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx(), 0)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 50 {
+		t.Errorf("len = %d; want 50 (default limit)", len(runs))
+	}
+}
+
+func TestListAllScanRuns_NegativeLimitDefaultsTo50(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "x.com")
+	for i := 0; i < 55; i++ {
+		run := &store.ScanRun{
+			ID:        fmt.Sprintf("neg-%d", i),
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}
+		s.CreateScanRun(ctx(), run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx(), -1)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 50 {
+		t.Errorf("len = %d; want 50 (default limit for negative)", len(runs))
+	}
+}
+
+func TestListAllScanRuns_LimitExceedsCount(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "x.com")
+	mustCreateRun(t, s, "x.com", module.ScanSurface)
+	mustCreateRun(t, s, "x.com", module.ScanDeep)
+
+	runs, err := s.ListAllScanRuns(ctx(), 100)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Errorf("len = %d; want 2", len(runs))
+	}
+}
+
+// --- AssetExecution tests ---
+
+func TestSaveAssetExecution_RoundTrip(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "example.com")
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	exec := &store.AssetExecution{
+		ID:          "exec-1",
+		ScanRunID:   run.ID,
+		Asset:       "sub.example.com",
+		ScannersRun: []string{"cors", "tls"},
+		FindingsCount: 2,
+	}
+	if err := s.SaveAssetExecution(ctx(), exec); err != nil {
+		t.Fatalf("SaveAssetExecution: %v", err)
+	}
+
+	execs, err := s.ListAssetExecutions(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("ListAssetExecutions: %v", err)
+	}
+	if len(execs) != 1 {
+		t.Fatalf("len = %d; want 1", len(execs))
+	}
+	if execs[0].Asset != "sub.example.com" {
+		t.Errorf("Asset = %q; want %q", execs[0].Asset, "sub.example.com")
+	}
+	if len(execs[0].ScannersRun) != 2 {
+		t.Errorf("ScannersRun len = %d; want 2", len(execs[0].ScannersRun))
+	}
+}
+
+func TestListAssetExecutions_EmptyForUnknownRun(t *testing.T) {
+	s := newStore()
+	execs, err := s.ListAssetExecutions(ctx(), "nonexistent-run")
+	if err != nil {
+		t.Fatalf("ListAssetExecutions: %v", err)
+	}
+	if len(execs) != 0 {
+		t.Errorf("len = %d; want 0", len(execs))
+	}
+}
+
+func TestSaveAssetExecution_MultiplePerRun(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "example.com")
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	for i := 0; i < 5; i++ {
+		exec := &store.AssetExecution{
+			ID:        fmt.Sprintf("exec-%d", i),
+			ScanRunID: run.ID,
+			Asset:     fmt.Sprintf("sub%d.example.com", i),
+		}
+		s.SaveAssetExecution(ctx(), exec)
+	}
+
+	execs, err := s.ListAssetExecutions(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("ListAssetExecutions: %v", err)
+	}
+	if len(execs) != 5 {
+		t.Errorf("len = %d; want 5", len(execs))
+	}
+}
+
+func TestSaveAssetExecution_IsolatedBetweenRuns(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "a.com")
+	mustUpsertTarget(t, s, "b.com")
+	runA := mustCreateRun(t, s, "a.com", module.ScanSurface)
+	runB := mustCreateRun(t, s, "b.com", module.ScanSurface)
+
+	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e1", ScanRunID: runA.ID, Asset: "x"})
+	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e2", ScanRunID: runB.ID, Asset: "y"})
+	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e3", ScanRunID: runB.ID, Asset: "z"})
+
+	execsA, _ := s.ListAssetExecutions(ctx(), runA.ID)
+	execsB, _ := s.ListAssetExecutions(ctx(), runB.ID)
+
+	if len(execsA) != 1 {
+		t.Errorf("runA execs: len = %d; want 1", len(execsA))
+	}
+	if len(execsB) != 2 {
+		t.Errorf("runB execs: len = %d; want 2", len(execsB))
+	}
+}
+
+func TestSaveAssetExecution_MutationIsolation(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "example.com")
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	exec := &store.AssetExecution{
+		ID:        "exec-1",
+		ScanRunID: run.ID,
+		Asset:     "original",
+	}
+	s.SaveAssetExecution(ctx(), exec)
+
+	// Mutate the original after saving — should not affect stored copy.
+	exec.Asset = "mutated"
+
+	execs, _ := s.ListAssetExecutions(ctx(), run.ID)
+	if execs[0].Asset != "original" {
+		t.Errorf("Asset = %q; want %q (store should be independent of caller)", execs[0].Asset, "original")
+	}
+}
+
+// --- AssetGraph tests ---
+
+func TestSaveAssetGraph_RoundTrip(t *testing.T) {
+	s := newStore()
+	data := []byte(`{"domain":"example.com","assets":[]}`)
+	if err := s.SaveAssetGraph(ctx(), "run-1", data); err != nil {
+		t.Fatalf("SaveAssetGraph: %v", err)
+	}
+	got, err := s.GetAssetGraph(ctx(), "run-1")
+	if err != nil {
+		t.Fatalf("GetAssetGraph: %v", err)
+	}
+	if string(got) != string(data) {
+		t.Errorf("got %q; want %q", got, data)
+	}
+}
+
+func TestGetAssetGraph_ReturnsNilForMissing(t *testing.T) {
+	s := newStore()
+	got, err := s.GetAssetGraph(ctx(), "nonexistent")
+	if err != nil {
+		t.Fatalf("GetAssetGraph: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %q; want nil", got)
+	}
+}
+
+func TestSaveAssetGraph_MutationIsolation(t *testing.T) {
+	s := newStore()
+	data := []byte(`{"original":true}`)
+	s.SaveAssetGraph(ctx(), "run-1", data)
+
+	// Mutate the input slice after saving.
+	data[0] = '!'
+
+	got, _ := s.GetAssetGraph(ctx(), "run-1")
+	if got[0] == '!' {
+		t.Error("mutation leaked into stored data")
+	}
+}
+
+func TestDeleteScanRun_CleansUpAssetExecutionsAndGraphs(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "example.com")
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e1", ScanRunID: run.ID, Asset: "x"})
+	s.SaveAssetGraph(ctx(), run.ID, []byte(`{}`))
+
+	if err := s.DeleteScanRun(ctx(), run.ID); err != nil {
+		t.Fatalf("DeleteScanRun: %v", err)
+	}
+
+	execs, _ := s.ListAssetExecutions(ctx(), run.ID)
+	if len(execs) != 0 {
+		t.Errorf("asset executions not cleaned up: len = %d", len(execs))
+	}
+
+	graph, _ := s.GetAssetGraph(ctx(), run.ID)
+	if graph != nil {
+		t.Error("asset graph not cleaned up")
+	}
+}
+
+// --- Concurrent access for new methods ---
+
+func TestListAllScanRuns_ConcurrentAccess(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "concurrent.com")
+	for i := 0; i < 20; i++ {
+		mustCreateRun(t, s, "concurrent.com", module.ScanSurface)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.ListAllScanRuns(ctx(), 10)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestAssetExecution_ConcurrentReadWrite(t *testing.T) {
+	s := newStore()
+	mustUpsertTarget(t, s, "concurrent.com")
+	run := mustCreateRun(t, s, "concurrent.com", module.ScanSurface)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func(n int) {
+			defer wg.Done()
+			s.SaveAssetExecution(ctx(), &store.AssetExecution{
+				ID:        fmt.Sprintf("exec-%d", n),
+				ScanRunID: run.ID,
+				Asset:     fmt.Sprintf("asset-%d", n),
+			})
+		}(i)
+		go func(n int) {
+			defer wg.Done()
+			s.ListAssetExecutions(ctx(), run.ID)
+		}(i)
+	}
+	wg.Wait()
 }

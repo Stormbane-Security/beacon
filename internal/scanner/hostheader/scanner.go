@@ -89,7 +89,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 
 		location := resp.Header.Get("Location")
@@ -166,7 +166,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// for application-level injection.
 		absResp, absErr := client.Do(absReq)
 		if absErr == nil {
-			absBody, _ := io.ReadAll(io.LimitReader(absResp.Body, 1024))
+			absBody, _ := io.ReadAll(io.LimitReader(absResp.Body, 4096))
 			absResp.Body.Close()
 
 			absLocation := absResp.Header.Get("Location")
@@ -231,7 +231,7 @@ func baseline(ctx context.Context, client *http.Client, asset string) (
 			continue
 		}
 
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 
 		scheme = s

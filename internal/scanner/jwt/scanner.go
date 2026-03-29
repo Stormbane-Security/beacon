@@ -93,7 +93,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024)) // 512 KB — JWTs often appear in JS bundles
 	bodyStr := string(bodyBytes)
 
 	// Collect JWT candidates from multiple sources.
@@ -150,7 +150,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// ── Deep-mode checks ─────────────────────────────────────────────────────
 	// These are active probes that submit forged tokens to the server.
-	if scanType == module.ScanDeep {
+	// ScanAuthorized implies ScanDeep, so run deep checks for both modes.
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		if base == "http://"+asset {
 			// already resolved above; reuse the working base
 		} else {
@@ -473,7 +474,14 @@ func truncate(s string, n int) string {
 
 // allSensitiveFields is the union of PII and role fields used by encryption /
 // replay checks that need a combined sensitive-field test.
-var allSensitiveFields = append(sensitiveDataFields, sensitiveRoleFields...)
+// NOTE: must copy sensitiveDataFields into a fresh slice first — appending
+// directly to it would share (and potentially overwrite) the backing array.
+var allSensitiveFields = func() []string {
+	combined := make([]string, 0, len(sensitiveDataFields)+len(sensitiveRoleFields))
+	combined = append(combined, sensitiveDataFields...)
+	combined = append(combined, sensitiveRoleFields...)
+	return combined
+}()
 
 // checkJWTEncryption emits a finding when a JWT with sensitive claims is not
 // encrypted (not JWE). A standard JWT has 3 parts (2 dots); a JWE has 5 parts

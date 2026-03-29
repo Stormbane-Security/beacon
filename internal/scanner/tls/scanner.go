@@ -455,6 +455,7 @@ func checkHSTS(ctx context.Context, asset string, now time.Time) []finding.Findi
 	if err != nil {
 		return nil
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 	resp.Body.Close()
 
 	hsts := resp.Header.Get("Strict-Transport-Security")
@@ -626,11 +627,25 @@ func supportsTLS13(ctx context.Context, host, port string) bool {
 // ── Utility functions ─────────────────────────────────────────────────────────
 
 func splitHostPort(asset string) (string, string) {
-	if strings.Contains(asset, ":") {
+	// IPv6 literals are enclosed in brackets: [::1] or [::1]:8443.
+	// net.SplitHostPort requires host:port format; a bare [::1] without a port
+	// would fail. Only attempt SplitHostPort when we believe a port is present.
+	if strings.Contains(asset, "]:") {
+		// Bracketed IPv6 with port: [::1]:8443
 		h, p, err := net.SplitHostPort(asset)
 		if err == nil {
 			return h, p
 		}
+	} else if !strings.HasPrefix(asset, "[") && strings.Contains(asset, ":") {
+		// Non-bracketed host:port (IPv4 or hostname): example.com:8443
+		// Exclude bare IPv6 addresses (e.g. "::1") which contain colons but no port.
+		h, p, err := net.SplitHostPort(asset)
+		if err == nil {
+			return h, p
+		}
+	} else if strings.HasPrefix(asset, "[") && strings.HasSuffix(asset, "]") {
+		// Bare bracketed IPv6 without port: [::1]
+		return asset[1 : len(asset)-1], "443"
 	}
 	return asset, "443"
 }

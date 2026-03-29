@@ -591,3 +591,117 @@ func TestCredentialedReflection_NullOrigin_NoCompound(t *testing.T) {
 		t.Error("Case 4 compound check must NOT fire for null origin (only non-null origins)")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge: non-null origin reflection emits both Case 1 AND Case 4
+// ---------------------------------------------------------------------------
+
+func TestReflectedOriginWithCredentials_EmitsBothChecks(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Case 1: generic CORS misconfiguration
+	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("expected CheckCORSMisconfiguration (Case 1) for reflected origin with credentials")
+	}
+	// Case 4: compound credentialed reflection (only for non-null origins)
+	if !hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("expected CheckCORSCredentialedReflection (Case 4) for reflected non-null origin with credentials")
+	}
+	// Both should be Critical severity.
+	if !hasSeverity(findings, finding.CheckCORSMisconfiguration, finding.SeverityCritical) {
+		t.Error("Case 1 should be Critical severity")
+	}
+	if !hasSeverity(findings, finding.CheckCORSCredentialedReflection, finding.SeverityCritical) {
+		t.Error("Case 4 should be Critical severity")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: wildcard with credentials (Case 2) should NOT also emit Case 4
+// ---------------------------------------------------------------------------
+
+func TestWildcardWithCredentials_DoesNotEmitCase4(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("expected CheckCORSMisconfiguration for wildcard+credentials")
+	}
+	// Case 2 uses 'continue' so Case 4 should NOT fire.
+	if hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("Case 4 should NOT fire for wildcard origin (Case 2 has 'continue')")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: origin reflected WITHOUT credentials — no findings
+// ---------------------------------------------------------------------------
+
+func TestReflectedOriginWithoutCredentials_NoFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			// No credentials header
+		}
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Without credentials, the origin reflection is not exploitable for
+	// credentialed requests. Neither Case 1 nor Case 4 should fire.
+	if hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("should not emit CheckCORSMisconfiguration without credentials")
+	}
+	if hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("should not emit CheckCORSCredentialedReflection without credentials")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: scanner handles context cancellation
+// ---------------------------------------------------------------------------
+
+func TestCancelledContext_ReturnsNoError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := cors.New()
+	_, err := s.Run(ctx, asset, module.ScanDeep)
+	// Should not panic — either returns error or empty findings.
+	if err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

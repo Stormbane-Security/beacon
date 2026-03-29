@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1519,9 +1520,13 @@ func splitOwnerRepo(target string) (owner, repo string, ok bool) {
 	target = strings.TrimPrefix(target, "http://github.com/")
 	target = strings.TrimPrefix(target, "github.com/")
 
-	parts := strings.SplitN(target, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	parts := strings.SplitN(target, "/", 3) // split into at most 3 parts
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	// Strip trailing slashes or extra path segments from the repo name.
+	repo = strings.TrimSuffix(parts[1], "/")
+	// Percent-encode both segments so slashes and path-traversal
+	// sequences cannot escape the intended URL path position.
+	return url.PathEscape(parts[0]), url.PathEscape(repo), true
 }

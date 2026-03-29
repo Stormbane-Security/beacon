@@ -497,6 +497,40 @@ func TestTruncate_Long(t *testing.T) {
 	}
 }
 
+func TestTruncate_MultibyteSafe(t *testing.T) {
+	// 15 multi-byte runes (each 3 bytes UTF-8), truncate at 10 runes.
+	input := strings.Repeat("\u4e16", 15)
+	result := truncate(input, 10)
+	runes := []rune(result)
+	// 10 runes + "..." (3 runes) = 13 runes.
+	if len(runes) != 13 {
+		t.Errorf("expected 13 runes (10 + ...), got %d", len(runes))
+	}
+	if !strings.HasSuffix(result, "...") {
+		t.Errorf("expected trailing ellipsis, got %q", result)
+	}
+	// Must be valid UTF-8 — no replacement characters.
+	if strings.ContainsRune(result, '\uFFFD') {
+		t.Error("result contains U+FFFD — truncation broke UTF-8")
+	}
+}
+
+func TestTruncate_ExactLength(t *testing.T) {
+	// String exactly at the limit should not be truncated.
+	input := "abcdefghij" // 10 chars
+	result := truncate(input, 10)
+	if result != input {
+		t.Errorf("exact-length string should pass through, got %q", result)
+	}
+}
+
+func TestTruncate_Empty(t *testing.T) {
+	result := truncate("", 10)
+	if result != "" {
+		t.Errorf("empty string should return empty, got %q", result)
+	}
+}
+
 // ── NoopEnricher.EnrichFingerprints ──────────────────────────────────────────
 
 func TestNoopEnricher_EnrichFingerprints(t *testing.T) {

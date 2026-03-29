@@ -251,6 +251,47 @@ func TestWAFDetect_CatchAllSkipped(t *testing.T) {
 	}
 }
 
+// ── detectVendor body pattern matching ──────────────────────────────────────
+
+func TestDetectVendorBody_Cloudflare(t *testing.T) {
+	headers := map[string]string{}
+	body := "<html><title>Attention Required! | Cloudflare</title></html>"
+	got := detectVendor(headers, body)
+	if got != "Cloudflare" {
+		t.Errorf("detectVendor (body) = %q; want Cloudflare", got)
+	}
+}
+
+func TestDetectVendorBody_NamedVendorPreferredOverGeneric(t *testing.T) {
+	// Body contains both "access denied" (Generic WAF) and "incapsula incident id"
+	// (Imperva). The scanner should return the named vendor, not "Generic WAF".
+	headers := map[string]string{}
+	body := "<html><h1>Access Denied</h1><p>Incapsula incident ID: 12345</p></html>"
+	got := detectVendor(headers, body)
+	if got != "Imperva Incapsula" {
+		t.Errorf("detectVendor (body with generic + named) = %q; want Imperva Incapsula", got)
+	}
+}
+
+func TestDetectVendorBody_GenericWAFFallback(t *testing.T) {
+	// Body contains only "access denied" (Generic WAF) with no named vendor.
+	headers := map[string]string{}
+	body := "<html><h1>Access Denied</h1><p>Your request was blocked.</p></html>"
+	got := detectVendor(headers, body)
+	if got != "Generic WAF" {
+		t.Errorf("detectVendor (generic-only body) = %q; want Generic WAF", got)
+	}
+}
+
+func TestDetectVendorBody_NoMatch(t *testing.T) {
+	headers := map[string]string{}
+	body := "<html><body>Welcome to our website</body></html>"
+	got := detectVendor(headers, body)
+	if got != "" {
+		t.Errorf("detectVendor (normal body) = %q; want empty", got)
+	}
+}
+
 // TestWAFDetect_NilHeaderMap verifies that a server returning 200 with no WAF
 // headers produces no finding and does not panic.
 func TestWAFDetect_NilHeaderMap(t *testing.T) {

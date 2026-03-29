@@ -311,10 +311,13 @@ func parseFingerprintSeverity(s string) finding.Severity {
 	}
 }
 
-// truncate shortens s to n characters, appending an ellipsis if truncated.
+// truncate shortens s to n runes, appending an ellipsis if truncated.
+// Uses rune count instead of byte count to avoid slicing in the middle
+// of a multi-byte UTF-8 character.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return string(runes[:n]) + "..."
 }

@@ -1827,3 +1827,538 @@ var _ store.Store = (*sqlite.Store)(nil)
 
 // suppress unused import warning for sql package
 var _ = sql.ErrNoRows
+
+// ---------------------------------------------------------------------------
+// Edge Cases
+// ---------------------------------------------------------------------------
+
+func TestSaveFindings_NilSlice(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// nil should be a no-op
+	if err := s.SaveFindings(ctx, "run-1", nil); err != nil {
+		t.Fatalf("SaveFindings(nil): %v", err)
+	}
+}
+
+func TestSaveFindings_DuplicateIDs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run := makeScanRun("example.com")
+	s.CreateScanRun(ctx, run)
+
+	// Save the same finding multiple times in the same batch — should be deduplicated.
+	f := finding.Finding{
+		CheckID: "dup.check", Module: "surface", Scanner: "test",
+		Severity: finding.SeverityLow, Title: "Dup Finding",
+		Description: "d", Asset: "a.com", DiscoveredAt: time.Now().UTC(),
+	}
+	s.SaveFindings(ctx, run.ID, []finding.Finding{f, f, f})
+
+	got, _ := s.GetFindings(ctx, run.ID)
+	if len(got) != 1 {
+		t.Errorf("expected 1 finding after dedup, got %d", len(got))
+	}
+}
+
+func TestSaveFindings_EmptyScanRunID(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Empty scan run ID is not prevented at the store level.
+	f := finding.Finding{
+		CheckID: "test.empty", Module: "surface", Scanner: "test",
+		Severity: finding.SeverityLow, Title: "T",
+		Description: "d", Asset: "a.com", DiscoveredAt: time.Now().UTC(),
+	}
+	if err := s.SaveFindings(ctx, "", []finding.Finding{f}); err != nil {
+		t.Fatalf("SaveFindings with empty scanRunID: %v", err)
+	}
+	got, _ := s.GetFindings(ctx, "")
+	if len(got) != 1 {
+		t.Errorf("len = %d; want 1", len(got))
+	}
+}
+
+func TestSaveEnrichedFindings_NilSlice(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// nil is a no-op.
+	if err := s.SaveEnrichedFindings(ctx, "run-1", nil); err != nil {
+		t.Fatalf("SaveEnrichedFindings(nil): %v", err)
+	}
+}
+
+func TestGetPreviousEnrichedFindings_OnlyOneRun(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Single completed run -- GetPreviousEnrichedFindings for that same run should return nil.
+	run := makeScanRun("example.com")
+	run.Status = store.StatusCompleted
+	now := time.Now().UTC()
+	run.CompletedAt = &now
+	s.CreateScanRun(ctx, run)
+	s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{
+		{Finding: finding.Finding{CheckID: "test.a", Asset: "a.com", DiscoveredAt: now}, Explanation: "self"},
+	})
+
+	got, err := s.GetPreviousEnrichedFindings(ctx, "example.com", run.ID)
+	if err != nil {
+		t.Fatalf("GetPreviousEnrichedFindings: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil when only one run exists, got %d findings", len(got))
+	}
+}
+
+func TestDeleteScanRun_CascadesToAssetGraphs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run := makeScanRun("example.com")
+	s.CreateScanRun(ctx, run)
+	s.SaveAssetGraph(ctx, run.ID, []byte(`{"nodes":[]}`))
+
+	if err := s.DeleteScanRun(ctx, run.ID); err != nil {
+		t.Fatalf("DeleteScanRun: %v", err)
+	}
+
+	got, _ := s.GetAssetGraph(ctx, run.ID)
+	if got != nil {
+		t.Error("asset graph not cascaded on DeleteScanRun")
+	}
+}
+
+func TestSaveAssetGraph_Roundtrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run := makeScanRun("example.com")
+	s.CreateScanRun(ctx, run)
+
+	data := []byte(`{"nodes":[{"id":"api.example.com"}],"edges":[]}`)
+	if err := s.SaveAssetGraph(ctx, run.ID, data); err != nil {
+		t.Fatalf("SaveAssetGraph: %v", err)
+	}
+
+	got, err := s.GetAssetGraph(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetAssetGraph: %v", err)
+	}
+	if string(got) != string(data) {
+		t.Errorf("graph = %q; want %q", string(got), string(data))
+	}
+}
+
+func TestSaveAssetGraph_Upsert(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run := makeScanRun("example.com")
+	s.CreateScanRun(ctx, run)
+
+	s.SaveAssetGraph(ctx, run.ID, []byte(`{"v":1}`))
+	s.SaveAssetGraph(ctx, run.ID, []byte(`{"v":2}`))
+
+	got, _ := s.GetAssetGraph(ctx, run.ID)
+	if string(got) != `{"v":2}` {
+		t.Errorf("graph = %q; want latest version", string(got))
+	}
+}
+
+func TestGetAssetGraph_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	got, err := s.GetAssetGraph(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("GetAssetGraph: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for missing graph, got %v", got)
+	}
+}
+
+func TestSaveCorrelationFindings_AssignsDefaults(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run := makeScanRun("example.com")
+	s.CreateScanRun(ctx, run)
+
+	// No ID or CreatedAt -- should be auto-assigned.
+	cfs := []store.CorrelationFinding{
+		{ScanRunID: run.ID, Domain: "example.com", Title: "Auto", Severity: finding.SeverityLow},
+	}
+	if err := s.SaveCorrelationFindings(ctx, cfs); err != nil {
+		t.Fatalf("SaveCorrelationFindings: %v", err)
+	}
+
+	got, _ := s.ListCorrelationFindings(ctx, "example.com")
+	if len(got) != 1 {
+		t.Fatalf("expected 1, got %d", len(got))
+	}
+	if got[0].ID == "" {
+		t.Error("expected auto-assigned ID")
+	}
+	if got[0].CreatedAt.IsZero() {
+		t.Error("expected auto-assigned CreatedAt")
+	}
+}
+
+func TestPurgeOrphanedRuns_AlsoPurgesOrphanedRunning(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Orphaned running run (5 hours old).
+	orphan := makeScanRun("example.com")
+	orphan.Status = store.StatusRunning
+	orphan.StartedAt = time.Now().UTC().Add(-5 * time.Hour)
+	s.CreateScanRun(ctx, orphan)
+	s.SaveAssetGraph(ctx, orphan.ID, []byte(`{}`))
+
+	// Recent running run (1 hour old) -- NOT orphaned.
+	recent := makeScanRun("example.com")
+	recent.Status = store.StatusRunning
+	recent.StartedAt = time.Now().UTC().Add(-1 * time.Hour)
+	s.CreateScanRun(ctx, recent)
+
+	// olderThan = 2 hours ago, orphanThreshold = 4 hours ago.
+	purged, err := s.PurgeOrphanedRuns(ctx, time.Now().UTC().Add(-2*time.Hour))
+	if err != nil {
+		t.Fatalf("PurgeOrphanedRuns: %v", err)
+	}
+	if purged != 1 {
+		t.Errorf("purged = %d, want 1", purged)
+	}
+
+	// Orphan run and its graph should be gone.
+	if _, err := s.GetScanRun(ctx, orphan.ID); err == nil {
+		t.Error("orphaned run still exists")
+	}
+	graph, _ := s.GetAssetGraph(ctx, orphan.ID)
+	if graph != nil {
+		t.Error("orphaned run's asset graph still exists")
+	}
+
+	// Recent run should survive.
+	if _, err := s.GetScanRun(ctx, recent.ID); err != nil {
+		t.Errorf("recent run was purged: %v", err)
+	}
+}
+
+func TestListRecentScanRuns_NegativeLimit(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		r := makeScanRun("example.com")
+		r.StartedAt = time.Now().UTC().Add(time.Duration(i) * time.Second)
+		s.CreateScanRun(ctx, r)
+	}
+
+	// In SQLite, LIMIT -1 returns all rows (no limit).
+	runs, err := s.ListRecentScanRuns(ctx, -1)
+	if err != nil {
+		t.Fatalf("ListRecentScanRuns(-1): %v", err)
+	}
+	if len(runs) != 5 {
+		t.Errorf("expected 5 runs with limit=-1, got %d", len(runs))
+	}
+}
+
+func TestDeleteScanRun_DoesNotAffectOtherRuns(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run1 := makeScanRun("a.com")
+	s.CreateScanRun(ctx, run1)
+	run2 := makeScanRun("b.com")
+	s.CreateScanRun(ctx, run2)
+
+	s.SaveFindings(ctx, run1.ID, makeFindings(1))
+	s.SaveFindings(ctx, run2.ID, makeFindings(1))
+	s.SaveReport(ctx, &store.Report{ScanRunID: run1.ID, Domain: "a.com", HTMLContent: "r1"})
+	s.SaveReport(ctx, &store.Report{ScanRunID: run2.ID, Domain: "b.com", HTMLContent: "r2"})
+	s.SaveAssetGraph(ctx, run1.ID, []byte(`{"r":"1"}`))
+	s.SaveAssetGraph(ctx, run2.ID, []byte(`{"r":"2"}`))
+
+	s.DeleteScanRun(ctx, run1.ID)
+
+	// run2 should be unaffected.
+	if _, err := s.GetScanRun(ctx, run2.ID); err != nil {
+		t.Errorf("run2 deleted by mistake: %v", err)
+	}
+	f2, _ := s.GetFindings(ctx, run2.ID)
+	if len(f2) != 1 {
+		t.Errorf("run2 findings = %d; want 1", len(f2))
+	}
+	rpt2, err := s.GetReport(ctx, run2.ID)
+	if err != nil {
+		t.Errorf("run2 report error: %v", err)
+	}
+	if rpt2.HTMLContent != "r2" {
+		t.Errorf("run2 report content = %q; want %q", rpt2.HTMLContent, "r2")
+	}
+	g2, _ := s.GetAssetGraph(ctx, run2.ID)
+	if string(g2) != `{"r":"2"}` {
+		t.Errorf("run2 graph = %q; want preserved", string(g2))
+	}
+}
+
+func TestUpsertSuppression_EmptyAssetMeansAllAssets(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Two suppressions: one with specific asset, one with empty asset (all assets).
+	sup1 := &store.FindingSuppression{
+		Domain: "example.com", CheckID: "cors.wildcard", Asset: "api.example.com",
+		Status: store.SuppressionFalsePositive,
+	}
+	sup2 := &store.FindingSuppression{
+		Domain: "example.com", CheckID: "cors.wildcard", Asset: "",
+		Status: store.SuppressionAcceptedRisk,
+	}
+	s.UpsertSuppression(ctx, sup1)
+	s.UpsertSuppression(ctx, sup2)
+
+	got, _ := s.ListSuppressions(ctx, "example.com")
+	if len(got) != 2 {
+		t.Errorf("expected 2 suppressions (different asset keys), got %d", len(got))
+	}
+}
+
+func TestDeleteSuppression_Nonexistent(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Deleting a nonexistent suppression should not error.
+	if err := s.DeleteSuppression(ctx, "nonexistent-id"); err != nil {
+		t.Fatalf("DeleteSuppression nonexistent: %v", err)
+	}
+}
+
+func TestSaveDiscoveryAudit_NilSlice(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// nil slice should be a no-op (empty transaction commit).
+	if err := s.SaveDiscoveryAudit(ctx, nil); err != nil {
+		t.Fatalf("SaveDiscoveryAudit(nil): %v", err)
+	}
+}
+
+func TestSaveSanitizedMetrics_NilSlice(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SaveSanitizedMetrics(ctx, nil); err != nil {
+		t.Fatalf("SaveSanitizedMetrics(nil): %v", err)
+	}
+}
+
+func TestUpdateScanRun_Nonexistent(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Updating a nonexistent run -- SQLite UPDATE WHERE id=? with no match
+	// does NOT error (affected rows = 0). This is different from the memory store.
+	run := makeScanRun("example.com")
+	run.ID = "nonexistent"
+	if err := s.UpdateScanRun(ctx, run); err != nil {
+		t.Fatalf("UpdateScanRun nonexistent: %v (SQLite should not error)", err)
+	}
+}
+
+func TestSaveReport_AssignsIDAndTimestamp(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	run := makeScanRun("example.com")
+	s.CreateScanRun(ctx, run)
+
+	rpt := &store.Report{
+		ScanRunID:   run.ID,
+		Domain:      "example.com",
+		HTMLContent: "<h1>test</h1>",
+	}
+	s.SaveReport(ctx, rpt)
+
+	if rpt.ID == "" {
+		t.Error("expected auto-assigned report ID")
+	}
+	if rpt.CreatedAt.IsZero() {
+		t.Error("expected auto-assigned CreatedAt")
+	}
+}
+
+func TestSavePlaybookSuggestion_DefaultStatus(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Status not set -- should default to "pending".
+	sg := &store.PlaybookSuggestion{Type: "new", TargetPlaybook: "test"}
+	s.SavePlaybookSuggestion(ctx, sg)
+
+	if sg.Status != "pending" {
+		t.Errorf("status = %q; want %q (default)", sg.Status, "pending")
+	}
+}
+
+// --- ListAllScanRuns tests ---
+
+func TestListAllScanRuns_EmptyDB(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	runs, err := s.ListAllScanRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("len = %d; want 0", len(runs))
+	}
+}
+
+func TestListAllScanRuns_ReturnsAllDomains(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	s.UpsertTarget(ctx, "a.com")
+	s.UpsertTarget(ctx, "b.com")
+
+	for _, d := range []string{"a.com", "b.com", "a.com"} {
+		tgt, _ := s.GetTarget(ctx, d)
+		run := &store.ScanRun{
+			TargetID:  tgt.ID,
+			Domain:    d,
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: time.Now(),
+		}
+		s.CreateScanRun(ctx, run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Errorf("len = %d; want 3", len(runs))
+	}
+}
+
+func TestListAllScanRuns_SortedDesc(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	s.UpsertTarget(ctx, "x.com")
+	tgt, _ := s.GetTarget(ctx, "x.com")
+
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		run := &store.ScanRun{
+			TargetID:  tgt.ID,
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: now.Add(time.Duration(i) * time.Minute),
+		}
+		s.CreateScanRun(ctx, run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	for i := 1; i < len(runs); i++ {
+		if runs[i].StartedAt.After(runs[i-1].StartedAt) {
+			t.Errorf("runs[%d].StartedAt > runs[%d].StartedAt; want descending order", i, i-1)
+		}
+	}
+}
+
+func TestListAllScanRuns_RespectsLimit(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	s.UpsertTarget(ctx, "x.com")
+	tgt, _ := s.GetTarget(ctx, "x.com")
+
+	for i := 0; i < 10; i++ {
+		run := &store.ScanRun{
+			TargetID:  tgt.ID,
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}
+		s.CreateScanRun(ctx, run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx, 3)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Errorf("len = %d; want 3", len(runs))
+	}
+}
+
+func TestListAllScanRuns_LimitZeroDefaultsTo50(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	s.UpsertTarget(ctx, "x.com")
+	tgt, _ := s.GetTarget(ctx, "x.com")
+
+	for i := 0; i < 60; i++ {
+		run := &store.ScanRun{
+			TargetID:  tgt.ID,
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}
+		s.CreateScanRun(ctx, run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 50 {
+		t.Errorf("len = %d; want 50 (default limit)", len(runs))
+	}
+}
+
+func TestListAllScanRuns_NegativeLimit(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	s.UpsertTarget(ctx, "x.com")
+	tgt, _ := s.GetTarget(ctx, "x.com")
+
+	for i := 0; i < 55; i++ {
+		run := &store.ScanRun{
+			TargetID:  tgt.ID,
+			Domain:    "x.com",
+			ScanType:  module.ScanSurface,
+			Status:    store.StatusCompleted,
+			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}
+		s.CreateScanRun(ctx, run)
+	}
+
+	runs, err := s.ListAllScanRuns(ctx, -1)
+	if err != nil {
+		t.Fatalf("ListAllScanRuns: %v", err)
+	}
+	if len(runs) != 50 {
+		t.Errorf("len = %d; want 50 (default for negative limit)", len(runs))
+	}
+}

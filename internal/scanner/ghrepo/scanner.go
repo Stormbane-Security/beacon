@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -313,7 +315,7 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 				if !hook.Active {
 					continue
 				}
-				if hook.Config.InsecureSSL != "1" && hook.Config.Secret == "" {
+				if hook.Config.Secret == "" {
 					all = append(all, finding.Finding{
 						CheckID:  finding.CheckGitHubWebhookNoSecret,
 						Module:   "github",
@@ -868,7 +870,7 @@ func (s *Scanner) scanForSecrets(ctx context.Context, owner, repo, repoSlug stri
 						"Remove the file from git history using git-filter-repo, add it to .gitignore, "+
 						"and rotate any secrets it contains immediately.", path),
 				Evidence:     map[string]any{"path": path},
-				ProofCommand: fmt.Sprintf("curl -s https://raw.githubusercontent.com/%s/HEAD/%s | head -20", repoSlug, path),
+				ProofCommand: fmt.Sprintf("gh api repos/%s/contents/%s --jq '.name'", repoSlug, path),
 				DiscoveredAt: time.Now(),
 			})
 		}
@@ -899,7 +901,7 @@ func (s *Scanner) scanForSecrets(ctx context.Context, owner, repo, repoSlug stri
 					Title:        fmt.Sprintf("%s found in %s", sp.name, path),
 					Description:  desc,
 					Evidence:     map[string]any{"path": path, "pattern": sp.name, "match_redacted": redacted},
-					ProofCommand: fmt.Sprintf("curl -s https://raw.githubusercontent.com/%s/HEAD/%s", repoSlug, path),
+					ProofCommand: fmt.Sprintf("gh api repos/%s/contents/%s --jq '.name'", repoSlug, path),
 					DiscoveredAt: time.Now(),
 				})
 			}
@@ -960,8 +962,12 @@ func (s *Scanner) fetchFileContent(ctx context.Context, owner, repo, path, prefi
 	return string(decoded), err
 }
 
-func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (s *Scanner) apiGet(ctx context.Context, urlStr string) ([]byte, error) {
+	return s.apiGetRetry(ctx, urlStr, true)
+}
+
+func (s *Scanner) apiGetRetry(ctx context.Context, urlStr string, retryOnRateLimit bool) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -975,8 +981,30 @@ func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
+	if resp.StatusCode == http.StatusForbidden && retryOnRateLimit {
+		remaining := resp.Header.Get("X-RateLimit-Remaining")
+		resetHeader := resp.Header.Get("X-RateLimit-Reset")
+		if remaining == "0" && resetHeader != "" {
+			resetUnix, parseErr := strconv.ParseInt(resetHeader, 10, 64)
+			if parseErr == nil {
+				wait := time.Until(time.Unix(resetUnix, 0))
+				if wait > 0 && wait <= 60*time.Second {
+					select {
+					case <-time.After(wait):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+					return s.apiGetRetry(ctx, urlStr, false)
+				}
+			}
+		}
+		return nil, fmt.Errorf("GitHub API %s: HTTP %d (rate limited)", urlStr, resp.StatusCode)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API %s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("GitHub API %s: HTTP %d", urlStr, resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	return data, err
@@ -1097,9 +1125,15 @@ func splitOwnerRepo(target string) (owner, repo string, ok bool) {
 	target = strings.TrimPrefix(target, "https://github.com/")
 	target = strings.TrimPrefix(target, "http://github.com/")
 	target = strings.TrimPrefix(target, "github.com/")
-	parts := strings.SplitN(target, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	parts := strings.SplitN(target, "/", 3) // split into at most 3 parts
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	// Strip trailing slashes or extra path segments from the repo name.
+	// Only "owner/repo" is valid input; anything beyond the second
+	// segment is discarded.
+	repo = strings.TrimSuffix(parts[1], "/")
+	// Percent-encode both segments so slashes and path-traversal
+	// sequences cannot escape the intended URL path position.
+	return url.PathEscape(parts[0]), url.PathEscape(repo), true
 }

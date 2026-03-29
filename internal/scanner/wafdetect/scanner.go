@@ -328,6 +328,7 @@ func probeHTTPOnly(ctx context.Context, client *http.Client, asset string) (int,
 	if err != nil {
 		return 0, nil
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 	resp.Body.Close()
 	hdrs := make(map[string]string, len(resp.Header))
 	for k, v := range resp.Header {
@@ -351,16 +352,19 @@ func detectVendor(headers map[string]string, body string) string {
 	// headers but inject signature strings into HTML error/block pages.
 	if body != "" {
 		bodyLower := strings.ToLower(body)
+		genericMatch := false
 		for _, bp := range wafBodyPatterns {
 			if strings.Contains(bodyLower, bp.Pattern) {
-				// "Generic WAF" is a fallback — prefer a named vendor if we
-				// find one later in the list. But any named vendor is definitive.
+				// Named vendor match is definitive — return immediately.
 				if bp.Vendor != "Generic WAF" {
 					return bp.Vendor
 				}
-				// Keep looking for a specific vendor name; fall back to generic.
-				return bp.Vendor
+				// "Generic WAF" is a fallback — keep looking for a named vendor.
+				genericMatch = true
 			}
+		}
+		if genericMatch {
+			return "Generic WAF"
 		}
 	}
 	return ""
@@ -448,6 +452,7 @@ func originResponds(ctx context.Context, client *http.Client, originIP, asset st
 		if err != nil {
 			continue
 		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 		resp.Body.Close()
 		// Accept 2xx only. 3xx redirects (e.g. 301 → /login) are not confirmation
 		// that the origin serves the application — they could be generic redirect
@@ -502,6 +507,7 @@ func getStatus(ctx context.Context, client *http.Client, asset, scheme string, e
 	if err != nil {
 		return 0
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 	resp.Body.Close()
 	return resp.StatusCode
 }

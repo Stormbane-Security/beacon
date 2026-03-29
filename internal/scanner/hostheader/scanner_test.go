@@ -441,3 +441,94 @@ func TestRun_DeepMode_NoCacheHeader_SeverityHigh(t *testing.T) {
 		t.Error("expected at least one HostHeaderInjection finding when X-Forwarded-Host is reflected")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Unreachable server — no panic, no findings
+// ---------------------------------------------------------------------------
+
+func TestRun_DeepMode_UnreachableServer_NoPanic(t *testing.T) {
+	s := New()
+	findings, err := s.Run(context.Background(), "127.0.0.1:1", module.ScanDeep)
+	_ = err
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for unreachable server, got %d", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Context cancellation — no panic
+// ---------------------------------------------------------------------------
+
+func TestRun_DeepMode_ContextCancelled_NoPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := New()
+	findings, _ := s.Run(ctx, host, module.ScanDeep)
+	_ = findings // must not panic
+}
+
+// ---------------------------------------------------------------------------
+// Body reflection beyond 200 bytes — verify the baseline/probe body limits
+// are aligned so false positives are suppressed.
+// ---------------------------------------------------------------------------
+
+func TestRun_DeepMode_ReflectionAfter200Bytes_BaselineSuppresses(t *testing.T) {
+	// Create a body where the probe value appears after 200 bytes.
+	// Before the fix, the baseline only read 200 bytes, so it would miss
+	// the probe value in the baseline — causing a false positive.
+	padding := strings.Repeat("x", 300)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Both baseline and injected requests return the same body —
+		// the probe value appears naturally after 200 bytes.
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(padding + probeValue))
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// The probe value is naturally in both baseline and injected bodies.
+	// The scanner should NOT flag this as injection because the baseline
+	// comparison should suppress it.
+	for _, f := range findings {
+		if f.CheckID == finding.CheckHostHeaderInjection &&
+			f.Evidence != nil &&
+			f.Evidence["reflected_in"] == "response body" {
+			t.Error("false positive: body reflection should be suppressed when probe value is in baseline body beyond old 200-byte limit")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Empty response — no crash, no finding
+// ---------------------------------------------------------------------------
+
+func TestRun_DeepMode_EmptyResponse_NoPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// Empty body
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), host, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings on empty response, got %d", len(findings))
+	}
+}

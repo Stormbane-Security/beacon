@@ -315,7 +315,7 @@ func isMetadataRedirect(location string) bool {
 
 // detectScheme tries HTTPS first, falling back to HTTP.
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://"+asset, nil)
 	if err != nil {
 		return "http"
 	}
@@ -323,6 +323,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return "https"
 }

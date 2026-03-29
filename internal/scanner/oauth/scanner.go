@@ -164,7 +164,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// ── Deep-mode checks ─────────────────────────────────────────────────────
-	if scanType != module.ScanDeep {
+	// ScanAuthorized implies ScanDeep, so run deep checks for both modes.
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return findings, nil
 	}
 

@@ -1458,3 +1458,206 @@ func TestAddAsset_CloudAssetNoMetadata(t *testing.T) {
 		t.Errorf("nil metadata should not cause panic or indexing, got %d entries", len(b.ipIndex))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Bug regression: AddDomainAsset cross-reference used unnormalized IP
+// ---------------------------------------------------------------------------
+
+func TestAddDomainAsset_CrossRefUsesNormalizedIPv6(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	// Add a cloud asset with an IPv6 external IP stored in short form.
+	b.AddAsset(Asset{
+		ID:       "gcp_compute_instance:proj/zone/vm-v6",
+		Type:     AssetTypeGCPInstance,
+		Provider: "gcp",
+		Name:     "vm-v6",
+		Metadata: map[string]any{"external_ip": "2001:db8::1"},
+	})
+
+	// Resolve the domain to the same IPv6 address in long form.
+	// Before the fix, the unnormalized long-form IP would fail to match the
+	// normalized short-form key in ipIndex.
+	b.AddDomainAsset("v6.example.com", []string{"2001:0db8:0000:0000:0000:0000:0000:0001"}, "dns")
+
+	graph := b.Build()
+
+	foundLink := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelLikelySameAs &&
+			r.FromID == "domain:v6.example.com" &&
+			r.ToID == "gcp_compute_instance:proj/zone/vm-v6" {
+			foundLink = true
+		}
+	}
+	if !foundLink {
+		t.Error("expected likely_same_as relationship using normalized IPv6; cross-reference with unnormalized IP failed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Bug regression: AddEnrichedFindings did not handle cloud/github asset IDs
+// ---------------------------------------------------------------------------
+
+func TestAddEnrichedFindings_CloudFinding_UsesRawAssetID(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	efs := []enrichment.EnrichedFinding{
+		{
+			Finding: finding.Finding{
+				CheckID:  "cloud.gcp.bucket_public",
+				Module:   "cloud",
+				Scanner:  "gcp_storage",
+				Severity: finding.SeverityHigh,
+				Title:    "Public GCS bucket",
+				Asset:    "gcp_storage_bucket:my-bucket",
+			},
+		},
+	}
+	b.AddEnrichedFindings(efs)
+
+	if len(b.findingRefs) != 1 {
+		t.Fatalf("expected 1 finding ref, got %d", len(b.findingRefs))
+	}
+	if b.findingRefs[0].AssetID != "gcp_storage_bucket:my-bucket" {
+		t.Errorf("AssetID = %q, want raw cloud asset ID %q",
+			b.findingRefs[0].AssetID, "gcp_storage_bucket:my-bucket")
+	}
+}
+
+func TestAddEnrichedFindings_GitHubFinding_UsesRawAssetID(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	efs := []enrichment.EnrichedFinding{
+		{
+			Finding: finding.Finding{
+				CheckID:  "github.secret_exposed",
+				Module:   "github",
+				Scanner:  "ghrepo",
+				Severity: finding.SeverityCritical,
+				Title:    "Secret exposed in repo",
+				Asset:    "github_repo:org/repo",
+			},
+		},
+	}
+	b.AddEnrichedFindings(efs)
+
+	if b.findingRefs[0].AssetID != "github_repo:org/repo" {
+		t.Errorf("AssetID = %q, want raw GitHub asset ID %q",
+			b.findingRefs[0].AssetID, "github_repo:org/repo")
+	}
+}
+
+func TestAddEnrichedFindings_AssetWithColon_UsesRawAssetID(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	efs := []enrichment.EnrichedFinding{
+		{
+			Finding: finding.Finding{
+				CheckID: "some.check",
+				Module:  "surface",
+				Scanner: "test",
+				Asset:   "custom_type:path/resource",
+			},
+		},
+	}
+	b.AddEnrichedFindings(efs)
+
+	if b.findingRefs[0].AssetID != "custom_type:path/resource" {
+		t.Errorf("AssetID = %q, want %q (asset with colon should be used as-is)",
+			b.findingRefs[0].AssetID, "custom_type:path/resource")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: self-referencing relationship
+// ---------------------------------------------------------------------------
+
+func TestAddRelationship_SelfReference(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddRelationship(Relationship{
+		FromID:     "domain:example.com",
+		ToID:       "domain:example.com",
+		Type:       RelPointsTo,
+		Confidence: 1.0,
+	})
+
+	// Self-referencing edges should not panic — graph consumers handle them.
+	if len(b.relationships) != 1 {
+		t.Fatalf("expected 1 relationship, got %d", len(b.relationships))
+	}
+	if b.relationships[0].FromID != b.relationships[0].ToID {
+		t.Error("expected self-referencing relationship to be preserved")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: duplicate relationships
+// ---------------------------------------------------------------------------
+
+func TestAddRelationship_Duplicates(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	rel := Relationship{
+		FromID:     "domain:a.com",
+		ToID:       "ip:1.2.3.4",
+		Type:       RelPointsTo,
+		Confidence: 1.0,
+	}
+	b.AddRelationship(rel)
+	b.AddRelationship(rel)
+
+	// Builder does not deduplicate — both should be stored.
+	if len(b.relationships) != 2 {
+		t.Fatalf("expected 2 relationships (duplicates allowed), got %d", len(b.relationships))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: special characters in asset names/IDs
+// ---------------------------------------------------------------------------
+
+func TestAddAsset_SpecialCharactersInName(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	specialNames := []string{
+		`asset "with quotes"`,
+		"asset\nwith\nnewlines",
+		`asset\with\backslashes`,
+		"asset<with>angles",
+		"asset with unicode: \u00e9\u00e0\u00fc",
+		"",
+	}
+	for i, name := range specialNames {
+		id := fmt.Sprintf("domain:special-%d", i)
+		b.AddAsset(Asset{
+			ID:       id,
+			Type:     AssetTypeDomain,
+			Provider: "web",
+			Name:     name,
+		})
+	}
+
+	graph := b.Build()
+	if len(graph.Assets) != len(specialNames) {
+		t.Errorf("expected %d assets, got %d", len(specialNames), len(graph.Assets))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: nil slices in Build output
+// ---------------------------------------------------------------------------
+
+func TestBuild_NilSlicesAreEmpty(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	graph := b.Build()
+
+	// Verify nil slices don't cause issues downstream.
+	if graph.Assets == nil {
+		t.Error("Assets should be an empty non-nil slice")
+	}
+	// Relationships, Findings, IaCReferences may be nil but should not panic
+	// when iterated.
+	for range graph.Relationships {
+		// just checking iteration doesn't panic
+	}
+	for range graph.Findings {
+	}
+	for range graph.IaCReferences {
+	}
+}

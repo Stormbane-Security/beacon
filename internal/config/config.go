@@ -327,6 +327,9 @@ func (c *Config) Validate() error {
 	if c.RequestJitterMs < 0 {
 		return fmt.Errorf("request_jitter_ms must be >= 0, got %d", c.RequestJitterMs)
 	}
+	if c.SMTP.Port < 0 || c.SMTP.Port > 65535 {
+		return fmt.Errorf("smtp.port must be 0-65535, got %d", c.SMTP.Port)
+	}
 	validProviders := map[string]bool{
 		"": true, "claude": true, "openai": true, "gemini": true,
 		"ollama": true, "mistral": true, "grok": true, "groq": true,
@@ -348,7 +351,10 @@ func MustLoad() *Config {
 }
 
 func defaults() *Config {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
 	return &Config{
 		ClaudeModel:  "claude-sonnet-4-6",
 		NmapBin:      "nmap",
@@ -386,7 +392,10 @@ func configPath() string {
 			}
 		}
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".beacon", "config.yaml")
 }
 

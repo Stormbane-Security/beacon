@@ -209,7 +209,11 @@ func NewWithNmap(nmapBin string) *Scanner { return &Scanner{nmapBin: nmapBin} }
 // lists (critical + high + extended). Used by the AI port advisor to avoid
 // re-suggesting ports that are already scanned by default.
 func AllKnownPorts() []int {
-	all := append(append(criticalPorts, highPorts...), extendedPorts...)
+	// Pre-allocate to avoid mutating the backing arrays of the package-level slices.
+	all := make([]portEntry, 0, len(criticalPorts)+len(highPorts)+len(extendedPorts))
+	all = append(all, criticalPorts...)
+	all = append(all, highPorts...)
+	all = append(all, extendedPorts...)
 	ports := make([]int, 0, len(all))
 	for _, e := range all {
 		ports = append(ports, e.port)
@@ -325,7 +329,7 @@ func buildPortList(scanType module.ScanType) []portEntry {
 // probePort attempts a TCP connection to host:port.
 // Returns (open, banner). The banner may be empty.
 func probePort(ctx context.Context, host string, port int) (bool, string) {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -548,8 +552,8 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		// Detection: X-Vllm-Request-Id response header or "owned_by":"vllm" in /v1/models JSON.
 		if vbody, vok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); vok {
 			bodyLow := strings.ToLower(vbody)
-			if strings.Contains(bodyLow, "vllm") || strings.Contains(bodyLow, `"owned_by"`) &&
-				strings.Contains(bodyLow, "data") {
+			if strings.Contains(bodyLow, "vllm") || (strings.Contains(bodyLow, `"owned_by"`) &&
+				strings.Contains(bodyLow, "data") && strings.Contains(bodyLow, "model")) {
 				return []finding.Finding{makeF(
 					finding.CheckPortvLLMExposed,
 					finding.SeverityHigh,
@@ -1655,7 +1659,7 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 	case 7474:
 		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
 			lb := strings.ToLower(body)
-			if strings.Contains(lb, "neo4j") || strings.Contains(lb, "bolt") && strings.Contains(lb, "transaction") {
+			if strings.Contains(lb, "neo4j") || (strings.Contains(lb, "bolt") && strings.Contains(lb, "transaction")) {
 				return []finding.Finding{makeF(
 					finding.CheckPortNeo4jExposed,
 					finding.SeverityHigh,
@@ -2001,8 +2005,8 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		// disable filtering, or establish a persistent backdoor on all network clients.
 		if body, ok := probeHTTPBody(ctx, asset, port, false, "/control/status"); ok {
 			bodyLow := strings.ToLower(body)
-			if strings.Contains(bodyLow, "dns_addresses") || strings.Contains(bodyLow, "running") &&
-				strings.Contains(bodyLow, "version") {
+			if strings.Contains(bodyLow, "dns_addresses") || (strings.Contains(bodyLow, "running") &&
+				strings.Contains(bodyLow, "version")) {
 				return []finding.Finding{makeF(
 					finding.CheckPortAdGuardExposed,
 					finding.SeverityHigh,

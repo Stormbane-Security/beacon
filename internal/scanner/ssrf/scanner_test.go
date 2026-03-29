@@ -820,3 +820,107 @@ func TestScanner_Name(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", s.Name(), "ssrf")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case: very large response body — scanner must not OOM (64 KB limit)
+// ---------------------------------------------------------------------------
+
+func TestSSRF_LargeResponseBody_NoOOM(t *testing.T) {
+	// Serve a response much larger than 64 KB. The scanner must cap
+	// the body read at maxBodySize and not consume unbounded memory.
+	bigBody := strings.Repeat("x", 256*1024) // 256 KB
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, bigBody)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	// No metadata signals in the body, so no findings expected.
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebSSRF {
+			t.Errorf("unexpected SSRF finding on non-metadata large body: %+v", f)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: empty response body — no crash, no finding
+// ---------------------------------------------------------------------------
+
+func TestSSRF_EmptyResponse_NoCrash(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// Intentionally empty body.
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebSSRF {
+			t.Errorf("unexpected SSRF finding on empty body: %+v", f)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// False positive: server reflecting the payload URL itself (not metadata)
+// ---------------------------------------------------------------------------
+
+func TestSSRF_URLReflectedNotMetadata_NoFinding(t *testing.T) {
+	// Server that echoes back the URL parameter value but does NOT fetch it
+	// (i.e. it reflects the URL, not the metadata content). The metadata
+	// signals are substrings of the URL, not of metadata content. The scanner
+	// should NOT fire because the metadataSignals list was curated to avoid
+	// matching payload URL substrings.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		urlParam := r.URL.Query().Get("url")
+		if urlParam != "" {
+			// Echo the URL back, not the fetched content.
+			fmt.Fprintf(w, "You requested: %s\n", urlParam)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	ssrf := findingsByCheckID(findings, finding.CheckWebSSRF)
+	if len(ssrf) > 0 {
+		t.Errorf("expected no body-reflection SSRF when server only echoes the URL (not metadata content), got %d", len(ssrf))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: server returns 3xx for all requests (redirect to login)
+// ---------------------------------------------------------------------------
+
+func TestSSRF_All3xxResponses_NoFinding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	// No metadata IPs in the redirect Location, so no redirect-metadata finding.
+	// And 3xx is skipped for body reflection.
+	ssrf := findingsByCheckID(findings, finding.CheckWebSSRF)
+	if len(ssrf) > 0 {
+		t.Error("body-reflection SSRF should never fire on 3xx responses")
+	}
+}

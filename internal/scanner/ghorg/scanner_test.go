@@ -814,3 +814,116 @@ func TestAPIRequestHeaders(t *testing.T) {
 		t.Errorf("expected X-GitHub-Api-Version '2022-11-28', got %q", gotAPIVersion)
 	}
 }
+
+// =========================================================================
+// sanitizePathSegment tests
+// =========================================================================
+
+func TestSanitizePathSegment_Normal(t *testing.T) {
+	result := sanitizePathSegment("my-org")
+	if result != "my-org" {
+		t.Errorf("expected my-org, got %q", result)
+	}
+}
+
+func TestSanitizePathSegment_PathTraversal(t *testing.T) {
+	result := sanitizePathSegment("../../etc")
+	// Slashes and dots should be percent-encoded.
+	if result == "../../etc" {
+		t.Errorf("path traversal was not sanitized: %q", result)
+	}
+	if containsSubstring(result, "/") {
+		t.Errorf("result should not contain raw slashes: %q", result)
+	}
+}
+
+func TestSanitizePathSegment_QueryInjection(t *testing.T) {
+	result := sanitizePathSegment("org?admin=true")
+	// Query parameter should be stripped.
+	if containsSubstring(result, "?") {
+		t.Errorf("query parameter was not stripped: %q", result)
+	}
+}
+
+func TestSanitizePathSegment_FragmentInjection(t *testing.T) {
+	result := sanitizePathSegment("org#fragment")
+	if containsSubstring(result, "#") {
+		t.Errorf("fragment was not stripped: %q", result)
+	}
+}
+
+func TestSanitizePathSegment_Empty(t *testing.T) {
+	result := sanitizePathSegment("")
+	if result != "" {
+		t.Errorf("expected empty string, got %q", result)
+	}
+}
+
+// =========================================================================
+// Rate limit handling
+// =========================================================================
+
+func TestRateLimit403_ReturnsError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", "0") // already expired
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer ts.Close()
+
+	s := &Scanner{
+		token: "",
+		httpClient: &http.Client{
+			Transport: &rewriteTransport{target: ts.URL},
+		},
+	}
+
+	_, err := s.Run(context.Background(), "test-org", module.ScanSurface)
+	if err == nil {
+		t.Fatal("expected error on rate-limited 403, got nil")
+	}
+}
+
+// =========================================================================
+// ForkPRWorkflowsPolicy JSON mapping (regression test for the JSON tag fix)
+// =========================================================================
+
+func TestForkPRWorkflowsPolicy_CorrectJSONField(t *testing.T) {
+	// This test verifies that the ForkPRWorkflowsPolicy field is
+	// deserialized from the correct JSON key. Before the fix, it was
+	// mapped to "default_workflow_permissions" which is wrong.
+	jsonBody := `{
+		"enabled_repositories": "all",
+		"allowed_actions": "selected",
+		"fork_pull_request_workflows_policy": "run_workflows"
+	}`
+	var ap ghOrgActionsPermissions
+	if err := json.Unmarshal([]byte(jsonBody), &ap); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if ap.ForkPRWorkflowsPolicy != "run_workflows" {
+		t.Errorf("expected ForkPRWorkflowsPolicy=run_workflows, got %q", ap.ForkPRWorkflowsPolicy)
+	}
+	if ap.AllowedActions != "selected" {
+		t.Errorf("expected AllowedActions=selected, got %q", ap.AllowedActions)
+	}
+}
+
+func TestForkPRWorkflowsPolicy_OldJSONField_DoesNotMismatch(t *testing.T) {
+	// Ensure that "default_workflow_permissions" in the actions/permissions
+	// response does NOT incorrectly populate ForkPRWorkflowsPolicy.
+	jsonBody := `{
+		"allowed_actions": "all",
+		"default_workflow_permissions": "write"
+	}`
+	var ap ghOrgActionsPermissions
+	if err := json.Unmarshal([]byte(jsonBody), &ap); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if ap.ForkPRWorkflowsPolicy == "write" {
+		t.Error("ForkPRWorkflowsPolicy should NOT be populated from default_workflow_permissions")
+	}
+	if ap.ForkPRWorkflowsPolicy != "" {
+		t.Errorf("expected ForkPRWorkflowsPolicy to be empty, got %q", ap.ForkPRWorkflowsPolicy)
+	}
+}

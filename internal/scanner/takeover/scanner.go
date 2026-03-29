@@ -229,7 +229,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	var matched *platform
 	for i := range platforms {
 		for _, suffix := range platforms[i].cnameSuffixes {
-			if strings.Contains(cnameLower, suffix) {
+			if strings.HasSuffix(cnameLower, suffix) || strings.HasSuffix(cnameLower, suffix+".") {
 				matched = &platforms[i]
 				break
 			}

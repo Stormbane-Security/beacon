@@ -11,6 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -37,7 +40,7 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run scans the given org name for security misconfigurations.
 func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]finding.Finding, error) {
-	org := target
+	org := sanitizePathSegment(target)
 
 	var all []finding.Finding
 
@@ -167,10 +170,13 @@ type ghOrgMeta struct {
 }
 
 type ghOrgActionsPermissions struct {
-	AllowedActions        string `json:"allowed_actions"` // "all", "local_only", "selected"
-	ForkPRWorkflowsPolicy string `json:"default_workflow_permissions"` // overloaded field; actual fork policy below
-	// The fork PR approval field name varies by API version.
-	ForkPullRequestWorkflowsFromPublicForks bool `json:"fork_pull_request_workflows_from_public_forks"`
+	AllowedActions string `json:"allowed_actions"` // "all", "local_only", "selected"
+	// The fork PR approval policy is returned under a different key by the
+	// /orgs/{org}/actions/permissions endpoint depending on GHES vs GHEC.
+	// GHEC uses "fork_pull_request_workflows_policy"; earlier API versions
+	// used "default_workflow_permissions" (colliding with the workflow perms
+	// endpoint).  We map the correct field name here.
+	ForkPRWorkflowsPolicy string `json:"fork_pull_request_workflows_policy"`
 }
 
 type ghOrgWorkflowPermissions struct {
@@ -209,8 +215,12 @@ func (s *Scanner) getOrgWorkflowPermissions(ctx context.Context, org string) (gh
 	return wp, json.Unmarshal(body, &wp)
 }
 
-func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (s *Scanner) apiGet(ctx context.Context, urlStr string) ([]byte, error) {
+	return s.apiGetRetry(ctx, urlStr, true)
+}
+
+func (s *Scanner) apiGetRetry(ctx context.Context, urlStr string, retryOnRateLimit bool) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -224,8 +234,43 @@ func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
+	if resp.StatusCode == http.StatusForbidden && retryOnRateLimit {
+		remaining := resp.Header.Get("X-RateLimit-Remaining")
+		resetHeader := resp.Header.Get("X-RateLimit-Reset")
+		if remaining == "0" && resetHeader != "" {
+			resetUnix, parseErr := strconv.ParseInt(resetHeader, 10, 64)
+			if parseErr == nil {
+				wait := time.Until(time.Unix(resetUnix, 0))
+				if wait > 0 && wait <= 60*time.Second {
+					select {
+					case <-time.After(wait):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+					return s.apiGetRetry(ctx, urlStr, false)
+				}
+			}
+		}
+		return nil, fmt.Errorf("GitHub API %s: HTTP %d (rate limited)", urlStr, resp.StatusCode)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API %s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("GitHub API %s: HTTP %d", urlStr, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+// sanitizePathSegment strips path-traversal sequences, slashes, and query
+// parameters from a user-supplied value before embedding it in a URL path.
+// This prevents SSRF via crafted org/repo names like "../../other" or
+// "org?q=inject".
+func sanitizePathSegment(s string) string {
+	// Remove anything after a '?' or '#' (query/fragment injection).
+	if idx := strings.IndexAny(s, "?#"); idx >= 0 {
+		s = s[:idx]
+	}
+	// Percent-encode the segment so slashes and dots are escaped.
+	return url.PathEscape(s)
 }

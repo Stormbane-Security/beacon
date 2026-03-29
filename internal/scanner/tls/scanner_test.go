@@ -198,10 +198,35 @@ func TestSplitHostPort_NoPort(t *testing.T) {
 	}
 }
 
-func TestSplitHostPort_IPv6(t *testing.T) {
+func TestSplitHostPort_IPv6WithPort(t *testing.T) {
 	h, p := splitHostPort("[::1]:8443")
 	if h != "::1" || p != "8443" {
 		t.Errorf("got %q %q, want %q %q", h, p, "::1", "8443")
+	}
+}
+
+func TestSplitHostPort_IPv6BareAddress(t *testing.T) {
+	// A bare IPv6 address like "::1" contains colons but has no port.
+	// The old code would attempt net.SplitHostPort("::1") which fails,
+	// then fall through to returning ("::1", "443") — but only by accident.
+	h, p := splitHostPort("::1")
+	if h != "::1" || p != "443" {
+		t.Errorf("splitHostPort(\"::1\") = %q %q, want \"::1\" \"443\"", h, p)
+	}
+}
+
+func TestSplitHostPort_IPv6Bracketed(t *testing.T) {
+	// A bracketed IPv6 address without a port: [::1]
+	h, p := splitHostPort("[::1]")
+	if h != "::1" || p != "443" {
+		t.Errorf("splitHostPort(\"[::1]\") = %q %q, want \"::1\" \"443\"", h, p)
+	}
+}
+
+func TestSplitHostPort_IPv6FullAddress(t *testing.T) {
+	h, p := splitHostPort("[2001:db8::1]:9443")
+	if h != "2001:db8::1" || p != "9443" {
+		t.Errorf("got %q %q, want \"2001:db8::1\" \"9443\"", h, p)
 	}
 }
 

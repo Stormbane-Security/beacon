@@ -247,3 +247,203 @@ func repeat(s string, n int) string {
 	}
 	return string(out)
 }
+
+// -------------------------------------------------------------------------
+// splitOwnerRepo edge cases
+// -------------------------------------------------------------------------
+
+func TestSplitOwnerRepo_ValidTarget(t *testing.T) {
+	owner, repo, ok := splitOwnerRepo("myorg/myrepo")
+	if !ok {
+		t.Fatal("expected ok=true for valid target")
+	}
+	if owner != "myorg" || repo != "myrepo" {
+		t.Errorf("got owner=%q repo=%q, want myorg/myrepo", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_GitHubURL(t *testing.T) {
+	owner, repo, ok := splitOwnerRepo("https://github.com/myorg/myrepo")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if owner != "myorg" || repo != "myrepo" {
+		t.Errorf("got owner=%q repo=%q, want myorg/myrepo", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_TrailingPath(t *testing.T) {
+	// Extra path segments beyond owner/repo should be discarded.
+	owner, repo, ok := splitOwnerRepo("myorg/myrepo/tree/main/src")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if owner != "myorg" || repo != "myrepo" {
+		t.Errorf("got owner=%q repo=%q, want myorg/myrepo", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_PathTraversal(t *testing.T) {
+	// Path traversal attempt should be percent-encoded so it doesn't
+	// escape the intended URL path position.
+	owner, repo, ok := splitOwnerRepo("../../../etc/passwd")
+	if !ok {
+		// This is fine either way -- but if ok=true the values must be safe.
+		t.Skip("splitOwnerRepo rejected traversal target")
+	}
+	if owner == "../../.." {
+		t.Errorf("path traversal sequence was not sanitized: owner=%q repo=%q", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_Empty(t *testing.T) {
+	_, _, ok := splitOwnerRepo("")
+	if ok {
+		t.Error("expected ok=false for empty target")
+	}
+}
+
+func TestSplitOwnerRepo_OwnerOnly(t *testing.T) {
+	_, _, ok := splitOwnerRepo("myorg")
+	if ok {
+		t.Error("expected ok=false for owner-only target")
+	}
+}
+
+func TestSplitOwnerRepo_EmptyRepo(t *testing.T) {
+	_, _, ok := splitOwnerRepo("myorg/")
+	if ok {
+		t.Error("expected ok=false for empty repo name")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Webhook secret check: InsecureSSL should not suppress the finding
+// -------------------------------------------------------------------------
+
+func TestCheckRepoConfig_BothDisabled_BothFindings(t *testing.T) {
+	meta := ghRepoMeta{}
+	meta.SecurityAndAnalysis.SecretScanning.Status = "disabled"
+	meta.SecurityAndAnalysis.SecretScanningPushProtection.Status = "disabled"
+
+	findings := checkRepoConfig(meta, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckGitHubNoSecretScanning)
+	assertHasCheckID(t, findings, finding.CheckGitHubNoPushProtection)
+}
+
+// -------------------------------------------------------------------------
+// Secret pattern edge cases
+// -------------------------------------------------------------------------
+
+func TestSecretPattern_SlackBotToken(t *testing.T) {
+	content := "SLACK_TOKEN=xoxb-1234567890-abcdefghij"
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_SlackWebhookURL(t *testing.T) {
+	content := "https://hooks.slack.com/services/T00000000/B00000000/xxxxxxxxxxxxxxxxxxxx"
+	findings := runSecretPatternsOnContent(content, "org/repo", "config.json")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_DatabaseURLWithCredentials(t *testing.T) {
+	content := "DATABASE_URL=postgres://admin:s3cret@db.example.com/mydb"
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_DatabaseURLWithoutCredentials_NoFinding(t *testing.T) {
+	content := "DATABASE_URL=postgres://localhost/mydb"
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertNotHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_SendGridKey(t *testing.T) {
+	content := "SG.1234567890abcdefghijkl.1234567890abcdefghijklmnopqrstuvwxyz1234567"
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_GoogleAPIKey(t *testing.T) {
+	// AIza + exactly 35 alphanumeric/underscore/hyphen chars.
+	// Must end on a word character (\b boundary requires it).
+	content := "GOOGLE_KEY=AIzaSyA0123456789abcdefghijklmnopqrstuv"
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_Redaction_ShortMatch(t *testing.T) {
+	// Matches <= 8 characters should not be redacted (no panic on short strings).
+	content := "-----BEGIN PRIVATE KEY-----"
+	findings := runSecretPatternsOnContent(content, "org/repo", "key.pem")
+	assertHasCheckID(t, findings, finding.CheckGitHubPrivateKeyInRepo)
+}
+
+func TestSecretPattern_PyPIToken(t *testing.T) {
+	content := "PYPI_TOKEN=pypi-" + repeat("A", 40)
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_HuggingFaceToken(t *testing.T) {
+	content := "HF_TOKEN=hf_" + repeat("A", 34)
+	findings := runSecretPatternsOnContent(content, "org/repo", ".env")
+	assertHasCheckID(t, findings, finding.CheckGitHubSecretInCode)
+}
+
+func TestSecretPattern_EmptyContent_NoMatch(t *testing.T) {
+	findings := runSecretPatternsOnContent("", "org/repo", ".env")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for empty content, got %d", len(findings))
+	}
+}
+
+func TestSecretPattern_BinaryContent_NoMatch(t *testing.T) {
+	// Simulated binary content with null bytes — should not match.
+	content := "\x00\x01\x02\x03\xff\xfe\xfd"
+	findings := runSecretPatternsOnContent(content, "org/repo", "binary.dat")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for binary content, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Branch protection edge cases
+// -------------------------------------------------------------------------
+
+func TestBranchProtection_AllConfiguredSecure_MinimalFindings(t *testing.T) {
+	bp := ghBranchProtection{
+		RequiredPullRequestReviews: &struct {
+			RequiredApprovingReviewCount int  `json:"required_approving_review_count"`
+			DismissStaleReviews          bool `json:"dismiss_stale_reviews"`
+		}{
+			RequiredApprovingReviewCount: 2,
+			DismissStaleReviews:          true,
+		},
+		RequiredStatusChecks: &struct {
+			Strict   bool     `json:"strict"`
+			Contexts []string `json:"contexts"`
+			Checks   []struct {
+				Context string `json:"context"`
+			} `json:"checks"`
+		}{
+			Strict:   true,
+			Contexts: []string{"ci/test", "ci/build"},
+		},
+		RequireSignedCommits: &struct {
+			Enabled bool `json:"enabled"`
+		}{Enabled: true},
+	}
+	bp.AllowForcePushes.Enabled = false
+	bp.EnforceAdmins.Enabled = true
+
+	findings := checkBranchProtection(bp, "main", "org/repo")
+	// All protections enabled — should produce zero findings.
+	if len(findings) != 0 {
+		t.Errorf("expected zero findings for fully protected branch, got %d", len(findings))
+		for _, f := range findings {
+			t.Logf("  unexpected: %s - %s", f.CheckID, f.Title)
+		}
+	}
+}

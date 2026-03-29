@@ -798,3 +798,74 @@ func TestOAuth_RefreshNotRotated_SecondUseRejected_NoFinding(t *testing.T) {
 		t.Errorf("expected no finding when second refresh use is rejected, got: %s", f.Title)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ScanAuthorized runs deep-mode checks (regression for the gating fix)
+// ---------------------------------------------------------------------------
+
+func TestOAuth_ScanAuthorized_RunsDeepChecks(t *testing.T) {
+	// Set up a server with an OIDC doc that has an authorization_endpoint.
+	// The deep-mode missing-state check should run under ScanAuthorized.
+	// Use a pointer to break the circular reference (handler needs srv.URL
+	// but srv is assigned after httptest.NewServer returns).
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			doc := oidcDocument{
+				Issuer:                           srvURL,
+				AuthorizationEndpoint:            srvURL + "/authorize",
+				TokenEndpoint:                    srvURL + "/token",
+				JWKSURI:                          srvURL + "/.well-known/jwks.json",
+				ResponseTypesSupported:           []string{"code"},
+				CodeChallengeMethodsSupported:     []string{"S256"},
+			}
+			b, _ := json.Marshal(doc)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(b)
+		case "/authorize":
+			// Accept the authorization request without checking state — vulnerable.
+			w.Header().Set("Location", "https://example.com/callback?code=abc123")
+			w.WriteHeader(http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	s := New()
+	findings, err := s.Run(t.Context(), asset(srv), module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// With ScanAuthorized, deep checks should run. The missing-state check
+	// should fire because the server redirects without requiring state.
+	var deepCheckRan bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckOAuthMissingState ||
+			f.CheckID == finding.CheckOAuthMissingPKCE ||
+			f.CheckID == finding.CheckOAuthOpenRedirect ||
+			f.CheckID == finding.CheckOAuthWeakState {
+			deepCheckRan = true
+			break
+		}
+	}
+	if !deepCheckRan {
+		t.Error("expected deep-mode OAuth checks to run under ScanAuthorized, but none fired")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Empty / unreachable server — no panic
+// ---------------------------------------------------------------------------
+
+func TestOAuth_UnreachableServer_NoPanic(t *testing.T) {
+	s := New()
+	findings, err := s.Run(t.Context(), "127.0.0.1:1", module.ScanSurface)
+	_ = err
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for unreachable server, got %d", len(findings))
+	}
+}

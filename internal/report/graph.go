@@ -292,26 +292,40 @@ func severityBorderColor(maxSeverity string) string {
 }
 
 // dotNodeID converts an asset ID to a valid DOT node identifier.
+// Only alphanumeric characters and underscores are kept; everything else
+// is replaced with underscores to prevent DOT syntax injection.
 func dotNodeID(id string) string {
-	r := strings.NewReplacer(
-		".", "_", "-", "_", ":", "_", "/", "_",
-		" ", "_", "(", "_", ")", "_", "@", "_",
-		"[", "_", "]", "_", "{", "_", "}", "_",
-	)
-	return "n_" + r.Replace(id)
+	var b strings.Builder
+	b.WriteString("n_")
+	for _, c := range id {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
+			b.WriteRune(c)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 // dotQuote wraps a string in double quotes for DOT syntax, escaping
-// internal double quotes.
+// backslashes, double quotes, and newlines to prevent DOT injection.
 func dotQuote(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
 	return "\"" + s + "\""
 }
 
 // dotEscape escapes characters that are special in DOT labels.
+// Backslashes are escaped first to avoid double-escaping the backslashes
+// introduced by subsequent replacements.
 func dotEscape(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	s = strings.ReplaceAll(s, "<", "\\<")
 	s = strings.ReplaceAll(s, ">", "\\>")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
 	return s
 }

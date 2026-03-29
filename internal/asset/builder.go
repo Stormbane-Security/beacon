@@ -131,7 +131,7 @@ func (b *Builder) AddDomainAsset(hostname string, resolvedIPs []string, discover
 		})
 		// Cross-reference: if a cloud asset has this IP, link them.
 		b.mu.Lock()
-		if cloudID, ok := b.ipIndex[ip]; ok && cloudID != ipID {
+		if cloudID, ok := b.ipIndex[normIP]; ok && cloudID != ipID {
 			b.relationships = append(b.relationships, Relationship{
 				FromID:     a.ID,
 				ToID:       cloudID,
@@ -181,6 +181,9 @@ func (b *Builder) AddEnrichedFindings(efs []enrichment.EnrichedFinding) {
 	for i, ef := range efs {
 		f := ef.Finding
 		assetID := fmt.Sprintf("domain:%s", f.Asset)
+		if f.Module == "cloud" || f.Module == "github" || strings.Contains(f.Asset, ":") {
+			assetID = f.Asset
+		}
 		tags := ef.ComplianceTags
 		if len(tags) == 0 {
 			tags = finding.ComplianceTags(f.CheckID)

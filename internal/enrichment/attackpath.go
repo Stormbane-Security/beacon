@@ -35,7 +35,7 @@ func (c *ClaudeEnricher) AnalyzeAttackPaths(ctx context.Context, enriched []Enri
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "You are a senior penetration tester analyzing scan results for the domain: %s\n\n", domain)
+	fmt.Fprintf(&sb, "You are a senior penetration tester analyzing scan results for the domain: %s\n\n", sanitize(domain, 256))
 	sb.WriteString("Below are all security findings grouped by scan module.\n\n")
 
 	for mod, findings := range byModule {
@@ -43,7 +43,7 @@ func (c *ClaudeEnricher) AnalyzeAttackPaths(ctx context.Context, enriched []Enri
 		for _, ef := range findings {
 			f := ef.Finding
 			fmt.Fprintf(&sb, "  - [%s] %s | severity: %s | asset: %s\n",
-				string(f.CheckID), f.Title, f.Severity.String(), f.Asset)
+				string(f.CheckID), sanitize(f.Title, 256), f.Severity.String(), sanitize(f.Asset, 256))
 
 			// Surface any cloud context embedded in evidence.
 			if f.Evidence != nil {
@@ -88,7 +88,7 @@ Be concise and specific. Focus on realistic, actionable attack paths — not the
 // On any JSON parse error the function returns nil, nil (non-fatal).
 func (c *ClaudeEnricher) GenerateFollowUpProbes(ctx context.Context, enriched []EnrichedFinding, domain string) ([]FollowUpProbe, error) {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "You are a security scanner assistant for the domain: %s\n\n", domain)
+	fmt.Fprintf(&sb, "You are a security scanner assistant for the domain: %s\n\n", sanitize(domain, 256))
 	sb.WriteString("Current findings (asset, check_id):\n")
 
 	// Track assets that appear directly in findings.
@@ -97,7 +97,7 @@ func (c *ClaudeEnricher) GenerateFollowUpProbes(ctx context.Context, enriched []
 		f := ef.Finding
 		knownAssets[f.Asset] = true
 		fmt.Fprintf(&sb, "  - asset: %s | check_id: %s | severity: %s\n",
-			f.Asset, string(f.CheckID), f.Severity.String())
+			sanitize(f.Asset, 256), string(f.CheckID), f.Severity.String())
 	}
 	sb.WriteString("\n")
 

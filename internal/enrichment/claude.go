@@ -110,7 +110,7 @@ func NewClaudeDefault(apiKey string) (*ClaudeEnricher, error) {
 // safeFuncs returns template functions that sanitize user-controlled data before
 // it reaches Claude prompts, preventing prompt injection via crafted finding fields.
 var safeFuncs = template.FuncMap{
-	// safe truncates s to maxLen chars and removes newlines/control chars.
+	// safe truncates s to maxLen runes and removes newlines/control chars.
 	// Use for any field that comes from external/user-controlled data
 	// (finding titles, descriptions, asset names).
 	"safe": func(s string) string {
@@ -127,11 +127,35 @@ var safeFuncs = template.FuncMap{
 			}
 		}
 		result := b.String()
-		if len(result) > 512 {
-			result = result[:512] + "…"
+		// Truncate by rune count, not byte count, to avoid slicing
+		// in the middle of a multi-byte UTF-8 character.
+		runes := []rune(result)
+		if len(runes) > 512 {
+			result = string(runes[:512]) + "…"
 		}
 		return result
 	},
+}
+
+// sanitize removes newlines/control characters and truncates to maxRunes.
+// This is the non-template equivalent of the "safe" template function, for use
+// in Go code that builds prompts via fmt.Sprintf rather than text/template.
+func sanitize(s string, maxRunes int) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 0x20 || r == '\t' {
+			b.WriteRune(r)
+		}
+	}
+	result := b.String()
+	runes := []rune(result)
+	if len(runes) > maxRunes {
+		result = string(runes[:maxRunes]) + "…"
+	}
+	return result
 }
 
 func NewClaude(apiKey string, findingTmplSrc, summaryTmplSrc string) (*ClaudeEnricher, error) {
@@ -554,7 +578,11 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI-compat API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		safeBody := strings.TrimSpace(string(data))
+		if c.apiKey != "" {
+			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
+		}
+		return "", fmt.Errorf("OpenAI-compat API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {
@@ -612,7 +640,13 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Gemini API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		// Redact the response body to avoid leaking the API key, which
+		// is passed as a URL query parameter for the Gemini API.
+		safeBody := strings.TrimSpace(string(data))
+		if c.apiKey != "" {
+			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
+		}
+		return "", fmt.Errorf("Gemini API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {
@@ -663,7 +697,11 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Ollama API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		safeBody := strings.TrimSpace(string(data))
+		if c.apiKey != "" {
+			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
+		}
+		return "", fmt.Errorf("Ollama API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {
@@ -735,7 +773,11 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		safeBody := strings.TrimSpace(string(data))
+		if c.apiKey != "" {
+			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
+		}
+		return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var cr claudeResponse
