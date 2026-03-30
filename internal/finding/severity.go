@@ -1,5 +1,7 @@
 package finding
 
+import "strings"
+
 // Severity represents the risk level of a finding.
 type Severity int
 
@@ -41,9 +43,10 @@ func (s Severity) Weight() int {
 	}
 }
 
-// ParseSeverity converts a string to Severity. Returns SeverityInfo if unknown.
+// ParseSeverity converts a string to Severity. Case-insensitive.
+// Returns SeverityInfo if unknown.
 func ParseSeverity(s string) Severity {
-	switch s {
+	switch strings.ToLower(s) {
 	case "critical":
 		return SeverityCritical
 	case "high":

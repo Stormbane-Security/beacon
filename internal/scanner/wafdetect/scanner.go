@@ -512,12 +512,51 @@ func getStatus(ctx context.Context, client *http.Client, asset, scheme string, e
 	return resp.StatusCode
 }
 
-// rootAndWWW returns the root domain and its www. variant for the given hostname.
+// rootAndWWW returns the registrable domain and its www. variant for the given hostname.
+// It handles common multi-part TLDs (.co.uk, .com.au, etc.).
 func rootAndWWW(hostname string) []string {
 	parts := strings.Split(hostname, ".")
 	if len(parts) < 2 {
 		return []string{hostname}
 	}
-	root := strings.Join(parts[len(parts)-2:], ".")
+	// Handle common two-part TLDs: keep 3 labels instead of 2.
+	n := 2
+	if len(parts) >= 3 {
+		sld := parts[len(parts)-2]
+		tld := parts[len(parts)-1]
+		if isTwoPartTLD(sld, tld) {
+			n = 3
+		}
+	}
+	if n > len(parts) {
+		n = len(parts)
+	}
+	root := strings.Join(parts[len(parts)-n:], ".")
 	return []string{root, "www." + root}
+}
+
+// isTwoPartTLD returns true for common second-level domains under country-code TLDs
+// (e.g., co.uk, com.au, co.jp) where the registrable domain has 3 labels.
+func isTwoPartTLD(sld, tld string) bool {
+	key := sld + "." + tld
+	switch key {
+	case "co.uk", "org.uk", "me.uk", "net.uk", "ac.uk",
+		"com.au", "net.au", "org.au", "edu.au",
+		"co.nz", "net.nz", "org.nz",
+		"co.jp", "or.jp", "ne.jp", "ac.jp",
+		"co.kr", "or.kr", "ne.kr",
+		"co.in", "net.in", "org.in", "ac.in",
+		"com.br", "net.br", "org.br",
+		"co.za", "org.za", "net.za",
+		"com.cn", "net.cn", "org.cn",
+		"com.mx", "org.mx", "net.mx",
+		"com.sg", "net.sg", "org.sg",
+		"co.il", "org.il", "net.il",
+		"com.tw", "net.tw", "org.tw",
+		"co.th", "or.th", "ac.th",
+		"com.hk", "org.hk", "net.hk",
+		"com.my", "net.my", "org.my":
+		return true
+	}
+	return false
 }

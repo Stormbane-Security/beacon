@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os/exec"
 	"strings"
 	"sync"
@@ -258,7 +259,7 @@ func Subdomains(f finding.Finding) []string {
 
 // crtsh queries the crt.sh Certificate Transparency API for subdomains.
 func crtsh(ctx context.Context, domain string) ([]string, error) {
-	url := fmt.Sprintf("https://crt.sh/?q=%%25.%s&output=json", domain)
+	url := fmt.Sprintf("https://crt.sh/?q=%%25.%s&output=json", neturl.QueryEscape(domain))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

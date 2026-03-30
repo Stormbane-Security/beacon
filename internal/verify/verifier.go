@@ -418,7 +418,7 @@ func (v *Verifier) callClaude(ctx context.Context, prompt string) (string, error
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
 		return "", err
 	}
@@ -489,8 +489,10 @@ func CorrelateCredentials(verdicts []FindingVerdict) []string {
 			if m, ok := f.Evidence["match"].(string); ok {
 				if len(m) > 20 {
 					val = m[:8] + "…" + m[len(m)-4:]
+				} else if len(m) > 8 {
+					val = m[:4] + "…"
 				} else {
-					val = m
+					val = "***"
 				}
 			}
 			creds = append(creds, credInfo{

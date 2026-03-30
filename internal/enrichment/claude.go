@@ -576,7 +576,7 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if resp.StatusCode != http.StatusOK {
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
@@ -695,7 +695,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("Ollama request failed (is Ollama running?): %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if resp.StatusCode != http.StatusOK {
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
@@ -767,7 +767,7 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if err != nil {
 		return "", err
 	}

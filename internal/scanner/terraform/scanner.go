@@ -135,13 +135,28 @@ func parseHCLFromScanner(scanner *bufio.Scanner, hf *hclFile) error {
 	}
 	var stack []stackEntry
 	lineNo := 0
+	inBlockComment := false
 
 	for scanner.Scan() {
 		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 
+		// Track multi-line /* ... */ comments.
+		if inBlockComment {
+			if strings.Contains(line, "*/") {
+				inBlockComment = false
+			}
+			continue
+		}
+
 		// Skip comments and blank lines.
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") {
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		if strings.HasPrefix(line, "/*") {
+			if !strings.Contains(line, "*/") {
+				inBlockComment = true
+			}
 			continue
 		}
 

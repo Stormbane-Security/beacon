@@ -497,38 +497,49 @@ func (s *Store) PurgeOrphanedRuns(_ context.Context, olderThan time.Time) (int, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	orphanThreshold := olderThan.Add(-2 * time.Hour)
-	deleted := 0
+
+	// Collect IDs to purge first, then delete — avoids modifying maps while iterating.
+	var toPurge []string
 	for id, r := range s.runs {
-		shouldPurge := false
 		switch r.Status {
 		case store.StatusCompleted:
 			// Never purge completed runs.
 		case store.StatusRunning, store.StatusPending:
-			// Running/pending runs older than orphanThreshold are orphaned.
-			shouldPurge = r.StartedAt.Before(orphanThreshold)
-		default:
-			// Failed, stopped, etc. older than olderThan.
-			shouldPurge = r.StartedAt.Before(olderThan)
-		}
-		if shouldPurge {
-			delete(s.runs, id)
-			delete(s.findings, id)
-			delete(s.enriched, id)
-			delete(s.reports, id)
-			delete(s.assetGraphs, id)
-			delete(s.assetExecutions, id)
-			// Remove correlation findings for this run.
-			filtered := s.correlations[:0]
-			for _, c := range s.correlations {
-				if c.ScanRunID != id {
-					filtered = append(filtered, c)
-				}
+			if r.StartedAt.Before(orphanThreshold) {
+				toPurge = append(toPurge, id)
 			}
-			s.correlations = filtered
-			deleted++
+		default:
+			if r.StartedAt.Before(olderThan) {
+				toPurge = append(toPurge, id)
+			}
 		}
 	}
-	return deleted, nil
+
+	if len(toPurge) == 0 {
+		return 0, nil
+	}
+
+	purgeSet := make(map[string]struct{}, len(toPurge))
+	for _, id := range toPurge {
+		purgeSet[id] = struct{}{}
+		delete(s.runs, id)
+		delete(s.findings, id)
+		delete(s.enriched, id)
+		delete(s.reports, id)
+		delete(s.assetGraphs, id)
+		delete(s.assetExecutions, id)
+	}
+
+	// Filter correlations once using the full purge set.
+	filtered := make([]store.CorrelationFinding, 0, len(s.correlations))
+	for _, c := range s.correlations {
+		if _, purged := purgeSet[c.ScanRunID]; !purged {
+			filtered = append(filtered, c)
+		}
+	}
+	s.correlations = filtered
+
+	return len(toPurge), nil
 }
 
 // SaveAssetGraph stores the asset graph JSON for a scan run.

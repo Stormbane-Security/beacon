@@ -38,7 +38,16 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 			}
 
 			ep := cluster.ResourcesVpcConfig
-			if ep != nil && ep.EndpointPublicAccess && len(ep.PublicAccessCidrs) == 0 {
+			isWideOpen := len(ep.PublicAccessCidrs) == 0
+			if !isWideOpen {
+				for _, cidr := range ep.PublicAccessCidrs {
+					if cidr == "0.0.0.0/0" || cidr == "::/0" {
+						isWideOpen = true
+						break
+					}
+				}
+			}
+			if ep != nil && ep.EndpointPublicAccess && isWideOpen {
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudAWSEKSPublicEndpoint,
 					Title:   fmt.Sprintf("EKS cluster has public endpoint with no CIDR restriction: %s", name),

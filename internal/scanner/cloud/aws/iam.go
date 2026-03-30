@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -144,8 +145,14 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 			if err != nil || versionResp.PolicyVersion == nil {
 				continue
 			}
-			doc := awscfg.ToString(versionResp.PolicyVersion.Document)
-			if strings.Contains(doc, `"Action":"*"`) && strings.Contains(doc, `"Resource":"*"`) {
+			// AWS returns the policy document URL-encoded (RFC 3986).
+			rawDoc := awscfg.ToString(versionResp.PolicyVersion.Document)
+			doc, _ := url.QueryUnescape(rawDoc)
+			if doc == "" {
+				doc = rawDoc // fallback to raw if unescape fails
+			}
+			if strings.Contains(doc, `"Action":"*"`) && strings.Contains(doc, `"Resource":"*"`) ||
+				strings.Contains(doc, `"Action": "*"`) && strings.Contains(doc, `"Resource": "*"`) {
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudAWSIAMPolicyWildcard,
 					Title:   fmt.Sprintf("AWS IAM policy grants * on *: %s", awscfg.ToString(policy.PolicyName)),

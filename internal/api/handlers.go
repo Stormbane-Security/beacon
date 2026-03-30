@@ -1,9 +1,9 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +27,7 @@ type submitScanResponse struct {
 }
 
 func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
 	var req submitScanRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -209,7 +210,18 @@ func writeSSE(w http.ResponseWriter, event, data string) {
 	if event != "" {
 		w.Write([]byte("event: " + event + "\n")) //nolint:errcheck
 	}
-	w.Write([]byte("data: " + data + "\n\n")) //nolint:errcheck
+	// Sanitize newlines to prevent SSE injection — each line must be
+	// prefixed with "data: " per the SSE spec.
+	data = strings.ReplaceAll(data, "\r\n", "\n")
+	data = strings.ReplaceAll(data, "\r", "\n")
+	for i, line := range strings.Split(data, "\n") {
+		if i == 0 {
+			w.Write([]byte("data: " + line + "\n")) //nolint:errcheck
+		} else {
+			w.Write([]byte("data: " + line + "\n")) //nolint:errcheck
+		}
+	}
+	w.Write([]byte("\n")) //nolint:errcheck
 }
 
 // ── Get report ───────────────────────────────────────────────────────────────
@@ -272,7 +284,7 @@ func (s *Server) handleListPlaybookSuggestions(w http.ResponseWriter, r *http.Re
 // ── List targets ──────────────────────────────────────────────────────────────
 
 func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
-	targets, err := s.st.ListTargets(context.Background())
+	targets, err := s.st.ListTargets(r.Context())
 	if err != nil {
 		jsonError(w, "store error", http.StatusInternalServerError)
 		return
@@ -291,6 +303,7 @@ type upsertSuppressionRequest struct {
 }
 
 func (s *Server) handleUpsertSuppression(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
 	var req upsertSuppressionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)

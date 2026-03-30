@@ -47,6 +47,8 @@ var genericPwdFalsePositives = map[string]bool{
 // real credentials: %word%, {word}, <word>, {{word}}, $VAR_NAME style tokens.
 var genericPwdPlaceholderRe = regexp.MustCompile(`^(%[^%]+%|\{[^}]+\}|<[^>]+>|\$[A-Z_]+|YOUR_|EXAMPLE|REPLACE|CHANGEME|TODO|FIXME|REDACTED|FILTERED)`)
 
+var jsScriptSrcRe = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
+
 var secretPatterns = map[string]*regexp.Regexp{
 	"AWS Access Key":           regexp.MustCompile(`(?i)AKIA[0-9A-Z]{16}`),
 	"AWS Secret Key":           regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `][0-9a-zA-Z/+]{40}`),
@@ -654,11 +656,19 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 
 // extractJSURLs finds script src URLs in HTML.
 func extractJSURLs(baseURL, html string) []string {
-	pattern := regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
-	matches := pattern.FindAllStringSubmatch(html, 50) // cap at 50 JS files
+	matches := jsScriptSrcRe.FindAllStringSubmatch(html, 50) // cap at 50 JS files
 
 	seen := make(map[string]struct{})
 	var urls []string
+	// Compute scheme+host prefix for resolving relative paths.
+	baseOrigin := baseURL
+	if schemeEnd := strings.Index(baseURL, "://"); schemeEnd >= 0 {
+		hostStart := schemeEnd + 3
+		if idx := strings.Index(baseURL[hostStart:], "/"); idx >= 0 {
+			baseOrigin = baseURL[:hostStart+idx]
+		}
+	}
+
 	for _, m := range matches {
 		if len(m) < 2 {
 			continue
@@ -667,12 +677,7 @@ func extractJSURLs(baseURL, html string) []string {
 		if strings.HasPrefix(url, "//") {
 			url = "https:" + url
 		} else if strings.HasPrefix(url, "/") {
-			// relative path — prepend base
-			if idx := strings.Index(baseURL[8:], "/"); idx >= 0 {
-				url = baseURL[:8+idx] + url
-			} else {
-				url = baseURL + url
-			}
+			url = baseOrigin + url
 		}
 		if _, ok := seen[url]; !ok && strings.HasPrefix(url, "http") {
 			seen[url] = struct{}{}

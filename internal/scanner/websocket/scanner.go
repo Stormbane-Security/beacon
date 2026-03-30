@@ -59,8 +59,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	scheme := "https"
 	var sessionCookies []string
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
-	if resp, err := client.Do(req); err != nil {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	if err != nil {
+		scheme = "http"
+	} else if resp, err := client.Do(req); err != nil {
 		scheme = "http"
 	} else {
 		for _, c := range resp.Cookies() {

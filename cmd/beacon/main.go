@@ -8052,7 +8052,10 @@ func wordWrapAtShellBoundaries(cmd string, maxWidth int) []string {
 // It checks common evidence keys in priority order so the clipboard gets the
 // most actionable link (e.g. the direct bucket URL rather than the base URL).
 func extractFindingURL(f *finding.Finding) string {
-	if f == nil {
+	if f == nil || f.Evidence == nil {
+		if f != nil && f.Asset != "" {
+			return "https://" + f.Asset
+		}
 		return ""
 	}
 	for _, key := range []string{

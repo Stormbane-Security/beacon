@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
@@ -32,7 +33,13 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 				Bucket: bucket.Name,
 			})
 			if err != nil {
-				// If NoSuchPublicAccessBlockConfiguration — public access block not configured.
+				// Only flag if the error indicates no block is configured.
+				// Permission errors (AccessDenied, etc.) should not generate false positives.
+				errMsg := err.Error()
+				if !strings.Contains(errMsg, "NoSuchPublicAccessBlockConfiguration") &&
+					!strings.Contains(errMsg, "NoSuchPublicAccessBlock") {
+					continue // permission error or transient — skip this bucket
+				}
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudAWSS3BucketPublic,
 					Title:   fmt.Sprintf("S3 bucket has no public access block configuration: %s", name),
