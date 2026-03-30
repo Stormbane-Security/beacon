@@ -5,14 +5,20 @@ go 1.25.8
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization v1.0.0
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice v1.0.0
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor v0.11.0
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.8.1
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription v1.2.0
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.13
+	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.55.9
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.296.1
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.56.2
 	github.com/aws/aws-sdk-go-v2/service/eks v1.81.2
 	github.com/aws/aws-sdk-go-v2/service/iam v1.53.7
+	github.com/aws/aws-sdk-go-v2/service/rds v1.117.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1

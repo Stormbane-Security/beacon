@@ -914,6 +914,14 @@ const (
 	CheckCloudGCPComputeNoOSLogin    CheckID = "cloud.gcp.compute_no_os_login"       // instance without OS Login enabled
 	CheckCloudGCPGKENoWorkloadIdentity CheckID = "cloud.gcp.gke_no_workload_identity" // GKE cluster without Workload Identity
 	CheckCloudGCPGKENoMasterAuthNetworks CheckID = "cloud.gcp.gke_no_master_auth_networks" // GKE cluster without master authorized networks
+	CheckCloudGCPCloudRunUnauthenticated CheckID = "cloud.gcp.cloudrun_unauthenticated"    // Cloud Run service allows unauthenticated invocations
+	CheckCloudGCPCloudRunNoBinaryAuth    CheckID = "cloud.gcp.cloudrun_no_binary_auth"     // Cloud Run service without Binary Authorization
+	CheckCloudGCPCloudRunNoVPCConnector  CheckID = "cloud.gcp.cloudrun_no_vpc_connector"   // Cloud Run service without VPC connector (egress goes via public internet)
+	CheckCloudGCPCloudSQLPublic          CheckID = "cloud.gcp.cloudsql_public"              // Cloud SQL instance with public IP and 0.0.0.0/0 authorized
+	CheckCloudGCPCloudSQLNoSSL           CheckID = "cloud.gcp.cloudsql_no_ssl"              // Cloud SQL instance does not require SSL
+	CheckCloudGCPCloudSQLNoBackup        CheckID = "cloud.gcp.cloudsql_no_backup"           // Cloud SQL instance without automated backups
+	CheckCloudGCPArtifactRegistryPublic  CheckID = "cloud.gcp.artifact_registry_public"     // Artifact Registry repo publicly readable
+	CheckCloudGCPNoAuditLogging          CheckID = "cloud.gcp.no_audit_logging"             // Cloud Audit Logs data access logging not enabled
 
 	// AWS authenticated cloud scanning
 	CheckCloudAWSIAMRootAccessKey CheckID = "cloud.aws.iam_root_access_key"  // root account has active access keys
@@ -928,6 +936,15 @@ const (
 	CheckCloudAWSEC2IMDSv1        CheckID = "cloud.aws.ec2_imdsv1"          // EC2 instance accepts IMDSv1 (SSRF credential theft risk)
 	CheckCloudAWSEBSUnencrypted   CheckID = "cloud.aws.ebs_unencrypted"     // EBS volume not encrypted at rest
 	CheckCloudAWSEKSNoLogging     CheckID = "cloud.aws.eks_no_logging"      // EKS cluster without audit logging enabled
+	CheckCloudAWSRDSPublic        CheckID = "cloud.aws.rds_public"          // RDS instance publicly accessible
+	CheckCloudAWSRDSNoEncryption  CheckID = "cloud.aws.rds_no_encryption"   // RDS instance storage not encrypted
+	CheckCloudAWSRDSNoBackup      CheckID = "cloud.aws.rds_no_backup"       // RDS instance with 0-day backup retention
+	CheckCloudAWSECRNoScanning    CheckID = "cloud.aws.ecr_no_scanning"     // ECR repository without image scanning enabled
+	CheckCloudAWSECRPublic        CheckID = "cloud.aws.ecr_public"          // ECR repository allows public access
+	CheckCloudAWSECRMutableTags   CheckID = "cloud.aws.ecr_mutable_tags"    // ECR repository allows tag overwrite (supply chain risk)
+	CheckCloudAWSNoCloudTrail     CheckID = "cloud.aws.no_cloudtrail"       // CloudTrail not enabled or not logging
+	CheckCloudAWSCloudTrailNoEncryption CheckID = "cloud.aws.cloudtrail_no_encryption" // CloudTrail logs not encrypted with KMS
+	CheckCloudAWSCloudTrailNoValidation CheckID = "cloud.aws.cloudtrail_no_validation" // CloudTrail log file integrity validation disabled
 
 	// Azure authenticated cloud scanning
 	CheckCloudAzureScanError       CheckID = "cloud.azure.scan_error"            // Azure subscription scan failed
@@ -938,6 +955,12 @@ const (
 	CheckCloudAzureAKSNoRBAC       CheckID = "cloud.azure.aks_no_rbac"           // AKS cluster without RBAC enabled
 	CheckCloudAzureAKSNoNetPolicy  CheckID = "cloud.azure.aks_no_net_policy"     // AKS cluster without network policy
 	CheckCloudAzureStorageSharedKey CheckID = "cloud.azure.storage_shared_key"   // storage account allows shared key access
+	CheckCloudAzureSQLPublic       CheckID = "cloud.azure.sql_public"            // Azure SQL server allows public network access
+	CheckCloudAzureSQLNoAuditing   CheckID = "cloud.azure.sql_no_auditing"       // Azure SQL server without auditing enabled
+	CheckCloudAzureSQLNoTDE        CheckID = "cloud.azure.sql_no_tde"            // Azure SQL database without transparent data encryption
+	CheckCloudAzureACRPublic       CheckID = "cloud.azure.acr_public"            // Azure Container Registry allows public access
+	CheckCloudAzureACRNoContentTrust CheckID = "cloud.azure.acr_no_content_trust" // ACR without content trust (image signing)
+	CheckCloudAzureNoActivityLog   CheckID = "cloud.azure.no_activity_log"       // Activity log not exported to Log Analytics
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1806,6 +1829,14 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudGCPComputeNoOSLogin:         {CheckCloudGCPComputeNoOSLogin, SeverityMedium, ModeDeep},
 	CheckCloudGCPGKENoWorkloadIdentity:    {CheckCloudGCPGKENoWorkloadIdentity, SeverityHigh, ModeDeep},
 	CheckCloudGCPGKENoMasterAuthNetworks:  {CheckCloudGCPGKENoMasterAuthNetworks, SeverityHigh, ModeDeep},
+	CheckCloudGCPCloudRunUnauthenticated:  {CheckCloudGCPCloudRunUnauthenticated, SeverityHigh, ModeDeep},
+	CheckCloudGCPCloudRunNoBinaryAuth:     {CheckCloudGCPCloudRunNoBinaryAuth, SeverityMedium, ModeDeep},
+	CheckCloudGCPCloudRunNoVPCConnector:   {CheckCloudGCPCloudRunNoVPCConnector, SeverityMedium, ModeDeep},
+	CheckCloudGCPCloudSQLPublic:           {CheckCloudGCPCloudSQLPublic, SeverityCritical, ModeDeep},
+	CheckCloudGCPCloudSQLNoSSL:            {CheckCloudGCPCloudSQLNoSSL, SeverityHigh, ModeDeep},
+	CheckCloudGCPCloudSQLNoBackup:         {CheckCloudGCPCloudSQLNoBackup, SeverityMedium, ModeDeep},
+	CheckCloudGCPArtifactRegistryPublic:   {CheckCloudGCPArtifactRegistryPublic, SeverityHigh, ModeDeep},
+	CheckCloudGCPNoAuditLogging:           {CheckCloudGCPNoAuditLogging, SeverityHigh, ModeDeep},
 
 	// AWS authenticated cloud scanning — requires valid AWS credentials
 	CheckCloudAWSIAMRootAccessKey:  {CheckCloudAWSIAMRootAccessKey, SeverityCritical, ModeDeep},
@@ -1820,6 +1851,15 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAWSEC2IMDSv1:         {CheckCloudAWSEC2IMDSv1, SeverityHigh, ModeDeep},
 	CheckCloudAWSEBSUnencrypted:    {CheckCloudAWSEBSUnencrypted, SeverityMedium, ModeDeep},
 	CheckCloudAWSEKSNoLogging:      {CheckCloudAWSEKSNoLogging, SeverityMedium, ModeDeep},
+	CheckCloudAWSRDSPublic:         {CheckCloudAWSRDSPublic, SeverityCritical, ModeDeep},
+	CheckCloudAWSRDSNoEncryption:   {CheckCloudAWSRDSNoEncryption, SeverityHigh, ModeDeep},
+	CheckCloudAWSRDSNoBackup:       {CheckCloudAWSRDSNoBackup, SeverityMedium, ModeDeep},
+	CheckCloudAWSECRNoScanning:     {CheckCloudAWSECRNoScanning, SeverityMedium, ModeDeep},
+	CheckCloudAWSECRPublic:         {CheckCloudAWSECRPublic, SeverityHigh, ModeDeep},
+	CheckCloudAWSECRMutableTags:    {CheckCloudAWSECRMutableTags, SeverityHigh, ModeDeep},
+	CheckCloudAWSNoCloudTrail:      {CheckCloudAWSNoCloudTrail, SeverityCritical, ModeDeep},
+	CheckCloudAWSCloudTrailNoEncryption: {CheckCloudAWSCloudTrailNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudAWSCloudTrailNoValidation: {CheckCloudAWSCloudTrailNoValidation, SeverityMedium, ModeDeep},
 
 	// Azure authenticated cloud scanning — requires valid Azure credentials
 	CheckCloudAzureScanError:         {CheckCloudAzureScanError, SeverityInfo, ModeDeep},
@@ -1830,6 +1870,12 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAzureAKSNoRBAC:          {CheckCloudAzureAKSNoRBAC, SeverityHigh, ModeDeep},
 	CheckCloudAzureAKSNoNetPolicy:     {CheckCloudAzureAKSNoNetPolicy, SeverityMedium, ModeDeep},
 	CheckCloudAzureStorageSharedKey:    {CheckCloudAzureStorageSharedKey, SeverityMedium, ModeDeep},
+	CheckCloudAzureSQLPublic:           {CheckCloudAzureSQLPublic, SeverityCritical, ModeDeep},
+	CheckCloudAzureSQLNoAuditing:       {CheckCloudAzureSQLNoAuditing, SeverityHigh, ModeDeep},
+	CheckCloudAzureSQLNoTDE:            {CheckCloudAzureSQLNoTDE, SeverityHigh, ModeDeep},
+	CheckCloudAzureACRPublic:           {CheckCloudAzureACRPublic, SeverityHigh, ModeDeep},
+	CheckCloudAzureACRNoContentTrust:   {CheckCloudAzureACRNoContentTrust, SeverityMedium, ModeDeep},
+	CheckCloudAzureNoActivityLog:       {CheckCloudAzureNoActivityLog, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

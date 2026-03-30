@@ -98,5 +98,23 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		all = append(all, eksFindings...)
 	}
 
+	// RDS checks.
+	rdsFindings, err := scanRDS(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, rdsFindings...)
+	}
+
+	// ECR checks.
+	ecrFindings, err := scanECR(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, ecrFindings...)
+	}
+
+	// CloudTrail checks.
+	ctFindings, err := scanCloudTrail(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, ctFindings...)
+	}
+
 	return all, nil
 }

@@ -101,6 +101,21 @@ func (s *Scanner) scanSubscription(ctx context.Context, cred *azidentity.Default
 		findings = append(findings, rbacFindings...)
 	}
 
+	sqlFindings, err := scanSQL(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, sqlFindings...)
+	}
+
+	acrFindings, err := scanACR(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, acrFindings...)
+	}
+
+	activityLogFindings, err := scanActivityLog(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, activityLogFindings...)
+	}
+
 	return findings, nil
 }
 

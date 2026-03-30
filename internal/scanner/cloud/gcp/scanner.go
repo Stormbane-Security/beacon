@@ -102,6 +102,30 @@ func (s *Scanner) scanProject(ctx context.Context, projectID, asset string, opts
 		findings = append(findings, gkeFindings...)
 	}
 
+	// Cloud Run checks
+	cloudRunFindings, err := scanCloudRun(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, cloudRunFindings...)
+	}
+
+	// Cloud SQL checks
+	cloudSQLFindings, err := scanCloudSQL(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, cloudSQLFindings...)
+	}
+
+	// Artifact Registry checks
+	arFindings, err := scanArtifactRegistry(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, arFindings...)
+	}
+
+	// Audit Logging checks
+	auditFindings, err := scanAuditLogging(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, auditFindings...)
+	}
+
 	return findings, nil
 }
 

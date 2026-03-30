@@ -350,6 +350,32 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudAzureStorageSharedKey:      true,
 		finding.CheckCloudAzureAKSNoRBAC:            true,
 		finding.CheckCloudAzureAKSNoNetPolicy:       true,
+		// New cloud posture checks — GCP
+		finding.CheckCloudGCPCloudRunUnauthenticated: true,
+		finding.CheckCloudGCPCloudRunNoBinaryAuth:    true,
+		finding.CheckCloudGCPCloudRunNoVPCConnector:  true,
+		finding.CheckCloudGCPCloudSQLPublic:          true,
+		finding.CheckCloudGCPCloudSQLNoSSL:           true,
+		finding.CheckCloudGCPCloudSQLNoBackup:        true,
+		finding.CheckCloudGCPArtifactRegistryPublic:  true,
+		finding.CheckCloudGCPNoAuditLogging:          true,
+		// New cloud posture checks — AWS
+		finding.CheckCloudAWSRDSPublic:               true,
+		finding.CheckCloudAWSRDSNoEncryption:          true,
+		finding.CheckCloudAWSRDSNoBackup:              true,
+		finding.CheckCloudAWSECRNoScanning:            true,
+		finding.CheckCloudAWSECRPublic:                true,
+		finding.CheckCloudAWSECRMutableTags:           true,
+		finding.CheckCloudAWSNoCloudTrail:             true,
+		finding.CheckCloudAWSCloudTrailNoEncryption:   true,
+		finding.CheckCloudAWSCloudTrailNoValidation:   true,
+		// New cloud posture checks — Azure
+		finding.CheckCloudAzureSQLPublic:              true,
+		finding.CheckCloudAzureSQLNoAuditing:          true,
+		finding.CheckCloudAzureSQLNoTDE:               true,
+		finding.CheckCloudAzureACRPublic:              true,
+		finding.CheckCloudAzureACRNoContentTrust:      true,
+		finding.CheckCloudAzureNoActivityLog:          true,
 		// GraphQL CSRF via GET
 		finding.CheckGraphQLGETEnabled: true,
 	}
