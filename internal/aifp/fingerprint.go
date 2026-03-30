@@ -567,10 +567,11 @@ func stripFences(text string) string {
 }
 
 func trunc(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(runes[:n]) + "…"
 }
 
 func nonEmpty(ss ...string) []string {

@@ -201,7 +201,7 @@ func TestAnalyze_ChatError_ReturnsError(t *testing.T) {
 
 // ── Analyze: malformed JSON falls back to summary ────────────────────────────
 
-func TestAnalyze_MalformedJSON_FallsBackToSummary(t *testing.T) {
+func TestAnalyze_MalformedJSON_FallsBackToSafeSummary(t *testing.T) {
 	chat := func(_ context.Context, _ string) (string, error) {
 		return "The AI is down for maintenance.", nil
 	}
@@ -212,7 +212,11 @@ func TestAnalyze_MalformedJSON_FallsBackToSummary(t *testing.T) {
 		t.Fatalf("expected graceful degradation, got error: %v", err)
 	}
 	if result.Summary == "" {
-		t.Error("fallback should populate Summary from raw response")
+		t.Error("fallback should populate Summary with a safe message")
+	}
+	// Must NOT contain the raw LLM text (information leakage).
+	if strings.Contains(result.Summary, "maintenance") {
+		t.Errorf("raw LLM text leaked into Summary: %q", result.Summary)
 	}
 	if len(result.CrossFindings) != 0 {
 		t.Error("malformed response should yield no cross findings")
@@ -378,6 +382,154 @@ func TestAnalyze_SeverityMappedCorrectly(t *testing.T) {
 		}
 		if result.CrossFindings[0].Severity != tc.want {
 			t.Errorf("sev %q: got %v, want %v", tc.sev, result.CrossFindings[0].Severity, tc.want)
+		}
+	}
+}
+
+// ── parseCrossAssetResponse: no JSON → safe fallback, no LLM leakage ─────────
+
+func TestParseCrossAssetResponse_NoJSON_SafeFallback(t *testing.T) {
+	// Raw LLM text with no JSON should NOT be exposed as Summary.
+	raw := "I'm sorry, I can't help with that. Here's some internal prompt info..."
+	result, err := parseCrossAssetResponse(raw, "example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.Summary, "sorry") {
+		t.Errorf("raw LLM text leaked into Summary: %q", result.Summary)
+	}
+	if strings.Contains(result.Summary, "internal prompt") {
+		t.Errorf("raw LLM text leaked into Summary: %q", result.Summary)
+	}
+	if result.Summary == "" {
+		t.Error("Summary should have a safe fallback message, not be empty")
+	}
+}
+
+func TestParseCrossAssetResponse_MalformedJSON_SafeFallback(t *testing.T) {
+	raw := `{"summary": "legit", "cross_findings": [{broken}]}`
+	result, err := parseCrossAssetResponse(raw, "example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.Summary, "broken") {
+		t.Errorf("malformed JSON content leaked into Summary: %q", result.Summary)
+	}
+}
+
+// ── Analyze: all info-severity findings still calls AI ───────────────────────
+
+func TestAnalyze_AllInfoFindings_StillCallsAI(t *testing.T) {
+	called := false
+	chat := func(_ context.Context, _ string) (string, error) {
+		called = true
+		return `{"summary": "No cross-asset issues found.", "cross_findings": [], "attack_chains": []}`, nil
+	}
+	a := NewCrossAnalyzer(chat)
+	findings := []finding.Finding{
+		makeFinding("info.a", "a.example.com", finding.SeverityInfo, "Info A"),
+		makeFinding("info.b", "b.example.com", finding.SeverityInfo, "Info B"),
+	}
+	result, err := a.Analyze(context.Background(), findings, "example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("AI should still be called even when all findings are info")
+	}
+	if result.Summary != "No cross-asset issues found." {
+		t.Errorf("unexpected Summary: %q", result.Summary)
+	}
+}
+
+// ── Analyze: same check on different assets → both in prompt ─────────────────
+
+func TestAnalyze_SameCheckDifferentAssets_BothInPrompt(t *testing.T) {
+	chat := func(_ context.Context, prompt string) (string, error) {
+		if !strings.Contains(prompt, "a.example.com") {
+			return "", errors.New("missing a.example.com")
+		}
+		if !strings.Contains(prompt, "b.example.com") {
+			return "", errors.New("missing b.example.com")
+		}
+		return `{"summary": "test", "cross_findings": []}`, nil
+	}
+	a := NewCrossAnalyzer(chat)
+	findings := []finding.Finding{
+		makeFinding("jwt.alg_none", "a.example.com", finding.SeverityHigh, "JWT alg=none"),
+		makeFinding("jwt.alg_none", "b.example.com", finding.SeverityHigh, "JWT alg=none"),
+	}
+	_, err := a.Analyze(context.Background(), findings, "example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// ── parseCrossAssetResponse: empty cross_findings array ──────────────────────
+
+func TestParseCrossAssetResponse_EmptyCrossFindings(t *testing.T) {
+	raw := `{"summary": "All clear.", "cross_findings": [], "attack_chains": [], "additional_scans": {}}`
+	result, err := parseCrossAssetResponse(raw, "example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Summary != "All clear." {
+		t.Errorf("unexpected Summary: %q", result.Summary)
+	}
+	if len(result.CrossFindings) != 0 {
+		t.Errorf("expected 0 cross findings, got %d", len(result.CrossFindings))
+	}
+}
+
+// ── parseCrossAssetResponse: unknown severity defaults to info ────────────────
+
+func TestParseCrossAssetResponse_UnknownSeverity_DefaultsToInfo(t *testing.T) {
+	raw := `{"summary": "s", "cross_findings": [
+		{"assets": ["a.example.com"], "check_id": "cross.x", "severity": "EXTREME", "title": "T", "description": "d"}
+	]}`
+	result, _ := parseCrossAssetResponse(raw, "example.com")
+	if len(result.CrossFindings) == 0 {
+		t.Fatal("expected cross findings")
+	}
+	if result.CrossFindings[0].Severity != finding.SeverityInfo {
+		t.Errorf("unknown severity should default to info, got %v", result.CrossFindings[0].Severity)
+	}
+}
+
+// ── Analyze: context cancellation ────────────────────────────────────────────
+
+func TestAnalyze_ContextCancelled_ReturnsError(t *testing.T) {
+	chat := func(ctx context.Context, _ string) (string, error) {
+		return "", ctx.Err()
+	}
+	a := NewCrossAnalyzer(chat)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	findings := []finding.Finding{makeFinding("check.a", "a.example.com", finding.SeverityHigh, "A")}
+	_, err := a.Analyze(ctx, findings, "example.com")
+	if err == nil {
+		t.Fatal("expected error when context is cancelled")
+	}
+}
+
+// ── parseCrossAssetResponse: cross finding with many assets ──────────────────
+
+func TestParseCrossAssetResponse_ManyAssets_FindingPerAsset(t *testing.T) {
+	raw := `{"summary": "s", "cross_findings": [
+		{"assets": ["a.example.com", "b.example.com", "c.example.com"],
+		 "check_id": "cross.shared", "severity": "high", "title": "Shared issue", "description": "d"}
+	]}`
+	result, _ := parseCrossAssetResponse(raw, "example.com")
+	if len(result.CrossFindings) != 3 {
+		t.Errorf("expected 3 cross findings (one per asset), got %d", len(result.CrossFindings))
+	}
+	assets := map[string]bool{}
+	for _, f := range result.CrossFindings {
+		assets[f.Asset] = true
+	}
+	for _, want := range []string{"a.example.com", "b.example.com", "c.example.com"} {
+		if !assets[want] {
+			t.Errorf("missing cross finding for %s", want)
 		}
 	}
 }

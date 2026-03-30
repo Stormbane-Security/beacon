@@ -139,7 +139,7 @@ func parseCrossAssetResponse(text, rootDomain string) (*CrossAssetResult, error)
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
 	if start < 0 || end <= start {
-		return &CrossAssetResult{Summary: text}, nil
+		return &CrossAssetResult{Summary: "Cross-asset analysis returned unparseable response."}, nil
 	}
 	text = text[start : end+1]
 
@@ -156,8 +156,8 @@ func parseCrossAssetResponse(text, rootDomain string) (*CrossAssetResult, error)
 		AdditionalScans map[string][]string `json:"additional_scans"`
 	}
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		// Graceful degradation — return summary if parsing fails.
-		return &CrossAssetResult{Summary: text}, nil
+		// Graceful degradation — never expose raw LLM output as summary.
+		return &CrossAssetResult{Summary: "Cross-asset analysis returned malformed JSON."}, nil
 	}
 
 	result := &CrossAssetResult{

@@ -1176,3 +1176,331 @@ func TestClassify_LowConfidenceNoPlaybookSaved(t *testing.T) {
 		t.Error("low confidence should not trigger PlaybookSuggestion persistence")
 	}
 }
+
+// ── trunc: UTF-8 safety ──────────────────────────────────────────────────────
+
+func TestTrunc_MultiByte_DoesNotSplitRune(t *testing.T) {
+	// "日本語テスト" is 6 runes but 18 bytes. Truncating to 3 runes should
+	// produce valid UTF-8, not a broken byte sequence.
+	s := "日本語テスト"
+	got := trunc(s, 3)
+	if got != "日本語…" {
+		t.Errorf("expected '日本語…', got %q", got)
+	}
+	// Verify the result is valid UTF-8.
+	for i, r := range got {
+		if r == '\uFFFD' {
+			t.Errorf("invalid UTF-8 at byte %d", i)
+		}
+	}
+}
+
+func TestTrunc_MultiByte_ExactLength_NoTruncation(t *testing.T) {
+	s := "日本語" // 3 runes
+	got := trunc(s, 3)
+	if got != s {
+		t.Errorf("string with exact rune count should not be truncated: got %q", got)
+	}
+}
+
+func TestTrunc_MixedASCIIAndMultiByte(t *testing.T) {
+	s := "abc日本語def"
+	got := trunc(s, 5) // "abc日本" + "…"
+	if got != "abc日本…" {
+		t.Errorf("expected 'abc日本…', got %q", got)
+	}
+}
+
+func TestTrunc_EmptyString(t *testing.T) {
+	got := trunc("", 10)
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+func TestTrunc_ZeroLimit(t *testing.T) {
+	got := trunc("hello", 0)
+	if got != "…" {
+		t.Errorf("expected just ellipsis for zero limit, got %q", got)
+	}
+}
+
+// ── stripFences edge cases ───────────────────────────────────────────────────
+
+func TestStripFences_NestedFences(t *testing.T) {
+	// Outer fences should be stripped; inner content preserved.
+	input := "```json\n{\"nested\": \"```value```\"}\n```"
+	got := stripFences(input)
+	// After stripping ```json ... ```, we get the inner content.
+	if !strings.Contains(got, "nested") {
+		t.Errorf("nested content should be preserved: %q", got)
+	}
+}
+
+func TestStripFences_UnclosedFence(t *testing.T) {
+	// Opening fence with no closing fence — should return everything after the fence marker.
+	input := "```json\n{\"key\": \"val\"}"
+	got := stripFences(input)
+	if !strings.Contains(got, "key") {
+		t.Errorf("unclosed fence should still return content after marker: %q", got)
+	}
+}
+
+func TestStripFences_EmptyString(t *testing.T) {
+	got := stripFences("")
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+func TestStripFences_OnlyFenceMarkers(t *testing.T) {
+	input := "```json\n```"
+	got := stripFences(input)
+	if got != "" {
+		t.Errorf("expected empty string between fences, got %q", got)
+	}
+}
+
+// ── nonEmpty edge cases ──────────────────────────────────────────────────────
+
+func TestNonEmpty_AllEmpty(t *testing.T) {
+	got := nonEmpty("", "", "")
+	if len(got) != 0 {
+		t.Errorf("expected empty slice, got %v", got)
+	}
+}
+
+func TestNonEmpty_Mixed(t *testing.T) {
+	got := nonEmpty("", "a", "", "b", "")
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("expected [a b], got %v", got)
+	}
+}
+
+// ── MergeInto: BackendServices with empty strings ────────────────────────────
+
+func TestMergeInto_BackendServicesFiltersEmptyStrings(t *testing.T) {
+	r := &ClassifyResult{
+		BackendServices: []string{"", "redis", ""},
+		Confidence:      "medium",
+	}
+	ev := &playbook.Evidence{}
+	r.MergeInto(ev)
+	for _, s := range ev.BackendServices {
+		if s == "" {
+			t.Error("empty strings should be filtered from BackendServices")
+		}
+	}
+	if len(ev.BackendServices) != 1 || ev.BackendServices[0] != "redis" {
+		t.Errorf("expected [redis], got %v", ev.BackendServices)
+	}
+}
+
+// ── MergeInto: ClassificationSource not set when Confidence is empty ─────────
+
+func TestMergeInto_NoConfidence_NoClassificationSource(t *testing.T) {
+	r := &ClassifyResult{Framework: "flask", Confidence: ""}
+	ev := &playbook.Evidence{}
+	r.MergeInto(ev)
+	if ev.ClassificationSource != "" {
+		t.Errorf("expected empty ClassificationSource when Confidence is empty, got %q", ev.ClassificationSource)
+	}
+}
+
+// ── UnknownTechFinding: DiscoveredAt is set ──────────────────────────────────
+
+func TestUnknownTechFinding_DiscoveredAtSet(t *testing.T) {
+	before := time.Now()
+	r := &ClassifyResult{Confidence: "low", Framework: "express"}
+	f := r.UnknownTechFinding("api.example.com")
+	after := time.Now()
+	if f == nil {
+		t.Fatal("expected non-nil finding")
+	}
+	if f.DiscoveredAt.Before(before) || f.DiscoveredAt.After(after) {
+		t.Errorf("DiscoveredAt out of range: %v", f.DiscoveredAt)
+	}
+}
+
+// ── UnknownTechFinding: Evidence fields ──────────────────────────────────────
+
+func TestUnknownTechFinding_EvidenceContainsExpectedKeys(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence:  "medium",
+		Framework:   "django",
+		Explanation: "Django detected via CSRF cookie.",
+	}
+	f := r.UnknownTechFinding("app.example.com")
+	if f == nil {
+		t.Fatal("expected non-nil finding")
+	}
+	if f.Evidence["ai_classification"] != "django" {
+		t.Errorf("expected ai_classification=django, got %v", f.Evidence["ai_classification"])
+	}
+	if f.Evidence["confidence"] != "medium" {
+		t.Errorf("expected confidence=medium, got %v", f.Evidence["confidence"])
+	}
+	if f.Evidence["explanation"] != "Django detected via CSRF cookie." {
+		t.Errorf("expected explanation in evidence, got %v", f.Evidence["explanation"])
+	}
+}
+
+// ── buildClassifyPrompt: nil maps don't panic ────────────────────────────────
+
+func TestBuildClassifyPrompt_NilMaps_NoPanic(t *testing.T) {
+	ev := &playbook.Evidence{
+		Headers:         nil,
+		ServiceVersions: nil,
+		StatusCode:      0,
+	}
+	// Should not panic.
+	prompt := buildClassifyPrompt(ev)
+	if prompt == "" {
+		t.Error("expected non-empty prompt even with nil maps")
+	}
+}
+
+// ── buildPlaybookYAML: mixed surface and deep scanners ───────────────────────
+
+func TestBuildPlaybookYAML_MixedSurfaceAndDeepScanners(t *testing.T) {
+	r := &ClassifyResult{
+		Framework:         "nextjs",
+		SuggestedScanners: []string{"jwt", "dlp", "smuggling", "cors"},
+		Confidence:        "high",
+		Signals:           []string{"x-nextjs-cache"},
+		Explanation:       "Next.js detected.",
+	}
+	yaml := buildPlaybookYAML("nextjs", r)
+
+	// jwt and cors are general → appear in both surface and deep.
+	// dlp is surface-only → only in surface.
+	// smuggling is deep-only → only in deep.
+	if !strings.Contains(yaml, "surface:") {
+		t.Error("expected surface section")
+	}
+	if !strings.Contains(yaml, "deep:") {
+		t.Error("expected deep section")
+	}
+
+	// Verify smuggling is in deep but not surface.
+	surfaceIdx := strings.Index(yaml, "surface:")
+	deepIdx := strings.Index(yaml, "deep:")
+	if surfaceIdx >= 0 && deepIdx > surfaceIdx {
+		surfaceSection := yaml[surfaceIdx:deepIdx]
+		if strings.Contains(surfaceSection, "smuggling") {
+			t.Error("smuggling (deep-only) should not appear in surface section")
+		}
+		deepSection := yaml[deepIdx:]
+		if !strings.Contains(deepSection, "smuggling") {
+			t.Error("smuggling should appear in deep section")
+		}
+		// dlp should be in surface but not deep.
+		if !strings.Contains(surfaceSection, "dlp") {
+			t.Error("dlp (surface-only) should appear in surface section")
+		}
+		if strings.Contains(deepSection, "dlp") {
+			t.Error("dlp (surface-only) should not appear in deep section")
+		}
+	}
+}
+
+// ── buildPlaybookYAML: header_present (key only, no value) ───────────────────
+
+func TestBuildPlaybookYAML_HeaderKeyOnly_HeaderPresent(t *testing.T) {
+	r := &ClassifyResult{
+		Confidence:        "high",
+		SuggestedScanners: []string{"cors"},
+		Signals:           []string{"x-custom-header"},
+		Explanation:       "Custom header detected.",
+		ProposedRules: []store.FingerprintRule{
+			{SignalType: "header", SignalKey: "x-custom-header", SignalValue: "",
+				Field: "framework", Value: "custom", Confidence: 0.9},
+		},
+	}
+	yaml := buildPlaybookYAML("custom", r)
+	if !strings.Contains(yaml, `header_present: "x-custom-header"`) {
+		t.Errorf("expected header_present for key-only header rule:\n%s", yaml)
+	}
+}
+
+// ── Classify: context cancellation ───────────────────────────────────────────
+
+func TestClassify_ContextCancelled_ReturnsError(t *testing.T) {
+	chat := func(ctx context.Context, _ string) (string, error) {
+		return "", ctx.Err()
+	}
+	c := NewClassifier(chat, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+	_, err := c.Classify(ctx, &playbook.Evidence{})
+	if err == nil {
+		t.Fatal("expected error when context is cancelled")
+	}
+}
+
+// ── parseClassifyResponse: JSON embedded in prose ────────────────────────────
+
+func TestParseClassifyResponse_JSONEmbeddedInProse(t *testing.T) {
+	// LLM sometimes returns prose around JSON. The parser should extract it.
+	input := `Here is my analysis:
+{"framework": "express", "confidence": "high", "proposed_rules": []}
+Hope that helps!`
+	result, err := parseClassifyResponse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Framework != "express" {
+		t.Errorf("expected framework=express, got %q", result.Framework)
+	}
+}
+
+// ── parseClassifyResponse: multiple JSON objects picks outer ─────────────────
+
+func TestParseClassifyResponse_NestedBraces(t *testing.T) {
+	// Nested JSON should still parse correctly — parser uses first { and last }.
+	input := `{"framework": "rails", "confidence": "high", "proposed_rules": [{"signal_type": "header", "signal_key": "x-rails", "signal_value": "", "field": "framework", "value": "rails", "confidence": 0.9}]}`
+	result, err := parseClassifyResponse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Framework != "rails" {
+		t.Errorf("expected framework=rails, got %q", result.Framework)
+	}
+	if len(result.ProposedRules) != 1 {
+		t.Errorf("expected 1 proposed rule, got %d", len(result.ProposedRules))
+	}
+}
+
+// ── Classify: proposed rule with missing SignalType is dropped ────────────────
+
+func TestClassify_ProposedRule_MissingSignalTypeDropped(t *testing.T) {
+	resp := `{"framework": "flask", "confidence": "medium", "proposed_rules": [
+		{"signal_type": "", "signal_key": "x-flask", "signal_value": "flask", "field": "framework", "value": "flask", "confidence": 0.8}
+	]}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	result, err := c.Classify(context.Background(), &playbook.Evidence{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ProposedRules) != 0 {
+		t.Errorf("expected 0 proposed rules (empty SignalType dropped), got %d", len(result.ProposedRules))
+	}
+}
+
+// ── Classify: proposed rule with missing Value is dropped ────────────────────
+
+func TestClassify_ProposedRule_MissingValueDropped(t *testing.T) {
+	resp := `{"framework": "flask", "confidence": "medium", "proposed_rules": [
+		{"signal_type": "header", "signal_key": "x-flask", "signal_value": "flask", "field": "framework", "value": "", "confidence": 0.8}
+	]}`
+	chat := func(_ context.Context, _ string) (string, error) { return resp, nil }
+	c := NewClassifier(chat, nil)
+	result, err := c.Classify(context.Background(), &playbook.Evidence{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ProposedRules) != 0 {
+		t.Errorf("expected 0 proposed rules (empty Value dropped), got %d", len(result.ProposedRules))
+	}
+}
