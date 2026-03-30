@@ -1661,3 +1661,567 @@ func TestBuild_NilSlicesAreEmpty(t *testing.T) {
 	for range graph.IaCReferences {
 	}
 }
+
+// ---------------------------------------------------------------------------
+// belongs_to relationships for subdomains
+// ---------------------------------------------------------------------------
+
+func TestAddDomainAsset_SubdomainCreatesBelongsTo(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAsset("api.example.com", nil, "dns")
+
+	found := false
+	for _, r := range b.relationships {
+		if r.Type == RelBelongsTo &&
+			r.FromID == "domain:api.example.com" &&
+			r.ToID == "domain:example.com" {
+			found = true
+			if r.Confidence != 1.0 {
+				t.Errorf("belongs_to confidence = %f, want 1.0", r.Confidence)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected belongs_to relationship from subdomain to root domain")
+	}
+}
+
+func TestAddDomainAsset_RootDomainNoBelongsTo(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAsset("example.com", nil, "dns")
+
+	for _, r := range b.relationships {
+		if r.Type == RelBelongsTo {
+			t.Error("root domain should not have belongs_to relationship")
+		}
+	}
+}
+
+func TestAddDomainAsset_DifferentDomainNoBelongsTo(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAsset("other.org", nil, "dns")
+
+	for _, r := range b.relationships {
+		if r.Type == RelBelongsTo {
+			t.Error("unrelated domain should not have belongs_to relationship")
+		}
+	}
+}
+
+func TestAddDomainAsset_DeepSubdomainBelongsTo(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAsset("deep.sub.example.com", nil, "dns")
+
+	found := false
+	for _, r := range b.relationships {
+		if r.Type == RelBelongsTo &&
+			r.FromID == "domain:deep.sub.example.com" &&
+			r.ToID == "domain:example.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("deep subdomain should have belongs_to to root domain")
+	}
+}
+
+func TestAddDomainAsset_BelongsTo_CaseInsensitive(t *testing.T) {
+	b := NewBuilder("run-1", "Example.COM")
+	b.AddDomainAsset("api.Example.COM", nil, "dns")
+
+	found := false
+	for _, r := range b.relationships {
+		if r.Type == RelBelongsTo {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("case-insensitive subdomain matching should create belongs_to")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CNAME chain support
+// ---------------------------------------------------------------------------
+
+func TestAddDomainAssetFull_StoresCNAMEChain(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	chain := []string{"api.example.com.cdn.cloudflare.net", "cdn.cloudflare.net"}
+	b.AddDomainAssetFull("api.example.com", []string{"1.2.3.4"}, chain, "dns")
+
+	if stored, ok := b.cnameChains["domain:api.example.com"]; !ok {
+		t.Error("CNAME chain not stored")
+	} else if len(stored) != 2 {
+		t.Errorf("expected 2 CNAME entries, got %d", len(stored))
+	}
+}
+
+func TestAddDomainAssetFull_CreatesPointsToForCNAMEs(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAssetFull("api.example.com", nil, []string{"api-lb.us-east-1.elb.amazonaws.com"}, "dns")
+
+	found := false
+	for _, r := range b.relationships {
+		if r.Type == RelPointsTo &&
+			r.FromID == "domain:api.example.com" &&
+			r.ToID == "domain:api-lb.us-east-1.elb.amazonaws.com" {
+			found = true
+			ev, _ := r.Evidence["method"].(string)
+			if ev != "cname" {
+				t.Errorf("expected evidence method=cname, got %q", ev)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected points_to relationship from domain to CNAME target")
+	}
+}
+
+func TestAddDomainAssetFull_NilCNAME_NoPanic(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	// Should not panic with nil CNAME chain
+	b.AddDomainAssetFull("api.example.com", []string{"1.2.3.4"}, nil, "dns")
+
+	if len(b.cnameChains) != 0 {
+		t.Error("nil CNAME chain should not be stored")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CrossReferenceByCNAME
+// ---------------------------------------------------------------------------
+
+func TestCrossReferenceByCNAME_MatchesAWSELBByName(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	// Cloud asset: an AWS ELB
+	b.AddAsset(Asset{
+		ID:       "aws_load_balancer:api-lb",
+		Type:     AssetTypeAWSELB,
+		Provider: "aws",
+		Name:     "api-lb",
+	})
+
+	// Domain with CNAME pointing to ELB
+	b.AddDomainAssetFull("api.example.com", nil,
+		[]string{"api-lb-1234567890.us-east-1.elb.amazonaws.com"}, "dns")
+
+	graph := b.Build()
+
+	found := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelLikelySameAs &&
+			r.FromID == "domain:api.example.com" &&
+			r.ToID == "aws_load_balancer:api-lb" {
+			found = true
+			if r.Confidence < 0.85 {
+				t.Errorf("CNAME match confidence = %f, expected >= 0.85", r.Confidence)
+			}
+			ev, _ := r.Evidence["method"].(string)
+			if ev != "cname_match" {
+				t.Errorf("expected evidence method=cname_match, got %q", ev)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected likely_same_as from domain to AWS ELB via CNAME match")
+	}
+}
+
+func TestCrossReferenceByCNAME_MatchesGCPRunApp(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	b.AddAsset(Asset{
+		ID:       "gcp_cloud_run:api-service",
+		Type:     AssetType("gcp_cloud_run"),
+		Provider: "gcp",
+		Name:     "api-service",
+	})
+
+	b.AddDomainAssetFull("api.example.com", nil,
+		[]string{"api-service-abc123-uc.a.run.app"}, "dns")
+
+	graph := b.Build()
+
+	found := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelLikelySameAs &&
+			r.FromID == "domain:api.example.com" &&
+			r.ToID == "gcp_cloud_run:api-service" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected likely_same_as from domain to GCP Cloud Run via CNAME match")
+	}
+}
+
+func TestCrossReferenceByCNAME_MatchesAzureWebsites(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	b.AddAsset(Asset{
+		ID:       "azure_webapp:myapp",
+		Type:     AssetType("azure_webapp"),
+		Provider: "azure",
+		Name:     "myapp",
+	})
+
+	b.AddDomainAssetFull("www.example.com", nil,
+		[]string{"myapp.azurewebsites.net"}, "dns")
+
+	graph := b.Build()
+
+	found := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelLikelySameAs &&
+			r.FromID == "domain:www.example.com" &&
+			r.ToID == "azure_webapp:myapp" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected likely_same_as from domain to Azure webapp via CNAME match")
+	}
+}
+
+func TestCrossReferenceByCNAME_CandidateWhenNoSpecificMatch(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	// AWS asset exists but name doesn't appear in CNAME
+	b.AddAsset(Asset{
+		ID:       "aws_s3_bucket:other-bucket",
+		Type:     AssetTypeAWSS3,
+		Provider: "aws",
+		Name:     "other-bucket",
+	})
+
+	b.AddDomainAssetFull("cdn.example.com", nil,
+		[]string{"d111111abcdef8.cloudfront.net"}, "dns")
+
+	graph := b.Build()
+
+	found := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelCandidateSameAs &&
+			r.FromID == "domain:cdn.example.com" {
+			found = true
+			if r.Confidence >= 0.9 {
+				t.Errorf("candidate confidence = %f, should be < 0.9", r.Confidence)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected candidate_same_as when CNAME matches cloud provider but not specific asset")
+	}
+}
+
+func TestCrossReferenceByCNAME_NoCNAME_NoRelationships(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAsset("api.example.com", nil, "dns")
+
+	b.CrossReferenceByCNAME()
+
+	for _, r := range b.relationships {
+		if r.Type == RelLikelySameAs || r.Type == RelCandidateSameAs {
+			if r.Evidence != nil {
+				if _, ok := r.Evidence["cname"]; ok {
+					t.Error("should not create CNAME-based relationships without CNAME chain")
+				}
+			}
+		}
+	}
+}
+
+func TestCrossReferenceByCNAME_NonCloudCNAME_Ignored(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddDomainAssetFull("api.example.com", nil,
+		[]string{"api.example.com.cdn.someprovider.net"}, "dns")
+
+	b.CrossReferenceByCNAME()
+
+	for _, r := range b.relationships {
+		if r.Type == RelCandidateSameAs || r.Type == RelLikelySameAs {
+			if ev, ok := r.Evidence["method"]; ok {
+				if ev == "cname_match" || ev == "cname_provider_match" {
+					t.Error("non-cloud CNAME should not create cloud relationships")
+				}
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// isCloudAssetType
+// ---------------------------------------------------------------------------
+
+func TestIsCloudAssetType(t *testing.T) {
+	cloudTypes := []AssetType{
+		AssetTypeGCPInstance, AssetTypeAWSEC2, AssetTypeAzureVM,
+		AssetTypeAWSELB, AssetTypeGCPLoadBalancer,
+	}
+	for _, ct := range cloudTypes {
+		if !isCloudAssetType(ct) {
+			t.Errorf("expected %s to be a cloud asset type", ct)
+		}
+	}
+
+	nonCloudTypes := []AssetType{
+		AssetTypeDomain, AssetTypeSubdomain, AssetTypeIP,
+		AssetTypeGitHubRepo, AssetTypeK8sCluster,
+	}
+	for _, nct := range nonCloudTypes {
+		if isCloudAssetType(nct) {
+			t.Errorf("expected %s to NOT be a cloud asset type", nct)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CrossReferenceByIP: load balancer types
+// ---------------------------------------------------------------------------
+
+func TestCrossReferenceByIP_AWSELBMatched(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddAsset(Asset{
+		ID:       "aws_load_balancer:my-elb",
+		Type:     AssetTypeAWSELB,
+		Provider: "aws",
+		Name:     "my-elb",
+		Metadata: map[string]any{"external_ip": "54.1.2.3"},
+	})
+	b.AddRelationship(Relationship{
+		FromID: "domain:api.example.com",
+		ToID:   "ip:54.1.2.3",
+		Type:   RelPointsTo,
+	})
+
+	b.CrossReferenceByIP()
+
+	found := false
+	for _, r := range b.relationships {
+		if r.Type == RelLikelySameAs && r.ToID == "aws_load_balancer:my-elb" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected likely_same_as for AWS ELB via IP cross-reference")
+	}
+}
+
+func TestCrossReferenceByIP_GCPLoadBalancerMatched(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+	b.AddAsset(Asset{
+		ID:       "gcp_load_balancer:my-lb",
+		Type:     AssetTypeGCPLoadBalancer,
+		Provider: "gcp",
+		Name:     "my-lb",
+		Metadata: map[string]any{"external_ip": "35.200.0.1"},
+	})
+	b.AddRelationship(Relationship{
+		FromID: "domain:api.example.com",
+		ToID:   "ip:35.200.0.1",
+		Type:   RelPointsTo,
+	})
+
+	b.CrossReferenceByIP()
+
+	found := false
+	for _, r := range b.relationships {
+		if r.Type == RelLikelySameAs && r.ToID == "gcp_load_balancer:my-lb" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected likely_same_as for GCP load balancer via IP cross-reference")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Relationship deduplication
+// ---------------------------------------------------------------------------
+
+func TestBuild_DeduplicatesRelationships(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	// Add the same relationship twice
+	r := Relationship{
+		FromID:     "domain:a.com",
+		ToID:       "ip:1.2.3.4",
+		Type:       RelPointsTo,
+		Confidence: 0.9,
+	}
+	b.AddRelationship(r)
+	b.AddRelationship(r)
+
+	graph := b.Build()
+
+	count := 0
+	for _, gr := range graph.Relationships {
+		if gr.FromID == "domain:a.com" && gr.ToID == "ip:1.2.3.4" && gr.Type == RelPointsTo {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 deduplicated relationship, got %d", count)
+	}
+}
+
+func TestBuild_DeduplicatesKeepsHighestConfidence(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	b.AddRelationship(Relationship{
+		FromID:     "domain:a.com",
+		ToID:       "gcp:vm1",
+		Type:       RelLikelySameAs,
+		Confidence: 0.80,
+	})
+	b.AddRelationship(Relationship{
+		FromID:     "domain:a.com",
+		ToID:       "gcp:vm1",
+		Type:       RelLikelySameAs,
+		Confidence: 0.98,
+	})
+	b.AddRelationship(Relationship{
+		FromID:     "domain:a.com",
+		ToID:       "gcp:vm1",
+		Type:       RelLikelySameAs,
+		Confidence: 0.90,
+	})
+
+	graph := b.Build()
+
+	for _, r := range graph.Relationships {
+		if r.FromID == "domain:a.com" && r.ToID == "gcp:vm1" && r.Type == RelLikelySameAs {
+			if r.Confidence != 0.98 {
+				t.Errorf("expected highest confidence 0.98, got %f", r.Confidence)
+			}
+			return
+		}
+	}
+	t.Error("expected deduplicated likely_same_as relationship")
+}
+
+func TestBuild_DifferentTypesNotDeduplicated(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	b.AddRelationship(Relationship{
+		FromID: "domain:a.com",
+		ToID:   "ip:1.2.3.4",
+		Type:   RelPointsTo,
+	})
+	b.AddRelationship(Relationship{
+		FromID: "domain:a.com",
+		ToID:   "ip:1.2.3.4",
+		Type:   RelLikelySameAs,
+	})
+
+	graph := b.Build()
+
+	types := map[RelationshipType]bool{}
+	for _, r := range graph.Relationships {
+		if r.FromID == "domain:a.com" && r.ToID == "ip:1.2.3.4" {
+			types[r.Type] = true
+		}
+	}
+	if !types[RelPointsTo] || !types[RelLikelySameAs] {
+		t.Error("different relationship types between same nodes should be preserved")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration: belongs_to + CNAME + IP cross-ref in single scan
+// ---------------------------------------------------------------------------
+
+func TestIntegration_FullRelationshipGraph(t *testing.T) {
+	b := NewBuilder("scan-full", "example.com")
+
+	// Cloud asset with external IP
+	b.AddAsset(Asset{
+		ID:       "aws_load_balancer:api-lb",
+		Type:     AssetTypeAWSELB,
+		Provider: "aws",
+		Name:     "api-lb",
+		Metadata: map[string]any{"external_ip": "54.100.0.1"},
+	})
+
+	// Root domain
+	b.AddDomainAssetFull("example.com", []string{"54.100.0.1"}, nil, "dns")
+
+	// Subdomain with CNAME to the ELB
+	b.AddDomainAssetFull("api.example.com", []string{"54.100.0.1"},
+		[]string{"api-lb-123.us-east-1.elb.amazonaws.com"}, "dns")
+
+	// Another subdomain
+	b.AddDomainAsset("docs.example.com", nil, "dns")
+
+	graph := b.Build()
+
+	relTypes := make(map[RelationshipType]int)
+	for _, r := range graph.Relationships {
+		relTypes[r.Type]++
+	}
+
+	// Should have:
+	// - points_to: example.com → IP, api.example.com → IP, api.example.com → CNAME
+	// - belongs_to: api.example.com → example.com, docs.example.com → example.com
+	// - likely_same_as: domain(s) → ELB via IP and/or CNAME
+
+	if relTypes[RelBelongsTo] < 2 {
+		t.Errorf("expected >= 2 belongs_to relationships, got %d", relTypes[RelBelongsTo])
+	}
+	if relTypes[RelPointsTo] < 2 {
+		t.Errorf("expected >= 2 points_to relationships, got %d", relTypes[RelPointsTo])
+	}
+	if relTypes[RelLikelySameAs] < 1 {
+		t.Errorf("expected >= 1 likely_same_as relationships, got %d", relTypes[RelLikelySameAs])
+	}
+
+	// Verify api.example.com has belongs_to to example.com
+	foundBelongsTo := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelBelongsTo && r.FromID == "domain:api.example.com" && r.ToID == "domain:example.com" {
+			foundBelongsTo = true
+		}
+	}
+	if !foundBelongsTo {
+		t.Error("api.example.com should belong_to example.com")
+	}
+
+	// Verify assets created
+	if len(graph.Assets) < 4 {
+		t.Errorf("expected at least 4 assets (ELB + root + 2 subs + IP), got %d", len(graph.Assets))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: AddDomainAssetFull preserves AddDomainAsset behavior
+// ---------------------------------------------------------------------------
+
+func TestAddDomainAssetFull_BackwardCompatible(t *testing.T) {
+	b1 := NewBuilder("run-1", "example.com")
+	b1.AddDomainAsset("api.example.com", []string{"1.2.3.4"}, "dns")
+
+	b2 := NewBuilder("run-2", "example.com")
+	b2.AddDomainAssetFull("api.example.com", []string{"1.2.3.4"}, nil, "dns")
+
+	// Both should produce same assets
+	if len(b1.assets) != len(b2.assets) {
+		t.Errorf("asset count mismatch: AddDomainAsset=%d, AddDomainAssetFull=%d",
+			len(b1.assets), len(b2.assets))
+	}
+
+	// Both should produce same relationship types
+	types1 := make(map[RelationshipType]int)
+	for _, r := range b1.relationships {
+		types1[r.Type]++
+	}
+	types2 := make(map[RelationshipType]int)
+	for _, r := range b2.relationships {
+		types2[r.Type]++
+	}
+	for k, v := range types1 {
+		if types2[k] != v {
+			t.Errorf("relationship type %q count mismatch: %d vs %d", k, v, types2[k])
+		}
+	}
+}

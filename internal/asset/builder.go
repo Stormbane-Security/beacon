@@ -34,15 +34,18 @@ type Builder struct {
 	iacRefs       []IaCReference
 	// ipIndex maps external IP → asset ID for cross-referencing
 	ipIndex map[string]string
+	// cnameChains maps domain ID → ordered CNAME chain for cross-referencing
+	cnameChains map[string][]string
 }
 
 // NewBuilder creates a new graph builder for a scan run.
 func NewBuilder(scanRunID, domain string) *Builder {
 	return &Builder{
-		scanRunID: scanRunID,
-		domain:    domain,
-		assets:    make(map[string]*Asset),
-		ipIndex:   make(map[string]string),
+		scanRunID:   scanRunID,
+		domain:      domain,
+		assets:      make(map[string]*Asset),
+		ipIndex:     make(map[string]string),
+		cnameChains: make(map[string][]string),
 	}
 }
 
@@ -95,8 +98,15 @@ func (b *Builder) AddAsset(a Asset) {
 // AddDomainAsset registers a domain or subdomain and its resolved IPs,
 // then attempts cross-referencing with any known cloud assets.
 func (b *Builder) AddDomainAsset(hostname string, resolvedIPs []string, discoveredBy string) {
+	b.AddDomainAssetFull(hostname, resolvedIPs, nil, discoveredBy)
+}
+
+// AddDomainAssetFull registers a domain with resolved IPs and CNAME chain.
+// The CNAME chain is stored for later cross-referencing with cloud assets.
+func (b *Builder) AddDomainAssetFull(hostname string, resolvedIPs []string, cnameChain []string, discoveredBy string) {
 	typ := AssetTypeDomain
-	if !strings.EqualFold(hostname, b.domain) && strings.HasSuffix(hostname, "."+b.domain) {
+	isSubdomain := !strings.EqualFold(hostname, b.domain) && strings.HasSuffix(strings.ToLower(hostname), "."+strings.ToLower(b.domain))
+	if isSubdomain {
 		typ = AssetTypeSubdomain
 	}
 	a := Asset{
@@ -108,6 +118,34 @@ func (b *Builder) AddDomainAsset(hostname string, resolvedIPs []string, discover
 		Confidence:   1.0,
 	}
 	b.AddAsset(a)
+
+	// Create belongs_to relationship for subdomains.
+	if isSubdomain {
+		b.AddRelationship(Relationship{
+			FromID:     a.ID,
+			ToID:       fmt.Sprintf("domain:%s", b.domain),
+			Type:       RelBelongsTo,
+			Confidence: 1.0,
+		})
+	}
+
+	// Store CNAME chain for cross-referencing in Build().
+	if len(cnameChain) > 0 {
+		b.mu.Lock()
+		b.cnameChains[a.ID] = cnameChain
+		b.mu.Unlock()
+
+		// Create points_to relationships for each CNAME hop.
+		for _, cname := range cnameChain {
+			b.AddRelationship(Relationship{
+				FromID:     a.ID,
+				ToID:       fmt.Sprintf("domain:%s", cname),
+				Type:       RelPointsTo,
+				Confidence: 1.0,
+				Evidence:   map[string]any{"method": "cname"},
+			})
+		}
+	}
 
 	for _, ip := range resolvedIPs {
 		if net.ParseIP(ip) == nil {
@@ -207,6 +245,17 @@ func (b *Builder) AddIaCReference(ref IaCReference) {
 	b.iacRefs = append(b.iacRefs, ref)
 }
 
+// isCloudAssetType returns true if the asset type represents a cloud resource
+// that may have an external IP (used for IP cross-referencing).
+func isCloudAssetType(t AssetType) bool {
+	switch t {
+	case AssetTypeGCPInstance, AssetTypeAWSEC2, AssetTypeAzureVM,
+		AssetTypeAWSELB, AssetTypeGCPLoadBalancer:
+		return true
+	}
+	return false
+}
+
 // CrossReferenceByIP runs after all scanners complete.
 // For each cloud asset with an external IP, it looks for a matching domain asset
 // and creates a likely_same_as relationship.
@@ -216,7 +265,7 @@ func (b *Builder) CrossReferenceByIP() {
 
 	var newRels []Relationship
 	for _, a := range b.assets {
-		if a.Type != AssetTypeGCPInstance && a.Type != AssetTypeAWSEC2 && a.Type != AssetTypeAzureVM {
+		if !isCloudAssetType(a.Type) {
 			continue
 		}
 		extIP, _ := a.Metadata["external_ip"].(string)
@@ -239,11 +288,143 @@ func (b *Builder) CrossReferenceByIP() {
 	b.relationships = append(b.relationships, newRels...)
 }
 
+// cloudCNAMEPatterns maps CNAME suffixes to cloud provider names.
+// Used by CrossReferenceByCNAME to identify cloud-hosted domains.
+var cloudCNAMEPatterns = []struct {
+	suffix   string
+	provider string
+}{
+	// AWS
+	{".elb.amazonaws.com", "aws"},
+	{".elb.us-east-1.amazonaws.com", "aws"},
+	{".cloudfront.net", "aws"},
+	{".s3.amazonaws.com", "aws"},
+	{".s3-website-", "aws"}, // covers s3-website-us-east-1.amazonaws.com
+	{".execute-api.", "aws"}, // API Gateway
+	// GCP
+	{".run.app", "gcp"},
+	{".appspot.com", "gcp"},
+	{".cloudfunctions.net", "gcp"},
+	{".cloud.goog", "gcp"},
+	// Azure
+	{".azurewebsites.net", "azure"},
+	{".blob.core.windows.net", "azure"},
+	{".azurefd.net", "azure"},
+	{".trafficmanager.net", "azure"},
+	{".azureedge.net", "azure"},
+}
+
+// CrossReferenceByCNAME matches CNAME chains to known cloud provider patterns
+// and creates candidate_same_as or likely_same_as relationships to cloud assets.
+func (b *Builder) CrossReferenceByCNAME() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var newRels []Relationship
+	for domainID, chain := range b.cnameChains {
+		for _, cname := range chain {
+			lowerCNAME := strings.ToLower(cname)
+
+			// Check if this CNAME matches a cloud provider pattern.
+			var matchedProvider string
+			for _, p := range cloudCNAMEPatterns {
+				if strings.Contains(lowerCNAME, p.suffix) {
+					matchedProvider = p.provider
+					break
+				}
+			}
+			if matchedProvider == "" {
+				continue
+			}
+
+			// Try to match against existing cloud assets from this provider.
+			matched := false
+			for _, a := range b.assets {
+				if a.Provider != matchedProvider {
+					continue
+				}
+				// Match by name appearing in the CNAME hostname.
+				if a.Name != "" && strings.Contains(lowerCNAME, strings.ToLower(a.Name)) {
+					newRels = append(newRels, Relationship{
+						FromID:     domainID,
+						ToID:       a.ID,
+						Type:       RelLikelySameAs,
+						Confidence: 0.90,
+						Evidence: map[string]any{
+							"cname":    cname,
+							"method":   "cname_match",
+							"provider": matchedProvider,
+						},
+						Signals: []string{
+							fmt.Sprintf("cname_target:%s", cname),
+							fmt.Sprintf("asset_name_in_cname:%s", a.Name),
+						},
+					})
+					matched = true
+					break
+				}
+			}
+
+			// No specific asset matched — create a candidate relationship
+			// indicating the domain is hosted on this cloud provider.
+			if !matched {
+				// Find any asset from this provider to link to.
+				for _, a := range b.assets {
+					if a.Provider == matchedProvider && a.Type != AssetTypeIP {
+						newRels = append(newRels, Relationship{
+							FromID:     domainID,
+							ToID:       a.ID,
+							Type:       RelCandidateSameAs,
+							Confidence: 0.60,
+							Evidence: map[string]any{
+								"cname":    cname,
+								"method":   "cname_provider_match",
+								"provider": matchedProvider,
+							},
+							Signals: []string{
+								fmt.Sprintf("cname_target:%s", cname),
+								fmt.Sprintf("provider_match:%s", matchedProvider),
+							},
+						})
+						break // one candidate per CNAME is enough
+					}
+				}
+			}
+		}
+	}
+	b.relationships = append(b.relationships, newRels...)
+}
+
+// deduplicateRelationships removes duplicate relationships, keeping the one
+// with highest confidence for each (FromID, ToID, Type) triple.
+func (b *Builder) deduplicateRelationships() {
+	type relKey struct {
+		from, to string
+		typ      RelationshipType
+	}
+	best := make(map[relKey]Relationship, len(b.relationships))
+	for _, r := range b.relationships {
+		k := relKey{r.FromID, r.ToID, r.Type}
+		if existing, ok := best[k]; !ok || r.Confidence > existing.Confidence {
+			best[k] = r
+		}
+	}
+	deduped := make([]Relationship, 0, len(best))
+	for _, r := range best {
+		deduped = append(deduped, r)
+	}
+	b.relationships = deduped
+}
+
 // Build assembles the final AssetGraph.
 func (b *Builder) Build() AssetGraph {
 	b.CrossReferenceByIP()
+	b.CrossReferenceByCNAME()
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	b.deduplicateRelationships()
 
 	assets := make([]Asset, 0, len(b.assets))
 	for _, a := range b.assets {
