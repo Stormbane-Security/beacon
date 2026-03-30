@@ -137,27 +137,19 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 func runHarvester(ctx context.Context, bin, domain string) (emails, subdomains []string, err error) {
 	// Use multiple sources for broader coverage. Limit to 500 results per source.
 	// Sources that don't require API keys: bing, google, yahoo, github, dnsdumpster, urlscan
-	cmd := exec.CommandContext(ctx, bin,
+	// theHarvester can be slow — allow up to 2 minutes
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	var out bytes.Buffer
+	cmd := exec.CommandContext(runCtx, bin,
 		"-d", domain,
 		"-b", "bing,google,yahoo,github,dnsdumpster,urlscan,crtsh",
 		"-l", "500",
 		"-f", "/dev/null", // no output file
 	)
-
-	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = nil // suppress stderr noise
-
-	// theHarvester can be slow — allow up to 2 minutes
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	cmd = exec.CommandContext(runCtx, bin,
-		"-d", domain,
-		"-b", "bing,google,yahoo,github,dnsdumpster,urlscan,crtsh",
-		"-l", "500",
-	)
-	cmd.Stdout = &out
-	cmd.Stderr = nil
 
 	if runErr := cmd.Run(); runErr != nil {
 		// theHarvester exits non-zero even on partial results — parse what we have

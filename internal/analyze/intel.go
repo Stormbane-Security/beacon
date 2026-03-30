@@ -443,8 +443,8 @@ func fetchOSV(ctx context.Context, client *http.Client, baseURL string) ([]OSVEn
 		}
 
 		summary := v.Summary
-		if len(summary) > 200 {
-			summary = summary[:197] + "..."
+		if r := []rune(summary); len(r) > 200 {
+			summary = string(r[:197]) + "..."
 		}
 
 		out = append(out, OSVEntry{
@@ -503,8 +503,8 @@ func (ti ThreatIntel) AppendToPrompt(b *strings.Builder) {
 		b.WriteString("These affect open-source packages commonly deployed in web infrastructure.\n\n")
 		for _, e := range ti.OSVAdvisories {
 			pkgs := strings.Join(e.Packages, ", ")
-			if len(pkgs) > 80 {
-				pkgs = pkgs[:77] + "..."
+			if r := []rune(pkgs); len(r) > 80 {
+				pkgs = string(r[:77]) + "..."
 			}
 			b.WriteString(fmt.Sprintf("  %s  severity=%s  packages=[%s]  %s\n",
 				e.ID, e.Severity, pkgs, e.Summary))

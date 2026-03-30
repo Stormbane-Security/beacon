@@ -693,6 +693,7 @@ func (s *Store) GetEnrichedFindings(_ context.Context, scanRunID string) ([]enri
 		}
 		if err := json.Unmarshal([]byte(fJSON), &ef.Finding); err != nil {
 			log.Printf("sqlite: failed to unmarshal enriched finding JSON: %v", err)
+			continue
 		}
 		out = append(out, ef)
 	}

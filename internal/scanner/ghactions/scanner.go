@@ -1201,21 +1201,31 @@ func checkKnownCompromisedActions(workflowYAML, repo string) []finding.Finding {
 
 			cveRef := bad.CVE
 			if bad.GHSA != "" {
-				cveRef += " / " + bad.GHSA
+				if cveRef != "" {
+					cveRef += " / "
+				}
+				cveRef += bad.GHSA
+			}
+			if cveRef == "" {
+				cveRef = "incident-" + bad.IncidentDate
+			}
+
+			desc := fmt.Sprintf(
+				"The action %q was involved in a confirmed supply-chain attack on %s. %s\n\n"+
+					"Remediation: %s",
+				fullRef, bad.IncidentDate, bad.Summary, bad.Remediation)
+			if bad.GHSA != "" {
+				desc += "\n\nAdvisory: https://github.com/advisories/" + bad.GHSA
 			}
 
 			findings = append(findings, finding.Finding{
-				CheckID:  finding.CheckGHActionKnownCompromised,
-				Module:   "github",
-				Scanner:  scannerName,
-				Severity: finding.SeverityCritical,
-				Asset:    repo,
-				Title:    fmt.Sprintf("Known-compromised action: %s (%s)", fullRef, cveRef),
-				Description: fmt.Sprintf(
-					"The action %q was involved in a confirmed supply-chain attack on %s. %s\n\n"+
-						"Remediation: %s\n\n"+
-						"Advisory: https://github.com/advisories/%s",
-					fullRef, bad.IncidentDate, bad.Summary, bad.Remediation, bad.GHSA),
+				CheckID:     finding.CheckGHActionKnownCompromised,
+				Module:      "github",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityCritical,
+				Asset:       repo,
+				Title:       fmt.Sprintf("Known-compromised action: %s (%s)", fullRef, cveRef),
+				Description: desc,
 				Evidence: map[string]any{
 					"action":        fullRef,
 					"ref":           ref,

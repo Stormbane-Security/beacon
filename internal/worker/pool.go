@@ -68,10 +68,17 @@ func (p *Pool) PurgeLogs(scanRunID string) {
 
 // Submit enqueues a job. Returns immediately; the job runs asynchronously.
 // Returns an error if the pool has been stopped.
-func (p *Pool) Submit(job Job) error {
+func (p *Pool) Submit(job Job) (err error) {
 	if p.stopped.Load() {
 		return fmt.Errorf("worker pool is stopped")
 	}
+	// Recover from send-on-closed-channel if Stop() races between
+	// the atomic check above and the send below.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("worker pool is stopped")
+		}
+	}()
 	p.queue <- job
 	return nil
 }

@@ -153,9 +153,23 @@ func validateTokenURL(raw string) error {
 		".onelogin.com", ".ping-eng.com", ".pingidentity.com",
 		".forgerock.com", ".cyberark.cloud",
 	}
-	for _, suffix := range allowed {
-		if strings.HasSuffix(host, suffix) || strings.Contains(host, suffix) {
-			return nil
+	for _, pattern := range allowed {
+		switch {
+		case strings.HasPrefix(pattern, "."):
+			// Suffix match (e.g. ".okta.com" matches "foo.okta.com")
+			if strings.HasSuffix(host, pattern) || host == pattern[1:] {
+				return nil
+			}
+		case strings.HasSuffix(pattern, "."):
+			// Prefix match (e.g. "cognito-idp." matches "cognito-idp.us-east-1.amazonaws.com")
+			if strings.HasPrefix(host, pattern) {
+				return nil
+			}
+		default:
+			// Exact match (e.g. "accounts.google.com")
+			if host == pattern {
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("token URL host %q is not a recognized OIDC provider; add it to the allowlist in auth.go if legitimate", host)

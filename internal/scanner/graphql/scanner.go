@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -396,7 +397,7 @@ func checkGraphQLGET(ctx context.Context, client *http.Client, asset, endpoint s
 	if idx := strings.Index(base, "?"); idx != -1 {
 		base = base[:idx]
 	}
-	getURL := base + "?query=" + "{__typename}"
+	getURL := base + "?query=" + url.QueryEscape("{__typename}")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
 	if err != nil {
 		return nil
