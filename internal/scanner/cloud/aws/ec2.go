@@ -30,8 +30,9 @@ func scanEC2(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					if awscfg.ToString(ipRange.CidrIp) == "0.0.0.0/0" {
 						fromPort := awscfg.ToInt32(perm.FromPort)
 						toPort := awscfg.ToInt32(perm.ToPort)
-						// Flag broadly open rules on sensitive ports.
-						if isSensitivePort(fromPort, toPort) {
+						protocol := awscfg.ToString(perm.IpProtocol)
+						// Protocol "-1" means all traffic (all ports, all protocols).
+						if protocol == "-1" || isSensitivePort(fromPort, toPort) {
 							var sgSnapshot string
 							if b, merr := json.Marshal(sg); merr == nil {
 								if len(b) > 32768 {

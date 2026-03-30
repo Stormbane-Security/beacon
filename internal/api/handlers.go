@@ -47,6 +47,10 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "deep scan requires permission_confirmed: true", http.StatusBadRequest)
 		return
 	}
+	if req.Authorized && !req.PermissionConfirmed {
+		jsonError(w, "authorized scan requires permission_confirmed: true", http.StatusBadRequest)
+		return
+	}
 
 	ctx := r.Context()
 

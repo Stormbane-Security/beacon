@@ -692,6 +692,7 @@ Type exactly: I have written authorization for %s
 
 	// Apply severity filter before enrichment so below-threshold findings are
 	// never sent to the Claude API — saves tokens and keeps prompts focused.
+	totalFindingCount := len(findings)
 	minSev := finding.ParseSeverity(severityFlag)
 	if minSev > finding.SeverityInfo {
 		var filtered []finding.Finding
@@ -744,7 +745,7 @@ Type exactly: I have written authorization for %s
 	now := time.Now()
 	run.Status = store.StatusCompleted
 	run.CompletedAt = &now
-	run.FindingCount = len(findings)
+	run.FindingCount = totalFindingCount
 	if err := st.UpdateScanRun(ctx, run); err != nil {
 		fatalf("update scan run: %v", err)
 	}
