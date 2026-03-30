@@ -2418,7 +2418,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 				old = old2
 				fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 
-				if domain == "" {
+				if domain == "" || strings.ContainsAny(domain, " \t\r\n") {
 					browseRender(bs)
 					continue
 				}

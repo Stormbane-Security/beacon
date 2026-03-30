@@ -455,9 +455,11 @@ func parseCIDR(cidr string) (*net.IPNet, int, bool) {
 	return ipNet, ones, true
 }
 
-// enumerateIPs returns all host IP strings in ipNet.
-// No internal cap — callers control the total via maxIPsPerScan.
+// enumerateIPs returns host IP strings in ipNet, capped at 65536 to prevent
+// OOM on broad prefixes (e.g. /8 or /0). Callers additionally cap the total
+// across all prefixes via maxIPsPerScan.
 func enumerateIPs(ipNet *net.IPNet) []string {
+	const maxPerPrefix = 1 << 16 // 65536
 	var ips []string
 	ip := cloneIP(ipNet.IP.To4())
 	if ip == nil {
@@ -465,6 +467,9 @@ func enumerateIPs(ipNet *net.IPNet) []string {
 	}
 	for ipNet.Contains(ip) {
 		ips = append(ips, ip.String())
+		if len(ips) >= maxPerPrefix {
+			break
+		}
 		incrementIP(ip)
 	}
 	return ips

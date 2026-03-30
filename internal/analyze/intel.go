@@ -246,10 +246,12 @@ func fetchNVD(ctx context.Context, client *http.Client, baseURL string, since ti
 	// If we know when analyze last ran, narrow the window to new CVEs only.
 	// Never go narrower than 7 days to avoid missing CVEs in short cadences.
 	minStart := now.AddDate(0, 0, -7)
-	if !since.IsZero() && since.After(minStart) {
-		start = since
-	} else if !since.IsZero() && since.After(start) {
-		start = since
+	if !since.IsZero() && since.After(start) {
+		if since.After(minStart) {
+			start = minStart // cap at 7-day minimum window
+		} else {
+			start = since
+		}
 	}
 
 	url := fmt.Sprintf("%s?pubStartDate=%s&pubEndDate=%s&resultsPerPage=%d",
@@ -299,9 +301,9 @@ func fetchNVD(ctx context.Context, client *http.Client, baseURL string, since ti
 				break
 			}
 		}
-		// Truncate long descriptions.
-		if len(desc) > 200 {
-			desc = desc[:197] + "..."
+		// Truncate long descriptions (rune-safe to avoid splitting multi-byte chars).
+		if r := []rune(desc); len(r) > 200 {
+			desc = string(r[:197]) + "..."
 		}
 
 		out = append(out, CVEEntry{
