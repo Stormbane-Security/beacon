@@ -501,9 +501,9 @@ func TestRenderOCSF_NilCompletedAt(t *testing.T) {
 	var m map[string]any
 	json.Unmarshal([]byte(lines[0]), &m)
 	unmapped := m["unmapped"].(map[string]any)
-	// completed_at should be 0 (int64 zero value from nil pointer).
-	if unmapped["completed_at"].(float64) != 0 {
-		t.Errorf("expected completed_at 0 for nil CompletedAt, got %v", unmapped["completed_at"])
+	// completed_at should be empty string when CompletedAt is nil.
+	if unmapped["completed_at"].(string) != "" {
+		t.Errorf("expected completed_at empty string for nil CompletedAt, got %v", unmapped["completed_at"])
 	}
 }
 

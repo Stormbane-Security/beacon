@@ -701,5 +701,14 @@ func referenceFor(checkID string) checkReference {
 	if ref, ok := checkReferences[checkID]; ok {
 		return ref
 	}
+	// Fall back to prefix before the first dot (e.g. "tls.cert_expiry_7d" → "tls").
+	for i, c := range checkID {
+		if c == '.' && i > 0 {
+			if ref, ok := checkReferences[checkID[:i]]; ok {
+				return ref
+			}
+			break
+		}
+	}
 	return checkReference{}
 }

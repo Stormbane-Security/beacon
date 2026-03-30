@@ -308,9 +308,9 @@ func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (strin
 		Unmapped     map[string]any `json:"unmapped"`
 	}
 	startTime := run.StartedAt.UnixMilli()
-	var endTime int64
+	var completedAtStr string
 	if run.CompletedAt != nil {
-		endTime = run.CompletedAt.UnixMilli()
+		completedAtStr = run.CompletedAt.Format(time.RFC3339)
 	}
 	envelope := scanEnvelope{
 		ClassUID:     5001,
@@ -337,7 +337,7 @@ func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (strin
 			"scan_type":     string(run.ScanType),
 			"modules":       run.Modules,
 			"started_at":    run.StartedAt.Format(time.RFC3339),
-			"completed_at":  endTime,
+			"completed_at":  completedAtStr,
 			"finding_count": len(enriched),
 		},
 	}
