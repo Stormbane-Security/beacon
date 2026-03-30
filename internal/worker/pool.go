@@ -172,8 +172,8 @@ func (p *Pool) process(job Job) {
 	// Enrich
 	p.emit(job.ScanRunID, "enriching findings...")
 	var enricher enrichment.Enricher
-	if p.cfg.AnthropicAPIKey != "" {
-		ce, err := enrichment.NewClaudeDefault(p.cfg.AnthropicAPIKey)
+	if ai := p.cfg.ActiveAI(); ai != nil {
+		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err == nil {
 			enricher = ce.WithCache(p.st)
 		}

@@ -427,7 +427,7 @@ Type exactly: I have written authorization for %s
 
 	// Remote mode: delegate to beacond
 	if serverURL != "" {
-		cmdScanRemote(serverURL, apiKey, domain, deep, permissionConfirmed, outPath)
+		cmdScanRemote(serverURL, apiKey, domain, deep, permissionConfirmed, authorized, outPath)
 		return
 	}
 
@@ -908,7 +908,7 @@ Type exactly: I have written authorization for all listed targets
 	// Remote multi-asset: delegate each target to the remote server.
 	if serverURL != "" {
 		for _, d := range targets {
-			cmdScanRemote(serverURL, apiKey, d, deep, permissionConfirmed, outPath)
+			cmdScanRemote(serverURL, apiKey, d, deep, permissionConfirmed, authorized, outPath)
 		}
 		return
 	}
@@ -1535,12 +1535,12 @@ func uniqueStrings(ss []string) []string {
 
 // ---------- remote scan ----------
 
-func cmdScanRemote(serverURL, apiKey, domain string, deep, permissionConfirmed bool, outPath string) {
+func cmdScanRemote(serverURL, apiKey, domain string, deep, permissionConfirmed, authorized bool, outPath string) {
 	client := api.NewClient(serverURL, apiKey)
 
 	fmt.Fprintf(os.Stderr, "beacon: submitting scan for %s to %s...\n", domain, serverURL)
 
-	result, err := client.SubmitScan(domain, deep, permissionConfirmed)
+	result, err := client.SubmitScan(domain, deep, permissionConfirmed, authorized)
 	if err != nil {
 		fatalf("submit scan: %v", err)
 	}

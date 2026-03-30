@@ -203,12 +203,16 @@ func scanEC2(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 			}
 		}
 
-		// Check flow logs for all VPCs at once.
+		// Check flow logs for all VPCs at once (paginated to avoid truncation).
 		if len(vpcIDs) > 0 {
-			flowLogsResp, flErr := svc.DescribeFlowLogs(ctx, &ec2.DescribeFlowLogsInput{})
 			vpcWithFlowLogs := make(map[string]bool)
-			if flErr == nil {
-				for _, fl := range flowLogsResp.FlowLogs {
+			flPaginator := ec2.NewDescribeFlowLogsPaginator(svc, &ec2.DescribeFlowLogsInput{})
+			for flPaginator.HasMorePages() {
+				flPage, flErr := flPaginator.NextPage(ctx)
+				if flErr != nil {
+					break
+				}
+				for _, fl := range flPage.FlowLogs {
 					if awscfg.ToString(fl.ResourceId) != "" {
 						vpcWithFlowLogs[awscfg.ToString(fl.ResourceId)] = true
 					}

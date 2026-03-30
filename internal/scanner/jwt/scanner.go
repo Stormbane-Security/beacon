@@ -87,9 +87,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	defer resp.Body.Close()
 
+	// Capture the working scheme from the initial connection for deep-mode probes.
+	workingScheme := resp.Request.URL.Scheme
+
 	// Catch-all / wildcard detection: if the server returns 200 for a random
 	// path that cannot exist, all JWT probe responses will be false positives.
-	if isCatchAll(ctx, client, resp.Request.URL.Scheme+"://"+asset) {
+	if isCatchAll(ctx, client, workingScheme+"://"+asset) {
 		return nil, nil
 	}
 
@@ -152,10 +155,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// These are active probes that submit forged tokens to the server.
 	// ScanAuthorized implies ScanDeep, so run deep checks for both modes.
 	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
-		if base == "http://"+asset {
-			// already resolved above; reuse the working base
+		if base == "http://"+asset && len(jwksFindings) > 0 {
+			// JWKS resolved to HTTP with findings; reuse
 		} else {
-			base = "https://" + asset
+			base = workingScheme + "://" + asset
 		}
 
 		// alg:none case variants — many JWT libraries only reject lowercase "none"

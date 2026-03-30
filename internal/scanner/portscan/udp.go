@@ -57,7 +57,7 @@ func runUDP(ctx context.Context, host string, scanType module.ScanType) []findin
 	}
 
 	// ── Deep mode only: extended UDP probes ──────────────────────────────────
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		// TFTP
 		if tftpF := probeTFTP(ctx, host); tftpF != nil {
 			findings = append(findings, *tftpF)

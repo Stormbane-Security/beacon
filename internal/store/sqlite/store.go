@@ -299,6 +299,7 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE playbook_suggestions ADD COLUMN priority TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE playbook_suggestions ADD COLUMN affected_domains TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE fingerprint_rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+		`ALTER TABLE findings ADD COLUMN proof_command TEXT NOT NULL DEFAULT ''`,
 		// Dedup index so per-asset incremental saves + final save don't produce duplicates.
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup ON findings(scan_run_id, check_id, asset, title)`,
 	}
@@ -572,8 +573,8 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 
 	stmt, err := tx.Prepare(`
 		INSERT OR IGNORE INTO findings (id, scan_run_id, check_id, module, scanner, severity,
-		                                title, description, asset, evidence, deep_only, discovered_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		                                title, description, asset, evidence, deep_only, proof_command, discovered_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -588,7 +589,7 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 		if _, err := stmt.Exec(
 			uuid.NewString(), scanRunID,
 			string(f.CheckID), f.Module, f.Scanner, f.Severity.String(),
-			f.Title, f.Description, f.Asset, string(ev), deepOnly, f.DiscoveredAt,
+			f.Title, f.Description, f.Asset, string(ev), deepOnly, f.ProofCommand, f.DiscoveredAt,
 		); err != nil {
 			return err
 		}
@@ -600,7 +601,7 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Finding, error) {
 	rows, err := s.db.Query(`
 		SELECT check_id, module, scanner, severity, title, description,
-		       asset, evidence, deep_only, discovered_at
+		       asset, evidence, deep_only, proof_command, discovered_at
 		FROM findings WHERE scan_run_id = ?
 		ORDER BY discovered_at`, scanRunID)
 	if err != nil {
@@ -615,7 +616,7 @@ func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Find
 		var deepOnly int
 		if err := rows.Scan(
 			&f.CheckID, &f.Module, &f.Scanner, &sevStr,
-			&f.Title, &f.Description, &f.Asset, &evJSON, &deepOnly, &f.DiscoveredAt,
+			&f.Title, &f.Description, &f.Asset, &evJSON, &deepOnly, &f.ProofCommand, &f.DiscoveredAt,
 		); err != nil {
 			return nil, err
 		}

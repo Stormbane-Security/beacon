@@ -79,13 +79,13 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 	// hung source (subfinder querying GitHub, amass doing zone-walking) can block
 	// the entire discovery phase. Passive: 5 min total. Deep: 12 min total.
 	deadline := 5 * time.Minute
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		deadline = 12 * time.Minute
 	}
 	runCtx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
 
-	active := scanType == module.ScanDeep
+	active := scanType == module.ScanDeep || scanType == module.ScanAuthorized
 	otxKey := s.otxAPIKey
 
 	type sourceResult struct{ subs []string }

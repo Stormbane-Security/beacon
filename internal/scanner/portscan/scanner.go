@@ -322,7 +322,7 @@ func buildPortList(scanType module.ScanType) []portEntry {
 	ports := make([]portEntry, 0, len(criticalPorts)+len(highPorts)+len(extendedPorts))
 	ports = append(ports, criticalPorts...)
 	ports = append(ports, highPorts...)
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		ports = append(ports, extendedPorts...)
 	}
 	return ports

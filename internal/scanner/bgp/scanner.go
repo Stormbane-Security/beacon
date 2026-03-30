@@ -185,11 +185,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return results, nil
 	}
 
-	// Derive the root domain for PTR matching (last two labels of asset).
-	rootDomain := asset
-	if parts := strings.Split(asset, "."); len(parts) > 2 {
-		rootDomain = strings.Join(parts[len(parts)-2:], ".")
-	}
+	// Derive the root domain for PTR matching.
+	rootDomain := bgpRootDomain(asset)
 
 	results = append(results, probeASNIPRange(ctx, allPrefixes)...)
 	results = append(results, probeASNPTRRecords(ctx, allPrefixes, rootDomain)...)
@@ -491,6 +488,42 @@ func incrementIP(ip net.IP) {
 			break
 		}
 	}
+}
+
+// bgpTwoPartTLDs are country-code TLDs that require three labels for a
+// registrable domain (e.g. example.co.uk).
+var bgpTwoPartTLDs = map[string]bool{
+	"co.uk": true, "org.uk": true, "ac.uk": true, "gov.uk": true,
+	"com.au": true, "net.au": true, "org.au": true, "com.br": true,
+	"co.nz": true, "net.nz": true, "org.nz": true,
+	"co.jp": true, "or.jp": true, "ne.jp": true,
+	"co.kr": true, "or.kr": true,
+	"co.in": true, "net.in": true, "org.in": true,
+	"co.za": true, "org.za": true, "web.za": true,
+	"com.cn": true, "net.cn": true, "org.cn": true,
+	"com.mx": true, "org.mx": true,
+	"com.tr": true, "org.tr": true,
+	"co.il": true, "org.il": true,
+	"com.sg": true, "org.sg": true,
+	"com.hk": true, "org.hk": true,
+	"com.tw": true, "org.tw": true,
+}
+
+// bgpRootDomain extracts the registrable root domain from asset, handling
+// two-part TLDs like co.uk correctly.
+func bgpRootDomain(asset string) string {
+	parts := strings.Split(asset, ".")
+	if len(parts) <= 2 {
+		return asset
+	}
+	suffix := parts[len(parts)-2] + "." + parts[len(parts)-1]
+	if bgpTwoPartTLDs[suffix] {
+		if len(parts) <= 3 {
+			return asset
+		}
+		return strings.Join(parts[len(parts)-3:], ".")
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
 }
 
 // ipAPIResponse is the relevant subset of ip-api.com's JSON response.

@@ -518,7 +518,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	// when the same secret appears in multiple paths.
 	alreadySeen := map[seenKey]bool{}
 	for _, f := range findings {
-		alreadySeen[seenKey{f.CheckID, ""}] = true
+		label, _ := f.Evidence["pattern"].(string)
+		alreadySeen[seenKey{f.CheckID, label}] = true
 	}
 
 	scheme := "https"
@@ -531,7 +532,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		pathFindings := scanPath(ctx, client, asset, base+path, alreadySeen, now)
 		findings = append(findings, pathFindings...)
 		for _, f := range pathFindings {
-			alreadySeen[seenKey{f.CheckID, ""}] = true
+			label, _ := f.Evidence["pattern"].(string)
+			alreadySeen[seenKey{f.CheckID, label}] = true
 		}
 	}
 
@@ -541,7 +543,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	select {
 	case cr := <-crawlResultCh:
 		for _, f := range cr.findings {
-			k := seenKey{f.CheckID, ""}
+			label, _ := f.Evidence["pattern"].(string)
+			k := seenKey{f.CheckID, label}
 			if !alreadySeen[k] {
 				alreadySeen[k] = true
 				findings = append(findings, f)

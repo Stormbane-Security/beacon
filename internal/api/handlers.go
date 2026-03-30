@@ -18,6 +18,7 @@ type submitScanRequest struct {
 	Domain              string `json:"domain"`
 	Deep                bool   `json:"deep"`
 	PermissionConfirmed bool   `json:"permission_confirmed"`
+	Authorized          bool   `json:"authorized"`
 }
 
 type submitScanResponse struct {
@@ -58,6 +59,9 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 	scanType := module.ScanSurface
 	if req.Deep {
 		scanType = module.ScanDeep
+	}
+	if req.Authorized {
+		scanType = module.ScanAuthorized
 	}
 
 	run := &store.ScanRun{

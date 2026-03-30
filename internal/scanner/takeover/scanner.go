@@ -257,6 +257,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		} else if statusCode >= 200 && statusCode < 300 {
 			dangling = false // asset is live and claimed — not a takeover
 		}
+	} else if statusCode >= 200 && statusCode < 300 {
+		dangling = false // live service (possibly empty body) — not dangling
 	}
 
 	if !dangling {
