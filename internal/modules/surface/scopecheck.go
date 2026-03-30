@@ -158,8 +158,9 @@ func checkAssetOwnership(ctx context.Context, ip, rootDomain string) OwnershipRe
 
 		if len(certs) > 0 {
 			leaf := certs[0]
-			res.TLSIssuer = leaf.Issuer.Organization[0]
-			if len(leaf.Issuer.Organization) == 0 {
+			if len(leaf.Issuer.Organization) > 0 {
+				res.TLSIssuer = leaf.Issuer.Organization[0]
+			} else {
 				res.TLSIssuer = leaf.Issuer.CommonName
 			}
 
