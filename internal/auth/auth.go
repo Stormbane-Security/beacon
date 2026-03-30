@@ -128,8 +128,40 @@ func (t *basicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.wrapped.RoundTrip(r)
 }
 
+// validateTokenURL ensures the token endpoint is HTTPS and points to a known
+// identity provider, preventing SSRF via user-controlled config.
+func validateTokenURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid token URL: %w", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("token URL must be HTTPS, got %q", u.Scheme)
+	}
+	host := strings.ToLower(u.Hostname())
+	// Allow well-known OIDC providers and common enterprise IdPs.
+	allowed := []string{
+		".okta.com", ".auth0.com", ".duosecurity.com",
+		"accounts.google.com", "login.microsoftonline.com",
+		"cognito-idp.", ".amazoncognito.com", ".amazonaws.com",
+		"token.actions.githubusercontent.com",
+		".onelogin.com", ".ping-eng.com", ".pingidentity.com",
+		".forgerock.com", ".cyberark.cloud",
+	}
+	for _, suffix := range allowed {
+		if strings.HasSuffix(host, suffix) || strings.Contains(host, suffix) {
+			return nil
+		}
+	}
+	return fmt.Errorf("token URL host %q is not a recognized OIDC provider; add it to the allowlist in auth.go if legitimate", host)
+}
+
 // fetchOIDCToken performs an OAuth2 client_credentials grant.
 func fetchOIDCToken(ctx context.Context, clientID, clientSecret, tokenURL string, scopes []string) (string, error) {
+	if err := validateTokenURL(tokenURL); err != nil {
+		return "", err
+	}
+
 	data := url.Values{}
 	data.Set("grant_type", "client_credentials")
 	data.Set("client_id", clientID)

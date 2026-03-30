@@ -5,6 +5,7 @@ package cloud
 
 import (
 	"context"
+	"log"
 
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
@@ -40,7 +41,9 @@ func (m *Module) Run(ctx context.Context, inp module.Input, _ module.ScanType) (
 		ServiceAccountKeyFile: inp.GCPCredentialsFile,
 	}
 	gcpScanner := gcp.New(gcpCfg)
-	if gcpFindings, err := gcpScanner.Run(ctx, asset, module.ScanDeep); err == nil {
+	if gcpFindings, err := gcpScanner.Run(ctx, asset, module.ScanDeep); err != nil {
+		log.Printf("[cloud] GCP scanner error: %v", err)
+	} else {
 		all = append(all, gcpFindings...)
 	}
 
@@ -49,7 +52,9 @@ func (m *Module) Run(ctx context.Context, inp module.Input, _ module.ScanType) (
 		Profile: inp.AWSProfile,
 	}
 	awsScanner := aws.New(awsCfg)
-	if awsFindings, err := awsScanner.Run(ctx, asset, module.ScanDeep); err == nil {
+	if awsFindings, err := awsScanner.Run(ctx, asset, module.ScanDeep); err != nil {
+		log.Printf("[cloud] AWS scanner error: %v", err)
+	} else {
 		all = append(all, awsFindings...)
 	}
 
@@ -61,7 +66,9 @@ func (m *Module) Run(ctx context.Context, inp module.Input, _ module.ScanType) (
 		azureCfg.SubscriptionIDs = []string{inp.AzureSubscriptionID}
 	}
 	azureScanner := azure.New(azureCfg)
-	if azureFindings, err := azureScanner.Run(ctx, asset, module.ScanDeep); err == nil {
+	if azureFindings, err := azureScanner.Run(ctx, asset, module.ScanDeep); err != nil {
+		log.Printf("[cloud] Azure scanner error: %v", err)
+	} else {
 		all = append(all, azureFindings...)
 	}
 

@@ -31,7 +31,7 @@ var NucleiTemplateToCheckID = map[string]CheckID{
 	"ds-store":                CheckExposureGitExposed,
 	"swagger-api":             CheckExposureAPIDocs,
 	"swagger-ui":              CheckExposureAPIDocs,
-	"graphql-introspection":   CheckExposureAPIDocs,
+	"graphql-introspection":   CheckGraphQLIntrospection,
 	"openapi":                 CheckExposureAPIDocs,
 	"grafana-default-credentials": CheckExposureMonitoringPanel,
 	"grafana-unauth":          CheckExposureMonitoringPanel,

@@ -49,6 +49,20 @@ func NewPool(concurrency int, st store.Store, cfg *config.Config) *Pool {
 	return p
 }
 
+// Stop closes the job queue and waits for in-flight workers to finish.
+// After Stop returns, no new jobs will be accepted.
+func (p *Pool) Stop() {
+	close(p.queue)
+}
+
+// PurgeLogs removes stored log lines for a completed scan, freeing memory.
+// Call this after the scan results have been persisted or consumed.
+func (p *Pool) PurgeLogs(scanRunID string) {
+	p.logMu.Lock()
+	delete(p.logs, scanRunID)
+	p.logMu.Unlock()
+}
+
 // Submit enqueues a job. Returns immediately; the job runs asynchronously.
 func (p *Pool) Submit(job Job) {
 	p.queue <- job
@@ -220,6 +234,12 @@ func (p *Pool) process(job Job) {
 
 	p.emit(job.ScanRunID, "done")
 	p.closeSubscribers(job.ScanRunID)
+
+	// Purge logs after a delay so that late Logs() callers can still read them.
+	go func(id string) {
+		time.Sleep(5 * time.Minute)
+		p.PurgeLogs(id)
+	}(job.ScanRunID)
 }
 
 // emit records a log line and broadcasts it to all current subscribers.

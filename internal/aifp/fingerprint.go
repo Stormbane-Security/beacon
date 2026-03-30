@@ -389,7 +389,7 @@ func buildClassifyPrompt(ev *playbook.Evidence) string {
 		fmt.Fprintf(&b, "- Page title: %s\n", trunc(ev.Title, 100))
 	}
 	if ev.Body512 != "" {
-		fmt.Fprintf(&b, "- Body (first 512 bytes): %s\n", trunc(ev.Body512, 300))
+		fmt.Fprintf(&b, "- Body (first 512 bytes): %s\n", sanitizeEvidence(trunc(ev.Body512, 300)))
 	}
 	for _, san := range ev.CertSANs {
 		fmt.Fprintf(&b, "- TLS SAN: %s\n", san)
@@ -564,6 +564,24 @@ func stripFences(text string) string {
 		}
 	}
 	return strings.TrimSpace(text)
+}
+
+// sanitizeEvidence strips control characters and common prompt-injection
+// markers from raw HTTP evidence before embedding it in an LLM prompt.
+func sanitizeEvidence(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		// Drop control chars (except tab/newline) and Unicode bidi overrides.
+		if r < 0x20 && r != '\t' && r != '\n' {
+			continue
+		}
+		if r == 0x7f || (r >= 0x200e && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func trunc(s string, n int) string {
