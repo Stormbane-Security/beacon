@@ -796,7 +796,7 @@ func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]stor
 	rows, err := s.db.Query(`
 		SELECT id, scan_run_id, asset, evidence_json, matched_playbooks,
 		       scanners_run, nuclei_tags_run, dirbust_paths_run, dirbust_paths_found,
-		       findings_count, created_at
+		       findings_count, classify_duration_ms, expanded_from, created_at
 		FROM asset_executions WHERE scan_run_id = ?
 		ORDER BY created_at`, scanRunID)
 	if err != nil {
@@ -811,7 +811,7 @@ func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]stor
 		if err := rows.Scan(
 			&e.ID, &e.ScanRunID, &e.Asset, &evJSON,
 			&playbooks, &scanners, &tags, &dbRun, &dbFound,
-			&e.FindingsCount, &e.CreatedAt,
+			&e.FindingsCount, &e.ClassifyDurationMs, &e.ExpandedFrom, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
