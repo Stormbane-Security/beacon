@@ -230,7 +230,7 @@ func (p *Pool) process(job Job) {
 	now := time.Now()
 	run.Status = store.StatusCompleted
 	run.CompletedAt = &now
-	run.FindingCount = len(findings)
+	run.FindingCount = len(enriched)
 	_ = p.st.UpdateScanRun(ctx, run)
 
 	rep, err := report.Build(report.Input{

@@ -276,11 +276,19 @@ func checkLegacyMetadata(cluster *containerapi.Cluster, projectID, asset, resour
 		} else if cluster.NodeConfig != nil && cluster.NodeConfig.Metadata != nil {
 			// Inherit cluster-level metadata when the node pool has no explicit config.
 			pools = append(pools, poolRef{name: np.Name, metadata: cluster.NodeConfig.Metadata})
+		} else {
+			// No metadata config at pool or cluster level — legacy endpoints are
+			// enabled by default, so include with empty map to trigger the check.
+			pools = append(pools, poolRef{name: np.Name, metadata: map[string]string{}})
 		}
 	}
 	// Fall back to cluster-level node config if there are no node pools at all.
-	if len(pools) == 0 && cluster.NodeConfig != nil && cluster.NodeConfig.Metadata != nil {
-		pools = append(pools, poolRef{name: "(cluster-default)", metadata: cluster.NodeConfig.Metadata})
+	if len(pools) == 0 {
+		metadata := map[string]string{}
+		if cluster.NodeConfig != nil && cluster.NodeConfig.Metadata != nil {
+			metadata = cluster.NodeConfig.Metadata
+		}
+		pools = append(pools, poolRef{name: "(cluster-default)", metadata: metadata})
 	}
 
 	for _, p := range pools {
