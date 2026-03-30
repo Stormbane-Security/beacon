@@ -59,7 +59,7 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the HPP scan. Only runs in deep mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

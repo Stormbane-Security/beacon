@@ -50,7 +50,7 @@ var probeOrigins = []string{
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	// CORS probing is deep-mode only — surface mode is too noisy.
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

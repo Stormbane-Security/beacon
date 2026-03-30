@@ -158,7 +158,7 @@ var bypassHeaders = []struct {
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -180,11 +180,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var lastRun *probeRun
 	var triggeredPhase *probePhase
 	var sig throttleSignal
+	var totalSent int
 
 	for i := range burstPhases {
 		ph := &burstPhases[i]
 		run := burstProbe(ctx, client, probeURL, ph.count, ph.delay)
 		lastRun = run
+		totalSent += run.totalRequests
 		sig = detectSignal(run)
 		if sig != signalNone {
 			triggeredPhase = ph
@@ -196,14 +198,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if sig == signalNone {
 		run := burstProbe(ctx, client, probeURL, sustainedPhase.count, sustainedPhase.delay)
 		lastRun = run
+		totalSent += run.totalRequests
 		sig = detectSignal(run)
 		if sig != signalNone {
 			triggeredPhase = &sustainedPhase
 		}
 	}
-
-	// Count total requests sent across all phases.
-	totalSent := lastRun.totalRequests
 	_ = triggeredPhase
 
 	// Rate-limit headers seen: the server has rate limiting configured but the

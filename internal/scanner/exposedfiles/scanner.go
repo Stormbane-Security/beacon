@@ -804,7 +804,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var findings []finding.Finding
 
 	for _, t := range targets {
-		if t.deepOnly && scanType != module.ScanDeep {
+		if t.deepOnly && scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 			continue
 		}
 
@@ -1080,7 +1080,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2023-42793 (TeamCity /RPC2 bypass, CVSS 9.8, KEV, Deep only):
 	// POST /app/rest/users/id:1/tokens/RPC2 bypasses auth on TeamCity < 2023.05.4
 	// and returns an admin API token — distinct from CVE-2024-27198's path confusion.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		if f := probeTeamCityRPC2(ctx, client, base, asset); f != nil {
 			findings = append(findings, *f)
 		}
@@ -1092,7 +1092,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// then trigger deserialization by requesting the session ID that matches the
 	// uploaded filename. The probe is a 1-byte partial PUT to a random .session
 	// path — acceptance (201 Created) proves the vulnerability without exploiting it.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		if f := probeTomcatPartialPUT(ctx, client, base, asset); f != nil {
 			findings = append(findings, *f)
 		}

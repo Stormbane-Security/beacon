@@ -124,7 +124,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Deep-mode probes — batch queries, persisted query bypass, and CSRF via GET.
 	// Only run against confirmed GraphQL endpoints found above.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		for _, endpointURL := range confirmedEndpoints {
 			if f := checkBatchQuery(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)

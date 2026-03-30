@@ -185,9 +185,44 @@ func TestWordPressDetection_VulnerablePlugin(t *testing.T) {
 	}
 }
 
-func TestWordPressDetection_PluginAtOrAboveThreshold_InfoOnly(t *testing.T) {
-	// elementor v3.18.3 == threshold → Info (not High).
+func TestWordPressDetection_PluginAtThreshold_Vulnerable(t *testing.T) {
+	// elementor v3.18.3 == threshold → High (exact threshold is vulnerable).
 	readmeBody := "Stable tag: 3.18.3\n"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/wp-login.php":
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/wp-content/plugins/elementor/readme.txt"):
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, readmeBody)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckCMSPluginVulnerable {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected CheckCMSPluginVulnerable for elementor at the exact threshold version (3.18.3), but got none")
+	}
+}
+
+func TestWordPressDetection_PluginAboveThreshold_InfoOnly(t *testing.T) {
+	// elementor v3.18.4 > threshold (3.18.3) → Info (not High).
+	readmeBody := "Stable tag: 3.18.4\n"
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -211,7 +246,7 @@ func TestWordPressDetection_PluginAtOrAboveThreshold_InfoOnly(t *testing.T) {
 
 	for _, f := range findings {
 		if f.CheckID == finding.CheckCMSPluginVulnerable {
-			t.Errorf("expected no CheckCMSPluginVulnerable for elementor at the exact threshold version, but got one: %+v", f)
+			t.Errorf("expected no CheckCMSPluginVulnerable for elementor above threshold (v3.18.4), but got one: %+v", f)
 		}
 	}
 }

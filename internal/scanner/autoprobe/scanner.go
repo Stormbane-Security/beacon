@@ -92,7 +92,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	base := scheme + "://" + asset
 
 	// Surface mode: passive login page inspection only — no auth probes sent.
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return s.surfaceCheck(ctx, client, base, asset), nil
 	}
 

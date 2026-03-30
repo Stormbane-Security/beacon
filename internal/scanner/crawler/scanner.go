@@ -71,7 +71,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Rate limiting (-rl) and page cap (-max-count) prevent excessive load on the target.
 	depth, rl, maxCount := "2", "8", "100"
 	var extraArgs []string
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		depth, rl, maxCount = "3", "3", "200"
 		extraArgs = []string{"-js-crawl"} // parse JS for more endpoints
 	}

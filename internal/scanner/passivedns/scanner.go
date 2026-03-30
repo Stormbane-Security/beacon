@@ -229,7 +229,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Only runs in deep mode because each probe sends an HTTP request directly
 	// to a historical IP address, leaving a connection footprint on the origin
 	// server's access logs. Deep mode requires --permission-confirmed.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		findings = append(findings, cdnBypassFromHistory(ctx, client, asset, records)...)
 	}
 

@@ -705,7 +705,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 
 	// Open relay test: deep mode only — sending MAIL FROM is an active probe
 	// that appears in server logs and may trigger rate limiting on the target.
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		fmt.Fprintf(conn, "QUIT\r\n") //nolint:errcheck — best-effort cleanup
 		return findings
 	}

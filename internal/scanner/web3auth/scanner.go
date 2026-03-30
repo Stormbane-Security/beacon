@@ -220,7 +220,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return findings, nil
 	}
 	if !hasEVMSignals && !hasSolanaSignals {

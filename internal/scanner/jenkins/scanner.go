@@ -63,7 +63,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return probeJenkinsCLIVersion(ctx, client, asset), nil
 	}
 
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

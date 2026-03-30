@@ -45,7 +45,7 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -184,7 +184,7 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 
 	return &finding.Finding{
 		CheckID:     "websocket.cswsh",
-		Module:      "surface",
+		Module:      "deep",
 		Scanner:     scannerName,
 		Severity:    severity,
 		Title:       fmt.Sprintf("Cross-Site WebSocket Hijacking (CSWSH) at %s", wsURL),

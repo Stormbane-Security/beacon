@@ -211,7 +211,7 @@ func probePlugins(ctx context.Context, client *http.Client, asset, base, prefix 
 		}
 
 		// Check if the detected version is known-vulnerable.
-		if p.knownVulnVer != "" && version != "" && !isNewerOrEqual(version, p.knownVulnVer) {
+		if p.knownVulnVer != "" && version != "" && isNewerOrEqual(p.knownVulnVer, version) {
 			checkID = finding.CheckCMSPluginVulnerable
 			severity = finding.SeverityHigh
 			title = fmt.Sprintf("Vulnerable CMS plugin: %s v%s (vuln ≤ %s)", p.slug, version, p.knownVulnVer)

@@ -112,7 +112,7 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 
 	// Deep mode: add NSE vulnerability scripts and OS detection.
 	// These probe for specific CVEs — only allowed with explicit permission.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		vulnScripts := []string{
 			"vuln",
 			"ms17-010",
@@ -159,7 +159,7 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	// Deep mode: run a separate UDP scan for SNMP on port 161.
 	// UDP requires -sU which in turn requires root/CAP_NET_RAW; tolerate
 	// permission errors gracefully.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		if _, hasSNMP := openPorts[161]; hasSNMP {
 			udpArgs := []string{
 				"-oX", "-",
@@ -230,7 +230,7 @@ func parseNmapXML(asset string, data []byte, scanType module.ScanType, proofCmd 
 
 	for _, host := range run.Hosts {
 		// OS detection finding (deep mode only, populated when -O was used)
-		if scanType == module.ScanDeep {
+		if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 			if osF := buildOSFinding(asset, host.OS, proofCmd, now); osF != nil {
 				findings = append(findings, *osF)
 			}

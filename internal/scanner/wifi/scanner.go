@@ -68,7 +68,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// ── 3. Deep mode: PMKID capture via bettercap (if available) ──────────
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		findings = append(findings, probePMKID(ctx, asset)...)
 	}
 
