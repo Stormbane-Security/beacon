@@ -29,7 +29,7 @@ func TestAKS_PublicEndpoint_NoIPRestriction(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSPublicEndpoint)
 }
 
@@ -45,7 +45,7 @@ func TestAKS_PublicEndpoint_NilPrivateCluster(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSPublicEndpoint)
 }
 
@@ -60,7 +60,7 @@ func TestAKS_PrivateCluster_NoFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertNotHasCheckID(t, findings, finding.CheckCloudAzureAKSPublicEndpoint)
 }
 
@@ -75,7 +75,7 @@ func TestAKS_PublicEndpoint_WithIPRestrictions_NoFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertNotHasCheckID(t, findings, finding.CheckCloudAzureAKSPublicEndpoint)
 }
 
@@ -88,7 +88,7 @@ func TestAKS_NilAPIServerAccessProfile_NoPublicEndpointFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertNotHasCheckID(t, findings, finding.CheckCloudAzureAKSPublicEndpoint)
 }
 
@@ -103,7 +103,7 @@ func TestAKS_RBACDisabled(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoRBAC)
 }
 
@@ -115,7 +115,7 @@ func TestAKS_RBACNil_EmitsFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoRBAC)
 }
 
@@ -126,7 +126,7 @@ func TestAKS_RBACEnabled_NoFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertNotHasCheckID(t, findings, finding.CheckCloudAzureAKSNoRBAC)
 }
 
@@ -139,7 +139,7 @@ func TestAKS_NoNetworkPolicy_NilProfile(t *testing.T) {
 		EnableRBAC:     boolPtr(true),
 		NetworkProfile: nil,
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
 }
 
@@ -150,7 +150,7 @@ func TestAKS_NoNetworkPolicy_NilPolicy(t *testing.T) {
 			NetworkPolicy: nil,
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
 }
 
@@ -161,7 +161,7 @@ func TestAKS_NetworkPolicy_None(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicy("none")),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
 }
 
@@ -172,7 +172,7 @@ func TestAKS_NetworkPolicy_Empty(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicy("")),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
 }
 
@@ -183,7 +183,7 @@ func TestAKS_NetworkPolicyAzure_NoFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertNotHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
 }
 
@@ -194,13 +194,21 @@ func TestAKS_NetworkPolicyCalico_NoFinding(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyCalico),
 		},
 	}
-	findings := evaluateAKSCluster("test-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("test-aks", props, nil, "sub-123", "example.com")
 	assertNotHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
 }
 
 // -------------------------------------------------------------------------
 // evaluateAKSCluster — fully secure cluster
 // -------------------------------------------------------------------------
+
+func upgradeChannelPtr(c armcontainerservice.UpgradeChannel) *armcontainerservice.UpgradeChannel {
+	return &c
+}
+
+func identityTypePtr(t armcontainerservice.ResourceIdentityType) *armcontainerservice.ResourceIdentityType {
+	return &t
+}
 
 func TestAKS_FullySecure_NoFindings(t *testing.T) {
 	props := &armcontainerservice.ManagedClusterProperties{
@@ -211,8 +219,17 @@ func TestAKS_FullySecure_NoFindings(t *testing.T) {
 		NetworkProfile: &armcontainerservice.NetworkProfile{
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
+		AADProfile: &armcontainerservice.ManagedClusterAADProfile{
+			Managed: boolPtr(true),
+		},
+		AutoUpgradeProfile: &armcontainerservice.ManagedClusterAutoUpgradeProfile{
+			UpgradeChannel: upgradeChannelPtr(armcontainerservice.UpgradeChannelStable),
+		},
 	}
-	findings := evaluateAKSCluster("secure-aks", props, "sub-123", "example.com")
+	identity := &armcontainerservice.ManagedClusterIdentity{
+		Type: identityTypePtr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
+	}
+	findings := evaluateAKSCluster("secure-aks", props, identity, "sub-123", "example.com")
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for fully secure AKS cluster, got %d", len(findings))
 		for _, f := range findings {
@@ -234,12 +251,15 @@ func TestAKS_AllMisconfigured(t *testing.T) {
 		EnableRBAC:     boolPtr(false),
 		NetworkProfile: nil,
 	}
-	findings := evaluateAKSCluster("bad-aks", props, "sub-123", "example.com")
+	findings := evaluateAKSCluster("bad-aks", props, nil, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSPublicEndpoint)
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoRBAC)
 	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoNetPolicy)
-	if len(findings) != 3 {
-		t.Errorf("expected 3 findings for fully misconfigured cluster, got %d", len(findings))
+	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoManagedIdentity)
+	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoAADIntegration)
+	assertHasCheckID(t, findings, finding.CheckCloudAzureAKSNoAutoUpgrade)
+	if len(findings) != 6 {
+		t.Errorf("expected 6 findings for fully misconfigured cluster, got %d", len(findings))
 	}
 }
 
@@ -254,7 +274,14 @@ func TestAKS_FindingMetadata(t *testing.T) {
 			NetworkPolicy: networkPolicyPtr(armcontainerservice.NetworkPolicyAzure),
 		},
 	}
-	findings := evaluateAKSCluster("my-cluster", props, "sub-xyz", "target.io")
+	identity := &armcontainerservice.ManagedClusterIdentity{
+		Type: identityTypePtr(armcontainerservice.ResourceIdentityTypeSystemAssigned),
+	}
+	props.AADProfile = &armcontainerservice.ManagedClusterAADProfile{Managed: boolPtr(true)}
+	props.AutoUpgradeProfile = &armcontainerservice.ManagedClusterAutoUpgradeProfile{
+		UpgradeChannel: upgradeChannelPtr(armcontainerservice.UpgradeChannelStable),
+	}
+	findings := evaluateAKSCluster("my-cluster", props, identity, "sub-xyz", "target.io")
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -331,7 +358,7 @@ func TestAKS_Severities(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			findings := evaluateAKSCluster("aks", tt.props, "sub-1", "asset")
+			findings := evaluateAKSCluster("aks", tt.props, nil, "sub-1", "asset")
 			for _, f := range findings {
 				if f.CheckID == tt.checkID {
 					if f.Severity != tt.wantSev {

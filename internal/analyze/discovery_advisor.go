@@ -190,8 +190,9 @@ func parseAdvisorResponse(ctx context.Context, text, rootDomain string) []string
 	return result
 }
 
-// resolveToPrivate returns true if hostname resolves to any RFC 1918, loopback,
-// or link-local address. Used to guard against SSRF via AI-suggested hostnames.
+// resolveToPrivate returns true if hostname resolves to any private, loopback,
+// link-local, or unspecified address (both IPv4 and IPv6). Used to guard
+// against SSRF via AI-suggested hostnames.
 func resolveToPrivate(ctx context.Context, hostname string) bool {
 	addrs, err := net.DefaultResolver.LookupHost(ctx, hostname)
 	if err != nil {
@@ -202,16 +203,19 @@ func resolveToPrivate(ctx context.Context, hostname string) bool {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		// ip.IsPrivate covers RFC 1918 (10/8, 172.16/12, 192.168/16) AND
+		// IPv6 ULA (fc00::/7). Combined with the other checks this catches
+		// loopback (127.0.0.1, ::1), link-local (169.254/16, fe80::/10),
+		// and unspecified (0.0.0.0, ::).
+		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 			return true
 		}
-		// RFC 1918 private ranges
-		private := []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
-		for _, cidr := range private {
-			_, network, _ := net.ParseCIDR(cidr)
-			if network != nil && network.Contains(ip) {
-				return true
-			}
+		// Block cloud metadata IPs explicitly — 169.254.169.254 is link-local
+		// (already caught above) but the IPv6 variant fd00:ec2::254 is ULA.
+		// Belt and suspenders: check the metadata IP string explicitly.
+		if addr == "169.254.169.254" || addr == "fd00:ec2::254" {
+			return true
 		}
 	}
 	return false

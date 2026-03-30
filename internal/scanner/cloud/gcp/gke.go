@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	containerapi "google.golang.org/api/container/v1"
@@ -172,5 +173,225 @@ func checkCluster(cluster *containerapi.Cluster, projectID, asset string) []find
 		})
 	}
 
+	// Shielded Nodes disabled.
+	// Shielded GKE Nodes protect against rootkit and bootkit attacks by
+	// verifying the integrity of the node OS at boot time using vTPM-measured
+	// boot and secure boot.
+	if cluster.ShieldedNodes == nil || !cluster.ShieldedNodes.Enabled {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGKEShieldedNodesDisabled,
+			Title:   fmt.Sprintf("GKE cluster does not have Shielded Nodes enabled: %s", cluster.Name),
+			Description: fmt.Sprintf(
+				"Cluster %s in project %s does not have Shielded GKE Nodes enabled. "+
+					"Without Shielded Nodes, cluster nodes are vulnerable to rootkit and bootkit "+
+					"attacks that can persist across reboots and compromise the node before the OS "+
+					"kernel loads. Enable Shielded GKE Nodes to enforce secure boot, vTPM-measured "+
+					"boot, and integrity monitoring on all nodes.",
+				cluster.Name, projectID,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud container clusters describe %s --location=%s --format='get(shieldedNodes)'", cluster.Name, cluster.Location),
+			Evidence: map[string]any{
+				"cluster":           cluster.Name,
+				"instance_id":       cluster.Name,
+				"resource_type":     "gke_cluster",
+				"project_id":        projectID,
+				"location":          cluster.Location,
+				"region":            cluster.Location,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Network policy not enabled.
+	// Without network policy enforcement, all pods in the cluster can
+	// communicate freely, enabling unrestricted lateral movement after a
+	// pod compromise. Skip this check if Dataplane V2 (Cilium) is enabled,
+	// since it provides network policy enforcement natively.
+	dataplaneV2 := cluster.NetworkConfig != nil &&
+		cluster.NetworkConfig.DatapathProvider == "ADVANCED_DATAPATH"
+	networkPolicyEnabled := cluster.NetworkPolicy != nil && cluster.NetworkPolicy.Enabled
+	if !dataplaneV2 && !networkPolicyEnabled {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGKENoNetworkPolicy,
+			Title:   fmt.Sprintf("GKE cluster does not have network policy enabled: %s", cluster.Name),
+			Description: fmt.Sprintf(
+				"Cluster %s in project %s does not have a network policy provider enabled "+
+					"and is not using Dataplane V2 (Cilium). Without network policy enforcement, "+
+					"all pods can communicate with all other pods, enabling unrestricted lateral "+
+					"movement after a pod compromise. Enable a network policy provider (Calico) "+
+					"or switch to Dataplane V2.",
+				cluster.Name, projectID,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud container clusters describe %s --location=%s --format='get(networkPolicy,networkConfig.datapathProvider)'", cluster.Name, cluster.Location),
+			Evidence: map[string]any{
+				"cluster":           cluster.Name,
+				"instance_id":       cluster.Name,
+				"resource_type":     "gke_cluster",
+				"project_id":        projectID,
+				"location":          cluster.Location,
+				"region":            cluster.Location,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Legacy metadata endpoint enabled.
+	// The legacy GCP metadata API (v0.1/v1beta1) does not require the
+	// Metadata-Flavor: Google header, making it exploitable via SSRF to
+	// steal node credentials and service account tokens.
+	findings = append(findings, checkLegacyMetadata(cluster, projectID, asset, resourceSnapshot)...)
+
+	// Node pools using the default compute service account.
+	// The default compute SA typically has project-editor permissions,
+	// which is far too broad for GKE nodes.
+	findings = append(findings, checkNodeDefaultSA(cluster, projectID, asset, resourceSnapshot)...)
+
+	// Node auto-upgrade disabled.
+	findings = append(findings, checkNodeAutoUpgrade(cluster, projectID, asset, resourceSnapshot)...)
+
+	return findings
+}
+
+// checkLegacyMetadata checks node pools for the legacy metadata endpoint.
+func checkLegacyMetadata(cluster *containerapi.Cluster, projectID, asset, resourceSnapshot string) []finding.Finding {
+	var findings []finding.Finding
+
+	type poolRef struct {
+		name     string
+		metadata map[string]string
+	}
+
+	var pools []poolRef
+	for _, np := range cluster.NodePools {
+		if np.Config != nil && np.Config.Metadata != nil {
+			pools = append(pools, poolRef{name: np.Name, metadata: np.Config.Metadata})
+		}
+	}
+	// Fall back to cluster-level node config if no per-pool config exists.
+	if len(pools) == 0 && cluster.NodeConfig != nil && cluster.NodeConfig.Metadata != nil {
+		pools = append(pools, poolRef{name: "(cluster-default)", metadata: cluster.NodeConfig.Metadata})
+	}
+
+	for _, p := range pools {
+		val, exists := p.metadata["disable-legacy-endpoints"]
+		if !exists || val == "false" {
+			findings = append(findings, finding.Finding{
+				CheckID: finding.CheckCloudGKELegacyMetadataEnabled,
+				Title:   fmt.Sprintf("GKE node pool has legacy metadata endpoint enabled: %s/%s", cluster.Name, p.name),
+				Description: fmt.Sprintf(
+					"Node pool %q in cluster %s (project %s) has the legacy GCP metadata endpoint enabled. "+
+						"The legacy metadata API (v0.1 and v1beta1) does not require the Metadata-Flavor header, "+
+						"making it exploitable via SSRF attacks to steal service account tokens and node "+
+						"credentials. Set metadata disable-legacy-endpoints=true on all node pools.",
+					p.name, cluster.Name, projectID,
+				),
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Scanner:      "cloud/gcp",
+				ProofCommand: fmt.Sprintf("gcloud container node-pools describe %s --cluster=%s --location=%s --format='get(config.metadata)'", p.name, cluster.Name, cluster.Location),
+				Evidence: map[string]any{
+					"cluster":           cluster.Name,
+					"node_pool":         p.name,
+					"instance_id":       cluster.Name,
+					"resource_type":     "gke_cluster",
+					"project_id":        projectID,
+					"location":          cluster.Location,
+					"region":            cluster.Location,
+					"resource_snapshot": resourceSnapshot,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
+}
+
+// checkNodeDefaultSA flags node pools using the default compute service account.
+func checkNodeDefaultSA(cluster *containerapi.Cluster, projectID, asset, resourceSnapshot string) []finding.Finding {
+	var findings []finding.Finding
+
+	isDefaultSA := func(sa string) bool {
+		return sa == "" || sa == "default" || strings.HasSuffix(sa, "-compute@developer.gserviceaccount.com")
+	}
+
+	for _, np := range cluster.NodePools {
+		if np.Config == nil {
+			continue
+		}
+		if isDefaultSA(np.Config.ServiceAccount) {
+			findings = append(findings, finding.Finding{
+				CheckID: finding.CheckCloudGKENodeDefaultSA,
+				Title:   fmt.Sprintf("GKE node pool uses default compute service account: %s/%s", cluster.Name, np.Name),
+				Description: fmt.Sprintf(
+					"Node pool %q in cluster %s (project %s) uses the default Compute Engine service account. "+
+						"The default SA typically has project-editor permissions, giving all pods on the node "+
+						"access to most GCP resources in the project. Create a dedicated, least-privilege "+
+						"service account for each node pool and combine with Workload Identity for per-pod "+
+						"credential isolation.",
+					np.Name, cluster.Name, projectID,
+				),
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Scanner:      "cloud/gcp",
+				ProofCommand: fmt.Sprintf("gcloud container node-pools describe %s --cluster=%s --location=%s --format='get(config.serviceAccount)'", np.Name, cluster.Name, cluster.Location),
+				Evidence: map[string]any{
+					"cluster":           cluster.Name,
+					"node_pool":         np.Name,
+					"service_account":   np.Config.ServiceAccount,
+					"instance_id":       cluster.Name,
+					"resource_type":     "gke_cluster",
+					"project_id":        projectID,
+					"location":          cluster.Location,
+					"region":            cluster.Location,
+					"resource_snapshot": resourceSnapshot,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
+}
+
+// checkNodeAutoUpgrade flags node pools with auto-upgrade disabled.
+func checkNodeAutoUpgrade(cluster *containerapi.Cluster, projectID, asset, resourceSnapshot string) []finding.Finding {
+	var findings []finding.Finding
+	for _, np := range cluster.NodePools {
+		if np.Management == nil || !np.Management.AutoUpgrade {
+			findings = append(findings, finding.Finding{
+				CheckID: finding.CheckCloudGKENoAutoUpgrade,
+				Title:   fmt.Sprintf("GKE node pool has auto-upgrade disabled: %s/%s", cluster.Name, np.Name),
+				Description: fmt.Sprintf(
+					"Node pool %q in cluster %s (project %s) does not have automatic node upgrades enabled. "+
+						"Without auto-upgrade, nodes remain on older Kubernetes versions with known "+
+						"vulnerabilities, increasing the risk of node compromise. Enable auto-upgrade "+
+						"to receive security patches automatically.",
+					np.Name, cluster.Name, projectID,
+				),
+				Severity:     finding.SeverityMedium,
+				Asset:        asset,
+				Scanner:      "cloud/gcp",
+				ProofCommand: fmt.Sprintf("gcloud container node-pools describe %s --cluster=%s --location=%s --format='get(management.autoUpgrade)'", np.Name, cluster.Name, cluster.Location),
+				Evidence: map[string]any{
+					"cluster":           cluster.Name,
+					"node_pool":         np.Name,
+					"instance_id":       cluster.Name,
+					"resource_type":     "gke_cluster",
+					"project_id":        projectID,
+					"location":          cluster.Location,
+					"region":            cluster.Location,
+					"resource_snapshot": resourceSnapshot,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
 	return findings
 }

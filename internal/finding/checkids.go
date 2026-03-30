@@ -961,6 +961,79 @@ const (
 	CheckCloudAzureACRPublic       CheckID = "cloud.azure.acr_public"            // Azure Container Registry allows public access
 	CheckCloudAzureACRNoContentTrust CheckID = "cloud.azure.acr_no_content_trust" // ACR without content trust (image signing)
 	CheckCloudAzureNoActivityLog   CheckID = "cloud.azure.no_activity_log"       // Activity log not exported to Log Analytics
+
+	// ── CI/CD — OWASP CICD-SEC-2: Inadequate Identity and Access Management ──
+	CheckGHActionOIDCTrustTooWide   CheckID = "ghaction.oidc_trust_too_wide"     // OIDC federation trust policy not scoped to repo/branch/env
+	CheckGitHubDeployKeyReadWrite   CheckID = "github.deploy_key_read_write"     // deploy key with write access (should be read-only)
+	CheckGitHubStaleCollaborator    CheckID = "github.stale_external_collaborator" // external collaborator with write+ access
+
+	// ── CI/CD — OWASP CICD-SEC-3: Dependency Chain Abuse (gaps) ──
+	CheckGHActionTyposquatAction    CheckID = "ghaction.typosquat_action"        // action name similar to popular action — possible typosquat
+	CheckGHActionRepoJackingRisk    CheckID = "ghaction.repo_jacking_risk"       // action references org that was renamed — claimable namespace
+	CheckGHActionLockfileInjection  CheckID = "ghaction.lockfile_injection"      // PR modifies lockfile with unusual registry/integrity changes
+
+	// ── CI/CD — OWASP CICD-SEC-8: Ungoverned 3rd Party Services ──
+	CheckGHActionUnverifiedCreator  CheckID = "ghaction.unverified_creator"      // action from non-verified marketplace creator
+	CheckGitHubWebhookExternalDest  CheckID = "github.webhook_external_dest"    // webhook sends data to non-org domain
+
+	// ── CI/CD — Threat Matrix: Execution & Defense Evasion ──
+	CheckGHActionRunnerMetadataAccess CheckID = "ghaction.runner_metadata_access"  // workflow can reach 169.254.169.254 from self-hosted runner
+	CheckGHActionDraftPRTrigger       CheckID = "ghaction.draft_pr_trigger"        // workflow triggers on draft PRs (TOCTOU risk)
+	CheckGHActionTrojanSource         CheckID = "ghaction.trojan_source"           // Unicode bidirectional override chars in workflow file
+	CheckGHActionRunnerLabelSpoof     CheckID = "ghaction.runner_label_spoof"      // self-hosted runner uses default labels (ubuntu-latest spoofable)
+
+	// ── Kubernetes — CIS Benchmark & Microsoft Threat Matrix ──
+	CheckCloudGKEShieldedNodesDisabled  CheckID = "cloud.gcp.gke_shielded_nodes_disabled" // GKE Shielded Nodes not enabled
+	CheckCloudGKENoNetworkPolicy        CheckID = "cloud.gcp.gke_no_network_policy"       // GKE cluster without network policy enforcement
+	CheckCloudGKELegacyMetadataEnabled  CheckID = "cloud.gcp.gke_legacy_metadata"         // GKE legacy metadata endpoint enabled (v0.1/v1beta1)
+	CheckCloudGKENodeDefaultSA          CheckID = "cloud.gcp.gke_node_default_sa"         // GKE nodes use default compute service account
+	CheckCloudGKENoAutoUpgrade          CheckID = "cloud.gcp.gke_no_auto_upgrade"         // GKE node auto-upgrade disabled
+
+	CheckCloudEKSNoIRSA                 CheckID = "cloud.aws.eks_no_irsa"                 // EKS without IAM Roles for Service Accounts (IRSA)
+	CheckCloudEKSNoPodIdentity          CheckID = "cloud.aws.eks_no_pod_identity"          // EKS without Pod Identity Agent
+	CheckCloudEKSNoNetworkPolicy        CheckID = "cloud.aws.eks_no_network_policy"        // EKS cluster without network policy enforcement
+	CheckCloudEKSNoSecretEncryption     CheckID = "cloud.aws.eks_no_secret_encryption"     // EKS secrets not encrypted with KMS envelope
+	CheckCloudEKSNoPrivateEndpoint      CheckID = "cloud.aws.eks_no_private_endpoint"      // EKS without private API endpoint enabled
+
+	CheckCloudAzureAKSNoManagedIdentity CheckID = "cloud.azure.aks_no_managed_identity"   // AKS using service principal instead of managed identity
+	CheckCloudAzureAKSNoAADIntegration  CheckID = "cloud.azure.aks_no_aad_integration"    // AKS without Azure AD integration
+	CheckCloudAzureAKSNoAutoUpgrade     CheckID = "cloud.azure.aks_no_auto_upgrade"        // AKS auto-upgrade disabled
+
+	// Kubernetes — exposed management interfaces (port-based, Surface mode)
+	CheckPortEtcdExposed               CheckID = "port.etcd_exposed"               // etcd (2379/2380) exposed without auth
+	CheckPortKubeDashboardExposed      CheckID = "port.k8s_dashboard_exposed"      // Kubernetes dashboard accessible without auth
+	CheckPortKubeletReadOnly           CheckID = "port.kubelet_readonly_exposed"    // Kubelet read-only port 10255 open
+
+	// ── AWS — CIS/Prowler gaps ──
+	CheckCloudAWSNoVPCFlowLogs         CheckID = "cloud.aws.no_vpc_flow_logs"           // VPC Flow Logs not enabled
+	CheckCloudAWSNoGuardDuty           CheckID = "cloud.aws.no_guardduty"               // GuardDuty not enabled
+	CheckCloudAWSNoSecurityHub         CheckID = "cloud.aws.no_security_hub"            // Security Hub not enabled
+	CheckCloudAWSNoConfig              CheckID = "cloud.aws.no_config"                  // AWS Config not enabled
+	CheckCloudAWSDefaultVPC            CheckID = "cloud.aws.default_vpc_in_use"         // default VPC in use (no segmentation)
+	CheckCloudAWSLambdaNoAuth          CheckID = "cloud.aws.lambda_no_auth"             // Lambda function URL without auth
+	CheckCloudAWSLambdaOverprivileged  CheckID = "cloud.aws.lambda_overprivileged"      // Lambda execution role with admin/wildcard
+	CheckCloudAWSKMSNoRotation         CheckID = "cloud.aws.kms_no_rotation"            // KMS customer-managed key without rotation
+	CheckCloudAWSSecretsNoRotation     CheckID = "cloud.aws.secrets_no_rotation"        // Secrets Manager secret without rotation
+	CheckCloudAWSAPIGatewayNoAuth      CheckID = "cloud.aws.apigateway_no_auth"         // API Gateway endpoint without authorization
+	CheckCloudAWSSNSNoEncryption       CheckID = "cloud.aws.sns_no_encryption"          // SNS topic without encryption
+	CheckCloudAWSSQSNoEncryption       CheckID = "cloud.aws.sqs_no_encryption"          // SQS queue without encryption
+
+	// ── GCP — CIS/Prowler gaps ──
+	CheckCloudGCPNoVPCFlowLogs         CheckID = "cloud.gcp.no_vpc_flow_logs"           // VPC Flow Logs not enabled on subnet
+	CheckCloudGCPKMSNoRotation         CheckID = "cloud.gcp.kms_no_rotation"            // KMS key without rotation period
+	CheckCloudGCPCloudFunctionNoAuth   CheckID = "cloud.gcp.cloudfunction_no_auth"      // Cloud Function allows unauthenticated invocation
+	CheckCloudGCPBigQueryPublic        CheckID = "cloud.gcp.bigquery_public"             // BigQuery dataset publicly accessible
+	CheckCloudGCPShieldedVMDisabled    CheckID = "cloud.gcp.shielded_vm_disabled"        // Compute instance without Shielded VM
+	CheckCloudGCPNoOrgPolicyRestrict   CheckID = "cloud.gcp.no_org_policy_restriction"  // domain-restricted sharing not enforced
+
+	// ── Azure — CIS/Prowler gaps ──
+	CheckCloudAzureNoNSGFlowLogs       CheckID = "cloud.azure.no_nsg_flow_logs"         // NSG Flow Logs not enabled
+	CheckCloudAzureNoDefender          CheckID = "cloud.azure.no_defender"               // Microsoft Defender for Cloud not enabled
+	CheckCloudAzureKeyVaultNoSoftDelete CheckID = "cloud.azure.keyvault_no_soft_delete" // Key Vault without soft delete
+	CheckCloudAzureKeyVaultNoPurgeProtect CheckID = "cloud.azure.keyvault_no_purge_protect" // Key Vault without purge protection
+	CheckCloudAzureAppServiceNoHTTPS   CheckID = "cloud.azure.appservice_no_https"      // App Service without HTTPS only
+	CheckCloudAzureAppServiceNoManagedID CheckID = "cloud.azure.appservice_no_managed_id" // App Service without managed identity
+	CheckCloudAzureSQLNoATP            CheckID = "cloud.azure.sql_no_atp"               // SQL Server without Advanced Threat Protection
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1712,7 +1785,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebDotNetDeserialize:   {CheckWebDotNetDeserialize, SeverityHigh, ModeDeep},
 	CheckWebSSRFRedirectMetadata: {CheckWebSSRFRedirectMetadata, SeverityCritical, ModeDeep},
 	CheckWebHPP:                {CheckWebHPP, SeverityMedium, ModeDeep},
-	CheckWebNginxAliasTraversal: {CheckWebNginxAliasTraversal, SeverityCritical, ModeSurface},
+	CheckWebNginxAliasTraversal: {CheckWebNginxAliasTraversal, SeverityCritical, ModeDeep},
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
 	CheckWebFileUpload:         {CheckWebFileUpload, SeverityCritical, ModeDeep},
 	CheckWebAPIFuzz:            {CheckWebAPIFuzz, SeverityHigh, ModeDeep},
@@ -1876,6 +1949,69 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAzureACRPublic:           {CheckCloudAzureACRPublic, SeverityHigh, ModeDeep},
 	CheckCloudAzureACRNoContentTrust:   {CheckCloudAzureACRNoContentTrust, SeverityMedium, ModeDeep},
 	CheckCloudAzureNoActivityLog:       {CheckCloudAzureNoActivityLog, SeverityHigh, ModeDeep},
+
+	// CI/CD — new checks
+	CheckGHActionOIDCTrustTooWide:     {CheckGHActionOIDCTrustTooWide, SeverityHigh, ModeSurface},
+	CheckGitHubDeployKeyReadWrite:     {CheckGitHubDeployKeyReadWrite, SeverityMedium, ModeSurface},
+	CheckGitHubStaleCollaborator:      {CheckGitHubStaleCollaborator, SeverityMedium, ModeSurface},
+	CheckGHActionTyposquatAction:      {CheckGHActionTyposquatAction, SeverityHigh, ModeSurface},
+	CheckGHActionRepoJackingRisk:      {CheckGHActionRepoJackingRisk, SeverityCritical, ModeSurface},
+	CheckGHActionLockfileInjection:    {CheckGHActionLockfileInjection, SeverityHigh, ModeSurface},
+	CheckGHActionUnverifiedCreator:    {CheckGHActionUnverifiedCreator, SeverityMedium, ModeSurface},
+	CheckGitHubWebhookExternalDest:    {CheckGitHubWebhookExternalDest, SeverityMedium, ModeSurface},
+	CheckGHActionRunnerMetadataAccess: {CheckGHActionRunnerMetadataAccess, SeverityHigh, ModeSurface},
+	CheckGHActionDraftPRTrigger:       {CheckGHActionDraftPRTrigger, SeverityMedium, ModeSurface},
+	CheckGHActionTrojanSource:         {CheckGHActionTrojanSource, SeverityCritical, ModeSurface},
+	CheckGHActionRunnerLabelSpoof:     {CheckGHActionRunnerLabelSpoof, SeverityHigh, ModeSurface},
+
+	// Kubernetes — managed K8s new checks
+	CheckCloudGKEShieldedNodesDisabled:  {CheckCloudGKEShieldedNodesDisabled, SeverityMedium, ModeDeep},
+	CheckCloudGKENoNetworkPolicy:        {CheckCloudGKENoNetworkPolicy, SeverityMedium, ModeDeep},
+	CheckCloudGKELegacyMetadataEnabled:  {CheckCloudGKELegacyMetadataEnabled, SeverityHigh, ModeDeep},
+	CheckCloudGKENodeDefaultSA:          {CheckCloudGKENodeDefaultSA, SeverityHigh, ModeDeep},
+	CheckCloudGKENoAutoUpgrade:          {CheckCloudGKENoAutoUpgrade, SeverityMedium, ModeDeep},
+	CheckCloudEKSNoIRSA:                 {CheckCloudEKSNoIRSA, SeverityHigh, ModeDeep},
+	CheckCloudEKSNoPodIdentity:          {CheckCloudEKSNoPodIdentity, SeverityMedium, ModeDeep},
+	CheckCloudEKSNoNetworkPolicy:        {CheckCloudEKSNoNetworkPolicy, SeverityMedium, ModeDeep},
+	CheckCloudEKSNoSecretEncryption:     {CheckCloudEKSNoSecretEncryption, SeverityHigh, ModeDeep},
+	CheckCloudEKSNoPrivateEndpoint:      {CheckCloudEKSNoPrivateEndpoint, SeverityMedium, ModeDeep},
+	CheckCloudAzureAKSNoManagedIdentity: {CheckCloudAzureAKSNoManagedIdentity, SeverityMedium, ModeDeep},
+	CheckCloudAzureAKSNoAADIntegration:  {CheckCloudAzureAKSNoAADIntegration, SeverityHigh, ModeDeep},
+	CheckCloudAzureAKSNoAutoUpgrade:     {CheckCloudAzureAKSNoAutoUpgrade, SeverityMedium, ModeDeep},
+	CheckPortEtcdExposed:                {CheckPortEtcdExposed, SeverityCritical, ModeSurface},
+	CheckPortKubeDashboardExposed:       {CheckPortKubeDashboardExposed, SeverityCritical, ModeSurface},
+	CheckPortKubeletReadOnly:            {CheckPortKubeletReadOnly, SeverityHigh, ModeSurface},
+
+	// AWS — new checks
+	CheckCloudAWSNoVPCFlowLogs:         {CheckCloudAWSNoVPCFlowLogs, SeverityHigh, ModeDeep},
+	CheckCloudAWSNoGuardDuty:           {CheckCloudAWSNoGuardDuty, SeverityHigh, ModeDeep},
+	CheckCloudAWSNoSecurityHub:         {CheckCloudAWSNoSecurityHub, SeverityMedium, ModeDeep},
+	CheckCloudAWSNoConfig:              {CheckCloudAWSNoConfig, SeverityMedium, ModeDeep},
+	CheckCloudAWSDefaultVPC:            {CheckCloudAWSDefaultVPC, SeverityMedium, ModeDeep},
+	CheckCloudAWSLambdaNoAuth:          {CheckCloudAWSLambdaNoAuth, SeverityHigh, ModeDeep},
+	CheckCloudAWSLambdaOverprivileged:  {CheckCloudAWSLambdaOverprivileged, SeverityHigh, ModeDeep},
+	CheckCloudAWSKMSNoRotation:         {CheckCloudAWSKMSNoRotation, SeverityMedium, ModeDeep},
+	CheckCloudAWSSecretsNoRotation:     {CheckCloudAWSSecretsNoRotation, SeverityMedium, ModeDeep},
+	CheckCloudAWSAPIGatewayNoAuth:      {CheckCloudAWSAPIGatewayNoAuth, SeverityHigh, ModeDeep},
+	CheckCloudAWSSNSNoEncryption:       {CheckCloudAWSSNSNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudAWSSQSNoEncryption:       {CheckCloudAWSSQSNoEncryption, SeverityMedium, ModeDeep},
+
+	// GCP — new checks
+	CheckCloudGCPNoVPCFlowLogs:         {CheckCloudGCPNoVPCFlowLogs, SeverityHigh, ModeDeep},
+	CheckCloudGCPKMSNoRotation:         {CheckCloudGCPKMSNoRotation, SeverityMedium, ModeDeep},
+	CheckCloudGCPCloudFunctionNoAuth:   {CheckCloudGCPCloudFunctionNoAuth, SeverityHigh, ModeDeep},
+	CheckCloudGCPBigQueryPublic:        {CheckCloudGCPBigQueryPublic, SeverityCritical, ModeDeep},
+	CheckCloudGCPShieldedVMDisabled:    {CheckCloudGCPShieldedVMDisabled, SeverityMedium, ModeDeep},
+	CheckCloudGCPNoOrgPolicyRestrict:   {CheckCloudGCPNoOrgPolicyRestrict, SeverityMedium, ModeDeep},
+
+	// Azure — new checks
+	CheckCloudAzureNoNSGFlowLogs:         {CheckCloudAzureNoNSGFlowLogs, SeverityHigh, ModeDeep},
+	CheckCloudAzureNoDefender:            {CheckCloudAzureNoDefender, SeverityHigh, ModeDeep},
+	CheckCloudAzureKeyVaultNoSoftDelete:  {CheckCloudAzureKeyVaultNoSoftDelete, SeverityHigh, ModeDeep},
+	CheckCloudAzureKeyVaultNoPurgeProtect: {CheckCloudAzureKeyVaultNoPurgeProtect, SeverityMedium, ModeDeep},
+	CheckCloudAzureAppServiceNoHTTPS:      {CheckCloudAzureAppServiceNoHTTPS, SeverityHigh, ModeDeep},
+	CheckCloudAzureAppServiceNoManagedID:  {CheckCloudAzureAppServiceNoManagedID, SeverityMedium, ModeDeep},
+	CheckCloudAzureSQLNoATP:               {CheckCloudAzureSQLNoATP, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

@@ -1481,3 +1481,763 @@ jobs:
 		t.Fatalf("expected no findings for regular action, got %d", len(findings))
 	}
 }
+
+// -------------------------------------------------------------------------
+// OIDC trust too wide tests
+// -------------------------------------------------------------------------
+
+func TestOIDCTrustTooWide(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "AWS OIDC without environment — detected",
+			yaml: `
+on: push
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/my-role
+`,
+			wantCount: 1,
+		},
+		{
+			name: "GCP OIDC without environment — detected",
+			yaml: `
+on: push
+permissions:
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/123/locations/global/workloadIdentityPools/pool/providers/prov
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Azure OIDC without environment — detected",
+			yaml: `
+on: push
+permissions:
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+`,
+			wantCount: 1,
+		},
+		{
+			name: "AWS OIDC with environment — no finding",
+			yaml: `
+on: push
+permissions:
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/my-role
+`,
+			wantCount: 0,
+		},
+		{
+			name: "No id-token write — no finding",
+			yaml: `
+on: push
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+`,
+			wantCount: 0,
+		},
+		{
+			name: "No OIDC action — no finding",
+			yaml: `
+on: push
+permissions:
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkOIDCTrustTooWide(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionOIDCTrustTooWide {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityHigh {
+					t.Errorf("unexpected severity %v, want High", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Typosquat action tests
+// -------------------------------------------------------------------------
+
+func TestTyposquatAction(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "Typosquat of actions/checkout — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkuot@v4
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Typosquat of actions/setup-node — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-nod@v4
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Exact match actions/checkout — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Completely different action — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: myorg/totally-different-action@v1
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Local action — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/checkout
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Duplicate typosquat deduped",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkuot@v3
+      - uses: actions/checkuot@v4
+`,
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkTyposquatAction(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionTyposquatAction {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityHigh {
+					t.Errorf("unexpected severity %v, want High", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Repo-jacking risk tests
+// -------------------------------------------------------------------------
+
+func TestRepoJackingRisk(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "Non-trusted owner with tag ref — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: someperson/cool-action@v2
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Non-trusted owner with branch ref — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: unknownorg/their-action@main
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Trusted owner actions — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Trusted owner hashicorp — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hashicorp/setup-terraform@v3
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Trusted owner cloudflare — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: cloudflare/wrangler-action@v3
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Non-trusted owner pinned to SHA — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: someperson/cool-action@abcdef1234567890abcdef1234567890abcdef12
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Local action — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/my-action
+`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkRepoJackingRisk(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionRepoJackingRisk {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityCritical {
+					t.Errorf("unexpected severity %v, want Critical", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Lockfile injection tests
+// -------------------------------------------------------------------------
+
+func TestLockfileInjection(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "PR trigger with npm install — detected",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR target trigger with yarn install — detected",
+			yaml: `
+on: pull_request_target
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: yarn install
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR trigger with pip install -r — detected",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pip install -r requirements.txt
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR trigger with bundle install — detected",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bundle install
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR trigger with go mod download — detected",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: go mod download
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR trigger with cargo build — detected",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo build
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR trigger with composer install — detected",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: composer install
+`,
+			wantCount: 1,
+		},
+		{
+			name: "PR trigger with lockfile check — no finding",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: git diff --name-only HEAD | grep package-lock
+      - run: npm install
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Push trigger with npm install — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm install
+`,
+			wantCount: 0,
+		},
+		{
+			name: "PR trigger without install command — no finding",
+			yaml: `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkLockfileInjection(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionLockfileInjection {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityHigh {
+					t.Errorf("unexpected severity %v, want High", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Draft PR trigger tests
+// -------------------------------------------------------------------------
+
+func TestDraftPRTrigger(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "pull_request_target without draft guard — detected",
+			yaml: `
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 1,
+		},
+		{
+			name: "pull_request_target with draft guard — no finding",
+			yaml: `
+on:
+  pull_request_target:
+jobs:
+  check:
+    if: !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+		{
+			name: "No pull_request_target — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+		{
+			name: "pull_request (not target) — no finding",
+			yaml: `
+on:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkDraftPRTrigger(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionDraftPRTrigger {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityMedium {
+					t.Errorf("unexpected severity %v, want Medium", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Trojan Source tests
+// -------------------------------------------------------------------------
+
+func TestTrojanSource(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "RLO character in workflow — detected",
+			yaml: "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \u202Ehello\n",
+			wantCount: 1,
+		},
+		{
+			name: "LRI character in workflow — detected",
+			yaml: "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \u2066test\n",
+			wantCount: 1,
+		},
+		{
+			name: "RLM character in workflow — detected",
+			yaml: "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \u200Ftest\n",
+			wantCount: 1,
+		},
+		{
+			name: "Clean workflow — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkTrojanSource(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionTrojanSource {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityCritical {
+					t.Errorf("unexpected severity %v, want Critical", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Runner label spoof tests
+// -------------------------------------------------------------------------
+
+func TestRunnerLabelSpoof(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantCount int
+	}{
+		{
+			name: "Self-hosted with ubuntu-latest — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: [self-hosted, ubuntu-latest]
+    steps:
+      - run: echo hello
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Self-hosted with windows-latest — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: [self-hosted, windows-latest]
+    steps:
+      - run: echo hello
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Self-hosted with macos-latest — detected",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: [self-hosted, macos-latest]
+    steps:
+      - run: echo hello
+`,
+			wantCount: 1,
+		},
+		{
+			name: "Self-hosted with custom label — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: [self-hosted, my-org-linux-x64]
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+		{
+			name: "GitHub-hosted only — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+		{
+			name: "Self-hosted without GitHub label — no finding",
+			yaml: `
+on: push
+jobs:
+  build:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - run: echo hello
+`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := checkRunnerLabelSpoof(tt.yaml, "testorg/testrepo")
+			if len(findings) != tt.wantCount {
+				t.Fatalf("got %d findings, want %d", len(findings), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if findings[0].CheckID != finding.CheckGHActionRunnerLabelSpoof {
+					t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+				}
+				if findings[0].Severity != finding.SeverityHigh {
+					t.Errorf("unexpected severity %v, want High", findings[0].Severity)
+				}
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// Levenshtein distance tests
+// -------------------------------------------------------------------------
+
+func TestLevenshtein(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int
+	}{
+		{"", "", 0},
+		{"abc", "", 3},
+		{"", "abc", 3},
+		{"abc", "abc", 0},
+		{"abc", "abd", 1},
+		{"actions/checkout", "actions/checkuot", 2},
+		{"actions/setup-node", "actions/setup-nod", 1},
+	}
+	for _, tt := range tests {
+		got := levenshtein(tt.a, tt.b)
+		if got != tt.want {
+			t.Errorf("levenshtein(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}

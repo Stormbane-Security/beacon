@@ -29,16 +29,20 @@ CREATE TABLE IF NOT EXISTS targets (
 );
 
 CREATE TABLE IF NOT EXISTS scan_runs (
-    id             TEXT      PRIMARY KEY,
-    target_id      TEXT      NOT NULL,
-    domain         TEXT      NOT NULL,
-    scan_type      TEXT      NOT NULL,
-    modules        TEXT      NOT NULL DEFAULT '[]',
-    status         TEXT      NOT NULL,
-    started_at     DATETIME  NOT NULL,
-    completed_at   DATETIME,
-    finding_count  INTEGER   NOT NULL DEFAULT 0,
-    error          TEXT
+    id                    TEXT      PRIMARY KEY,
+    target_id             TEXT      NOT NULL,
+    domain                TEXT      NOT NULL,
+    scan_type             TEXT      NOT NULL,
+    modules               TEXT      NOT NULL DEFAULT '[]',
+    status                TEXT      NOT NULL,
+    started_at            DATETIME  NOT NULL,
+    completed_at          DATETIME,
+    finding_count         INTEGER   NOT NULL DEFAULT 0,
+    error                 TEXT,
+    discovery_duration_ms INTEGER   NOT NULL DEFAULT 0,
+    scan_duration_ms      INTEGER   NOT NULL DEFAULT 0,
+    asset_count           INTEGER   NOT NULL DEFAULT 0,
+    discovery_sources     TEXT      NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_runs_domain ON scan_runs(domain);
@@ -393,7 +397,8 @@ func (s *Store) UpdateScanRun(_ context.Context, run *store.ScanRun) error {
 func (s *Store) GetScanRun(_ context.Context, id string) (*store.ScanRun, error) {
 	row := s.db.QueryRow(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs WHERE id = ?`, id)
 
 	return scanRun(row)
@@ -402,7 +407,8 @@ func (s *Store) GetScanRun(_ context.Context, id string) (*store.ScanRun, error)
 func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun, error) {
 	rows, err := s.db.Query(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs WHERE domain = ? ORDER BY started_at DESC`, domain)
 	if err != nil {
 		return nil, err
@@ -426,7 +432,8 @@ func (s *Store) ListAllScanRuns(_ context.Context, limit int) ([]store.ScanRun, 
 	}
 	rows, err := s.db.Query(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs ORDER BY started_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -521,10 +528,12 @@ func scanRun(row scanner) (*store.ScanRun, error) {
 	var modsJSON string
 	var completedAt sql.NullTime
 	var errStr sql.NullString
+	var discSourcesJSON sql.NullString
 
 	if err := row.Scan(
 		&r.ID, &r.TargetID, &r.Domain, &r.ScanType, &modsJSON,
 		&r.Status, &r.StartedAt, &completedAt, &r.FindingCount, &errStr,
+		&r.DiscoveryDurationMs, &r.ScanDurationMs, &r.AssetCount, &discSourcesJSON,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("scan run not found")
@@ -539,6 +548,11 @@ func scanRun(row scanner) (*store.ScanRun, error) {
 		r.CompletedAt = &completedAt.Time
 	}
 	r.Error = errStr.String
+	if discSourcesJSON.Valid && discSourcesJSON.String != "" {
+		if err := json.Unmarshal([]byte(discSourcesJSON.String), &r.DiscoverySources); err != nil {
+			log.Printf("sqlite: failed to unmarshal discovery_sources: %v", err)
+		}
+	}
 
 	return &r, nil
 }
@@ -1050,7 +1064,8 @@ func (s *Store) ListCorrelationFindings(_ context.Context, domain string) ([]sto
 func (s *Store) ListRecentScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
 	rows, err := s.db.Query(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs
 		ORDER BY started_at DESC LIMIT ?`, limit)
 	if err != nil {

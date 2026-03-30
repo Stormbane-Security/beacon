@@ -116,5 +116,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		all = append(all, ctFindings...)
 	}
 
+	// Security posture checks (GuardDuty, Security Hub, Config, KMS, Lambda, API Gateway, SNS, SQS, Secrets Manager).
+	secFindings, err := scanSecurity(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, secFindings...)
+	}
+
 	return all, nil
 }

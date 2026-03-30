@@ -21,7 +21,24 @@ func VerifyCmd(checkID finding.CheckID, asset string) string {
 	if !ok {
 		return ""
 	}
-	return strings.ReplaceAll(cmd, "{asset}", asset)
+	return strings.ReplaceAll(cmd, "{asset}", sanitizeShellArg(asset))
+}
+
+// sanitizeShellArg removes shell metacharacters from an asset string to
+// prevent command injection when the value is interpolated into proof commands.
+// Only alphanumeric, dots, hyphens, underscores, colons, slashes, and at-signs
+// are preserved — these cover hostnames, IPs, URLs, owner/repo, and email addrs.
+func sanitizeShellArg(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '-' ||
+			r == '_' || r == ':' || r == '/' || r == '@' || r == '[' || r == ']' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // verificationCmds maps each CheckID to a reproducible shell command.

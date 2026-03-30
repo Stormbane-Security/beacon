@@ -73,6 +73,8 @@ var highPorts = []portEntry{
 	{1521, "oracle", false},
 	{2376, "docker-tls", false},
 	{2379, "etcd", false},
+	{2380, "etcd-peer", false},
+	{10255, "kubelet-readonly", false},
 	{5672, "amqp", false},
 	{5985, "winrm-http", false},
 	{5986, "winrm-https", false},
@@ -492,6 +494,66 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				map[string]any{"port": port, "service": service, "authenticated": false, "banner": banner},
 			)}
 		}
+
+	case 10255: // Kubelet read-only API
+		// The kubelet read-only port provides unauthenticated access to pod
+		// listings, container resource usage, and spec data. It should never
+		// be exposed outside the node.
+		unauth := probeHTTP(ctx, asset, port, false, "/pods")
+		if unauth {
+			return []finding.Finding{makeF(
+				finding.CheckPortKubeletReadOnly,
+				finding.SeverityHigh,
+				fmt.Sprintf("Kubelet read-only API exposed on port %d", port),
+				"The Kubernetes Kubelet read-only API is publicly accessible on port 10255. "+
+					"This endpoint provides unauthenticated access to pod listings, container specs, "+
+					"resource usage metrics, and container logs. An attacker can enumerate all workloads "+
+					"running on the node, discover internal service names, environment variables (which "+
+					"often contain secrets), and mounted volumes. Disable the read-only port by setting "+
+					"--read-only-port=0 in the kubelet configuration.",
+				map[string]any{"port": port, "service": "kubelet-readonly", "authenticated": false, "banner": banner},
+			)}
+		}
+
+	// ── etcd cluster store ────────────────────────────────────────────────────
+	case 2379, 2380: // etcd client (2379) and peer (2380) ports
+		// etcd stores all Kubernetes cluster state including secrets,
+		// service account tokens, and RBAC policies. Any exposure is critical.
+		// Try an HTTP probe to confirm etcd is responding.
+		probed := false
+		if port == 2379 {
+			if body, ok := probeHTTPBody(ctx, asset, port, false, "/version"); ok {
+				if strings.Contains(strings.ToLower(body), "etcd") {
+					probed = true
+				}
+			}
+			// Also try HTTPS — etcd may be configured with TLS.
+			if !probed {
+				if body, ok := probeHTTPBody(ctx, asset, port, true, "/version"); ok {
+					if strings.Contains(strings.ToLower(body), "etcd") {
+						probed = true
+					}
+				}
+			}
+		}
+		// For port 2380 (peer) or if HTTP probe did not confirm etcd on 2379,
+		// flag based on the port being open — 2379/2380 are exclusively etcd.
+		label := "etcd client"
+		if port == 2380 {
+			label = "etcd peer"
+		}
+		return []finding.Finding{makeF(
+			finding.CheckPortEtcdExposed,
+			finding.SeverityCritical,
+			fmt.Sprintf("etcd %s port exposed on port %d", label, port),
+			fmt.Sprintf("The etcd %s port (%d) is publicly accessible. etcd is the primary datastore for "+
+				"Kubernetes clusters and contains all cluster state: pod specs, secrets, service account "+
+				"tokens, RBAC policies, and ConfigMaps. Direct access to etcd allows an attacker to read "+
+				"all secrets, modify RBAC to grant cluster-admin, or delete the entire cluster state. "+
+				"etcd must never be exposed to the internet — restrict access to the control plane network "+
+				"and require mutual TLS (mTLS) for all client connections.", label, port),
+			map[string]any{"port": port, "service": service, "banner": banner},
+		)}
 
 	case 11211: // Memcached
 		unauth := probeMemcached(ctx, asset, port)
@@ -1584,6 +1646,23 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		if findings := probeUniFi(ctx, asset, port, true); len(findings) > 0 {
 			return findings
 		}
+		// Check for Kubernetes Dashboard on 8443.
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "dashboard") && (strings.Contains(lb, "kubernetes") || strings.Contains(lb, "k8s")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortKubeDashboardExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Kubernetes Dashboard exposed on port %d", port),
+					"The Kubernetes Dashboard is publicly accessible. The dashboard provides full "+
+						"cluster management capabilities including viewing secrets, creating workloads, "+
+						"and executing commands in containers. An exposed dashboard — especially with "+
+						"default or permissive RBAC — enables complete cluster takeover. "+
+						"Remove public access and restrict the dashboard to kubectl proxy or a VPN.",
+					map[string]any{"port": port, "service": "kubernetes-dashboard"},
+				)}
+			}
+		}
 		// Check for Aruba Instant access point management on 8443.
 		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
 			lb := strings.ToLower(body)
@@ -2673,6 +2752,49 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 
 	}
 
+	// Kubernetes Dashboard on NodePort range (30000–32767).
+	// The dashboard is commonly exposed via NodePort; detect it by probing
+	// for dashboard-like content on open ports in the NodePort range.
+	if port >= 30000 && port <= 32767 {
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "kubernetes-dashboard") || strings.Contains(lb, "kubernetes dashboard") ||
+				(strings.Contains(lb, "dashboard") && strings.Contains(lb, "kubernetes")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortKubeDashboardExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Kubernetes Dashboard exposed on NodePort %d", port),
+					"The Kubernetes Dashboard is publicly accessible via a NodePort service. "+
+						"The dashboard provides full cluster management capabilities including viewing "+
+						"secrets, creating workloads, and executing commands in containers. An exposed "+
+						"dashboard — especially with default or permissive RBAC — enables complete "+
+						"cluster takeover. Remove the NodePort service and restrict dashboard access "+
+						"to kubectl proxy or a VPN.",
+					map[string]any{"port": port, "service": "kubernetes-dashboard"},
+				)}
+			}
+		}
+		// Also try plain HTTP for dashboards not using TLS.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "kubernetes-dashboard") || strings.Contains(lb, "kubernetes dashboard") ||
+				(strings.Contains(lb, "dashboard") && strings.Contains(lb, "kubernetes")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortKubeDashboardExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Kubernetes Dashboard exposed on NodePort %d", port),
+					"The Kubernetes Dashboard is publicly accessible via a NodePort service. "+
+						"The dashboard provides full cluster management capabilities including viewing "+
+						"secrets, creating workloads, and executing commands in containers. An exposed "+
+						"dashboard — especially with default or permissive RBAC — enables complete "+
+						"cluster takeover. Remove the NodePort service and restrict dashboard access "+
+						"to kubectl proxy or a VPN.",
+					map[string]any{"port": port, "service": "kubernetes-dashboard"},
+				)}
+			}
+		}
+	}
+
 	// No structured check for this service — return nothing.
 	return nil
 }
@@ -3256,6 +3378,8 @@ var serviceNucleiTagMap = map[int][]string{
 	9300:  {"elasticsearch"},
 	2375:  {"docker"},
 	10250: {"kubernetes", "kubelet"},
+	10255: {"kubernetes", "kubelet"},
+	2380:  {"etcd"},
 	6443:  {"kubernetes"},
 	8001:  {"kubernetes"},
 	27017: {"mongodb"},

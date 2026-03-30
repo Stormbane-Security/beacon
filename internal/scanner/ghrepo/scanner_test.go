@@ -447,3 +447,193 @@ func TestBranchProtection_AllConfiguredSecure_MinimalFindings(t *testing.T) {
 		}
 	}
 }
+
+// -------------------------------------------------------------------------
+// checkDeployKeys
+// -------------------------------------------------------------------------
+
+func TestCheckDeployKeys_WriteAccess_Finding(t *testing.T) {
+	keys := []ghDeployKey{
+		{ID: 1, Title: "CI deploy key", ReadOnly: false},
+	}
+	findings := checkDeployKeys(keys, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckGitHubDeployKeyReadWrite)
+	if findings[0].ProofCommand == "" {
+		t.Error("expected ProofCommand to be set")
+	}
+}
+
+func TestCheckDeployKeys_ReadOnly_NoFinding(t *testing.T) {
+	keys := []ghDeployKey{
+		{ID: 1, Title: "CI deploy key", ReadOnly: true},
+	}
+	findings := checkDeployKeys(keys, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckGitHubDeployKeyReadWrite)
+}
+
+func TestCheckDeployKeys_MixedAccess_OnlyWriteFlagged(t *testing.T) {
+	keys := []ghDeployKey{
+		{ID: 1, Title: "read-only key", ReadOnly: true},
+		{ID: 2, Title: "write key", ReadOnly: false},
+		{ID: 3, Title: "another read-only", ReadOnly: true},
+	}
+	findings := checkDeployKeys(keys, "org/repo")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Evidence["key_title"] != "write key" {
+		t.Errorf("expected finding for 'write key', got %v", findings[0].Evidence["key_title"])
+	}
+}
+
+func TestCheckDeployKeys_Empty_NoFinding(t *testing.T) {
+	findings := checkDeployKeys(nil, "org/repo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for empty deploy keys, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// checkStaleCollaborators
+// -------------------------------------------------------------------------
+
+func TestCheckStaleCollaborators_PushAccess_Finding(t *testing.T) {
+	collabs := []ghCollaborator{
+		{Login: "extuser", Permissions: map[string]bool{"admin": false, "push": true, "pull": true}},
+	}
+	findings := checkStaleCollaborators(collabs, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckGitHubStaleCollaborator)
+	if findings[0].ProofCommand == "" {
+		t.Error("expected ProofCommand to be set")
+	}
+}
+
+func TestCheckStaleCollaborators_AdminAccess_Finding(t *testing.T) {
+	collabs := []ghCollaborator{
+		{Login: "extadmin", Permissions: map[string]bool{"admin": true, "push": true, "pull": true}},
+	}
+	findings := checkStaleCollaborators(collabs, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckGitHubStaleCollaborator)
+}
+
+func TestCheckStaleCollaborators_PullOnly_NoFinding(t *testing.T) {
+	collabs := []ghCollaborator{
+		{Login: "reader", Permissions: map[string]bool{"admin": false, "push": false, "pull": true}},
+	}
+	findings := checkStaleCollaborators(collabs, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckGitHubStaleCollaborator)
+}
+
+func TestCheckStaleCollaborators_Mixed_OnlyWriteFlagged(t *testing.T) {
+	collabs := []ghCollaborator{
+		{Login: "reader", Permissions: map[string]bool{"admin": false, "push": false, "pull": true}},
+		{Login: "writer", Permissions: map[string]bool{"admin": false, "push": true, "pull": true}},
+		{Login: "another-reader", Permissions: map[string]bool{"admin": false, "push": false, "pull": true}},
+	}
+	findings := checkStaleCollaborators(collabs, "org/repo")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Evidence["login"] != "writer" {
+		t.Errorf("expected finding for 'writer', got %v", findings[0].Evidence["login"])
+	}
+}
+
+func TestCheckStaleCollaborators_Empty_NoFinding(t *testing.T) {
+	findings := checkStaleCollaborators(nil, "org/repo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for empty collaborators, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// checkWebhookExternalDest
+// -------------------------------------------------------------------------
+
+func TestCheckWebhookExternalDest_ExternalDomain_Finding(t *testing.T) {
+	hooks := []ghWebhook{
+		{Active: true, Config: struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Secret      string `json:"secret"`
+			InsecureSSL string `json:"insecure_ssl"`
+		}{URL: "https://evil.example.com/hook"}},
+	}
+	findings := checkWebhookExternalDest(hooks, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckGitHubWebhookExternalDest)
+	if findings[0].ProofCommand == "" {
+		t.Error("expected ProofCommand to be set")
+	}
+	if findings[0].Evidence["external_domain"] != "evil.example.com" {
+		t.Errorf("expected external_domain=evil.example.com, got %v", findings[0].Evidence["external_domain"])
+	}
+}
+
+func TestCheckWebhookExternalDest_KnownDomain_NoFinding(t *testing.T) {
+	hooks := []ghWebhook{
+		{Active: true, Config: struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Secret      string `json:"secret"`
+			InsecureSSL string `json:"insecure_ssl"`
+		}{URL: "https://hooks.slack.com/services/T00/B00/xxxx"}},
+	}
+	findings := checkWebhookExternalDest(hooks, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckGitHubWebhookExternalDest)
+}
+
+func TestCheckWebhookExternalDest_InactiveHook_NoFinding(t *testing.T) {
+	hooks := []ghWebhook{
+		{Active: false, Config: struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Secret      string `json:"secret"`
+			InsecureSSL string `json:"insecure_ssl"`
+		}{URL: "https://evil.example.com/hook"}},
+	}
+	findings := checkWebhookExternalDest(hooks, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckGitHubWebhookExternalDest)
+}
+
+func TestCheckWebhookExternalDest_EmptyURL_NoFinding(t *testing.T) {
+	hooks := []ghWebhook{
+		{Active: true, Config: struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Secret      string `json:"secret"`
+			InsecureSSL string `json:"insecure_ssl"`
+		}{URL: ""}},
+	}
+	findings := checkWebhookExternalDest(hooks, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckGitHubWebhookExternalDest)
+}
+
+func TestCheckWebhookExternalDest_MultipleHooks_OnlyExternalFlagged(t *testing.T) {
+	makeHook := func(u string, active bool) ghWebhook {
+		return ghWebhook{Active: active, Config: struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Secret      string `json:"secret"`
+			InsecureSSL string `json:"insecure_ssl"`
+		}{URL: u}}
+	}
+	hooks := []ghWebhook{
+		makeHook("https://hooks.slack.com/services/T00/B00/xxxx", true),
+		makeHook("https://attacker.example.com/exfil", true),
+		makeHook("https://discord.com/api/webhooks/123", true),
+	}
+	findings := checkWebhookExternalDest(hooks, "org/repo")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Evidence["external_domain"] != "attacker.example.com" {
+		t.Errorf("expected external_domain=attacker.example.com, got %v", findings[0].Evidence["external_domain"])
+	}
+}
+
+func TestCheckWebhookExternalDest_Empty_NoFinding(t *testing.T) {
+	findings := checkWebhookExternalDest(nil, "org/repo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for empty hooks, got %d", len(findings))
+	}
+}

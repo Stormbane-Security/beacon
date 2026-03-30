@@ -191,15 +191,31 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 // ProofCommand field (the full command a user could paste into a terminal).
 func buildProofCommand(bin string, args []string, _ string) string {
 	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, bin)
+	parts = append(parts, shellQuote(bin))
 	for _, a := range args {
-		if strings.ContainsAny(a, " \t\n") {
-			parts = append(parts, "'"+a+"'")
-		} else {
-			parts = append(parts, a)
-		}
+		parts = append(parts, shellQuote(a))
 	}
 	return strings.Join(parts, " ")
+}
+
+// shellQuote returns a shell-safe representation of s. If s contains no
+// special characters it is returned as-is; otherwise it is single-quoted
+// with any embedded single quotes escaped as '\'' (end quote, escaped
+// quote, start quote).
+func shellQuote(s string) string {
+	safe := true
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' ||
+			c == '.' || c == '/' || c == ':' || c == ',' || c == '=') {
+			safe = false
+			break
+		}
+	}
+	if safe && len(s) > 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // parseNmapXML parses nmap XML output and emits findings.

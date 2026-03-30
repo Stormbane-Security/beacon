@@ -638,7 +638,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if resp.StatusCode != http.StatusOK {
 		// Redact the response body to avoid leaking the API key, which
 		// is passed as a URL query parameter for the Gemini API.

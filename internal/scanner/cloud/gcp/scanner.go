@@ -126,6 +126,12 @@ func (s *Scanner) scanProject(ctx context.Context, projectID, asset string, opts
 		findings = append(findings, auditFindings...)
 	}
 
+	// Security checks (VPC flow logs, KMS rotation, Cloud Functions, BigQuery, org policy)
+	securityFindings, err := scanSecurity(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, securityFindings...)
+	}
+
 	return findings, nil
 }
 

@@ -304,6 +304,22 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		}
 	}
 
+	// Deploy keys with write access (requires token).
+	if s.token != "" {
+		keys, err := s.getDeployKeys(ctx, owner, repo)
+		if err == nil {
+			all = append(all, checkDeployKeys(keys, repoSlug)...)
+		}
+	}
+
+	// External collaborators (requires token with admin access).
+	if s.token != "" {
+		collabs, err := s.getExternalCollaborators(ctx, owner, repo)
+		if err == nil {
+			all = append(all, checkStaleCollaborators(collabs, repoSlug)...)
+		}
+	}
+
 	// Scan top-level and common paths for .env files and secrets.
 	all = append(all, s.scanForSecrets(ctx, owner, repo, repoSlug)...)
 
@@ -334,6 +350,7 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 					})
 				}
 			}
+			all = append(all, checkWebhookExternalDest(hooks, repoSlug)...)
 		}
 	}
 
@@ -933,6 +950,163 @@ func (s *Scanner) getWebhooks(ctx context.Context, owner, repo string) ([]ghWebh
 	var hooks []ghWebhook
 	err = json.Unmarshal(body, &hooks)
 	return hooks, err
+}
+
+// knownWebhookDomains are internal/well-known services that are expected webhook destinations.
+var knownWebhookDomains = map[string]bool{
+	"github.com":              true,
+	"githubusercontent.com":   true,
+	"slack.com":               true,
+	"discord.com":             true,
+	"teams.microsoft.com":     true,
+}
+
+// webhookExternalDomain returns the hostname of the webhook URL if it is NOT
+// a known internal service. Returns "" if the URL is internal or unparseable.
+func webhookExternalDomain(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	for domain := range knownWebhookDomains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return ""
+		}
+	}
+	return host
+}
+
+// checkWebhookExternalDest flags active webhooks that deliver to domains outside
+// the set of known/trusted services. External webhook destinations could be used
+// as an exfiltration channel for repository events.
+func checkWebhookExternalDest(hooks []ghWebhook, repoSlug string) []finding.Finding {
+	var findings []finding.Finding
+	for _, hook := range hooks {
+		if !hook.Active {
+			continue
+		}
+		if dest := webhookExternalDomain(hook.Config.URL); dest != "" {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGitHubWebhookExternalDest,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityMedium,
+				Asset:    repoSlug,
+				Title:    fmt.Sprintf("Webhook sends data to external domain %s", dest),
+				Description: fmt.Sprintf(
+					"An active webhook delivers repository events (push, PR, issues) to %s, "+
+						"which is not a recognized internal service. Verify this destination is "+
+						"authorized and that the receiving endpoint is trusted. Unrecognized webhook "+
+						"destinations can be used to exfiltrate source code and metadata.", dest),
+				Evidence:     map[string]any{"webhook_url": hook.Config.URL, "external_domain": dest},
+				ProofCommand: fmt.Sprintf("gh api repos/%s/hooks --jq '.[].config.url'", repoSlug),
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
+}
+
+// -------------------------------------------------------------------------
+// Deploy key checks
+// -------------------------------------------------------------------------
+
+// ghDeployKey represents a single deploy key on a repository.
+type ghDeployKey struct {
+	ID       int    `json:"id"`
+	Title    string `json:"title"`
+	ReadOnly bool   `json:"read_only"`
+}
+
+// getDeployKeys returns all deploy keys configured on the repository.
+func (s *Scanner) getDeployKeys(ctx context.Context, owner, repo string) ([]ghDeployKey, error) {
+	body, err := s.apiGet(ctx, fmt.Sprintf("https://api.github.com/repos/%s/%s/keys", owner, repo))
+	if err != nil {
+		return nil, err
+	}
+	var keys []ghDeployKey
+	err = json.Unmarshal(body, &keys)
+	return keys, err
+}
+
+// checkDeployKeys flags deploy keys that have write access. Deploy keys with
+// write access can push code, potentially bypassing branch protection rules.
+func checkDeployKeys(keys []ghDeployKey, repoSlug string) []finding.Finding {
+	var findings []finding.Finding
+	for _, key := range keys {
+		if !key.ReadOnly {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGitHubDeployKeyReadWrite,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityMedium,
+				Asset:    repoSlug,
+				Title:    fmt.Sprintf("Deploy key %q has write access", key.Title),
+				Description: "Deploy key with write access found. Deploy keys should be read-only unless " +
+					"write access is explicitly required. Write-access deploy keys can be used to " +
+					"push malicious commits, potentially bypassing branch protection rules. " +
+					"Rotate the key with read-only access under Settings > Deploy keys.",
+				Evidence:     map[string]any{"key_id": key.ID, "key_title": key.Title, "read_only": false},
+				ProofCommand: fmt.Sprintf("gh api repos/%s/keys --jq '.[] | select(.read_only == false)'", repoSlug),
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
+}
+
+// -------------------------------------------------------------------------
+// External collaborator checks
+// -------------------------------------------------------------------------
+
+// ghCollaborator represents an outside collaborator on a repository.
+type ghCollaborator struct {
+	Login       string         `json:"login"`
+	Permissions map[string]bool `json:"permissions"`
+}
+
+// getExternalCollaborators returns outside collaborators with direct repository access.
+func (s *Scanner) getExternalCollaborators(ctx context.Context, owner, repo string) ([]ghCollaborator, error) {
+	body, err := s.apiGet(ctx, fmt.Sprintf("https://api.github.com/repos/%s/%s/collaborators?affiliation=outside", owner, repo))
+	if err != nil {
+		return nil, err
+	}
+	var collabs []ghCollaborator
+	err = json.Unmarshal(body, &collabs)
+	return collabs, err
+}
+
+// checkStaleCollaborators flags external collaborators who have push or admin
+// permissions. These are people outside the org with write access -- a potential
+// supply chain risk if their accounts go stale or are compromised.
+func checkStaleCollaborators(collabs []ghCollaborator, repoSlug string) []finding.Finding {
+	var findings []finding.Finding
+	for _, c := range collabs {
+		if c.Permissions["push"] || c.Permissions["admin"] {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGitHubStaleCollaborator,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityMedium,
+				Asset:    repoSlug,
+				Title:    fmt.Sprintf("External collaborator %q has write access", c.Login),
+				Description: fmt.Sprintf(
+					"External collaborator %q has push or admin permissions on this repository. "+
+						"Outside collaborators with write access represent a supply chain risk — if "+
+						"the account is inactive, compromised, or no longer needs access, an attacker "+
+						"could use it to push malicious code. Review external collaborators regularly "+
+						"and remove access that is no longer needed under Settings > Collaborators.", c.Login),
+				Evidence:     map[string]any{"login": c.Login, "permissions": c.Permissions},
+				ProofCommand: fmt.Sprintf("gh api repos/%s/collaborators?affiliation=outside --jq '.[] | select(.permissions.push or .permissions.admin)'", repoSlug),
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
 }
 
 // -------------------------------------------------------------------------

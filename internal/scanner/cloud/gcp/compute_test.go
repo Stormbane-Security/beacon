@@ -452,6 +452,10 @@ func TestCheckInstance_FullySecure_OnlyNoOSLoginIfMissing(t *testing.T) {
 		ServiceAccounts: []*computeapi.ServiceAccount{
 			{Email: "my-sa@my-project.iam.gserviceaccount.com"},
 		},
+		ShieldedInstanceConfig: &computeapi.ShieldedInstanceConfig{
+			EnableVtpm:               true,
+			EnableIntegrityMonitoring: true,
+		},
 	}
 
 	findings := checkInstance(inst, "my-project", "example.com")

@@ -158,6 +158,41 @@ func checkInstance(inst *computeapi.Instance, projectID, asset string) []finding
 		})
 	}
 
+	// Check for Shielded VM disabled.
+	// Shielded VM provides verifiable integrity of Compute Engine instances via
+	// vTPM and Integrity Monitoring. Without it, boot-level rootkits and firmware
+	// tampering may go undetected.
+	shieldedDisabled := inst.ShieldedInstanceConfig == nil ||
+		!inst.ShieldedInstanceConfig.EnableVtpm ||
+		!inst.ShieldedInstanceConfig.EnableIntegrityMonitoring
+	if shieldedDisabled {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudGCPShieldedVMDisabled,
+			Title:   fmt.Sprintf("GCP instance does not have Shielded VM fully enabled: %s", inst.Name),
+			Description: fmt.Sprintf(
+				"Instance %s in project %s does not have Shielded VM features fully enabled. "+
+					"Shielded VM provides verifiable integrity via vTPM and Integrity Monitoring, "+
+					"protecting against boot-level rootkits and firmware tampering. "+
+					"Enable both vTPM and Integrity Monitoring on the instance.",
+				inst.Name, projectID,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/gcp",
+			ProofCommand: fmt.Sprintf("gcloud compute instances describe %s --zone=%s --format='get(shieldedInstanceConfig)'", inst.Name, zoneFromSelfLink(inst.Zone)),
+			Evidence: map[string]any{
+				"instance":          inst.Name,
+				"instance_id":       inst.Name,
+				"resource_type":     "compute_instance",
+				"project_id":        projectID,
+				"zone":              zoneFromSelfLink(inst.Zone),
+				"public_ips":        publicIPs,
+				"resource_snapshot": resourceSnapshot,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings
 }
 

@@ -106,6 +106,14 @@ func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanTy
 		all = append(all, checkScheduledWritePermissions(content, repoSlug)...)
 		all = append(all, checkMissingJobTimeout(content, repoSlug)...)
 		all = append(all, checkContinueOnErrorSecurity(content, repoSlug)...)
+		// Supply-chain checks
+		all = append(all, checkOIDCTrustTooWide(content, repoSlug)...)
+		all = append(all, checkTyposquatAction(content, repoSlug)...)
+		all = append(all, checkRepoJackingRisk(content, repoSlug)...)
+		all = append(all, checkLockfileInjection(content, repoSlug)...)
+		all = append(all, checkDraftPRTrigger(content, repoSlug)...)
+		all = append(all, checkTrojanSource(content, repoSlug)...)
+		all = append(all, checkRunnerLabelSpoof(content, repoSlug)...)
 	}
 
 	// Deep mode: query the GitHub Advisory Database for any actions advisories

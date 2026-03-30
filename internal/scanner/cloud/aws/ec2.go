@@ -8,6 +8,7 @@ import (
 
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/stormbane/beacon/internal/finding"
 )
@@ -155,6 +156,94 @@ func scanEC2(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 						"region":             region,
 						"resource_type":      "ebs_volume",
 						"attached_instances": attachedInstances,
+					},
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+	}
+
+	// Check for VPCs without Flow Logs.
+	// Flow Logs capture IP traffic metadata for network monitoring, forensics, and compliance.
+	vpcsResp, err := svc.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
+	if err == nil {
+		var vpcIDs []string
+		vpcDefaultMap := make(map[string]bool) // vpcID -> isDefault
+		for _, vpc := range vpcsResp.Vpcs {
+			vpcID := awscfg.ToString(vpc.VpcId)
+			vpcIDs = append(vpcIDs, vpcID)
+			if vpc.IsDefault != nil && *vpc.IsDefault {
+				vpcDefaultMap[vpcID] = true
+			}
+		}
+
+		// Check flow logs for all VPCs at once.
+		if len(vpcIDs) > 0 {
+			flowLogsResp, flErr := svc.DescribeFlowLogs(ctx, &ec2.DescribeFlowLogsInput{})
+			vpcWithFlowLogs := make(map[string]bool)
+			if flErr == nil {
+				for _, fl := range flowLogsResp.FlowLogs {
+					if awscfg.ToString(fl.ResourceId) != "" {
+						vpcWithFlowLogs[awscfg.ToString(fl.ResourceId)] = true
+					}
+				}
+			}
+
+			for _, vpcID := range vpcIDs {
+				if !vpcWithFlowLogs[vpcID] {
+					findings = append(findings, finding.Finding{
+						CheckID: finding.CheckCloudAWSNoVPCFlowLogs,
+						Title:   fmt.Sprintf("VPC Flow Logs are not enabled: %s", vpcID),
+						Description: "VPC Flow Logs are not enabled. Flow logs capture IP traffic metadata " +
+							"for network monitoring, forensics, and compliance. Without them, " +
+							"network-level attacks and data exfiltration leave no audit trail.",
+						Severity:     finding.SeverityHigh,
+						Asset:        asset,
+						Scanner:      "cloud/aws",
+						ProofCommand: fmt.Sprintf("aws ec2 describe-flow-logs --filter Name=resource-id,Values=%s --region %s", vpcID, region),
+						Evidence: map[string]any{
+							"account_id":    accountID,
+							"vpc_id":        vpcID,
+							"region":        region,
+							"resource_type": "vpc",
+						},
+						DiscoveredAt: time.Now(),
+					})
+				}
+			}
+		}
+
+		// Check for Default VPC in use (has ENIs attached).
+		for vpcID, isDefault := range vpcDefaultMap {
+			if !isDefault {
+				continue
+			}
+			// Check if the default VPC has any network interfaces (indicating active use).
+			eniResp, eniErr := svc.DescribeNetworkInterfaces(ctx, &ec2.DescribeNetworkInterfacesInput{
+				Filters: []ec2types.Filter{
+					{
+						Name:   awscfg.String("vpc-id"),
+						Values: []string{vpcID},
+					},
+				},
+			})
+			if eniErr == nil && len(eniResp.NetworkInterfaces) > 0 {
+				findings = append(findings, finding.Finding{
+					CheckID: finding.CheckCloudAWSDefaultVPC,
+					Title:   fmt.Sprintf("Default VPC is in use: %s", vpcID),
+					Description: "Default VPC is in use. Default VPCs have overly permissive network " +
+						"configurations and should be replaced with purpose-built VPCs with proper " +
+						"subnet segmentation.",
+					Severity:     finding.SeverityMedium,
+					Asset:        asset,
+					Scanner:      "cloud/aws",
+					ProofCommand: fmt.Sprintf("aws ec2 describe-vpcs --vpc-ids %s --region %s --query 'Vpcs[].{VpcId:VpcId,IsDefault:IsDefault}'", vpcID, region),
+					Evidence: map[string]any{
+						"account_id":    accountID,
+						"vpc_id":        vpcID,
+						"region":        region,
+						"resource_type": "vpc",
+						"eni_count":     len(eniResp.NetworkInterfaces),
 					},
 					DiscoveredAt: time.Now(),
 				})

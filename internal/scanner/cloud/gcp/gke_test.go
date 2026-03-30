@@ -55,6 +55,26 @@ func TestCheckCluster_FullySecure(t *testing.T) {
 		BinaryAuthorization: &containerapi.BinaryAuthorization{
 			Enabled: true,
 		},
+		ShieldedNodes: &containerapi.ShieldedNodes{
+			Enabled: true,
+		},
+		NetworkPolicy: &containerapi.NetworkPolicy{
+			Enabled: true,
+		},
+		NodePools: []*containerapi.NodePool{
+			{
+				Name: "default-pool",
+				Config: &containerapi.NodeConfig{
+					ServiceAccount: "gke-nodes@my-project.iam.gserviceaccount.com",
+					Metadata: map[string]string{
+						"disable-legacy-endpoints": "true",
+					},
+				},
+				Management: &containerapi.NodeManagement{
+					AutoUpgrade: true,
+				},
+			},
+		},
 	}
 
 	findings := checkCluster(cluster, "my-project", "example.com")

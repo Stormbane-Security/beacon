@@ -116,6 +116,12 @@ func (s *Scanner) scanSubscription(ctx context.Context, cred *azidentity.Default
 		findings = append(findings, activityLogFindings...)
 	}
 
+	// Security checks (NSG flow logs, Defender, Key Vault, App Service, SQL ATP)
+	securityFindings, err := scanSecurity(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, securityFindings...)
+	}
+
 	return findings, nil
 }
 

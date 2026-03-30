@@ -205,5 +205,6 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 			"response_code":   resp.StatusCode,
 			"session_cookies": sessionCookies,
 		},
+		DiscoveredAt: time.Now(),
 	}
 }
