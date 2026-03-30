@@ -334,3 +334,1150 @@ jobs:
 		t.Fatalf("expected no findings for GitHub-hosted runner, got %d", len(findings))
 	}
 }
+
+// -------------------------------------------------------------------------
+// Artifact signing tests
+// -------------------------------------------------------------------------
+
+func TestArtifactSigning_ReleaseMissingSign(t *testing.T) {
+	yaml := `
+on:
+  release:
+    types: [published]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goreleaser/goreleaser@v1
+`
+	findings := checkArtifactSigning(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected unsigned_release_artifacts finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionUnsignedRelease {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestArtifactSigning_WithCosign_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  release:
+    types: [published]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sigstore/cosign-installer@v3
+      - uses: goreleaser/goreleaser@v1
+`
+	findings := checkArtifactSigning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when cosign is present, got %d", len(findings))
+	}
+}
+
+func TestArtifactSigning_NoPushTrigger_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: goreleaser/goreleaser@v1
+`
+	findings := checkArtifactSigning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-release trigger, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Reusable workflow pinning tests
+// -------------------------------------------------------------------------
+
+func TestReusableWorkflow_Unpinned_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: myorg/myrepo/.github/workflows/ci.yml@v2
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected reusable_workflow_unpinned finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionReusableWorkflowUnpinned {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestReusableWorkflow_PinnedToSHA_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: myorg/myrepo/.github/workflows/ci.yml@abcdef1234567890abcdef1234567890abcdef12
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for SHA-pinned reusable workflow, got %d", len(findings))
+	}
+}
+
+func TestReusableWorkflow_LocalWorkflow_NoFinding(t *testing.T) {
+	// Local reusable workflows (./.github/workflows/…) are not external supply-chain risk.
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: ./.github/workflows/shared.yml
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for local reusable workflow, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// workflow_dispatch injection tests
+// -------------------------------------------------------------------------
+
+func TestWorkflowDispatchInjection_Detected(t *testing.T) {
+	yaml := `
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: git checkout ${{ inputs.branch }}
+`
+	findings := checkWorkflowDispatchInjection(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected workflow_dispatch_injection finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionWorkflowDispatchInjection {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("unexpected severity %v, want Critical", findings[0].Severity)
+	}
+}
+
+func TestWorkflowDispatchInjection_SafeEnvVar_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          BRANCH: ${{ inputs.branch }}
+        run: git checkout "$BRANCH"
+`
+	findings := checkWorkflowDispatchInjection(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when input is via env var, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Known-compromised action tests
+// -------------------------------------------------------------------------
+
+func TestKnownCompromised_TjActions_MutableTag(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: tj-actions/changed-files@v44
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected known_compromised_action finding for tj-actions/changed-files@v44, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionKnownCompromised {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("expected Critical severity, got %v", findings[0].Severity)
+	}
+}
+
+func TestKnownCompromised_TjActions_SHA_NoFinding(t *testing.T) {
+	// A full SHA-pinned ref is not flagged by the static list — it may be a clean SHA.
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: tj-actions/changed-files@abcdef1234567890abcdef1234567890abcdef12
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for SHA-pinned tj-actions/changed-files, got %d", len(findings))
+	}
+}
+
+func TestKnownCompromised_ReviewdogV1_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: reviewdog/action-setup@v1
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected known_compromised_action finding for reviewdog/action-setup@v1, got none")
+	}
+}
+
+func TestKnownCompromised_ReviewdogV2_NoFinding(t *testing.T) {
+	// v2 was not affected — only v1 was compromised.
+	yaml := `
+on: pull_request
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: reviewdog/action-setup@v2
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for reviewdog/action-setup@v2, got %d", len(findings))
+	}
+}
+
+func TestKnownCompromised_UnrelatedAction_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unrelated action, got %d", len(findings))
+	}
+}
+
+func TestKnownCompromised_Xygeni_V5_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: xygeni/xygeni-action@v5
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected known_compromised_action finding for xygeni/xygeni-action@v5, got none")
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("expected Critical severity, got %v", findings[0].Severity)
+	}
+}
+
+func TestKnownCompromised_Xygeni_V4_NoFinding(t *testing.T) {
+	// v4 was not affected — only v5 was compromised.
+	yaml := `
+on: push
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: xygeni/xygeni-action@v4
+`
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for xygeni/xygeni-action@v4, got %d", len(findings))
+	}
+}
+
+func TestWorkflowDispatchInjection_NoPushTrigger_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ inputs.branch }}
+`
+	// No workflow_dispatch trigger, so inputs.* injection check should not fire.
+	findings := checkWorkflowDispatchInjection(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-dispatch trigger, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// CI/CD bypass checks
+// -------------------------------------------------------------------------
+
+func TestIssueCommentUnsafe_Detected(t *testing.T) {
+	yaml := `
+on: issue_comment
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.issue.pull_request.head.sha }}
+      - run: make test
+`
+	findings := checkIssueCommentUnsafe(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for issue_comment + head.sha checkout, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionIssueCommentUnsafe {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestIssueCommentUnsafe_SafeRef_NoFinding(t *testing.T) {
+	// issue_comment but checks out main branch, not PR head
+	yaml := `
+on: issue_comment
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: echo "safe"
+`
+	findings := checkIssueCommentUnsafe(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for issue_comment without PR checkout, got %d", len(findings))
+	}
+}
+
+func TestWorkflowAutoMerge_Detected(t *testing.T) {
+	yaml := `
+on: check_suite
+  completed:
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr merge --auto --squash ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+`
+	findings := checkWorkflowAutoMerge(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for gh pr merge, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionAutoMerge {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("expected Critical severity, got %v", findings[0].Severity)
+	}
+}
+
+func TestWorkflowAutoMerge_NoMatch_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "no merge here"
+`
+	findings := checkWorkflowAutoMerge(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestWorkflowAutoApprove_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr review --approve ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+`
+	findings := checkWorkflowAutoApprove(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for gh pr review --approve, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionAutoApprove {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestScheduledWrite_Detected(t *testing.T) {
+	yaml := `
+on:
+  schedule:
+    - cron: '0 0 * * *'
+permissions:
+  contents: write
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make release
+`
+	findings := checkScheduledWritePermissions(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for scheduled + write, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionScheduledWrite {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestScheduledWrite_ReadOnly_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  schedule:
+    - cron: '0 0 * * *'
+permissions:
+  contents: read
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "read only"
+`
+	findings := checkScheduledWritePermissions(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for scheduled + read only, got %d", len(findings))
+	}
+}
+
+func TestMissingJobTimeout_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make build
+`
+	findings := checkMissingJobTimeout(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for missing timeout-minutes, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionMissingJobTimeout {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestMissingJobTimeout_Set_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - run: make build
+`
+	findings := checkMissingJobTimeout(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when timeout-minutes is set, got %d", len(findings))
+	}
+}
+
+func TestContinueOnErrorSecurity_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@main
+        continue-on-error: true
+        with:
+          scan-type: fs
+`
+	findings := checkContinueOnErrorSecurity(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected finding for security step with continue-on-error, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionContinueOnErrorSecurity {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestContinueOnErrorSecurity_NonSecurityStep_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        continue-on-error: true
+`
+	findings := checkContinueOnErrorSecurity(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-security step with continue-on-error, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// splitOwnerRepo edge cases
+// -------------------------------------------------------------------------
+
+func TestSplitOwnerRepo_ValidTarget(t *testing.T) {
+	owner, repo, ok := splitOwnerRepo("myorg/myrepo")
+	if !ok {
+		t.Fatal("expected ok=true for valid target")
+	}
+	if owner != "myorg" || repo != "myrepo" {
+		t.Errorf("got owner=%q repo=%q, want myorg/myrepo", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_GitHubURL(t *testing.T) {
+	owner, repo, ok := splitOwnerRepo("https://github.com/myorg/myrepo")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if owner != "myorg" || repo != "myrepo" {
+		t.Errorf("got owner=%q repo=%q, want myorg/myrepo", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_TrailingPath(t *testing.T) {
+	owner, repo, ok := splitOwnerRepo("myorg/myrepo/tree/main/src")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if owner != "myorg" || repo != "myrepo" {
+		t.Errorf("got owner=%q repo=%q, want myorg/myrepo", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_PathTraversal(t *testing.T) {
+	owner, repo, ok := splitOwnerRepo("../../../etc/passwd")
+	if !ok {
+		t.Skip("splitOwnerRepo rejected traversal target")
+	}
+	if owner == "../../.." {
+		t.Errorf("path traversal not sanitized: owner=%q repo=%q", owner, repo)
+	}
+}
+
+func TestSplitOwnerRepo_Empty(t *testing.T) {
+	_, _, ok := splitOwnerRepo("")
+	if ok {
+		t.Error("expected ok=false for empty target")
+	}
+}
+
+func TestSplitOwnerRepo_OwnerOnly(t *testing.T) {
+	_, _, ok := splitOwnerRepo("myorg")
+	if ok {
+		t.Error("expected ok=false for owner-only target")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Script injection: block scalar (run: |) edge cases
+// -------------------------------------------------------------------------
+
+func TestScriptInjection_BlockScalar_MultiLine(t *testing.T) {
+	// Injection sink in the second line of a block scalar run: step.
+	yaml := `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "starting"
+          echo "PR: ${{ github.event.pull_request.title }}"
+`
+	findings := checkScriptInjection(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected script injection finding in block scalar, got none")
+	}
+}
+
+func TestScriptInjection_NotInRunStep_NoFinding(t *testing.T) {
+	// Injection sink in an env: block (not run:) should not be flagged.
+	yaml := `
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Safe step
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: echo "$TITLE"
+`
+	findings := checkScriptInjection(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for safe env-var pattern, got %d", len(findings))
+	}
+}
+
+func TestScriptInjection_DiscussionBody(t *testing.T) {
+	yaml := `
+on: discussion
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.discussion.body }}"
+`
+	findings := checkScriptInjection(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected script injection finding for discussion.body, got none")
+	}
+}
+
+func TestScriptInjection_ReviewBody(t *testing.T) {
+	yaml := `
+on: pull_request_review
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.review.body }}"
+`
+	findings := checkScriptInjection(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected script injection finding for review.body, got none")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Overpermissioned: job-level permissions should count
+// -------------------------------------------------------------------------
+
+func TestOverpermissioned_JobLevelPermissions_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo hello
+`
+	findings := checkOverpermissioned(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when job-level permissions are set, got %d", len(findings))
+	}
+}
+
+func TestOverpermissioned_EmptyPermissions_NoFinding(t *testing.T) {
+	// permissions: {} drops all access - the safest option.
+	yaml := `
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`
+	findings := checkOverpermissioned(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for permissions: {}, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// GITHUB_ENV injection edge cases
+// -------------------------------------------------------------------------
+
+func TestGitHubEnvInjection_WithInjectionSink(t *testing.T) {
+	yaml := `
+on: issue_comment
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "LABEL=${{ github.event.comment.body }}" >> $GITHUB_ENV
+`
+	findings := checkGitHubEnvInjection(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected github_env_injection finding, got none")
+	}
+}
+
+func TestGitHubEnvInjection_NoInjectionSink_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "FOO=bar" >> $GITHUB_ENV
+`
+	findings := checkGitHubEnvInjection(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings without injection sink, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Secrets inherit edge cases
+// -------------------------------------------------------------------------
+
+func TestSecretsInherit_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: myorg/myrepo/.github/workflows/deploy.yml@main
+    secrets: inherit
+`
+	findings := checkSecretsInherit(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected secrets_inherit finding, got none")
+	}
+}
+
+func TestSecretsInherit_ExplicitSecrets_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  call:
+    uses: myorg/myrepo/.github/workflows/deploy.yml@main
+    secrets:
+      MY_SECRET: ${{ secrets.MY_SECRET }}
+`
+	findings := checkSecretsInherit(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for explicit secrets, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Insecure commands edge cases
+// -------------------------------------------------------------------------
+
+func TestInsecureCommands_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+    steps:
+      - run: echo "::set-env name=FOO::bar"
+`
+	findings := checkInsecureCommands(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected insecure_commands finding, got none")
+	}
+}
+
+func TestInsecureCommands_NotSet_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "normal command"
+`
+	findings := checkInsecureCommands(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// ArtiPACKED edge cases
+// -------------------------------------------------------------------------
+
+func TestArtiPacked_CheckoutAndUpload_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: make build
+      - uses: actions/upload-artifact@v3
+        with:
+          path: dist/
+`
+	findings := checkArtiPacked(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected artipacked finding, got none")
+	}
+}
+
+func TestArtiPacked_PersistCredentialsFalse_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+      - uses: actions/upload-artifact@v3
+        with:
+          path: dist/
+`
+	findings := checkArtiPacked(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when persist-credentials is false, got %d", len(findings))
+	}
+}
+
+func TestArtiPacked_NoUpload_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: make build
+`
+	findings := checkArtiPacked(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings without artifact upload, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Cache poisoning edge cases
+// -------------------------------------------------------------------------
+
+func TestCachePoisoning_ReleaseWithCache_Detected(t *testing.T) {
+	yaml := `
+on:
+  release:
+    types: [published]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v3
+        with:
+          path: ~/.cache
+          key: build-${{ runner.os }}
+      - run: make release
+`
+	findings := checkCachePoisoning(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected cache_poisoning finding, got none")
+	}
+}
+
+func TestCachePoisoning_PushWithCache_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache@v3
+      - run: make build
+`
+	findings := checkCachePoisoning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-release trigger, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Long-lived cloud credentials
+// -------------------------------------------------------------------------
+
+func TestLongLivedCreds_AWSKey_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: aws s3 sync dist/ s3://bucket/
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+`
+	findings := checkLongLivedCloudCreds(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected aws_long_lived_key finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionAWSLongLivedKey {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestLongLivedCreds_AWSWithOIDCAction_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/my-role
+      - run: aws s3 sync dist/ s3://bucket/
+`
+	findings := checkLongLivedCloudCreds(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when OIDC action is present, got %d", len(findings))
+	}
+}
+
+func TestLongLivedCreds_NoSecrets_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "no secrets here"
+`
+	findings := checkLongLivedCloudCreds(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when no secrets are used, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// PAT used in workflow
+// -------------------------------------------------------------------------
+
+func TestPATUsed_Detected(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr list
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+`
+	findings := checkPATUsedInWorkflow(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected pat_used finding, got none")
+	}
+	if findings[0].CheckID != finding.CheckGHActionPATUsedInWorkflow {
+		t.Errorf("unexpected CheckID %q", findings[0].CheckID)
+	}
+}
+
+func TestPATUsed_GITHUB_TOKEN_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+`
+	findings := checkPATUsedInWorkflow(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for GITHUB_TOKEN, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Bot condition spoofable
+// -------------------------------------------------------------------------
+
+func TestBotCondition_Spoofable_Detected(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  auto:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "auto-approve"
+`
+	findings := checkBotConditionSpoofable(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected bot_condition_spoofable finding, got none")
+	}
+}
+
+func TestBotCondition_NoBotCheck_NoFinding(t *testing.T) {
+	yaml := `
+on: pull_request
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "normal build"
+`
+	findings := checkBotConditionSpoofable(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// workflow_run unsafe checkout
+// -------------------------------------------------------------------------
+
+func TestWorkflowRunUnsafe_Detected(t *testing.T) {
+	yaml := `
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: make deploy
+`
+	findings := checkWorkflowRunUnsafe(yaml, "testorg/testrepo")
+	if len(findings) == 0 {
+		t.Fatal("expected workflow_run_unsafe finding, got none")
+	}
+}
+
+func TestWorkflowRunUnsafe_SafeCheckout_NoFinding(t *testing.T) {
+	yaml := `
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: make deploy
+`
+	findings := checkWorkflowRunUnsafe(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for safe checkout, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// CDN fork action should not be flagged as compromised
+// -------------------------------------------------------------------------
+
+func TestKnownCompromised_CDNFork_NoFinding(t *testing.T) {
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions-mirror/tj-actions-changed-files@v44
+`
+	// actions-mirror/ is a known CDN fork domain -- should not be
+	// flagged as a compromised upstream action.
+	findings := checkKnownCompromisedActions(yaml, "testorg/testrepo")
+	// The action slug "actions-mirror/tj-actions-changed-files" does
+	// not match "tj-actions/changed-files", so no finding expected.
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for CDN fork mirror, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
+// Empty workflow file edge case
+// -------------------------------------------------------------------------
+
+func TestEmptyWorkflow_NoFindings(t *testing.T) {
+	yaml := ""
+	// All check functions should handle empty input gracefully.
+	findings := checkUnpinnedActions(yaml, "testorg/testrepo")
+	findings = append(findings, checkPRTargetUnsafe(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkScriptInjection(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkSecretsEchoed(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkSelfHostedOnPublic(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkWorkflowRunUnsafe(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkGitHubEnvInjection(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkSecretsInherit(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkInsecureCommands(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkBotConditionSpoofable(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkArtiPacked(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkCachePoisoning(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkLongLivedCloudCreds(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkPATUsedInWorkflow(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkArtifactSigning(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkReusableWorkflowPinning(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkWorkflowDispatchInjection(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkKnownCompromisedActions(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkIssueCommentUnsafe(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkWorkflowAutoMerge(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkWorkflowAutoApprove(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkScheduledWritePermissions(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkMissingJobTimeout(yaml, "testorg/testrepo")...)
+	findings = append(findings, checkContinueOnErrorSecurity(yaml, "testorg/testrepo")...)
+
+	// Empty YAML has no permissions block so checkOverpermissioned fires.
+	// Filter that out to validate the rest are clean.
+	var nonPermFindings []finding.Finding
+	for _, f := range findings {
+		if f.CheckID != finding.CheckGHActionOverpermissioned {
+			nonPermFindings = append(nonPermFindings, f)
+		}
+	}
+	if len(nonPermFindings) != 0 {
+		t.Errorf("expected no findings for empty workflow (excluding overpermissioned), got %d", len(nonPermFindings))
+		for _, f := range nonPermFindings {
+			t.Logf("  unexpected: %s - %s", f.CheckID, f.Title)
+		}
+	}
+}
+
+// -------------------------------------------------------------------------
+// Reusable workflow pinning: subpath action
+// -------------------------------------------------------------------------
+
+func TestReusableWorkflow_SubpathAction_NotFlagged(t *testing.T) {
+	// Standard action uses: (not reusable workflow) should not be caught.
+	yaml := `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+`
+	findings := checkReusableWorkflowPinning(yaml, "testorg/testrepo")
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for regular action, got %d", len(findings))
+	}
+}

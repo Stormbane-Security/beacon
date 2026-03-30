@@ -8,15 +8,6 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 )
 
-// Tier is kept for SaaS-layer use only. The open-source tool always shows all findings.
-// The SaaS service uses this to gate findings per subscription plan.
-type Tier int
-
-const (
-	TierFree Tier = iota
-	TierPaid
-)
-
 // ReportView is the filtered view of findings returned for report rendering.
 type ReportView struct {
 	// VisibleFindings are fully shown (low conversion value or top 1-3 high value).

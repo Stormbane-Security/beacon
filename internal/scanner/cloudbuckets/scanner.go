@@ -45,6 +45,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	now := time.Now()
 
+	// Fetch the asset's root page to correlate guessed bucket names against
+	// actual references in the target's HTML/JS. If a bucket URL or name appears
+	// in the page source we can confirm ownership, which raises the finding's
+	// confidence from "possible" to "confirmed".
+	pageText := fetchPageText(ctx, client, asset)
+
 	// Generate candidate bucket names from the domain.
 	// Hard-cap at 50 candidates × 3 providers = 150 max probes.
 	const maxCandidates = 50
@@ -80,21 +86,21 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 			// --- AWS S3 ---
 			s3URL := fmt.Sprintf("https://%s.s3.amazonaws.com/", c)
-			local = append(local, probeURL(ctx, client, asset, s3URL, "AWS S3", c, now))
+			local = append(local, probeURL(ctx, client, asset, s3URL, "AWS S3", c, pageText, now))
 			if scanType == module.ScanDeep {
 				local = append(local, probeWrite(ctx, client, asset, s3URL, "AWS S3", c, now))
 			}
 
 			// --- Google Cloud Storage ---
 			gcsURL := fmt.Sprintf("https://storage.googleapis.com/%s/", c)
-			local = append(local, probeURL(ctx, client, asset, gcsURL, "GCS", c, now))
+			local = append(local, probeURL(ctx, client, asset, gcsURL, "GCS", c, pageText, now))
 			if scanType == module.ScanDeep {
 				local = append(local, probeWrite(ctx, client, asset, gcsURL, "GCS", c, now))
 			}
 
 			// --- Azure Blob Storage ---
 			azureURL := fmt.Sprintf("https://%s.blob.core.windows.net/", c)
-			local = append(local, probeURL(ctx, client, asset, azureURL, "Azure Blob", c, now))
+			local = append(local, probeURL(ctx, client, asset, azureURL, "Azure Blob", c, pageText, now))
 			if scanType == module.ScanDeep {
 				local = append(local, probeWrite(ctx, client, asset, azureURL, "Azure Blob", c, now))
 			}
@@ -110,11 +116,131 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	wg.Wait()
 
+	findings = consolidateUnconfirmed(findings, asset, now)
+
 	return findings, nil
 }
 
+// consolidateUnconfirmed collapses multiple unconfirmed bucket findings for the
+// same provider into a single finding. Unconfirmed findings are guesses derived
+// from the domain name — generating one noisy alert per guessed bucket name
+// is unhelpful. A single consolidated alert lists all candidates and makes clear
+// that ownership is unverified. Confirmed findings (where the target page
+// references the bucket) are left as individual high-confidence alerts.
+func consolidateUnconfirmed(findings []finding.Finding, asset string, now time.Time) []finding.Finding {
+	type groupKey struct {
+		provider string
+		listing  string // "enabled" or "disabled"
+		checkID  finding.CheckID
+	}
+
+	// Split confirmed from unconfirmed.
+	var confirmed []finding.Finding
+	groups := map[groupKey][]finding.Finding{}
+
+	for _, f := range findings {
+		if isOwnershipConfirmed(f) {
+			confirmed = append(confirmed, f)
+			continue
+		}
+		// Only collapse public-bucket findings, not writable-bucket findings.
+		if f.CheckID != finding.CheckCloudBucketPublic && f.CheckID != finding.CheckCloudBucketExists {
+			confirmed = append(confirmed, f) // keep as-is
+			continue
+		}
+		listing, _ := f.Evidence["listing"].(string)
+		prov, _ := f.Evidence["provider"].(string)
+		k := groupKey{provider: prov, listing: listing, checkID: f.CheckID}
+		groups[k] = append(groups[k], f)
+	}
+
+	result := confirmed
+
+	for k, group := range groups {
+		if len(group) == 1 {
+			result = append(result, group[0])
+			continue
+		}
+		// Collapse to one finding.
+		var names []string
+		for _, f := range group {
+			if n, ok := f.Evidence["bucket_name"].(string); ok {
+				names = append(names, n)
+			}
+		}
+		// Use the first finding as the template for severity, module, etc.
+		base := group[0]
+		listingDesc := "publicly listable"
+		if k.listing == "disabled" {
+			listingDesc = "publicly accessible (listing disabled)"
+		} else if k.listing == "" {
+			listingDesc = "private"
+		}
+		nameSummary := strings.Join(names, ", ")
+		title := fmt.Sprintf("Possible %s buckets (%s): %d candidates — ownership unconfirmed",
+			k.provider, listingDesc, len(names))
+		desc := fmt.Sprintf(
+			"%d %s bucket names derived from %s were found to be %s. "+
+				"Ownership is unconfirmed — these names were guessed from the domain. "+
+				"Verify that the target actually uses these buckets before treating this as a confirmed finding. "+
+				"Bucket names: %s",
+			len(names), k.provider, asset, listingDesc, nameSummary)
+		result = append(result, finding.Finding{
+			CheckID:      base.CheckID,
+			Module:       base.Module,
+			Scanner:      base.Scanner,
+			Severity:     base.Severity,
+			Title:        title,
+			Description:  desc,
+			Asset:        asset,
+			ProofCommand: base.ProofCommand,
+			Evidence: map[string]any{
+				"provider":            k.provider,
+				"listing":             k.listing,
+				"bucket_names":        names,
+				"count":               len(names),
+				"ownership_confirmed": false,
+			},
+			DiscoveredAt: now,
+		})
+	}
+
+	return result
+}
+
+// isOwnershipConfirmed checks whether a finding's evidence marks it as confirmed.
+func isOwnershipConfirmed(f finding.Finding) bool {
+	v, _ := f.Evidence["ownership_confirmed"].(bool)
+	return v
+}
+
+// fetchPageText fetches the root page of the asset (https first, then http)
+// and returns the body as a string, capped at 256 KB. Returns "" on error.
+// Used to correlate guessed bucket names against real page references.
+func fetchPageText(ctx context.Context, client *http.Client, asset string) string {
+	for _, scheme := range []string{"https", "http"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+asset, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return string(body)
+		}
+	}
+	return ""
+}
+
 // probeURL checks a single bucket URL. Returns a finding if it exists or is public.
-func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bucketName string, now time.Time) *finding.Finding {
+// pageText is the target's root page HTML/JS; if it references the bucket URL or
+// bucket name, the finding is marked as ownership-confirmed (higher confidence).
+func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bucketName, pageText string, now time.Time) *finding.Finding {
+	confirmed := pageText != "" && (strings.Contains(pageText, bucketName) || strings.Contains(pageText, strings.TrimSuffix(url, "/")))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil
@@ -135,23 +261,28 @@ func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bu
 		// public object access possible) but directory listing is disabled.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if strings.Contains(string(body), "ListBucketResult") {
-			// Bucket is publicly listable — anyone can enumerate and download all contents.
-			// Bucket name was guessed from the domain so mark as "possible" pending ownership confirmation.
 			listURL := fmt.Sprintf("%s?max-keys=20", url)
+			titlePrefix := "Possible"
+			desc := fmt.Sprintf("A %s bucket named '%s' (guessed from %s) is publicly listable. Confirm it belongs to the target by reviewing the object keys. If confirmed, anyone can enumerate and download all contents.", provider, bucketName, asset)
+			if confirmed {
+				titlePrefix = "Confirmed"
+				desc = fmt.Sprintf("A %s bucket named '%s' belonging to %s is publicly listable — the target's own page references this bucket. Anyone can enumerate and download all contents.", provider, bucketName, asset)
+			}
 			return &finding.Finding{
 				CheckID:     finding.CheckCloudBucketPublic,
 				Module:      "surface",
 				Scanner:     scannerName,
 				Severity:    finding.SeverityCritical,
-				Title:       fmt.Sprintf("Possible public %s bucket (listable): %s", provider, bucketName),
-				Description: fmt.Sprintf("A %s bucket named '%s' (guessed from %s) is publicly listable. Confirm it belongs to the target by reviewing the object keys. If confirmed, anyone can enumerate and download all contents.", provider, bucketName, asset),
+				Title:       fmt.Sprintf("%s public %s bucket (listable): %s", titlePrefix, provider, bucketName),
+				Description: desc,
 				Asset:       asset,
 				Evidence: map[string]any{
-					"bucket_url":  url,
-					"bucket_name": bucketName,
-					"provider":    provider,
-					"status_code": resp.StatusCode,
-					"listing":     "enabled",
+					"bucket_url":          url,
+					"bucket_name":         bucketName,
+					"provider":            provider,
+					"status_code":         resp.StatusCode,
+					"listing":             "enabled",
+					"ownership_confirmed": confirmed,
 				},
 				ProofCommand: fmt.Sprintf(
 					"# List up to 20 object keys to confirm ownership and enumerate contents:\ncurl -s '%s' | grep -o '<Key>[^<]*</Key>' | sed 's/<[^>]*>//g'",
@@ -160,22 +291,28 @@ func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bu
 			}
 		}
 		// Bucket exists and is publicly accessible but listing is disabled.
-		// Bucket name was guessed from the domain — mark as "possible" pending ownership confirmation.
 		listURL := fmt.Sprintf("%s?max-keys=20", url)
+		titlePrefix := "Possible"
+		desc := fmt.Sprintf("A %s bucket named '%s' (guessed from %s) responded with HTTP 200 but listing is disabled. Bucket ownership is unconfirmed — verify by checking whether the target's HTML/JS references this bucket URL.", provider, bucketName, asset)
+		if confirmed {
+			titlePrefix = "Confirmed"
+			desc = fmt.Sprintf("A %s bucket named '%s' belonging to %s is publicly accessible (listing disabled). The target's own page references this bucket, confirming ownership.", provider, bucketName, asset)
+		}
 		return &finding.Finding{
 			CheckID:     finding.CheckCloudBucketPublic,
 			Module:      "surface",
 			Scanner:     scannerName,
 			Severity:    finding.SeverityMedium,
-			Title:       fmt.Sprintf("Possible public %s bucket (listing disabled): %s", provider, bucketName),
-			Description: fmt.Sprintf("A %s bucket named '%s' (guessed from %s) responded with HTTP 200 but listing is disabled. Bucket ownership is unconfirmed — verify by checking whether the target's HTML/JS references this bucket URL.", provider, bucketName, asset),
+			Title:       fmt.Sprintf("%s public %s bucket (listing disabled): %s", titlePrefix, provider, bucketName),
+			Description: desc,
 			Asset:       asset,
 			Evidence: map[string]any{
-				"bucket_url":  url,
-				"bucket_name": bucketName,
-				"provider":    provider,
-				"status_code": resp.StatusCode,
-				"listing":     "disabled",
+				"bucket_url":          url,
+				"bucket_name":         bucketName,
+				"provider":            provider,
+				"status_code":         resp.StatusCode,
+				"listing":             "disabled",
+				"ownership_confirmed": confirmed,
 			},
 			ProofCommand: fmt.Sprintf(
 				"# Attempt to list objects (empty = listing disabled, XML = listable):\ncurl -s '%s'\n# If you know an object path, fetch it directly:\n# curl -I '%sPATH/TO/OBJECT'",
@@ -194,10 +331,11 @@ func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bu
 			Description: fmt.Sprintf("A %s bucket named '%s' associated with %s exists but is not publicly accessible. Verify its permissions are correctly configured.", provider, bucketName, asset),
 			Asset:       asset,
 			Evidence: map[string]any{
-				"bucket_url":  url,
-				"bucket_name": bucketName,
-				"provider":    provider,
-				"status_code": resp.StatusCode,
+				"bucket_url":          url,
+				"bucket_name":         bucketName,
+				"provider":            provider,
+				"status_code":         resp.StatusCode,
+				"ownership_confirmed": confirmed,
 			},
 			ProofCommand: fmt.Sprintf("curl -sI '%s' | grep -i 'HTTP/'", url),
 			DiscoveredAt: now,

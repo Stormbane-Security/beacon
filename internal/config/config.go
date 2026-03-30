@@ -52,9 +52,46 @@ type AuthConfig struct {
 	SolanaPrivateKey string `yaml:"solana_private_key"`
 }
 
+// AIConfig selects the AI provider used for finding enrichment, scan summaries,
+// attack path analysis, and adaptive recon. Configure one provider under the
+// `ai:` key in ~/.beacon/config.yaml. If omitted, the legacy `anthropic_api_key`
+// field is used as a Claude fallback.
+//
+// Supported providers and their default models:
+//
+//	claude   — claude-sonnet-4-6     (api.anthropic.com)
+//	openai   — gpt-4o                (api.openai.com)  also covers Azure OpenAI via base_url
+//	gemini   — gemini-2.0-flash      (generativelanguage.googleapis.com)
+//	ollama   — llama3.1              (localhost:11434)  no api_key needed
+//	mistral  — mistral-large-latest  (api.mistral.ai)  OpenAI-compatible
+//	grok     — grok-2                (api.x.ai)        OpenAI-compatible
+//	groq     — llama-3.3-70b-versatile (api.groq.com)  OpenAI-compatible, very fast
+type AIConfig struct {
+	// Provider selects the AI backend. Case-insensitive.
+	Provider string `yaml:"provider"`
+
+	// APIKey is the API key for the selected provider.
+	// Leave empty for Ollama (local) and any other unauthenticated endpoint.
+	APIKey string `yaml:"api_key"`
+
+	// Model overrides the provider's default model. If empty, a sensible
+	// default is chosen automatically (see table above).
+	Model string `yaml:"model"`
+
+	// BaseURL overrides the provider's default API endpoint. Useful for:
+	//   Ollama:       http://localhost:11434  (set to your Ollama host:port)
+	//   Azure OpenAI: https://<resource>.openai.azure.com/openai/deployments/<deployment>
+	//   Local proxies: any OpenAI-compatible endpoint
+	BaseURL string `yaml:"base_url"`
+}
+
 // Config holds all Beacon configuration. Values are loaded from
 // ~/.beacon/config.yaml with environment variable overrides (BEACON_ prefix).
 type Config struct {
+	// AI selects the AI provider for enrichment, summaries, and analysis.
+	// Takes priority over the legacy AnthropicAPIKey / ClaudeModel fields.
+	AI AIConfig `yaml:"ai"`
+
 	AnthropicAPIKey string `yaml:"anthropic_api_key"`
 
 	// ShodanAPIKey enables Shodan host lookups for each discovered IP.
@@ -192,12 +229,117 @@ func Load() (*Config, error) {
 	}
 
 	applyEnv(cfg)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
+	}
 	return cfg, nil
 }
 
 // LoadedFrom returns the config file path that was successfully read, or ""
 // if no config file was found (defaults + env vars only).
 func (c *Config) LoadedFrom() string { return c.loadedFrom }
+
+// ActiveAI returns the resolved AI provider config to use, or nil if no AI
+// provider is configured. The explicit `ai:` block takes priority; if absent,
+// the legacy `anthropic_api_key` field is used as a Claude fallback.
+func (c *Config) ActiveAI() *AIConfig {
+	// Explicit ai: block — provider must be set; api_key may be empty for ollama.
+	p := strings.ToLower(strings.TrimSpace(c.AI.Provider))
+	if p != "" {
+		ai := c.AI
+		ai.Provider = p
+		return &ai
+	}
+	// Legacy fallback: anthropic_api_key → claude provider.
+	if c.AnthropicAPIKey != "" {
+		return &AIConfig{
+			Provider: "claude",
+			APIKey:   c.AnthropicAPIKey,
+			Model:    c.ClaudeModel,
+		}
+	}
+	return nil
+}
+
+// Redacted returns a shallow copy of the Config with all credential fields
+// replaced by "[REDACTED]". Use this whenever the config is logged, printed in
+// error messages, or serialized for debugging to prevent API key leaks.
+func (c *Config) Redacted() Config {
+	r := *c
+	redact := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		return "[REDACTED]"
+	}
+	// AI / LLM keys
+	r.AI.APIKey = redact(r.AI.APIKey)
+	r.AnthropicAPIKey = redact(r.AnthropicAPIKey)
+	// Third-party API keys
+	r.ShodanAPIKey = redact(r.ShodanAPIKey)
+	r.OTXAPIKey = redact(r.OTXAPIKey)
+	r.HIBPAPIKey = redact(r.HIBPAPIKey)
+	r.BingAPIKey = redact(r.BingAPIKey)
+	r.VirusTotalAPIKey = redact(r.VirusTotalAPIKey)
+	r.SecurityTrailsAPIKey = redact(r.SecurityTrailsAPIKey)
+	r.CensysAPIID = redact(r.CensysAPIID)
+	r.CensysAPISecret = redact(r.CensysAPISecret)
+	r.GreyNoiseAPIKey = redact(r.GreyNoiseAPIKey)
+	r.GitHubToken = redact(r.GitHubToken)
+	// Server / webhook credentials
+	r.Server.APIKey = redact(r.Server.APIKey)
+	r.WebhookAPIKey = redact(r.WebhookAPIKey)
+	// SMTP credentials
+	r.SMTP.Password = redact(r.SMTP.Password)
+	// Auth configs: clear all per-asset credentials
+	redactedAuth := make([]AuthConfig, len(r.Auth))
+	for i, a := range r.Auth {
+		a.Token = redact(a.Token)
+		a.Password = redact(a.Password)
+		a.Cookie = redact(a.Cookie)
+		a.ClientSecret = redact(a.ClientSecret)
+		a.EVMPrivateKey = redact(a.EVMPrivateKey)
+		a.SolanaPrivateKey = redact(a.SolanaPrivateKey)
+		redactedAuth[i] = a
+	}
+	r.Auth = redactedAuth
+	return r
+}
+
+// Validate checks the Config for logical errors that would cause runtime failures.
+// Called automatically by Load.
+func (c *Config) Validate() error {
+	validAuthMethods := map[string]bool{
+		"bearer": true, "api_key": true, "cookie": true, "basic": true,
+		"oidc": true, "web3_evm": true, "web3_sol": true,
+	}
+	for i, a := range c.Auth {
+		if a.Method == "" {
+			return fmt.Errorf("auth[%d]: method is required", i)
+		}
+		if !validAuthMethods[a.Method] {
+			return fmt.Errorf("auth[%d]: unknown method %q (valid: bearer, api_key, cookie, basic, oidc, web3_evm, web3_sol)", i, a.Method)
+		}
+		if a.Asset == "" {
+			return fmt.Errorf("auth[%d]: asset is required (use \"*\" for all assets)", i)
+		}
+	}
+	if c.RequestJitterMs < 0 {
+		return fmt.Errorf("request_jitter_ms must be >= 0, got %d", c.RequestJitterMs)
+	}
+	if c.SMTP.Port < 0 || c.SMTP.Port > 65535 {
+		return fmt.Errorf("smtp.port must be 0-65535, got %d", c.SMTP.Port)
+	}
+	validProviders := map[string]bool{
+		"": true, "claude": true, "openai": true, "gemini": true,
+		"ollama": true, "mistral": true, "grok": true, "groq": true,
+	}
+	p := strings.ToLower(strings.TrimSpace(c.AI.Provider))
+	if !validProviders[p] {
+		return fmt.Errorf("ai.provider %q is not supported (valid: claude, openai, gemini, ollama, mistral, grok, groq)", c.AI.Provider)
+	}
+	return nil
+}
 
 // MustLoad calls Load and panics on error. Suitable for use in main().
 func MustLoad() *Config {
@@ -209,7 +351,10 @@ func MustLoad() *Config {
 }
 
 func defaults() *Config {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
 	return &Config{
 		ClaudeModel:  "claude-sonnet-4-6",
 		NmapBin:      "nmap",
@@ -247,11 +392,26 @@ func configPath() string {
 			}
 		}
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
 	return filepath.Join(home, ".beacon", "config.yaml")
 }
 
 func applyEnv(cfg *Config) {
+	if v := os.Getenv("BEACON_AI_PROVIDER"); v != "" {
+		cfg.AI.Provider = v
+	}
+	if v := os.Getenv("BEACON_AI_API_KEY"); v != "" {
+		cfg.AI.APIKey = v
+	}
+	if v := os.Getenv("BEACON_AI_MODEL"); v != "" {
+		cfg.AI.Model = v
+	}
+	if v := os.Getenv("BEACON_AI_BASE_URL"); v != "" {
+		cfg.AI.BaseURL = v
+	}
 	if v := os.Getenv("BEACON_ANTHROPIC_API_KEY"); v != "" {
 		cfg.AnthropicAPIKey = v
 	}

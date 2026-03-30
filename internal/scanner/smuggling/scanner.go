@@ -36,12 +36,21 @@ import (
 )
 
 const (
-	scannerName   = "smuggling"
-	checkID       = finding.CheckWebHTTPRequestSmuggling
-	probeTimeout  = 6 * time.Second
-	baselineMax   = 2 * time.Second // skip target if baseline is already slow
-	smuggleDelay  = 4 * time.Second // if response takes longer than this, flag it
+	scannerName = "smuggling"
+	checkID     = finding.CheckWebHTTPRequestSmuggling
 )
+
+// Timing thresholds — variables so that tests can override them to avoid
+// multi-second waits.
+var (
+	probeTimeout = 6 * time.Second
+	baselineMax  = 2 * time.Second // skip target if baseline is already slow
+	smuggleDelay = 4 * time.Second // if response takes longer than this, flag it
+)
+
+// dialConnFunc is the function used to establish TCP (optionally TLS) connections.
+// Tests replace this to inject mock servers without modifying production code paths.
+var dialConnFunc = dialConn
 
 // Scanner probes for HTTP request smuggling via timing-based detection.
 type Scanner struct{}
@@ -69,6 +78,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	var findings []finding.Finding
 
+	scheme := "https"
+	if !useTLS {
+		scheme = "http"
+	}
+	targetURL := scheme + "://" + asset + "/"
+
 	// CL.TE probe
 	if vulnerable, elapsed := probeCLTE(ctx, host, port, asset, useTLS); vulnerable {
 		findings = append(findings, finding.Finding{
@@ -82,8 +97,23 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				"uses Content-Length while the back-end uses Transfer-Encoding. An attacker can prepend " +
 				"an arbitrary HTTP request prefix to the next user's TCP stream, bypassing WAF rules, " +
 				"poisoning request routing, or hijacking authenticated sessions.",
+			ProofCommand: fmt.Sprintf(
+				"# CL.TE timing probe — connection should hang for ~%ds if vulnerable:\n"+
+					"python3 -c \"\nimport socket, ssl, time\n"+
+					"host='%s'\n"+
+					"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+					"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+					"Content-Length: 11\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n"+
+					"0\\r\\n\\r\\nX')\n"+
+					"ctx=ssl.create_default_context()\n"+
+					"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
+					"c.send(payload.encode()); t=time.time()\n"+
+					"try: c.recv(4096)\nexcept: pass\n"+
+					"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+				int(smuggleDelay.Seconds()), asset, asset),
 			Evidence: map[string]any{
 				"type":             "CL.TE",
+				"url":              targetURL,
 				"baseline_ms":      baseline.Milliseconds(),
 				"probe_elapsed_ms": elapsed.Milliseconds(),
 			},
@@ -107,8 +137,23 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Description: "The server appears vulnerable to TE.CL request smuggling: the front-end proxy " +
 				"uses Transfer-Encoding while the back-end uses Content-Length. An attacker can smuggle " +
 				"arbitrary HTTP headers or a full request prefix into the back-end's request pipeline.",
+			ProofCommand: fmt.Sprintf(
+				"# TE.CL timing probe — connection should hang for ~%ds if vulnerable:\n"+
+					"python3 -c \"\nimport socket, ssl, time\n"+
+					"host='%s'\n"+
+					"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+					"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+					"Content-Length: 3\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n"+
+					"1\\r\\nZ\\r\\n0\\r\\n\\r\\n')\n"+
+					"ctx=ssl.create_default_context()\n"+
+					"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
+					"c.send(payload.encode()); t=time.time()\n"+
+					"try: c.recv(4096)\nexcept: pass\n"+
+					"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+				int(smuggleDelay.Seconds()), asset, asset),
 			Evidence: map[string]any{
 				"type":             "TE.CL",
+				"url":              targetURL,
 				"baseline_ms":      baseline.Milliseconds(),
 				"probe_elapsed_ms": elapsed.Milliseconds(),
 			},
@@ -116,7 +161,92 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// TE.TE obfuscation probes — test Transfer-Encoding variants that some
+	// proxies fail to normalise, causing one side to see chunked and the other
+	// to fall back to Content-Length.
+	teObfuscations := []struct {
+		label string
+		value string
+	}{
+		{"xchunked", "xchunked"},
+		{"chunked-space", "chunked "},
+		{"tab-chunked", " \tchunked"},
+		{"chunked-cap", "Chunked"},
+	}
+	for _, te := range teObfuscations {
+		if vulnerable, elapsed := probeTETEObfuscation(ctx, host, port, asset, useTLS, te.value); vulnerable {
+			findings = append(findings, finding.Finding{
+				CheckID:  checkID,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Asset:    asset,
+				Title:    fmt.Sprintf("HTTP request smuggling (TE.TE obfuscation %q) detected on %s", te.label, asset),
+				Description: fmt.Sprintf(
+					"The server appears vulnerable to TE.TE request smuggling via Transfer-Encoding "+
+						"obfuscation. The header value %q caused the front-end and back-end to "+
+						"disagree on chunked transfer encoding parsing. One server processes the "+
+						"obfuscated TE header while the other falls back to Content-Length, enabling "+
+						"request smuggling.", te.value),
+				ProofCommand: fmt.Sprintf(
+					"# TE.TE obfuscation timing probe — connection should hang for ~%ds if vulnerable:\n"+
+						"python3 -c \"\nimport socket, ssl, time\n"+
+						"host='%s'\n"+
+						"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+						"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+						"Content-Length: 11\\r\\nTransfer-Encoding: %s\\r\\n\\r\\n"+
+						"0\\r\\n\\r\\nX')\n"+
+						"ctx=ssl.create_default_context()\n"+
+						"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
+						"c.send(payload.encode()); t=time.time()\n"+
+						"try: c.recv(4096)\nexcept: pass\n"+
+						"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+					int(smuggleDelay.Seconds()), asset, asset, te.value),
+				Evidence: map[string]any{
+					"type":             "TE.TE",
+					"obfuscation":      te.label,
+					"te_value":         te.value,
+					"url":              targetURL,
+					"baseline_ms":      baseline.Milliseconds(),
+					"probe_elapsed_ms": elapsed.Milliseconds(),
+				},
+				DiscoveredAt: time.Now(),
+			})
+			// One TE.TE finding is sufficient.
+			break
+		}
+	}
+
 	return findings, nil
+}
+
+// probeTETEObfuscation sends a smuggling probe with an obfuscated
+// Transfer-Encoding value. If one hop recognises the TE value and the other
+// doesn't, they'll disagree on body framing — producing a measurable timeout.
+// The probe is sent twice; both must time out to be flagged.
+func probeTETEObfuscation(ctx context.Context, host, port, asset string, useTLS bool, teValue string) (bool, time.Duration) {
+	body := "0\r\n\r\nX"
+	raw := fmt.Sprintf(
+		"POST / HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"Content-Type: application/x-www-form-urlencoded\r\n"+
+			"Content-Length: %d\r\n"+
+			"Transfer-Encoding: %s\r\n"+
+			"\r\n"+
+			"%s",
+		asset, len(body)+5, teValue, body,
+	)
+	hits := 0
+	var lastElapsed time.Duration
+	for i := 0; i < 2; i++ {
+		start := time.Now()
+		err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
+		lastElapsed = time.Since(start)
+		if isTimeoutError(err) && lastElapsed >= smuggleDelay {
+			hits++
+		}
+	}
+	return hits >= 2, lastElapsed
 }
 
 // resolveTarget finds a reachable host:port for the asset and returns
@@ -130,7 +260,7 @@ func resolveTarget(ctx context.Context, asset string) (string, string, bool) {
 		{"443", true},
 		{"80", false},
 	} {
-		conn, err := dialConn(ctx, asset, entry.port, entry.useTLS)
+		conn, err := dialConnFunc(ctx, asset, entry.port, entry.useTLS)
 		if err != nil {
 			continue
 		}
@@ -153,6 +283,8 @@ func measureBaseline(ctx context.Context, host, port, asset string, useTLS bool)
 // probeCLTE sends the CL.TE smuggling probe and returns (vulnerable, elapsed).
 // The probe has Content-Length > chunked body length, causing the back-end
 // (if it uses TE) to process the zero-chunk and then wait for more data.
+// The probe is sent twice; both must time out to be flagged, reducing false
+// positives from transient network delays.
 func probeCLTE(ctx context.Context, host, port, asset string, useTLS bool) (bool, time.Duration) {
 	// Body: zero-chunk terminator followed by a stray byte.
 	// Content-Length is set LARGER than the actual chunked body (len+5) so that
@@ -172,12 +304,18 @@ func probeCLTE(ctx context.Context, host, port, asset string, useTLS bool) (bool
 			"%s",
 		asset, len(body)+5, body,
 	)
-	start := time.Now()
-	err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
-	elapsed := time.Since(start)
-	// A timeout means the connection was held open — smuggling indicator.
-	isTimeout := isTimeoutError(err)
-	return isTimeout && elapsed >= smuggleDelay, elapsed
+	// Two independent probes required — a single network timeout is too noisy.
+	hits := 0
+	var lastElapsed time.Duration
+	for i := 0; i < 2; i++ {
+		start := time.Now()
+		err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
+		lastElapsed = time.Since(start)
+		if isTimeoutError(err) && lastElapsed >= smuggleDelay {
+			hits++
+		}
+	}
+	return hits >= 2, lastElapsed
 }
 
 // probeTECL sends the TE.CL smuggling probe and returns (vulnerable, elapsed).
@@ -185,6 +323,7 @@ func probeCLTE(ctx context.Context, host, port, asset string, useTLS bool) (bool
 // reads only part of the request and waits for the next request — causing
 // the front-end (TE-aware) to hold our connection open while it waits for us
 // to send the terminating chunk.
+// The probe is sent twice; both must time out to be flagged.
 func probeTECL(ctx context.Context, host, port, asset string, useTLS bool) (bool, time.Duration) {
 	// Chunked body: 1-byte chunk "Z" + terminating chunk.
 	// Content-Length: 3 — covers only "1\r\n" (3 bytes of the first chunk-size line).
@@ -201,11 +340,17 @@ func probeTECL(ctx context.Context, host, port, asset string, useTLS bool) (bool
 			"%s",
 		asset, body,
 	)
-	start := time.Now()
-	err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
-	elapsed := time.Since(start)
-	isTimeout := isTimeoutError(err)
-	return isTimeout && elapsed >= smuggleDelay, elapsed
+	hits := 0
+	var lastElapsed time.Duration
+	for i := 0; i < 2; i++ {
+		start := time.Now()
+		err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
+		lastElapsed = time.Since(start)
+		if isTimeoutError(err) && lastElapsed >= smuggleDelay {
+			hits++
+		}
+	}
+	return hits >= 2, lastElapsed
 }
 
 // buildRawGET returns a minimal HTTP/1.1 GET request string.
@@ -219,7 +364,7 @@ func buildRawGET(asset string) string {
 // sendRaw opens a TCP (optionally TLS) connection, writes the raw request,
 // and reads until EOF or deadline. Returns nil on clean read, error otherwise.
 func sendRaw(ctx context.Context, host, port string, useTLS bool, raw string, timeout time.Duration, _ []byte) error {
-	conn, err := dialConn(ctx, host, port, useTLS)
+	conn, err := dialConnFunc(ctx, host, port, useTLS)
 	if err != nil {
 		return err
 	}

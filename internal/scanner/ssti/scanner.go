@@ -57,6 +57,11 @@ var payloads = []payload{
 	{expr: "<%= 7*7 %>", expect: "49", engine: "ERB/JSP"},
 	{expr: "#{7*7}", expect: "49", engine: "Ruby/Pebble"},
 	{expr: "{{7*'7'}}", expect: "7777777", engine: "Jinja2"},
+	// Polyglot payload — triggers across multiple template engines simultaneously.
+	// If any engine evaluates the embedded expression, "49" appears in the response.
+	{expr: `${{<%[%'"}}%\`, expect: "49", engine: "Polyglot"},
+	// Engine-specific additional payloads
+	{expr: "${7*7}", expect: "49", engine: "Java EL"},
 }
 
 // wordBoundary49 matches "49" as a standalone word (not part of a longer number).
@@ -193,6 +198,7 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	if err != nil {
 		return false
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusNotFound
 }
@@ -228,7 +234,7 @@ func countOccurrences(expect, body string) int {
 
 // detectScheme tries HTTPS first, falling back to HTTP.
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://"+asset, nil)
 	if err != nil {
 		return "http"
 	}
@@ -236,6 +242,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return "https"
 }

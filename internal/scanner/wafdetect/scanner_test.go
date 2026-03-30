@@ -18,7 +18,7 @@ func TestDetectVendorCloudflare(t *testing.T) {
 		"cf-ray":          "abc123-LAX",
 		"cf-cache-status": "HIT",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "Cloudflare" {
 		t.Errorf("detectVendor = %q; want Cloudflare", got)
 	}
@@ -29,7 +29,7 @@ func TestDetectVendorAWSWAF(t *testing.T) {
 		"x-amzn-requestid": "abc-123",
 		"content-type":     "text/html",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "AWS WAF" {
 		t.Errorf("detectVendor = %q; want AWS WAF", got)
 	}
@@ -39,7 +39,7 @@ func TestDetectVendorAWSCloudFront(t *testing.T) {
 	headers := map[string]string{
 		"x-amz-cf-id": "DEADBEEF==",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "AWS CloudFront/WAF" {
 		t.Errorf("detectVendor = %q; want AWS CloudFront/WAF", got)
 	}
@@ -47,7 +47,7 @@ func TestDetectVendorAWSCloudFront(t *testing.T) {
 
 func TestDetectVendorImperva(t *testing.T) {
 	headers := map[string]string{"x-iinfo": "something"}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "Imperva Incapsula" {
 		t.Errorf("detectVendor = %q; want Imperva Incapsula", got)
 	}
@@ -55,7 +55,7 @@ func TestDetectVendorImperva(t *testing.T) {
 
 func TestDetectVendorSucuri(t *testing.T) {
 	headers := map[string]string{"x-sucuri-id": "12345"}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "Sucuri WAF" {
 		t.Errorf("detectVendor = %q; want Sucuri WAF", got)
 	}
@@ -63,7 +63,7 @@ func TestDetectVendorSucuri(t *testing.T) {
 
 func TestDetectVendorModSecurity(t *testing.T) {
 	headers := map[string]string{"x-mod-security-id": "abc"}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	if got != "ModSecurity" {
 		t.Errorf("detectVendor = %q; want ModSecurity", got)
 	}
@@ -74,16 +74,16 @@ func TestDetectVendorNone(t *testing.T) {
 		"content-type":  "text/html",
 		"cache-control": "no-store",
 	}
-	if got := detectVendor(headers); got != "" {
+	if got := detectVendor(headers, ""); got != "" {
 		t.Errorf("detectVendor = %q; want empty", got)
 	}
 }
 
 func TestDetectVendorEmpty(t *testing.T) {
-	if got := detectVendor(map[string]string{}); got != "" {
+	if got := detectVendor(map[string]string{}, ""); got != "" {
 		t.Errorf("detectVendor(empty) = %q; want empty", got)
 	}
-	if got := detectVendor(nil); got != "" {
+	if got := detectVendor(nil, ""); got != "" {
 		t.Errorf("detectVendor(nil) = %q; want empty", got)
 	}
 }
@@ -122,7 +122,7 @@ func TestDetectVendorCaseInsensitive(t *testing.T) {
 	headers := map[string]string{
 		"cf-ray": "abc123", // already lowercase as probeHeaders produces
 	}
-	if got := detectVendor(headers); got != "Cloudflare" {
+	if got := detectVendor(headers, ""); got != "Cloudflare" {
 		t.Errorf("detectVendor (lowercase key) = %q; want Cloudflare", got)
 	}
 }
@@ -191,12 +191,12 @@ func TestWAFDetect_CaseInsensitiveVendor(t *testing.T) {
 		Transport: &http.Transport{},
 	}
 
-	headers, _, err := probeHeaders(ctx, client, strings.TrimPrefix(srv.URL, "http://"))
+	headers, _, body, err := probeHeaders(ctx, client, strings.TrimPrefix(srv.URL, "http://"))
 	if err != nil {
 		t.Fatalf("probeHeaders: %v", err)
 	}
 
-	vendor := detectVendor(headers)
+	vendor := detectVendor(headers, body)
 	if vendor != "Cloudflare" {
 		t.Errorf("detectVendor = %q; want Cloudflare (mixed-case CF-Ray header must be normalised)", vendor)
 	}
@@ -222,7 +222,7 @@ func TestWAFDetect_MultipleVendors(t *testing.T) {
 		"cf-ray":      "abc123-LAX",
 		"x-sucuri-id": "99999",
 	}
-	got := detectVendor(headers)
+	got := detectVendor(headers, "")
 	// Either vendor is a valid detection — what matters is exactly one is returned.
 	if got != "Cloudflare" && got != "Sucuri WAF" {
 		t.Errorf("detectVendor with two vendors = %q; want one of Cloudflare or Sucuri WAF", got)
@@ -251,6 +251,47 @@ func TestWAFDetect_CatchAllSkipped(t *testing.T) {
 	}
 }
 
+// ── detectVendor body pattern matching ──────────────────────────────────────
+
+func TestDetectVendorBody_Cloudflare(t *testing.T) {
+	headers := map[string]string{}
+	body := "<html><title>Attention Required! | Cloudflare</title></html>"
+	got := detectVendor(headers, body)
+	if got != "Cloudflare" {
+		t.Errorf("detectVendor (body) = %q; want Cloudflare", got)
+	}
+}
+
+func TestDetectVendorBody_NamedVendorPreferredOverGeneric(t *testing.T) {
+	// Body contains both "access denied" (Generic WAF) and "incapsula incident id"
+	// (Imperva). The scanner should return the named vendor, not "Generic WAF".
+	headers := map[string]string{}
+	body := "<html><h1>Access Denied</h1><p>Incapsula incident ID: 12345</p></html>"
+	got := detectVendor(headers, body)
+	if got != "Imperva Incapsula" {
+		t.Errorf("detectVendor (body with generic + named) = %q; want Imperva Incapsula", got)
+	}
+}
+
+func TestDetectVendorBody_GenericWAFFallback(t *testing.T) {
+	// Body contains only "access denied" (Generic WAF) with no named vendor.
+	headers := map[string]string{}
+	body := "<html><h1>Access Denied</h1><p>Your request was blocked.</p></html>"
+	got := detectVendor(headers, body)
+	if got != "Generic WAF" {
+		t.Errorf("detectVendor (generic-only body) = %q; want Generic WAF", got)
+	}
+}
+
+func TestDetectVendorBody_NoMatch(t *testing.T) {
+	headers := map[string]string{}
+	body := "<html><body>Welcome to our website</body></html>"
+	got := detectVendor(headers, body)
+	if got != "" {
+		t.Errorf("detectVendor (normal body) = %q; want empty", got)
+	}
+}
+
 // TestWAFDetect_NilHeaderMap verifies that a server returning 200 with no WAF
 // headers produces no finding and does not panic.
 func TestWAFDetect_NilHeaderMap(t *testing.T) {
@@ -268,5 +309,85 @@ func TestWAFDetect_NilHeaderMap(t *testing.T) {
 	// No WAF headers → no vendor → no findings.
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for a server with no WAF headers, got %d", len(findings))
+	}
+}
+
+// ── rootAndWWW ──────────────────────────────────────────────────────────────
+
+func TestRootAndWWW_SimpleDomain(t *testing.T) {
+	got := rootAndWWW("example.com")
+	if len(got) != 2 || got[0] != "example.com" || got[1] != "www.example.com" {
+		t.Errorf("rootAndWWW(example.com) = %v; want [example.com www.example.com]", got)
+	}
+}
+
+func TestRootAndWWW_Subdomain(t *testing.T) {
+	got := rootAndWWW("app.example.com")
+	if len(got) != 2 || got[0] != "example.com" || got[1] != "www.example.com" {
+		t.Errorf("rootAndWWW(app.example.com) = %v; want [example.com www.example.com]", got)
+	}
+}
+
+func TestRootAndWWW_CoUK(t *testing.T) {
+	got := rootAndWWW("app.example.co.uk")
+	if len(got) != 2 || got[0] != "example.co.uk" || got[1] != "www.example.co.uk" {
+		t.Errorf("rootAndWWW(app.example.co.uk) = %v; want [example.co.uk www.example.co.uk]", got)
+	}
+}
+
+func TestRootAndWWW_ComAU(t *testing.T) {
+	got := rootAndWWW("staging.shop.example.com.au")
+	if len(got) != 2 || got[0] != "example.com.au" || got[1] != "www.example.com.au" {
+		t.Errorf("rootAndWWW(staging.shop.example.com.au) = %v; want [example.com.au www.example.com.au]", got)
+	}
+}
+
+func TestRootAndWWW_BareCoUK(t *testing.T) {
+	// A bare "example.co.uk" has 3 parts and co.uk is a two-part TLD,
+	// so the root should be the whole thing.
+	got := rootAndWWW("example.co.uk")
+	if len(got) != 2 || got[0] != "example.co.uk" || got[1] != "www.example.co.uk" {
+		t.Errorf("rootAndWWW(example.co.uk) = %v; want [example.co.uk www.example.co.uk]", got)
+	}
+}
+
+func TestRootAndWWW_SingleLabel(t *testing.T) {
+	got := rootAndWWW("localhost")
+	if len(got) != 1 || got[0] != "localhost" {
+		t.Errorf("rootAndWWW(localhost) = %v; want [localhost]", got)
+	}
+}
+
+func TestRootAndWWW_DeepSubdomain(t *testing.T) {
+	got := rootAndWWW("a.b.c.example.com")
+	if len(got) != 2 || got[0] != "example.com" || got[1] != "www.example.com" {
+		t.Errorf("rootAndWWW(a.b.c.example.com) = %v; want [example.com www.example.com]", got)
+	}
+}
+
+// ── isTwoPartTLD ────────────────────────────────────────────────────────────
+
+func TestIsTwoPartTLD_Known(t *testing.T) {
+	cases := []struct{ sld, tld string }{
+		{"co", "uk"}, {"org", "uk"}, {"com", "au"}, {"co", "nz"},
+		{"co", "jp"}, {"co", "kr"}, {"co", "in"}, {"com", "br"},
+		{"co", "za"}, {"com", "cn"}, {"com", "mx"}, {"co", "il"},
+		{"com", "tw"}, {"co", "th"}, {"com", "hk"}, {"com", "my"},
+	}
+	for _, tc := range cases {
+		if !isTwoPartTLD(tc.sld, tc.tld) {
+			t.Errorf("isTwoPartTLD(%q, %q) = false; want true", tc.sld, tc.tld)
+		}
+	}
+}
+
+func TestIsTwoPartTLD_NotKnown(t *testing.T) {
+	cases := []struct{ sld, tld string }{
+		{"com", "com"}, {"net", "net"}, {"foo", "bar"}, {"example", "com"},
+	}
+	for _, tc := range cases {
+		if isTwoPartTLD(tc.sld, tc.tld) {
+			t.Errorf("isTwoPartTLD(%q, %q) = true; want false", tc.sld, tc.tld)
+		}
 	}
 }

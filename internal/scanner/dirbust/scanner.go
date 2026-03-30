@@ -22,7 +22,10 @@ package dirbust
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"io"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -127,6 +130,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 		return nil
 	}
 
+	// Deduplicate input paths: normalize trailing slashes and case so that
+	// "/admin" and "/admin/" are not probed (and reported) twice.
+	paths = deduplicatePaths(paths)
+
 	// Try ffuf first — it's faster and handles WAF evasion better.
 	if s.ffufBin != "" {
 		if results := runFfuf(ctx, s.ffufBin, asset, paths); results != nil {
@@ -137,6 +144,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 	// Pure-Go fallback.
 	scheme := "https"
 	baseURL := scheme + "://" + asset
+
+	// ── Soft-404 canary ──────────────────────────────────────────────────────
+	// Request a path that is guaranteed not to exist. If the server returns 200
+	// (custom error page without a proper 404 status), hash the body. Any
+	// subsequent 200 response whose body matches the canary hash is a soft-404.
+	canaryHash := s.fetchCanaryHash(ctx, baseURL)
 
 	type work struct{ path string }
 	jobs := make(chan work, len(paths))
@@ -171,7 +184,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			result, waf := s.probe(ctx, baseURL, job.path)
+			result, waf := s.probe(ctx, baseURL, job.path, canaryHash)
 			if waf {
 				// Stop on first confirmed WAF block — isWAFResponse requires
 				// WAF-specific response headers, so a single hit is reliable.
@@ -209,9 +222,25 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 }
 
 // buildFindings converts a slice of Results into finding.Findings for the given asset.
+// Deduplicates results by normalized path so "/admin" and "/admin/" produce one finding.
 func (s *Scanner) buildFindings(asset string, results []Result) []finding.Finding {
-	var findings []finding.Finding
+	// Deduplicate results by normalized path (strip trailing slash).
+	seen := make(map[string]bool, len(results))
+	var deduped []Result
 	for _, r := range results {
+		norm := strings.TrimRight(r.Path, "/")
+		if norm == "" {
+			norm = "/"
+		}
+		if seen[norm] {
+			continue
+		}
+		seen[norm] = true
+		deduped = append(deduped, r)
+	}
+
+	var findings []finding.Finding
+	for _, r := range deduped {
 		f := finding.Finding{
 			CheckID:     finding.CheckDirbustFound,
 			Asset:       asset,
@@ -229,11 +258,13 @@ func (s *Scanner) buildFindings(asset string, results []Result) []finding.Findin
 	return findings
 }
 
-// probe sends a HEAD request for a single path with retry/backoff on 429.
+// probe sends a GET request for a single path with retry/backoff on 429.
 // Returns (result, wafDetected). result is nil if the path is uninteresting.
 // wafDetected is true if the response is a 403 with WAF-indicator headers —
 // the caller (Run) accumulates these across paths and stops after 3.
-func (s *Scanner) probe(ctx context.Context, baseURL, path string) (*Result, bool) {
+// canaryHash is the SHA-256 of a known-404 response body; if a 200 response
+// body matches, it is treated as a soft-404 and skipped.
+func (s *Scanner) probe(ctx context.Context, baseURL, path string, canaryHash string) (*Result, bool) {
 	url := baseURL + path
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -241,7 +272,8 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string) (*Result, boo
 			return nil, false
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+		// Use GET instead of HEAD so we can read the body for soft-404 detection.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, false
 		}
@@ -251,6 +283,9 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string) (*Result, boo
 		if err != nil {
 			return nil, false
 		}
+
+		// Read body for soft-404 comparison (cap at 128 KB to avoid buffering huge pages).
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 		resp.Body.Close()
 
 		// WAF block: 403 with WAF-specific headers — signal the caller.
@@ -275,8 +310,16 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string) (*Result, boo
 			return nil, false
 		}
 
-		// Interesting response
+		// Interesting response — but check for soft-404 first.
 		if interestingCodes[resp.StatusCode] {
+			// Soft-404: server returned 200 but the body is identical to the
+			// canary (known-nonexistent) path. This is a custom error page.
+			if resp.StatusCode == http.StatusOK && canaryHash != "" && len(body) > 0 {
+				h := sha256.Sum256(body)
+				if fmt.Sprintf("%x", h) == canaryHash {
+					return nil, false // soft-404 — skip
+				}
+			}
 			return &Result{Path: path, StatusCode: resp.StatusCode}, false
 		}
 
@@ -312,4 +355,62 @@ func backoffDuration(attempt int, resp *http.Response) time.Duration {
 		d = maxBackoff
 	}
 	return d
+}
+
+// fetchCanaryHash requests a known-nonexistent path and returns the SHA-256
+// hex digest of the response body. If the server returns a proper 404 status
+// or the request fails, it returns "" (no soft-404 filtering needed).
+func (s *Scanner) fetchCanaryHash(ctx context.Context, baseURL string) string {
+	// Generate a random canary path that is extremely unlikely to exist.
+	canaryPath := fmt.Sprintf("/beacon-canary-404-test-%d", rand.Int63())
+	url := baseURL + canaryPath
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
+	resp.Body.Close()
+
+	// If the server returns a proper 404 or non-200, no soft-404 filtering needed.
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	// Server returned 200 for a nonexistent path — this is a soft-404 page.
+	// Hash the body so we can compare subsequent 200 responses against it.
+	if len(body) == 0 {
+		return ""
+	}
+	h := sha256.Sum256(body)
+	return fmt.Sprintf("%x", h)
+}
+
+// deduplicatePaths normalizes and deduplicates paths so that "/admin" and
+// "/admin/" are treated as the same path. Keeps the first occurrence.
+func deduplicatePaths(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	var out []string
+	for _, p := range paths {
+		// Normalize: ensure leading slash, strip trailing slash.
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		norm := strings.TrimRight(p, "/")
+		if norm == "" {
+			norm = "/"
+		}
+		if seen[norm] {
+			continue
+		}
+		seen[norm] = true
+		out = append(out, p)
+	}
+	return out
 }

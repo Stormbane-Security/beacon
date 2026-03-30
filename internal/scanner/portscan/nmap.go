@@ -120,6 +120,7 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 			"ssl-drown",
 			"ssl-poodle",
 			"smb-vuln-ms17-010",
+			"smb-vuln-ms08-067", // CVE-2008-4250 Windows Server Service RCE (Conficker)
 			"http-shellshock",
 		}
 		args = append(args, "--script", strings.Join(vulnScripts, ","))
@@ -412,6 +413,22 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 				Title:        fmt.Sprintf("EternalBlue (MS17-010 / CVE-2017-0144) detected on port %d", port),
 				Description:  "The SMB service is vulnerable to EternalBlue (MS17-010), used by WannaCry and NotPetya. Remote code execution without credentials is possible.",
 				Evidence:     map[string]any{"port": port, "cve": "CVE-2017-0144", "script": script.ID, "output": truncate(output, 200)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "smb-vuln-ms08-067":
+		if strings.Contains(lower, "vulnerable") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapVulnScript,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityCritical,
+				Asset:        asset,
+				Title:        fmt.Sprintf("MS08-067 (CVE-2008-4250) detected on port %d", port),
+				Description:  "The SMB service is vulnerable to MS08-067 (Conficker worm, CVSS 10.0). This Windows Server Service flaw allows unauthenticated remote code execution and was exploited at massive scale by Conficker/Downadup. Patch immediately via KB958644.",
+				Evidence:     map[string]any{"port": port, "cve": "CVE-2008-4250", "script": script.ID, "output": truncate(output, 200)},
 				ProofCommand: proofCmd,
 				DiscoveredAt: now,
 			}}

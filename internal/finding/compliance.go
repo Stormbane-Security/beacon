@@ -66,4 +66,80 @@ var complianceMap = map[CheckID][]string{
 	// JS / CI
 	CheckJSHardcodedSecret:  {"SOC2-CC6.1", "PCI-6.3.1"},
 	CheckCICDScriptInjection: {"SOC2-CC8.1", "PCI-6.4"},
+
+	// Wave 2 — KEV CVEs
+	CheckCVEStruts2S2066:            {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVERailsXMLRCE:             {"PCI-6.3.3", "SOC2-CC6.6"},
+	CheckCVEHFSRejetto:              {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVEManageEngineServiceDesk: {"PCI-6.3.3", "SOC2-CC6.6"},
+	CheckCVEMinIOEnvDisclosure:      {"SOC2-CC6.1", "PCI-6.3.1", "HIPAA-164.312(a)(1)"},
+
+	// Wave 2 — port exposures
+	CheckPortCiscoSmartInstall:     {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortHuggingFaceTGIExposed: {"SOC2-CC6.6", "PCI-1.3"},
+	CheckPortAutomatic1111Exposed:  {"SOC2-CC6.6", "PCI-1.3"},
+	CheckCVEOllamaPathTraversal:    {"PCI-6.3.3", "SOC2-CC6.6"},
+	CheckPortNacosExposed:          {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortConsulNoACL:           {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortNiFiExposed:           {"SOC2-CC6.6", "PCI-1.3"},
+
+	// Wave 3 — CVEs
+	CheckCVEFortiOSWSAuthBypass: {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVEIvantiCS2025:        {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckCVESAPNetWeaver2025:    {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+
+	// Wave 3 — default credentials
+	CheckPortRabbitMQDefaultCreds: {"SOC2-CC6.2", "PCI-8.3.9", "NIST-PR.AC"},
+	CheckPortMySQLNoAuth:          {"SOC2-CC6.2", "PCI-8.3.9", "HIPAA-164.312(a)(1)", "NIST-PR.AC"},
+	CheckPortPostgreSQLTrust:      {"SOC2-CC6.2", "PCI-8.3.9", "HIPAA-164.312(a)(1)", "NIST-PR.AC"},
+	CheckPortMSSQLDefaultCreds:    {"SOC2-CC6.2", "PCI-8.3.9", "HIPAA-164.312(a)(1)", "NIST-PR.AC"},
+
+	// Wave 3 — artifact repositories / infra
+	CheckPortArtifactoryExposed:    {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortNexusExposed:          {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckPortGRPCReflectionEnabled: {"SOC2-CC6.6", "NIST-PR.IP"},
+
+	// Wireless management infrastructure
+	CheckNetDeviceUniFiExposed:   {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCVEUniFiLog4Shell:       {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckNetDeviceTPLinkOmada:    {"SOC2-CC6.6", "PCI-1.3"},
+	CheckCVETPLinkOmadaRCE:      {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
+	CheckNetDeviceArubaInstant:   {"SOC2-CC6.6", "PCI-1.3"},
+	CheckNetDeviceOpenWRTExposed: {"SOC2-CC6.6", "PCI-1.3"},
+	CheckPortRADIUSExposed:       {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckDLPWifiCredential:       {"SOC2-CC6.1", "PCI-6.3.1"},
+
+	// Local WiFi
+	CheckWiFiOpenNetwork:    {"PCI-1.3", "SOC2-CC6.6", "NIST-PR.AC", "ISO27001-A.13.1"},
+	CheckWiFiWEPNetwork:     {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.DS", "ISO27001-A.13.1"},
+	CheckWiFiWPSEnabled:     {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.AC"},
+	CheckWiFiWPA2TKIP:       {"PCI-4.2.1", "SOC2-CC6.7"},
+	CheckWiFiGatewayExposed: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckWiFiPMKID:          {"PCI-4.2.1", "SOC2-CC6.7", "NIST-PR.DS"},
+
+	// Cloud — GCP
+	CheckCloudGCPIAMPrimitiveRole:     {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC", "ISO27001-A.9.2"},
+	CheckCloudGCPServiceAccountKey:    {"SOC2-CC6.1", "PCI-8.3.1", "NIST-PR.AC"},
+	CheckCloudGCPServiceAccountKeyOld: {"SOC2-CC6.1", "PCI-8.3.6", "NIST-PR.AC"},
+	CheckCloudGCPBucketPublic:         {"SOC2-CC6.6", "PCI-1.3", "HIPAA-164.312(a)(1)", "NIST-PR.DS"},
+	CheckCloudGCPComputeDefaultSA:     {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC"},
+	CheckCloudGCPGKEPublicEndpoint:    {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCloudGCPGKENoBinaryAuth:      {"SOC2-CC7.2", "PCI-6.3", "NIST-PR.DS"},
+
+	// Cloud — AWS
+	CheckCloudAWSIAMRootAccessKey:  {"SOC2-CC6.1", "PCI-8.3.1", "NIST-PR.AC", "ISO27001-A.9.2"},
+	CheckCloudAWSIAMRootNoMFA:      {"SOC2-CC6.1", "PCI-8.4.2", "NIST-PR.AC", "ISO27001-A.9.4"},
+	CheckCloudAWSIAMUserNoMFA:      {"SOC2-CC6.1", "PCI-8.4.2", "NIST-PR.AC"},
+	CheckCloudAWSIAMAccessKeyOld:   {"SOC2-CC6.1", "PCI-8.3.6", "NIST-PR.AC"},
+	CheckCloudAWSIAMPolicyWildcard: {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC", "ISO27001-A.9.2"},
+	CheckCloudAWSS3BucketPublic:    {"SOC2-CC6.6", "PCI-1.3", "HIPAA-164.312(a)(1)", "NIST-PR.DS"},
+	CheckCloudAWSS3NoEncryption:    {"SOC2-CC6.1", "PCI-3.5", "HIPAA-164.312(a)(2)", "NIST-PR.DS"},
+	CheckCloudAWSEC2PublicSG:       {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCloudAWSEKSPublicEndpoint: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+
+	// Cloud — Azure
+	CheckCloudAzureBlobPublic:        {"SOC2-CC6.6", "PCI-1.3", "HIPAA-164.312(a)(1)", "NIST-PR.DS"},
+	CheckCloudAzureStorageHTTP:       {"SOC2-CC6.7", "PCI-4.2.1", "HIPAA-164.312(e)(2)", "NIST-PR.DS"},
+	CheckCloudAzureAKSPublicEndpoint: {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
+	CheckCloudAzureOwnerDirect:       {"SOC2-CC6.3", "PCI-7.2", "NIST-PR.AC", "ISO27001-A.9.2"},
 }

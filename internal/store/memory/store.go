@@ -25,8 +25,10 @@ type Store struct {
 	reports      map[string]*store.Report
 	suggestions  []*store.PlaybookSuggestion
 	ecache       map[finding.CheckID][3]string // [explanation, impact, remediation]
-	correlations []store.CorrelationFinding
-	suppressions map[string]*store.FindingSuppression // id -> suppression
+	correlations    []store.CorrelationFinding
+	suppressions    map[string]*store.FindingSuppression // id -> suppression
+	assetGraphs     map[string][]byte                    // scanRunID -> graph JSON
+	assetExecutions map[string][]store.AssetExecution     // scanRunID -> executions
 }
 
 func New() *Store {
@@ -37,7 +39,9 @@ func New() *Store {
 		enriched:     make(map[string][]enrichment.EnrichedFinding),
 		reports:      make(map[string]*store.Report),
 		ecache:       make(map[finding.CheckID][3]string),
-		suppressions: make(map[string]*store.FindingSuppression),
+		suppressions:    make(map[string]*store.FindingSuppression),
+		assetGraphs:     make(map[string][]byte),
+		assetExecutions: make(map[string][]store.AssetExecution),
 	}
 }
 
@@ -68,6 +72,10 @@ func (s *Store) ListTargets(_ context.Context) ([]store.Target, error) {
 	for _, t := range s.targets {
 		out = append(out, *t)
 	}
+	// Sort by CreatedAt descending for deterministic ordering.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
 	return out, nil
 }
 
@@ -112,33 +120,72 @@ func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun,
 			out = append(out, *r)
 		}
 	}
+	// Sort by StartedAt descending for deterministic ordering (map iteration is random).
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
+	return out, nil
+}
+
+func (s *Store) ListAllScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []store.ScanRun
+	for _, r := range s.runs {
+		out = append(out, *r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].StartedAt.After(out[j].StartedAt)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out, nil
 }
 
 func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []finding.Finding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.findings[scanRunID] = append(s.findings[scanRunID], findings...)
+	cp := make([]finding.Finding, len(findings))
+	copy(cp, findings)
+	s.findings[scanRunID] = append(s.findings[scanRunID], cp...)
 	return nil
 }
 
 func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Finding, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.findings[scanRunID], nil
+	src := s.findings[scanRunID]
+	if len(src) == 0 {
+		return nil, nil
+	}
+	cp := make([]finding.Finding, len(src))
+	copy(cp, src)
+	return cp, nil
 }
 
 func (s *Store) SaveEnrichedFindings(_ context.Context, scanRunID string, ef []enrichment.EnrichedFinding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.enriched[scanRunID] = ef
+	cp := make([]enrichment.EnrichedFinding, len(ef))
+	copy(cp, ef)
+	s.enriched[scanRunID] = cp
 	return nil
 }
 
 func (s *Store) GetEnrichedFindings(_ context.Context, scanRunID string) ([]enrichment.EnrichedFinding, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.enriched[scanRunID], nil
+	src := s.enriched[scanRunID]
+	if len(src) == 0 {
+		return nil, nil
+	}
+	cp := make([]enrichment.EnrichedFinding, len(src))
+	copy(cp, src)
+	return cp, nil
 }
 
 func (s *Store) GetPreviousEnrichedFindings(_ context.Context, domain, currentScanRunID string) ([]enrichment.EnrichedFinding, error) {
@@ -151,19 +198,29 @@ func (s *Store) GetPreviousEnrichedFindings(_ context.Context, domain, currentSc
 		if r.Domain != domain || r.ID == currentScanRunID || r.Status != store.StatusCompleted {
 			continue
 		}
+		if r.CompletedAt == nil {
+			// Skip completed runs without a CompletedAt timestamp -- they are malformed.
+			continue
+		}
 		if prevRun == nil {
 			prevRun = r
 			continue
 		}
 		// Keep the run with the later CompletedAt.
-		if r.CompletedAt != nil && (prevRun.CompletedAt == nil || r.CompletedAt.After(*prevRun.CompletedAt)) {
+		if r.CompletedAt.After(*prevRun.CompletedAt) {
 			prevRun = r
 		}
 	}
 	if prevRun == nil {
 		return nil, nil
 	}
-	return s.enriched[prevRun.ID], nil
+	src := s.enriched[prevRun.ID]
+	if len(src) == 0 {
+		return nil, nil
+	}
+	cp := make([]enrichment.EnrichedFinding, len(src))
+	copy(cp, src)
+	return cp, nil
 }
 
 func (s *Store) SaveReport(_ context.Context, r *store.Report) error {
@@ -185,11 +242,23 @@ func (s *Store) GetReport(_ context.Context, scanRunID string) (*store.Report, e
 }
 
 func (s *Store) SaveAssetExecution(_ context.Context, exec *store.AssetExecution) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *exec
+	s.assetExecutions[exec.ScanRunID] = append(s.assetExecutions[exec.ScanRunID], cp)
 	return nil
 }
 
 func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]store.AssetExecution, error) {
-	return nil, nil
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	src := s.assetExecutions[scanRunID]
+	if len(src) == 0 {
+		return nil, nil
+	}
+	out := make([]store.AssetExecution, len(src))
+	copy(out, src)
+	return out, nil
 }
 
 func (s *Store) SaveUnmatchedAsset(_ context.Context, u *store.UnmatchedAsset) error {
@@ -401,6 +470,17 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 	delete(s.runs, id)
 	delete(s.findings, id)
 	delete(s.enriched, id)
+	delete(s.reports, id)
+	delete(s.assetGraphs, id)
+	delete(s.assetExecutions, id)
+	// Remove correlation findings associated with this run.
+	filtered := s.correlations[:0]
+	for _, c := range s.correlations {
+		if c.ScanRunID != id {
+			filtered = append(filtered, c)
+		}
+	}
+	s.correlations = filtered
 	return nil
 }
 
@@ -416,16 +496,73 @@ func (s *Store) IncrementFingerprintRuleSeen(_ context.Context, _ int64) error {
 func (s *Store) PurgeOrphanedRuns(_ context.Context, olderThan time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	deleted := 0
+	orphanThreshold := olderThan.Add(-2 * time.Hour)
+
+	// Collect IDs to purge first, then delete — avoids modifying maps while iterating.
+	var toPurge []string
 	for id, r := range s.runs {
-		if r.Status != store.StatusCompleted && r.Status != store.StatusRunning && r.Status != store.StatusPending && r.StartedAt.Before(olderThan) {
-			delete(s.runs, id)
-			delete(s.findings, id)
-			delete(s.enriched, id)
-			deleted++
+		switch r.Status {
+		case store.StatusCompleted:
+			// Never purge completed runs.
+		case store.StatusRunning, store.StatusPending:
+			if r.StartedAt.Before(orphanThreshold) {
+				toPurge = append(toPurge, id)
+			}
+		default:
+			if r.StartedAt.Before(olderThan) {
+				toPurge = append(toPurge, id)
+			}
 		}
 	}
-	return deleted, nil
+
+	if len(toPurge) == 0 {
+		return 0, nil
+	}
+
+	purgeSet := make(map[string]struct{}, len(toPurge))
+	for _, id := range toPurge {
+		purgeSet[id] = struct{}{}
+		delete(s.runs, id)
+		delete(s.findings, id)
+		delete(s.enriched, id)
+		delete(s.reports, id)
+		delete(s.assetGraphs, id)
+		delete(s.assetExecutions, id)
+	}
+
+	// Filter correlations once using the full purge set.
+	filtered := make([]store.CorrelationFinding, 0, len(s.correlations))
+	for _, c := range s.correlations {
+		if _, purged := purgeSet[c.ScanRunID]; !purged {
+			filtered = append(filtered, c)
+		}
+	}
+	s.correlations = filtered
+
+	return len(toPurge), nil
+}
+
+// SaveAssetGraph stores the asset graph JSON for a scan run.
+func (s *Store) SaveAssetGraph(_ context.Context, scanRunID string, graphJSON []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]byte, len(graphJSON))
+	copy(cp, graphJSON)
+	s.assetGraphs[scanRunID] = cp
+	return nil
+}
+
+// GetAssetGraph retrieves the asset graph JSON for a scan run.
+func (s *Store) GetAssetGraph(_ context.Context, scanRunID string) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, ok := s.assetGraphs[scanRunID]
+	if !ok {
+		return nil, nil
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	return cp, nil
 }
 
 // Ensure Store satisfies the store.Store interface at compile time.

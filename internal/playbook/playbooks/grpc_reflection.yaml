@@ -1,0 +1,25 @@
+name: grpc_reflection
+description: >
+  gRPC server reflection is enabled on this endpoint (TCP/50051 or custom port).
+  Server reflection allows any client to enumerate all available RPC methods,
+  service definitions, and their protobuf schemas without authentication. This
+  exposes the full internal API surface, enabling attackers to map hidden
+  microservice APIs, craft targeted RPC payloads, and probe for authorization
+  weaknesses. Disable gRPC reflection in production environments.
+match:
+  any:
+    - check_id: "port.grpc_reflection_enabled"
+    - header_contains: "application/grpc"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  nuclei_tags:
+    - grpc
+    - exposure
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - grpc
+    - misconfiguration

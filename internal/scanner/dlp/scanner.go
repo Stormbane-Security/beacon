@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -30,8 +32,9 @@ import (
 
 const (
 	scannerName       = "dlp"
-	maxBodyBytes      = 512 * 1024 // 512 KB — enough to catch patterns without buffering huge files
-	emailListMinCount = 25         // flag if this many unique email addresses appear on one page
+	maxBodyBytes      = 512 * 1024       // 512 KB — enough to catch patterns without buffering huge files
+	maxRegexBodyBytes = 1024 * 1024      // 1 MB — skip regex matching on bodies larger than this
+	emailListMinCount = 25               // flag if this many unique email addresses appear on one page
 	// 25 reduces false positives on contact pages, blog author lists, and event
 	// pages that legitimately show 10-20 addresses. A true data dump typically
 	// contains hundreds of distinct addresses.
@@ -78,15 +81,39 @@ var dlpPatterns = []pattern{
 		"Ethereum private key",
 		regexp.MustCompile(`(?i)(?:private[_\s]?key|privateKey)["\s]*[:=]["\s]*(?:0x)?[0-9a-fA-F]{64}`),
 	},
-	// Possible crypto seed phrase — 12 to 24 consecutive short lowercase words.
-	// BIP-39 mnemonics consist of 12 or 24 words from a fixed wordlist; this
-	// pattern catches sequences of 12+ lowercase alphabetical tokens which are
-	// uncommon in normal prose at that length.
+	// Possible crypto seed phrase — 12 to 24 consecutive short lowercase words in a
+	// labelled context. The label (seed/mnemonic/recovery) anchors the pattern to
+	// actual key material; without it any 12-word English sentence would trigger.
 	{
 		finding.CheckDLPAPIKey,
 		"Possible crypto seed phrase",
-		regexp.MustCompile(`\b[a-z]{3,8}(?:\s+[a-z]{3,8}){11,23}\b`),
+		regexp.MustCompile(`(?i)(?:seed[_\s-]?phrase|mnemonic|recovery[_\s-]?(?:phrase|words?)|wallet[_\s-]?words?)["\s]*[:=]["'\s]+(?:[a-z]{3,8}\s+){11,23}[a-z]{3,8}`),
 	},
+	// GitHub tokens — all prefixes that indicate live credentials.
+	// ghs_ (App installation token) is highest privilege — org-wide scope.
+	{
+		finding.CheckDLPAPIKey,
+		"GitHub token",
+		regexp.MustCompile(`(?:ghp_|github_pat_|ghs_|gho_|ghu_)[0-9a-zA-Z_]{36,82}`),
+	},
+	// GCP service account JSON — high signal anywhere it appears.
+	{
+		finding.CheckDLPAPIKey,
+		"GCP service account key (JSON)",
+		regexp.MustCompile(`"type"\s*:\s*"service_account"`),
+	},
+	// npm, PyPI, Fly.io — distinctive fixed prefixes, very low false-positive risk.
+	{finding.CheckDLPAPIKey, "npm publish token", regexp.MustCompile(`npm_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "PyPI API token", regexp.MustCompile(`pypi-[0-9a-zA-Z_-]{40,}`)},
+	{finding.CheckDLPAPIKey, "Fly.io token", regexp.MustCompile(`fo1[0-9a-zA-Z_-]{40,}`)},
+	// HuggingFace, Databricks, Shopify — distinctive fixed prefixes.
+	{finding.CheckDLPAPIKey, "HuggingFace token", regexp.MustCompile(`hf_[A-Za-z0-9]{34}`)},
+	{finding.CheckDLPAPIKey, "Databricks token", regexp.MustCompile(`dapi[0-9a-f]{32}`)},
+	{finding.CheckDLPAPIKey, "Shopify Admin Access Token", regexp.MustCompile(`shpat_[0-9a-fA-F]{32}`)},
+	// HashiCorp Vault service token (new hvs. format).
+	{finding.CheckDLPAPIKey, "HashiCorp Vault service token", regexp.MustCompile(`hvs\.[A-Za-z0-9_-]{90,}`)},
+	// Stripe secret — high risk if leaked in a page body.
+	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
 	// EVM contract/wallet address — 0x followed by exactly 40 hex chars.
 	// Only flag when the address appears in a sensitive context (assigned to a
 	// variable or returned in a JSON field) to avoid matching benign hex values
@@ -96,21 +123,75 @@ var dlpPatterns = []pattern{
 		"EVM contract/wallet address",
 		regexp.MustCompile(`(?i)(?:address|contract|wallet|from|to)["\s]*[:=]\s*["']?(0x[0-9a-fA-F]{40})\b`),
 	},
+	// WiFi PSK / WPA passphrase — exposed in router config exports, wpa_supplicant.conf,
+	// OpenWRT backup archives, or misconfigured admin panels.
+	{
+		finding.CheckDLPWifiCredential,
+		"WiFi PSK/WPA passphrase",
+		regexp.MustCompile(`(?i)(?:wpa[_\-]?passphrase|wpa[_\-]?psk|wifi[_\-]?pass(?:word|phrase)?|wireless[_\-]?key|network[_\-]?key|psk)\s*[=:]\s*["']?([^\s"'<>]{8,63})`),
+	},
+	// .env file KEY=VALUE patterns — exposed .env files leak credentials.
+	// Matches common secret variable names followed by = and a non-empty value.
+	// Only fires when multiple KEY=VALUE lines are present (anchored to secrets).
+	{
+		finding.CheckDLPAPIKey,
+		"Exposed .env file credentials",
+		regexp.MustCompile(`(?im)^(?:DATABASE_URL|DB_PASSWORD|SECRET_KEY|API_KEY|API_SECRET|AWS_SECRET_ACCESS_KEY|STRIPE_SECRET_KEY|PRIVATE_KEY|JWT_SECRET|APP_SECRET|ENCRYPTION_KEY|REDIS_PASSWORD|MAIL_PASSWORD|SMTP_PASSWORD)\s*=\s*\S+`),
+	},
 }
 
 // apiKeyPatterns are applied against high-value config/env dump paths.
 // These paths return JSON or plaintext environment variables that commonly
 // contain API keys, cloud credentials, and service secrets.
 var apiKeyPatterns = []pattern{
+	// ── AWS ──────────────────────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "AWS Access Key ID", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
 	{finding.CheckDLPAPIKey, "AWS Secret Access Key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `\s]*[=:]\s*['"` + "`" + `]?[0-9a-zA-Z/+]{40}`)},
-	{finding.CheckDLPAPIKey, "GitHub Token", regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`)},
-	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
+
+	// ── GitHub ───────────────────────────────────────────────────────────────
+	{finding.CheckDLPAPIKey, "GitHub classic PAT (ghp_)", regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub fine-grained PAT (github_pat_)", regexp.MustCompile(`github_pat_[0-9a-zA-Z_]{82}`)},
+	{finding.CheckDLPAPIKey, "GitHub App installation token (ghs_)", regexp.MustCompile(`ghs_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub OAuth token (gho_)", regexp.MustCompile(`gho_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "GitHub user-to-server token (ghu_)", regexp.MustCompile(`ghu_[0-9a-zA-Z]{36}`)},
+
+	// ── Google / GCP ─────────────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "Google API Key", regexp.MustCompile(`AIza[0-9A-Za-z\-_]{35}`)},
+	{finding.CheckDLPAPIKey, "GCP service account key (JSON)", regexp.MustCompile(`"type"\s*:\s*"service_account"`)},
+
+	// ── AI / LLM providers ───────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "OpenAI API Key", regexp.MustCompile(`sk-[A-Za-z0-9]{48}`)},
 	{finding.CheckDLPAPIKey, "Anthropic API Key", regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`)},
+	{finding.CheckDLPAPIKey, "HuggingFace token (hf_)", regexp.MustCompile(`hf_[A-Za-z0-9]{34}`)},
+
+	// ── Payment ──────────────────────────────────────────────────────────────
+	{finding.CheckDLPAPIKey, "Stripe Secret Key", regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`)},
+	{finding.CheckDLPAPIKey, "Stripe Publishable Key", regexp.MustCompile(`pk_live_[0-9a-zA-Z]{24,}`)},
+	{finding.CheckDLPAPIKey, "Shopify Admin Access Token", regexp.MustCompile(`shpat_[0-9a-fA-F]{32}`)},
+	{finding.CheckDLPAPIKey, "Shopify Shared Secret", regexp.MustCompile(`shpss_[0-9a-fA-F]{32}`)},
+
+	// ── Messaging / Notifications ────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "Slack Token", regexp.MustCompile(`xox[baprs]-[0-9]{12}-[0-9]{12}-[0-9a-zA-Z]{24}`)},
+	{finding.CheckDLPAPIKey, "Slack Webhook URL", regexp.MustCompile(`https://hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9a-zA-Z]+`)},
 	{finding.CheckDLPAPIKey, "SendGrid API Key", regexp.MustCompile(`SG\.[0-9a-zA-Z\-_]{22}\.[0-9a-zA-Z\-_]{43}`)},
+	{finding.CheckDLPAPIKey, "Twilio API Key SID", regexp.MustCompile(`SK[0-9a-f]{32}`)},
+	{finding.CheckDLPAPIKey, "Twilio Account SID", regexp.MustCompile(`AC[0-9a-f]{32}`)},
+
+	// ── Package registries ───────────────────────────────────────────────────
+	{finding.CheckDLPAPIKey, "npm publish token", regexp.MustCompile(`npm_[0-9a-zA-Z]{36}`)},
+	{finding.CheckDLPAPIKey, "PyPI API token", regexp.MustCompile(`pypi-[0-9a-zA-Z_-]{40,}`)},
+
+	// ── Infrastructure / cloud tooling ───────────────────────────────────────
+	{finding.CheckDLPAPIKey, "Fly.io token (fo1)", regexp.MustCompile(`fo1[0-9a-zA-Z_-]{40,}`)},
+	{finding.CheckDLPAPIKey, "HashiCorp Vault service token", regexp.MustCompile(`hvs\.[A-Za-z0-9_-]{90,}`)},
+	{finding.CheckDLPAPIKey, "Databricks token", regexp.MustCompile(`dapi[0-9a-f]{32}`)},
+	{finding.CheckDLPAPIKey, "Terraform Cloud token", regexp.MustCompile(`(?i)(tf[_-]?api[_-]?token|tfc[_-]?token|terraform[_-]?cloud[_-]?token)\s*[:=]\s*["']?[0-9a-zA-Z.\-_/]{20,}`)},
+	{finding.CheckDLPAPIKey, "Vercel deployment token", regexp.MustCompile(`(?i)(vercel[_-]?token|vercel[_-]?api[_-]?token)\s*[:=]\s*["']?[0-9a-zA-Z_-]{20,}`)},
+	{finding.CheckDLPAPIKey, "Docker Hub credentials", regexp.MustCompile(`(?i)(docker[_-]?password|dockerhub[_-]?token|docker[_-]?token)\s*[:=]\s*["']?[0-9a-zA-Z_-]{10,}`)},
+	{finding.CheckDLPAPIKey, "Azure storage connection string", regexp.MustCompile(`DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[^;]+`)},
+	{finding.CheckDLPAPIKey, "JWT signing secret", regexp.MustCompile(`(?i)(jwt[_-]?secret|jwt[_-]?key|signing[_-]?secret)\s*[:=]\s*["']?[0-9a-zA-Z+/=_-]{20,}`)},
+
+	// ── Generic / catch-all ──────────────────────────────────────────────────
 	{finding.CheckDLPAPIKey, "Generic API Key", regexp.MustCompile(`(?i)(api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)['"` + "`" + `\s]*[=:]\s*['"` + "`" + `]?[0-9a-zA-Z\-_]{20,}`)},
 	// Database URLs in config dumps (complement root-page dlpPatterns)
 	{finding.CheckDLPDatabaseURL, "Database connection string", regexp.MustCompile(`(?i)(?:mysql|postgres|postgresql|mongodb|redis|mssql|sqlserver):\/\/[^:@\s"'<>]{1,64}:[^@\s"'<>]{1,64}@[^\s"'<>]+`)},
@@ -185,6 +266,47 @@ type seenKey struct {
 	label string
 }
 
+// staticExtensions lists file types that cannot contain secrets.
+// Skipping these URLs from the crawl feed avoids wasting HTTP quota.
+var staticExtensions = map[string]bool{
+	".css": true, ".js": true, ".png": true, ".jpg": true, ".jpeg": true,
+	".gif": true, ".svg": true, ".ico": true, ".woff": true, ".woff2": true,
+	".ttf": true, ".eot": true, ".mp4": true, ".webm": true, ".ogg": true,
+	".mp3": true, ".pdf": true, ".zip": true, ".gz": true, ".map": true,
+}
+
+// isStaticURL returns true when the URL path ends with a static asset extension.
+func isStaticURL(rawURL string) bool {
+	p := rawURL
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		p = p[:i]
+	}
+	if i := strings.IndexByte(p, '#'); i >= 0 {
+		p = p[:i]
+	}
+	return staticExtensions[strings.ToLower(path.Ext(p))]
+}
+
+// urlBelongsToAsset returns true when rawURL's host is the asset domain or a
+// subdomain of it. asset is the bare domain/host (e.g. "example.com" or
+// "sub.example.com:8443"). External URLs must not be fetched without separate
+// authorization from the operator.
+func urlBelongsToAsset(rawURL, asset string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname() // strips port
+	// Normalise asset to bare hostname too (strip port if present).
+	assetHost := asset
+	if h, _, ok := strings.Cut(asset, ":"); ok {
+		assetHost = h
+	}
+	assetHost = strings.ToLower(assetHost)
+	host = strings.ToLower(host)
+	return host == assetHost || strings.HasSuffix(host, "."+assetHost)
+}
+
 // emailPattern is used separately for count-based detection.
 var emailPattern = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
 
@@ -203,14 +325,125 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		},
 	}
 
+	// ── Crawl-feed side-scan ──────────────────────────────────────────────────
+	// If the crawler placed a URL channel in context, scan crawled pages as they
+	// arrive — concurrently with the root-page and high-value-path scans below.
+	// crawlResultCh carries the goroutine's findings back; it always receives
+	// exactly one value so the drain at the bottom never blocks indefinitely.
+	type crawlResult struct{ findings []finding.Finding }
+	crawlResultCh := make(chan crawlResult, 1)
+
+	if v := ctx.Value(module.CrawlFeedKey); v != nil {
+		if feedCh, ok := v.(chan string); ok {
+			go func() {
+				var crawlFindings []finding.Finding
+				crawlSeen := map[seenKey]bool{}
+				// 500 ms between fetches ≈ 2 req/s — conservative secondary rate limit
+				// so DLP doesn't double-hammer the target on top of the crawler's own rate.
+				ticker := time.NewTicker(500 * time.Millisecond)
+				defer ticker.Stop()
+
+				for u := range feedCh {
+					if isStaticURL(u) {
+						continue
+					}
+					// Only scan URLs that belong to the target domain.
+					// Katana follows external links by default; fetching third-party
+					// domains without explicit authorization is out of scope.
+					if !urlBelongsToAsset(u, asset) {
+						continue
+					}
+					select {
+					case <-ctx.Done():
+						crawlResultCh <- crawlResult{crawlFindings}
+						return
+					case <-ticker.C:
+					}
+
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+					if err != nil {
+						continue
+					}
+					req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+					resp, err := client.Do(req)
+					if err != nil {
+						continue
+					}
+					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+						resp.Body.Close()
+						continue
+					}
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+					resp.Body.Close()
+					if len(body) == 0 {
+						continue
+					}
+					// Truncate for regex matching on large crawled pages.
+					crawlBody := body
+					if len(crawlBody) > maxRegexBodyBytes {
+						crawlBody = crawlBody[:maxRegexBodyBytes]
+					}
+					bodyStr := string(crawlBody)
+					now := time.Now()
+
+					for _, p := range dlpPatterns {
+						k := seenKey{p.checkID, p.label}
+						if crawlSeen[k] {
+							continue
+						}
+						match := p.re.FindString(bodyStr)
+						if match == "" {
+							continue
+						}
+						if p.checkID == finding.CheckDLPSSN && !validSSN(match) {
+							continue
+						}
+						if p.checkID == finding.CheckDLPCreditCard && !luhn(match) {
+							continue
+						}
+						crawlSeen[k] = true
+						crawlFindings = append(crawlFindings, finding.Finding{
+							CheckID:  p.checkID,
+							Module:   "surface",
+							Scanner:  scannerName,
+							Severity: finding.SeverityCritical,
+							Title:    fmt.Sprintf("%s exposed at %s", p.label, asset),
+							Description: fmt.Sprintf(
+								"A pattern matching a %s was found at %s, discovered during web crawl.",
+								strings.ToLower(p.label), u),
+							Asset:        asset,
+							Evidence:     map[string]any{"url": u, "pattern": p.label, "sample_redacted": redact(match)},
+							DiscoveredAt: now,
+						})
+					}
+				}
+				// feedCh closed by crawler — goroutine exits cleanly.
+				crawlResultCh <- crawlResult{crawlFindings}
+			}()
+		} else {
+			crawlResultCh <- crawlResult{} // wrong type — send empty result
+		}
+	} else {
+		crawlResultCh <- crawlResult{} // no feed in context — send empty result
+	}
+
 	body, url, err := fetchBody(ctx, client, asset)
 	if err != nil || len(body) == 0 {
-		return nil, nil
+		cr := <-crawlResultCh
+		return cr.findings, nil
 	}
 
 	var findings []finding.Finding
 	now := time.Now()
-	bodyStr := string(body)
+
+	// Body size guard: skip regex matching on very large responses (>1 MB)
+	// to avoid excessive CPU usage on binary blobs or large data dumps.
+	// Truncate the body used for pattern matching to maxRegexBodyBytes.
+	regexBody := body
+	if len(regexBody) > maxRegexBodyBytes {
+		regexBody = regexBody[:maxRegexBodyBytes]
+	}
+	bodyStr := string(regexBody)
 
 	for _, p := range dlpPatterns {
 		match := p.re.FindString(bodyStr)
@@ -219,6 +452,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 		// For SSN: filter out well-known invalid ranges to cut false positives.
 		if p.checkID == finding.CheckDLPSSN && !validSSN(match) {
+			continue
+		}
+		// For credit cards: require the number to pass the Luhn checksum.
+		// This eliminates version strings, serial numbers, and random digit sequences.
+		if p.checkID == finding.CheckDLPCreditCard && !luhn(match) {
 			continue
 		}
 		redacted := redact(match)
@@ -297,6 +535,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 	}
 
+	// ── Merge crawl-feed findings ─────────────────────────────────────────────
+	// Wait for the crawl-feed goroutine to finish (channel closed by crawler),
+	// then merge any new findings. Deduplicate against what we already reported.
+	select {
+	case cr := <-crawlResultCh:
+		for _, f := range cr.findings {
+			k := seenKey{f.CheckID, ""}
+			if !alreadySeen[k] {
+				alreadySeen[k] = true
+				findings = append(findings, f)
+			}
+		}
+	case <-ctx.Done():
+		// Context expired before crawl finished — return what we have.
+	}
+
 	return findings, nil
 }
 
@@ -324,7 +578,12 @@ func scanPath(ctx context.Context, client *http.Client, asset, url string, alrea
 	if len(body) == 0 {
 		return nil
 	}
-	bodyStr := string(body)
+	// Truncate body for regex matching to avoid excessive CPU on large responses.
+	regexBody := body
+	if len(regexBody) > maxRegexBodyBytes {
+		regexBody = regexBody[:maxRegexBodyBytes]
+	}
+	bodyStr := string(regexBody)
 
 	var findings []finding.Finding
 	for _, p := range apiKeyPatterns {
@@ -334,6 +593,10 @@ func scanPath(ctx context.Context, client *http.Client, asset, url string, alrea
 		}
 		match := p.re.FindString(bodyStr)
 		if match == "" {
+			continue
+		}
+		// Generic API Key pattern is broad — skip obvious documentation placeholders.
+		if p.label == "Generic API Key" && isPlaceholderAPIKey(match) {
 			continue
 		}
 		alreadySeen[k] = true
@@ -385,8 +648,20 @@ func fetchBody(ctx context.Context, client *http.Client, asset string) ([]byte, 
 	return nil, "", fmt.Errorf("no HTTP response from %s", asset)
 }
 
+// knownInvalidSSNs lists specific SSNs that are historically documented as
+// never validly assigned. Matching these is almost certainly a false positive
+// (e.g. a sample card, advertising copy, or a test fixture).
+var knownInvalidSSNs = map[string]bool{
+	"078-05-1120": true, // Woolworth wallet insert — used by ~40 000 people as their "real" SSN
+	"219-09-9999": true, // SSA advertising example
+	"457-55-5462": true, // SSA advertising example
+}
+
 // validSSN returns false for SSNs with well-known invalid area/group/serial values.
 func validSSN(s string) bool {
+	if knownInvalidSSNs[s] {
+		return false
+	}
 	parts := strings.SplitN(s, "-", 3)
 	if len(parts) != 3 {
 		return false
@@ -399,6 +674,71 @@ func validSSN(s string) bool {
 		return false
 	}
 	return true
+}
+
+// luhn returns true when the digit-only string passes the Luhn checksum.
+// Used to filter credit card regex matches that are structurally valid but not
+// real card numbers (e.g. formatted version strings, serial numbers).
+func luhn(s string) bool {
+	var digits []int
+	for _, ch := range s {
+		if ch >= '0' && ch <= '9' {
+			digits = append(digits, int(ch-'0'))
+		}
+	}
+	n := len(digits)
+	if n < 13 {
+		return false
+	}
+	sum := 0
+	for i, d := range digits {
+		if (n-i)%2 == 0 { // double every second digit from the right
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+	}
+	return sum%10 == 0
+}
+
+// isPlaceholderAPIKey returns true when the value portion of a matched API key
+// looks like a documentation placeholder rather than a real credential.
+// Catches strings like "xxxxxxxxxxxxxxxxxxxx", "your_api_key_here", "REPLACE_ME".
+func isPlaceholderAPIKey(match string) bool {
+	// Extract the value after the last = or :
+	idx := strings.LastIndexAny(match, "=:")
+	val := match
+	if idx >= 0 && idx < len(match)-1 {
+		val = strings.Trim(match[idx+1:], `"' `+"`")
+	}
+	if len(val) == 0 {
+		return true
+	}
+	valLower := strings.ToLower(val)
+	// Common placeholder patterns
+	placeholders := []string{"your", "replace", "insert", "changeme", "example", "sample", "placeholder", "xxx", "todo", "fixme", "redacted"}
+	for _, p := range placeholders {
+		if strings.Contains(valLower, p) {
+			return true
+		}
+	}
+	// Uniform-character strings (e.g. "xxxxxxxxxxxxxxxxxxxx" or "0000000000000000000")
+	if len(val) >= 8 {
+		first := val[0]
+		allSame := true
+		for i := 1; i < len(val); i++ {
+			if val[i] != first {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			return true
+		}
+	}
+	return false
 }
 
 // redact replaces the middle 60% of a matched string with asterisks

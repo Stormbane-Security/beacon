@@ -1,0 +1,23 @@
+name: radius_server
+description: >
+  RADIUS authentication server is reachable from the internet (UDP 1812).
+  RADIUS authenticates VPN connections, WPA-Enterprise WiFi (802.1X), and
+  network device logins. Internet-exposed RADIUS is vulnerable to
+  CVE-2024-3596 (Blast RADIUS — MD5 prefix collision to forge Access-Accept
+  responses without knowing the shared secret, CVSS 9.0) and offline
+  dictionary attacks against captured Access-Request packets. RADIUS should
+  only be reachable from NAS devices (VPN concentrators, APs, switches) on
+  internal network segments.
+match:
+  any:
+    - check_id: "port.radius_exposed"
+surface:
+  scanners:
+    - portscan
+  nuclei_tags:
+    - radius
+    - exposure
+deep:
+  nuclei_tags:
+    - radius
+    - misconfiguration

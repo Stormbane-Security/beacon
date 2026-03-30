@@ -159,3 +159,16 @@ func TestWildcardIPs_LiveLookup_InvalidTLD(t *testing.T) {
 
 // Ensure net package is used (wildcardIPs uses net.DefaultResolver).
 var _ = net.DefaultResolver
+
+// TestBruteForceSubdomains_CancelledContext verifies that bruteForceSubdomains
+// terminates promptly when the context is already cancelled, rather than
+// blocking indefinitely on the semaphore.
+func TestBruteForceSubdomains_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before the call
+
+	// Should return quickly, not block on the semaphore for all prefixes.
+	found := bruteForceSubdomains(ctx, "example.invalid")
+	// We don't care about the result, just that it doesn't hang.
+	_ = found
+}

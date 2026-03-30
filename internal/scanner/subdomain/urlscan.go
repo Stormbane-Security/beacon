@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 )
@@ -13,7 +14,7 @@ import (
 // urlscanSubdomains queries the urlscan.io passive search index for subdomains
 // of domain. No API key is required for the basic search endpoint.
 func urlscanSubdomains(ctx context.Context, domain string) []string {
-	url := fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=100", domain)
+	url := fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=100", neturl.QueryEscape(domain))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil

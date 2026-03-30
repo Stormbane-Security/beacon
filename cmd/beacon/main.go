@@ -33,6 +33,8 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/profiler"
 	"github.com/stormbane/beacon/internal/module"
+	cloudmodule "github.com/stormbane/beacon/internal/modules/cloud"
+	"github.com/stormbane/beacon/internal/asset"
 	githubmodule "github.com/stormbane/beacon/internal/modules/github"
 	"github.com/stormbane/beacon/internal/modules/surface"
 	"github.com/stormbane/beacon/internal/playbook"
@@ -51,27 +53,34 @@ USAGE:
   beacon scan        --domain <domain> [flags]   Run a surface/deep scan
   beacon scan        --github <org> [flags]      Scan a GitHub org's Actions workflows
   beacon browse                                  Interactive TUI browser for past scans
-  beacon history     --domain <domain>           List past scans
+  beacon scans       [--limit N]                 List all past scans (no TUI)
+  beacon history     --domain <domain>           List past scans for a domain
+  beacon stop        --id <scan-id>              Mark a running scan as stopped
   beacon report      --id <scan-id> [flags]      Print a past report
   beacon analyze     [--id <run-id>] [--out <file>]  Playbook analysis + finding accuracy review
   beacon playbook    suggestions                 List AI playbook suggestions
+  beacon playbook    import --id <id>            Import suggestion to ~/.config/beacon/playbooks/
+  beacon playbook    dismiss --id <id>           Dismiss a suggestion (won't appear again)
   beacon playbook    open-pr --id <id>           Open a GitHub PR for a suggestion
 
 SCAN FLAGS:
-  --domain <domain>          Target domain (required)
+  --domain <domain>          Target domain (required unless --asset or --targets is used)
+  --asset <domain>           Add a target domain; repeatable for multi-asset sessions
+  --targets <file>           File with one domain per line (enables multi-asset mode)
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
-  --format <fmt>             Output format: text (default), html, json, markdown
+  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
+  --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
   --server <url>             Run against a remote beacond instance
   --api-key <key>            API key for the remote server
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown
+  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
@@ -87,11 +96,25 @@ EXAMPLES:
   beacon scan --domain example.com --server https://beacon.example.com --api-key sk-...
   beacon scan --domain example.com --out report.html --format html
   beacon scan --domain example.com --deep --permission-confirmed
+  beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
+  beacon scan --targets hosts.txt --deep --permission-confirmed
   beacon report --id <id> --format markdown
+  beacon scan --domain example.com --format graph | dot -Tsvg -o topology.svg
   beacon analyze
   beacon playbook suggestions
+  beacon playbook import --id <suggestion-id>
   beacon playbook open-pr --id <suggestion-id>
   beacon terraform <path> [<path>...]
+  beacon cloud       [flags]               Run cloud posture scan (GCP/AWS/Azure)
+
+CLOUD FLAGS:
+  --aws-profile <profile>    AWS CLI profile (default: env/default)
+  --gcp-credentials <file>   GCP service account key JSON path (default: ADC)
+  --azure-subscription <id>  Azure subscription ID (default: all accessible)
+  --domain <domain>          Asset label to associate findings with
+  --format <fmt>             Output format: text (default), json, markdown
+  --out <path>               Write report to file instead of stdout
+  --severity <level>         Minimum severity: critical, high, medium, low, info (default)
 `
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -124,6 +147,10 @@ func main() {
 		cmdScan(cfg, os.Args[2:])
 	case "browse":
 		cmdBrowse(cfg)
+	case "scans":
+		cmdScans(cfg, os.Args[2:])
+	case "stop":
+		cmdStop(cfg, os.Args[2:])
 	case "history":
 		cmdHistory(cfg, os.Args[2:])
 	case "report":
@@ -139,6 +166,10 @@ func main() {
 			cmdPlaybookSuggestions(cfg)
 		case "open-pr":
 			cmdPlaybookOpenPR(cfg, os.Args[3:])
+		case "import":
+			cmdPlaybookImport(cfg, os.Args[3:])
+		case "dismiss":
+			cmdPlaybookDismiss(cfg, os.Args[3:])
 		default:
 			fatalf("unknown playbook subcommand: %s", os.Args[2])
 		}
@@ -146,6 +177,8 @@ func main() {
 		cmdFingerprints(cfg, os.Args[2:])
 	case "terraform":
 		cmdTerraform(cfg, os.Args[2:])
+	case "cloud":
+		cmdScanCloud(cfg, os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -184,6 +217,8 @@ func cmdInstall() {
 func cmdScan(cfg *config.Config, args []string) {
 	var (
 		domain              string
+		assets              []string
+		targetsFile         string
 		githubOrg           string
 		deep                bool
 		permissionConfirmed bool
@@ -192,9 +227,14 @@ func cmdScan(cfg *config.Config, args []string) {
 		format              string
 		severityFlag        string
 		verbose             bool
+		noTUI               bool
 		serverURL           string
 		apiKey              string
 		extraCIDRs          []string
+		cloudEnabled        bool
+		awsProfile          string
+		gcpCredentials      string
+		azureSubscription   string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -232,6 +272,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			}
 		case "--verbose":
 			verbose = true
+		case "--no-tui":
+			noTUI = true
 		case "--server":
 			i++
 			if i < len(args) {
@@ -247,18 +289,69 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				extraCIDRs = append(extraCIDRs, args[i])
 			}
+		case "--asset":
+			i++
+			if i < len(args) {
+				assets = append(assets, args[i])
+			}
+		case "--targets":
+			i++
+			if i < len(args) {
+				targetsFile = args[i]
+			}
+		case "--cloud":
+			cloudEnabled = true
+		case "--aws-profile":
+			i++
+			if i < len(args) {
+				awsProfile = args[i]
+			}
+		case "--gcp-credentials":
+			i++
+			if i < len(args) {
+				gcpCredentials = args[i]
+			}
+		case "--azure-subscription":
+			i++
+			if i < len(args) {
+				azureSubscription = args[i]
+			}
 		}
 	}
 
-	// GitHub Actions scan mode — mutually exclusive with domain scan.
-	if githubOrg != "" {
+	// Build unified target list from --domain, --asset, and --targets file.
+	if domain != "" {
+		assets = append([]string{domain}, assets...)
+	}
+	if targetsFile != "" {
+		lines, err := readTargetsFile(targetsFile)
+		if err != nil {
+			fatalf("read --targets: %v", err)
+		}
+		assets = append(assets, lines...)
+	}
+	assets = uniqueStrings(assets)
+
+	// GitHub-only mode (no domain targets) — delegate to the dedicated function.
+	if githubOrg != "" && len(assets) == 0 {
 		cmdScanGitHub(cfg, githubOrg, outPath, format, severityFlag)
 		return
 	}
 
-	if domain == "" {
-		fatalf("--domain or --github is required\n\n%s", usageText)
+	if len(assets) == 0 && githubOrg == "" {
+		fatalf("--domain, --asset, --targets, or --github is required\n\n%s", usageText)
 	}
+
+	// Multi-asset mode: scan all targets in a single session.
+	// Also entered when --github is combined with domain targets, or when
+	// --cloud is requested alongside domain scanning.
+	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
+		return
+	}
+
+	// Single-asset: fall through to the existing scan path.
+	domain = assets[0]
 
 	if deep && !permissionConfirmed {
 		fatalf(`--deep requires --permission-confirmed
@@ -421,7 +514,12 @@ Type exactly: I have written authorization for %s
 		fatalf("init scanner: %v", err)
 	}
 
-	pr := newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+	var pr *progressRenderer
+	if noTUI {
+		pr = newPlainRenderer(verbose, finding.ParseSeverity(severityFlag))
+	} else {
+		pr = newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+	}
 	pr.cancelFn = cancel // allow the live UI to stop the scan via 's' or Ctrl+C
 	defer pr.Done()      // always restore terminal, even on panic
 	input := module.Input{
@@ -482,7 +580,9 @@ Type exactly: I have written authorization for %s
 					_ = st.SaveFindings(ctx, run.ID, res.findings)
 				}
 				fmt.Fprintf(os.Stderr, "beacon: scan stopped — %d findings saved\n", len(res.findings))
-				cmdBrowse(cfg)
+				if !noTUI {
+					cmdBrowse(cfg)
+				}
 				return
 			}
 			run.Status = store.StatusFailed
@@ -539,11 +639,53 @@ Type exactly: I have written authorization for %s
 		fatalf("save findings: %v", err)
 	}
 
+	// Run deterministic compound-attack correlation rules synchronously.
+	// These fire without AI and appear in the TUI even when AI is skipped.
+	if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
+		fmt.Fprintf(os.Stderr, "beacon: deterministic correlations: %v\n", err)
+	} else if len(corrFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "beacon: %d compound attack chain(s) detected\n", len(corrFindings))
+	}
+
+	// Build asset graph for this single-domain scan.
+	graphBuilder := asset.NewBuilder(run.ID, domain)
+	graphBuilder.AddDomainAsset(domain, nil, "surface")
+	graphBuilder.AddFindings(findings)
+	scanGraph := graphBuilder.Build()
+
+	// Persist the graph so `beacon report --format graph` can retrieve it later.
+	if graphJSON, err := json.Marshal(scanGraph); err == nil {
+		_ = st.SaveAssetGraph(ctx, run.ID, graphJSON)
+	}
+
+	// AI fingerprint enrichment: analyse collected evidence to find
+	// version-specific vulnerabilities and configuration anomalies.
+	if ai := cfg.ActiveAI(); ai != nil {
+		if execs, execErr := st.ListAssetExecutions(ctx, run.ID); execErr == nil && len(execs) > 0 {
+			var fpInputs []enrichment.FingerprintInput
+			for _, ex := range execs {
+				fpInputs = append(fpInputs, enrichment.FingerprintInputFromEvidence(ex.Asset, ex.Evidence))
+			}
+			ce, ceErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+			if ceErr == nil {
+				fmt.Fprintf(os.Stderr, "beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
+				fpResult, fpErr := ce.EnrichFingerprints(ctx, fpInputs)
+				if fpErr != nil {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint enrichment: %v\n", fpErr)
+				} else if len(fpResult.Findings) > 0 {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
+					findings = append(findings, fpResult.Findings...)
+					_ = st.SaveFindings(ctx, run.ID, fpResult.Findings)
+				}
+			}
+		}
+	}
+
 	// Apply severity filter before enrichment so below-threshold findings are
 	// never sent to the Claude API — saves tokens and keeps prompts focused.
 	minSev := finding.ParseSeverity(severityFlag)
 	if minSev > finding.SeverityInfo {
-		filtered := findings[:0]
+		var filtered []finding.Finding
 		for _, f := range findings {
 			if f.Severity >= minSev {
 				filtered = append(filtered, f)
@@ -554,13 +696,13 @@ Type exactly: I have written authorization for %s
 
 	// Enrich findings
 	var enricher enrichment.Enricher
-	if cfg.AnthropicAPIKey != "" {
-		ce, err := enrichment.NewClaudeDefault(cfg.AnthropicAPIKey)
+	if ai := cfg.ActiveAI(); ai != nil {
+		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err != nil {
 			fatalf("init enricher: %v", err)
 		}
-		enricher = ce.WithSummaryModel(cfg.ClaudeModel).WithCache(st)
-		fmt.Fprintf(os.Stderr, "beacon: %d findings — enriching with AI...\n", len(findings))
+		enricher = ce.WithCache(st)
+		fmt.Fprintf(os.Stderr, "beacon: %d findings — enriching with AI (%s)...\n", len(findings), ai.Provider)
 	} else {
 		enricher = enrichment.NewNoop()
 		fmt.Fprintf(os.Stderr, "beacon: %d findings — building report...\n", len(findings))
@@ -571,7 +713,7 @@ Type exactly: I have written authorization for %s
 		fatalf("enrich: %v", err)
 	}
 
-	if cfg.AnthropicAPIKey != "" {
+	if cfg.ActiveAI() != nil {
 		fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
 	}
 	enriched, summary, err := enricher.ContextualizeAndSummarize(ctx, enriched, domain)
@@ -613,8 +755,11 @@ Type exactly: I have written authorization for %s
 	}
 
 	// Deliver in the requested format.
+	// Retrieve persisted graph JSON so renderFormat can include it in JSON
+	// reports or render DOT output for --format graph.
+	persistedGraphJSON, _ := st.GetAssetGraph(ctx, run.ID)
 	executions, _ := st.ListAssetExecutions(ctx, run.ID)
-	output, err := renderFormat(format, *run, enriched, summary, rep, executions)
+	output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON)
 	if err != nil {
 		fatalf("render report: %v", err)
 	}
@@ -628,9 +773,8 @@ Type exactly: I have written authorization for %s
 		fmt.Print(output)
 	}
 
-	// Attack path analysis: if enabled and we have an Anthropic key, ask Claude
-	// to identify multi-step attack chains across findings from this scan run.
-	// Only correlates findings from the current run, never historical data.
+	// Attack path analysis: uses Claude (Anthropic) specifically.
+	// Requires anthropic_api_key in config regardless of the ai: provider block.
 	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
 		fmt.Fprintf(os.Stderr, "beacon: analysing attack paths...\n")
 		chains := profiler.ReasonAttackPaths(ctx, cfg.AnthropicAPIKey, cfg.ClaudeModel, findings)
@@ -669,6 +813,680 @@ Type exactly: I have written authorization for %s
 		}
 	}
 	fmt.Fprintf(os.Stderr, "beacon: done — scan ID: %s\n", run.ID)
+}
+
+// ---------- multi-asset scan ----------
+
+// assetScanResult holds the outcome of a single-domain scan within a
+// multi-asset session.
+type assetScanResult struct {
+	domain   string
+	run      *store.ScanRun
+	findings []finding.Finding
+}
+
+// cmdScanMultiAsset runs one scan session against multiple root domains.
+// Each domain gets its own ScanRun in the store. After all individual scans
+// complete, cross-asset correlations are computed over the combined findings.
+func cmdScanMultiAsset(
+	cfg *config.Config,
+	targets []string,
+	deep, permissionConfirmed, authorized bool,
+	outPath, format, severityFlag string,
+	verbose, noTUI bool,
+	serverURL, apiKey string,
+	extraCIDRs []string,
+	cloudEnabled bool,
+	awsProfile, gcpCredentials, azureSubscription string,
+	githubOrg string,
+) {
+	scanType := module.ScanSurface
+	if deep {
+		scanType = module.ScanDeep
+	}
+	if authorized {
+		scanType = module.ScanAuthorized
+	}
+
+	if deep && !permissionConfirmed {
+		fatalf(`--deep requires --permission-confirmed
+
+Deep scans send active probes to ALL listed targets. Only run this against
+systems you own or have explicit written permission to test.
+
+By passing --permission-confirmed you confirm that you have explicit written
+authorization from the owner of every listed target and accept full legal
+responsibility for your use of --deep mode.`)
+	}
+
+	if authorized && (!deep || !permissionConfirmed) {
+		fatalf("--authorized requires --deep and --permission-confirmed")
+	}
+	if authorized {
+		targetList := "  • " + strings.Join(targets, "\n  • ")
+		fmt.Fprintf(os.Stderr, `
+AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This mode enables active exploitation probes against %d targets:
+%s
+
+These actions constitute unauthorized computer access in most jurisdictions
+unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
+
+Type exactly: I have written authorization for all listed targets
+> `, len(targets), targetList)
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
+			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+		}
+		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
+	}
+
+	// Resolve server URL.
+	if serverURL == "" {
+		serverURL = cfg.Server.URL
+	}
+	if apiKey == "" {
+		apiKey = cfg.Server.APIKey
+	}
+
+	// Remote multi-asset: delegate each target to the remote server.
+	if serverURL != "" {
+		for _, d := range targets {
+			cmdScanRemote(serverURL, apiKey, d, deep, permissionConfirmed, outPath)
+		}
+		return
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
+		_ = seedErr
+	}
+
+	warnMissingAPIKeys(cfg)
+
+	mod, err := surface.New(surface.Config{
+		NucleiBin:            cfg.NucleiBin,
+		SubfinderBin:         "subfinder",
+		AmmassBin:            cfg.AmmassBin,
+		TestsslBin:           cfg.TestsslBin,
+		GauBin:               cfg.GauBin,
+		KatanaBin:            cfg.KatanaBin,
+		GowitnessBin:         cfg.GowitnessBin,
+		AnthropicAPIKey:      cfg.AnthropicAPIKey,
+		ShodanAPIKey:         cfg.ShodanAPIKey,
+		HIBPAPIKey:           cfg.HIBPAPIKey,
+		BingAPIKey:           cfg.BingAPIKey,
+		OTXAPIKey:            cfg.OTXAPIKey,
+		VirusTotalAPIKey:     cfg.VirusTotalAPIKey,
+		SecurityTrailsAPIKey: cfg.SecurityTrailsAPIKey,
+		CensysAPIID:          cfg.CensysAPIID,
+		CensysAPISecret:      cfg.CensysAPISecret,
+		GreyNoiseAPIKey:      cfg.GreyNoiseAPIKey,
+		NmapBin:              cfg.NmapBin,
+		Store:                st,
+		HttpxBin:             cfg.HttpxBin,
+		DnsxBin:              cfg.DnsxBin,
+		FfufBin:              cfg.FfufBin,
+		AdaptiveRecon:        cfg.AdaptiveRecon,
+		ProxyPool:            cfg.ProxyPool,
+		RequestJitterMs:      cfg.RequestJitterMs,
+		ClaudeModel:          cfg.ClaudeModel,
+		Auth:                 cfg.Auth,
+		GitHubToken:          cfg.GitHubToken,
+	})
+	if err != nil {
+		fatalf("init scanner: %v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "beacon: multi-asset scan — %d targets (%s)\n", len(targets), scanType)
+	for _, t := range targets {
+		fmt.Fprintf(os.Stderr, "  • %s\n", t)
+	}
+
+	var (
+		allResults  []assetScanResult
+		allFindings []finding.Finding
+	)
+
+	for idx, domain := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Build peers list (every other target in this session).
+		peers := make([]string, 0, len(targets)-1)
+		for j, t := range targets {
+			if j != idx {
+				peers = append(peers, t)
+			}
+		}
+
+		target, err := st.UpsertTarget(ctx, domain)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: upsert target %s: %v\n", domain, err)
+			continue
+		}
+
+		run := &store.ScanRun{
+			TargetID:  target.ID,
+			Domain:    domain,
+			ScanType:  scanType,
+			Modules:   []string{"surface"},
+			Status:    store.StatusPending,
+			StartedAt: time.Now(),
+		}
+		if err := st.CreateScanRun(ctx, run); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: create scan run %s: %v\n", domain, err)
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "\nbeacon: [%d/%d] scanning %s\n", idx+1, len(targets), domain)
+		run.Status = store.StatusRunning
+		_ = st.UpdateScanRun(ctx, run)
+
+		var pr *progressRenderer
+		if noTUI {
+			pr = newPlainRenderer(verbose, finding.ParseSeverity(severityFlag))
+		} else {
+			pr = newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
+		}
+		pr.cancelFn = cancel
+		defer pr.Done()
+
+		input := module.Input{
+			Domain:              domain,
+			Peers:               peers,
+			PermissionConfirmed: permissionConfirmed,
+			ScanRunID:           run.ID,
+			Progress:            pr.Handle,
+			ExtraCIDRs:          extraCIDRs,
+		}
+
+		findings, scanErr := mod.Run(ctx, input, scanType)
+		pr.Done()
+
+		if scanErr != nil {
+			if scanErr == context.Canceled || strings.Contains(scanErr.Error(), "context canceled") {
+				run.Status = store.StatusStopped
+				run.Error = "stopped by user"
+				_ = st.UpdateScanRun(ctx, run)
+				if len(findings) > 0 {
+					_ = st.SaveFindings(ctx, run.ID, findings)
+				}
+				fmt.Fprintf(os.Stderr, "beacon: scan stopped for %s — %d findings saved\n", domain, len(findings))
+				break
+			}
+			fmt.Fprintf(os.Stderr, "beacon: scan failed for %s: %v\n", domain, scanErr)
+			run.Status = store.StatusFailed
+			run.Error = scanErr.Error()
+			_ = st.UpdateScanRun(ctx, run)
+			continue
+		}
+
+		if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", domain, err)
+		}
+
+		if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: correlations %s: %v\n", domain, err)
+		} else if len(corrFindings) > 0 {
+			fmt.Fprintf(os.Stderr, "beacon: %d compound chain(s) on %s\n", len(corrFindings), domain)
+		}
+
+		now := time.Now()
+		run.Status = store.StatusCompleted
+		run.CompletedAt = &now
+		run.FindingCount = len(findings)
+		_ = st.UpdateScanRun(ctx, run)
+
+		fmt.Fprintf(os.Stderr, "beacon: %s — %d finding(s) [run ID: %s]\n", domain, len(findings), run.ID)
+		allResults = append(allResults, assetScanResult{domain, run, findings})
+		allFindings = append(allFindings, findings...)
+	}
+
+	// ── Cloud module (once per session) ───────────────────────────────────────
+	var cloudFindings []finding.Finding
+	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" {
+		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan...\n")
+		cloudAsset := "cloud"
+		if len(targets) > 0 {
+			cloudAsset = targets[0]
+		}
+		cloudMod := cloudmodule.New()
+		cloudInput := module.Input{
+			CloudEnabled:        true,
+			AWSProfile:          awsProfile,
+			GCPCredentialsFile:  gcpCredentials,
+			AzureSubscriptionID: azureSubscription,
+			Domain:              cloudAsset,
+		}
+		if cf, err := cloudMod.Run(ctx, cloudInput, scanType); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: cloud scan error: %v\n", err)
+		} else {
+			cloudFindings = cf
+			fmt.Fprintf(os.Stderr, "beacon: cloud scan — %d finding(s)\n", len(cloudFindings))
+			for i := range cloudFindings {
+				cloudFindings[i].Module = "cloud"
+			}
+			for _, res := range allResults {
+				_ = st.SaveFindings(ctx, res.run.ID, cloudFindings)
+			}
+			allFindings = append(allFindings, cloudFindings...)
+		}
+	}
+
+	// ── GitHub module (once per session, combined with domain scan) ────────────
+	if githubOrg != "" && len(allResults) > 0 {
+		fmt.Fprintf(os.Stderr, "\nbeacon: running GitHub scan for %s...\n", githubOrg)
+		ghMod := githubmodule.New(cfg.GitHubToken)
+		ghInput := module.Input{
+			GitHubOrg: githubOrg,
+			Domain:    githubOrg,
+		}
+		if ghFindings, err := ghMod.Run(ctx, ghInput, scanType); err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: github scan error: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "beacon: github scan — %d finding(s)\n", len(ghFindings))
+			for i := range ghFindings {
+				ghFindings[i].Module = "github"
+			}
+			for _, res := range allResults {
+				_ = st.SaveFindings(ctx, res.run.ID, ghFindings)
+			}
+			allFindings = append(allFindings, ghFindings...)
+		}
+	}
+
+	// ── Tier-1 cross-reference: cloud IPs → surface assets ────────────────────
+	ipToCloudCtx := buildCloudIPIndex(cloudFindings)
+	if len(ipToCloudCtx) > 0 {
+		fmt.Fprintf(os.Stderr, "beacon: cross-reference — %d cloud IP(s) indexed\n", len(ipToCloudCtx))
+	}
+
+	// ── Asset graph construction ───────────────────────────────────────────────
+	graph := buildSessionAssetGraph(allResults, cloudFindings, ipToCloudCtx)
+
+	// Persist the graph for every scan run in the session so
+	// `beacon report --id <any-run> --format graph` works for any run.
+	if graphJSON, gErr := json.Marshal(graph); gErr == nil {
+		for _, res := range allResults {
+			if res.run != nil {
+				_ = st.SaveAssetGraph(ctx, res.run.ID, graphJSON)
+			}
+		}
+	}
+
+	// ── Cross-asset correlation ────────────────────────────────────────────────
+	if len(allResults) >= 2 {
+		crossFindings := crossAssetCorrelate(allResults)
+		if len(crossFindings) > 0 {
+			fmt.Fprintf(os.Stderr, "\nbeacon: cross-asset — %d systemic finding(s)\n", len(crossFindings))
+			for _, cf := range crossFindings {
+				fmt.Fprintf(os.Stderr, "  [%s] %s\n", cf.Severity, cf.Title)
+			}
+			_ = st.SaveCorrelationFindings(ctx, crossFindings)
+		}
+	}
+
+	// ── AI fingerprint enrichment (multi-asset) ─────────────────────────────
+	// Analyse collected fingerprint evidence across all assets to find
+	// version-specific vulnerabilities and configuration anomalies.
+	if ai := cfg.ActiveAI(); ai != nil {
+		var fpInputs []enrichment.FingerprintInput
+		for _, res := range allResults {
+			if execs, execErr := st.ListAssetExecutions(ctx, res.run.ID); execErr == nil {
+				for _, ex := range execs {
+					fpInputs = append(fpInputs, enrichment.FingerprintInputFromEvidence(ex.Asset, ex.Evidence))
+				}
+			}
+		}
+		if len(fpInputs) > 0 {
+			ce, ceErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+			if ceErr == nil {
+				fmt.Fprintf(os.Stderr, "beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
+				fpResult, fpErr := ce.EnrichFingerprints(ctx, fpInputs)
+				if fpErr != nil {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint enrichment: %v\n", fpErr)
+				} else if len(fpResult.Findings) > 0 {
+					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
+					allFindings = append(allFindings, fpResult.Findings...)
+					if len(allResults) > 0 {
+						_ = st.SaveFindings(ctx, allResults[0].run.ID, fpResult.Findings)
+					}
+				}
+			}
+		}
+	}
+
+	// ── Unified cross-module enrichment ─────────────────────────────────────
+	// Enrich ALL findings (surface + cloud + GitHub) together so the AI sees
+	// the full picture: an exposed port on a GKE node with cluster-admin, a
+	// leaked secret in GitHub Actions, and a misconfigured CORS on the same
+	// domain are all enriched with cross-module context in a single pass.
+	if ai := cfg.ActiveAI(); ai != nil && len(allFindings) > 0 {
+		enricher, enrichErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+		if enrichErr == nil {
+			enricher.WithCache(st)
+
+			fmt.Fprintf(os.Stderr, "beacon: enriching %d findings across all modules...\n", len(allFindings))
+			allEnriched, enrichErr := enricher.Enrich(ctx, allFindings)
+			if enrichErr != nil {
+				fmt.Fprintf(os.Stderr, "beacon: enrichment failed: %v\n", enrichErr)
+			} else {
+				// Contextual analysis — cross-module compound risk identification.
+				domainStr := strings.Join(targets, ", ")
+				allEnriched, summary, _ := enricher.ContextualizeAndSummarize(ctx, allEnriched, domainStr)
+				if summary != "" {
+					fmt.Fprintf(os.Stderr, "\n\x1b[1mExecutive Summary:\x1b[0m\n%s\n", summary)
+				}
+
+				// Partition enriched findings back to each scan run and save them.
+				// Build an index: asset → scan run ID for fast lookup.
+				assetToRunID := make(map[string]string)
+				for _, res := range allResults {
+					for _, f := range res.findings {
+						assetToRunID[f.Asset] = res.run.ID
+					}
+				}
+				byRunID := make(map[string][]enrichment.EnrichedFinding)
+				for _, ef := range allEnriched {
+					runID := assetToRunID[ef.Finding.Asset]
+					if runID == "" {
+						// Cloud/GitHub findings — assign to first run as fallback.
+						if len(allResults) > 0 {
+							runID = allResults[0].run.ID
+						}
+					}
+					if runID != "" {
+						byRunID[runID] = append(byRunID[runID], ef)
+					}
+				}
+				for runID, enrichedSlice := range byRunID {
+					if err := st.SaveEnrichedFindings(ctx, runID, enrichedSlice); err != nil {
+						fmt.Fprintf(os.Stderr, "beacon: save enriched findings %s: %v\n", runID, err)
+					}
+				}
+
+				// Attack-path analysis — cross-module attack chain reasoning.
+				if analysis, err := enricher.AnalyzeAttackPaths(ctx, allEnriched, domainStr); err == nil && analysis != "" {
+					fmt.Fprintf(os.Stderr, "\n\x1b[1mAttack Path Analysis:\x1b[0m\n%s\n", analysis)
+				}
+
+				// Follow-up probes — suggested targeted checks.
+				if permissionConfirmed {
+					probes, _ := enricher.GenerateFollowUpProbes(ctx, allEnriched, domainStr)
+					if len(probes) > 0 {
+						fmt.Fprintf(os.Stderr, "\n\x1b[1mSuggested follow-up probes (%d):\x1b[0m\n", len(probes))
+						for i, p := range probes {
+							fmt.Fprintf(os.Stderr, "  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
+						}
+						if term.IsTerminal(int(os.Stdin.Fd())) {
+							fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
+							reader := bufio.NewReader(os.Stdin)
+							line, _ := reader.ReadString('\n')
+							if strings.TrimSpace(strings.ToLower(line)) == "y" {
+								fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// ── Summary ────────────────────────────────────────────────────────────────
+	fmt.Fprintf(os.Stderr, "\nbeacon: multi-asset scan complete\n")
+	total := 0
+	for _, res := range allResults {
+		total += len(res.findings)
+		fmt.Fprintf(os.Stderr, "  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), res.run.ID)
+	}
+	if len(cloudFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "  %-40s  %3d cloud finding(s)\n", "cloud", len(cloudFindings))
+	}
+	fmt.Fprintf(os.Stderr, "  %-40s  %3d total\n", "", len(allFindings))
+	fmt.Fprintf(os.Stderr, "\nTo view results: beacon browse\n")
+	fmt.Fprintf(os.Stderr, "To report on a run: beacon report --id <run-id>\n")
+
+	// ── Graph output ───────────────────────────────────────────────────────────
+	if format == "graph" {
+		dot := report.RenderGraphDOT(graph)
+		if outPath != "" {
+			if err := os.WriteFile(outPath, []byte(dot), 0o644); err != nil {
+				fatalf("write graph file: %v", err)
+			}
+			fmt.Fprintf(os.Stderr, "beacon: graph written to %s\n", outPath)
+		} else {
+			fmt.Print(dot)
+		}
+	}
+}
+
+// buildCloudIPIndex extracts all public IPs from cloud findings and maps them
+// to a CloudContext. Used for tier-1 cross-referencing with surface scan IPs.
+func buildCloudIPIndex(cloudFindings []finding.Finding) map[string]playbook.CloudContext {
+	index := map[string]playbook.CloudContext{}
+	for _, f := range cloudFindings {
+		if f.Evidence == nil {
+			continue
+		}
+		provider := ""
+		checkStr := string(f.CheckID)
+		if strings.HasPrefix(checkStr, "cloud.gcp") {
+			provider = "gcp"
+		} else if strings.HasPrefix(checkStr, "cloud.aws") {
+			provider = "aws"
+		} else if strings.HasPrefix(checkStr, "cloud.azure") {
+			provider = "azure"
+		}
+		if provider == "" {
+			continue
+		}
+		cc := playbook.CloudContext{
+			Provider:         provider,
+			ResourceType:     cloudEvidenceString(f.Evidence, "resource_type"),
+			InstanceID:       cloudEvidenceString(f.Evidence, "instance_id"),
+			Project:          cloudEvidenceString(f.Evidence, "project_id"),
+			Region:           cloudEvidenceString(f.Evidence, "region"),
+			Zone:             cloudEvidenceString(f.Evidence, "zone"),
+			ResourceSnapshot: cloudEvidenceString(f.Evidence, "resource_snapshot"),
+		}
+		// Single IP.
+		for _, key := range []string{"external_ip", "public_ip"} {
+			if ip := cloudEvidenceString(f.Evidence, key); ip != "" {
+				index[ip] = cc
+			}
+		}
+		// Slice of IPs.
+		if ips, ok := f.Evidence["public_ips"].([]string); ok {
+			for _, ip := range ips {
+				if ip != "" {
+					index[ip] = cc
+				}
+			}
+		}
+		if ips, ok := f.Evidence["public_ips"].([]any); ok {
+			for _, v := range ips {
+				if ip, ok := v.(string); ok && ip != "" {
+					index[ip] = cc
+				}
+			}
+		}
+	}
+	return index
+}
+
+func cloudEvidenceString(ev map[string]any, key string) string {
+	if ev == nil {
+		return ""
+	}
+	if v, ok := ev[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// buildSessionAssetGraph constructs an AssetGraph from all scan results in
+// the session, wiring surface assets to cloud assets via tier-1 IP matching.
+func buildSessionAssetGraph(results []assetScanResult, cloudFindings []finding.Finding, ipToCloud map[string]playbook.CloudContext) asset.AssetGraph {
+	// Derive session-level identifiers from the first result when available.
+	var scanRunID, rootDomain string
+	if len(results) > 0 {
+		if results[0].run != nil {
+			scanRunID = results[0].run.ID
+		}
+		rootDomain = results[0].domain
+	}
+	b := asset.NewBuilder(scanRunID, rootDomain)
+
+	for _, res := range results {
+		b.AddDomainAsset(res.domain, nil, "surface")
+		// Feed surface scan findings into the graph so every discovered asset
+		// has its finding refs attached.
+		b.AddFindings(res.findings)
+	}
+
+	for _, f := range cloudFindings {
+		if f.Evidence == nil {
+			continue
+		}
+		provider := ""
+		checkStr := string(f.CheckID)
+		if strings.HasPrefix(checkStr, "cloud.gcp") {
+			provider = "gcp"
+		} else if strings.HasPrefix(checkStr, "cloud.aws") {
+			provider = "aws"
+		} else if strings.HasPrefix(checkStr, "cloud.azure") {
+			provider = "azure"
+		}
+		if provider == "" {
+			continue
+		}
+		instanceID := cloudEvidenceString(f.Evidence, "instance_id")
+		if instanceID == "" {
+			instanceID = f.Asset
+		}
+		assetID := provider + ":" + instanceID
+		resourceType := asset.AssetType(cloudEvidenceString(f.Evidence, "resource_type"))
+		if resourceType == "" {
+			resourceType = asset.AssetType(provider + "_resource")
+		}
+		b.AddAsset(asset.Asset{
+			ID:       assetID,
+			Type:     resourceType,
+			Name:     instanceID,
+			Provider: provider,
+		})
+		b.AddFindings([]finding.Finding{f})
+	}
+
+	// Wire IP cross-references: for each cloud IP that matches a domain asset,
+	// add a likely_same_as or points_to relationship.
+	_ = ipToCloud // used by CrossReferenceByIP inside Build()
+
+	g := b.Build()
+	return g
+}
+
+// crossAssetCorrelate identifies the same vulnerability appearing across
+// multiple target domains in the same session — a signal of systemic
+// misconfiguration in a shared deployment or common infrastructure.
+func crossAssetCorrelate(results []assetScanResult) []store.CorrelationFinding {
+	if len(results) < 2 {
+		return nil
+	}
+
+	type checkInfo struct {
+		title    string
+		severity finding.Severity
+		domains  []string
+		runIDs   []string
+	}
+	checkMap := make(map[finding.CheckID]*checkInfo)
+
+	for _, res := range results {
+		seen := make(map[finding.CheckID]bool)
+		for _, f := range res.findings {
+			if seen[f.CheckID] {
+				continue
+			}
+			seen[f.CheckID] = true
+			if _, ok := checkMap[f.CheckID]; !ok {
+				checkMap[f.CheckID] = &checkInfo{
+					title:    f.Title,
+					severity: f.Severity,
+				}
+			}
+			checkMap[f.CheckID].domains = append(checkMap[f.CheckID].domains, res.domain)
+			checkMap[f.CheckID].runIDs = append(checkMap[f.CheckID].runIDs, res.run.ID)
+		}
+	}
+
+	var out []store.CorrelationFinding
+	for checkID, info := range checkMap {
+		if len(info.domains) < 2 {
+			continue
+		}
+		// Attach to the first matching run so it's visible in the store.
+		out = append(out, store.CorrelationFinding{
+			ScanRunID: info.runIDs[0],
+			Domain:    info.domains[0],
+			Title:     fmt.Sprintf("[Cross-asset] %s", info.title),
+			Severity:  info.severity,
+			Description: fmt.Sprintf(
+				"The same vulnerability (%s) was detected across %d of %d targets in this session: %s. "+
+					"This indicates a systemic misconfiguration — likely a shared deployment template, "+
+					"common software version, or shared infrastructure.",
+				checkID, len(info.domains), len(results), strings.Join(info.domains, ", "),
+			),
+			AffectedAssets:     info.domains,
+			ContributingChecks: []string{string(checkID)},
+			Remediation:        "Remediate across all affected targets simultaneously to avoid incomplete fixes.",
+			CreatedAt:          time.Now(),
+		})
+	}
+	return out
+}
+
+// readTargetsFile reads a file with one domain per line, ignoring blank
+// lines and lines beginning with '#'.
+func readTargetsFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out, nil
+}
+
+// uniqueStrings returns ss with duplicates removed, preserving order.
+func uniqueStrings(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	var out []string
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ---------- remote scan ----------
@@ -807,6 +1625,99 @@ func cmdHistory(cfg *config.Config, args []string) {
 	w.Flush()
 }
 
+// ---------- scans (list all) ----------
+
+func cmdScans(cfg *config.Config, args []string) {
+	limit := 50
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--limit" {
+			i++
+			if i < len(args) {
+				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+					limit = n
+				}
+			}
+		}
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	runs, err := st.ListAllScanRuns(ctx, limit)
+	if err != nil {
+		fatalf("list scans: %v", err)
+	}
+
+	if len(runs) == 0 {
+		fmt.Fprintln(os.Stderr, "no scans found")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tDOMAIN\tTYPE\tSTATUS\tFINDINGS\tSTARTED\tDURATION")
+	for _, r := range runs {
+		dur := ""
+		if r.CompletedAt != nil {
+			dur = r.CompletedAt.Sub(r.StartedAt).Truncate(time.Second).String()
+		} else if r.Status == store.StatusRunning {
+			dur = time.Since(r.StartedAt).Truncate(time.Second).String() + " (running)"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			r.ID, r.Domain, r.ScanType, r.Status, r.FindingCount,
+			r.StartedAt.Format("2006-01-02 15:04"), dur)
+	}
+	w.Flush()
+}
+
+// ---------- stop ----------
+
+func cmdStop(cfg *config.Config, args []string) {
+	var id string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--id" {
+			i++
+			if i < len(args) {
+				id = args[i]
+			}
+		}
+	}
+	if id == "" {
+		fatalf("--id is required")
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	run, err := st.GetScanRun(ctx, id)
+	if err != nil {
+		fatalf("get scan: %v", err)
+	}
+	if run.Status != store.StatusRunning && run.Status != store.StatusPending {
+		fmt.Fprintf(os.Stderr, "scan %s is already %s\n", id, run.Status)
+		return
+	}
+
+	// If this scan is running in the current process, cancel its context too.
+	if j, ok := getLiveJob(id); ok {
+		j.Stop()
+	}
+
+	run.Status = store.StatusStopped
+	run.Error = "stopped via CLI"
+	if err := st.UpdateScanRun(ctx, run); err != nil {
+		fatalf("update scan: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "beacon: scan %s marked as stopped\n", id)
+}
+
 // ---------- live job registry ----------
 
 // liveJob represents a scan that is currently running inside this process.
@@ -825,10 +1736,6 @@ type liveJob struct {
 	paused  bool
 	pauseCh chan struct{} // non-nil when paused; close to resume
 
-	// externalRunning is true for scans started outside this process that are
-	// still in running/pending state. The done channel is never closed for
-	// these; the browse ticker periodically reloads findings from the DB.
-	externalRunning bool
 }
 
 func (j *liveJob) Stop() { j.cancel() }
@@ -952,6 +1859,11 @@ type browseState struct {
 	// copyFlash is set to a short status message when 'y' is pressed.
 	// Shown in the detail header for one render cycle, then cleared.
 	copyFlash string
+
+	// Asset detail scroll state.
+	assetDetailOff      int  // scroll offset for the full evidence/findings lines view
+	assetDetailFindLine int  // absolute line index where findings begin (set by render, used by Enter)
+	assetDetailFromDetail bool // entered browseModeAssetDetail via [a] from browseModeDetail
 }
 
 var browseSpinChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -1102,6 +2014,16 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		if len(findings) > 0 {
 			_ = st.SaveFindings(bgCtx, run.ID, findings)
 		}
+
+		// Build and persist the asset graph so it is available for
+		// `beacon report --format graph` and included in JSON reports.
+		graphBuilder := asset.NewBuilder(run.ID, domain)
+		graphBuilder.AddDomainAsset(domain, nil, "surface")
+		graphBuilder.AddFindings(findings)
+		g := graphBuilder.Build()
+		if graphJSON, gErr := json.Marshal(g); gErr == nil {
+			_ = st.SaveAssetGraph(bgCtx, run.ID, graphJSON)
+		}
 	}()
 
 	return job
@@ -1248,11 +2170,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 
 		switch bs.mode {
 		case browseModeScans:
-			// Dismiss the "stop first" error on any keypress.
+			// Dismiss the "stop first" error on any keypress, but let the key
+			// fall through so 's' can stop the scan in the same press.
 			if bs.deleteBlockedMsg != "" {
 				bs.deleteBlockedMsg = ""
-				browseRender(bs)
-				continue
 			}
 			// Handle confirmation prompts first.
 			if bs.confirmingDelete {
@@ -1296,14 +2217,15 @@ func browseInteractive(cfg *config.Config) browseResult {
 			if (isEnter || b[0] == 'f') && len(bs.scans) > 0 {
 				sel := bs.scans[bs.scanCursor]
 				if job, ok := getLiveJob(sel.ID); ok {
+					// 'f' jumps straight to findings list; Enter shows progress overview.
+					if b[0] == 'f' {
+						job.renderer.mu.Lock()
+						job.renderer.mode = "findings"
+						job.renderer.mu.Unlock()
+					}
 					attachJob(bs, job)
 				} else {
 					job := historicalJob(ctx, st, sel, "findings")
-					// No live goroutine backs this job — treat orphaned running/pending as done.
-					if job.externalRunning {
-						close(job.done)
-						job.externalRunning = false
-					}
 					attachJob(bs, job)
 				}
 				// Render immediately instead of waiting for the 500ms ticker.
@@ -1323,10 +2245,6 @@ func browseInteractive(cfg *config.Config) browseResult {
 					attachJob(bs, job)
 				} else {
 					job := historicalJob(ctx, st, sel, "assets")
-					if job.externalRunning {
-						close(job.done)
-						job.externalRunning = false
-					}
 					attachJob(bs, job)
 				}
 				// Render immediately instead of waiting for the 500ms ticker.
@@ -1362,6 +2280,11 @@ func browseInteractive(cfg *config.Config) browseResult {
 					_ = st.UpdateScanRun(ctx, &sel)
 					bs.scans[bs.scanCursor] = sel
 				}
+				// Reload scan list immediately so the updated status is visible.
+				if updated, err := st.ListRecentScanRuns(ctx, 200); err == nil {
+					bs.scans = updated
+				}
+				browseRender(bs)
 			}
 			// 'p' → pause or resume the selected live job.
 			if b[0] == 'p' && len(bs.scans) > 0 {
@@ -1392,8 +2315,8 @@ func browseInteractive(cfg *config.Config) browseResult {
 			// 'n' → scan type menu, then launch as a background job.
 			if b[0] == 'n' {
 				term.Restore(fd, old)
-				fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l")
-				fmt.Fprint(os.Stderr, "\nNew scan\n\n")
+				fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l\x1b[2J\x1b[H")
+				fmt.Fprint(os.Stderr, "New scan\n\n")
 				fmt.Fprint(os.Stderr, "  1) Surface scan       (passive recon, safe to run without permission)\n")
 				fmt.Fprint(os.Stderr, "  2) Deep scan          (active probes — requires explicit permission)\n")
 				fmt.Fprint(os.Stderr, "\nScan type [1, blank to cancel]: ")
@@ -1542,6 +2465,21 @@ func browseInteractive(cfg *config.Config) browseResult {
 					bs.copyFlash = "\x1b[90mNo proof command to copy\x1b[0m"
 				}
 			}
+			if b[0] == 'a' && bs.selectedFinding != nil {
+				asset := bs.selectedFinding.Finding.Asset
+				for i, ex := range bs.executions {
+					if ex.Asset == asset {
+						bs.selectedExec = &bs.executions[i]
+						bs.assetDetailOff = 0
+						bs.assetDetailFindLine = 0
+						bs.execFindCursor = 0
+						bs.execFindOff = 0
+						bs.assetDetailFromDetail = true
+						bs.mode = browseModeAssetDetail
+						break
+					}
+				}
+			}
 
 		case browseModeAssets:
 			if isQ {
@@ -1575,14 +2513,34 @@ func browseInteractive(cfg *config.Config) browseResult {
 				return browseResult{}
 			}
 			if isEsc || b[0] == 'b' {
-				bs.mode = browseModeAssets
-				bs.selectedExec = nil
+				if bs.assetDetailFromDetail {
+					bs.assetDetailFromDetail = false
+					bs.mode = browseModeDetail
+				} else {
+					bs.mode = browseModeAssets
+					bs.selectedExec = nil
+				}
 			}
 			if isDown {
-				bs.execFindCursor++
+				bs.assetDetailOff++
+				// Keep finding cursor in sync with scroll position in findings section.
+				if bs.assetDetailFindLine > 0 {
+					rel := bs.assetDetailOff - bs.assetDetailFindLine
+					if rel > 0 {
+						bs.execFindCursor = rel
+					}
+				}
 			}
-			if isUp && bs.execFindCursor > 0 {
-				bs.execFindCursor--
+			if isUp && bs.assetDetailOff > 0 {
+				bs.assetDetailOff--
+				if bs.assetDetailFindLine > 0 {
+					rel := bs.assetDetailOff - bs.assetDetailFindLine
+					if rel > 0 {
+						bs.execFindCursor = rel
+					} else {
+						bs.execFindCursor = 0
+					}
+				}
 			}
 			if isEnter && bs.selectedExec != nil {
 				af := browseAssetFindings(bs)
@@ -1590,6 +2548,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 					f := af[bs.execFindCursor]
 					bs.selectedFinding = &f
 					bs.detailOff = 0
+					bs.assetDetailFromDetail = false
 					bs.mode = browseModeDetail
 				}
 			}
@@ -1724,6 +2683,9 @@ func attachJob(bs *browseState, job *liveJob) {
 		// Reset to the top-level overview so the user doesn't land inside a
 		// sub-view (e.g. assets) they left before detaching.
 		job.renderer.mode = "progress"
+		// Reset severity filter: a stale high-sev filter (e.g. "critical only")
+		// would silently show 0 findings on re-attach, which is very confusing.
+		job.renderer.minSeverity = finding.SeverityInfo
 	default:
 	}
 	job.renderer.drawnLines = 0
@@ -1772,10 +2734,11 @@ func loadHistoricalScan(ctx context.Context, st interface {
 }
 
 // historicalJob wraps a DB scan run in a liveJob so it can be attached to the
-// browse TUI. For completed/failed/stopped runs the done channel is closed
-// immediately so the renderer shows phase "done". For running/pending runs the
-// done channel is left open and externalRunning is set so the browse ticker can
-// poll for new findings without the attach loop immediately detaching.
+// browse TUI. The done channel is intentionally never closed: the ticker's
+// done-channel check is only meant to auto-detach when a live scan goroutine
+// finishes. For historical scans (completed, stopped, failed, orphaned running)
+// there is no goroutine, so we leave done open and let the user navigate back
+// manually with 'b' or 'q'.
 func historicalJob(ctx context.Context, st interface {
 	GetFindings(context.Context, string) ([]finding.Finding, error)
 	ListAssetExecutions(context.Context, string) ([]store.AssetExecution, error)
@@ -1783,20 +2746,13 @@ func historicalJob(ctx context.Context, st interface {
 	r := loadHistoricalScan(ctx, st, run)
 	r.mode = initialMode
 
-	doneCh := make(chan struct{})
-	extRunning := run.Status == store.StatusRunning || run.Status == store.StatusPending
-	if !extRunning {
-		close(doneCh)
-	}
-
 	return &liveJob{
-		runID:           run.ID,
-		domain:          run.Domain,
-		scanType:        string(run.ScanType),
-		cancel:          func() {},
-		renderer:        r,
-		done:            doneCh,
-		externalRunning: extRunning,
+		runID:    run.ID,
+		domain:   run.Domain,
+		scanType: string(run.ScanType),
+		cancel:   func() {},
+		renderer: r,
+		done:     make(chan struct{}), // never closed; user navigates back manually
 	}
 }
 
@@ -2132,7 +3088,7 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 		fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[90m[j/k] scroll  [b/q] back\x1b[0m\n", bs.copyFlash)
 		bs.copyFlash = "" // clear after one render
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [b/q] back\x1b[0m\n")
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [a] asset  [b/q] back\x1b[0m\n")
 	}
 
 	end := bs.detailOff + bodyLines
@@ -2261,56 +3217,260 @@ func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH
 	ex := bs.selectedExec
 	ev := ex.Evidence
 
-	// Build content lines — header block first, then findings list.
-	lineCount := 0
-
-	name := ex.Asset
-	if len(name) > 50 {
-		name = "…" + name[len(name)-49:]
+	// Build all content as scrollable lines (like browseRenderDetail).
+	var lines []string
+	kv := func(label string, value string) {
+		lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", label, value))
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m◀\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[b/q] back  [j/k] move  [↵] finding detail\x1b[0m\n", name)
-	lineCount++
 
-	// Network info line.
-	var infoParts []string
+	// ── Discovery & Classification ────────────────────────────────────────
+	lines = append(lines, "\x1b[1mDiscovery & Classification\x1b[0m")
+	if ex.ExpandedFrom != "" {
+		kv("expanded from", ex.ExpandedFrom)
+	}
+	src := ev.ClassificationSource
+	if src == "" {
+		src = "deterministic rules"
+	}
+	kv("classification", src)
+	if ex.ClassifyDurationMs > 0 {
+		kv("classify duration", fmt.Sprintf("%dms", ex.ClassifyDurationMs))
+	}
+	if len(ex.ScannersRun) > 0 {
+		// Wrap long scanner lists.
+		scanners := strings.Join(ex.ScannersRun, ", ")
+		if len(scanners) > termW-32 {
+			scanners = scanners[:termW-35] + "…"
+		}
+		kv("scanners run", scanners)
+	}
+	if len(ex.MatchedPlaybooks) > 0 {
+		kv("matched playbooks", strings.Join(ex.MatchedPlaybooks, ", "))
+	}
+	lines = append(lines, "")
+
+	// ── Network ───────────────────────────────────────────────────────────
+	lines = append(lines, "\x1b[1mNetwork\x1b[0m")
 	if ev.IP != "" {
-		infoParts = append(infoParts, "IP: "+ev.IP)
+		kv("ip", ev.IP)
 	}
 	if ev.ASNOrg != "" {
-		org := ev.ASNOrg
-		if len(org) > 22 {
-			org = org[:21] + "…"
+		asn := ev.ASNOrg
+		if ev.ASNNum != "" {
+			asn += " (" + ev.ASNNum + ")"
 		}
-		infoParts = append(infoParts, "ASN: "+org)
-	}
-	if ev.StatusCode > 0 {
-		infoParts = append(infoParts, fmt.Sprintf("HTTP %d", ev.StatusCode))
-	}
-	if ws := ev.ServiceVersions["web_server"]; ws != "" {
-		if i := strings.IndexAny(ws, "/ "); i > 0 {
-			ws = ws[:i]
-		}
-		infoParts = append(infoParts, ws)
-	}
-	if ev.CloudProvider != "" {
-		infoParts = append(infoParts, "cloud:"+ev.CloudProvider)
-	}
-	if ev.Framework != "" {
-		infoParts = append(infoParts, "fw:"+ev.Framework)
+		kv("asn", asn)
 	}
 	if len(ev.CNAMEChain) > 0 {
-		cn := ev.CNAMEChain[0]
-		if len(cn) > 30 {
-			cn = "…" + cn[len(cn)-29:]
-		}
-		infoParts = append(infoParts, "→ "+cn)
+		kv("cname chain", strings.Join(ev.CNAMEChain, " → "))
 	}
-	if len(infoParts) > 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Join(infoParts, "  "))
-		lineCount++
+	if ev.StatusCode > 0 {
+		kv("http status", fmt.Sprintf("%d", ev.StatusCode))
+	}
+	if ev.CloudProvider != "" {
+		kv("cloud", ev.CloudProvider)
+	}
+	if ev.InfraLayer != "" {
+		kv("infra layer", ev.InfraLayer)
+	}
+	if ev.ProxyType != "" {
+		kv("proxy", ev.ProxyType)
+	}
+	if ev.Framework != "" {
+		kv("framework", ev.Framework)
+	}
+	if ev.AuthSystem != "" {
+		kv("auth system", ev.AuthSystem)
+	}
+	if ev.AuthScheme != "" {
+		kv("auth scheme", ev.AuthScheme)
+	}
+	if ev.IsServerless {
+		kv("serverless", "yes")
+	}
+	if ev.IsKubernetes {
+		kv("kubernetes", "yes")
+	}
+	if ev.IsReverseProxy {
+		kv("reverse proxy", "yes")
+	}
+	if ev.HTTP2Enabled {
+		kv("http2", "yes")
+	}
+	if ev.MXProvider != "" {
+		kv("mx provider", ev.MXProvider)
+	}
+	if len(ev.BackendServices) > 0 {
+		kv("backend services", strings.Join(ev.BackendServices, ", "))
+	}
+	lines = append(lines, "")
+
+	// ── TLS ───────────────────────────────────────────────────────────────
+	if ev.CertIssuer != "" || len(ev.CertSANs) > 0 || ev.JARMFingerprint != "" {
+		lines = append(lines, "\x1b[1mTLS\x1b[0m")
+		if ev.CertIssuer != "" {
+			kv("cert issuer", ev.CertIssuer)
+		}
+		if len(ev.CertSANs) > 0 {
+			shown := ev.CertSANs
+			if len(shown) > 6 {
+				shown = shown[:6]
+			}
+			kv("cert SANs", strings.Join(shown, ", "))
+			if len(ev.CertSANs) > 6 {
+				kv("", fmt.Sprintf("(+%d more)", len(ev.CertSANs)-6))
+			}
+		}
+		if ev.JARMFingerprint != "" {
+			kv("jarm", ev.JARMFingerprint)
+		}
+		lines = append(lines, "")
 	}
 
-	// Open ports line from portscan findings.
+	// ── HTTP Headers & Fingerprints ───────────────────────────────────────
+	interestingHeaders := []string{
+		"server", "x-powered-by", "x-aspnet-version", "via",
+		"x-cache", "x-amz-cf-id", "cf-ray", "x-vercel-id",
+		"x-forwarded-server", "x-generator",
+	}
+	var headerLines []string
+	for _, h := range interestingHeaders {
+		if v, ok := ev.Headers[h]; ok && v != "" {
+			headerLines = append(headerLines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", h, v))
+		}
+	}
+	if len(headerLines) > 0 || len(ev.ServiceVersions) > 0 || ev.FaviconHash != "" || len(ev.CookieNames) > 0 {
+		lines = append(lines, "\x1b[1mHTTP / Fingerprints\x1b[0m")
+		lines = append(lines, headerLines...)
+		// Service versions not already shown via headers.
+		svOrder := []string{"web_server", "powered_by", "aspnet_version", "ssh_software", "ftp_software"}
+		shownSV := map[string]bool{}
+		for _, k := range svOrder {
+			if v, ok := ev.ServiceVersions[k]; ok && v != "" {
+				lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", k, v))
+				shownSV[k] = true
+			}
+		}
+		for k, v := range ev.ServiceVersions {
+			if !shownSV[k] && v != "" {
+				lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", k, v))
+			}
+		}
+		if ev.FaviconHash != "" {
+			kv("favicon hash", ev.FaviconHash)
+		}
+		if len(ev.CookieNames) > 0 {
+			kv("cookies", strings.Join(ev.CookieNames, ", "))
+		}
+		if len(ev.VendorSignals) > 0 {
+			kv("vendor signals", strings.Join(ev.VendorSignals, ", "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── Responding Paths ─────────────────────────────────────────────────
+	if len(ev.RespondingPaths) > 0 || len(ev.RobotsTxtPaths) > 0 {
+		lines = append(lines, "\x1b[1mPaths\x1b[0m")
+		if len(ev.RespondingPaths) > 0 {
+			shown := ev.RespondingPaths
+			if len(shown) > 10 {
+				shown = shown[:10]
+			}
+			kv("responding paths", strings.Join(shown, "  "))
+			if len(ev.RespondingPaths) > 10 {
+				kv("", fmt.Sprintf("(+%d more)", len(ev.RespondingPaths)-10))
+			}
+		}
+		if len(ev.RobotsTxtPaths) > 0 {
+			shown := ev.RobotsTxtPaths
+			if len(shown) > 8 {
+				shown = shown[:8]
+			}
+			kv("robots.txt disallow", strings.Join(shown, "  "))
+		}
+		if len(ex.DirbustPathsFound) > 0 {
+			shown := ex.DirbustPathsFound
+			if len(shown) > 10 {
+				shown = shown[:10]
+			}
+			kv("dirbust hits", strings.Join(shown, "  "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── DNS ───────────────────────────────────────────────────────────────
+	hasDNS := len(ev.TXTRecords) > 0 || len(ev.NSRecords) > 0 || ev.SOARecord != "" ||
+		len(ev.MXRecords) > 0 || len(ev.AAAARecords) > 0 || ev.HasDMARC || len(ev.SPFIPs) > 0
+	if hasDNS {
+		lines = append(lines, "\x1b[1mDNS\x1b[0m")
+		if ev.SOARecord != "" {
+			kv("soa", ev.SOARecord)
+		}
+		if len(ev.NSRecords) > 0 {
+			kv("ns", strings.Join(ev.NSRecords, ", "))
+		}
+		if len(ev.MXRecords) > 0 {
+			kv("mx", strings.Join(ev.MXRecords, ", "))
+		}
+		if ev.HasDMARC {
+			dmarc := "present"
+			if ev.DMARCPolicy != "" {
+				dmarc += " (p=" + ev.DMARCPolicy + ")"
+			}
+			kv("dmarc", dmarc)
+		}
+		if len(ev.SPFIPs) > 0 {
+			kv("spf ips", strings.Join(ev.SPFIPs, ", "))
+		}
+		if len(ev.TXTRecords) > 0 {
+			shown := ev.TXTRecords
+			if len(shown) > 4 {
+				shown = shown[:4]
+			}
+			for _, t := range shown {
+				if len(t) > termW-32 {
+					t = t[:termW-35] + "…"
+				}
+				lines = append(lines, fmt.Sprintf("  \x1b[90m%-26s\x1b[0m  %s", "txt", t))
+			}
+		}
+		if len(ev.AAAARecords) > 0 {
+			kv("ipv6", strings.Join(ev.AAAARecords, ", "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── Web3 ─────────────────────────────────────────────────────────────
+	if len(ev.Web3Signals) > 0 || len(ev.ContractAddresses) > 0 {
+		lines = append(lines, "\x1b[1mWeb3\x1b[0m")
+		if len(ev.Web3Signals) > 0 {
+			kv("signals", strings.Join(ev.Web3Signals, ", "))
+		}
+		if len(ev.ContractAddresses) > 0 {
+			kv("contracts", strings.Join(ev.ContractAddresses, ", "))
+		}
+		lines = append(lines, "")
+	}
+
+	// ── AI / LLM ─────────────────────────────────────────────────────────
+	if len(ev.AIEndpoints) > 0 || ev.LLMProvider != "" {
+		lines = append(lines, "\x1b[1mAI / LLM\x1b[0m")
+		if ev.LLMProvider != "" {
+			kv("llm provider", ev.LLMProvider)
+		}
+		if len(ev.AIEndpoints) > 0 {
+			kv("ai endpoints", strings.Join(ev.AIEndpoints, ", "))
+		}
+		if ev.HasAISSE {
+			kv("sse streaming", "yes")
+		}
+		if ev.HasAgentTools {
+			kv("agent tools", "yes")
+		}
+		lines = append(lines, "")
+	}
+
+	// ── Open Ports (from portscan findings) ──────────────────────────────
 	var portParts []string
 	for _, ef := range bs.findings {
 		f := ef.Finding
@@ -2330,86 +3490,76 @@ func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH
 		}
 	}
 	if len(portParts) > 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mports: %s\x1b[0m\n", strings.Join(portParts, "  "))
-		lineCount++
+		lines = append(lines, "\x1b[1mOpen Ports\x1b[0m")
+		kv("ports", strings.Join(portParts, "  "))
+		lines = append(lines, "")
 	}
 
-	// Matched playbooks.
-	if len(ex.MatchedPlaybooks) > 0 {
-		pb := strings.Join(ex.MatchedPlaybooks, ", ")
-		if len(pb) > termW-14 {
-			pb = pb[:termW-17] + "…"
-		}
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mplaybooks: %s\x1b[0m\n", pb)
-		lineCount++
-	}
-
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Repeat("─", min(termW-4, 70)))
-	lineCount++
-
-	// Findings list for this asset.
+	// ── Findings ─────────────────────────────────────────────────────────
+	lines = append(lines, "\x1b[90m"+strings.Repeat("─", min(termW-4, 70))+"\x1b[0m")
 	af := browseAssetFindings(bs)
-	total := len(af)
-	bodyLines := termH - lineCount - 1
-	if bodyLines < 1 {
-		bodyLines = 1
-	}
+	bs.assetDetailFindLine = len(lines) // record where findings start
 
-	// Clamp cursor and scroll.
+	total := len(af)
 	if total == 0 {
-		bs.execFindCursor = 0
+		lines = append(lines, "\x1b[32mNo findings — clean asset\x1b[0m")
 	} else {
+		// Clamp finding cursor.
 		if bs.execFindCursor >= total {
 			bs.execFindCursor = total - 1
 		}
+		for i, ef := range af {
+			f := ef.Finding
+			col := severityColor(f.Severity)
+			sev := strings.ToUpper(f.Severity.String())
+			if len(sev) > 4 {
+				sev = sev[:4]
+			}
+			title := f.Title
+			maxTitle := termW - 14
+			if maxTitle < 20 {
+				maxTitle = 20
+			}
+			if len(title) > maxTitle {
+				title = title[:maxTitle-1] + "…"
+			}
+			cursor := "  "
+			if i == bs.execFindCursor {
+				cursor = "\x1b[1;33m▶\x1b[0m "
+			}
+			lines = append(lines, fmt.Sprintf("%s%s%-4s\x1b[0m  %s", cursor, col, sev, title))
+		}
+		lines = append(lines, fmt.Sprintf("\x1b[90m%d finding(s)\x1b[0m", total))
 	}
-	if bs.execFindCursor < bs.execFindOff {
-		bs.execFindOff = bs.execFindCursor
+
+	// ── Render ───────────────────────────────────────────────────────────
+	name := ex.Asset
+	if len(name) > 50 {
+		name = "…" + name[len(name)-49:]
 	}
-	if bs.execFindCursor >= bs.execFindOff+bodyLines {
-		bs.execFindOff = bs.execFindCursor - bodyLines + 1
+	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m◀\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[j/k] scroll  [↵] open finding  [b/q] back\x1b[0m\n", name)
+
+	bodyLines := termH - 2
+	if bodyLines < 1 {
+		bodyLines = 1
 	}
-	maxOff := total - bodyLines
+	maxOff := len(lines) - bodyLines
 	if maxOff < 0 {
 		maxOff = 0
 	}
-	if bs.execFindOff > maxOff {
-		bs.execFindOff = maxOff
+	if bs.assetDetailOff > maxOff {
+		bs.assetDetailOff = maxOff
 	}
 
-	offEnd := bs.execFindOff + bodyLines
-	if offEnd > total {
-		offEnd = total
+	end := bs.assetDetailOff + bodyLines
+	if end > len(lines) {
+		end = len(lines)
 	}
-	for i := bs.execFindOff; i < offEnd; i++ {
-		f := af[i].Finding
-		col := severityColor(f.Severity)
-		sev := strings.ToUpper(f.Severity.String())
-		if len(sev) > 4 {
-			sev = sev[:4]
-		}
-		title := f.Title
-		maxTitle := termW - 20
-		if maxTitle < 20 {
-			maxTitle = 20
-		}
-		if len(title) > maxTitle {
-			title = title[:maxTitle-1] + "…"
-		}
-		cursor := "  "
-		if i == bs.execFindCursor {
-			cursor = "\x1b[1;33m▶\x1b[0m "
-		}
-		fmt.Fprintf(buf, "\x1b[2K\r%s%s%-4s\x1b[0m  %s\n", cursor, col, sev, title)
-		lineCount++
-	}
-
-	if total == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[32mNo findings — clean asset\x1b[0m\n")
-	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d findings\x1b[0m\n", bs.execFindCursor+1, total)
+	for _, l := range lines[bs.assetDetailOff:end] {
+		fmt.Fprintf(buf, "\x1b[2K\r  %s\n", l)
 	}
 }
+
 
 // severityTag returns a coloured severity badge matching the live TUI style.
 func severityTag(sev finding.Severity) string {
@@ -2428,8 +3578,14 @@ func severityTag(sev finding.Severity) string {
 }
 
 func truncate(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if len(s) <= n {
 		return s
+	}
+	if n == 1 {
+		return "…"
 	}
 	return s[:n-1] + "…"
 }
@@ -2492,8 +3648,9 @@ func cmdReport(cfg *config.Config, args []string) {
 		fatalf("get scan run: %v", err)
 	}
 
+	graphJSON, _ := st.GetAssetGraph(ctx, id)
 	executions, _ := st.ListAssetExecutions(ctx, run.ID)
-	output, err := renderFormat(format, *run, enriched, rep.Summary, rep, executions)
+	output, err := renderFormat(format, *run, enriched, rep.Summary, rep, executions, graphJSON)
 	if err != nil {
 		fatalf("render report: %v", err)
 	}
@@ -2758,6 +3915,98 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	_ = st.UpdatePlaybookSuggestion(ctx, target)
 }
 
+// cmdPlaybookImport writes an approved suggestion's YAML to
+// ~/.config/beacon/playbooks/<name>.yaml so LoadUserDir picks it up on
+// the next scan. Usage: beacon playbook import --id <suggestion-id>
+func cmdPlaybookImport(cfg *config.Config, args []string) {
+	var id string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--id" {
+			i++
+			if i < len(args) {
+				id = args[i]
+			}
+		}
+	}
+	if id == "" {
+		fatalf("usage: beacon playbook import --id <suggestion-id>")
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
+	if err != nil {
+		fatalf("list suggestions: %v", err)
+	}
+	var target *store.PlaybookSuggestion
+	for i := range suggestions {
+		if suggestions[i].ID == id {
+			target = &suggestions[i]
+			break
+		}
+	}
+	if target == nil {
+		fatalf("suggestion not found: %s", id)
+	}
+
+	if err := importPlaybookSuggestion(target); err != nil {
+		fatalf("import playbook: %v", err)
+	}
+	target.Status = "imported"
+	_ = st.UpdatePlaybookSuggestion(ctx, target)
+	fmt.Fprintf(os.Stdout, "Imported playbook %q — active on next scan.\n", target.TargetPlaybook)
+}
+
+// cmdPlaybookDismiss marks a pending suggestion as dismissed so it no longer
+// appears in 'beacon playbook suggestions'. Usage: beacon playbook dismiss --id <id>
+func cmdPlaybookDismiss(cfg *config.Config, args []string) {
+	var id string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--id" {
+			i++
+			if i < len(args) {
+				id = args[i]
+			}
+		}
+	}
+	if id == "" {
+		fatalf("usage: beacon playbook dismiss --id <suggestion-id>")
+	}
+
+	ctx := context.Background()
+	st, err := sqlitestore.Open(cfg.Store.Path)
+	if err != nil {
+		fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
+	if err != nil {
+		fatalf("list suggestions: %v", err)
+	}
+	var target *store.PlaybookSuggestion
+	for i := range suggestions {
+		if suggestions[i].ID == id {
+			target = &suggestions[i]
+			break
+		}
+	}
+	if target == nil {
+		fatalf("suggestion not found: %s", id)
+	}
+
+	target.Status = "dismissed"
+	if err := st.UpdatePlaybookSuggestion(ctx, target); err != nil {
+		fatalf("dismiss: %v", err)
+	}
+	fmt.Fprintf(os.Stdout, "Dismissed suggestion %s (%s).\n", id, target.TargetPlaybook)
+}
+
 // ---------- terraform ----------
 
 // cmdTerraform scans one or more Terraform/OpenTofu HCL files (or directories)
@@ -2828,8 +4077,8 @@ func cmdTerraform(cfg *config.Config, args []string) {
 		}
 	}
 
-	if cfg.AnthropicAPIKey != "" {
-		enricher, err := enrichment.NewClaudeDefault(cfg.AnthropicAPIKey)
+	if ai := cfg.ActiveAI(); ai != nil {
+		enricher, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err == nil {
 			ctx := context.Background()
 			if ef, err := enricher.Enrich(ctx, findings); err == nil {
@@ -2896,6 +4145,180 @@ func printTerraformText(enriched []enrichment.EnrichedFinding) {
 	}
 }
 
+func cmdScanCloud(cfg *config.Config, args []string) {
+	var (
+		awsProfile         string
+		gcpCredentials     string
+		azureSubscription  string
+		domain             string
+		format             = "text"
+		outPath            string
+		severityFlag       string
+	)
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--aws-profile":
+			if i+1 < len(args) {
+				i++
+				awsProfile = args[i]
+			}
+		case "--gcp-credentials":
+			if i+1 < len(args) {
+				i++
+				gcpCredentials = args[i]
+			}
+		case "--azure-subscription":
+			if i+1 < len(args) {
+				i++
+				azureSubscription = args[i]
+			}
+		case "--domain":
+			if i+1 < len(args) {
+				i++
+				domain = args[i]
+			}
+		case "--format", "-f":
+			if i+1 < len(args) {
+				i++
+				format = args[i]
+			}
+		case "--out", "-o":
+			if i+1 < len(args) {
+				i++
+				outPath = args[i]
+			}
+		case "--severity", "-s":
+			if i+1 < len(args) {
+				i++
+				severityFlag = args[i]
+			}
+		}
+	}
+
+	inp := module.Input{
+		CloudEnabled:        true,
+		AWSProfile:          awsProfile,
+		GCPCredentialsFile:  gcpCredentials,
+		AzureSubscriptionID: azureSubscription,
+		Domain:              domain,
+	}
+
+	ctx := context.Background()
+	m := cloudmodule.New()
+	findings, err := m.Run(ctx, inp, module.ScanDeep)
+	if err != nil {
+		fatalf("cloud scan: %v", err)
+	}
+
+	// Apply severity filter.
+	minSev := finding.ParseSeverity(severityFlag)
+	if minSev > finding.SeverityInfo {
+		var filtered []finding.Finding
+		for _, f := range findings {
+			if f.Severity >= minSev {
+				filtered = append(filtered, f)
+			}
+		}
+		findings = filtered
+	}
+
+	if len(findings) == 0 {
+		fmt.Println("No cloud posture issues found.")
+		return
+	}
+
+	// Enrich with AI if configured.
+	enriched := make([]enrichment.EnrichedFinding, len(findings))
+	for i, f := range findings {
+		enriched[i] = enrichment.EnrichedFinding{Finding: f}
+	}
+	if ai := cfg.ActiveAI(); ai != nil {
+		if enricher, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL); err == nil {
+			if ef, err := enricher.Enrich(ctx, findings); err == nil {
+				enriched = ef
+			}
+		}
+	}
+
+	// Render output.
+	var w io.Writer = os.Stdout
+	if outPath != "" {
+		f, err := os.Create(outPath)
+		if err != nil {
+			fatalf("cloud: create output file: %v", err)
+		}
+		defer f.Close()
+		w = f
+	}
+
+	switch format {
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(enriched)
+	case "markdown", "md":
+		printCloudMarkdown(w, enriched)
+	default:
+		printCloudText(w, enriched)
+	}
+}
+
+func printCloudText(w io.Writer, enriched []enrichment.EnrichedFinding) {
+	counts := map[finding.Severity]int{}
+	for _, ef := range enriched {
+		counts[ef.Finding.Severity]++
+	}
+	fmt.Fprintf(w, "Cloud posture scan: %d finding(s)\n", len(enriched))
+	for _, sev := range []finding.Severity{finding.SeverityCritical, finding.SeverityHigh, finding.SeverityMedium, finding.SeverityLow, finding.SeverityInfo} {
+		if n := counts[sev]; n > 0 {
+			fmt.Fprintf(w, "  %s: %d\n", sev, n)
+		}
+	}
+	fmt.Fprintln(w)
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Fprintf(w, "[%s] %s\n", f.Severity, f.Title)
+		fmt.Fprintf(w, "  Asset: %s\n", f.Asset)
+		if ef.Explanation != "" && ef.Explanation != f.Description {
+			fmt.Fprintf(w, "  %s\n", ef.Explanation)
+		} else {
+			fmt.Fprintf(w, "  %s\n", f.Description)
+		}
+		if f.ProofCommand != "" {
+			fmt.Fprintf(w, "  Proof: %s\n", f.ProofCommand)
+		}
+		if ef.Remediation != "" {
+			fmt.Fprintf(w, "  Fix: %s\n", ef.Remediation)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func printCloudMarkdown(w io.Writer, enriched []enrichment.EnrichedFinding) {
+	fmt.Fprintf(w, "# Cloud Posture Scan Results\n\n%d finding(s)\n\n", len(enriched))
+	for _, ef := range enriched {
+		f := ef.Finding
+		fmt.Fprintf(w, "## [%s] %s\n\n", f.Severity, f.Title)
+		fmt.Fprintf(w, "**Asset:** `%s`\n\n", f.Asset)
+		if ef.Explanation != "" {
+			fmt.Fprintf(w, "%s\n\n", ef.Explanation)
+		} else if f.Description != "" {
+			fmt.Fprintf(w, "%s\n\n", f.Description)
+		}
+		if ef.Impact != "" {
+			fmt.Fprintf(w, "**Impact:** %s\n\n", ef.Impact)
+		}
+		if ef.Remediation != "" {
+			fmt.Fprintf(w, "**Remediation:** %s\n\n", ef.Remediation)
+		}
+		if f.ProofCommand != "" {
+			fmt.Fprintf(w, "**Proof:** `%s`\n\n", f.ProofCommand)
+		}
+		fmt.Fprintf(w, "---\n\n")
+	}
+}
+
 func printTerraformMarkdown(enriched []enrichment.EnrichedFinding) {
 	fmt.Printf("# Terraform Scan Results\n\n")
 	fmt.Printf("%d finding(s)\n\n", len(enriched))
@@ -2931,7 +4354,7 @@ func filterBySeverity(enriched []enrichment.EnrichedFinding, severityFlag string
 	if min <= finding.SeverityInfo {
 		return enriched
 	}
-	out := enriched[:0]
+	var out []enrichment.EnrichedFinding
 	for _, ef := range enriched {
 		if ef.Finding.Severity >= min {
 			out = append(out, ef)
@@ -2941,15 +4364,30 @@ func filterBySeverity(enriched []enrichment.EnrichedFinding, severityFlag string
 }
 
 // renderFormat produces the report string in the requested format.
-// format is one of: "text" (default), "html", "json", "markdown".
-func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution) (string, error) {
+// format is one of: "text" (default), "html", "json", "markdown", "ocsf", "graph".
+// graphJSON is the persisted asset graph blob; it is included in the JSON report
+// when non-nil and used to render DOT output for the "graph" format.
+func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte) (string, error) {
 	switch strings.ToLower(format) {
 	case "html":
 		return rep.HTMLContent, nil
 	case "json":
-		return report.RenderJSON(run, enriched, summary)
+		return report.RenderJSON(run, enriched, summary, graphJSON)
 	case "markdown", "md":
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
+	case "ocsf":
+		// OCSF 1.4.0 NDJSON — one Vulnerability Finding event per line.
+		// Compatible with AWS Security Lake, Splunk, OpenSearch Security Analytics,
+		// Panther, Chronicle, and any OCSF-consuming SIEM or data lake.
+		return report.RenderOCSF(run, enriched)
+	case "graph":
+		if len(graphJSON) > 0 {
+			var g asset.AssetGraph
+			if err := json.Unmarshal(graphJSON, &g); err == nil {
+				return report.RenderGraphDOT(g), nil
+			}
+		}
+		return "", fmt.Errorf("no asset graph available for this scan run")
 	default: // "text" or empty
 		return report.RenderText(run, enriched, summary, executions), nil
 	}
@@ -2960,7 +4398,7 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 // ingest it with the same schema as `beacon scan --output json`.
 // Errors are non-fatal — a failed webhook never blocks the scan report.
 func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string) error {
-	payload, err := report.RenderJSON(run, enriched, summary)
+	payload, err := report.RenderJSON(run, enriched, summary, nil)
 	if err != nil {
 		return fmt.Errorf("render webhook payload: %w", err)
 	}
@@ -2991,7 +4429,7 @@ func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.Sc
 // filterOmitted drops findings Claude marked as having no actionable value
 // given other controls present in the scan.
 func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedFinding {
-	out := enriched[:0]
+	var out []enrichment.EnrichedFinding
 	for _, ef := range enriched {
 		if !ef.Omit {
 			out = append(out, ef)
@@ -3028,7 +4466,7 @@ func warnMissingAPIKeys(cfg *config.Config) {
 		{cfg.SecurityTrailsAPIKey, "BEACON_SECURITYTRAILS_API_KEY", "SecurityTrails historical DNS and subdomain discovery"},
 		{cfg.CensysAPIID, "BEACON_CENSYS_API_ID + BEACON_CENSYS_API_SECRET", "Censys internet-wide host and certificate data"},
 		{cfg.GreyNoiseAPIKey, "BEACON_GREYNOISE_API_KEY", "GreyNoise IP noise context (reduces false positives on scanner IPs)"},
-		{cfg.AnthropicAPIKey, "BEACON_ANTHROPIC_API_KEY", "AI-powered finding enrichment, DLP vision analysis, and executive summary"},
+		{cfg.AnthropicAPIKey, "BEACON_ANTHROPIC_API_KEY / ai.api_key", "AI-powered finding enrichment, DLP vision analysis, and executive summary"},
 	}
 
 	var missing []keyInfo
@@ -3109,6 +4547,14 @@ type recentOp struct {
 	elapsed  time.Duration
 }
 
+// findingsRow is one visual row in the findings pager: either a severity-group
+// header or a reference to a finding in filteredFindings.
+type findingsRow struct {
+	isHeader bool
+	severity finding.Severity // label/color for header rows
+	idx      int              // index into filteredFindings (finding rows only)
+}
+
 // progressRenderer renders live scan progress to stderr.
 //
 // Modes: "progress" (default 3-line bar), "findings" (full-screen pager),
@@ -3138,8 +4584,10 @@ type progressRenderer struct {
 	// Findings pager
 	findings       []finding.Finding
 	findingsOff    int // scroll offset (first visible row)
-	findingsCursor  int              // highlighted row (index into filteredFindings)
-	filteredFindings []finding.Finding // findings after severity+text filter; rebuilt each render frame
+	findingsCursor   int               // highlighted row (index into findingsRows)
+	filteredFindings    []finding.Finding // findings after severity+text filter, sorted by severity; rebuilt each frame
+	filteredFindingsIdx []int             // parallel slice: r.findings index for each entry in filteredFindings
+	findingsRows        []findingsRow     // visual rows (headers + finding refs); rebuilt each render frame
 
 	// Asset roster
 	assets       []liveAsset
@@ -3160,6 +4608,11 @@ type progressRenderer struct {
 	// Severity filter: findings below this level are excluded from the live pager
 	minSeverity finding.Severity
 
+	// severityOverrides maps finding index (in r.findings) to a user-adjusted
+	// severity. Pressing [ / ] on a finding bumps its severity without
+	// modifying the underlying scanner output.
+	severityOverrides map[int]finding.Severity
+
 	// findingFilter is the active text filter in the findings pager.
 	findingFilter     string
 	findingFilterMode bool // true when user is actively typing a filter
@@ -3172,6 +4625,17 @@ type progressRenderer struct {
 	topoHostOrder   []string                 // ordered list of asset names as rendered (rebuilt each frame)
 	topoDetailAsset string                   // asset selected for topo_detail view
 	topoDetailOff   int                      // scroll offset for topo_detail view
+
+	// Discovered Assets panel — IPs / deploy targets whose ownership has not
+	// been automatically confirmed.  Populated by "unconfirmed_assets" and
+	// "deploy_targets" progress events.  Surface scans always run; deep scans
+	// require the operator to type "permission confirmed" in the detail view.
+	discoveredAssets   []module.DiscoveredAsset
+	discoveredOff      int    // scroll offset for list view
+	discoveredCursor   int    // highlighted row
+	discoveredDetailIdx int   // index of asset open in detail view
+	discoveredConfirm  string // text typed into the permission gate
+	discoveredConfirming bool // true while the operator is typing the gate phrase
 
 	// store reference for post-scan review
 	st store.Store
@@ -3288,6 +4752,28 @@ func newHeadlessRenderer(minSeverity finding.Severity) *progressRenderer {
 	}
 }
 
+// newPlainRenderer creates a progressRenderer that outputs line-by-line text
+// to stderr with no interactive TUI, no raw terminal mode, and no render ticker.
+// Used with --no-tui for headless / CI / scripting scenarios.
+func newPlainRenderer(verbose bool, minSeverity finding.Severity) *progressRenderer {
+	return &progressRenderer{
+		phase:        "discovering",
+		mode:         "progress",
+		verbose:      verbose,
+		ansi:         false, // force line-by-line output, never TUI
+		start:        time.Now(),
+		stop:         make(chan struct{}),
+		detached:     make(chan struct{}),
+		assetStart:   make(map[string]time.Time),
+		assetIdx:     make(map[string]int),
+		minSeverity:  minSeverity,
+		topoEvidence: make(map[string]playbook.Evidence),
+		topoServices: make(map[string][]liveService),
+		activeOps:    make(map[string]string),
+		scannerStart: make(map[string]time.Time),
+	}
+}
+
 // processKey handles a single raw keypress forwarded from the browse TUI's
 // input loop. Must be called with r.mu held.
 func (r *progressRenderer) processKey(buf []byte, n int) {
@@ -3345,6 +4831,10 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		case buf[0] == 't':
 			r.mode = "topology"
 			r.topoOff = 0
+		case buf[0] == 'd' && len(r.discoveredAssets) > 0:
+			r.discoveredOff = 0
+			r.discoveredCursor = 0
+			r.mode = "discovered"
 		case buf[0] == 'b' || isEsc:
 			// Signal detach back to the browse TUI.
 			r.mu.Unlock()
@@ -3366,6 +4856,18 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.reviewCursor = 0
 				r.mode = "review"
 			}
+		case buf[0] >= '1' && buf[0] <= '5':
+			// 1-5 adjusts the minimum severity filter from any view.
+			levels := []finding.Severity{
+				finding.SeverityInfo,
+				finding.SeverityLow,
+				finding.SeverityMedium,
+				finding.SeverityHigh,
+				finding.SeverityCritical,
+			}
+			r.minSeverity = levels[buf[0]-'1']
+			r.findingsOff = 0
+			r.findingsCursor = 0
 		}
 	case "findings":
 		if r.findingFilterMode {
@@ -3407,22 +4909,34 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			case buf[0] == 't':
 				r.mode = "topology"
 				r.topoOff = 0
+			case buf[0] == 'd' && len(r.discoveredAssets) > 0:
+				r.discoveredOff = 0
+				r.discoveredCursor = 0
+				r.mode = "discovered"
 			case buf[0] == '/':
 				r.findingFilterMode = true
 				r.findingFilter = ""
 				r.findingsCursor = 0
 				r.findingsOff = 0
 			case isDown:
-				if r.findingsCursor < len(r.filteredFindings)-1 {
+				// Advance cursor, skipping group-header rows.
+				for r.findingsCursor+1 < len(r.findingsRows) {
 					r.findingsCursor++
+					if !r.findingsRows[r.findingsCursor].isHeader {
+						break
+					}
 				}
 			case isUp:
-				if r.findingsCursor > 0 {
+				// Move cursor back, skipping group-header rows.
+				for r.findingsCursor > 0 {
 					r.findingsCursor--
+					if !r.findingsRows[r.findingsCursor].isHeader {
+						break
+					}
 				}
 			case isEnter:
-				if len(r.filteredFindings) > 0 && r.findingsCursor < len(r.filteredFindings) {
-					f := r.filteredFindings[r.findingsCursor]
+				if len(r.findingsRows) > 0 && r.findingsCursor < len(r.findingsRows) && !r.findingsRows[r.findingsCursor].isHeader {
+					f := r.filteredFindings[r.findingsRows[r.findingsCursor].idx]
 					r.selectedFinding = &f
 					r.findingDetailOff = 0
 					r.findingDetailOrigin = "findings"
@@ -3439,6 +4953,36 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.minSeverity = levels[buf[0]-'1']
 				r.findingsOff = 0
 				r.findingsCursor = 0
+			case buf[0] == '[' || buf[0] == ']':
+				// [ / ] bumps the highlighted finding's severity down or up.
+				if len(r.findingsRows) > 0 && r.findingsCursor < len(r.findingsRows) && !r.findingsRows[r.findingsCursor].isHeader {
+					rowIdx := r.findingsRows[r.findingsCursor].idx
+					origIdx := r.filteredFindingsIdx[rowIdx]
+					cur := r.filteredFindings[rowIdx].Severity
+					allSevs := []finding.Severity{
+						finding.SeverityInfo,
+						finding.SeverityLow,
+						finding.SeverityMedium,
+						finding.SeverityHigh,
+						finding.SeverityCritical,
+					}
+					pos := 0
+					for i, s := range allSevs {
+						if s == cur {
+							pos = i
+							break
+						}
+					}
+					if buf[0] == ']' && pos < len(allSevs)-1 {
+						pos++
+					} else if buf[0] == '[' && pos > 0 {
+						pos--
+					}
+					if r.severityOverrides == nil {
+						r.severityOverrides = make(map[int]finding.Severity)
+					}
+					r.severityOverrides[origIdx] = allSevs[pos]
+				}
 			}
 		}
 	case "topology":
@@ -3457,8 +5001,78 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 				r.topoDetailOff = 0
 				r.mode = "topo_detail"
 			}
+		case buf[0] == 'd' && len(r.discoveredAssets) > 0:
+			r.discoveredOff = 0
+			r.discoveredCursor = 0
+			r.mode = "discovered"
 		case buf[0] == 't':
 			r.mode = "progress"
+		}
+
+	case "discovered":
+		switch {
+		case isDown:
+			if r.discoveredCursor < len(r.discoveredAssets)-1 {
+				r.discoveredCursor++
+				// Scroll viewport down when cursor moves below visible area.
+			}
+		case isUp:
+			if r.discoveredCursor > 0 {
+				r.discoveredCursor--
+			}
+		case isEnter:
+			if r.discoveredCursor < len(r.discoveredAssets) {
+				r.discoveredDetailIdx = r.discoveredCursor
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = false
+				r.mode = "discovered_detail"
+			}
+		case buf[0] == 'b' || buf[0] == 'q' || isEsc:
+			r.mode = "progress"
+		}
+
+	case "discovered_detail":
+		if r.discoveredConfirming {
+			// Operator is typing the permission gate phrase character by character.
+			switch {
+			case isEsc:
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = false
+			case isEnter:
+				// Phrase accepted; the render function enables the deep scan action.
+				r.discoveredConfirming = false
+			case n == 1 && (buf[0] == 127 || buf[0] == 8): // backspace
+				runes := []rune(r.discoveredConfirm)
+				if len(runes) > 0 {
+					r.discoveredConfirm = string(runes[:len(runes)-1])
+				}
+			default:
+				if buf[0] >= 0x20 && buf[0] < 0x7f {
+					r.discoveredConfirm += string(buf[:n])
+				}
+			}
+		} else {
+			switch {
+			case isDown:
+				r.discoveredDetailIdx++ // reused as scroll offset in detail view
+				if r.discoveredDetailIdx >= len(r.discoveredAssets) {
+					r.discoveredDetailIdx = len(r.discoveredAssets) - 1
+				}
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = false
+			case isUp:
+				if r.discoveredDetailIdx > 0 {
+					r.discoveredDetailIdx--
+					r.discoveredConfirm = ""
+					r.discoveredConfirming = false
+				}
+			case buf[0] == 'p':
+				// Start typing permission phrase.
+				r.discoveredConfirm = ""
+				r.discoveredConfirming = true
+			case buf[0] == 'b' || buf[0] == 'q' || isEsc:
+				r.mode = "discovered"
+			}
 		}
 	case "topo_detail":
 		switch {
@@ -3467,6 +5081,20 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		case isUp:
 			if r.topoDetailOff > 0 {
 				r.topoDetailOff--
+			}
+		case buf[0] == 'n':
+			// Advance to next host in topology order.
+			if r.topoCursor < len(r.topoHostOrder)-1 {
+				r.topoCursor++
+				r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+				r.topoDetailOff = 0
+			}
+		case buf[0] == 'p':
+			// Go back to previous host in topology order.
+			if r.topoCursor > 0 {
+				r.topoCursor--
+				r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+				r.topoDetailOff = 0
 			}
 		case buf[0] == 'b':
 			r.mode = "topology"
@@ -3535,6 +5163,41 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		case isEsc || isEnter:
 			r.mode = r.findingDetailOrigin
 			r.selectedFinding = nil
+		case buf[0] == '[' || buf[0] == ']':
+			// [ / ] bumps the current finding's severity from the detail view too.
+			if r.selectedFinding != nil {
+				// Find the finding in r.findings to get its original index.
+				for origIdx, f := range r.findings {
+					if f.CheckID == r.selectedFinding.CheckID && f.Asset == r.selectedFinding.Asset {
+						cur := r.selectedFinding.Severity
+						allSevs := []finding.Severity{
+							finding.SeverityInfo,
+							finding.SeverityLow,
+							finding.SeverityMedium,
+							finding.SeverityHigh,
+							finding.SeverityCritical,
+						}
+						pos := 0
+						for i, s := range allSevs {
+							if s == cur {
+								pos = i
+								break
+							}
+						}
+						if buf[0] == ']' && pos < len(allSevs)-1 {
+							pos++
+						} else if buf[0] == '[' && pos > 0 {
+							pos--
+						}
+						if r.severityOverrides == nil {
+							r.severityOverrides = make(map[int]finding.Severity)
+						}
+						r.severityOverrides[origIdx] = allSevs[pos]
+						r.selectedFinding.Severity = allSevs[pos]
+						break
+					}
+				}
+			}
 		}
 	case "review":
 		type reviewItemP struct {
@@ -3647,9 +5310,57 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 					r.pendingReview = ""
 				}
 			}
+		case buf[0] == 'i':
+			// Import a playbook suggestion to ~/.config/beacon/playbooks/<name>.yaml
+			// so that LoadUserDir picks it up on the next scan.
+			if r.reviewCursor < len(ritems) && r.st != nil {
+				item := ritems[r.reviewCursor]
+				if item.kind == "playbook" {
+					ctx := context.Background()
+					for i := range r.pendingReviewSuggs {
+						if r.pendingReviewSuggs[i].ID != item.suggID {
+							continue
+						}
+						sugg := &r.pendingReviewSuggs[i]
+						if err := importPlaybookSuggestion(sugg); err == nil {
+							sugg.Status = "imported"
+							_ = r.st.UpdatePlaybookSuggestion(ctx, sugg)
+							r.pendingReviewSuggs = append(r.pendingReviewSuggs[:i], r.pendingReviewSuggs[i+1:]...)
+						}
+						break
+					}
+					if r.reviewCursor >= len(r.pendingReviewRules)+len(r.pendingReviewSuggs) {
+						r.reviewCursor--
+					}
+					if r.reviewCursor < 0 {
+						r.reviewCursor = 0
+					}
+					if len(r.pendingReviewRules)+len(r.pendingReviewSuggs) == 0 {
+						r.pendingReview = ""
+					}
+				}
+			}
 		}
 	}
 	r.render()
+}
+
+// importPlaybookSuggestion writes a PlaybookSuggestion's YAML to
+// ~/.config/beacon/playbooks/<name>.yaml so it is loaded on next scan.
+func importPlaybookSuggestion(sugg *store.PlaybookSuggestion) error {
+	safeName := safePlaybookName(sugg.TargetPlaybook)
+	if safeName == "" {
+		return fmt.Errorf("invalid playbook name: %q", sugg.TargetPlaybook)
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(homeDir, ".config", "beacon", "playbooks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, safeName+".yaml"), []byte(sugg.SuggestedYAML), 0o600)
 }
 
 // startInputLoop reads raw keypresses from stdin and handles view toggles /
@@ -3741,6 +5452,18 @@ func (r *progressRenderer) startInputLoop() {
 						r.reviewCursor = 0
 						r.mode = "review"
 					}
+				case buf[0] >= '1' && buf[0] <= '5':
+					// 1-5 adjusts minimum severity filter from any view.
+					levels := []finding.Severity{
+						finding.SeverityInfo,
+						finding.SeverityLow,
+						finding.SeverityMedium,
+						finding.SeverityHigh,
+						finding.SeverityCritical,
+					}
+					r.minSeverity = levels[buf[0]-'1']
+					r.findingsOff = 0
+					r.findingsCursor = 0
 				}
 
 			case "findings":
@@ -3753,16 +5476,24 @@ func (r *progressRenderer) startInputLoop() {
 					r.mode = "topology"
 					r.topoOff = 0
 				case isDown:
-					if r.findingsCursor < len(r.filteredFindings)-1 {
+					// Advance cursor, skipping group-header rows.
+					for r.findingsCursor+1 < len(r.findingsRows) {
 						r.findingsCursor++
+						if !r.findingsRows[r.findingsCursor].isHeader {
+							break
+						}
 					}
 				case isUp:
-					if r.findingsCursor > 0 {
+					// Move cursor back, skipping group-header rows.
+					for r.findingsCursor > 0 {
 						r.findingsCursor--
+						if !r.findingsRows[r.findingsCursor].isHeader {
+							break
+						}
 					}
 				case isEnter:
-					if len(r.filteredFindings) > 0 && r.findingsCursor < len(r.filteredFindings) {
-						f := r.filteredFindings[r.findingsCursor]
+					if len(r.findingsRows) > 0 && r.findingsCursor < len(r.findingsRows) && !r.findingsRows[r.findingsCursor].isHeader {
+						f := r.filteredFindings[r.findingsRows[r.findingsCursor].idx]
 						r.selectedFinding = &f
 						r.findingDetailOff = 0
 						r.findingDetailOrigin = "findings"
@@ -3778,8 +5509,38 @@ func (r *progressRenderer) startInputLoop() {
 					if r.topoOff > 0 {
 						r.topoOff--
 					}
+				case isEnter:
+					if len(r.topoHostOrder) > 0 && r.topoCursor < len(r.topoHostOrder) {
+						r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+						r.topoDetailOff = 0
+						r.mode = "topo_detail"
+					}
 				case buf[0] == 't':
 					r.mode = "progress"
+				}
+
+			case "topo_detail":
+				switch {
+				case isDown:
+					r.topoDetailOff++
+				case isUp:
+					if r.topoDetailOff > 0 {
+						r.topoDetailOff--
+					}
+				case buf[0] == 'n':
+					if r.topoCursor < len(r.topoHostOrder)-1 {
+						r.topoCursor++
+						r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+						r.topoDetailOff = 0
+					}
+				case buf[0] == 'p':
+					if r.topoCursor > 0 {
+						r.topoCursor--
+						r.topoDetailAsset = r.topoHostOrder[r.topoCursor]
+						r.topoDetailOff = 0
+					}
+				case buf[0] == 'b' || isEsc:
+					r.mode = "topology"
 				}
 
 			case "assets":
@@ -4020,6 +5781,12 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 			fmt.Fprintf(os.Stderr, "beacon: discovery done — %d assets\n", r.total)
 		}
 
+	case "unconfirmed_assets", "deploy_targets":
+		// Assets whose domain ownership could not be confirmed automatically.
+		// Surface scans always run against these; deep scans require the operator
+		// to type the permission gate phrase in the Discovered Assets panel.
+		r.discoveredAssets = append(r.discoveredAssets, ev.DiscoveredAssets...)
+
 	case "scanning":
 		r.phase = "scanning"
 		if ev.AssetsTotal > r.total {
@@ -4256,6 +6023,10 @@ func (r *progressRenderer) render() {
 		lines = r.renderTopology(&buf)
 	case "topo_detail":
 		lines = r.renderTopoDetail(&buf)
+	case "discovered":
+		lines = r.renderDiscovered(&buf)
+	case "discovered_detail":
+		lines = r.renderDiscoveredDetail(&buf)
 	case "review":
 		lines = r.renderReview(&buf)
 	default:
@@ -4320,24 +6091,44 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 			bar, pct*100, statusStr, fmtETA(eta))
 	}
 
-	// Line 2: asset count + findings + nav hints (or exit confirm)
+	// Line 2: asset count + findings + nav hints (or exit confirm).
+	// Count findings at or above the active severity filter for accurate display.
+	visFindings := 0
+	for _, f := range r.findings {
+		if f.Severity >= r.minSeverity {
+			visFindings++
+		}
+	}
+	findingsLabel := fmt.Sprintf("\x1b[1m%d findings\x1b[0m", visFindings)
+	if visFindings < len(r.findings) {
+		findingsLabel = fmt.Sprintf("\x1b[1m%d\x1b[0m\x1b[90m/%d\x1b[0m \x1b[1mfindings\x1b[0m \x1b[33m[sev≥%s]\x1b[0m", visFindings, len(r.findings), r.minSeverity.String())
+	}
+	sevHint := "\x1b[90m[1-5] sev  \x1b[0m"
 	if r.confirmingExit {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
-			r.done, r.total, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
+			r.done, r.total, findingsLabel)
 	} else if r.phase == "done" {
 		reviewHint := ""
 		if r.pendingReview != "" {
 			reviewHint = "  \x1b[33m" + r.pendingReview + "\x1b[0m  \x1b[90m[r] review\x1b[0m"
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [e] export  [q/b] back\x1b[0m%s\n",
-			r.total, len(r.findings), reviewHint)
+		discoveredHint := ""
+		if len(r.discoveredAssets) > 0 {
+			discoveredHint = fmt.Sprintf("  [d] discovered (%d)", len(r.discoveredAssets))
+		}
+		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [e] export  [q/b] back\x1b[0m%s\n",
+			r.total, findingsLabel, sevHint, discoveredHint, reviewHint)
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
-			len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   %s   \x1b[90m%s[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
+			findingsLabel, sevHint)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   \x1b[1m%d findings\x1b[0m   \x1b[90m[f] findings  [a] assets  [t] topology  [q/b] detach  [s] stop\x1b[0m\n",
-			r.done, r.total, len(r.findings))
+		discoveredHint := ""
+		if len(r.discoveredAssets) > 0 {
+			discoveredHint = fmt.Sprintf("  [d] discovered (%d)", len(r.discoveredAssets))
+		}
+		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [q/b] detach  [s] stop\x1b[0m\n",
+			r.done, r.total, findingsLabel, sevHint, discoveredHint)
 	}
 	lineCount := 2
 
@@ -4500,12 +6291,21 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 		bodyLines = 1
 	}
 
-	// Apply filter: build a filtered view of findings (severity + text filter).
-	// Store in r.filteredFindings so the key handler can look up the correct
-	// finding on Enter without re-deriving the filter independently.
-	var filtered []finding.Finding
+	// Apply filter: build a filtered view of findings (severity + text filter),
+	// sorted by severity (Critical first). Store in r.filteredFindings so the
+	// key handler can look up the correct finding on Enter.
+	// Apply user severity overrides before filtering so bumped-down findings
+	// disappear when they fall below minSeverity.
+	type indexedFinding struct {
+		f   finding.Finding
+		idx int // original index in r.findings
+	}
+	var indexed []indexedFinding
 	needle := strings.ToLower(r.findingFilter)
-	for _, f := range r.findings {
+	for i, f := range r.findings {
+		if ov, ok := r.severityOverrides[i]; ok {
+			f.Severity = ov
+		}
 		if f.Severity < r.minSeverity {
 			continue
 		}
@@ -4515,18 +6315,54 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 				continue
 			}
 		}
-		filtered = append(filtered, f)
+		indexed = append(indexed, indexedFinding{f: f, idx: i})
+	}
+	// Sort descending by severity so Critical appears first.
+	sort.Slice(indexed, func(i, j int) bool {
+		return indexed[i].f.Severity > indexed[j].f.Severity
+	})
+	filtered := make([]finding.Finding, len(indexed))
+	filteredIdx := make([]int, len(indexed))
+	for i, x := range indexed {
+		filtered[i] = x.f
+		filteredIdx[i] = x.idx
 	}
 	r.filteredFindings = filtered
-	total := len(filtered)
+	r.filteredFindingsIdx = filteredIdx
 
-	// Clamp cursor.
+	// Build visual rows: inject a severity-group header at each boundary.
+	var rows []findingsRow
+	lastSev := finding.Severity(-1)
+	for i, f := range filtered {
+		if f.Severity != lastSev {
+			rows = append(rows, findingsRow{isHeader: true, severity: f.Severity})
+			lastSev = f.Severity
+		}
+		rows = append(rows, findingsRow{idx: i})
+	}
+	r.findingsRows = rows
+	total := len(rows)
+
+	// Clamp cursor and ensure it lands on a finding row, not a header.
 	if total == 0 {
 		r.findingsCursor = 0
-	} else if r.findingsCursor >= total {
-		r.findingsCursor = total - 1
-	} else if r.findingsCursor < 0 {
-		r.findingsCursor = 0
+	} else {
+		if r.findingsCursor >= total {
+			r.findingsCursor = total - 1
+		} else if r.findingsCursor < 0 {
+			r.findingsCursor = 0
+		}
+		// Advance past any header at current position.
+		for r.findingsCursor < total && rows[r.findingsCursor].isHeader {
+			r.findingsCursor++
+		}
+		if r.findingsCursor >= total {
+			// Fell off end — step back to last finding row.
+			r.findingsCursor = total - 1
+			for r.findingsCursor > 0 && rows[r.findingsCursor].isHeader {
+				r.findingsCursor--
+			}
+		}
 	}
 
 	// Keep scroll window centered on cursor.
@@ -4556,49 +6392,95 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 
 	lineCount := 0
 
-	// Build severity filter label shown in header (omit when showing all).
-	sevLabel := ""
-	if r.minSeverity > finding.SeverityInfo {
-		sevLabel = fmt.Sprintf("  \x1b[33m[min: %s]\x1b[0m\x1b[90m", strings.ToUpper(r.minSeverity.String()))
+	// Build severity selector shown in header — always visible so user knows
+	// why findings might be hidden and how to change it.
+	// Format: [1]all [2]low [3]med [4]high [5]crit  with current level highlighted.
+	sevNames := []string{"all", "low+", "med+", "high+", "crit"}
+	var sevParts []string
+	for i, name := range sevNames {
+		key := i + 1
+		sev := finding.Severity(i) // SeverityInfo=0 → key 1, etc.
+		if sev == r.minSeverity {
+			sevParts = append(sevParts, fmt.Sprintf("\x1b[0m\x1b[1;33m[%d]%s\x1b[0m\x1b[90m", key, name))
+		} else {
+			sevParts = append(sevParts, fmt.Sprintf("[%d]%s", key, name))
+		}
 	}
+	sevSelector := "\x1b[90m" + strings.Join(sevParts, " ") + "\x1b[0m"
+
+	// Count real findings (non-header rows) for display.
+	nFindings := len(filtered)
+	totalFindings := len(r.findings)
 
 	// Header — hints change depending on filter state.
 	if r.findingFilterMode {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  %d total\x1b[0m\n", sevLabel, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	} else if r.findingFilter != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [1-5] sev  [f/q] back  filter: %s  [Esc] clear  %d/%d\x1b[0m\n", sevLabel, r.findingFilter, total, len(r.findings))
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter: %s  [Esc] clear  [f/q] back  %d/%d\x1b[0m\n", sevSelector, r.findingFilter, nFindings, totalFindings)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m%s  \x1b[90m[↵] open  [j/k] scroll  [/] filter  [1-5] sev  [f/q] back  %d shown\x1b[0m\n", sevLabel, total)
+		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	}
 	lineCount++
 
-	// Finding rows
+	// Visual rows: headers and finding rows interleaved.
 	for i := off; i < end; i++ {
-		f := filtered[i]
-		col := severityColor(f.Severity)
-		sev := strings.ToUpper(string(f.Severity.String()))
-		if len(sev) > 4 {
-			sev = sev[:4]
-		}
-		asset := f.Asset
-		if len(asset) > 30 {
-			asset = "…" + asset[len(asset)-29:]
-		}
-		// Layout: 2(indent) + 4(sev) + 2(gap) + 30(asset) + 2(gap) = 40 fixed chars.
-		// Title gets whatever is left, with a minimum of 20.
-		titleMax := termW - 40
-		if titleMax < 20 {
-			titleMax = 20
-		}
-		title := f.Title
-		if len(title) > titleMax {
-			title = title[:titleMax-1] + "…"
-		}
-		if i == r.findingsCursor {
-			// Highlighted row
-			fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m\n", col, sev, asset, title)
+		row := rows[i]
+		if row.isHeader {
+			col := severityColor(row.severity)
+			label := strings.ToUpper(row.severity.String())
+			fmt.Fprintf(buf, "\x1b[2K\r  %s── %s ──\x1b[0m\n", col, label)
 		} else {
-			fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s\n", col, sev, asset, title)
+			f := filtered[row.idx]
+			col := severityColor(f.Severity)
+			sev := strings.ToUpper(f.Severity.String())
+			if len(sev) > 4 {
+				sev = sev[:4]
+			}
+			asset := f.Asset
+			if len(asset) > 30 {
+				asset = "…" + asset[len(asset)-29:]
+			}
+			// Mark findings with a user-adjusted severity with a small indicator.
+			overrideMarker := ""
+			if _, ok := r.severityOverrides[filteredIdx[row.idx]]; ok {
+				overrideMarker = "\x1b[90m*\x1b[0m"
+			}
+			// Fingerprint badge — compact tech label from asset evidence.
+			// Appends ~AI when the classification was AI-inferred (not deterministic).
+			badge := ""
+			if ev, ok := r.topoEvidence[f.Asset]; ok {
+				b := fingerprintBadge(ev)
+				if strings.HasPrefix(ev.ClassificationSource, "ai:") {
+					if b != "" {
+						b += "~AI"
+					} else {
+						b = "AI"
+					}
+				}
+				if b != "" {
+					badge = " \x1b[90m[" + b + "]\x1b[0m"
+				}
+			}
+			// Layout: 2(indent) + 4(sev) + 2(gap) + 30(asset) + 2(gap) = 40 fixed chars.
+			// Badge is appended after title (no fixed width — it wraps to ANSI reset).
+			titleMax := termW - 40
+			if badge != "" {
+				// Reserve space for badge (strip ANSI codes from length estimate).
+				// fingerprintBadge max = 20 chars + " [" + "]" = 24 visible.
+				titleMax -= 24
+			}
+			if titleMax < 20 {
+				titleMax = 20
+			}
+			title := f.Title
+			if len(title) > titleMax {
+				title = title[:titleMax-1] + "…"
+			}
+			if i == r.findingsCursor {
+				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m%s%s\n", col, sev, asset, title, badge, overrideMarker)
+			} else {
+				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s%s%s\n", col, sev, asset, title, badge, overrideMarker)
+			}
 		}
 		lineCount++
 	}
@@ -4956,6 +6838,9 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	if wrapWidth < 20 {
 		wrapWidth = 20
 	}
+	if wrapWidth > 100 {
+		wrapWidth = 100
+	}
 
 	if r.selectedFinding == nil {
 		r.mode = "asset_detail"
@@ -4978,6 +6863,43 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	lines = append(lines, fmt.Sprintf("  \x1b[90mScanner:  \x1b[0m%s", f.Scanner))
 	if !f.DiscoveredAt.IsZero() {
 		lines = append(lines, fmt.Sprintf("  \x1b[90mFound:    \x1b[0m%s", f.DiscoveredAt.Format("2006-01-02 15:04")))
+	}
+
+	// Service Fingerprint — technology stack classified for this asset.
+	if ev, ok := r.topoEvidence[f.Asset]; ok {
+		var fpLines []string
+		if ev.ProxyType != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Proxy/Server:", ev.ProxyType))
+		}
+		if ev.CloudProvider != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Cloud:", ev.CloudProvider))
+		}
+		if ev.InfraLayer != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Infra Layer:", ev.InfraLayer))
+		}
+		if ev.Framework != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Framework:", ev.Framework))
+		}
+		if sv := ev.Headers["server"]; sv != "" {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Server Header:", sv))
+		}
+		if len(ev.BackendServices) > 0 {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Backends:", strings.Join(ev.BackendServices, ", ")))
+		}
+		if ev.IsReverseProxy {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Topology:", "reverse proxy detected"))
+		}
+		if ev.IsKubernetes {
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m%s", "Topology:", "kubernetes"))
+		}
+		if ev.ClassificationSource != "" && strings.HasPrefix(ev.ClassificationSource, "ai:") {
+			confidence := strings.TrimPrefix(ev.ClassificationSource, "ai:")
+			fpLines = append(fpLines, fmt.Sprintf("  \x1b[90m%-16s\x1b[0m\x1b[33m[AI]\x1b[0m classified (%s confidence) — verify via `beacon fingerprints`", "Source:", confidence))
+		}
+		if len(fpLines) > 0 {
+			lines = append(lines, "  \x1b[1mService Fingerprint\x1b[0m")
+			lines = append(lines, fpLines...)
+		}
 	}
 	lines = append(lines, "")
 
@@ -5016,17 +6938,17 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 		var locationLines, matchLines, contextLines, otherLines []string
 		for _, k := range locationKeys {
 			if v, ok := f.Evidence[k]; ok && fmt.Sprintf("%v", v) != "" {
-				locationLines = append(locationLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
+				locationLines = append(locationLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		for _, k := range matchKeys {
 			if v, ok := f.Evidence[k]; ok && fmt.Sprintf("%v", v) != "" {
-				matchLines = append(matchLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m\x1b[33m%s\x1b[0m", k+":", formatEvidenceValue(k, v)))
+				matchLines = append(matchLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m\x1b[33m%s\x1b[0m", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		for _, k := range contextKeys {
 			if v, ok := f.Evidence[k]; ok && fmt.Sprintf("%v", v) != "" {
-				contextLines = append(contextLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
+				contextLines = append(contextLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		known := map[string]bool{}
@@ -5035,7 +6957,7 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 		}
 		for k, v := range f.Evidence {
 			if !known[k] && fmt.Sprintf("%v", v) != "" {
-				otherLines = append(otherLines, fmt.Sprintf("  \x1b[90m%-14s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
+				otherLines = append(otherLines, fmt.Sprintf("  \x1b[90m%-22s\x1b[0m%s", k+":", formatEvidenceValue(k, v)))
 			}
 		}
 		sort.Strings(otherLines)
@@ -5404,7 +7326,7 @@ func (r *progressRenderer) renderReview(buf *strings.Builder) int {
 		items = append(items, reviewItem{kind: "playbook", label: label, suggID: s.ID})
 	}
 
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [b/q] back\x1b[0m\n")
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [i] import playbook  [b/q] back\x1b[0m\n")
 	lineCount := 1
 
 	if len(items) == 0 {
@@ -5634,6 +7556,66 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 			section("THIRD-PARTY VENDORS")
 			add("  %s", strings.Join(ev.VendorSignals, ", "))
 		}
+
+		// ── Detection evidence: which response headers drove technology classification ──
+		var reasonLines []string
+		fingerHeaders := []string{
+			"server", "x-powered-by", "via", "x-generator",
+			"x-aspnet-version", "x-aspnetmvc-version",
+			"x-envoy-upstream-service-time", "x-envoy-decorator-operation",
+			"x-kong-request-id", "x-kong-upstream-latency",
+			"x-traefik-request-id",
+			"cf-ray", "cf-cache-status",
+			"x-cache", "x-cache-hits",
+			"x-amz-cf-id", "x-amz-request-id",
+			"x-azure-ref",
+			"fly-request-id", "x-vercel-id", "x-netlify-id",
+			"x-fastly-request-id", "cdn-loop",
+			"x-request-id", "x-correlation-id",
+		}
+		for _, hdr := range fingerHeaders {
+			if val, ok := ev.Headers[hdr]; ok && val != "" {
+				v := val
+				if len(v) > termW-22 {
+					v = v[:termW-25] + "…"
+				}
+				reasonLines = append(reasonLines, fmt.Sprintf("  %-20s %s", hdr+":", v))
+			}
+		}
+		if len(reasonLines) > 0 {
+			section("DETECTION EVIDENCE")
+			for _, l := range reasonLines {
+				add("%s", l)
+			}
+		}
+
+		// ── Remaining response headers (sorted) ──
+		if len(ev.Headers) > 0 {
+			reasonSet := make(map[string]bool)
+			for _, l := range reasonLines {
+				trimmed := strings.TrimLeft(l, " ")
+				if idx := strings.Index(trimmed, ":"); idx >= 0 {
+					reasonSet[trimmed[:idx]] = true
+				}
+			}
+			var extraHdrs []string
+			for k := range ev.Headers {
+				if !reasonSet[k] {
+					extraHdrs = append(extraHdrs, k)
+				}
+			}
+			sort.Strings(extraHdrs)
+			if len(extraHdrs) > 0 {
+				section(fmt.Sprintf("RESPONSE HEADERS  (%d)", len(ev.Headers)))
+				for _, k := range extraHdrs {
+					v := ev.Headers[k]
+					if len(v) > termW-22 {
+						v = v[:termW-25] + "…"
+					}
+					add("  %-20s %s", k+":", v)
+				}
+			}
+		}
 	}
 
 	// ── Open ports ──
@@ -5662,7 +7644,11 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 	}
 
 	drawn := 0
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m  \x1b[90m[j/k] scroll  [b/q] back to topology\x1b[0m\n")
+	posHint := ""
+	if len(r.topoHostOrder) > 1 {
+		posHint = fmt.Sprintf("  \x1b[90m%d/%d", r.topoCursor+1, len(r.topoHostOrder))
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m%s  \x1b[90m[j/k] scroll  [n/p] next/prev  [b] topology\x1b[0m\n", posHint)
 	drawn++
 	for _, l := range visible {
 		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
@@ -5681,11 +7667,291 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 	return drawn
 }
 
+// renderDiscovered renders the list of discovered (unconfirmed) assets.
+// Keys: j/k move cursor, Enter for detail, b/q back.
+func (r *progressRenderer) renderDiscovered(buf *strings.Builder) int {
+	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || termH < 5 {
+		termH = 24
+	}
+	bodyLines := termH - 2
+	if bodyLines < 1 {
+		bodyLines = 1
+	}
+
+	assets := r.discoveredAssets
+	total := len(assets)
+
+	// Build display lines.
+	type row struct {
+		text  string
+		idx   int // index into assets
+	}
+	var rows []row
+	for i, a := range assets {
+		cursor := "  "
+		if i == r.discoveredCursor {
+			cursor = "\x1b[7m▶\x1b[0m "
+		}
+
+		// Confidence indicator.
+		conf := "\x1b[33m⚠ unconfirmed\x1b[0m"
+		if a.Confirmed {
+			conf = "\x1b[32m✓ confirmed\x1b[0m"
+		}
+
+		// Via label.
+		via := a.DiscoveredVia
+		switch via {
+		case "bgp":
+			via = "BGP ASN"
+		case "bgp_ptr":
+			via = "BGP PTR"
+		case "cdn_origin":
+			via = "CDN origin"
+		case "ghactions_deploy":
+			via = "deploy target"
+		}
+
+		// First evidence item as a hint.
+		hint := ""
+		if len(a.Evidence) > 0 {
+			hint = "\x1b[90m" + a.Evidence[0] + "\x1b[0m"
+		}
+
+		asset := a.Asset
+		if len(asset) > 36 {
+			asset = "…" + asset[len(asset)-35:]
+		}
+		rel := a.Relationship
+		if len(rel) > 28 {
+			rel = rel[:27] + "…"
+		}
+
+		line := fmt.Sprintf("%s\x1b[36m%-36s\x1b[0m  \x1b[90m%-14s\x1b[0m  %s", cursor, asset, via, conf)
+		if rel != "" {
+			line += fmt.Sprintf("  \x1b[90m%s\x1b[0m", rel)
+		}
+		_ = hint
+		rows = append(rows, row{text: line, idx: i})
+	}
+
+	if len(rows) == 0 {
+		rows = append(rows, row{text: "  \x1b[90mNo unconfirmed assets discovered yet.\x1b[0m"})
+	}
+
+	// Auto-scroll to keep cursor visible.
+	maxOff := len(rows) - bodyLines
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if r.discoveredCursor < r.discoveredOff {
+		r.discoveredOff = r.discoveredCursor
+	} else if r.discoveredCursor >= r.discoveredOff+bodyLines {
+		r.discoveredOff = r.discoveredCursor - bodyLines + 1
+	}
+	if r.discoveredOff > maxOff {
+		r.discoveredOff = maxOff
+	}
+
+	visible := rows[r.discoveredOff:]
+	if len(visible) > bodyLines {
+		visible = visible[:bodyLines]
+	}
+
+	drawn := 0
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSETS (%d)\x1b[0m  \x1b[90m[↵] detail  [j/k] move  [b/q] back\x1b[0m\n", total)
+	drawn++
+	for _, row := range visible {
+		fmt.Fprintf(buf, "\x1b[2K\r%s\n", row.text)
+		drawn++
+	}
+	for drawn-1 < bodyLines {
+		buf.WriteString("\x1b[2K\r\n")
+		drawn++
+	}
+	pct := 0
+	if maxOff > 0 {
+		pct = r.discoveredOff * 100 / maxOff
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	drawn++
+	return drawn
+}
+
+// renderDiscoveredDetail renders full evidence and findings for one discovered
+// asset, and presents the typed permission gate for authorizing a deep scan.
+// j/k navigate between assets; [p] starts typing the gate phrase; b/q back.
+func (r *progressRenderer) renderDiscoveredDetail(buf *strings.Builder) int {
+	_, termH, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || termH < 5 {
+		termH = 24
+	}
+	termW, _, _ := func() (int, int, error) { w, h, e := term.GetSize(int(os.Stderr.Fd())); return w, h, e }()
+	if termW < 40 {
+		termW = 80
+	}
+	bodyLines := termH - 2
+
+	if len(r.discoveredAssets) == 0 {
+		fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m\n\x1b[2K\r  \x1b[90mNo assets.\x1b[0m\n")
+		return 2
+	}
+
+	idx := r.discoveredDetailIdx
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(r.discoveredAssets) {
+		idx = len(r.discoveredAssets) - 1
+	}
+	a := r.discoveredAssets[idx]
+
+	sep := strings.Repeat("─", termW-2)
+
+	var lines []string
+	add := func(format string, args ...any) {
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}
+	section := func(title string) {
+		add("\x1b[90m%s\x1b[0m", sep)
+		add("\x1b[1m  %s\x1b[0m", title)
+	}
+
+	// Title line.
+	conf := "\x1b[33m⚠ UNCONFIRMED\x1b[0m"
+	if a.Confirmed {
+		conf = "\x1b[32m✓ CONFIRMED\x1b[0m"
+	}
+	via := a.DiscoveredVia
+	add("\x1b[1;36m  %s\x1b[0m  \x1b[90m[%s]\x1b[0m  %s", a.Asset, via, conf)
+	if a.Relationship != "" {
+		add("  \x1b[90m%s\x1b[0m", a.Relationship)
+	}
+	if a.RootDomain != "" {
+		add("  \x1b[90mroot domain: %s\x1b[0m", a.RootDomain)
+	}
+	if a.BoundHostname != "" {
+		add("  \x1b[90mHost header: %s\x1b[0m", a.BoundHostname)
+	}
+
+	// Evidence section.
+	if len(a.Evidence) > 0 {
+		section("OWNERSHIP EVIDENCE")
+		for _, ev := range a.Evidence {
+			add("    %s", ev)
+		}
+	}
+
+	// Surface-scan findings for this asset.
+	var assetFindings []finding.Finding
+	for _, f := range r.findings {
+		if f.Asset == a.Asset {
+			assetFindings = append(assetFindings, f)
+		}
+	}
+	sort.Slice(assetFindings, func(i, j int) bool {
+		return assetFindings[i].Severity > assetFindings[j].Severity
+	})
+	section(fmt.Sprintf("SURFACE SCAN FINDINGS (%d)", len(assetFindings)))
+	if len(assetFindings) == 0 {
+		add("    \x1b[90mno findings yet\x1b[0m")
+	} else {
+		for _, f := range assetFindings {
+			col := severityColor(f.Severity)
+			sev := strings.ToUpper(f.Severity.String())
+			if len(sev) > 4 {
+				sev = sev[:4]
+			}
+			title := f.Title
+			maxT := termW - 16
+			if maxT < 20 {
+				maxT = 20
+			}
+			if len(title) > maxT {
+				title = title[:maxT-1] + "…"
+			}
+			add("    %s[%s]\x1b[0m  %s", col, sev, title)
+		}
+	}
+
+	// Permission gate section.
+	section("DEEP SCAN PERMISSION")
+	const gatePhrase = "permission confirmed"
+	confirmed := r.discoveredConfirm == gatePhrase
+	if confirmed {
+		add("  \x1b[1;32m✓ Permission confirmed — deep scan authorized\x1b[0m")
+		add("  \x1b[90mRe-run beacon with --permission-confirmed and target %s\x1b[0m", a.Asset)
+	} else if a.Confirmed {
+		add("  \x1b[90mAsset confirmed as belonging to %s — deep scan available.\x1b[0m", a.RootDomain)
+		if r.discoveredConfirming {
+			add("  Type phrase:  \x1b[1m%s\x1b[0m\x1b[7m \x1b[0m", r.discoveredConfirm)
+		} else {
+			add("  \x1b[90mPress [p] then type: \"%s\" to authorize deep scan.\x1b[0m", gatePhrase)
+		}
+	} else {
+		add("  \x1b[33mThis asset has not been confirmed as belonging to %s.\x1b[0m", a.RootDomain)
+		add("  \x1b[90mSurface (passive) scans are always authorized. Deep scans require\x1b[0m")
+		add("  \x1b[90mexplicit confirmation that you own or have permission to test this asset.\x1b[0m")
+		if r.discoveredConfirming {
+			add("  Type phrase:  \x1b[1m%s\x1b[0m\x1b[7m \x1b[0m", r.discoveredConfirm)
+		} else {
+			add("  \x1b[90mPress [p] then type: \"%s\" to authorize deep scan.\x1b[0m", gatePhrase)
+		}
+	}
+
+	// Render with scroll.
+	add("\x1b[90m%s\x1b[0m", sep)
+
+	maxOff := len(lines) - bodyLines
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	// When navigating j/k in detail mode the idx changes but we need a stable
+	// per-asset scroll — use discoveredDetailIdx changes as a reset signal.
+	// (Scroll is not separately tracked; content is rendered from top.)
+	off := 0
+	if off > maxOff {
+		off = maxOff
+	}
+	visible := lines[off:]
+	if len(visible) > bodyLines {
+		visible = visible[:bodyLines]
+	}
+
+	drawn := 0
+	nav := fmt.Sprintf("%d/%d", idx+1, len(r.discoveredAssets))
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m  \x1b[90m%s  [j/k] next/prev  [p] authorize  [b/q] back\x1b[0m\n", nav)
+	drawn++
+	for _, l := range visible {
+		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
+		drawn++
+	}
+	for drawn-1 < bodyLines {
+		buf.WriteString("\x1b[2K\r\n")
+		drawn++
+	}
+	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m──────\x1b[0m\n")
+	drawn++
+	return drawn
+}
+
 // severityColor returns the ANSI color escape for a severity level.
 // formatEvidenceValue returns a display-safe, truncated string for an evidence
 // field value. Multi-line and HTML-heavy values are stripped and capped at 300
 // chars so they don't overflow the terminal.
 func formatEvidenceValue(key string, v any) string {
+	// Render slices as comma-separated strings instead of Go's "[a b c]" format.
+	switch val := v.(type) {
+	case []string:
+		v = strings.Join(val, ", ")
+	case []any:
+		parts := make([]string, len(val))
+		for i, item := range val {
+			parts[i] = fmt.Sprintf("%v", item)
+		}
+		v = strings.Join(parts, ", ")
+	}
 	raw := fmt.Sprintf("%v", v)
 
 	// Strip HTML tags for known snippet keys or when the value looks like HTML.
@@ -5786,7 +8052,10 @@ func wordWrapAtShellBoundaries(cmd string, maxWidth int) []string {
 // It checks common evidence keys in priority order so the clipboard gets the
 // most actionable link (e.g. the direct bucket URL rather than the base URL).
 func extractFindingURL(f *finding.Finding) string {
-	if f == nil {
+	if f == nil || f.Evidence == nil {
+		if f != nil && f.Asset != "" {
+			return "https://" + f.Asset
+		}
 		return ""
 	}
 	for _, key := range []string{
@@ -5835,6 +8104,40 @@ func copyToClipboard(text string) bool {
 		}
 	}
 	return false
+}
+
+// fingerprintBadge returns a compact technology label for an asset built from
+// its playbook Evidence, e.g. "cloudflare/nginx" or "haproxy" or "".
+// Used in the findings list to show what kind of service has each finding.
+func fingerprintBadge(ev playbook.Evidence) string {
+	var parts []string
+	if ev.CloudProvider != "" {
+		parts = append(parts, ev.CloudProvider)
+	}
+	if ev.ProxyType != "" {
+		// Avoid repeating cloud provider if proxy type is the same string
+		if ev.ProxyType != ev.CloudProvider {
+			parts = append(parts, ev.ProxyType)
+		}
+	}
+	if len(parts) == 0 {
+		// Fall back to raw server header
+		if sv := ev.Headers["server"]; sv != "" {
+			// Trim version numbers: "nginx/1.25.3" → "nginx"
+			if idx := strings.Index(sv, "/"); idx > 0 {
+				sv = sv[:idx]
+			}
+			parts = append(parts, strings.ToLower(sv))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	badge := strings.Join(parts, "/")
+	if len(badge) > 20 {
+		badge = badge[:19] + "…"
+	}
+	return badge
 }
 
 func severityColor(sev finding.Severity) string {
@@ -5917,7 +8220,10 @@ func (r *progressRenderer) eta() time.Duration {
 // Safe to call multiple times.
 func (r *progressRenderer) Done() {
 	r.stopOnce.Do(func() { close(r.stop) })
-	if r.headless {
+	r.mu.Lock()
+	headless := r.headless
+	r.mu.Unlock()
+	if headless {
 		// Load pending review counts for the post-scan notice.
 		if r.st != nil {
 			ctx := context.Background()

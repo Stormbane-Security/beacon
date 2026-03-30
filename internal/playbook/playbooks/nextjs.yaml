@@ -23,6 +23,7 @@ surface:
   scanners:
     - exposedfiles
     - webcontent
+    - nextjs
   nuclei_tags:
     - nextjs
     - react

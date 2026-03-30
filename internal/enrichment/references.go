@@ -290,6 +290,236 @@ resource "google_compute_instance" "app" {
 		TerraformExample: "",
 	},
 
+	// ---- Wave 2/3 CVEs ----
+	"cve.struts2_s2066": {
+		DocSummary: "CVE-2024-53677 (S2-066) is a critical file upload path traversal in Apache Struts 2 (< 6.4.0). An unauthenticated attacker can upload files to arbitrary paths via manipulated file upload parameters, enabling RCE via JSP shells.",
+		TerraformExample: "",
+	},
+	"cve.rails_xml_rce": {
+		DocSummary: "Ruby on Rails versions < 3.2.12 parse XML with YAML type coercion enabled by default, allowing unauthenticated RCE via crafted XML bodies (CVE-2013-0156). Upgrade to Rails 3.2.12+ or disable XML parsing.",
+		TerraformExample: "",
+	},
+	"cve.hfs_rejetto": {
+		DocSummary: "CVE-2024-23692 is a critical unauthenticated RCE in HFS (HTTP File Server) 2.x via Rejetto template injection. Attackers send crafted HTTP requests to execute arbitrary commands. Upgrade to HFS 3.x or apply the vendor patch.",
+		TerraformExample: "",
+	},
+	"cve.manage_engine_service_desk": {
+		DocSummary: "CVE-2021-44077 is a critical unauthenticated RCE in ManageEngine ServiceDesk Plus versions < 11306. The /RestAPI/ImportTechnicians endpoint allows unauthenticated file upload and code execution.",
+		TerraformExample: "",
+	},
+	"cve.minio_env_disclosure": {
+		DocSummary: "CVE-2023-28432 is a high-severity information disclosure in MinIO < RELEASE.2023-03-13T19-46-17Z. The /minio/health/cluster?verify endpoint returns the full MINIO_ROOT_PASSWORD and other environment variables without authentication.",
+		TerraformExample: `# Restrict MinIO console and API access to internal networks only
+resource "aws_security_group_rule" "minio_restrict" {
+  type      = "ingress"
+  from_port = 9000
+  to_port   = 9001
+  protocol  = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"cve.fortios_ws_auth_bypass": {
+		DocSummary: "CVE-2024-55591 is a critical authentication bypass in FortiOS 7.0.0–7.0.16 and 7.2.0–7.2.12. The Node.js WebSocket management module can be exploited by unauthenticated attackers to gain super-admin privileges via crafted requests to /api/v2/cmdb/system/admin.",
+		TerraformExample: "",
+	},
+	"cve.ivanti_cs_2025_0282": {
+		DocSummary: "CVE-2025-0282 is a critical stack-based buffer overflow in Ivanti Connect Secure < 22.7R2.5 and Policy Secure < 22.7R1.2. Unauthenticated attackers can achieve RCE. KEV-listed with active exploitation in the wild since December 2024.",
+		TerraformExample: "",
+	},
+	"cve.sap_netweaver_2025_31324": {
+		DocSummary: "CVE-2025-31324 (CVSS 10.0, KEV) is an unauthenticated arbitrary file upload in SAP NetWeaver Visual Composer Metadata Uploader. Attackers upload JSP webshells to /developmentserver/metadatauploader and achieve RCE. Actively exploited in mass attacks.",
+		TerraformExample: "",
+	},
+
+	// ---- Wave 2/3 port exposures ----
+	"port.cisco_smart_install": {
+		DocSummary: "Cisco Smart Install (TCP/4786) allows unauthenticated remote configuration of Cisco switches. An attacker can overwrite the startup config, upload malicious IOS images, or steal device credentials. Disable Smart Install with 'no vstack' on IOS.",
+		TerraformExample: `# Block Smart Install (TCP/4786) at the perimeter
+resource "aws_network_acl_rule" "block_smart_install" {
+  network_acl_id = aws_network_acl.main.id
+  rule_number    = 100
+  protocol       = "tcp"
+  rule_action    = "deny"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 4786
+  to_port        = 4786
+}`,
+	},
+	"port.nacos_exposed": {
+		DocSummary: "Alibaba Nacos service registry (TCP/8848) exposed without ACL allows any attacker to enumerate all registered microservices, read/write configuration values, and access stored credentials. The default nacos:nacos credentials grant full admin access.",
+		TerraformExample: `resource "aws_security_group_rule" "nacos_restrict" {
+  type        = "ingress"
+  from_port   = 8848
+  to_port     = 8848
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # internal only
+}`,
+	},
+	"port.consul_no_acl": {
+		DocSummary: "HashiCorp Consul without ACLs (TCP/8500) exposes the full service catalog, KV store, and node topology to unauthenticated access. Attackers can enumerate all services and their addresses, read stored secrets, and register rogue services.",
+		TerraformExample: `# Enable Consul ACL in Terraform
+resource "consul_acl_policy" "deny_all" {
+  name  = "deny-all"
+  rules = ""
+}
+# Set ACL default policy to deny in consul.hcl:
+# acl { enabled = true, default_policy = "deny" }`,
+	},
+	"port.rabbitmq_default_creds": {
+		DocSummary: "RabbitMQ management UI and API (TCP/15672) with default credentials guest:guest allow any attacker to read all queued messages, publish arbitrary messages, create/delete queues, and execute server commands via the HTTP API.",
+		TerraformExample: `resource "aws_security_group_rule" "rabbitmq_restrict" {
+  type        = "ingress"
+  from_port   = 15672
+  to_port     = 15672
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # management UI internal only
+}`,
+	},
+	"port.mysql_no_auth": {
+		DocSummary: "MySQL root account accessible without a password allows complete database takeover. An attacker can read all databases, exfiltrate PII/financial data, execute OS commands via LOAD DATA and UDF plugins.",
+		TerraformExample: `# Restrict MySQL port to application subnets only
+resource "aws_security_group_rule" "mysql_restrict" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.app.id
+}`,
+	},
+	"port.postgresql_trust": {
+		DocSummary: "PostgreSQL configured with trust authentication allows any user connecting from a matching host to authenticate without a password. This often applies to all local/network connections, enabling full database access with no credentials.",
+		TerraformExample: `# Use RDS with IAM authentication instead of trust auth
+resource "aws_db_instance" "postgres" {
+  engine                  = "postgres"
+  iam_database_authentication_enabled = true
+  publicly_accessible     = false
+  vpc_security_group_ids  = [aws_security_group.db.id]
+}`,
+	},
+	"port.mssql_default_creds": {
+		DocSummary: "Microsoft SQL Server with the 'sa' account enabled and blank password allows complete database server compromise. Attackers gain DBO access to all databases and can enable xp_cmdshell for OS command execution.",
+		TerraformExample: `resource "aws_security_group_rule" "mssql_restrict" {
+  type                     = "ingress"
+  from_port                = 1433
+  to_port                  = 1433
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.app.id
+}`,
+	},
+	"port.artifactory_exposed": {
+		DocSummary: "JFrog Artifactory artifact repository (TCP/8081-8082) exposed without authentication allows download of all artifacts including internal binaries, SDKs, and dependencies that may contain embedded secrets or proprietary code.",
+		TerraformExample: `resource "aws_security_group_rule" "artifactory_restrict" {
+  type        = "ingress"
+  from_port   = 8081
+  to_port     = 8082
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"port.nexus_exposed": {
+		DocSummary: "Sonatype Nexus Repository Manager (TCP/8081) exposed allows unauthenticated browsing and download of all hosted artifacts. Default admin:admin123 credentials allow full repository management and potential supply chain compromise.",
+		TerraformExample: `resource "aws_security_group_rule" "nexus_restrict" {
+  type        = "ingress"
+  from_port   = 8081
+  to_port     = 8081
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"port.grpc_reflection_enabled": {
+		DocSummary: "gRPC server reflection (TCP/50051) allows any client to enumerate all available RPC services, methods, and their protobuf schemas without authentication. This enables attackers to map the full internal API surface and craft targeted payloads.",
+		TerraformExample: `# Disable gRPC reflection in production (Go example)
+# Remove grpc_reflection.Register(server) from your server setup
+# Restrict port 50051 to internal networks:
+resource "aws_security_group_rule" "grpc_restrict" {
+  type        = "ingress"
+  from_port   = 50051
+  to_port     = 50051
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+
+	// ---- Wireless management infrastructure ----
+	"netdev.unifi_exposed": {
+		DocSummary: "Ubiquiti UniFi Network Application manages enterprise WiFi deployments. An internet-exposed controller leaks network topology, SSID names, connected client MACs, and AP locations. UniFi < 6.5.54 is vulnerable to Log4Shell (CVE-2021-44228, CVSS 10.0, KEV).",
+		TerraformExample: `resource "aws_security_group_rule" "unifi_restrict" {
+  type        = "ingress"
+  from_port   = 8443
+  to_port     = 8443
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # management access internal only
+}`,
+	},
+	"cve.unifi_log4shell": {
+		DocSummary: "CVE-2021-44228 (Log4Shell, CVSS 10.0, KEV) affects Ubiquiti UniFi Network Application < 6.5.54. Unauthenticated attackers can trigger JNDI injection via the login endpoint, achieving RCE on the controller server. Upgrade to 6.5.54+ immediately.",
+		TerraformExample: "",
+	},
+	"netdev.tplink_omada": {
+		DocSummary: "TP-Link Omada Network Management System manages enterprise WiFi, switches, and routers. Internet-exposed Omada controllers are vulnerable to CVE-2023-1389 (pre-auth RCE, CVSS 9.8, KEV). Restrict to internal management networks.",
+		TerraformExample: `resource "aws_security_group_rule" "omada_restrict" {
+  type        = "ingress"
+  from_port   = 8043
+  to_port     = 8043
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]
+}`,
+	},
+	"cve.tplink_omada_rce": {
+		DocSummary: "CVE-2023-1389 (CVSS 9.8, KEV) is a pre-authentication command injection in TP-Link Omada controllers <= 5.9.32. Attackers inject OS commands via the locale parameter in the login API, achieving unauthenticated RCE. Upgrade to 5.9.33+.",
+		TerraformExample: "",
+	},
+	"netdev.aruba_instant": {
+		DocSummary: "Aruba Instant Access Point management interface exposed to the internet allows attackers to reconfigure WiFi SSIDs, extract PSK credentials, and potentially exploit firmware vulnerabilities. Restrict management access to trusted VLANs only.",
+		TerraformExample: "",
+	},
+	"netdev.openwrt_exposed": {
+		DocSummary: "OpenWRT LuCI web administration panel exposed allows unauthenticated attackers to access router configuration, extract WiFi PSK credentials, modify firewall rules, and gain full router control. The default admin account often has no password set.",
+		TerraformExample: "",
+	},
+	"port.radius_exposed": {
+		DocSummary: "RADIUS (RFC 2865, UDP/1812) authenticates VPN, WPA-Enterprise WiFi, and network device logins. Internet-exposed RADIUS servers are vulnerable to CVE-2024-3596 (Blast RADIUS — MD5 collision to forge Access-Accept responses) and offline dictionary attacks. Restrict to NAS device subnets only.",
+		TerraformExample: `resource "aws_network_acl_rule" "block_radius" {
+  network_acl_id = aws_network_acl.main.id
+  rule_number    = 200
+  protocol       = "udp"
+  rule_action    = "deny"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 1812
+  to_port        = 1813
+}`,
+	},
+	"dlp.wifi_credential": {
+		DocSummary: "WiFi PSK or WPA passphrase exposed in a publicly accessible file or config endpoint. An attacker can use the credential to join the wireless network and pivot to internal assets.",
+		TerraformExample: "",
+	},
+
+	// ---- Local WiFi ----
+	"wifi.open_network": {
+		DocSummary: "An open (unencrypted) WiFi network requires no credential to join. All traffic is transmitted in plaintext and can be passively captured by any nearby observer. Credentials, session tokens, and sensitive data traversing the network are exposed.",
+		TerraformExample: "",
+	},
+	"wifi.wep_network": {
+		DocSummary: "A WEP-encrypted WiFi network is detected. WEP was cryptographically broken in 2001 and can be cracked in minutes using freely available tools (aircrack-ng). Provides no meaningful protection against a determined attacker. Upgrade to WPA2-AES or WPA3.",
+		TerraformExample: "",
+	},
+	"wifi.wps_enabled": {
+		DocSummary: "WiFi Protected Setup (WPS) is enabled. The WPS PIN exchange is vulnerable to brute-force (Reaver) and Pixie-Dust offline attacks that recover the PIN in seconds to hours depending on AP firmware. Disable WPS in the access point configuration.",
+		TerraformExample: "",
+	},
+	"wifi.wpa2_tkip": {
+		DocSummary: "The network uses WPA2-TKIP (Temporal Key Integrity Protocol). TKIP was deprecated by the IEEE in 2012 and is considered cryptographically weak. The TKIP MIC attack (ChopChop) allows limited packet manipulation. Reconfigure the AP to use WPA2-AES (CCMP) only.",
+		TerraformExample: "",
+	},
+	"wifi.gateway_exposed": {
+		DocSummary: "The default gateway for the local wireless network has a management interface (HTTP/HTTPS/SSH/Winbox) reachable from the WiFi segment. Router admin panels are commonly targeted with credential stuffing using factory defaults. Restrict management access to the wired LAN interface only.",
+		TerraformExample: "",
+	},
+	"wifi.pmkid_capture": {
+		DocSummary: "A PMKID (Pairwise Master Key Identifier) was captured from the WPA2 beacon frames without any active deauthentication. The PMKID allows offline dictionary attacks against the network password using hashcat. Networks with weak passphrases can be cracked in minutes.",
+		TerraformExample: "",
+	},
+
 	// ---- Contract ----
 	"contract.reentrancy": {
 		DocSummary: "A reentrancy vulnerability allows an attacker to repeatedly call a function before the first invocation completes, draining contract funds. The DAO hack exploited this pattern and lost $60M.",
@@ -298,6 +528,169 @@ resource "google_compute_instance" "app" {
 	"contract.selfdestruct": {
 		DocSummary: "An unprotected selfdestruct call allows any caller to permanently destroy the contract and send all its ETH to an arbitrary address.",
 		TerraformExample: "",
+	},
+
+	// ---- Cloud — GCP ----
+	"cloud.gcp.iam_primitive_role": {
+		DocSummary: "GCP primitive roles (roles/owner, roles/editor) grant broad project-wide permissions and violate least privilege. Google recommends replacing them with predefined or custom roles scoped to specific resources.",
+		TerraformExample: `# Remove primitive role — grant a predefined role instead
+resource "google_project_iam_member" "least_priv" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"  # narrow role
+  member  = "serviceAccount:sa@project.iam.gserviceaccount.com"
+}`,
+	},
+	"cloud.gcp.service_account_key": {
+		DocSummary: "User-managed service account keys are long-lived credentials that, if leaked, allow full impersonation of the service account. Google recommends using short-lived token methods (Workload Identity, impersonation) instead.",
+		TerraformExample: `# Prefer Workload Identity over SA keys
+resource "google_service_account_iam_member" "wi_binding" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project}.svc.id.goog[${var.namespace}/${var.k8s_sa}]"
+}`,
+	},
+	"cloud.gcp.bucket_public": {
+		DocSummary: "A GCS bucket with allUsers or allAuthenticatedUsers IAM bindings makes all objects readable by anyone on the internet. Enable uniform bucket-level access and remove public IAM members.",
+		TerraformExample: `resource "google_storage_bucket" "secure" {
+  name                        = "my-bucket"
+  uniform_bucket_level_access = true
+  # Do NOT add allUsers / allAuthenticatedUsers to IAM
+}`,
+	},
+	"cloud.gcp.compute_default_sa": {
+		DocSummary: "GCE instances using the default compute service account inherit editor-level permissions across the project. Assign a dedicated SA with only the permissions the instance requires.",
+		TerraformExample: `resource "google_compute_instance" "vm" {
+  service_account {
+    email  = google_service_account.app_vm.email
+    scopes = ["cloud-platform"]
+  }
+}`,
+	},
+	"cloud.gcp.gke_public_endpoint": {
+		DocSummary: "A GKE cluster with a public API server endpoint and no authorized networks allows any IP to reach the Kubernetes API. Enable authorized networks or use a private cluster.",
+		TerraformExample: `resource "google_container_cluster" "main" {
+  master_authorized_networks_config {
+    cidr_blocks {
+      cidr_block   = "203.0.113.0/24"
+      display_name = "corp-vpn"
+    }
+  }
+  private_cluster_config {
+    enable_private_endpoint = false
+    enable_private_nodes    = true
+    master_ipv4_cidr_block  = "172.16.0.0/28"
+  }
+}`,
+	},
+	"cloud.gcp.gke_no_binary_auth": {
+		DocSummary: "Binary Authorization enforces that only signed, trusted container images can be deployed to GKE. Without it, any image — including compromised or malicious images — can run in the cluster.",
+		TerraformExample: `resource "google_container_cluster" "main" {
+  binary_authorization {
+    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
+  }
+}`,
+	},
+
+	// ---- Cloud — AWS ----
+	"cloud.aws.iam_root_access_key": {
+		DocSummary: "AWS root account access keys bypass all IAM policies and cannot be restricted. Delete them immediately and use IAM users or roles for programmatic access.",
+		TerraformExample: `# There is no Terraform resource to delete root keys — use the AWS Console
+# or: aws iam delete-access-key --access-key-id <key-id>
+# Ensure all automation uses IAM roles, not root keys.`,
+	},
+	"cloud.aws.iam_root_no_mfa": {
+		DocSummary: "The AWS root account controls all resources in the account. Without MFA a stolen password grants unrestricted access. Enable a virtual or hardware MFA device on the root account.",
+		TerraformExample: `# MFA cannot be enforced via Terraform for root accounts.
+# Use the AWS Console: My Security Credentials → Multi-factor authentication.`,
+	},
+	"cloud.aws.iam_policy_wildcard": {
+		DocSummary: "An IAM policy with Action:* and Resource:* grants full administrative access equivalent to root. Replace with fine-grained policies that allow only the specific actions the principal needs.",
+		TerraformExample: `resource "aws_iam_policy" "least_priv" {
+  name   = "app-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:PutObject"]
+      Resource = "arn:aws:s3:::my-bucket/*"
+    }]
+  })
+}`,
+	},
+	"cloud.aws.s3_bucket_public": {
+		DocSummary: "S3 Public Access Block settings prevent buckets and objects from being made public via ACLs or bucket policies. All four settings should be enabled unless the bucket intentionally hosts public content.",
+		TerraformExample: `resource "aws_s3_bucket_public_access_block" "block" {
+  bucket                  = aws_s3_bucket.main.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}`,
+	},
+	"cloud.aws.s3_no_encryption": {
+		DocSummary: "S3 server-side encryption (SSE-S3 or SSE-KMS) ensures objects are encrypted at rest. Without a default encryption policy, objects may be stored in plaintext.",
+		TerraformExample: `resource "aws_s3_bucket_server_side_encryption_configuration" "enc" {
+  bucket = aws_s3_bucket.main.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+      kms_master_key_id = aws_kms_key.s3.arn
+    }
+  }
+}`,
+	},
+	"cloud.aws.ec2_public_sg": {
+		DocSummary: "A security group that allows inbound traffic from 0.0.0.0/0 on sensitive ports (SSH, RDP, database, etc.) exposes those services to the entire internet. Restrict ingress to known CIDR ranges or use a bastion / VPN.",
+		TerraformExample: `resource "aws_security_group_rule" "ssh_restricted" {
+  type        = "ingress"
+  from_port   = 22
+  to_port     = 22
+  protocol    = "tcp"
+  cidr_blocks = ["10.0.0.0/8"]  # internal only
+  security_group_id = aws_security_group.app.id
+}`,
+	},
+	"cloud.aws.eks_public_endpoint": {
+		DocSummary: "An EKS cluster with a public API endpoint and no CIDR restrictions exposes the Kubernetes API to the internet. Add authorized CIDR blocks or disable the public endpoint and use a VPN.",
+		TerraformExample: `resource "aws_eks_cluster" "main" {
+  vpc_config {
+    endpoint_public_access  = true
+    endpoint_private_access = true
+    public_access_cidrs     = ["203.0.113.0/24"]  # restrict to known IPs
+  }
+}`,
+	},
+
+	// ---- Cloud — Azure ----
+	"cloud.azure.blob_public": {
+		DocSummary: "When AllowBlobPublicAccess is enabled on an Azure storage account, container-level public access can be set on individual containers. Disable it at the account level unless the account is a static website host.",
+		TerraformExample: `resource "azurerm_storage_account" "main" {
+  allow_nested_items_to_be_public = false
+}`,
+	},
+	"cloud.azure.storage_http": {
+		DocSummary: "Azure storage accounts with https_traffic_only_enabled = false allow unencrypted HTTP access to blob, queue, table, and file services. All traffic should be forced over HTTPS.",
+		TerraformExample: `resource "azurerm_storage_account" "main" {
+  https_traffic_only_enabled = true
+  min_tls_version            = "TLS1_2"
+}`,
+	},
+	"cloud.azure.aks_public_endpoint": {
+		DocSummary: "An AKS cluster with an internet-facing API server and no authorized IP ranges allows any host to reach the Kubernetes API. Restrict access using authorized_ip_ranges or enable a private cluster.",
+		TerraformExample: `resource "azurerm_kubernetes_cluster" "main" {
+  api_server_access_profile {
+    authorized_ip_ranges = ["203.0.113.0/24"]
+  }
+}`,
+	},
+	"cloud.azure.owner_direct": {
+		DocSummary: "Assigning users directly as Owner or Contributor at subscription scope grants unrestricted control over all resources. Use groups, require PIM (just-in-time) elevation, and prefer narrower built-in roles.",
+		TerraformExample: `# Assign to a group with PIM eligibility rather than direct user assignment
+resource "azurerm_role_assignment" "contrib" {
+  scope                = data.azurerm_subscription.main.id
+  role_definition_name = "Contributor"
+  principal_id         = azuread_group.ops.object_id
+}`,
 	},
 }
 

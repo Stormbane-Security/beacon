@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beacon</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #21262d;
+  --border: #30363d; --accent: #6366f1; --accent-h: #4f46e5;
+  --text: #e6edf3; --muted: #8b949e;
+  --crit: #f85149; --high: #fb8500; --med: #d29922; --low: #3fb950; --info: #58a6ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden}
+a{text-decoration:none;color:inherit}
+
+/* Layout */
+.sidebar{width:212px;min-width:212px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.logo{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px}
+.logo svg{color:var(--accent);flex-shrink:0}
+.nav{padding:10px 0;flex:1}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 20px;color:var(--muted);cursor:pointer;font-size:13px;border-left:3px solid transparent;transition:all .12s}
+.nav-item:hover{color:var(--text);background:var(--surface2)}
+.nav-item.active{color:var(--text);border-left-color:var(--accent);background:rgba(99,102,241,.1)}
+.nav-item svg{width:15px;height:15px;flex-shrink:0}
+.main{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.topbar{padding:14px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface);position:sticky;top:0;z-index:10}
+.topbar h1{font-size:17px;font-weight:600}
+.page{padding:28px}
+
+/* Cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:28px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px}
+.card-label{font-size:11px;color:var(--muted);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em}
+.card-value{font-size:30px;font-weight:700}
+.card-value.critical{color:var(--crit)}.card-value.high{color:var(--high)}
+.card-value.medium{color:var(--med)}.card-value.low{color:var(--low)}
+
+/* Table */
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:20px}
+.tbl-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.tbl-head h2{font-size:13px;font-weight:600}
+table{width:100%;border-collapse:collapse}
+th{padding:9px 18px;text-align:left;font-size:11px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.05em}
+td{padding:11px 18px;font-size:13px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--surface2)}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase}
+.badge.critical{background:rgba(248,81,73,.15);color:var(--crit)}
+.badge.high{background:rgba(251,133,0,.15);color:var(--high)}
+.badge.medium{background:rgba(210,153,34,.15);color:var(--med)}
+.badge.low{background:rgba(63,185,80,.15);color:var(--low)}
+.badge.info{background:rgba(88,166,255,.15);color:var(--info)}
+.badge.completed{background:rgba(63,185,80,.15);color:var(--low)}
+.badge.running{background:rgba(99,102,241,.15);color:var(--accent)}
+.badge.pending{background:rgba(139,148,158,.15);color:var(--muted)}
+.badge.failed,.badge.stopped{background:rgba(248,81,73,.15);color:var(--crit)}
+.badge.surface{background:rgba(88,166,255,.15);color:var(--info)}
+.badge.deep{background:rgba(251,133,0,.15);color:var(--high)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:none;transition:all .12s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-h)}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)}.btn-secondary:hover{background:var(--border)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* Forms */
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:12px;font-weight:500;margin-bottom:5px;color:var(--muted)}
+.form-input{width:100%;padding:8px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none}
+.form-input:focus{border-color:var(--accent)}
+.form-check{display:flex;align-items:center;gap:7px;font-size:13px}
+.form-check input{width:14px;height:14px;accent-color:var(--accent)}
+
+/* Filters */
+.filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+.filter-btn{padding:4px 11px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .12s}
+.filter-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.filter-btn:hover:not(.active){border-color:var(--muted);color:var(--text)}
+.search-wrap{position:relative;margin-left:auto}
+.search-wrap svg{position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.search-input{padding:6px 10px 6px 28px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;outline:none;width:200px}
+.search-input:focus{border-color:var(--accent)}
+
+/* Finding detail */
+.detail-row td{padding:0}
+.detail{padding:14px 18px;background:rgba(0,0,0,.3);border-top:1px solid var(--border)}
+.detail-section{margin-bottom:12px}
+.detail-section h4{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.detail-section p{font-size:13px;line-height:1.6;color:var(--text)}
+.proof{background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:8px 11px;font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--info);overflow-x:auto;white-space:pre;position:relative}
+.copy-btn{position:absolute;top:5px;right:5px}
+.ctags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.ctag{padding:2px 6px;background:rgba(99,102,241,.12);color:var(--accent);border-radius:3px;font-size:11px;font-weight:500}
+
+/* Compliance */
+.fw-block{margin-bottom:24px}
+.fw-block h3{font-size:13px;font-weight:600;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.ctrl-id{font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px;margin-top:10px}
+.ctrl-row{padding:7px 0;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(48,54,61,.5);font-size:12px}
+.ctrl-row:last-child{border-bottom:none}
+
+/* Log */
+.log-box{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;height:220px;overflow-y:auto;font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6}
+
+/* Misc */
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:22px}
+.tab{padding:9px 14px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:var(--text)}.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.breadcrumb{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-bottom:4px}
+.breadcrumb span{cursor:pointer}.breadcrumb span:hover{color:var(--text)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading{display:flex;align-items:center;justify-content:center;padding:60px;gap:10px;color:var(--muted)}
+.empty{text-align:center;padding:56px 20px;color:var(--muted)}
+.empty h3{font-size:15px;margin-bottom:6px;color:var(--text)}
+.empty p{font-size:13px}
+.alert{padding:10px 14px;border-radius:6px;font-size:12px;margin-bottom:14px}
+.alert-info{background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:var(--info)}
+.alert-success{background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);color:var(--low)}
+.alert-warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:var(--med)}
+
+/* Trend bars */
+.trend-wrap{display:flex;align-items:flex-end;gap:3px;height:72px;margin-bottom:6px}
+.trend-col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px}
+.trend-bar-seg{width:100%;border-radius:2px 2px 0 0;min-height:2px;background:var(--accent);opacity:.75}
+.trend-lbl{font-size:9px;color:var(--muted);text-align:center;margin-top:3px;white-space:nowrap}
+
+/* Login */
+.login-wrap{display:flex;align-items:center;justify-content:center;flex:1;padding:40px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;width:340px;padding:32px}
+.login-logo{text-align:center;margin-bottom:22px}
+.login-logo h2{font-size:19px;font-weight:700;margin-top:8px}
+.login-logo p{font-size:12px;color:var(--muted);margin-top:4px}
+
+@media print{
+  .sidebar,.topbar,.btn,.filters,.tabs{display:none!important}
+  .main{overflow:visible}
+  .page{padding:0}
+  .fw-block{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const S = {
+  apiKey: localStorage.getItem('bk') || '',
+  page: 'dashboard', domain: null, tab: 'findings',
+  sev: 'all', q: '', expanded: null,
+  cache: {}, loading: {},
+  scan: { running: false, done: false, domain: '', logs: [] },
+};
+
+// ── Icons ────────────────────────────────────────────────────────────────────
+const I = {
+  shield: `<svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>`,
+  grid: `<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+  globe: `<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>`,
+  plus: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>`,
+  search: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/></svg>`,
+  copy: `<svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`,
+  print: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  chevron: `<svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>`,
+  refresh: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>`,
+  scan: `<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/></svg>`,
+};
+
+// ── Router ───────────────────────────────────────────────────────────────────
+function route() {
+  const h = location.hash.slice(1) || '/';
+  const p = h.split('/').filter(Boolean);
+  if (!p.length) return { page: 'dashboard' };
+  if (p[0] === 'targets' && p[1]) return { page: 'target', domain: decodeURIComponent(p[1]), tab: p[2] || 'findings' };
+  if (p[0] === 'targets') return { page: 'targets' };
+  if (p[0] === 'scan') return { page: 'scan' };
+  return { page: p[0] };
+}
+function nav(hash) { location.hash = hash; }
+window.addEventListener('hashchange', () => {
+  const r = route();
+  S.page = r.page; S.domain = r.domain || null;
+  S.tab = r.tab || 'findings';
+  S.expanded = null; S.sev = 'all'; S.q = '';
+  render();
+});
+
+// ── API ──────────────────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const h = { 'Content-Type': 'application/json' };
+  if (S.apiKey) h['Authorization'] = 'Bearer ' + S.apiKey;
+  const r = await fetch('/v1' + path, { ...opts, headers: h });
+  if (r.status === 401) { S.page = 'login'; render(); throw new Error('unauthorized'); }
+  if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error || 'HTTP ' + r.status); }
+  return r.json();
+}
+async function load(key, fn) {
+  if (S.cache[key] !== undefined) return S.cache[key];
+  S.loading[key] = true; render();
+  try { S.cache[key] = await fn(); } catch(e) { S.cache[key] = null; }
+  delete S.loading[key]; render();
+  return S.cache[key];
+}
+function bust(...keys) { keys.forEach(k => delete S.cache[k]); }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function badge(cls) { return `<span class="badge ${esc(cls)}">${esc(cls)}</span>`; }
+function ago(d) {
+  if (!d) return '—';
+  const diff = Date.now() - new Date(d);
+  const m = Math.floor(diff/60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m/60);
+  if (h < 24) return h + 'h ago';
+  const days = Math.floor(h/24);
+  if (days < 30) return days + 'd ago';
+  return new Date(d).toLocaleDateString();
+}
+function sevW(s) { return {critical:4,high:3,medium:2,low:1}[s]||0; }
+
+// ── Sidebar ──────────────────────────────────────────────────────────────────
+function sidebar() {
+  const r = route();
+  return `<nav class="sidebar">
+    <div class="logo">${I.shield} Beacon</div>
+    <div class="nav">
+      <a class="nav-item ${r.page==='dashboard'?'active':''}" href="#/dashboard">${I.grid} Dashboard</a>
+      <a class="nav-item ${r.page==='targets'||r.page==='target'?'active':''}" href="#/targets">${I.globe} Targets</a>
+      <a class="nav-item ${r.page==='scan'?'active':''}" href="#/scan">${I.plus} New Scan</a>
+    </div>
+  </nav>`;
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+function pageDashboard() {
+  const d = S.cache['dash'];
+  if (!d && !S.loading['dash']) load('dash', () => api('/dashboard'));
+  if (S.loading['dash']) return wrap('Dashboard', `<div class="loading"><div class="spinner"></div> Loading…</div>`);
+  if (!d) return wrap('Dashboard', `<div class="empty"><h3>Failed to load</h3></div>`);
+  const scans = (d.recent_scans||[]).map(s => `<tr onclick="nav('#/targets/${encodeURIComponent(s.domain)}')">
+    <td style="font-weight:500">${esc(s.domain)}</td>
+    <td>${badge(s.scan_type)}</td><td>${badge(s.status)}</td>
+    <td>${s.finding_count}</td><td>${ago(s.completed_at||s.started_at)}</td>
+  </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:28px">
+    No scans yet — <a href="#/scan" style="color:var(--accent)">run your first scan</a></td></tr>`;
+  return wrap('Dashboard', `
+    <div class="cards">
+      <div class="card"><div class="card-label">Targets</div><div class="card-value">${d.targets}</div></div>
+      <div class="card"><div class="card-label">Critical</div><div class="card-value critical">${d.critical}</div></div>
+      <div class="card"><div class="card-label">High</div><div class="card-value high">${d.high}</div></div>
+      <div class="card"><div class="card-label">Medium</div><div class="card-value medium">${d.medium}</div></div>
+      <div class="card"><div class="card-label">Low</div><div class="card-value low">${d.low}</div></div>
+      <div class="card"><div class="card-label">Total Findings</div><div class="card-value">${d.total_findings}</div></div>
+    </div>
+    <div class="tbl-wrap">
+      <div class="tbl-head"><h2>Recent Scans</h2><a href="#/scan" class="btn btn-primary">${I.plus} New Scan</a></div>
+      <table><thead><tr><th>Domain</th><th>Type</th><th>Status</th><th>Findings</th><th>When</th></tr></thead>
+      <tbody>${scans}</tbody></table>
+    </div>`);
+}
+
+// ── Targets ──────────────────────────────────────────────────────────────────
+function pageTargets() {
+  const d = S.cache['targets'];
+  if (!d && !S.loading['targets']) load('targets', () => api('/targets'));
+  if (S.loading['targets']) return wrap('Targets', `<div class="loading"><div class="spinner"></div> Loading…</div>`);
+  if (!d) return wrap('Targets', `<div class="empty"><h3>Failed to load</h3></div>`);
+  const ts = d.targets || [];
+  const rows = ts.map(t => `<tr onclick="nav('#/targets/${encodeURIComponent(t.domain)}')">
+    <td style="font-weight:500">${esc(t.domain)}</td>
+    <td style="color:var(--muted)">${ago(t.created_at)}</td>
+  </tr>`).join('') || `<tr><td colspan="2" style="text-align:center;color:var(--muted);padding:28px">
+    No targets — <a href="#/scan" style="color:var(--accent)">run a scan</a></td></tr>`;
+  return wrap('Targets', `
+    <div class="tbl-wrap">
+      <div class="tbl-head"><h2>All Targets (${ts.length})</h2><a href="#/scan" class="btn btn-primary">${I.plus} New Scan</a></div>
+      <table><thead><tr><th>Domain</th><th>Added</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`);
+}
+
+// ── Target detail ────────────────────────────────────────────────────────────
+function pageTarget() {
+  const dom = S.domain;
+  if (!dom) { nav('#/targets'); return ''; }
+  const tab = S.tab;
+  let content = '';
+  if (tab === 'findings') content = tabFindings(dom);
+  else if (tab === 'compliance') content = tabCompliance(dom);
+  else if (tab === 'trend') content = tabTrend(dom);
+  const topRight = `<button class="btn btn-primary" onclick="rescan('${esc(dom)}')">${I.refresh} Re-scan</button>`;
+  return `${sidebar()}
+    <div class="main">
+      <div class="topbar">
+        <div>
+          <div class="breadcrumb">
+            <span onclick="nav('#/targets')" style="cursor:pointer">Targets</span>
+            <span style="color:var(--border)">${I.chevron}</span>
+            <span>${esc(dom)}</span>
+          </div>
+          <h1>${esc(dom)}</h1>
+        </div>
+        ${topRight}
+      </div>
+      <div class="page">
+        <div class="tabs">
+          <div class="tab ${tab==='findings'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/findings')">Findings</div>
+          <div class="tab ${tab==='compliance'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/compliance')">Compliance</div>
+          <div class="tab ${tab==='trend'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/trend')">Trend</div>
+        </div>
+        ${content}
+      </div>
+    </div>`;
+}
+
+function tabFindings(dom) {
+  const key = 'f:' + dom;
+  const d = S.cache[key];
+  if (!d && !S.loading[key]) load(key, () => api('/targets/' + encodeURIComponent(dom) + '/findings'));
+  if (S.loading[key]) return `<div class="loading"><div class="spinner"></div> Loading findings…</div>`;
+  if (!d) return `<div class="empty"><h3>No findings</h3><p>Run a scan first</p></div>`;
+  const all = d.findings || [];
+  const counts = {};
+  all.forEach(f => counts[f.severity] = (counts[f.severity]||0)+1);
+  const filtered = all.filter(f => {
+    if (S.sev !== 'all' && f.severity !== S.sev) return false;
+    if (S.q) {
+      const q = S.q.toLowerCase();
+      return (f.title||'').toLowerCase().includes(q) ||
+             (f.asset||'').toLowerCase().includes(q) ||
+             (f.check_id||'').toLowerCase().includes(q);
+    }
+    return true;
+  });
+  const sevs = ['critical','high','medium','low','info'];
+  const filterBtns = `<button class="filter-btn ${S.sev==='all'?'active':''}" onclick="W.setSev('all')">All (${all.length})</button>`
+    + sevs.filter(s=>counts[s]).map(s =>
+      `<button class="filter-btn ${S.sev===s?'active':''}" onclick="W.setSev('${s}')">${s[0].toUpperCase()+s.slice(1)} (${counts[s]})</button>`
+    ).join('');
+  const rows = filtered.map((f, i) => {
+    const det = S.expanded === i ? `<tr class="detail-row"><td colspan="4">${findingDetail(f)}</td></tr>` : '';
+    return `<tr onclick="W.expand(${i})">
+      <td>${badge(f.severity)}</td>
+      <td style="font-weight:500">${esc(f.title)}</td>
+      <td style="color:var(--muted);font-size:12px">${esc(f.asset)}</td>
+      <td style="color:var(--muted);font-size:11px;font-family:monospace">${esc(f.check_id)}</td>
+    </tr>${det}`;
+  }).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:28px">No findings match filter</td></tr>`;
+  return `
+    <div class="filters">
+      ${filterBtns}
+      <div class="search-wrap">${I.search}
+        <input class="search-input" placeholder="Search…" value="${esc(S.q)}" oninput="W.search(this.value)">
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Severity</th><th>Finding</th><th>Asset</th><th>Check ID</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+function findingDetail(f) {
+  const proof = f.proof_command ? `
+    <div class="detail-section">
+      <h4>Proof Command</h4>
+      <div class="proof">${esc(f.proof_command)}<button class="btn btn-secondary copy-btn" onclick="W.copy('${esc(f.proof_command).replace(/'/g,"\\'")}',event)">${I.copy} Copy</button></div>
+    </div>` : '';
+  const tags = (f.compliance_tags||[]).length ? `
+    <div class="detail-section">
+      <h4>Compliance</h4>
+      <div class="ctags">${f.compliance_tags.map(t=>`<span class="ctag">${esc(t)}</span>`).join('')}</div>
+    </div>` : '';
+  const expl = f.explanation ? `<div class="detail-section"><h4>Explanation</h4><p>${esc(f.explanation)}</p></div>` : '';
+  const impact = f.impact ? `<div class="detail-section"><h4>Impact</h4><p>${esc(f.impact)}</p></div>`
+    : (f.description ? `<div class="detail-section"><h4>Description</h4><p>${esc(f.description)}</p></div>` : '');
+  const rem = f.remediation ? `<div class="detail-section"><h4>Remediation</h4><p>${esc(f.remediation)}</p></div>` : '';
+  return `<div class="detail">${expl}${impact}${rem}${proof}${tags}</div>`;
+}
+
+function tabCompliance(dom) {
+  const key = 'c:' + dom;
+  const d = S.cache[key];
+  if (!d && !S.loading[key]) load(key, () => api('/targets/' + encodeURIComponent(dom) + '/compliance'));
+  if (S.loading[key]) return `<div class="loading"><div class="spinner"></div> Loading compliance…</div>`;
+  if (!d || !d.frameworks) return `<div class="empty"><h3>No compliance data</h3></div>`;
+  const fws = d.frameworks;
+  const order = ['PCI','SOC2','HIPAA','NIST','ISO27001'];
+  const keys = [...order.filter(k=>fws[k]),...Object.keys(fws).filter(k=>!order.includes(k))];
+  if (!keys.length) return `<div class="empty"><h3>No compliance mappings</h3><p>Findings may not have compliance tags</p></div>`;
+  return `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+      <button class="btn btn-secondary" onclick="window.print()">${I.print} Print / Export PDF</button>
+    </div>
+    ${keys.map(fw => `
+      <div class="fw-block">
+        <h3>${esc(fw)}</h3>
+        ${Object.entries(fws[fw]).map(([ctrl,items]) => `
+          <div class="ctrl-id">${esc(ctrl)}</div>
+          <div class="tbl-wrap" style="margin-bottom:8px">
+            ${items.map(f=>`<div class="ctrl-row">${badge(f.severity)}<span style="flex:1;font-weight:500">${esc(f.title)}</span><span style="color:var(--muted)">${esc(f.asset)}</span></div>`).join('')}
+          </div>`).join('')}
+      </div>`).join('')}`;
+}
+
+function tabTrend(dom) {
+  const key = 't:' + dom;
+  const d = S.cache[key];
+  if (!d && !S.loading[key]) load(key, () => api('/targets/' + encodeURIComponent(dom) + '/trend'));
+  if (S.loading[key]) return `<div class="loading"><div class="spinner"></div> Loading trend…</div>`;
+  if (!d || !(d.points||[]).length) return `<div class="empty"><h3>Not enough data</h3><p>Run multiple scans over time to see trends</p></div>`;
+  const pts = d.points.slice(-24);
+  const max = Math.max(...pts.map(p=>p.total), 1);
+  const bars = pts.map(p => {
+    const pct = Math.max(Math.round(p.total/max*100), p.total>0?4:0);
+    const lbl = p.date ? new Date(p.date+'T12:00:00').toLocaleDateString('en',{month:'short',day:'numeric'}) : '';
+    return `<div class="trend-col">
+      <div style="font-size:9px;color:var(--muted);text-align:center">${p.total}</div>
+      <div class="trend-bar-seg" style="height:${pct}%"></div>
+      <div class="trend-lbl">${lbl}</div>
+    </div>`;
+  }).join('');
+  const rows = d.points.map(p=>`<tr>
+    <td>${p.date ? new Date(p.date+'T12:00:00').toLocaleDateString() : '—'}</td>
+    <td>${badge(p.scan_type)}</td><td>${p.total}</td><td>${badge(p.status)}</td>
+  </tr>`).join('');
+  return `
+    <div class="tbl-wrap" style="margin-bottom:20px">
+      <div style="padding:18px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px">Finding Count Over Time</div>
+        <div class="trend-wrap">${bars}</div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Date</th><th>Type</th><th>Findings</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+// ── New Scan ─────────────────────────────────────────────────────────────────
+function pageScan() {
+  const sc = S.scan;
+  const warn = `<div class="alert alert-warn" id="deep-warn" style="display:none;margin-top:8px">
+    Deep scan sends active probes. Only use on systems you own or have written authorization to test.</div>`;
+  const logBox = sc.logs.length ? `<div class="log-box" id="log-box">${sc.logs.map(l=>`<div>${esc(l)}</div>`).join('')}</div>` : '';
+  const success = sc.done && sc.domain ? `<div class="alert alert-success" style="margin-top:10px">
+    Scan complete — <a href="#/targets/${encodeURIComponent(sc.domain)}" style="color:inherit;font-weight:600">view results →</a></div>` : '';
+  return wrap('New Scan', `
+    <div style="max-width:520px">
+      <div class="card">
+        <div class="form-group">
+          <label class="form-label">Target Domain</label>
+          <input class="form-input" id="scan-domain" placeholder="example.com" value="${esc(sc.domain)}" ${sc.running?'disabled':''}>
+        </div>
+        <div class="form-group">
+          <div class="form-check">
+            <input type="checkbox" id="scan-deep" ${sc.running?'disabled':''}>
+            <label for="scan-deep">Deep scan — active probing (requires authorization)</label>
+          </div>
+          ${warn}
+        </div>
+        <button class="btn btn-primary" onclick="W.startScan()" ${sc.running?'disabled':''}>
+          ${sc.running?'<div class="spinner"></div> Scanning…':I.plus+' Start Scan'}
+        </button>
+        ${logBox}${success}
+      </div>
+    </div>`);
+}
+
+async function startScan() {
+  const domain = document.getElementById('scan-domain')?.value?.trim();
+  if (!domain) return;
+  const deep = document.getElementById('scan-deep')?.checked || false;
+  S.scan = { running: true, done: false, domain, logs: ['Starting scan for ' + domain + '…'] };
+  render();
+  try {
+    const res = await api('/scans', { method: 'POST',
+      body: JSON.stringify({ domain, deep, permission_confirmed: deep }) });
+    S.scan.logs.push('Job submitted — ID: ' + res.scan_run_id);
+    appendLog();
+    const es = new EventSource('/v1/scans/' + res.scan_run_id + '/stream');
+    es.addEventListener('log', e => {
+      S.scan.logs.push(e.data);
+      const box = document.getElementById('log-box');
+      if (box) { const d = document.createElement('div'); d.textContent = e.data; box.appendChild(d); box.scrollTop = box.scrollHeight; }
+    });
+    es.addEventListener('done', () => {
+      es.close(); S.scan.running = false; S.scan.done = true;
+      bust('dash', 'targets', 'f:'+domain, 't:'+domain, 'c:'+domain);
+      render();
+    });
+    es.onerror = () => { es.close(); S.scan.running = false; S.scan.logs.push('Stream closed.'); render(); };
+  } catch(e) {
+    S.scan.running = false; S.scan.logs.push('Error: ' + e.message); render();
+  }
+}
+function appendLog() {
+  const box = document.getElementById('log-box');
+  if (!box) return;
+  box.scrollTop = box.scrollHeight;
+}
+function rescan(domain) {
+  S.scan = { running: false, done: false, domain, logs: [] };
+  nav('#/scan');
+  setTimeout(() => { const i = document.getElementById('scan-domain'); if(i) i.value = domain; }, 60);
+}
+
+// ── Login ────────────────────────────────────────────────────────────────────
+function pageLogin() {
+  return `<div class="login-wrap"><div class="login-card">
+    <div class="login-logo">${I.shield.replace('22','40').replace('22','40')}<h2>Beacon</h2><p>Enter your API key to continue</p></div>
+    <div class="form-group"><label class="form-label">API Key</label>
+      <input class="form-input" id="login-key" type="password" placeholder="BEACON_API_KEY" onkeydown="if(event.key==='Enter')W.login()">
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="W.login()">Continue</button>
+    <p style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center">Set BEACON_API_KEY="" on the server to disable auth</p>
+  </div></div>`;
+}
+function login() {
+  S.apiKey = document.getElementById('login-key')?.value?.trim() || '';
+  localStorage.setItem('bk', S.apiKey);
+  nav('#/dashboard');
+}
+
+// ── Layout helpers ────────────────────────────────────────────────────────────
+function wrap(title, content, extra = '') {
+  return `${sidebar()}
+    <div class="main">
+      <div class="topbar"><h1>${title}</h1>${extra}</div>
+      <div class="page">${content}</div>
+    </div>`;
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  const r = route();
+  S.page = r.page; S.domain = r.domain||null; if(r.tab) S.tab = r.tab;
+  const root = document.getElementById('root');
+  if (S.page === 'login') { root.innerHTML = pageLogin(); return; }
+  let html = '';
+  switch (S.page) {
+    case 'dashboard': html = pageDashboard(); break;
+    case 'targets':   html = pageTargets();   break;
+    case 'target':    html = pageTarget();    break;
+    case 'scan':      html = pageScan();      break;
+    default:          html = pageDashboard();
+  }
+  root.innerHTML = `<div style="display:flex;width:100%;height:100%">${html}</div>`;
+
+  // Wire deep-scan warning toggle
+  const chk = document.getElementById('scan-deep');
+  const wrn = document.getElementById('deep-warn');
+  if (chk && wrn) chk.addEventListener('change', () => wrn.style.display = chk.checked ? 'block' : 'none');
+}
+
+// ── Global handlers (called from onclick in innerHTML) ────────────────────────
+const W = {
+  setSev(s) { S.sev = s; S.expanded = null; render(); },
+  search(v) { S.q = v; S.expanded = null; render(); },
+  expand(i) { S.expanded = S.expanded === i ? null : i; render(); },
+  copy(text, e) { e.stopPropagation(); navigator.clipboard.writeText(text).catch(()=>{}); },
+  login, startScan, rescan,
+};
+window.W = W;
+window.nav = nav;
+
+render();
+</script>
+</body>
+</html>

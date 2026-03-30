@@ -49,15 +49,22 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
-		return nil, nil
-	}
-
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+
+	// Surface mode: read X-Jenkins version header to detect CVE-2024-23897.
+	// The CLI args4j @file arbitrary file read requires no credentials.
+	// Versions < 2.442 (mainline) and < 2.426.3 (LTS) are vulnerable.
+	if scanType == module.ScanSurface {
+		return probeJenkinsCLIVersion(ctx, client, asset), nil
+	}
+
+	if scanType != module.ScanDeep {
+		return nil, nil
 	}
 
 	// Confirm /script is accessible before sending the Groovy payload.
@@ -237,4 +244,152 @@ func probeGroovyExecution(ctx context.Context, client *http.Client, scriptURL st
 func variants(httpsURL string) []string {
 	httpURL := strings.Replace(httpsURL, "https://", "http://", 1)
 	return []string{httpsURL, httpURL}
+}
+
+// probeJenkinsCLIVersion checks the X-Jenkins response header to detect
+// CVE-2024-23897 — Jenkins < 2.442 (mainline) or < 2.426.3 (LTS) CLI
+// args4j @file arbitrary file read. Surface-safe: one GET to the root path.
+func probeJenkinsCLIVersion(ctx context.Context, client *http.Client, asset string) []finding.Finding {
+	for _, scheme := range []string{"https", "http"} {
+		u := scheme + "://" + asset + "/"
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		ver := resp.Header.Get("X-Jenkins")
+		if ver == "" {
+			continue
+		}
+		// Confirm Jenkins CLI port header is present (stronger signal).
+		cliPortExposed := resp.Header.Get("X-Jenkins-CLI2-Port") != "" ||
+			resp.Header.Get("X-Jenkins-CLI-Port") != ""
+		if !isJenkinsCLIVulnerable(ver) {
+			return nil
+		}
+		ev := map[string]any{
+			"jenkins_version":  ver,
+			"cli_port_exposed": cliPortExposed,
+			"url":              u,
+		}
+		proofCmd := fmt.Sprintf("curl -sI '%s' | grep -i 'x-jenkins'", u)
+		var fs []finding.Finding
+
+		// CVE-2024-23897: Jenkins < 2.442 / LTS < 2.426.3 CLI args4j @file read.
+		fs = append(fs, finding.Finding{
+			CheckID: finding.CheckCVEJenkinsCLIFileRead,
+			Module:  "surface",
+			Scanner: scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2024-23897: Jenkins %s vulnerable to CLI arbitrary file read", ver),
+			Description: fmt.Sprintf(
+				"Jenkins %s is internet-accessible and vulnerable to CVE-2024-23897 (CVSS 9.8, KEV). "+
+					"The Jenkins CLI parser uses args4j which expands @<filename> arguments, allowing "+
+					"an unauthenticated attacker to read arbitrary files from the Jenkins controller filesystem "+
+					"(including credentials, secrets/master.key, and config.xml files). "+
+					"Affects Jenkins < 2.442 (mainline) and LTS < 2.426.3. "+
+					"Upgrade immediately and disable the CLI if not required.",
+				ver,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proofCmd,
+			DiscoveredAt: time.Now(),
+		})
+
+		// CVE-2018-1000861: Jenkins ≤ 2.153 / LTS ≤ 2.138.3 Stapler URL routing ACL bypass → RCE.
+		// The Stapler web framework resolves URL path components to Java object methods without
+		// proper ACL checks, allowing unauthenticated callers to reach privileged Groovy execution.
+		if isJenkinsStaplerRCEVulnerable(ver) {
+			fs = append(fs, finding.Finding{
+				CheckID:  finding.CheckCVEJenkinsStaplerRCE,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("CVE-2018-1000861: Jenkins %s vulnerable to Stapler pre-auth RCE", ver),
+				Description: fmt.Sprintf(
+					"Jenkins %s is vulnerable to CVE-2018-1000861 (CVSS 9.8). "+
+						"The Stapler URL routing framework exposes Java object methods without proper ACL checks, "+
+						"allowing unauthenticated attackers to invoke privileged methods including Groovy script execution. "+
+						"Affects Jenkins ≤ 2.153 (mainline) and LTS ≤ 2.138.3. "+
+						"This version is critically out of date — upgrade to a current Jenkins release immediately.",
+					ver,
+				),
+				Asset:        asset,
+				Evidence:     ev,
+				ProofCommand: proofCmd,
+				DiscoveredAt: time.Now(),
+			})
+		}
+		return fs
+	}
+	return nil
+}
+
+// isJenkinsStaplerRCEVulnerable returns true when the Jenkins version is in the
+// range affected by CVE-2018-1000861 (Stapler URL routing ACL bypass → pre-auth RCE):
+// mainline ≤ 2.153, LTS ≤ 2.138.3.
+func isJenkinsStaplerRCEVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	maj, minor := 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &minor)
+	if maj != 2 {
+		return false
+	}
+	if len(parts) == 2 {
+		// Mainline: ≤ 2.153
+		return minor <= 153
+	}
+	// LTS three-component: ≤ 2.138.3
+	patch := 0
+	fmt.Sscanf(parts[2], "%d", &patch)
+	if minor < 138 {
+		return true
+	}
+	if minor == 138 {
+		return patch <= 3
+	}
+	return false
+}
+
+// isJenkinsCLIVulnerable returns true when the version string from X-Jenkins
+// header indicates a vulnerable Jenkins release (< 2.442 mainline or < 2.426.3 LTS).
+func isJenkinsCLIVulnerable(ver string) bool {
+	// LTS format: "2.426.2" — three components
+	// Mainline format: "2.441" — two components
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	maj := 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	if maj != 2 {
+		return false // unexpected major version
+	}
+	minor := 0
+	fmt.Sscanf(parts[1], "%d", &minor)
+	if len(parts) == 2 {
+		// Mainline: 2.441 < 2.442
+		return minor < 442
+	}
+	// LTS: 2.426.2 < 2.426.3; 2.440.x is mainline-only so LTS check is minor <= 426
+	patch := 0
+	fmt.Sscanf(parts[2], "%d", &patch)
+	if minor < 426 {
+		return true
+	}
+	if minor == 426 {
+		return patch < 3
+	}
+	// LTS minor > 426 in the 2.x line: check if it's a known patched LTS
+	// (2.440.x, 2.452.x, etc. are post-fix). Conservative: flag minor < 440.
+	return minor < 440
 }

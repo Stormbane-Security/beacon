@@ -17,6 +17,7 @@ package wafdetect
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -52,6 +53,45 @@ var wafHeaders = []struct {
 	{"x-fw-hash", "Fortinet FortiWeb"},
 	{"x-protected-by", "Generic WAF"},
 	{"x-mod-security-id", "ModSecurity"},
+}
+
+// wafBodyPatterns maps response body substrings (case-insensitive) to WAF vendor names.
+// WAFs often inject signature strings into HTML error/block pages that are not
+// present in headers. Matching body content catches WAFs that strip custom headers.
+var wafBodyPatterns = []struct {
+	Pattern string
+	Vendor  string
+}{
+	{"attention required! | cloudflare", "Cloudflare"},
+	{"cf-error-details", "Cloudflare"},
+	{"cloudflare ray id", "Cloudflare"},
+	{"please wait... | cloudflare", "Cloudflare"},
+	{"access denied | sucuri", "Sucuri WAF"},
+	{"sucuri website firewall", "Sucuri WAF"},
+	{"request blocked", "Generic WAF"},
+	{"access denied", "Generic WAF"},
+	{"your request has been blocked", "Generic WAF"},
+	{"this request was blocked by the security rules", "Generic WAF"},
+	{"web application firewall", "Generic WAF"},
+	{"<title>403 forbidden</title>", "Generic WAF"},
+	{"powered by incapsula", "Imperva Incapsula"},
+	{"incapsula incident id", "Imperva Incapsula"},
+	{"_incapsula_resource", "Imperva Incapsula"},
+	{"akamai ghost", "Akamai"},
+	{"akamaighost", "Akamai"},
+	{"ak.reference", "Akamai"},
+	{"<h1>access denied</h1>", "Generic WAF"},
+	{"ddos protection by", "Generic WAF"},
+	{"barracuda web application firewall", "Barracuda WAF"},
+	{"f5 big-ip", "F5 BIG-IP ASM"},
+	{"the requested url was rejected", "F5 BIG-IP ASM"},
+	{"support id:", "F5 BIG-IP ASM"},
+	{"modsecurity", "ModSecurity"},
+	{"fortiweb", "Fortinet FortiWeb"},
+	{"fortigate", "Fortinet FortiGate"},
+	{"palo alto next generation", "Palo Alto NGFW"},
+	{"wallarm", "Wallarm WAF"},
+	{"wordfence", "Wordfence"},
 }
 
 // idsHeaders maps response header prefixes to IDS/NGFW vendor names.
@@ -99,8 +139,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		Transport: &http.Transport{},
 	}
 
-	// Probe the asset and collect response headers.
-	headers, scheme, err := probeHeaders(ctx, client, asset)
+	// Probe the asset and collect response headers + body.
+	headers, scheme, body, err := probeHeaders(ctx, client, asset)
 	if err != nil || len(headers) == 0 {
 		return nil, nil
 	}
@@ -108,7 +148,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var findings []finding.Finding
 
 	// ── Phase 1: Vendor fingerprinting ──────────────────────────────────────
-	vendor := detectVendor(headers)
+	vendor := detectVendor(headers, body)
 	idsVendor := detectIDS(headers)
 
 	if vendor != "" {
@@ -247,9 +287,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return findings, nil
 }
 
-// probeHeaders fetches the asset's response headers, trying HTTPS then HTTP.
-// Returns the headers map, the scheme used, and any error.
-func probeHeaders(ctx context.Context, client *http.Client, asset string) (map[string]string, string, error) {
+// probeHeaders fetches the asset's response headers and body, trying HTTPS then HTTP.
+// Returns the headers map, the scheme used, the response body (up to 64 KB for
+// WAF body-pattern matching), and any error.
+func probeHeaders(ctx context.Context, client *http.Client, asset string) (map[string]string, string, string, error) {
 	for _, scheme := range []string{"https", "http"} {
 		url := scheme + "://" + asset + "/"
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -261,14 +302,15 @@ func probeHeaders(ctx context.Context, client *http.Client, asset string) (map[s
 		if err != nil {
 			continue
 		}
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		resp.Body.Close()
 		out := make(map[string]string, len(resp.Header))
 		for k, v := range resp.Header {
 			out[strings.ToLower(k)] = strings.Join(v, ", ")
 		}
-		return out, scheme, nil
+		return out, scheme, string(bodyBytes), nil
 	}
-	return nil, "", fmt.Errorf("no response from %s", asset)
+	return nil, "", "", fmt.Errorf("no response from %s", asset)
 }
 
 // probeHTTPOnly performs a single GET over plain HTTP (no HTTPS fallback).
@@ -286,6 +328,7 @@ func probeHTTPOnly(ctx context.Context, client *http.Client, asset string) (int,
 	if err != nil {
 		return 0, nil
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 	resp.Body.Close()
 	hdrs := make(map[string]string, len(resp.Header))
 	for k, v := range resp.Header {
@@ -295,12 +338,33 @@ func probeHTTPOnly(ctx context.Context, client *http.Client, asset string) (int,
 }
 
 // detectVendor returns the WAF vendor name or "" if none detected.
-func detectVendor(headers map[string]string) string {
+// Checks both response headers and body content for WAF signatures.
+func detectVendor(headers map[string]string, body string) string {
+	// Check headers first — most reliable signal.
 	for _, sig := range wafHeaders {
 		for k := range headers {
 			if strings.HasPrefix(k, strings.ToLower(sig.Header)) {
 				return sig.Vendor
 			}
+		}
+	}
+	// Fall back to body pattern matching — catches WAFs that strip custom
+	// headers but inject signature strings into HTML error/block pages.
+	if body != "" {
+		bodyLower := strings.ToLower(body)
+		genericMatch := false
+		for _, bp := range wafBodyPatterns {
+			if strings.Contains(bodyLower, bp.Pattern) {
+				// Named vendor match is definitive — return immediately.
+				if bp.Vendor != "Generic WAF" {
+					return bp.Vendor
+				}
+				// "Generic WAF" is a fallback — keep looking for a named vendor.
+				genericMatch = true
+			}
+		}
+		if genericMatch {
+			return "Generic WAF"
 		}
 	}
 	return ""
@@ -388,6 +452,7 @@ func originResponds(ctx context.Context, client *http.Client, originIP, asset st
 		if err != nil {
 			continue
 		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 		resp.Body.Close()
 		// Accept 2xx only. 3xx redirects (e.g. 301 → /login) are not confirmation
 		// that the origin serves the application — they could be generic redirect
@@ -442,16 +507,56 @@ func getStatus(ctx context.Context, client *http.Client, asset, scheme string, e
 	if err != nil {
 		return 0
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 	resp.Body.Close()
 	return resp.StatusCode
 }
 
-// rootAndWWW returns the root domain and its www. variant for the given hostname.
+// rootAndWWW returns the registrable domain and its www. variant for the given hostname.
+// It handles common multi-part TLDs (.co.uk, .com.au, etc.).
 func rootAndWWW(hostname string) []string {
 	parts := strings.Split(hostname, ".")
 	if len(parts) < 2 {
 		return []string{hostname}
 	}
-	root := strings.Join(parts[len(parts)-2:], ".")
+	// Handle common two-part TLDs: keep 3 labels instead of 2.
+	n := 2
+	if len(parts) >= 3 {
+		sld := parts[len(parts)-2]
+		tld := parts[len(parts)-1]
+		if isTwoPartTLD(sld, tld) {
+			n = 3
+		}
+	}
+	if n > len(parts) {
+		n = len(parts)
+	}
+	root := strings.Join(parts[len(parts)-n:], ".")
 	return []string{root, "www." + root}
+}
+
+// isTwoPartTLD returns true for common second-level domains under country-code TLDs
+// (e.g., co.uk, com.au, co.jp) where the registrable domain has 3 labels.
+func isTwoPartTLD(sld, tld string) bool {
+	key := sld + "." + tld
+	switch key {
+	case "co.uk", "org.uk", "me.uk", "net.uk", "ac.uk",
+		"com.au", "net.au", "org.au", "edu.au",
+		"co.nz", "net.nz", "org.nz",
+		"co.jp", "or.jp", "ne.jp", "ac.jp",
+		"co.kr", "or.kr", "ne.kr",
+		"co.in", "net.in", "org.in", "ac.in",
+		"com.br", "net.br", "org.br",
+		"co.za", "org.za", "net.za",
+		"com.cn", "net.cn", "org.cn",
+		"com.mx", "org.mx", "net.mx",
+		"com.sg", "net.sg", "org.sg",
+		"co.il", "org.il", "net.il",
+		"com.tw", "net.tw", "org.tw",
+		"co.th", "or.th", "ac.th",
+		"com.hk", "org.hk", "net.hk",
+		"com.my", "net.my", "org.my":
+		return true
+	}
+	return false
 }

@@ -40,11 +40,13 @@ func (s *Scanner) Name() string { return scannerName }
 // dozens of identical CRIT findings for one root-cause problem. We run only
 // against root/apex domains (one dot) and explicit mail-related subdomains.
 func emailRelevant(asset string) bool {
-	// Strip port suffix if present (e.g. "example.com:8080").
-	host := asset
-	if i := strings.LastIndex(host, ":"); i > strings.LastIndex(host, "]") {
-		host = host[:i]
+	// Skip assets with a non-standard port — email DNS records (SPF/DMARC/DKIM)
+	// are domain-level, not port-specific. Running on "example.com:8080" would
+	// produce identical findings to "example.com" and look like duplicates.
+	if i := strings.LastIndex(asset, ":"); i > strings.LastIndex(asset, "]") {
+		return false
 	}
+	host := asset
 	parts := strings.Split(host, ".")
 	if len(parts) <= 2 {
 		return true // apex / root domain

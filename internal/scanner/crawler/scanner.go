@@ -6,10 +6,12 @@ package crawler
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,6 +36,20 @@ func New(bin string) *Scanner {
 
 func (s *Scanner) Name() string { return scannerName }
 
+// urlOnDomain returns true when rawURL's host equals asset or is a subdomain of
+// it. asset is the bare hostname passed to Run (e.g. "example.com"). This
+// prevents the DLP feed from receiving third-party URLs that katana discovers
+// while following external links.
+func urlOnDomain(rawURL, asset string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	base := strings.ToLower(strings.SplitN(asset, ":", 2)[0]) // strip port if present
+	return host == base || strings.HasSuffix(host, "."+base)
+}
+
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	resolvedBin, err := toolinstall.Ensure(s.bin)
 	if err != nil {
@@ -41,6 +57,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	target := "https://" + asset
+
+	// Scope regex: restrict katana to the target domain and its subdomains.
+	// This prevents katana from following external links and crawling third-party
+	// sites that the operator has not authorized. The DLP feed filter is a second
+	// layer of defence, but limiting katana's scope avoids fetching those pages
+	// at all, saving bandwidth and preventing unintended contact.
+	bareAsset := strings.SplitN(asset, ":", 2)[0] // strip port if present
+	scopeRegex := `.*` + regexp.QuoteMeta(bareAsset) + `.*`
 
 	// Surface: shallow crawl — depth 2, 8 req/s, 2 concurrent, cap 100 pages.
 	// Deep: deeper crawl with JS rendering — depth 3, 3 req/s, 2 concurrent, cap 200 pages.
@@ -64,6 +88,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		"-max-response-size", "2",           // 2MB max per response
 		"-known-files", "all",               // check robots.txt, sitemap.xml
 		"-robots",                           // respect robots.txt Disallow rules
+		"-cs", scopeRegex,                   // restrict crawl to target domain only
 	}
 	args = append(args, extraArgs...)
 
@@ -71,17 +96,40 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
-	_ = cmd.Run() // ignore exit code — katana may exit non-zero on partial crawls
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("katana: stdout pipe: %w", err)
+	}
 
-	// Parse discovered URLs — one per line
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("katana: start: %w", err)
+	}
+
+	// If the orchestrator placed a crawl-feed channel in context, close it via
+	// the shared closer (CrawlFeedCloserKey) when katana exits. The closer uses
+	// the module's sync.Once, so both this defer and the module's deferred
+	// safety-net closer are safe to call — only the first call closes the channel.
+	var feedCh chan<- string
+	if v := ctx.Value(module.CrawlFeedKey); v != nil {
+		if ch, ok := v.(chan string); ok {
+			feedCh = ch
+		}
+	}
+	if v := ctx.Value(module.CrawlFeedCloserKey); v != nil {
+		if closer, ok := v.(func()); ok {
+			defer closer()
+		}
+	}
+
+	// Stream katana output line by line so each URL reaches the DLP side-goroutine
+	// immediately rather than waiting for the full crawl to finish.
 	seen := make(map[string]struct{})
 	var endpoints []string
 
-	sc := bufio.NewScanner(&stdout)
+	sc := bufio.NewScanner(pipe)
 	for sc.Scan() {
 		u := strings.TrimSpace(sc.Text())
 		if u == "" || !strings.HasPrefix(u, "http") {
@@ -92,7 +140,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		seen[u] = struct{}{}
 		endpoints = append(endpoints, u)
+
+		// Non-blocking send: only forward URLs that belong to the target domain.
+		// Katana follows external links by default; the DLP side-goroutine must
+		// not fetch third-party domains without separate operator authorization.
+		if feedCh != nil && urlOnDomain(u, asset) {
+			select {
+			case feedCh <- u:
+			default:
+				// DLP is busy — continue; URL is still in endpoints for the finding.
+			}
+		}
 	}
+
+	// Wait for katana to exit after the pipe is fully drained (os/exec contract).
+	if err := cmd.Wait(); err != nil {
+		slog.Debug("katana exited with non-zero status", "asset", asset, "error", err,
+			"stderr", strings.TrimSpace(stderr.String()))
+	}
+
+	// feedOnce fires via defer — signals DLP that the crawl is complete.
 
 	if len(endpoints) == 0 {
 		return nil, nil

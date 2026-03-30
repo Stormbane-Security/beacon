@@ -1,0 +1,36 @@
+name: openwrt
+description: >
+  OpenWRT router with LuCI web administration panel is accessible. An exposed
+  LuCI interface allows attackers to view and modify all router configuration
+  including WiFi PSK credentials, firewall rules, and network routing. OpenWRT
+  routers often have no password on the root account by default after fresh
+  installation. Exposed router admin access is a critical attack surface
+  providing network pivoting capability.
+match:
+  any:
+    - check_id: "netdev.openwrt_exposed"
+    - title_contains: "LuCI"
+    - title_contains: "OpenWrt"
+    - path_responds: "/cgi-bin/luci"
+    - service_version_contains: "openwrt"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  dictionary:
+    - /cgi-bin/luci
+    - /cgi-bin/luci/admin
+    - /cgi-bin/luci/admin/network/wireless
+    - /cgi-bin/luci/admin/system/backup
+    - /backup/backup.tar.gz
+  nuclei_tags:
+    - openwrt
+    - exposure
+    - default-logins
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - openwrt
+    - default-logins
+    - misconfiguration

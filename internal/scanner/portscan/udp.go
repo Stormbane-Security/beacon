@@ -9,34 +9,40 @@ package portscan
 // response pattern within a short deadline (udpTimeout).
 //
 // Services probed:
-//   - NTP (123/UDP):   version request + monlist amplification check
-//   - SNMP (161/UDP):  GetRequest with "public" community string
-//   - TFTP (69/UDP):   Read Request for a non-existent file
-//   - SSDP (1900/UDP): UPnP M-SEARCH discovery request
-//   - IKE (500/UDP):   IKEv2 SA_INIT initiation header
+//   - NTP (123/UDP):    version request + monlist amplification check
+//   - SNMP (161/UDP):   GetRequest with "public" community string
+//   - TFTP (69/UDP):    Read Request for a non-existent file
+//   - SSDP (1900/UDP):  UPnP M-SEARCH discovery request
+//   - IKE (500/UDP):    IKEv2 SA_INIT initiation header
 //   - NetBIOS-NS (137/UDP): Name Service status query
-//   - STUN (3478/UDP): Binding Request
-//   - mDNS (5353/UDP): DNS-SD service discovery query
+//   - STUN (3478/UDP):  Binding Request
+//   - mDNS (5353/UDP):  DNS-SD service discovery query
+//   - RADIUS (1812/UDP): Access-Request with empty credentials
 //
 // All UDP probes use a 2-second timeout. False negatives (filtered → no
 // response) are acceptable — better than false positives from unreliable UDP.
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
 )
 
 const udpTimeout = 2 * time.Second
 
-// RunUDP runs all UDP probes against host and returns any findings.
+// runUDP runs UDP probes against host and returns any findings.
 // It is called from Scanner.Run() after the TCP connect phase.
-func runUDP(ctx context.Context, host string) []finding.Finding {
+// Surface mode runs only NTP, SNMP, and DNS probes (common, high-value services).
+// Deep mode runs all UDP probes including TFTP, SSDP, IKE, NetBIOS, STUN, mDNS, and RADIUS.
+func runUDP(ctx context.Context, host string, scanType module.ScanType) []finding.Finding {
 	var findings []finding.Finding
 
+	// ── Always run: high-value UDP services ──────────────────────────────────
 	// NTP
 	if ntpFs := probeNTP(ctx, host); len(ntpFs) > 0 {
 		findings = append(findings, ntpFs...)
@@ -45,29 +51,41 @@ func runUDP(ctx context.Context, host string) []finding.Finding {
 	if snmpFs := probeSNMPUDP(ctx, host); len(snmpFs) > 0 {
 		findings = append(findings, snmpFs...)
 	}
-	// TFTP
-	if tftpF := probeTFTP(ctx, host); tftpF != nil {
-		findings = append(findings, *tftpF)
+	// DNS open resolver
+	if dnsF := probeDNSResolver(ctx, host); dnsF != nil {
+		findings = append(findings, *dnsF)
 	}
-	// SSDP/UPnP
-	if ssdpF := probeSSDPUDP(ctx, host); ssdpF != nil {
-		findings = append(findings, *ssdpF)
-	}
-	// IKE/IPSec
-	if ikeF := probeIKEUDP(ctx, host); ikeF != nil {
-		findings = append(findings, *ikeF)
-	}
-	// NetBIOS Name Service
-	if nbF := probeNetBIOSNS(ctx, host); nbF != nil {
-		findings = append(findings, *nbF)
-	}
-	// STUN
-	if stunF := probeSTUN(ctx, host); stunF != nil {
-		findings = append(findings, *stunF)
-	}
-	// mDNS
-	if mdnsF := probeMDNS(ctx, host); mdnsF != nil {
-		findings = append(findings, *mdnsF)
+
+	// ── Deep mode only: extended UDP probes ──────────────────────────────────
+	if scanType == module.ScanDeep {
+		// TFTP
+		if tftpF := probeTFTP(ctx, host); tftpF != nil {
+			findings = append(findings, *tftpF)
+		}
+		// SSDP/UPnP
+		if ssdpF := probeSSDPUDP(ctx, host); ssdpF != nil {
+			findings = append(findings, *ssdpF)
+		}
+		// IKE/IPSec
+		if ikeF := probeIKEUDP(ctx, host); ikeF != nil {
+			findings = append(findings, *ikeF)
+		}
+		// NetBIOS Name Service
+		if nbF := probeNetBIOSNS(ctx, host); nbF != nil {
+			findings = append(findings, *nbF)
+		}
+		// STUN
+		if stunF := probeSTUN(ctx, host); stunF != nil {
+			findings = append(findings, *stunF)
+		}
+		// mDNS
+		if mdnsF := probeMDNS(ctx, host); mdnsF != nil {
+			findings = append(findings, *mdnsF)
+		}
+		// RADIUS
+		if radiusF := probeRADIUS(ctx, host); radiusF != nil {
+			findings = append(findings, *radiusF)
+		}
 	}
 
 	return findings
@@ -334,11 +352,45 @@ func probeSSDPUDP(ctx context.Context, host string) *finding.Finding {
 	if _, err := conn.Write(ssdpMSearch); err != nil {
 		return nil
 	}
-	buf := make([]byte, 1024)
+	buf := make([]byte, 2048)
 	n, err := conn.Read(buf)
 	resp := string(buf[:n])
 	if err != nil || !strings.Contains(resp, "HTTP/1.1") {
 		return nil
+	}
+
+	ev := map[string]any{"port": 1900, "service": "ssdp", "protocol": "udp"}
+
+	// CVE-2012-5958: libupnp ≤ 1.6.17 SSDP SUBSCRIBE buffer overflow → pre-auth RCE.
+	// The Server: header in the SSDP response often identifies the SDK version.
+	// "Portable SDK for UPnP devices/1.6.17" or earlier is vulnerable.
+	if libupnpVer := parseLibupnpVersion(resp); libupnpVer != "" {
+		ev["libupnp_version"] = libupnpVer
+		if isLibupnpVulnerable(libupnpVer) {
+			return &finding.Finding{
+				CheckID:  finding.CheckCVELibupnpSSDPRCE,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    host,
+				Title:    fmt.Sprintf("libupnp %s vulnerable to CVE-2012-5958 (pre-auth RCE via SSDP)", libupnpVer),
+				Description: fmt.Sprintf(
+					"The SSDP response identifies libupnp %s (\"Portable SDK for UPnP devices\"). "+
+						"libupnp ≤ 1.6.17 contains a buffer overflow in the SSDP SUBSCRIBE and NOTIFY "+
+						"request handlers (CVE-2012-5958, CVSS 10.0). An attacker on the network can "+
+						"send a crafted SSDP packet to trigger pre-authentication remote code execution "+
+						"as root on the embedded device. Affected vendors include Belkin, D-Link, "+
+						"Linksys, Netgear, Sony, and hundreds of others. Upgrade the device firmware.",
+					libupnpVer,
+				),
+				Evidence: ev,
+				ProofCommand: fmt.Sprintf(
+					"# Send SSDP M-SEARCH and read Server header:\n"+
+						"echo -e 'M-SEARCH * HTTP/1.1\\r\\nHOST: 239.255.255.250:1900\\r\\nMAN: \"ssdp:discover\"\\r\\nMX: 1\\r\\nST: ssdp:all\\r\\n\\r\\n' | nc -u %s 1900",
+					host),
+				DiscoveredAt: time.Now(),
+			}
+		}
 	}
 
 	f := finding.Finding{
@@ -353,10 +405,53 @@ func probeSSDPUDP(ctx context.Context, host string) *finding.Finding {
 			"Internet-facing UPnP is exploited for: port mapping attacks (opening firewall holes), " +
 			"CVE-2020-12695 (CallStranger SSRF/DDoS via SUBSCRIBE callbacks), and IoT device compromise. " +
 			"Block UDP 1900 at the network perimeter and disable UPnP on routers and IoT devices.",
-		Evidence:    map[string]any{"port": 1900, "service": "ssdp", "protocol": "udp"},
+		Evidence:     ev,
 		DiscoveredAt: time.Now(),
 	}
 	return &f
+}
+
+// parseLibupnpVersion extracts the libupnp SDK version from an SSDP response.
+// The Server: header format is: "OS/version UPnP/1.0 Portable SDK for UPnP devices/X.Y.Z"
+func parseLibupnpVersion(resp string) string {
+	const marker = "portable sdk for upnp devices/"
+	lower := strings.ToLower(resp)
+	idx := strings.Index(lower, marker)
+	if idx == -1 {
+		return ""
+	}
+	rest := resp[idx+len(marker):]
+	// Read until whitespace, CR, or end of line.
+	end := strings.IndexAny(rest, " \t\r\n")
+	if end == -1 {
+		return rest
+	}
+	return rest[:end]
+}
+
+// isLibupnpVulnerable returns true when the libupnp version is ≤ 1.6.17
+// (CVE-2012-5958 SSDP SUBSCRIBE buffer overflow).
+func isLibupnpVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	fmt.Sscanf(parts[0], "%d", &maj)
+	fmt.Sscanf(parts[1], "%d", &min)
+	if len(parts) >= 3 {
+		fmt.Sscanf(parts[2], "%d", &patch)
+	}
+	if maj != 1 {
+		return false
+	}
+	if min < 6 {
+		return true
+	}
+	if min == 6 {
+		return patch <= 17
+	}
+	return false
 }
 
 // ── IKE / IPSec ──────────────────────────────────────────────────────────────
@@ -599,7 +694,143 @@ func probeMDNS(ctx context.Context, host string) *finding.Finding {
 	return &f
 }
 
+// radiusAccessRequest is a minimal RADIUS Access-Request packet (RFC 2865).
+// Code=1 (Access-Request), ID=1, Length=20 (header only, no attributes),
+// Authenticator=16 zero bytes. Any RADIUS server will respond with
+// Access-Reject (code 3) or Access-Challenge (code 11) even to an empty request,
+// confirming the service is reachable.
+var radiusAccessRequest = []byte{
+	0x01,       // Code: Access-Request
+	0x01,       // Identifier: 1
+	0x00, 0x14, // Length: 20 (just the header)
+	// Authenticator: 16 bytes (zeros — acceptable for server detection)
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+}
+
+// probeRADIUS sends a minimal RADIUS Access-Request to UDP/1812 and returns
+// a finding if any valid RADIUS response is received. Any response
+// (Access-Reject, Access-Challenge, etc.) confirms a RADIUS server is listening.
+// RADIUS servers reachable from the internet are a high-severity finding because
+// they authenticate VPN, WiFi (802.1X/WPA-Enterprise), and network device access.
+func probeRADIUS(ctx context.Context, host string) *finding.Finding {
+	conn, err := dialUDP(ctx, host, 1812)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write(radiusAccessRequest); err != nil {
+		return nil
+	}
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	if err != nil || n < 4 {
+		return nil
+	}
+	// Valid RADIUS response codes: 2=Access-Accept, 3=Access-Reject,
+	// 11=Access-Challenge, 5=Accounting-Response
+	code := buf[0]
+	if code != 2 && code != 3 && code != 11 && code != 5 {
+		return nil
+	}
+
+	f := finding.Finding{
+		CheckID:  finding.CheckPortRADIUSExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    host,
+		Title:    "RADIUS authentication server reachable from internet (UDP 1812)",
+		Description: "A RADIUS authentication server (RFC 2865) is responding to UDP/1812 from the " +
+			"internet. RADIUS is used for VPN authentication, WPA-Enterprise WiFi (802.1X), " +
+			"and network device (switch/router) login. Internet-exposed RADIUS servers are " +
+			"vulnerable to offline dictionary attacks against captured Access-Request packets, " +
+			"amplification abuse, and CVE-2024-3596 (RADIUS/MD5 Blast RADIUS — forge any response). " +
+			"RADIUS should only be reachable from NAS devices on internal networks. " +
+			"Implement firewall rules to block UDP/1812 from all external sources.",
+		Evidence:    map[string]any{"port": 1812, "service": "radius", "protocol": "udp", "response_code": int(code)},
+		ProofCommand: fmt.Sprintf("echo -n | nc -u -w1 %s 1812 | xxd | head", host),
+		DiscoveredAt: time.Now(),
+	}
+	return &f
+}
+
 // itoa converts an int to a string decimal representation.
+// ── DNS open resolver ───────────────────────────────────────────────────────
+
+// dnsQueryExample is a minimal DNS query for "example.com" type A.
+// This is a well-formed recursive query that any open resolver will answer.
+// Header: ID=0x1234, Flags=0x0100 (RD=1), QDCOUNT=1
+// Question: example.com, type A (1), class IN (1)
+var dnsQueryExample = []byte{
+	0x12, 0x34, // Transaction ID
+	0x01, 0x00, // Flags: standard query, recursion desired
+	0x00, 0x01, // Questions: 1
+	0x00, 0x00, // Answer RRs: 0
+	0x00, 0x00, // Authority RRs: 0
+	0x00, 0x00, // Additional RRs: 0
+	// QNAME: example.com
+	0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
+	0x03, 'c', 'o', 'm',
+	0x00,       // null terminator
+	0x00, 0x01, // QTYPE: A
+	0x00, 0x01, // QCLASS: IN
+}
+
+// probeDNSResolver sends a recursive DNS query for example.com to UDP port 53.
+// If the server answers with a valid DNS response, it is an open resolver.
+func probeDNSResolver(ctx context.Context, host string) *finding.Finding {
+	conn, err := dialUDP(ctx, host, 53)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write(dnsQueryExample); err != nil {
+		return nil
+	}
+
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil || n < 12 {
+		return nil
+	}
+
+	// Validate: transaction ID must match, QR bit must be set (response),
+	// and RCODE should be NOERROR (0) or NXDOMAIN (3).
+	if buf[0] != 0x12 || buf[1] != 0x34 {
+		return nil // wrong transaction ID
+	}
+	if buf[2]&0x80 == 0 {
+		return nil // QR bit not set — not a response
+	}
+	rcode := buf[3] & 0x0F
+	if rcode != 0 && rcode != 3 {
+		return nil // unexpected RCODE — server refused or error
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckPortDNSOpenResolver,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    host,
+		Title:    fmt.Sprintf("DNS open resolver on %s:53/UDP", host),
+		Description: fmt.Sprintf(
+			"The DNS server at %s:53 answers recursive queries for external domains. "+
+				"An open resolver can be abused for DNS amplification DDoS attacks "+
+				"and may leak internal DNS data. Restrict recursion to trusted clients.",
+			host),
+		Evidence: map[string]any{
+			"port":     53,
+			"protocol": "udp",
+			"service":  "dns",
+			"rcode":    int(rcode),
+		},
+	}
+}
+
 // Used to avoid importing strconv just for JoinHostPort.
 func itoa(n int) string {
 	if n == 0 {

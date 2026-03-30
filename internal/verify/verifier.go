@@ -316,6 +316,27 @@ func min(a, b int) int {
 	return b
 }
 
+// sanitizeForPrompt removes newlines and control characters from a string to
+// prevent prompt injection when interpolating user-controlled data into AI
+// prompts. Truncates to maxLen runes.
+func sanitizeForPrompt(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 0x20 || r == '\t' {
+			b.WriteRune(r)
+		}
+	}
+	result := b.String()
+	runes := []rune(result)
+	if len(runes) > maxLen {
+		result = string(runes[:maxLen])
+	}
+	return result
+}
+
 // claudeAnalyze asks Claude to review a finding's evidence for accuracy.
 // It does NOT make any connections to the target — analysis is purely based
 // on the stored evidence data.
@@ -325,6 +346,14 @@ func (v *Verifier) claudeAnalyze(ctx context.Context, f finding.Finding, staticI
 	for _, iss := range staticIssues {
 		issueDescs = append(issueDescs, fmt.Sprintf("- [%s] %s", iss.Kind, iss.Description))
 	}
+
+	// Sanitize all user-controlled fields to prevent prompt injection via
+	// crafted finding titles, descriptions, or asset names.
+	safeTitle := sanitizeForPrompt(f.Title, 256)
+	safeAsset := sanitizeForPrompt(f.Asset, 256)
+	safeDesc := sanitizeForPrompt(f.Description, 512)
+	safeScanner := sanitizeForPrompt(f.Scanner, 64)
+	safeProof := sanitizeForPrompt(f.ProofCommand, 1024)
 
 	prompt := fmt.Sprintf(`You are reviewing a security scan finding for accuracy. Do NOT suggest connecting to the target — analyze only the stored evidence.
 
@@ -351,10 +380,10 @@ Please answer:
 3. What is the single most important fix (if any)?
 
 Keep your response under 150 words.`,
-		f.Title, f.CheckID, f.Severity.String(), f.Scanner, f.Asset,
-		f.Description,
+		safeTitle, f.CheckID, f.Severity.String(), safeScanner, safeAsset,
+		safeDesc,
 		string(evidenceJSON),
-		f.ProofCommand,
+		safeProof,
 		strings.Join(issueDescs, "\n"),
 	)
 
@@ -389,12 +418,18 @@ func (v *Verifier) callClaude(ctx context.Context, prompt string) (string, error
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
 		return "", err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("claude API %d: %s", resp.StatusCode, string(respBody))
+		// Redact any occurrence of the API key in the error body to
+		// prevent accidental key exposure in logs or user-facing output.
+		safeBody := string(respBody)
+		if v.apiKey != "" {
+			safeBody = strings.ReplaceAll(safeBody, v.apiKey, "[REDACTED]")
+		}
+		return "", fmt.Errorf("claude API %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var result struct {
@@ -454,8 +489,10 @@ func CorrelateCredentials(verdicts []FindingVerdict) []string {
 			if m, ok := f.Evidence["match"].(string); ok {
 				if len(m) > 20 {
 					val = m[:8] + "…" + m[len(m)-4:]
+				} else if len(m) > 8 {
+					val = m[:4] + "…"
 				} else {
-					val = m
+					val = "***"
 				}
 			}
 			creds = append(creds, credInfo{

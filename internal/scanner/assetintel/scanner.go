@@ -89,7 +89,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	// IP-dependent lookups (skip when DNS resolution failed)
 	if ip != "" {
-		client := &http.Client{Timeout: 12 * time.Second}
+		client := &http.Client{Timeout: 10 * time.Second}
 		tasks = append(tasks, func() *finding.Finding {
 			return reverseIPLookup(ctx, client, asset, ip)
 		})
@@ -115,7 +115,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	// Domain-only lookups (no IP required — run regardless of DNS result)
 	{
-		client := &http.Client{Timeout: 12 * time.Second}
+		client := &http.Client{Timeout: 10 * time.Second}
 		tasks = append(tasks, func() *finding.Finding {
 			return certOrgSearch(ctx, client, asset)
 		})

@@ -15,17 +15,6 @@ func All() []Module {
 	return registered
 }
 
-// ForTier returns modules available at or below the given pricing tier.
-func ForTier(tier PricingTier) []Module {
-	var out []Module
-	for _, m := range registered {
-		if m.Tier() <= tier {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
 // ForInputs returns modules whose required inputs are all satisfied by the given input.
 func ForInputs(input Input) []Module {
 	var out []Module
@@ -63,7 +52,7 @@ func inputSatisfied(required []InputType, input Input) bool {
 				return false
 			}
 		case InputCloud:
-			if input.AWSProfile == "" && input.GCPCredentialsFile == "" && input.AzureSubscriptionID == "" {
+			if !input.CloudEnabled && input.AWSProfile == "" && input.GCPCredentialsFile == "" && input.AzureSubscriptionID == "" {
 				return false
 			}
 		case InputKubernetes:

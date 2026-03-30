@@ -119,7 +119,7 @@ func TestProbeURL_PublicBucket_CriticalFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-backup", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-backup", "", time.Now())
 	if f == nil {
 		t.Fatal("expected a finding for HTTP 200 response (public bucket), got nil")
 	}
@@ -137,7 +137,7 @@ func TestProbeURL_PrivateBucket_InfoFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "GCS", "example-private", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "GCS", "example-private", "", time.Now())
 	if f == nil {
 		t.Fatal("expected a finding for HTTP 403 response (private bucket exists), got nil")
 	}
@@ -155,7 +155,7 @@ func TestProbeURL_NotFound_NoFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "Azure Blob", "nonexistent", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "Azure Blob", "nonexistent", "", time.Now())
 	if f != nil {
 		t.Errorf("expected nil finding for 404 response, got %+v", f)
 	}
@@ -167,7 +167,7 @@ func TestProbeURL_301Redirect_NoFinding(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-redir", time.Now())
+	f := probeURL(context.Background(), ts.Client(), "example.com", ts.URL+"/", "AWS S3", "example-redir", "", time.Now())
 	if f != nil {
 		t.Errorf("expected nil finding for 301 response, got %+v", f)
 	}
@@ -294,6 +294,109 @@ func TestRun_ContextCancelled_ReturnsEarly(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	_ = findings // may be empty; just must not panic
+}
+
+// ---------------------------------------------------------------------------
+// consolidateUnconfirmed — multiple unconfirmed findings → one alert
+// ---------------------------------------------------------------------------
+
+func TestConsolidateUnconfirmed_GroupsMultiple(t *testing.T) {
+	now := time.Now()
+	// Five unconfirmed listable GCS findings — should collapse to one.
+	var input []finding.Finding
+	for _, name := range []string{"acme-static", "acme-cdn", "acme-images", "acme-public", "acme-files"} {
+		input = append(input, finding.Finding{
+			CheckID:  finding.CheckCloudBucketPublic,
+			Module:   "surface",
+			Scanner:  "cloudbuckets",
+			Severity: finding.SeverityCritical,
+			Title:    "Possible public GCS bucket (listable): " + name,
+			Asset:    "acme.com",
+			Evidence: map[string]any{
+				"provider":            "GCS",
+				"listing":             "enabled",
+				"bucket_name":         name,
+				"ownership_confirmed": false,
+			},
+			DiscoveredAt: now,
+		})
+	}
+
+	result := consolidateUnconfirmed(input, "acme.com", now)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 consolidated finding, got %d", len(result))
+	}
+	names, ok := result[0].Evidence["bucket_names"].([]string)
+	if !ok {
+		t.Fatal("consolidated finding missing bucket_names evidence slice")
+	}
+	if len(names) != 5 {
+		t.Errorf("expected 5 bucket names in consolidated finding, got %d", len(names))
+	}
+	if result[0].Severity != finding.SeverityCritical {
+		t.Errorf("consolidated finding should retain Critical severity, got %s", result[0].Severity)
+	}
+}
+
+func TestConsolidateUnconfirmed_ConfirmedKeptSeparate(t *testing.T) {
+	now := time.Now()
+	// One confirmed finding + two unconfirmed — confirmed stays, unconfirmed consolidate.
+	confirmed := finding.Finding{
+		CheckID:  finding.CheckCloudBucketPublic,
+		Module:   "surface",
+		Scanner:  "cloudbuckets",
+		Severity: finding.SeverityCritical,
+		Title:    "Confirmed public GCS bucket (listable): acme-prod",
+		Asset:    "acme.com",
+		Evidence: map[string]any{
+			"provider":            "GCS",
+			"listing":             "enabled",
+			"bucket_name":         "acme-prod",
+			"ownership_confirmed": true,
+		},
+		DiscoveredAt: now,
+	}
+	unconfirmed := []finding.Finding{
+		{
+			CheckID: finding.CheckCloudBucketPublic, Module: "surface", Scanner: "cloudbuckets",
+			Severity: finding.SeverityCritical, Asset: "acme.com",
+			Evidence:     map[string]any{"provider": "GCS", "listing": "enabled", "bucket_name": "acme-static", "ownership_confirmed": false},
+			DiscoveredAt: now,
+		},
+		{
+			CheckID: finding.CheckCloudBucketPublic, Module: "surface", Scanner: "cloudbuckets",
+			Severity: finding.SeverityCritical, Asset: "acme.com",
+			Evidence:     map[string]any{"provider": "GCS", "listing": "enabled", "bucket_name": "acme-cdn", "ownership_confirmed": false},
+			DiscoveredAt: now,
+		},
+	}
+
+	input := append([]finding.Finding{confirmed}, unconfirmed...)
+	result := consolidateUnconfirmed(input, "acme.com", now)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 findings (1 confirmed + 1 consolidated), got %d", len(result))
+	}
+}
+
+func TestConsolidateUnconfirmed_SingleFindingUnchanged(t *testing.T) {
+	now := time.Now()
+	input := []finding.Finding{{
+		CheckID:  finding.CheckCloudBucketPublic,
+		Module:   "surface",
+		Scanner:  "cloudbuckets",
+		Severity: finding.SeverityCritical,
+		Title:    "Possible public GCS bucket (listable): acme-only",
+		Asset:    "acme.com",
+		Evidence: map[string]any{"provider": "GCS", "listing": "enabled", "bucket_name": "acme-only", "ownership_confirmed": false},
+	}}
+	result := consolidateUnconfirmed(input, "acme.com", now)
+	if len(result) != 1 {
+		t.Fatalf("single unconfirmed finding should be unchanged, got %d findings", len(result))
+	}
+	// Should keep the original, not a consolidated one.
+	if _, ok := result[0].Evidence["bucket_names"]; ok {
+		t.Error("single finding should not be wrapped in a consolidated form")
+	}
 }
 
 // ---------------------------------------------------------------------------

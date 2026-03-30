@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +67,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return nil, nil
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Dedicated transport for external API calls (ip-api.com, bgpview.io).
+	// MaxIdleConnsPerHost matches the asnSem concurrency of 5 so connections
+	// are reused rather than torn down and re-established for each lookup.
+	apiTransport := &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     30 * time.Second,
+	}
+	client := &http.Client{
+		Timeout:   15 * time.Second,
+		Transport: apiTransport,
+	}
 
 	// Step 1: collect all IPs associated with the domain — A records directly,
 	// plus MX and NS hostnames resolved to IPs. This catches orgs that host
@@ -264,10 +276,15 @@ func probeASNIPRange(ctx context.Context, prefixes []string) []finding.Finding {
 	sem := make(chan struct{}, 20)
 	var wg sync.WaitGroup
 
+	// DisableKeepAlives: each probe target is a different IP, so connection
+	// reuse has no value and holding idle connections wastes file descriptors.
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
 		},
 	}
 
@@ -478,6 +495,51 @@ type ipAPIResponse struct {
 	Status string `json:"status"` // "success" or "fail"
 }
 
+// retryGet executes an HTTP GET with exponential back-off on 429 and 5xx
+// responses. It respects the Retry-After header when present and retries
+// up to maxAttempts times before returning the last response.
+func retryGet(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
+	const maxAttempts = 3
+	var lastResp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s
+			// Honour Retry-After if the server provided one.
+			if lastResp != nil {
+				if ra := lastResp.Header.Get("Retry-After"); ra != "" {
+					if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs < 120 {
+						delay = time.Duration(secs) * time.Second
+					}
+				}
+				lastResp.Body.Close()
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+			// Clone request for retry (Body is nil for GETs so cloning is safe).
+			clone := req.Clone(ctx)
+			req = clone
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			lastResp = resp
+			continue
+		}
+		return resp, nil
+	}
+	if lastResp != nil {
+		return lastResp, nil // return last response so callers can inspect the status
+	}
+	return nil, lastErr
+}
+
 func lookupASN(ctx context.Context, client *http.Client, ip string) (int, string, error) {
 	url := fmt.Sprintf("https://ip-api.com/json/%s?fields=status,as,org", ip)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -485,7 +547,7 @@ func lookupASN(ctx context.Context, client *http.Client, ip string) (int, string
 		return 0, "", err
 	}
 
-	resp, err := client.Do(req)
+	resp, err := retryGet(ctx, client, req)
 	if err != nil {
 		return 0, "", fmt.Errorf("ip-api lookup failed")
 	}
@@ -542,7 +604,7 @@ func fetchASNPrefixes(ctx context.Context, client *http.Client, asn int) ([]stri
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
 
-	resp, err := client.Do(req)
+	resp, err := retryGet(ctx, client, req)
 	if err != nil {
 		return nil, fmt.Errorf("bgpview fetch failed: %w", err)
 	}

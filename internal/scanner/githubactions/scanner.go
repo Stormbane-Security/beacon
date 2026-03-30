@@ -53,7 +53,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	// Discover the GitHub org/repo associated with this asset.
-	owner, repo := s.discoverRepo(ctx, client, asset)
+	disc := s.discoverRepo(ctx, client, asset)
+	if disc == nil {
+		return nil, nil
+	}
+	owner, repo := disc.Owner, disc.Repo
 	if owner == "" || repo == "" {
 		return nil, nil
 	}
@@ -65,6 +69,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 
 	var findings []finding.Finding
+
+	// Emit an audit finding so users can see HOW this repo was linked to the domain.
+	// discovery_method: "package_json" = found in /package.json repository field.
+	//                   "html_link"    = found as github.com/owner/repo link in home page HTML.
+	findings = append(findings, finding.Finding{
+		CheckID:     finding.CheckGHActionRepoDiscovered,
+		Module:      "surface",
+		Scanner:     scannerName,
+		Severity:    finding.SeverityInfo,
+		Asset:       asset,
+		Title:       fmt.Sprintf("GitHub repository %s/%s linked to %s", owner, repo, asset),
+		Description: fmt.Sprintf("The GitHub repository %s/%s was associated with %s via %s. GitHub Actions workflows in this repo were scanned for security issues.", owner, repo, asset, disc.Method),
+		Evidence: map[string]any{
+			"repo":             owner + "/" + repo,
+			"discovery_method": disc.Method,
+			"source_url":       disc.Source,
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | grep -o 'github\\.com/[^\"/ ]*/[^\"/ ]*'", disc.Source),
+		DiscoveredAt: time.Now(),
+	})
+
 	for _, wf := range workflows {
 		findings = append(findings, analyzeWorkflow(asset, owner, repo, wf)...)
 	}
@@ -754,8 +779,17 @@ func (s *Scanner) fetchWorkflows(ctx context.Context, client *http.Client, owner
 // githubRepoRe matches GitHub repo URLs in HTML source and package.json.
 var githubRepoRe = regexp.MustCompile(`github\.com[/:]([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git|/|"|\s|$)`)
 
+// repoDiscovery captures how a GitHub repo was found for an asset.
+type repoDiscovery struct {
+	Owner  string
+	Repo   string
+	Method string // "package_json" or "html_link"
+	Source string // URL that yielded the link
+}
+
 // discoverRepo tries to find the GitHub owner/repo for the given asset domain.
-func (s *Scanner) discoverRepo(ctx context.Context, client *http.Client, asset string) (string, string) {
+// Returns full discovery metadata so the caller can emit an audit finding.
+func (s *Scanner) discoverRepo(ctx context.Context, client *http.Client, asset string) *repoDiscovery {
 	// Strip port from asset.
 	host := asset
 	if h, err := http.NewRequest("", "http://"+asset, nil); err == nil {
@@ -764,15 +798,17 @@ func (s *Scanner) discoverRepo(ctx context.Context, client *http.Client, asset s
 
 	for _, scheme := range []string{"https", "http"} {
 		// 1. Check package.json repository field.
-		if owner, repo := s.repoFromPackageJSON(ctx, client, scheme+"://"+host+"/package.json"); owner != "" {
-			return owner, repo
+		src := scheme + "://" + host + "/package.json"
+		if owner, repo := s.repoFromPackageJSON(ctx, client, src); owner != "" {
+			return &repoDiscovery{Owner: owner, Repo: repo, Method: "package_json", Source: src}
 		}
 		// 2. Parse GitHub links from the home page HTML.
-		if owner, repo := s.repoFromHTML(ctx, client, scheme+"://"+host+"/"); owner != "" {
-			return owner, repo
+		src = scheme + "://" + host + "/"
+		if owner, repo := s.repoFromHTML(ctx, client, src); owner != "" {
+			return &repoDiscovery{Owner: owner, Repo: repo, Method: "html_link", Source: src}
 		}
 	}
-	return "", ""
+	return nil
 }
 
 func (s *Scanner) repoFromPackageJSON(ctx context.Context, client *http.Client, url string) (string, string) {

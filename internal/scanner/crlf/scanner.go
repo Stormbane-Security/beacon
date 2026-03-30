@@ -42,13 +42,15 @@ var probePaths = []string{
 }
 
 // injectionSuffixes are the CRLF-encoded suffixes appended to the redirect
-// value. We try both CRLF and LF-only variants.
+// value. We try CRLF, LF-only, and double-encoded variants.
 var injectionSuffixes = []struct {
 	encoded string // percent-encoded sequence
 	label   string // human label
 }{
 	{encoded: "%0d%0a" + injectedHeader + ":" + injectedValue, label: "CRLF"},
 	{encoded: "%0a" + injectedHeader + ":" + injectedValue, label: "LF"},
+	{encoded: "%250d%250a" + injectedHeader + ":" + injectedValue, label: "double-encoded CRLF"},
+	{encoded: "%250a" + injectedHeader + ":" + injectedValue, label: "double-encoded LF"},
 }
 
 // Scanner probes for CRLF injection in HTTP redirect parameters.
@@ -139,12 +141,76 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// ── Query parameter CRLF injection ─────────────────────────────────────
+	// Some applications reflect query parameter values directly into response
+	// headers (e.g. via Set-Cookie, X-Custom-*). Test CRLF in query values
+	// on paths that are likely to reflect parameters.
+	queryInjections := []struct {
+		encoded string
+		label   string
+	}{
+		{encoded: "%0d%0a" + injectedHeader + ":" + injectedValue, label: "CRLF-in-query"},
+		{encoded: "%250d%250a" + injectedHeader + ":" + injectedValue, label: "double-encoded-CRLF-in-query"},
+	}
+	for _, path := range probePaths {
+		for _, suffix := range queryInjections {
+			rawURL := fmt.Sprintf("%s%s?beacon_test=value%s",
+				base, path, suffix.encoded)
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+			if err != nil {
+				continue
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, maxBodySize)) //nolint:errcheck
+			resp.Body.Close()
+
+			if resp.Header.Get(injectedHeader) == injectedValue {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebCRLFInjection,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Title: fmt.Sprintf(
+						"CRLF Injection via query parameter on %s (%s variant)",
+						path, suffix.label),
+					Description: fmt.Sprintf(
+						"A query parameter value on path %s does not strip carriage-return or "+
+							"line-feed characters before including the value in an HTTP response "+
+							"header. An attacker can inject arbitrary response headers via the URL "+
+							"query string, enabling HTTP response splitting, cache poisoning, and "+
+							"cross-site scripting.",
+						path),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						`curl -si "%s%s?test=value%%0d%%0aX-Injected:beacon" | grep X-Injected`,
+						base, path),
+					Evidence: map[string]any{
+						"url":               rawURL,
+						"path":              path,
+						"injection_variant": suffix.label,
+						"injected_header":   injectedHeader + ": " + injectedValue,
+						"vector":            "query_parameter",
+					},
+					DiscoveredAt: time.Now(),
+				})
+				// One finding per path for query injection is sufficient.
+				break
+			}
+		}
+	}
+
 	return findings, nil
 }
 
 // detectScheme tries HTTPS first, falling back to HTTP.
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://"+asset, nil)
 	if err != nil {
 		return "http"
 	}
@@ -152,6 +218,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return "https"
 }
