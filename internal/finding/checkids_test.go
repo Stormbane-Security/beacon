@@ -421,6 +421,9 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudAzureNoNSGFlowLogs:           true,
 		finding.CheckCloudAzureNoDefender:              true,
 		finding.CheckWebNginxAliasTraversal:            true,
+		// New deep-mode checks added in scanner gaps pass
+		finding.CheckGraphQLAliasDos:                   true,
+		finding.CheckOAuthSubdomainBypass:              true,
 	}
 
 	for id, meta := range finding.Registry {

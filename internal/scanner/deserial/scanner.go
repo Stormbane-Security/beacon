@@ -34,6 +34,23 @@ var javaMagic = []byte{0xAC, 0xED, 0x00, 0x05}
 // sent in HTTP parameters when apps serialize to base64).
 const javaMagicB64 = "rO0AB" // base64 of 0xACED0005...
 
+// pickleMagicBytes are the opcode prefixes for Python pickle protocols 2-5.
+// Protocol 2: \x80\x02, Protocol 3: \x80\x03, Protocol 4: \x80\x04, Protocol 5: \x80\x05
+var pickleMagicBytes = [][]byte{
+	{0x80, 0x02},
+	{0x80, 0x03},
+	{0x80, 0x04},
+	{0x80, 0x05},
+}
+
+// pickleMagicB64 are base64-encoded prefixes for pickle protocols 2-5.
+var pickleMagicB64 = []string{
+	"gAI", // \x80\x02
+	"gAM", // \x80\x03
+	"gAQ", // \x80\x04
+	"gAU", // \x80\x05
+}
+
 // phpSerializedRE matches the full PHP serialize() object notation:
 //
 //	O:<len>:"<classname>":<count>:{
@@ -104,6 +121,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// Check 5: Python pickle deserialization — send a minimal pickle payload
+	// and check for Python-specific error responses.
+	if f := probePythonPickle(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
 	return findings, nil
 }
 
@@ -131,6 +154,9 @@ func scanResponsesForMagicBytes(ctx context.Context, client *http.Client, asset,
 		} else if phpSerializedRE.MatchString(bodyStr) {
 			detected = "PHP serialized object pattern (O:...{s:...})"
 			lang = "PHP"
+		} else if containsPickleMagic(body, bodyStr) {
+			detected = "Python pickle magic bytes (\\x80\\x0[2-5])"
+			lang = "Python"
 		}
 
 		if detected == "" {
@@ -419,6 +445,142 @@ func probeJavaVersionGadget(ctx context.Context, client *http.Client, asset, bas
 				"version_context": jvg.note,
 			},
 			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// containsPickleMagic returns true if the body contains Python pickle protocol
+// magic bytes (raw or base64-encoded).
+func containsPickleMagic(body []byte, bodyStr string) bool {
+	for _, magic := range pickleMagicBytes {
+		if bytes.Contains(body, magic) {
+			return true
+		}
+	}
+	for _, prefix := range pickleMagicB64 {
+		if strings.Contains(bodyStr, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// pickleProbePaths are paths likely to accept Python serialized objects.
+var pickleProbePaths = []string{
+	"/api",
+	"/api/v1",
+	"/rpc",
+	"/invoke",
+	"/execute",
+	"/session",
+	"/pickle",
+	"/load",
+}
+
+// probePythonPickle sends a minimal Python pickle payload to common endpoints
+// and checks whether the server returns a Python-specific error indicating
+// pickle deserialization was attempted.
+func probePythonPickle(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
+	// Minimal pickle protocol 2 payload: pickle.dumps("test", protocol=2)
+	// \x80\x02 = protocol 2, U\x04test = short string "test", q\x00 = put memo 0, . = STOP
+	picklePayload := []byte{0x80, 0x02, 0x55, 0x04, 't', 'e', 's', 't', 0x71, 0x00, 0x2e}
+
+	for _, path := range pickleProbePaths {
+		url := base + path
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+			bytes.NewReader(picklePayload))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/x-python-serialize")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+		resp.Body.Close()
+
+		bodyStr := string(body)
+		// Python pickle errors that indicate deserialization was attempted.
+		if resp.StatusCode == http.StatusInternalServerError &&
+			(strings.Contains(bodyStr, "UnpicklingError") ||
+				strings.Contains(bodyStr, "pickle") ||
+				strings.Contains(bodyStr, "_pickle") ||
+				strings.Contains(bodyStr, "cPickle")) {
+			return &finding.Finding{
+				CheckID:  finding.CheckWebInsecureDeserialize,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    "Python Pickle Deserialization Endpoint Detected",
+				Description: fmt.Sprintf(
+					"The endpoint %s returned a Python pickle error when sent a crafted "+
+						"serialized object. This indicates the endpoint deserializes user input via "+
+						"pickle.loads(), making it vulnerable to arbitrary code execution. Python pickle "+
+						"is inherently unsafe for untrusted data — any pickle payload can execute arbitrary "+
+						"Python code during deserialization.",
+					url),
+				Asset:    asset,
+				DeepOnly: true,
+				ProofCommand: fmt.Sprintf(
+					"python3 -c \"import pickle,requests; "+
+						"requests.post('%s', data=pickle.dumps('test'), "+
+						"headers={'Content-Type':'application/x-python-serialize'})\"",
+					url),
+				Evidence: map[string]any{
+					"url":      url,
+					"status":   resp.StatusCode,
+					"error":    firstLine(bodyStr),
+					"language": "Python",
+				},
+				DiscoveredAt: time.Now(),
+			}
+		}
+
+		// Also check if the server accepts the payload successfully (200) and
+		// returns something Python-shaped — this means it silently deserialized.
+		if resp.StatusCode == http.StatusOK &&
+			(strings.Contains(bodyStr, "test") || strings.Contains(bodyStr, "result")) {
+			// Verify by checking Content-Type or Python-specific headers.
+			ct := resp.Header.Get("Content-Type")
+			server := resp.Header.Get("Server") + " " + resp.Header.Get("X-Powered-By")
+			if strings.Contains(strings.ToLower(ct), "python") ||
+				strings.Contains(server, "Python") ||
+				strings.Contains(server, "gunicorn") ||
+				strings.Contains(server, "uvicorn") ||
+				strings.Contains(server, "Flask") ||
+				strings.Contains(server, "Django") {
+				return &finding.Finding{
+					CheckID:  finding.CheckWebInsecureDeserialize,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    "Python Pickle Deserialization Accepted Silently",
+					Description: fmt.Sprintf(
+						"The endpoint %s accepted a Python pickle payload and returned a success "+
+							"response on a Python-backed server. This strongly indicates the endpoint "+
+							"deserializes user input via pickle.loads(). Python pickle is inherently unsafe — "+
+							"any attacker can craft a payload that executes arbitrary code during deserialization.",
+						url),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						"python3 -c \"import pickle,requests; "+
+							"r=requests.post('%s', data=pickle.dumps('test'), "+
+							"headers={'Content-Type':'application/x-python-serialize'}); print(r.text)\"",
+						url),
+					Evidence: map[string]any{
+						"url":          url,
+						"status":       resp.StatusCode,
+						"content_type": ct,
+						"server":       server,
+						"language":     "Python",
+					},
+					DiscoveredAt: time.Now(),
+				}
+			}
 		}
 	}
 	return nil

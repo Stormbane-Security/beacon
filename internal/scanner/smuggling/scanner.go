@@ -217,7 +217,76 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// CL.CL probe — duplicate Content-Length headers with different values.
+	// Some proxies use the first Content-Length, others use the last. When they
+	// disagree, the body boundary is different on each side → smuggling.
+	if vulnerable, elapsed := probeCLCL(ctx, host, port, asset, useTLS); vulnerable {
+		findings = append(findings, finding.Finding{
+			CheckID:  checkID,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    fmt.Sprintf("HTTP request smuggling (CL.CL) detected on %s", asset),
+			Description: "The server appears vulnerable to CL.CL request smuggling: duplicate Content-Length " +
+				"headers with different values caused a measurable timeout, indicating the front-end and " +
+				"back-end disagree on which Content-Length to use. An attacker can exploit this disagreement " +
+				"to smuggle requests, bypass security controls, and hijack sessions.",
+			ProofCommand: fmt.Sprintf(
+				"# CL.CL timing probe — connection should hang for ~%ds if vulnerable:\n"+
+					"python3 -c \"\nimport socket, ssl, time\n"+
+					"host='%s'\n"+
+					"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+					"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+					"Content-Length: 6\\r\\nContent-Length: 100\\r\\n\\r\\n"+
+					"X=test')\n"+
+					"ctx=ssl.create_default_context()\n"+
+					"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
+					"c.send(payload.encode()); t=time.time()\n"+
+					"try: c.recv(4096)\nexcept: pass\n"+
+					"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+				int(smuggleDelay.Seconds()), asset, asset),
+			Evidence: map[string]any{
+				"type":             "CL.CL",
+				"url":              targetURL,
+				"baseline_ms":      baseline.Milliseconds(),
+				"probe_elapsed_ms": elapsed.Milliseconds(),
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings, nil
+}
+
+// probeCLCL sends a smuggling probe with duplicate Content-Length headers.
+// The first CL matches the actual body length; the second is much larger.
+// If the front-end uses the first CL and the back-end uses the second (or
+// vice versa), they disagree on the body boundary → measurable timeout.
+// The probe is sent twice; both must time out to be flagged.
+func probeCLCL(ctx context.Context, host, port, asset string, useTLS bool) (bool, time.Duration) {
+	body := "X=test"
+	raw := fmt.Sprintf(
+		"POST / HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"Content-Type: application/x-www-form-urlencoded\r\n"+
+			"Content-Length: %d\r\n"+
+			"Content-Length: 100\r\n"+
+			"\r\n"+
+			"%s",
+		asset, len(body), body,
+	)
+	hits := 0
+	var lastElapsed time.Duration
+	for i := 0; i < 2; i++ {
+		start := time.Now()
+		err := sendRaw(ctx, host, port, useTLS, raw, probeTimeout, nil)
+		lastElapsed = time.Since(start)
+		if isTimeoutError(err) && lastElapsed >= smuggleDelay {
+			hits++
+		}
+	}
+	return hits >= 2, lastElapsed
 }
 
 // probeTETEObfuscation sends a smuggling probe with an obfuscated

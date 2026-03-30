@@ -183,7 +183,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if f := checkOpenRedirect(ctx, client, asset, authEndpoint, pc); f != nil {
 			findings = append(findings, *f)
 		}
-		// 4a. Weak state parameter — checks state entropy if present
+		// 4a. Subdomain wildcard bypass in redirect_uri — many OAuth servers
+		// validate only the root domain, allowing evil.example.com as redirect.
+		if f := checkSubdomainBypass(ctx, client, asset, authEndpoint, pc); f != nil {
+			findings = append(findings, *f)
+		}
+		// 4b. Weak state parameter — checks state entropy if present
 		if f := checkWeakState(ctx, client, asset, authEndpoint, pc); f != nil {
 			findings = append(findings, *f)
 		}
@@ -833,6 +838,70 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 				"or access token to an attacker-controlled server." + note,
 			Evidence:     ev,
 			ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=code&client_id=test&redirect_uri=https://evil.com/steal-tokens&state=test' | grep -i 'location\\|evil'", authEndpoint),
+			DiscoveredAt: time.Now(),
+		}
+	}
+	return nil
+}
+
+// checkSubdomainBypass tests whether the OAuth authorization endpoint accepts
+// a redirect_uri with an attacker-controlled subdomain of the target's domain.
+// Many OAuth implementations validate only the root domain (e.g. example.com)
+// but accept any subdomain (evil.example.com). An attacker who controls a
+// subdomain (via subdomain takeover, XSS, or a separate vulnerable app) can
+// steal authorization codes.
+func checkSubdomainBypass(ctx context.Context, client *http.Client, asset, authEndpoint string, pc probeClientID) *finding.Finding {
+	// Build a redirect_uri using an attacker-controlled subdomain of the target.
+	evilRedirect := fmt.Sprintf("https://evil.%s/callback", asset)
+
+	params := url.Values{}
+	params.Set("response_type", "code")
+	params.Set("client_id", pc.id)
+	params.Set("redirect_uri", evilRedirect)
+	params.Set("state", "beacontest")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authEndpoint+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	resp.Body.Close()
+
+	loc := resp.Header.Get("Location")
+	bodyStr := string(body)
+
+	// Check if the server accepted the subdomain redirect — look for the evil
+	// subdomain in the Location header or response body. The server may redirect
+	// directly or render a consent page that includes the redirect_uri.
+	evilHost := "evil." + asset
+	if strings.Contains(strings.ToLower(loc), evilHost) ||
+		strings.Contains(bodyStr, evilHost) {
+		ev, note := confidenceNote(pc)
+		ev["endpoint"] = authEndpoint
+		ev["injected_redirect"] = evilRedirect
+		ev["response_location"] = loc
+		ev["status_code"] = resp.StatusCode
+		return &finding.Finding{
+			CheckID:  finding.CheckOAuthSubdomainBypass,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    fmt.Sprintf("OAuth: subdomain wildcard bypass in redirect_uri at %s", authEndpoint),
+			Description: fmt.Sprintf(
+				"The OAuth authorization endpoint accepted a redirect_uri with an attacker-controlled "+
+					"subdomain (%s). The server validates the root domain but allows any subdomain as a "+
+					"redirect target. An attacker who controls a subdomain (via subdomain takeover, XSS "+
+					"on a sub-application, or a dangling DNS record) can steal authorization codes or "+
+					"access tokens.", evilRedirect) + note,
+			Evidence: ev,
+			ProofCommand: fmt.Sprintf(
+				"curl -sI '%s?response_type=code&client_id=%s&redirect_uri=%s&state=test' | grep -i 'location'",
+				authEndpoint, pc.id, url.QueryEscape(evilRedirect)),
 			DiscoveredAt: time.Now(),
 		}
 	}

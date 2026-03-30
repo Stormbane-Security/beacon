@@ -122,8 +122,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Deep-mode probes — batch queries, persisted query bypass, and CSRF via GET.
-	// Only run against confirmed GraphQL endpoints found above.
+	// Deep-mode probes — batch queries, persisted query bypass, CSRF via GET,
+	// and alias-based DoS. Only run against confirmed GraphQL endpoints.
 	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		for _, endpointURL := range confirmedEndpoints {
 			if f := checkBatchQuery(ctx, client, asset, endpointURL); f != nil {
@@ -133,6 +133,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				findings = append(findings, *f)
 			}
 			if f := checkGraphQLGET(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkAliasDos(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)
 			}
 		}
@@ -435,6 +438,91 @@ func checkGraphQLGET(ctx context.Context, client *http.Client, asset, endpoint s
 			"response_snippet": compactSnippet(raw, 300),
 		},
 		ProofCommand: fmt.Sprintf("curl -s '%s'", getURL),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// checkAliasDos tests whether the GraphQL endpoint processes queries with many
+// aliases for the same field. Alias-based amplification lets an attacker
+// multiply server-side work within a single query document — unlike batch
+// queries, this bypasses per-request rate limits and query-count controls.
+func checkAliasDos(ctx context.Context, client *http.Client, asset, endpoint string) *finding.Finding {
+	// Build a query with 100 aliases: { a0: __typename, a1: __typename, ... }
+	const aliasCount = 100
+	var sb strings.Builder
+	sb.WriteString(`{"query":"{ `)
+	for i := range aliasCount {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "a%d: __typename", i)
+	}
+	sb.WriteString(` }"}`)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
+		bytes.NewBufferString(sb.String()))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	if err != nil {
+		return nil
+	}
+
+	// Parse the response and count how many alias keys appear in "data".
+	var gqlResp struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &gqlResp); err != nil || gqlResp.Data == nil {
+		return nil
+	}
+
+	// Count how many of our aliases were resolved.
+	resolved := 0
+	for i := range aliasCount {
+		if _, ok := gqlResp.Data[fmt.Sprintf("a%d", i)]; ok {
+			resolved++
+		}
+	}
+
+	// If the server resolved all (or nearly all) aliases, it's vulnerable.
+	if resolved < aliasCount-5 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckGraphQLAliasDos,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("GraphQL alias-based query amplification at %s", endpoint),
+		Description: fmt.Sprintf(
+			"The GraphQL endpoint at %s resolved %d aliased fields in a single query without "+
+				"depth or alias limits. An attacker can amplify server-side work by aliasing "+
+				"expensive fields (e.g. nested resolvers) hundreds of times in one request, "+
+				"causing denial of service while bypassing per-request rate limits.",
+			endpoint, resolved),
+		Evidence: map[string]any{
+			"url":             endpoint,
+			"aliases_sent":    aliasCount,
+			"aliases_resolved": resolved,
+		},
+		ProofCommand: fmt.Sprintf(
+			`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{"query":"{ a0: __typename a1: __typename a2: __typename }"}'`,
+			endpoint),
 		DiscoveredAt: time.Now(),
 	}
 }

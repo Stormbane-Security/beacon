@@ -273,6 +273,47 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// Weak cipher suite detection — check for known-insecure algorithms in
+	// the negotiated cipher suite name. This provides coverage when testssl
+	// is not installed. Go's TLS library won't negotiate truly broken ciphers
+	// (NULL, EXPORT, DES) but will negotiate RC4 and 3DES on older configs.
+	cipherUpper := strings.ToUpper(cipherName)
+	weakCipherSignals := []struct {
+		pattern string
+		reason  string
+	}{
+		{"RC4", "RC4 is broken — biases in the keystream allow plaintext recovery (RFC 7465 prohibits RC4)"},
+		{"3DES", "3DES has a 64-bit block size vulnerable to Sweet32 birthday attacks (CVE-2016-2183)"},
+		{"DES_CBC", "Single DES uses a 56-bit key — trivially brute-forceable"},
+		{"NULL", "NULL cipher provides no encryption — traffic is sent in cleartext"},
+		{"EXPORT", "EXPORT-grade ciphers use 40-bit keys — trivially crackable (FREAK/Logjam attacks)"},
+		{"ANON", "Anonymous cipher suites have no authentication — vulnerable to MitM"},
+	}
+	for _, wc := range weakCipherSignals {
+		if strings.Contains(cipherUpper, wc.pattern) {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckTLSWeakCipher,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Asset:    asset,
+				Title:    fmt.Sprintf("Weak cipher suite negotiated: %s", cipherName),
+				Description: fmt.Sprintf(
+					"%s negotiated cipher suite %s which uses a weak algorithm. %s. "+
+						"Disable this cipher in your server configuration and prefer AES-GCM or ChaCha20-Poly1305.",
+					asset, cipherName, wc.reason),
+				Evidence: map[string]any{
+					"cipher_suite":  cipherName,
+					"weak_component": wc.pattern,
+					"tls_version":   tlsVersionName(state.Version),
+				},
+				ProofCommand: fmt.Sprintf("echo | openssl s_client -connect %s:443 2>/dev/null | grep 'Cipher is'", asset),
+				DiscoveredAt: now,
+			})
+			break
+		}
+	}
+
 	// TLS 1.3 not supported — probe with MinVersion=TLS13
 	if state.Version < tls.VersionTLS13 {
 		if !supportsTLS13(ctx, host, port) {

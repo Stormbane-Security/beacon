@@ -202,6 +202,7 @@ const (
 	CheckGraphQLBatchQuery             CheckID = "graphql.batch_query_enabled"        // batch queries amplify request count
 	CheckGraphQLPersistedQueryBypass  CheckID = "graphql.persisted_query_bypass"     // server accepts arbitrary persisted queries
 	CheckGraphQLGETEnabled           CheckID = "graphql.get_enabled"                // mutations via GET enable CSRF attacks
+	CheckGraphQLAliasDos             CheckID = "graphql.alias_dos"                  // alias-based query amplification allows DoS
 
 	// Email deliverability — SMTP probe (passive observation, no mail sent) → Surface
 	CheckEmailSMTPOpenRelay   CheckID = "email.smtp_open_relay"     // SMTP server accepts mail for external domains
@@ -362,6 +363,7 @@ const (
 	CheckOAuthWeakState       CheckID = "oauth.weak_state"           // state parameter < 16 chars or predictable (counter/timestamp)
 	CheckOAuthMissingPKCE     CheckID = "oauth.missing_pkce"         // PKCE not enforced → auth code interception
 	CheckOAuthOpenRedirect    CheckID = "oauth.open_redirect"        // redirect_uri accepts arbitrary domains
+	CheckOAuthSubdomainBypass CheckID = "oauth.subdomain_bypass"    // redirect_uri accepts arbitrary subdomains of valid domain
 	CheckOAuthTokenLeakReferer CheckID = "oauth.token_leak_referer"  // access token appears in Referer header
 	CheckJWKSExposed          CheckID = "oauth.jwks_exposed"         // JWKS endpoint publicly enumerable
 	CheckOIDCImplicitFlow     CheckID = "oauth.implicit_flow"        // deprecated implicit flow in use
@@ -1284,6 +1286,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGraphQLBatchQuery:            {CheckGraphQLBatchQuery, SeverityMedium, ModeDeep},
 	CheckGraphQLPersistedQueryBypass:  {CheckGraphQLPersistedQueryBypass, SeverityMedium, ModeDeep},
 	CheckGraphQLGETEnabled:           {CheckGraphQLGETEnabled, SeverityMedium, ModeDeep},
+	CheckGraphQLAliasDos:             {CheckGraphQLAliasDos, SeverityMedium, ModeDeep},
 
 	// Email SMTP — connecting to the published MX server is what any mail agent does → Surface
 	CheckEmailSMTPOpenRelay:  {CheckEmailSMTPOpenRelay, SeverityCritical, ModeSurface},
@@ -1360,6 +1363,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOAuthWeakState:         {CheckOAuthWeakState, SeverityMedium, ModeDeep},
 	CheckOAuthMissingPKCE:       {CheckOAuthMissingPKCE, SeverityMedium, ModeDeep},
 	CheckOAuthOpenRedirect:      {CheckOAuthOpenRedirect, SeverityCritical, ModeDeep},
+	CheckOAuthSubdomainBypass:   {CheckOAuthSubdomainBypass, SeverityHigh, ModeDeep},
 	CheckOAuthTokenLeakReferer:  {CheckOAuthTokenLeakReferer, SeverityHigh, ModeDeep},
 	CheckJWKSExposed:            {CheckJWKSExposed, SeverityInfo, ModeSurface},
 	CheckOIDCImplicitFlow:       {CheckOIDCImplicitFlow, SeverityMedium, ModeSurface},

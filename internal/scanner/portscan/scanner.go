@@ -2863,8 +2863,17 @@ var webServicePorts = map[int]string{
 // EmitPortServiceDiscovered returns a CheckPortServiceDiscovered finding when
 // an open port hosts an HTTP service that deserves its own fingerprint pass.
 // The surface module extracts these findings and schedules host:port as assets.
+//
+// To avoid false positives (e.g. a binary protocol on port 8080), we verify
+// the banner looks like an HTTP response before emitting the finding.
 func EmitPortServiceDiscovered(asset string, port int, service, banner string) *finding.Finding {
 	if _, ok := webServicePorts[port]; !ok {
+		return nil
+	}
+	// Verify the banner contains HTTP response indicators. A non-HTTP service
+	// on a web-associated port (e.g. custom binary protocol on 8080) should
+	// not trigger a classify+playbook pass.
+	if banner != "" && !looksLikeHTTP(banner) {
 		return nil
 	}
 	f := finding.Finding{
@@ -2888,6 +2897,27 @@ func EmitPortServiceDiscovered(asset string, port int, service, banner string) *
 		},
 	}
 	return &f
+}
+
+// looksLikeHTTP returns true if the banner contains signals that indicate an
+// HTTP service: status line, common HTTP headers, or HTML content.
+func looksLikeHTTP(banner string) bool {
+	upper := strings.ToUpper(banner)
+	// HTTP status line: "HTTP/1.0", "HTTP/1.1", "HTTP/2"
+	if strings.Contains(upper, "HTTP/") {
+		return true
+	}
+	// Common HTTP response headers
+	for _, h := range []string{"CONTENT-TYPE:", "SERVER:", "X-POWERED-BY:", "SET-COOKIE:", "LOCATION:"} {
+		if strings.Contains(upper, h) {
+			return true
+		}
+	}
+	// HTML content
+	if strings.Contains(upper, "<HTML") || strings.Contains(upper, "<!DOCTYPE") {
+		return true
+	}
+	return false
 }
 
 // ── Service-specific probes ───────────────────────────────────────────────────

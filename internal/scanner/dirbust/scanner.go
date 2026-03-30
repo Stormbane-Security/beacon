@@ -357,39 +357,58 @@ func backoffDuration(attempt int, resp *http.Response) time.Duration {
 	return d
 }
 
-// fetchCanaryHash requests a known-nonexistent path and returns the SHA-256
-// hex digest of the response body. If the server returns a proper 404 status
-// or the request fails, it returns "" (no soft-404 filtering needed).
+// fetchCanaryHash requests multiple known-nonexistent paths with different
+// URL patterns and returns the SHA-256 hex digest of the response body.
+// Using multiple canary paths catches servers that return different soft-404
+// pages for different URL prefixes (e.g. /admin/x vs /api/x).
+// If the server returns proper 404 status codes, it returns "" (no filtering needed).
 func (s *Scanner) fetchCanaryHash(ctx context.Context, baseURL string) string {
-	// Generate a random canary path that is extremely unlikely to exist.
-	canaryPath := fmt.Sprintf("/beacon-canary-404-test-%d", rand.Int63())
-	url := baseURL + canaryPath
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return ""
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return ""
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
-	resp.Body.Close()
-
-	// If the server returns a proper 404 or non-200, no soft-404 filtering needed.
-	if resp.StatusCode != http.StatusOK {
-		return ""
+	// Probe multiple canary patterns — different prefixes may yield different
+	// soft-404 pages, and we want to catch the most common one.
+	canaryPaths := []string{
+		fmt.Sprintf("/beacon-canary-404-test-%d", rand.Int63()),
+		fmt.Sprintf("/admin/beacon-canary-%d", rand.Int63()),
+		fmt.Sprintf("/api/beacon-canary-%d", rand.Int63()),
 	}
 
-	// Server returned 200 for a nonexistent path — this is a soft-404 page.
-	// Hash the body so we can compare subsequent 200 responses against it.
-	if len(body) == 0 {
-		return ""
+	hashCounts := make(map[string]int)
+	for _, canaryPath := range canaryPaths {
+		u := baseURL + canaryPath
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
+		resp.Body.Close()
+
+		// If the server returns a proper 404, no soft-404 filtering needed.
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		if len(body) == 0 {
+			continue
+		}
+		h := sha256.Sum256(body)
+		hashCounts[fmt.Sprintf("%x", h)]++
 	}
-	h := sha256.Sum256(body)
-	return fmt.Sprintf("%x", h)
+
+	// Return the most common hash — this is the likely soft-404 template.
+	// If no canaries returned 200, return "" (no filtering needed).
+	var bestHash string
+	bestCount := 0
+	for hash, count := range hashCounts {
+		if count > bestCount {
+			bestHash = hash
+			bestCount = count
+		}
+	}
+	return bestHash
 }
 
 // deduplicatePaths normalizes and deduplicates paths so that "/admin" and

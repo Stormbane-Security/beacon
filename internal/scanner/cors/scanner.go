@@ -383,6 +383,60 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				}
 			}
 		}
+
+		// Preflight probe 3: header reflection — send a unique custom header
+		// name and check if Access-Control-Allow-Headers reflects it back.
+		// Servers that blindly echo the requested headers allow attackers to
+		// send arbitrary headers cross-origin (including Authorization).
+		if !alreadyCaught && !preflightIsCatchAll {
+			canaryHeader := "X-Beacon-Cors-Canary"
+			preReq3, err := http.NewRequestWithContext(ctx, http.MethodOptions, target, nil)
+			if err == nil {
+				preReq3.Header.Set("Origin", preflightOrigin)
+				preReq3.Header.Set("Access-Control-Request-Method", "GET")
+				preReq3.Header.Set("Access-Control-Request-Headers", canaryHeader)
+
+				if preResp3, err := client.Do(preReq3); err == nil {
+					preResp3.Body.Close()
+
+					preACAO3 := preResp3.Header.Get("Access-Control-Allow-Origin")
+					preACAH3 := preResp3.Header.Get("Access-Control-Allow-Headers")
+
+					allowsOrigin3 := strings.EqualFold(preACAO3, preflightOrigin) || preACAO3 == "*"
+					reflectsHeader := strings.Contains(strings.ToLower(preACAH3), strings.ToLower(canaryHeader))
+
+					if allowsOrigin3 && reflectsHeader {
+						findings = append(findings, finding.Finding{
+							CheckID:  finding.CheckCORSPreflightMisconfig,
+							Module:   "deep",
+							Scanner:  scannerName,
+							Severity: finding.SeverityHigh,
+							Title:    fmt.Sprintf("CORS: Access-Control-Allow-Headers reflects arbitrary headers on %s", asset),
+							Description: fmt.Sprintf(
+								"%s reflects the arbitrary header %q back in Access-Control-Allow-Headers. "+
+									"The server blindly echoes any requested header, which means an attacker-controlled "+
+									"page can send cross-origin requests with arbitrary headers including Authorization, "+
+									"X-CSRF-Token, or other security-sensitive headers.",
+								asset, canaryHeader,
+							),
+							Asset: asset,
+							Evidence: map[string]any{
+								"url":                            target,
+								"injected_origin":                preflightOrigin,
+								"access_control_allow_origin":    preACAO3,
+								"access_control_allow_headers":   preACAH3,
+								"canary_header":                  canaryHeader,
+								"via":                            "preflight",
+							},
+							ProofCommand: fmt.Sprintf(
+								"curl -sI -X OPTIONS -H 'Origin: %s' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: %s' '%s' | grep -i 'access-control'",
+								preflightOrigin, canaryHeader, target),
+							DiscoveredAt: time.Now(),
+						})
+					}
+				}
+			}
+		}
 	}
 
 	return findings, nil
