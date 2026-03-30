@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -8,7 +8,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /beacon ./cmd/beacon
 
 # Install external scan tools
-FROM alpine:3.19 AS tools
+FROM alpine:3.21 AS tools
 
 RUN apk add --no-cache curl bash go
 
@@ -25,7 +25,7 @@ RUN curl -fsSL https://github.com/drwetter/testssl.sh/archive/refs/tags/v3.2.tar
     rm -rf /tmp/testssl.sh-3.2
 
 # Final image
-FROM alpine:3.19
+FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates bash openssl
 
