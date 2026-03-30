@@ -1083,3 +1083,54 @@ func TestExtractJSURLs_MixedAbsoluteAndRelative(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractJSURLs_HTTPScheme verifies relative path resolution works
+// correctly for http:// base URLs (7-char scheme, not 8-char https://).
+func TestExtractJSURLs_HTTPScheme(t *testing.T) {
+	html := `<script src="/js/app.js"></script>`
+	got := extractJSURLs("http://example.com", html)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 JS URL, got %d: %v", len(got), got)
+	}
+	want := "http://example.com/js/app.js"
+	if got[0] != want {
+		t.Errorf("URL = %q, want %q", got[0], want)
+	}
+}
+
+// TestExtractJSURLs_HTTPWithPath verifies base URL path is stripped correctly.
+func TestExtractJSURLs_HTTPWithPath(t *testing.T) {
+	html := `<script src="/bundle.js"></script>`
+	got := extractJSURLs("http://example.com/some/page", html)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 JS URL, got %d: %v", len(got), got)
+	}
+	want := "http://example.com/bundle.js"
+	if got[0] != want {
+		t.Errorf("URL = %q, want %q", got[0], want)
+	}
+}
+
+// TestExtractJSURLs_HTTPSWithPort verifies port numbers are preserved.
+func TestExtractJSURLs_HTTPSWithPort(t *testing.T) {
+	html := `<script src="/app.js"></script>`
+	got := extractJSURLs("https://example.com:8443/path", html)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 JS URL, got %d: %v", len(got), got)
+	}
+	want := "https://example.com:8443/app.js"
+	if got[0] != want {
+		t.Errorf("URL = %q, want %q", got[0], want)
+	}
+}
+
+// TestExtractJSURLs_NoScheme verifies graceful handling when baseURL has no scheme.
+func TestExtractJSURLs_NoScheme(t *testing.T) {
+	html := `<script src="/app.js"></script>`
+	got := extractJSURLs("example.com", html)
+	// Relative URL resolved against schemeless base won't start with "http",
+	// so it should be filtered out.
+	if len(got) != 0 {
+		t.Errorf("expected 0 JS URLs for schemeless base, got %d: %v", len(got), got)
+	}
+}

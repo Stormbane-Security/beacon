@@ -1068,7 +1068,7 @@ func TestCorrelateCredentials_MatchValueTruncation(t *testing.T) {
 		}
 	})
 
-	t.Run("short match value is not truncated", func(t *testing.T) {
+	t.Run("short match value is redacted", func(t *testing.T) {
 		shortMatch := "abc123"
 		verdicts := []FindingVerdict{
 			{Finding: finding.Finding{
@@ -1082,8 +1082,12 @@ func TestCorrelateCredentials_MatchValueTruncation(t *testing.T) {
 		if len(alerts) != 1 {
 			t.Fatalf("expected 1 alert, got %d", len(alerts))
 		}
-		if !strings.Contains(alerts[0], shortMatch) {
-			t.Errorf("short match value should appear in full in alert, got: %s", alerts[0])
+		// Short credentials should be redacted, never included in full.
+		if strings.Contains(alerts[0], shortMatch) {
+			t.Errorf("short match value should NOT appear in full in alert (security), got: %s", alerts[0])
+		}
+		if !strings.Contains(alerts[0], "***") {
+			t.Errorf("short match should be replaced with ***, got: %s", alerts[0])
 		}
 	})
 }

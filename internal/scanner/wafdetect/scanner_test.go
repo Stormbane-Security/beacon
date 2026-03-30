@@ -311,3 +311,83 @@ func TestWAFDetect_NilHeaderMap(t *testing.T) {
 		t.Errorf("expected 0 findings for a server with no WAF headers, got %d", len(findings))
 	}
 }
+
+// ── rootAndWWW ──────────────────────────────────────────────────────────────
+
+func TestRootAndWWW_SimpleDomain(t *testing.T) {
+	got := rootAndWWW("example.com")
+	if len(got) != 2 || got[0] != "example.com" || got[1] != "www.example.com" {
+		t.Errorf("rootAndWWW(example.com) = %v; want [example.com www.example.com]", got)
+	}
+}
+
+func TestRootAndWWW_Subdomain(t *testing.T) {
+	got := rootAndWWW("app.example.com")
+	if len(got) != 2 || got[0] != "example.com" || got[1] != "www.example.com" {
+		t.Errorf("rootAndWWW(app.example.com) = %v; want [example.com www.example.com]", got)
+	}
+}
+
+func TestRootAndWWW_CoUK(t *testing.T) {
+	got := rootAndWWW("app.example.co.uk")
+	if len(got) != 2 || got[0] != "example.co.uk" || got[1] != "www.example.co.uk" {
+		t.Errorf("rootAndWWW(app.example.co.uk) = %v; want [example.co.uk www.example.co.uk]", got)
+	}
+}
+
+func TestRootAndWWW_ComAU(t *testing.T) {
+	got := rootAndWWW("staging.shop.example.com.au")
+	if len(got) != 2 || got[0] != "example.com.au" || got[1] != "www.example.com.au" {
+		t.Errorf("rootAndWWW(staging.shop.example.com.au) = %v; want [example.com.au www.example.com.au]", got)
+	}
+}
+
+func TestRootAndWWW_BareCoUK(t *testing.T) {
+	// A bare "example.co.uk" has 3 parts and co.uk is a two-part TLD,
+	// so the root should be the whole thing.
+	got := rootAndWWW("example.co.uk")
+	if len(got) != 2 || got[0] != "example.co.uk" || got[1] != "www.example.co.uk" {
+		t.Errorf("rootAndWWW(example.co.uk) = %v; want [example.co.uk www.example.co.uk]", got)
+	}
+}
+
+func TestRootAndWWW_SingleLabel(t *testing.T) {
+	got := rootAndWWW("localhost")
+	if len(got) != 1 || got[0] != "localhost" {
+		t.Errorf("rootAndWWW(localhost) = %v; want [localhost]", got)
+	}
+}
+
+func TestRootAndWWW_DeepSubdomain(t *testing.T) {
+	got := rootAndWWW("a.b.c.example.com")
+	if len(got) != 2 || got[0] != "example.com" || got[1] != "www.example.com" {
+		t.Errorf("rootAndWWW(a.b.c.example.com) = %v; want [example.com www.example.com]", got)
+	}
+}
+
+// ── isTwoPartTLD ────────────────────────────────────────────────────────────
+
+func TestIsTwoPartTLD_Known(t *testing.T) {
+	cases := []struct{ sld, tld string }{
+		{"co", "uk"}, {"org", "uk"}, {"com", "au"}, {"co", "nz"},
+		{"co", "jp"}, {"co", "kr"}, {"co", "in"}, {"com", "br"},
+		{"co", "za"}, {"com", "cn"}, {"com", "mx"}, {"co", "il"},
+		{"com", "tw"}, {"co", "th"}, {"com", "hk"}, {"com", "my"},
+	}
+	for _, tc := range cases {
+		if !isTwoPartTLD(tc.sld, tc.tld) {
+			t.Errorf("isTwoPartTLD(%q, %q) = false; want true", tc.sld, tc.tld)
+		}
+	}
+}
+
+func TestIsTwoPartTLD_NotKnown(t *testing.T) {
+	cases := []struct{ sld, tld string }{
+		{"com", "com"}, {"net", "net"}, {"foo", "bar"}, {"example", "com"},
+	}
+	for _, tc := range cases {
+		if isTwoPartTLD(tc.sld, tc.tld) {
+			t.Errorf("isTwoPartTLD(%q, %q) = true; want false", tc.sld, tc.tld)
+		}
+	}
+}
