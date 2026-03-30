@@ -330,6 +330,9 @@ func (c *Config) Validate() error {
 	if c.SMTP.Port < 0 || c.SMTP.Port > 65535 {
 		return fmt.Errorf("smtp.port must be 0-65535, got %d", c.SMTP.Port)
 	}
+	if c.SMTP.Host != "" && c.SMTP.Port == 0 {
+		return fmt.Errorf("smtp: port is required when host is set")
+	}
 	validProviders := map[string]bool{
 		"": true, "claude": true, "openai": true, "gemini": true,
 		"ollama": true, "mistral": true, "grok": true, "groq": true,

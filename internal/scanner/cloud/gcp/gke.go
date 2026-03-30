@@ -273,9 +273,12 @@ func checkLegacyMetadata(cluster *containerapi.Cluster, projectID, asset, resour
 	for _, np := range cluster.NodePools {
 		if np.Config != nil && np.Config.Metadata != nil {
 			pools = append(pools, poolRef{name: np.Name, metadata: np.Config.Metadata})
+		} else if cluster.NodeConfig != nil && cluster.NodeConfig.Metadata != nil {
+			// Inherit cluster-level metadata when the node pool has no explicit config.
+			pools = append(pools, poolRef{name: np.Name, metadata: cluster.NodeConfig.Metadata})
 		}
 	}
-	// Fall back to cluster-level node config if no per-pool config exists.
+	// Fall back to cluster-level node config if there are no node pools at all.
 	if len(pools) == 0 && cluster.NodeConfig != nil && cluster.NodeConfig.Metadata != nil {
 		pools = append(pools, poolRef{name: "(cluster-default)", metadata: cluster.NodeConfig.Metadata})
 	}

@@ -207,6 +207,9 @@ func fuzzEndpoints(ctx context.Context, client *http.Client, asset, base string,
 			// Build the endpoint URL. Strip path params — we use literal
 			// placeholder values that keep the URL valid.
 			cleanPath := replacePathParams(path)
+			if strings.HasPrefix(cleanPath, "//") || strings.Contains(cleanPath, "://") {
+				continue
+			}
 			endpointURL := base + cleanPath
 
 			// Probe 1: missing required parameters → expect 400/422, flag 500.

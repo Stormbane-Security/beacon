@@ -1518,6 +1518,42 @@ func TestSaveFindings_EmptyScanRunID(t *testing.T) {
 	}
 }
 
+// TestGetPreviousEnrichedFindings_AllRunsNilCompletedAt verifies that when every
+// completed scan run has a nil CompletedAt, the function returns nil, nil without
+// panicking (e.g., from a nil pointer dereference on prevRun.CompletedAt).
+func TestGetPreviousEnrichedFindings_AllRunsNilCompletedAt(t *testing.T) {
+	s := newStore()
+
+	// Create two completed runs, both with nil CompletedAt (malformed).
+	s.CreateScanRun(ctx(), &store.ScanRun{
+		ID:        "run-nil-1",
+		Domain:    "example.com",
+		Status:    store.StatusCompleted,
+		StartedAt: time.Now().Add(-2 * time.Hour),
+		// CompletedAt intentionally nil
+	})
+	s.SaveEnrichedFindings(ctx(), "run-nil-1", []enrichment.EnrichedFinding{{Explanation: "first"}})
+
+	s.CreateScanRun(ctx(), &store.ScanRun{
+		ID:        "run-nil-2",
+		Domain:    "example.com",
+		Status:    store.StatusCompleted,
+		StartedAt: time.Now().Add(-1 * time.Hour),
+		// CompletedAt intentionally nil
+	})
+	s.SaveEnrichedFindings(ctx(), "run-nil-2", []enrichment.EnrichedFinding{{Explanation: "second"}})
+
+	current := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	got, err := s.GetPreviousEnrichedFindings(ctx(), "example.com", current.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %v; want nil (all completed runs have nil CompletedAt)", got)
+	}
+}
+
 func TestSaveCorrelationFindings_EmptySlice(t *testing.T) {
 	s := newStore()
 	// Empty slice should be a no-op.

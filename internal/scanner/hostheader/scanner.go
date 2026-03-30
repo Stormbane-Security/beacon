@@ -50,11 +50,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// Determine which scheme works for this asset.
-	scheme, baseStatus, baseLocation, baseCookie, baseBody, err := baseline(ctx, client, asset)
-	if err != nil {
+	scheme, _, baseLocation, baseCookie, baseBody, err := baseline(ctx, client, asset)
+	if err != nil || scheme == "" {
 		return nil, nil // asset unreachable – nothing to report
 	}
-	_ = baseStatus
 
 	url := scheme + "://" + asset + baselinePath
 

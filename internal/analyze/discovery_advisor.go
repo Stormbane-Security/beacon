@@ -196,7 +196,7 @@ func parseAdvisorResponse(ctx context.Context, text, rootDomain string) []string
 func resolveToPrivate(ctx context.Context, hostname string) bool {
 	addrs, err := net.DefaultResolver.LookupHost(ctx, hostname)
 	if err != nil {
-		return false // can't resolve — not a private IP risk
+		return true // can't resolve — deny conservatively to prevent SSRF bypass via DNS failure
 	}
 	for _, addr := range addrs {
 		ip := net.ParseIP(addr)
@@ -246,7 +246,7 @@ func (a *DiscoveryAdvisor) callAdvisor(ctx context.Context, prompt string) (stri
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", err
 	}
@@ -291,9 +291,13 @@ func QuickFingerprint(ctx context.Context, hostnames []string) []AssetHint {
 	}
 
 	hints := make([]AssetHint, len(hostnames))
-	for range hostnames {
-		r := <-results
-		hints[r.idx] = r.hint
+	for i := 0; i < len(hostnames); i++ {
+		select {
+		case r := <-results:
+			hints[r.idx] = r.hint
+		case <-ctx.Done():
+			return hints // return partial results
+		}
 	}
 
 	return hints

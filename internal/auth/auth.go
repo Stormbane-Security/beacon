@@ -40,6 +40,11 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 		return nil, nil, nil
 	}
 
+	// Reject tokens containing CR/LF to prevent header injection.
+	if ac.Token != "" && strings.ContainsAny(ac.Token, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: token contains invalid characters")
+	}
+
 	switch ac.Method {
 	case "bearer":
 		token := ac.Token

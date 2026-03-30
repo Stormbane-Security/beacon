@@ -1459,6 +1459,42 @@ func TestAddAsset_CloudAssetNoMetadata(t *testing.T) {
 	}
 }
 
+// TestAddAsset_CloudAssetNilMetadataBuild verifies that adding a cloud asset
+// with nil Metadata and then calling Build() (which invokes CrossReferenceByIP
+// and reads Metadata["external_ip"]) does not panic.
+func TestAddAsset_CloudAssetNilMetadataBuild(t *testing.T) {
+	b := NewBuilder("run-1", "example.com")
+
+	// Add multiple cloud asset types with nil Metadata.
+	for _, tt := range []struct {
+		id   string
+		typ  AssetType
+		prov string
+	}{
+		{"gcp_compute_instance:proj/zone/vm-nil", AssetTypeGCPInstance, "gcp"},
+		{"aws_ec2_instance:i-nil", AssetTypeAWSEC2, "aws"},
+		{"azure_vm:nil", AssetTypeAzureVM, "azure"},
+	} {
+		b.AddAsset(Asset{
+			ID:       tt.id,
+			Type:     tt.typ,
+			Provider: tt.prov,
+			Name:     "nil-meta-vm",
+			// Metadata intentionally nil
+		})
+	}
+
+	// Add a domain asset to trigger cross-referencing during Build.
+	b.AddDomainAsset("sub.example.com", []string{"10.0.0.1"}, "test")
+
+	// Build triggers CrossReferenceByIP which iterates cloud assets
+	// and reads a.Metadata["external_ip"]. Must not panic on nil Metadata.
+	g := b.Build()
+	if len(g.Assets) == 0 {
+		t.Error("expected at least one asset in the graph")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Bug regression: AddDomainAsset cross-reference used unnormalized IP
 // ---------------------------------------------------------------------------

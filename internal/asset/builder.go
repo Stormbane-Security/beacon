@@ -89,8 +89,10 @@ func (b *Builder) AddAsset(a Asset) {
 		b.ipIndex[normalizeIP(a.Name)] = a.ID
 	}
 	if a.Type == AssetTypeGCPInstance || a.Type == AssetTypeAWSEC2 || a.Type == AssetTypeAzureVM {
-		if ip, ok := a.Metadata["external_ip"].(string); ok && ip != "" {
-			b.ipIndex[normalizeIP(ip)] = a.ID
+		if a.Metadata != nil {
+			if ip, ok := a.Metadata["external_ip"].(string); ok && ip != "" {
+				b.ipIndex[normalizeIP(ip)] = a.ID
+			}
 		}
 	}
 }

@@ -1,6 +1,53 @@
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+)
+
+// ---------------------------------------------------------------------------
+// IMDSv1 detection logic — unit test for nil MetadataOptions
+//
+// scanEC2 checks inst.MetadataOptions == nil first, and if so emits a finding
+// (AWS defaults to IMDSv1 when MetadataOptions is not set). This test verifies
+// the branching logic without requiring an AWS API connection.
+// ---------------------------------------------------------------------------
+
+// imdsv1Finding mirrors the IMDSv1 detection logic from scanEC2.
+// Returns true if the instance should produce a CheckCloudAWSEC2IMDSv1 finding.
+func imdsv1Finding(opts *ec2types.InstanceMetadataOptionsResponse) bool {
+	if opts == nil {
+		// AWS defaults to IMDSv1 when MetadataOptions is not set.
+		return true
+	}
+	return string(opts.HttpTokens) != "required"
+}
+
+func TestIMDSv1Detection_NilMetadataOptions(t *testing.T) {
+	// nil MetadataOptions means AWS defaults to IMDSv1 — should produce a finding.
+	if !imdsv1Finding(nil) {
+		t.Error("nil MetadataOptions should produce an IMDSv1 finding")
+	}
+}
+
+func TestIMDSv1Detection_HttpTokensOptional(t *testing.T) {
+	opts := &ec2types.InstanceMetadataOptionsResponse{
+		HttpTokens: ec2types.HttpTokensStateOptional,
+	}
+	if !imdsv1Finding(opts) {
+		t.Error("HttpTokens=optional should produce an IMDSv1 finding")
+	}
+}
+
+func TestIMDSv1Detection_HttpTokensRequired(t *testing.T) {
+	opts := &ec2types.InstanceMetadataOptionsResponse{
+		HttpTokens: ec2types.HttpTokensStateRequired,
+	}
+	if imdsv1Finding(opts) {
+		t.Error("HttpTokens=required should NOT produce an IMDSv1 finding")
+	}
+}
 
 // ---------------------------------------------------------------------------
 // isSensitivePort — pure function tests

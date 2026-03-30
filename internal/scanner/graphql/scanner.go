@@ -257,9 +257,28 @@ func checkBatchQuery(ctx context.Context, client *http.Client, asset, url string
 	if err != nil {
 		return nil
 	}
-	// A batched response is a JSON array starting with '['.
+	// A batched response is a JSON array where elements look like GraphQL responses.
 	trimmed := strings.TrimSpace(string(raw))
 	if !strings.HasPrefix(trimmed, "[") {
+		return nil
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal(raw, &arr); err != nil || len(arr) == 0 {
+		return nil
+	}
+	// Verify at least one element looks like a GraphQL response
+	hasGraphQL := false
+	for _, item := range arr {
+		if _, ok := item["data"]; ok {
+			hasGraphQL = true
+			break
+		}
+		if _, ok := item["errors"]; ok {
+			hasGraphQL = true
+			break
+		}
+	}
+	if !hasGraphQL {
 		return nil
 	}
 	return &finding.Finding{

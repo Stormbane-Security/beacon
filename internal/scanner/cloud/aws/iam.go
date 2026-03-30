@@ -151,8 +151,9 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 			if doc == "" {
 				doc = rawDoc // fallback to raw if unescape fails
 			}
-			if strings.Contains(doc, `"Action":"*"`) && strings.Contains(doc, `"Resource":"*"`) ||
-				strings.Contains(doc, `"Action": "*"`) && strings.Contains(doc, `"Resource": "*"`) {
+			hasWildcardAction := strings.Contains(doc, `"Action":"*"`) || strings.Contains(doc, `"Action": "*"`)
+			hasWildcardResource := strings.Contains(doc, `"Resource":"*"`) || strings.Contains(doc, `"Resource": "*"`)
+			if hasWildcardAction && hasWildcardResource {
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudAWSIAMPolicyWildcard,
 					Title:   fmt.Sprintf("AWS IAM policy grants * on *: %s", awscfg.ToString(policy.PolicyName)),

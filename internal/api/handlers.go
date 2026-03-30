@@ -33,8 +33,13 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	req.Domain = strings.TrimSpace(req.Domain)
 	if req.Domain == "" {
 		jsonError(w, "domain is required", http.StatusBadRequest)
+		return
+	}
+	if strings.ContainsAny(req.Domain, " \t\r\n") {
+		jsonError(w, "invalid domain format", http.StatusBadRequest)
 		return
 	}
 	if req.Deep && !req.PermissionConfirmed {
@@ -69,13 +74,16 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.pool.Submit(worker.Job{
+	if err := s.pool.Submit(worker.Job{
 		ScanRunID:           run.ID,
 		Domain:              req.Domain,
 		ScanType:            scanType,
 		PermissionConfirmed: req.PermissionConfirmed,
 		SubmittedAt:         time.Now(),
-	})
+	}); err != nil {
+		jsonError(w, "worker pool stopped", http.StatusServiceUnavailable)
+		return
+	}
 
 	jsonOK(w, http.StatusAccepted, submitScanResponse{
 		ScanRunID: run.ID,
@@ -180,14 +188,16 @@ func (s *Server) handleStreamScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replay existing log lines first
+	// Subscribe first, then replay — avoids TOCTOU gap where messages
+	// emitted between Logs() and Subscribe() are lost. The channel has
+	// capacity 64 so messages arriving during replay are buffered.
+	ch := s.pool.Subscribe(id)
+
+	// Replay existing log lines
 	for _, line := range s.pool.Logs(id) {
 		writeSSE(w, "log", line)
 		flusher.Flush()
 	}
-
-	// Subscribe for new lines
-	ch := s.pool.Subscribe(id)
 
 	ctx := r.Context()
 	for {
@@ -210,18 +220,11 @@ func writeSSE(w http.ResponseWriter, event, data string) {
 	if event != "" {
 		w.Write([]byte("event: " + event + "\n")) //nolint:errcheck
 	}
-	// Sanitize newlines to prevent SSE injection — each line must be
-	// prefixed with "data: " per the SSE spec.
-	data = strings.ReplaceAll(data, "\r\n", "\n")
-	data = strings.ReplaceAll(data, "\r", "\n")
-	for i, line := range strings.Split(data, "\n") {
-		if i == 0 {
-			w.Write([]byte("data: " + line + "\n")) //nolint:errcheck
-		} else {
-			w.Write([]byte("data: " + line + "\n")) //nolint:errcheck
-		}
-	}
-	w.Write([]byte("\n")) //nolint:errcheck
+	// Sanitize newlines to prevent SSE injection — replace all CR/LF
+	// characters with spaces so injected payloads cannot forge SSE framing.
+	data = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(data)
+	w.Write([]byte("data: " + data + "\n")) //nolint:errcheck
+	w.Write([]byte("\n"))                    //nolint:errcheck
 }
 
 // ── Get report ───────────────────────────────────────────────────────────────

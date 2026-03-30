@@ -1605,3 +1605,103 @@ func TestStaticChecks_DLP_EmptyMatchValue(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// staticChecks — nil, empty, and wrong-type Evidence maps
+// ---------------------------------------------------------------------------
+
+func TestStaticChecks_NilEvidenceMap_NoPanic(t *testing.T) {
+	// Findings with nil Evidence map should not cause a panic in any check path.
+	checkIDs := []finding.CheckID{
+		finding.CheckWebSSRF,
+		finding.CheckHostHeaderInjection,
+		finding.CheckJSHardcodedSecret,
+		finding.CheckDLPAPIKey,
+	}
+	for _, id := range checkIDs {
+		t.Run(string(id), func(t *testing.T) {
+			f := finding.Finding{
+				CheckID:      id,
+				Severity:     finding.SeverityCritical,
+				Evidence:     nil,
+				ProofCommand: "curl -s https://example.com",
+			}
+			// Must not panic.
+			_ = staticChecks(f)
+		})
+	}
+}
+
+func TestStaticChecks_EmptyEvidenceMap_NoPanic(t *testing.T) {
+	// Findings with an empty (non-nil) Evidence map should not panic.
+	checkIDs := []finding.CheckID{
+		finding.CheckWebSSRF,
+		finding.CheckHostHeaderInjection,
+		finding.CheckJSHardcodedSecret,
+		finding.CheckDLPAPIKey,
+	}
+	for _, id := range checkIDs {
+		t.Run(string(id), func(t *testing.T) {
+			f := finding.Finding{
+				CheckID:      id,
+				Severity:     finding.SeverityCritical,
+				Evidence:     map[string]any{},
+				ProofCommand: "curl -s https://example.com",
+			}
+			_ = staticChecks(f)
+		})
+	}
+}
+
+func TestStaticChecks_WrongTypeEvidence_NoPanic(t *testing.T) {
+	// Evidence keys present but with unexpected types should not panic.
+	t.Run("SSRF status_code as string", func(t *testing.T) {
+		f := finding.Finding{
+			CheckID:  finding.CheckWebSSRF,
+			Severity: finding.SeverityCritical,
+			Evidence: map[string]any{
+				"status_code": "301",  // string instead of int
+				"signal":      42,     // int instead of string
+				"payload":     false,  // bool instead of string
+			},
+			ProofCommand: "curl -s https://example.com",
+		}
+		_ = staticChecks(f)
+	})
+
+	t.Run("host header injected_value as int", func(t *testing.T) {
+		f := finding.Finding{
+			CheckID:  finding.CheckHostHeaderInjection,
+			Severity: finding.SeverityHigh,
+			Evidence: map[string]any{
+				"injected_value": 12345, // int instead of string
+			},
+			ProofCommand: "curl -s -H 'Host: evil.com' https://example.com",
+		}
+		_ = staticChecks(f)
+	})
+
+	t.Run("JS hardcoded secret js_url as int", func(t *testing.T) {
+		f := finding.Finding{
+			CheckID:  finding.CheckJSHardcodedSecret,
+			Severity: finding.SeverityHigh,
+			Evidence: map[string]any{
+				"js_url": 42, // int instead of string
+			},
+			ProofCommand: "curl -s https://example.com/app.js",
+		}
+		_ = staticChecks(f)
+	})
+
+	t.Run("DLP match as []byte", func(t *testing.T) {
+		f := finding.Finding{
+			CheckID:  finding.CheckDLPAPIKey,
+			Severity: finding.SeverityCritical,
+			Evidence: map[string]any{
+				"match": []byte("secret-value"), // []byte instead of string
+			},
+			ProofCommand: "curl -s https://example.com/.env",
+		}
+		_ = staticChecks(f)
+	})
+}

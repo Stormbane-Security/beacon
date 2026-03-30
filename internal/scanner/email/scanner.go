@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os/exec"
@@ -297,8 +298,13 @@ func checkDKIM(ctx context.Context, domain string) []finding.Finding {
 		for _, r := range records {
 			if strings.Contains(r, "v=DKIM1") || strings.Contains(r, "k=rsa") || strings.Contains(r, "p=") {
 				found = true
-				// Check key length (weak if < 2048 bits based on key size in base64)
-				if keyLen := estimateDKIMKeyLength(r); keyLen > 0 && keyLen < 2048 {
+				// Check key length (weak if < 2048 bits based on key size in base64).
+				// A revoked key has an empty p= tag and estimateDKIMKeyLength returns 0 — skip it.
+				keyLen := estimateDKIMKeyLength(r)
+				if keyLen == 0 {
+					break // revoked or unparseable key — not weak
+				}
+				if keyLen < 2048 {
 					findings = append(findings, finding.Finding{
 						CheckID:      finding.CheckEmailDKIMWeakKey,
 						Module:       "surface",
@@ -392,9 +398,8 @@ func checkMTASTS(ctx context.Context, domain string) []finding.Finding {
 	}
 	defer resp.Body.Close()
 
-	buf := make([]byte, 512)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	body := string(bodyBytes)
 
 	if strings.Contains(body, "mode: testing") {
 		return []finding.Finding{{
@@ -556,6 +561,7 @@ func expandSPFIncludes(ctx context.Context, spf string, depth int, seen map[stri
 		case strings.HasPrefix(part, "redirect="):
 			target = strings.TrimPrefix(part, "redirect=")
 		}
+		target = strings.Trim(target, "\"")
 		if target == "" || seen[target] {
 			continue
 		}

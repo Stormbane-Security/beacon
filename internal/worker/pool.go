@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stormbane/beacon/internal/config"
@@ -22,6 +23,7 @@ type Pool struct {
 	queue       chan Job
 	st          store.Store
 	cfg         *config.Config
+	stopped     atomic.Bool
 
 	// logMu guards logs map
 	logMu sync.RWMutex
@@ -52,6 +54,7 @@ func NewPool(concurrency int, st store.Store, cfg *config.Config) *Pool {
 // Stop closes the job queue and waits for in-flight workers to finish.
 // After Stop returns, no new jobs will be accepted.
 func (p *Pool) Stop() {
+	p.stopped.Store(true)
 	close(p.queue)
 }
 
@@ -64,8 +67,13 @@ func (p *Pool) PurgeLogs(scanRunID string) {
 }
 
 // Submit enqueues a job. Returns immediately; the job runs asynchronously.
-func (p *Pool) Submit(job Job) {
+// Returns an error if the pool has been stopped.
+func (p *Pool) Submit(job Job) error {
+	if p.stopped.Load() {
+		return fmt.Errorf("worker pool is stopped")
+	}
 	p.queue <- job
+	return nil
 }
 
 // Subscribe returns a channel that receives log lines for a scan in real time.
@@ -270,9 +278,13 @@ func (p *Pool) emitError(scanRunID, msg string) {
 
 func (p *Pool) closeSubscribers(scanRunID string) {
 	p.subsMu.Lock()
-	for _, ch := range p.subs[scanRunID] {
-		close(ch)
-	}
+	chs := p.subs[scanRunID]
 	delete(p.subs, scanRunID)
 	p.subsMu.Unlock()
+
+	// Close channels outside the lock after they are no longer in the map,
+	// so emit() cannot send on them.
+	for _, ch := range chs {
+		close(ch)
+	}
 }

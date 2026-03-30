@@ -13,7 +13,7 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 )
 
-const defaultServiceAccount = "compute@developer.gserviceaccount.com"
+const defaultServiceAccount = "-compute@developer.gserviceaccount.com"
 
 func scanCompute(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {
 	svc, err := computeapi.NewService(ctx, opts...)

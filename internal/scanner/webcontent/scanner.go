@@ -22,7 +22,7 @@ const scannerName = "webcontent"
 // secretPatterns matches common hardcoded secrets in JavaScript source.
 // Keys are a human-readable label; values are the compiled regex.
 // cspWildcardRe matches a wildcard (*) in script-src or default-src directives.
-var cspWildcardRe = regexp.MustCompile(`(?i)(script-src|default-src)[^;]*\*`)
+var cspWildcardRe = regexp.MustCompile(`(?i)(script-src|default-src)[^;]*\s\*(?:\s|;|$)`)
 
 // genericPwdValueRe extracts the quoted value from a Generic Password match
 // so we can filter out non-secret values like HTML attribute values and i18n keys.
@@ -662,11 +662,8 @@ func extractJSURLs(baseURL, html string) []string {
 	var urls []string
 	// Compute scheme+host prefix for resolving relative paths.
 	baseOrigin := baseURL
-	if schemeEnd := strings.Index(baseURL, "://"); schemeEnd >= 0 {
-		hostStart := schemeEnd + 3
-		if idx := strings.Index(baseURL[hostStart:], "/"); idx >= 0 {
-			baseOrigin = baseURL[:hostStart+idx]
-		}
+	if u, err := url.Parse(baseURL); err == nil {
+		baseOrigin = u.Scheme + "://" + u.Host
 	}
 
 	for _, m := range matches {

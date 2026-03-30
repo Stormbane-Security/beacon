@@ -406,7 +406,10 @@ and equivalent laws in all other jurisdictions.
 Type exactly: I have written authorization for %s
 > `, domain, domain)
 		reader := bufio.NewReader(os.Stdin)
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			fatalf("failed to read input: %v", err)
+		}
 		expected := fmt.Sprintf("I have written authorization for %s", domain)
 		if strings.TrimSpace(line) != expected {
 			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
@@ -555,7 +558,9 @@ Type exactly: I have written authorization for %s
 				run.Error = "stopped by user"
 				_ = st.UpdateScanRun(ctx, run)
 				if len(res.findings) > 0 {
-					_ = st.SaveFindings(ctx, run.ID, res.findings)
+					if err := st.SaveFindings(ctx, run.ID, res.findings); err != nil {
+						fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
+					}
 				}
 				return res.findings, true
 			}
@@ -577,7 +582,9 @@ Type exactly: I have written authorization for %s
 				run.Error = "stopped by user"
 				_ = st.UpdateScanRun(ctx, run)
 				if len(res.findings) > 0 {
-					_ = st.SaveFindings(ctx, run.ID, res.findings)
+					if err := st.SaveFindings(ctx, run.ID, res.findings); err != nil {
+						fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
+					}
 				}
 				fmt.Fprintf(os.Stderr, "beacon: scan stopped — %d findings saved\n", len(res.findings))
 				if !noTUI {
@@ -675,7 +682,9 @@ Type exactly: I have written authorization for %s
 				} else if len(fpResult.Findings) > 0 {
 					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
 					findings = append(findings, fpResult.Findings...)
-					_ = st.SaveFindings(ctx, run.ID, fpResult.Findings)
+					if err := st.SaveFindings(ctx, run.ID, fpResult.Findings); err != nil {
+						fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
+					}
 				}
 			}
 		}
@@ -780,7 +789,9 @@ Type exactly: I have written authorization for %s
 		chains := profiler.ReasonAttackPaths(ctx, cfg.AnthropicAPIKey, cfg.ClaudeModel, findings)
 		if f := profiler.BuildAttackPathFinding(domain, chains); f != nil {
 			fmt.Fprintf(os.Stderr, "beacon: %d attack path(s) identified\n", len(chains))
-			_ = st.SaveFindings(ctx, run.ID, []finding.Finding{*f})
+			if err := st.SaveFindings(ctx, run.ID, []finding.Finding{*f}); err != nil {
+				fmt.Fprintf(os.Stderr, "beacon: save attack path findings: %v\n", err)
+			}
 		}
 	}
 
@@ -876,7 +887,10 @@ unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
 Type exactly: I have written authorization for all listed targets
 > `, len(targets), targetList)
 		reader := bufio.NewReader(os.Stdin)
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			fatalf("failed to read input: %v", err)
+		}
 		if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
 			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
 		}
@@ -1021,7 +1035,9 @@ Type exactly: I have written authorization for all listed targets
 				run.Error = "stopped by user"
 				_ = st.UpdateScanRun(ctx, run)
 				if len(findings) > 0 {
-					_ = st.SaveFindings(ctx, run.ID, findings)
+					if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
+						fmt.Fprintf(os.Stderr, "beacon: save partial findings %s: %v\n", domain, err)
+					}
 				}
 				fmt.Fprintf(os.Stderr, "beacon: scan stopped for %s — %d findings saved\n", domain, len(findings))
 				break
@@ -1079,7 +1095,12 @@ Type exactly: I have written authorization for all listed targets
 				cloudFindings[i].Module = "cloud"
 			}
 			for _, res := range allResults {
-				_ = st.SaveFindings(ctx, res.run.ID, cloudFindings)
+				if res.run == nil {
+					continue
+				}
+				if err := st.SaveFindings(ctx, res.run.ID, cloudFindings); err != nil {
+					fmt.Fprintf(os.Stderr, "beacon: save cloud findings %s: %v\n", res.run.ID, err)
+				}
 			}
 			allFindings = append(allFindings, cloudFindings...)
 		}
@@ -1101,7 +1122,12 @@ Type exactly: I have written authorization for all listed targets
 				ghFindings[i].Module = "github"
 			}
 			for _, res := range allResults {
-				_ = st.SaveFindings(ctx, res.run.ID, ghFindings)
+				if res.run == nil {
+					continue
+				}
+				if err := st.SaveFindings(ctx, res.run.ID, ghFindings); err != nil {
+					fmt.Fprintf(os.Stderr, "beacon: save github findings %s: %v\n", res.run.ID, err)
+				}
 			}
 			allFindings = append(allFindings, ghFindings...)
 		}
@@ -1144,6 +1170,9 @@ Type exactly: I have written authorization for all listed targets
 	if ai := cfg.ActiveAI(); ai != nil {
 		var fpInputs []enrichment.FingerprintInput
 		for _, res := range allResults {
+			if res.run == nil {
+				continue
+			}
 			if execs, execErr := st.ListAssetExecutions(ctx, res.run.ID); execErr == nil {
 				for _, ex := range execs {
 					fpInputs = append(fpInputs, enrichment.FingerprintInputFromEvidence(ex.Asset, ex.Evidence))
@@ -1160,8 +1189,10 @@ Type exactly: I have written authorization for all listed targets
 				} else if len(fpResult.Findings) > 0 {
 					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
 					allFindings = append(allFindings, fpResult.Findings...)
-					if len(allResults) > 0 {
-						_ = st.SaveFindings(ctx, allResults[0].run.ID, fpResult.Findings)
+					if len(allResults) > 0 && allResults[0].run != nil {
+						if err := st.SaveFindings(ctx, allResults[0].run.ID, fpResult.Findings); err != nil {
+							fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
+						}
 					}
 				}
 			}
@@ -1194,6 +1225,9 @@ Type exactly: I have written authorization for all listed targets
 				// Build an index: asset → scan run ID for fast lookup.
 				assetToRunID := make(map[string]string)
 				for _, res := range allResults {
+					if res.run == nil {
+						continue
+					}
 					for _, f := range res.findings {
 						assetToRunID[f.Asset] = res.run.ID
 					}
@@ -1203,7 +1237,7 @@ Type exactly: I have written authorization for all listed targets
 					runID := assetToRunID[ef.Finding.Asset]
 					if runID == "" {
 						// Cloud/GitHub findings — assign to first run as fallback.
-						if len(allResults) > 0 {
+						if len(allResults) > 0 && allResults[0].run != nil {
 							runID = allResults[0].run.ID
 						}
 					}
@@ -1233,7 +1267,10 @@ Type exactly: I have written authorization for all listed targets
 						if term.IsTerminal(int(os.Stdin.Fd())) {
 							fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
 							reader := bufio.NewReader(os.Stdin)
-							line, _ := reader.ReadString('\n')
+							line, err := reader.ReadString('\n')
+							if err != nil {
+								line = ""
+							}
 							if strings.TrimSpace(strings.ToLower(line)) == "y" {
 								fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
 							}
@@ -1249,7 +1286,11 @@ Type exactly: I have written authorization for all listed targets
 	total := 0
 	for _, res := range allResults {
 		total += len(res.findings)
-		fmt.Fprintf(os.Stderr, "  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), res.run.ID)
+		runID := "<no run>"
+		if res.run != nil {
+			runID = res.run.ID
+		}
+		fmt.Fprintf(os.Stderr, "  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), runID)
 	}
 	if len(cloudFindings) > 0 {
 		fmt.Fprintf(os.Stderr, "  %-40s  %3d cloud finding(s)\n", "cloud", len(cloudFindings))
@@ -1415,6 +1456,9 @@ func crossAssetCorrelate(results []assetScanResult) []store.CorrelationFinding {
 	checkMap := make(map[finding.CheckID]*checkInfo)
 
 	for _, res := range results {
+		if res.run == nil {
+			continue
+		}
 		seen := make(map[finding.CheckID]bool)
 		for _, f := range res.findings {
 			if seen[f.CheckID] {
@@ -1762,11 +1806,12 @@ func (j *liveJob) Resume() {
 
 func (j *liveJob) PauseCheck(ctx context.Context) {
 	j.pauseMu.Lock()
-	ch := j.pauseCh
-	j.pauseMu.Unlock()
-	if ch == nil {
+	if !j.paused || j.pauseCh == nil {
+		j.pauseMu.Unlock()
 		return
 	}
+	ch := j.pauseCh
+	j.pauseMu.Unlock()
 	select {
 	case <-ch:
 	case <-ctx.Done():
@@ -2012,7 +2057,9 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		}
 		_ = st.UpdateScanRun(bgCtx, run)
 		if len(findings) > 0 {
-			_ = st.SaveFindings(bgCtx, run.ID, findings)
+			if err := st.SaveFindings(bgCtx, run.ID, findings); err != nil {
+				fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", run.ID, err)
+			}
 		}
 
 		// Build and persist the asset graph so it is available for
@@ -2321,7 +2368,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 				fmt.Fprint(os.Stderr, "  2) Deep scan          (active probes — requires explicit permission)\n")
 				fmt.Fprint(os.Stderr, "\nScan type [1, blank to cancel]: ")
 				reader := bufio.NewReader(os.Stdin)
-				typeLine, _ := reader.ReadString('\n')
+				typeLine, err := reader.ReadString('\n')
+				if err != nil {
+					typeLine = ""
+				}
 				typeChoice := strings.TrimSpace(typeLine)
 
 				// Blank input at any step cancels back to the TUI.
@@ -2340,7 +2390,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 				case "2":
 					scanType = module.ScanDeep
 					fmt.Fprint(os.Stderr, "\nConfirm you have permission to actively probe the target [y/N]: ")
-					permLine, _ := reader.ReadString('\n')
+					permLine, err := reader.ReadString('\n')
+					if err != nil {
+						permLine = ""
+					}
 					if strings.ToLower(strings.TrimSpace(permLine)) != "y" {
 						fmt.Fprint(os.Stderr, "Deep scan cancelled — permission not confirmed.\n")
 						fmt.Fprint(os.Stderr, "Press Enter to return...")
@@ -2355,7 +2408,10 @@ func browseInteractive(cfg *config.Config) browseResult {
 				}
 
 				fmt.Fprint(os.Stderr, "\nTarget domain (or blank to cancel): ")
-				domainLine, _ := reader.ReadString('\n')
+				domainLine, err := reader.ReadString('\n')
+				if err != nil {
+					domainLine = ""
+				}
 				domain := strings.TrimSpace(domainLine)
 
 				old2, _ := term.MakeRaw(fd)
@@ -2772,7 +2828,10 @@ func browseExportPrompt(fd int, old *term.State, runID, domain string) browseRes
 	fmt.Fprint(os.Stderr, "\nFormat [1-4, blank to cancel]: ")
 
 	reader := bufio.NewReader(os.Stdin)
-	choice, _ := reader.ReadString('\n')
+	choice, err := reader.ReadString('\n')
+	if err != nil {
+		choice = ""
+	}
 	choice = strings.TrimSpace(choice)
 	if choice == "" {
 		return browseResult{}
@@ -2791,7 +2850,10 @@ func browseExportPrompt(fd int, old *term.State, runID, domain string) browseRes
 	date := time.Now().Format("2006-01-02")
 	defaultPath := fmt.Sprintf("%s-%s.%s", domain, date, ext)
 	fmt.Fprintf(os.Stderr, "Output file [%s]: ", defaultPath)
-	pathLine, _ := reader.ReadString('\n')
+	pathLine, err := reader.ReadString('\n')
+	if err != nil {
+		pathLine = ""
+	}
 	outPath := strings.TrimSpace(pathLine)
 	if outPath == "" {
 		outPath = defaultPath

@@ -230,7 +230,9 @@ func TestSubmit_EnqueuesJob(t *testing.T) {
 		Domain:    "example.com",
 		ScanType:  module.ScanSurface,
 	}
-	p.Submit(job)
+	if err := p.Submit(job); err != nil {
+		t.Fatalf("Submit returned unexpected error: %v", err)
+	}
 
 	select {
 	case got := <-p.queue:
@@ -249,7 +251,7 @@ func TestSubmit_MultipleJobs(t *testing.T) {
 	p := newTestPool()
 
 	for i := range 10 {
-		p.Submit(Job{ScanRunID: time.Now().Format("15:04:05") + string(rune('A'+i))})
+		_ = p.Submit(Job{ScanRunID: time.Now().Format("15:04:05") + string(rune('A'+i))})
 	}
 
 	count := 0
@@ -288,6 +290,66 @@ func TestEmit_ConcurrentSafety(t *testing.T) {
 	if len(logs) != want {
 		t.Errorf("Logs has %d entries, want %d", len(logs), want)
 	}
+}
+
+// TestSubmit_AfterStop verifies that calling Submit() after Stop() returns an
+// error and does not panic (e.g., from sending on a closed channel).
+func TestSubmit_AfterStop(t *testing.T) {
+	p := newTestPool()
+	p.Stop()
+
+	err := p.Submit(Job{
+		ScanRunID: "after-stop",
+		Domain:    "example.com",
+		ScanType:  module.ScanSurface,
+	})
+	if err == nil {
+		t.Fatal("Submit after Stop should return an error, got nil")
+	}
+}
+
+// TestEmitAndCloseSubscribers_ConcurrentSafety exercises concurrent emit() and
+// closeSubscribers() calls from different goroutines to verify there is no
+// data race on the subs map. Run with -race to detect races.
+func TestEmitAndCloseSubscribers_ConcurrentSafety(t *testing.T) {
+	p := newTestPool()
+	const runID = "race-test"
+
+	// Subscribe so there are channels in the map.
+	ch := p.Subscribe(runID)
+
+	var wg sync.WaitGroup
+
+	// Goroutine 1: emit messages.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			p.emit(runID, "concurrent message")
+		}
+	}()
+
+	// Goroutine 2: close subscribers while emit is running.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Small spin to let emit start writing.
+		for range 20 {
+			p.emit(runID, "warmup")
+		}
+		p.closeSubscribers(runID)
+	}()
+
+	wg.Wait()
+
+	// Drain the subscriber channel — it should be closed by now.
+	drained := 0
+	for range ch {
+		drained++
+	}
+	// We don't assert exact count since the race is non-deterministic,
+	// but the channel must have been closed without panicking.
+	_ = drained
 }
 
 func TestSubscribe_ConcurrentSafety(t *testing.T) {

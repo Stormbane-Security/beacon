@@ -1134,3 +1134,62 @@ func TestExtractJSURLs_NoScheme(t *testing.T) {
 		t.Errorf("expected 0 JS URLs for schemeless base, got %d: %v", len(got), got)
 	}
 }
+
+// ===========================================================================
+// CSP wildcard regex — subdomain pattern should NOT be flagged
+// ===========================================================================
+
+func TestCSPWildcardRe_SubdomainPatternNotFlagged(t *testing.T) {
+	// "*.example.com" is a subdomain wildcard, NOT a bare wildcard.
+	// Only a bare "*" (with whitespace boundaries) should be flagged.
+	tests := []struct {
+		name  string
+		input string
+		match bool
+	}{
+		{
+			name:  "subdomain wildcard in script-src",
+			input: "script-src 'self' *.example.com",
+			match: false,
+		},
+		{
+			name:  "multiple subdomain wildcards",
+			input: "script-src *.cdn.example.com *.static.example.com",
+			match: false,
+		},
+		{
+			name:  "subdomain wildcard in default-src",
+			input: "default-src 'self' *.example.com",
+			match: false,
+		},
+		{
+			name:  "bare wildcard should still be flagged",
+			input: "script-src 'self' *",
+			match: true,
+		},
+		{
+			name:  "bare wildcard mid-directive",
+			input: "script-src * 'unsafe-inline'",
+			match: true,
+		},
+		{
+			name:  "bare wildcard with semicolon after",
+			input: "script-src *; style-src 'self'",
+			match: true,
+		},
+		{
+			name:  "subdomain wildcard with bare wildcard — should flag",
+			input: "script-src *.example.com *",
+			match: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cspWildcardRe.MatchString(tt.input)
+			if got != tt.match {
+				t.Errorf("cspWildcardRe on %q: got %v, want %v", tt.input, got, tt.match)
+			}
+		})
+	}
+}

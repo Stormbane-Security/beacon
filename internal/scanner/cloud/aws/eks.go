@@ -157,10 +157,22 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					},
 					DiscoveredAt: time.Now(),
 				})
+			}
 
-				// Neither IRSA nor Pod Identity configured.
-				// EKS Pod Identity is the newer alternative to IRSA. If IRSA is
-				// also not configured, note the absence of both mechanisms.
+			// Check for EKS Pod Identity Agent addon.
+			// EKS Pod Identity is the newer alternative to IRSA. Check whether
+			// the eks-pod-identity-agent addon is installed on the cluster.
+			hasPodIdentityAddon := false
+			addonsResp, addonsErr := svc.ListAddons(ctx, &eks.ListAddonsInput{ClusterName: &name})
+			if addonsErr == nil {
+				for _, addon := range addonsResp.Addons {
+					if addon == "eks-pod-identity-agent" {
+						hasPodIdentityAddon = true
+						break
+					}
+				}
+			}
+			if !hasPodIdentityAddon && !irsaConfigured {
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudEKSNoPodIdentity,
 					Title:   fmt.Sprintf("EKS cluster has neither IRSA nor Pod Identity configured: %s", name),
@@ -174,7 +186,7 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					Severity:     finding.SeverityMedium,
 					Asset:        asset,
 					Scanner:      "cloud/aws",
-					ProofCommand: fmt.Sprintf("aws eks describe-cluster --name %s --region %s --query 'cluster.identity'", name, region),
+					ProofCommand: fmt.Sprintf("aws eks list-addons --cluster-name %s --region %s", name, region),
 					Evidence: map[string]any{
 						"account_id":        accountID,
 						"cluster_name":      name,

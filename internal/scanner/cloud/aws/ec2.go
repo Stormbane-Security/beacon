@@ -82,6 +82,32 @@ func scanEC2(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 		for _, reservation := range page.Reservations {
 			for _, inst := range reservation.Instances {
 				if inst.MetadataOptions == nil {
+					// AWS defaults to IMDSv1 when MetadataOptions is not set.
+					instanceID := awscfg.ToString(inst.InstanceId)
+					findings = append(findings, finding.Finding{
+						CheckID: finding.CheckCloudAWSEC2IMDSv1,
+						Title:   fmt.Sprintf("EC2 instance uses default metadata config (IMDSv1 enabled): %s", instanceID),
+						Description: fmt.Sprintf(
+							"EC2 instance %s in %s has no explicit metadata options configured. "+
+								"AWS defaults to IMDSv1, which allows any process to retrieve instance "+
+								"credentials via a simple GET to http://169.254.169.254/. An SSRF "+
+								"vulnerability can steal IAM credentials. Enforce IMDSv2 by setting "+
+								"HttpTokens=required.",
+							instanceID, region,
+						),
+						Severity:     finding.SeverityHigh,
+						Asset:        asset,
+						Scanner:      "cloud/aws",
+						ProofCommand: fmt.Sprintf("aws ec2 describe-instances --instance-ids %s --region %s --query 'Reservations[].Instances[].MetadataOptions'", instanceID, region),
+						Evidence: map[string]any{
+							"account_id":    accountID,
+							"instance_id":   instanceID,
+							"region":        region,
+							"resource_type": "ec2_instance",
+							"http_tokens":   "default (IMDSv1)",
+						},
+						DiscoveredAt: time.Now(),
+					})
 					continue
 				}
 				if string(inst.MetadataOptions.HttpTokens) != "required" {
