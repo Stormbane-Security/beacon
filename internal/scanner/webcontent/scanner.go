@@ -69,6 +69,45 @@ var secretPatterns = map[string]*regexp.Regexp{
 	"OAuth Client Secret":      regexp.MustCompile(`(?i)client[_-]?secret['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][0-9a-zA-Z\-_.]{16,}`),
 }
 
+// apiKeyURLParamRe matches URL query parameters that carry API keys or tokens.
+// It captures the full URL and the parameter name for evidence.
+var apiKeyURLParamRe = regexp.MustCompile(`(?i)(https?://[^\s"'` + "`" + `]+\?[^\s"'` + "`" + `]*(?:api[_-]?key|apikey|key|token|access[_-]?token|secret|api-key)=([^\s&"'` + "`" + `]+))`)
+
+// apiKeyParamNameRe extracts the specific parameter name from a matched URL fragment.
+var apiKeyParamNameRe = regexp.MustCompile(`(?i)\b(api[_-]?key|apikey|key|token|access[_-]?token|secret|api-key)=`)
+
+// apiKeyMatch holds a matched API key in a URL.
+type apiKeyMatch struct {
+	url       string
+	paramName string
+}
+
+// checkAPIKeyInURLs scans JS content for URL query parameters containing API keys.
+func checkAPIKeyInURLs(body string) []apiKeyMatch {
+	matches := apiKeyURLParamRe.FindAllStringSubmatch(body, -1)
+	seen := make(map[string]struct{})
+	var results []apiKeyMatch
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		fullURL := m[1]
+		if _, ok := seen[fullURL]; ok {
+			continue
+		}
+		seen[fullURL] = struct{}{}
+
+		// Extract the parameter name.
+		paramMatch := apiKeyParamNameRe.FindStringSubmatch(fullURL)
+		paramName := "key"
+		if len(paramMatch) >= 2 {
+			paramName = paramMatch[1]
+		}
+		results = append(results, apiKeyMatch{url: fullURL, paramName: paramName})
+	}
+	return results
+}
+
 // internalEndpointPatterns matches internal/development API endpoints in JS.
 var internalEndpointPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`https?://(?:localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)[/\w.-]*`),
@@ -533,9 +572,8 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 	}
 
 	// Check for exposed source maps — //# sourceMappingURL= in JS reveals original source
-	if f := checkSourceMapExposed(ctx, client, asset, jsURL, srcStr); f != nil {
-		findings = append(findings, *f)
-	}
+	smFindings := checkSourceMapExposed(ctx, client, asset, jsURL, srcStr)
+	findings = append(findings, smFindings...)
 
 	// Check for internal endpoints
 	for _, pattern := range internalEndpointPatterns {
@@ -553,6 +591,36 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 				DiscoveredAt: now,
 			})
 		}
+	}
+
+	// Check for API keys passed as URL query parameters in JS code
+	for _, akm := range checkAPIKeyInURLs(srcStr) {
+		redactedURL := akm.url
+		if len(redactedURL) > 80 {
+			redactedURL = redactedURL[:40] + "..." + redactedURL[len(redactedURL)-30:]
+		}
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckJSAPIKeyInURL,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    fmt.Sprintf("API key passed in URL query parameter (%s=) in JavaScript", akm.paramName),
+			Description: fmt.Sprintf(
+				"A JavaScript file at %s contains a URL with an API key or token passed as the query parameter %q. "+
+					"Keys in URLs are logged by proxies, CDNs, browser history, and server access logs, "+
+					"making them significantly easier to leak than header-based credentials. "+
+					"Move the credential to an Authorization header or server-side configuration.",
+				jsURL, akm.paramName,
+			),
+			Evidence: map[string]any{
+				"js_url":     jsURL,
+				"url_found":  redactedURL,
+				"param_name": akm.paramName,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oiE 'https?://[^\"'\\''\\s]+%s=[^\"'\\''\\s]+'", jsURL, akm.paramName),
+			DiscoveredAt: now,
+		})
 	}
 
 	return findings
@@ -595,7 +663,8 @@ func secretProofKeyword(label string) string {
 // and probes the referenced .js.map URL. If the map file is publicly accessible,
 // it exposes original (pre-minified) source code including comments, variable names,
 // and internal paths — significantly aiding an attacker's reverse engineering.
-func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsURL, src string) *finding.Finding {
+// It also checks the source map content for API keys in URLs.
+func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsURL, src string) []finding.Finding {
 	const marker = "//# sourceMappingURL="
 	idx := strings.LastIndex(src, marker)
 	if idx == -1 {
@@ -621,7 +690,8 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, mapURL, nil)
+	// Use GET instead of HEAD so we can also inspect the source map content.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mapURL, nil)
 	if err != nil {
 		return nil
 	}
@@ -629,12 +699,20 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
 
-	return &finding.Finding{
+	mapBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB max
+	if err != nil {
+		return nil
+	}
+
+	var findings []finding.Finding
+	now := time.Now()
+
+	findings = append(findings, finding.Finding{
 		CheckID:  finding.CheckJSSourceMapExposed,
 		Module:   "surface",
 		Scanner:  scannerName,
@@ -650,8 +728,41 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 			mapURL,
 		),
 		Evidence:     map[string]any{"js_url": jsURL, "map_url": mapURL},
-		DiscoveredAt: time.Now(),
+		DiscoveredAt: now,
+	})
+
+	// Check source map content for API keys in URLs
+	for _, akm := range checkAPIKeyInURLs(string(mapBody)) {
+		redactedURL := akm.url
+		if len(redactedURL) > 80 {
+			redactedURL = redactedURL[:40] + "..." + redactedURL[len(redactedURL)-30:]
+		}
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckJSAPIKeyInSourceMap,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    fmt.Sprintf("API key in URL query parameter (%s=) found in source map", akm.paramName),
+			Description: fmt.Sprintf(
+				"The publicly accessible source map at %s contains a URL with an API key or token "+
+					"passed as the query parameter %q. Source maps expose the original pre-minified source, "+
+					"and credentials embedded in URLs are logged by proxies, CDNs, and access logs. "+
+					"Remove the source map from production and rotate the exposed credential.",
+				mapURL, akm.paramName,
+			),
+			Evidence: map[string]any{
+				"js_url":     jsURL,
+				"map_url":    mapURL,
+				"url_found":  redactedURL,
+				"param_name": akm.paramName,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oiE 'https?://[^\"\\s]+%s=[^\"\\s]+'", mapURL, akm.paramName),
+			DiscoveredAt: now,
+		})
 	}
+
+	return findings
 }
 
 // extractJSURLs finds script src URLs in HTML.

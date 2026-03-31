@@ -138,6 +138,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if f := checkAliasDos(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)
 			}
+			if f := checkFragmentDos(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkDeepNesting(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
 		}
 	}
 
@@ -527,6 +533,205 @@ func checkAliasDos(ctx context.Context, client *http.Client, asset, endpoint str
 	}
 }
 
+// checkFragmentDos tests whether the GraphQL endpoint processes queries with deeply
+// nested fragments (10+ levels). Fragment spreading can cause exponential work on
+// the server when fragments reference each other, leading to denial of service.
+func checkFragmentDos(ctx context.Context, client *http.Client, asset, endpoint string) *finding.Finding {
+	// Build a query with 12 nested fragments that each spread into the next.
+	// fragment f0 on Query { ...f1 }
+	// fragment f1 on Query { ...f2 }
+	// ...
+	// fragment f11 on Query { __typename }
+	// query { ...f0 }
+	const depth = 12
+	var sb strings.Builder
+	sb.WriteString(`{"query":"`)
+	for i := range depth - 1 {
+		fmt.Fprintf(&sb, "fragment f%d on Query { ...f%d } ", i, i+1)
+	}
+	fmt.Fprintf(&sb, "fragment f%d on Query { __typename } ", depth-1)
+	sb.WriteString(`query { ...f0 }")`)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
+		bytes.NewBufferString(sb.String()))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	if err != nil {
+		return nil
+	}
+
+	// Parse response — if data is present and non-null, the server processed the
+	// deeply nested fragments without rejecting them.
+	var gqlResp struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &gqlResp); err != nil {
+		return nil
+	}
+
+	// If the server returned errors about depth/complexity, it has protection.
+	for _, e := range gqlResp.Errors {
+		lower := strings.ToLower(e.Message)
+		if strings.Contains(lower, "depth") || strings.Contains(lower, "complex") ||
+			strings.Contains(lower, "fragment") || strings.Contains(lower, "limit") {
+			return nil
+		}
+	}
+
+	// Only flag if data was returned (query executed successfully).
+	if len(gqlResp.Data) == 0 || string(gqlResp.Data) == "null" {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckGraphQLFragmentDos,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("GraphQL fragment amplification accepted at %s", endpoint),
+		Description: fmt.Sprintf(
+			"The GraphQL endpoint at %s accepted a query with %d levels of nested fragment "+
+				"spreading without rejecting it for depth or complexity. An attacker can craft "+
+				"queries with exponentially expanding fragments to cause denial of service by "+
+				"amplifying server-side work far beyond a single request's fair share.",
+			endpoint, depth),
+		Evidence: map[string]any{
+			"url":             endpoint,
+			"fragment_depth":  depth,
+			"response_snippet": compactSnippet(raw, 300),
+		},
+		ProofCommand: fmt.Sprintf(
+			`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{"query":"fragment f0 on Query { ...f1 } fragment f1 on Query { __typename } query { ...f0 }"}'`,
+			endpoint),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// checkDeepNesting tests whether the GraphQL endpoint accepts queries nested 15
+// levels deep without a depth limit. Unbounded query depth allows attackers to
+// craft queries that resolve deeply nested relationships, consuming excessive
+// server resources.
+func checkDeepNesting(ctx context.Context, client *http.Client, asset, endpoint string) *finding.Finding {
+	// Build a deeply nested query using __typename at each level:
+	// { a0: __typename a1: __typename ... { a14: __typename } ... }
+	// We nest using inline fragments: ... on Query { ... on Query { ... } }
+	const depth = 15
+	var sb strings.Builder
+	sb.WriteString(`{"query":"{ `)
+	for i := range depth {
+		fmt.Fprintf(&sb, "d%d: __typename ", i)
+		if i < depth-1 {
+			sb.WriteString("... on Query { ")
+		}
+	}
+	// Close all inline fragments.
+	for range depth - 1 {
+		sb.WriteString("} ")
+	}
+	sb.WriteString(`}"}`)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
+		bytes.NewBufferString(sb.String()))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	if err != nil {
+		return nil
+	}
+
+	var gqlResp struct {
+		Data   map[string]any `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &gqlResp); err != nil {
+		return nil
+	}
+
+	// If the server returned depth/complexity errors, it has protection.
+	for _, e := range gqlResp.Errors {
+		lower := strings.ToLower(e.Message)
+		if strings.Contains(lower, "depth") || strings.Contains(lower, "complex") ||
+			strings.Contains(lower, "nest") || strings.Contains(lower, "limit") {
+			return nil
+		}
+	}
+
+	if gqlResp.Data == nil {
+		return nil
+	}
+
+	// Count how many of our depth markers were resolved.
+	resolved := 0
+	for i := range depth {
+		if _, ok := gqlResp.Data[fmt.Sprintf("d%d", i)]; ok {
+			resolved++
+		}
+	}
+
+	// If fewer than 10 levels were resolved, the server may have a depth limit.
+	if resolved < 10 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckGraphQLDeepNesting,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("GraphQL query depth of %d accepted without limit at %s", depth, endpoint),
+		Description: fmt.Sprintf(
+			"The GraphQL endpoint at %s accepted a query nested %d levels deep, resolving %d "+
+				"levels without returning a depth-limit error. Without query depth limits, an "+
+				"attacker can craft queries that traverse deeply nested relationships (e.g. "+
+				"user->friends->friends->...) to cause excessive database joins and memory use, "+
+				"leading to denial of service.",
+			endpoint, depth, resolved),
+		Evidence: map[string]any{
+			"url":             endpoint,
+			"nesting_sent":    depth,
+			"levels_resolved": resolved,
+			"response_snippet": compactSnippet(raw, 300),
+		},
+		ProofCommand: fmt.Sprintf(
+			`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{"query":"{ d0: __typename ... on Query { d1: __typename ... on Query { d2: __typename } } }"}'`,
+			endpoint),
+		DiscoveredAt: time.Now(),
+	}
+}
 
 // compactSnippet re-encodes the JSON body compactly and truncates it to max bytes.
 func compactSnippet(raw []byte, max int) string {
