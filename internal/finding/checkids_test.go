@@ -656,6 +656,7 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudOCISecurityListAllOpen: true,
 		finding.CheckCloudOCISecurityListSSHOpen: true,
 		finding.CheckCloudOCINSGAllOpen:          true,
+		finding.CheckSupplyChainRegistryToCluster: true,
 	}
 
 	for id, meta := range finding.Registry {

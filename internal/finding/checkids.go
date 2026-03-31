@@ -1279,6 +1279,19 @@ const (
 	CheckSupplyChainUnsignedNPM       CheckID = "supply_chain.unsigned_npm"        // npm package without provenance
 	CheckSupplyChainUnsignedPyPI      CheckID = "supply_chain.unsigned_pypi"       // PyPI package without Sigstore signature
 	CheckSupplyChainUnsignedContainer CheckID = "supply_chain.unsigned_container"  // container image without cosign signature
+
+	// ── Supply chain pipeline correlation ──────────────────────────────────
+	CheckCICDNoImageSigning         CheckID = "cicd.no_image_signing"                       // CI/CD builds container but has no signing step
+	CheckCICDMutableImageTag        CheckID = "cicd.mutable_image_tag"                      // CI/CD deploys with mutable tag (:latest, :main, etc.)
+	CheckCICDLongLivedRegistryCreds CheckID = "cicd.long_lived_registry_creds"               // registry auth uses stored secrets instead of OIDC
+	CheckCICDNoSBOMGeneration       CheckID = "cicd.no_sbom_generation"                     // container build has no SBOM generation step
+	CheckCICDNoVulnScan             CheckID = "cicd.no_vuln_scan"                           // container build has no vulnerability scan step
+	CheckSupplyChainNoProvenance    CheckID = "supply_chain.no_provenance"                  // deployed image has no build provenance attestation
+	CheckSupplyChainRegistryToCluster CheckID = "supply_chain.registry_to_cluster_unsigned" // image flows from registry to cluster without signature verification
+
+	// ── Dockerfile supply chain ──────────────────────────────────────────
+	CheckDockerfileCurlPipe  CheckID = "supply_chain.dockerfile_curl_pipe"   // Dockerfile runs curl|sh or wget|sh — arbitrary code execution in build
+	CheckDockerfileRootUser  CheckID = "supply_chain.dockerfile_root_user"   // Dockerfile has no USER directive — container runs as root
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -2550,6 +2563,19 @@ var Registry = map[CheckID]CheckMeta{
 	CheckSupplyChainUnsignedNPM:       {CheckSupplyChainUnsignedNPM, SeverityMedium, ModeSurface},
 	CheckSupplyChainUnsignedPyPI:      {CheckSupplyChainUnsignedPyPI, SeverityMedium, ModeSurface},
 	CheckSupplyChainUnsignedContainer: {CheckSupplyChainUnsignedContainer, SeverityMedium, ModeSurface},
+
+	// Supply chain pipeline correlation
+	CheckCICDNoImageSigning:           {CheckCICDNoImageSigning, SeverityHigh, ModeSurface},
+	CheckCICDMutableImageTag:          {CheckCICDMutableImageTag, SeverityMedium, ModeSurface},
+	CheckCICDLongLivedRegistryCreds:   {CheckCICDLongLivedRegistryCreds, SeverityHigh, ModeSurface},
+	CheckCICDNoSBOMGeneration:         {CheckCICDNoSBOMGeneration, SeverityLow, ModeSurface},
+	CheckCICDNoVulnScan:               {CheckCICDNoVulnScan, SeverityMedium, ModeSurface},
+	CheckSupplyChainNoProvenance:      {CheckSupplyChainNoProvenance, SeverityHigh, ModeSurface},
+	CheckSupplyChainRegistryToCluster: {CheckSupplyChainRegistryToCluster, SeverityCritical, ModeDeep},
+
+	// Dockerfile supply chain
+	CheckDockerfileCurlPipe:  {CheckDockerfileCurlPipe, SeverityHigh, ModeSurface},
+	CheckDockerfileRootUser:  {CheckDockerfileRootUser, SeverityMedium, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
