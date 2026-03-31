@@ -14,8 +14,6 @@ description: >
 match:
   any:
     - title_contains: "Portainer"
-    - path_responds: "/api/status"
-    - path_responds: "/api/settings"
     - body_contains: "Portainer"
 surface:
   nuclei_tags:
@@ -42,3 +40,9 @@ deep:
     - misconfiguration
     - default-logins
     - rce
+  dictionary:
+    - /api/endpoints
+    - /api/users
+    - /api/settings/public
+    - /api/teams
+    - /api/stacks

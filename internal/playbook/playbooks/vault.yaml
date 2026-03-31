@@ -17,9 +17,8 @@ match:
   any:
     - path_responds: "/v1/sys/health"
     - title_contains: "Vault"
-    - body_contains: "initialized"
-    - body_contains: "Vault"
     - path_responds: "/v1/sys/seal-status"
+    - header_present: "x-vault-request"
 surface:
   scanners:
     - httpmethods

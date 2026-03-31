@@ -13,7 +13,6 @@ description: >
   immediately.
 match:
   any:
-    - path_responds: "/console/"
     - title_contains: "WebLogic"
     - title_contains: "Oracle WebLogic"
     - body_contains: "WebLogic"

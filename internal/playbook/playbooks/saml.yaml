@@ -50,3 +50,8 @@ deep:
     - cves
     - injection
     - misconfiguration
+  dictionary:
+    - /saml/metadata
+    - /saml2/metadata
+    - /FederationMetadata/2007-06/FederationMetadata.xml
+    - /auth/realms/master/protocol/saml/descriptor

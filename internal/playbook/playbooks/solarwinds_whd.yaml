@@ -12,9 +12,8 @@ match:
   any:
     - path_responds: "/helpdesk/WebObjects/Helpdesk.woa/"
     - title_contains: "Web Help Desk"
-    - title_contains: "SolarWinds"
+    - title_contains: "Web Help Desk"
     - body_contains: "Web Help Desk"
-    - body_contains: "SolarWinds"
 surface:
   scanners:
     - exposedfiles
