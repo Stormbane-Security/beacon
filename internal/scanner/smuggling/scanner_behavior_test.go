@@ -150,7 +150,7 @@ func hangHandler(conn net.Conn) {
 	readRequest(conn)
 	// Hold connection open — do not respond or close. The caller's probe
 	// timeout will fire, producing the timing signal.
-	time.Sleep(2 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 }
 
 // vulnerableHandler simulates a server that is vulnerable to smuggling:
@@ -163,7 +163,7 @@ func vulnerableHandler(conn net.Conn) {
 		return
 	}
 	// POST probe — hang to simulate smuggling vulnerability.
-	time.Sleep(2 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 }
 
 // connectionResetHandler immediately closes the connection without reading

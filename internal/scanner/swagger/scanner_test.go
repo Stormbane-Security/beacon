@@ -462,7 +462,7 @@ func TestRun_ContextDeadline_DuringDeepScan(t *testing.T) {
 			return
 		}
 		// Simulate a slow endpoint.
-		time.Sleep(2 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer ts.Close()
