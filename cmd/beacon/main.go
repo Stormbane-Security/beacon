@@ -45,6 +45,12 @@ import (
 	sqlitestore "github.com/stormbane/beacon/internal/store/sqlite"
 	"github.com/stormbane/beacon/internal/scanner/toolinstall"
 	"golang.org/x/term"
+
+	bosungen "github.com/stormbane-security/bosun/pkg/generator"
+	bosungh "github.com/stormbane-security/bosun/pkg/github"
+	bosunmatch "github.com/stormbane-security/bosun/pkg/matcher"
+	bosunpatch "github.com/stormbane-security/bosun/pkg/patcher"
+	bosunplan "github.com/stormbane-security/bosun/pkg/plan"
 )
 
 const usageText = `Beacon — security reconnaissance tool
@@ -115,8 +121,15 @@ EXAMPLES:
   beacon playbook suggestions
   beacon playbook import --id <suggestion-id>
   beacon playbook open-pr --id <suggestion-id>
+  beacon remediate   --domain <domain> [flags]  Generate Terraform/CI-CD remediations from scan findings
   beacon terraform <path> [<path>...]
   beacon cloud       [flags]               Run cloud posture scan (GCP/AWS/Azure)
+
+REMEDIATE FLAGS:
+  --domain <domain>          Target domain (uses most recent scan findings)
+  --input <file>             Beacon JSON output file (alternative to --domain)
+  --repo <owner/repo>        Target repo for PR creation (omit to output files to stdout)
+  --dry-run                  Print generated files without creating PR
 
 CLOUD FLAGS:
   --aws-profile <profile>    AWS CLI profile (default: env/default)
@@ -194,6 +207,8 @@ func main() {
 		cmdTerraform(cfg, os.Args[2:])
 	case "cloud":
 		cmdScanCloud(cfg, os.Args[2:])
+	case "remediate":
+		cmdRemediate(cfg, os.Args[2:])
 	case "enrich":
 		cmdEnrich(cfg, os.Args[2:])
 	case "--help", "-h", "help":
@@ -8880,6 +8895,187 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// ---------- remediate ----------
+
+func cmdRemediate(cfg *config.Config, args []string) {
+	var (
+		domain    string
+		inputPath string
+		targetRepo string
+		dryRun    bool
+	)
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--domain":
+			i++
+			if i < len(args) {
+				domain = args[i]
+			}
+		case "--input":
+			i++
+			if i < len(args) {
+				inputPath = args[i]
+			}
+		case "--repo":
+			i++
+			if i < len(args) {
+				targetRepo = args[i]
+			}
+		case "--dry-run":
+			dryRun = true
+		}
+	}
+
+	if domain == "" && inputPath == "" {
+		fatalf("usage: beacon remediate --domain <domain> [--repo owner/repo] [--dry-run]\n       beacon remediate --input <findings.json> [--repo owner/repo] [--dry-run]")
+	}
+
+	// Load findings either from the store (by domain) or from a JSON file.
+	var findings []bosunmatch.Finding
+
+	if domain != "" {
+		// Pull from the most recent completed scan in the store.
+		dbPath := cfg.Store.Path
+		if dbPath == "" {
+			home, _ := os.UserHomeDir()
+			dbPath = filepath.Join(home, ".beacon", "beacon.db")
+		}
+		db, err := sqlitestore.Open(dbPath)
+		if err != nil {
+			fatalf("opening store: %v", err)
+		}
+		defer db.Close()
+
+		ctx := context.Background()
+		runs, err := db.ListScanRuns(ctx, domain)
+		if err != nil {
+			fatalf("listing scans: %v", err)
+		}
+
+		var runID string
+		for _, r := range runs {
+			if r.Status == store.StatusCompleted {
+				runID = r.ID
+				break
+			}
+		}
+		if runID == "" {
+			fatalf("no completed scan found for %s", domain)
+		}
+
+		rawFindings, err := db.GetFindings(ctx, runID)
+		if err != nil {
+			fatalf("loading findings: %v", err)
+		}
+
+		for _, f := range rawFindings {
+			evidence := map[string]any{}
+			if f.Asset != "" {
+				evidence["asset"] = f.Asset
+			}
+			findings = append(findings, bosunmatch.Finding{
+				CheckID:  string(f.CheckID),
+				Severity: f.Severity.String(),
+				Title:    f.Title,
+				Asset:    f.Asset,
+				Evidence: evidence,
+			})
+		}
+
+		fmt.Fprintf(os.Stderr, "beacon: loaded %d findings from scan of %s\n", len(findings), domain)
+	} else {
+		// Read from JSON file.
+		data, err := os.ReadFile(inputPath)
+		if err != nil {
+			fatalf("reading input: %v", err)
+		}
+		if err := json.Unmarshal(data, &findings); err != nil {
+			fatalf("parsing findings: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "beacon: loaded %d findings from %s\n", len(findings), inputPath)
+	}
+
+	// Match findings to remediations.
+	plan := bosunmatch.Match(findings)
+	fmt.Fprintf(os.Stderr, "beacon: %d remediations matched\n", len(plan.Remediations))
+
+	if len(plan.Remediations) == 0 {
+		fmt.Println("No actionable remediations found.")
+		return
+	}
+
+	// Generate code.
+	files, err := bosungen.Generate(plan)
+	if err != nil {
+		fatalf("generating: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "beacon: generated %d files\n", len(files))
+
+	if dryRun || targetRepo == "" {
+		for path, content := range files {
+			fmt.Printf("--- %s ---\n%s\n\n", path, content)
+		}
+		if targetRepo == "" {
+			fmt.Fprintf(os.Stderr, "beacon: no --repo specified, output to stdout. Use --repo owner/repo to create a PR.\n")
+		}
+		return
+	}
+
+	// Write files and create PR.
+	ghToken := os.Getenv("GITHUB_TOKEN")
+	if ghToken == "" {
+		ghToken = os.Getenv("BOSUN_GITHUB_TOKEN")
+	}
+	if ghToken == "" {
+		fatalf("GITHUB_TOKEN required to create PRs")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "beacon-remediate-*")
+	if err != nil {
+		fatalf("creating temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	written, err := bosunpatch.Apply(tmpDir, files)
+	if err != nil {
+		fatalf("writing files: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "beacon: wrote %d files to %s\n", len(written), tmpDir)
+
+	parts := strings.SplitN(targetRepo, "/", 2)
+	if len(parts) != 2 {
+		fatalf("invalid --repo format, expected owner/repo")
+	}
+
+	client := bosungh.New(ghToken)
+	prURL, err := client.CreatePR(
+		parts[0], parts[1],
+		fmt.Sprintf("fix: security remediation — %d fixes", len(plan.Remediations)),
+		buildRemediationPRBody(plan, files),
+		"beacon/remediation",
+		"main",
+	)
+	if err != nil {
+		fatalf("creating PR: %v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "beacon: PR created → %s\n", prURL)
+}
+
+func buildRemediationPRBody(p *bosunplan.Plan, files map[string]string) string {
+	body := "## Security Remediation\n\nGenerated by Beacon from scan findings.\n\n### Remediations\n\n"
+	for _, r := range p.Remediations {
+		body += fmt.Sprintf("- **%s** (%s): %s\n", r.ID, r.CheckID, r.Description)
+	}
+	body += fmt.Sprintf("\n### Files (%d)\n\n", len(files))
+	for path := range files {
+		body += fmt.Sprintf("- `%s`\n", path)
+	}
+	body += "\n---\nGenerated by Beacon + Bosun\n"
+	return body
 }
 
 // strOr returns the first non-empty string (CLI flag overrides config file).
