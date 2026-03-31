@@ -1,0 +1,42 @@
+name: harbor
+description: >
+  Asset is an exposed Harbor container registry. Harbor stores container
+  images that frequently contain application source code, embedded secrets,
+  API keys, and internal configuration. Risks include: unauthenticated
+  image pull access, anonymous user registration allowing project access,
+  image scanning results leaking vulnerability details, and the replication
+  API exposing credentials for other registries. Harbor's admin API can
+  reveal LDAP/AD integration credentials and webhook configurations.
+match:
+  any:
+    - header_present: "x-harbor-csrf-token"
+    - path_responds: "/api/v2.0/systeminfo"
+    - title_contains: "Harbor"
+surface:
+  nuclei_tags:
+    - harbor
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "harbor.{domain}"
+      - "registry.{domain}"
+      - "docker.{domain}"
+      - "containers.{domain}"
+deep:
+  nuclei_tags:
+    - harbor
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /api/v2.0/systeminfo
+    - /api/v2.0/users
+    - /api/v2.0/projects
+    - /api/v2.0/registries
+    - /api/v2.0/configurations
+    - /api/v2.0/replication/policies
+    - /api/v2.0/system/scanAll/schedule
+    - /c/login
+    - /c/sign-up

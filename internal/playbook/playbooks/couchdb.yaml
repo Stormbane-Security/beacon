@@ -1,0 +1,39 @@
+name: couchdb
+description: >
+  Asset is an exposed Apache CouchDB database. CouchDB has no authentication
+  by default in older versions and exposes a full REST API for database
+  operations. Risks include: unauthenticated database enumeration and read
+  access via /_all_dbs, the Fauxton admin UI at /_utils requiring no auth,
+  remote code execution via the query server configuration (CVE-2017-12636),
+  and privilege escalation through the _config endpoint. CouchDB replication
+  can be abused to exfiltrate entire databases.
+match:
+  any:
+    - service_version_contains: "couchdb"
+    - path_responds: "/_utils"
+    - path_responds: "/_all_dbs"
+surface:
+  nuclei_tags:
+    - couchdb
+    - exposure
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "couchdb.{domain}"
+      - "couch.{domain}"
+      - "db.{domain}"
+deep:
+  nuclei_tags:
+    - couchdb
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /_utils
+    - /_all_dbs
+    - /_config
+    - /_users/_all_docs
+    - /_node/_local/_config
+    - /_membership
+    - /_active_tasks
+    - /_scheduler/docs

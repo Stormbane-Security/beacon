@@ -1,0 +1,35 @@
+name: jaeger
+description: >
+  Asset is an exposed Jaeger distributed tracing UI or API. Jaeger collects
+  and stores distributed traces that reveal internal service topology,
+  inter-service communication patterns, latency data, and frequently
+  contain sensitive data in span tags and logs (user IDs, request bodies,
+  database queries, error messages with stack traces). An exposed Jaeger
+  instance enables full infrastructure reconnaissance and may leak PII
+  through trace data.
+match:
+  any:
+    - body_contains: "jaeger ui"
+    - body_contains: "jaeger-ui"
+    - path_responds: "/api/services"
+    - title_contains: "Jaeger"
+surface:
+  nuclei_tags:
+    - jaeger
+    - exposure
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "jaeger.{domain}"
+      - "tracing.{domain}"
+      - "traces.{domain}"
+deep:
+  nuclei_tags:
+    - jaeger
+    - exposure
+    - misconfiguration
+  dictionary:
+    - /api/services
+    - /api/traces
+    - /api/dependencies
+    - /api/metrics/calls

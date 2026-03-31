@@ -1,0 +1,43 @@
+name: argocd
+description: >
+  Asset is an exposed ArgoCD GitOps continuous delivery server. ArgoCD
+  manages Kubernetes deployments from Git repositories and stores credentials
+  for Git repos, Helm registries, and Kubernetes clusters. Risks include:
+  unauthenticated API access to application configurations, repository
+  credentials leakage through the settings API, ability to sync malicious
+  manifests to production clusters, and admin credential brute-forcing.
+  ArgoCD instances frequently have the default admin password set to the
+  server pod name.
+match:
+  any:
+    - body_contains: "argo cd"
+    - body_contains: "argocd"
+    - path_responds: "/api/v1/applications"
+    - title_contains: "Argo CD"
+surface:
+  nuclei_tags:
+    - argocd
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "argocd.{domain}"
+      - "argo.{domain}"
+      - "gitops.{domain}"
+      - "cd.{domain}"
+deep:
+  nuclei_tags:
+    - argocd
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /api/v1/applications
+    - /api/v1/clusters
+    - /api/v1/repositories
+    - /api/v1/projects
+    - /api/v1/settings
+    - /api/v1/account
+    - /api/v1/session
+    - /api/version

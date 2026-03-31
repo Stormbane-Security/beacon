@@ -1,0 +1,55 @@
+name: openstack
+description: >
+  Asset is an exposed OpenStack service (Horizon dashboard, Keystone identity,
+  Nova compute API). OpenStack deployments frequently expose admin APIs without
+  authentication, leak internal infrastructure topology through API responses,
+  and run outdated versions with known CVEs. Risks include: unauthenticated
+  Keystone token creation, Horizon dashboard with default credentials,
+  Nova/Neutron/Cinder API access revealing tenant infrastructure, metadata
+  service access from compromised instances, and credential leakage through
+  API error messages.
+match:
+  any:
+    - header_present: "x-openstack-request-id"
+    - body_contains: "openstack dashboard"
+    - body_contains: "powered by openstack"
+    - path_responds: "/identity/v3"
+    - path_responds: "/dashboard/auth/login/"
+surface:
+  nuclei_tags:
+    - openstack
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "openstack.{domain}"
+      - "horizon.{domain}"
+      - "keystone.{domain}"
+      - "nova.{domain}"
+      - "neutron.{domain}"
+      - "cloud.{domain}"
+deep:
+  nuclei_tags:
+    - openstack
+    - cves
+    - exposure
+    - misconfiguration
+    - default-logins
+  dictionary:
+    - /identity/v3
+    - /identity/v3/auth/tokens
+    - /identity/v3/users
+    - /identity/v3/projects
+    - /identity/v3/domains
+    - /identity/v3/regions
+    - /compute/v2.1/servers
+    - /compute/v2.1/flavors
+    - /compute/v2.1/images
+    - /v2.0/networks
+    - /v2.0/subnets
+    - /v2.0/ports
+    - /v2.0/routers
+    - /v3/volumes
+    - /dashboard/auth/login/
+    - /dashboard/admin/

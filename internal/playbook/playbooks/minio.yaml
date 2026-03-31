@@ -1,0 +1,39 @@
+name: minio
+description: >
+  Asset is an exposed MinIO S3-compatible object storage server. MinIO
+  provides full S3 API compatibility and is widely used for self-hosted
+  object storage. Risks include: default minioadmin/minioadmin credentials,
+  unauthenticated bucket listing, public bucket access policies exposing
+  sensitive data, SSRF through webhook and notification configurations,
+  and the admin console API exposing server configuration including
+  encryption keys and IAM policies.
+match:
+  any:
+    - service_version_contains: "minio"
+    - header_present: "x-minio-deployment-id"
+    - path_responds: "/minio/health/live"
+surface:
+  nuclei_tags:
+    - minio
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "minio.{domain}"
+      - "s3.{domain}"
+      - "storage.{domain}"
+      - "objects.{domain}"
+deep:
+  nuclei_tags:
+    - minio
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /minio/health/live
+    - /minio/health/cluster
+    - /minio/health/cluster/ready
+    - /api/v1/login
+    - /api/v1/buckets
+    - /api/v1/service-accounts

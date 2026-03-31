@@ -689,6 +689,51 @@ var fingerprintPaths = []string{
 	"/webfig/", // MikroTik WebFig UI — product-unique path
 	// ── Zabbix monitoring ─────────────────────────────────────────────────
 	"/zabbix/", // Zabbix web UI root path
+	// ── OpenStack Keystone/Horizon ───────────────────────────────────────
+	"/identity/v3",        // OpenStack Keystone identity API
+	"/dashboard/auth/login/", // OpenStack Horizon login page
+	// ── Proxmox VE ──────────────────────────────────────────────────────
+	"/api2/json", "/api2/json/version", // Proxmox VE REST API
+	// ── CloudStack ──────────────────────────────────────────────────────
+	"/client/api", // CloudStack management API
+	// ── OpenShift ───────────────────────────────────────────────────────
+	"/apis/apps.openshift.io/v1", // OpenShift API group
+	// ── Ansible AWX/Tower ───────────────────────────────────────────────
+	"/api/v2/ping", // AWX/Tower ping endpoint
+	// ── Jaeger ──────────────────────────────────────────────────────────
+	"/api/traces", "/api/services", // Jaeger Query API
+	// ── Zipkin ──────────────────────────────────────────────────────────
+	"/api/v2/traces", // Zipkin HTTP API
+	// ── Grafana Loki ────────────────────────────────────────────────────
+	"/loki/api/v1/labels", // Loki label enumeration
+	// ── Grafana Tempo ───────────────────────────────────────────────────
+	"/tempo/api/traces", // Tempo trace query
+	// ── VictoriaMetrics ─────────────────────────────────────────────────
+	"/vmui", // VictoriaMetrics web UI
+	// ── Nagios ──────────────────────────────────────────────────────────
+	"/nagios/", "/nagios/cgi-bin/status.cgi", // Nagios web UI
+	// ── Harbor registry ─────────────────────────────────────────────────
+	"/api/v2.0/systeminfo", // Harbor system info API
+	// ── ArgoCD ──────────────────────────────────────────────────────────
+	"/api/v1/applications", // ArgoCD application list
+	// ── TeamCity ────────────────────────────────────────────────────────
+	"/app/rest/server", // TeamCity REST API
+	// ── CouchDB ─────────────────────────────────────────────────────────
+	"/_utils", "/_all_dbs", // CouchDB Fauxton UI + database list
+	// ── Neo4j ───────────────────────────────────────────────────────────
+	"/db/neo4j/tx", "/browser/", // Neo4j HTTP API + browser
+	// ── RabbitMQ management ─────────────────────────────────────────────
+	"/api/overview", // RabbitMQ management API (also Traefik, but body differentiates)
+	// ── MinIO ───────────────────────────────────────────────────────────
+	"/minio/health/live", "/minio/health/cluster", // MinIO health checks
+	// ── IPFS ────────────────────────────────────────────────────────────
+	"/api/v0/id", "/api/v0/version", // IPFS HTTP API
+	// ── SonarQube ───────────────────────────────────────────────────────
+	"/api/system/status", // SonarQube system status
+	// ── FastAPI docs ────────────────────────────────────────────────────
+	"/docs", "/redoc", // FastAPI auto-generated documentation
+	// ── Sentry self-hosted ──────────────────────────────────────────────
+	"/api/0/internal/health", // Sentry health check
 }
 
 // isWildcardDomain returns true when the bare hostname has wildcard DNS configured.
@@ -789,6 +834,41 @@ var pathBodySignatures = map[string]string{
 	"/api/v1/serverInfo": `"version"`,
 	// Wazuh
 	"/api/v2/manager/info": `"title"`,
+	// OpenStack Keystone
+	"/identity/v3": `"version"`,
+	// Proxmox VE
+	"/api2/json/version": `"version"`,
+	// Ansible AWX/Tower
+	"/api/v2/ping": `"ha"`,
+	// Jaeger
+	"/api/services": `"data"`,
+	// Loki
+	"/loki/api/v1/labels": `"data"`,
+	// Tempo
+	"/tempo/api/traces": `"traces"`,
+	// VictoriaMetrics
+	"/vmui": `victoriametrics`,
+	// Harbor
+	"/api/v2.0/systeminfo": `"harbor_version"`,
+	// ArgoCD
+	"/api/v1/applications": `"items"`,
+	// TeamCity
+	"/app/rest/server": `"version"`,
+	// CouchDB
+	"/_all_dbs": `[`,
+	// Neo4j
+	"/db/neo4j/tx": `"neo4j"`,
+	// MinIO
+	"/minio/health/live": ``,
+	// IPFS
+	"/api/v0/id": `"ID"`,
+	// SonarQube
+	"/api/system/status": `"status"`,
+	// FastAPI
+	"/docs":  `swagger`,
+	"/redoc": `redoc`,
+	// Sentry
+	"/api/0/internal/health": `ok`,
 }
 
 func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evidence) []string {
@@ -1119,6 +1199,10 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.CloudProvider = "gcp"
 	case strings.Contains(strings.ToLower(h["via"]), "vegur"):
 		e.CloudProvider = "heroku"
+	case h["x-do-app-origin"] != "" || h["x-do-orig-status"] != "":
+		e.CloudProvider = "digitalocean"
+	case h["fly-request-id"] != "":
+		e.CloudProvider = "fly"
 	default:
 		// scan all headers for x-goog- prefix
 		for k := range h {
@@ -1253,6 +1337,27 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.Framework = "laravel"
 	case xpbLower == "express":
 		e.Framework = "express"
+	// ── Python frameworks ─────────────────────────────────────────────────
+	case strings.Contains(serverLower, "werkzeug"):
+		e.Framework = "flask"
+	case strings.Contains(serverLower, "uvicorn") || strings.Contains(serverLower, "hypercorn"):
+		e.Framework = "fastapi"
+	case strings.Contains(serverLower, "daphne"):
+		e.Framework = "django"
+	case strings.Contains(serverLower, "gunicorn"):
+		e.Framework = "python"
+	// ── Go frameworks ─────────────────────────────────────────────────────
+	case strings.Contains(xpbLower, "gin") && !strings.Contains(xpbLower, "engine"):
+		e.Framework = "gin"
+	case strings.Contains(xpbLower, "fiber"):
+		e.Framework = "fiber"
+	case strings.Contains(xpbLower, "echo"):
+		e.Framework = "echo"
+	// ── Elixir/Erlang ─────────────────────────────────────────────────────
+	case strings.Contains(serverLower, "cowboy"):
+		e.Framework = "phoenix"
+	case strings.Contains(setCookieLower, "_phoenix_flash"):
+		e.Framework = "phoenix"
 	}
 
 	// ── Platform detection from body (products not captured by Framework) ────
@@ -1288,11 +1393,66 @@ func fingerprintTech(e *playbook.Evidence) {
 			e.ServiceVersions["platform"] = "gitlab"
 		case strings.Contains(body, "rangitaki") || (strings.Contains(body, "nextcloud") && strings.Contains(body, "server")):
 			e.ServiceVersions["platform"] = "nextcloud"
+		// ── Enterprise private cloud ──────────────────────────────────────
+		case strings.Contains(body, "openstack dashboard") || strings.Contains(body, "powered by openstack"):
+			e.ServiceVersions["platform"] = "openstack"
+		case strings.Contains(body, "proxmox virtual environment") || strings.Contains(body, "pvemanagerversion"):
+			e.ServiceVersions["platform"] = "proxmox"
+		case strings.Contains(body, "cloudstack"):
+			e.ServiceVersions["platform"] = "cloudstack"
+		case strings.Contains(body, "openshift web console"):
+			e.ServiceVersions["platform"] = "openshift"
+		case strings.Contains(body, "ansible tower"):
+			e.ServiceVersions["platform"] = "ansible-awx"
+		// ── Container registries ─────────────────────────────────────────
+		case strings.Contains(body, "harbor") && strings.Contains(body, "registry"):
+			e.ServiceVersions["platform"] = "harbor"
+		// ── CI/CD platforms ──────────────────────────────────────────────
+		case strings.Contains(body, "teamcity"):
+			e.ServiceVersions["platform"] = "teamcity"
+		case strings.Contains(body, "argo cd") || strings.Contains(body, "argocd"):
+			e.ServiceVersions["platform"] = "argocd"
+		// ── Monitoring ───────────────────────────────────────────────────
+		case strings.Contains(body, "jaeger ui") || strings.Contains(body, "jaeger-ui"):
+			e.ServiceVersions["platform"] = "jaeger"
+		case strings.Contains(body, "victoriametrics"):
+			e.ServiceVersions["platform"] = "victoriametrics"
+		case strings.Contains(body, "nagios core") || strings.Contains(body, "nagios xi"):
+			e.ServiceVersions["platform"] = "nagios"
+		// ── Databases with HTTP UI ───────────────────────────────────────
+		case strings.Contains(body, "neo4j browser"):
+			e.ServiceVersions["platform"] = "neo4j"
+		case strings.Contains(body, "rabbitmq management"):
+			e.ServiceVersions["platform"] = "rabbitmq"
+		case strings.Contains(body, "mongo express"):
+			e.ServiceVersions["platform"] = "mongo-express"
+		case strings.Contains(body, "sonarqube"):
+			e.ServiceVersions["platform"] = "sonarqube"
 		}
 	}
 	// Jenkins also exposes an X-Jenkins header — detect regardless of body.
 	if h["x-jenkins"] != "" && e.ServiceVersions["platform"] == "" {
 		e.ServiceVersions["platform"] = "jenkins"
+	}
+	// OpenStack Keystone/Nova exposes x-openstack-request-id.
+	if h["x-openstack-request-id"] != "" && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "openstack"
+	}
+	// MinIO S3-compatible storage exposes Server: MinIO or x-minio-deployment-id.
+	if (strings.Contains(serverLower, "minio") || h["x-minio-deployment-id"] != "") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "minio"
+	}
+	// CouchDB exposes Server: CouchDB.
+	if strings.Contains(serverLower, "couchdb") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "couchdb"
+	}
+	// Harbor registry exposes x-harbor-csrf-token.
+	if h["x-harbor-csrf-token"] != "" && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "harbor"
+	}
+	// IPFS gateway exposes x-ipfs-path or x-ipfs-gateway.
+	if (h["x-ipfs-path"] != "" || h["x-ipfs-gateway"] != "") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "ipfs"
 	}
 
 	// ── AuthSystem ───────────────────────────────────────────────────────────
@@ -1491,6 +1651,41 @@ var pathServiceMap = []struct {
 	{"/api/tags", "Ollama"},
 	{"/v1/flows", "Langflow"},
 	{"/api/v1/settings", "n8n"},
+	// Enterprise private cloud
+	{"/identity/v3", "OpenStack Keystone"},
+	{"/dashboard/auth/login", "OpenStack Horizon"},
+	{"/api2/json", "Proxmox VE"},
+	{"/client/api", "CloudStack"},
+	{"/apis/apps.openshift.io", "OpenShift"},
+	{"/api/v2/ping", "Ansible AWX"},
+	// Monitoring
+	{"/api/traces", "Jaeger"},
+	{"/api/services", "Jaeger"},
+	{"/api/v2/traces", "Zipkin"},
+	{"/loki/api/v1/labels", "Grafana Loki"},
+	{"/tempo/api/traces", "Grafana Tempo"},
+	{"/vmui", "VictoriaMetrics"},
+	{"/nagios/", "Nagios"},
+	// Container registries
+	{"/api/v2.0/systeminfo", "Harbor"},
+	// CI/CD
+	{"/api/v1/applications", "ArgoCD"},
+	{"/app/rest/server", "TeamCity"},
+	// Databases
+	{"/_utils", "CouchDB"},
+	{"/_all_dbs", "CouchDB"},
+	{"/db/neo4j/tx", "Neo4j"},
+	{"/minio/health/live", "MinIO"},
+	{"/minio/health/cluster", "MinIO"},
+	// Web3
+	{"/api/v0/id", "IPFS"},
+	// Code quality
+	{"/api/system/status", "SonarQube"},
+	// FastAPI
+	{"/docs", "FastAPI"},
+	{"/redoc", "FastAPI"},
+	// Sentry self-hosted
+	{"/api/0/internal/health", "Sentry"},
 }
 
 // inferBackendServices returns a deduplicated list of named backend services
