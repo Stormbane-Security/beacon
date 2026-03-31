@@ -1,0 +1,354 @@
+// Package gitlab probes self-hosted GitLab instances for security misconfigurations.
+//
+// All checks use HTTP probing against well-known GitLab endpoints. Deep mode
+// only — every probe is an active request logged by the target.
+package gitlab
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
+)
+
+const scannerName = "gitlab"
+
+// Scanner probes a GitLab instance for misconfigurations.
+type Scanner struct {
+	httpClient *http.Client
+}
+
+// New creates a GitLab scanner with sensible defaults.
+func New() *Scanner {
+	return &Scanner{
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
+}
+
+func (s *Scanner) Name() string { return scannerName }
+
+// Run probes the target GitLab instance for security misconfigurations.
+// target is a URL (e.g., "https://gitlab.example.com").
+func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanType) ([]finding.Finding, error) {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
+		return nil, nil
+	}
+
+	target = strings.TrimRight(target, "/")
+	var all []finding.Finding
+
+	checks := []struct {
+		fn func(ctx context.Context, target string) []finding.Finding
+	}{
+		{s.checkPublicRegistration},
+		{s.checkPublicSnippets},
+		{s.checkPublicProjects},
+		{s.checkCILintExposed},
+		{s.checkGraphQLIntrospection},
+		{s.checkOutdatedVersion},
+		{s.checkHealthExposed},
+		{s.checkPrometheusExposed},
+		{s.checkAPIUnauth},
+	}
+
+	for _, c := range checks {
+		if ctx.Err() != nil {
+			return all, ctx.Err()
+		}
+		all = append(all, c.fn(ctx, target)...)
+	}
+	return all, nil
+}
+
+func (s *Scanner) get(ctx context.Context, url string) (*http.Response, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
+	resp.Body.Close()
+	return resp, body, nil
+}
+
+func (s *Scanner) postJSON(ctx context.Context, url string, payload string) (*http.Response, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(payload))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
+	resp.Body.Close()
+	return resp, body, nil
+}
+
+func (s *Scanner) checkPublicRegistration(ctx context.Context, target string) []finding.Finding {
+	url := target + "/users/sign_up"
+	resp, body, err := s.get(ctx, url)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	lower := strings.ToLower(string(body))
+	if !strings.Contains(lower, "sign up") && !strings.Contains(lower, "register") {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabPublicRegistration,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    target,
+		Title:    "GitLab public user registration enabled",
+		Description: "Self-registration is enabled on this GitLab instance. Any internet user can " +
+			"create an account, potentially gaining access to internal projects, CI/CD pipelines, " +
+			"and runners. Disable public registration in Admin → Settings → General → Sign-up restrictions.",
+		Evidence:     map[string]any{"url": url, "status": resp.StatusCode},
+		ProofCommand: fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' '%s'", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkPublicSnippets(ctx context.Context, target string) []finding.Finding {
+	url := target + "/explore/snippets"
+	resp, body, err := s.get(ctx, url)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(string(body)), "snippet") {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabPublicSnippets,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    target,
+		Title:    "GitLab public snippets accessible without authentication",
+		Description: "Public snippet listing is accessible without authentication. Snippets may " +
+			"contain secrets, internal documentation, or code samples. Restrict snippet visibility " +
+			"in Admin → Settings → General → Visibility and access controls.",
+		Evidence:     map[string]any{"url": url},
+		ProofCommand: fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' '%s'", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkPublicProjects(ctx context.Context, target string) []finding.Finding {
+	url := target + "/explore/projects"
+	resp, body, err := s.get(ctx, url)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(string(body)), "project") {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabPublicProjects,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    target,
+		Title:    "GitLab public project listing accessible without authentication",
+		Description: "The project explorer is accessible without authentication, exposing project names, " +
+			"descriptions, and potentially source code. Restrict project visibility in Admin → Settings " +
+			"→ General → Visibility and access controls.",
+		Evidence:     map[string]any{"url": url},
+		ProofCommand: fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' '%s'", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkCILintExposed(ctx context.Context, target string) []finding.Finding {
+	url := target + "/api/v4/ci/lint"
+	resp, _, err := s.get(ctx, url)
+	if err != nil {
+		return nil
+	}
+	// 401/403 means auth is required (good). 200 or 422 means accessible.
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return nil
+	}
+	if resp.StatusCode != 200 && resp.StatusCode != 422 {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabCILintExposed,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    target,
+		Title:    "GitLab CI lint API accessible without authentication",
+		Description: "The CI/CD lint API endpoint is accessible without authentication. Attackers can " +
+			"validate CI/CD configurations to understand the pipeline structure, discover available " +
+			"runners, and identify secrets referenced in variables. Require authentication for API access.",
+		Evidence:     map[string]any{"url": url, "status": resp.StatusCode},
+		ProofCommand: fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' '%s'", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkGraphQLIntrospection(ctx context.Context, target string) []finding.Finding {
+	url := target + "/api/graphql"
+	resp, body, err := s.postJSON(ctx, url, `{"query":"{ __schema { types { name } } }"}`)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	if !strings.Contains(string(body), "__schema") {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabGraphQLIntrospection,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    target,
+		Title:    "GitLab GraphQL introspection enabled without authentication",
+		Description: "GraphQL introspection is enabled and accessible without authentication. " +
+			"Attackers can enumerate the entire API schema, discovering internal queries, mutations, " +
+			"and data types. Disable introspection in production or require authentication.",
+		Evidence:     map[string]any{"url": url},
+		ProofCommand: fmt.Sprintf("curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{\"query\":\"{ __schema { types { name } } }\"}' | head -c 200", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkOutdatedVersion(ctx context.Context, target string) []finding.Finding {
+	// Try API endpoint first.
+	url := target + "/api/v4/version"
+	resp, body, err := s.get(ctx, url)
+	if err != nil {
+		return nil
+	}
+	var verInfo struct {
+		Version string `json:"version"`
+	}
+	if resp.StatusCode == 200 {
+		_ = json.Unmarshal(body, &verInfo)
+	}
+	if verInfo.Version == "" {
+		return nil
+	}
+	// Check for critically outdated versions (major version < 16 is EOL).
+	parts := strings.SplitN(verInfo.Version, ".", 2)
+	if len(parts) < 1 {
+		return nil
+	}
+	var major int
+	fmt.Sscanf(parts[0], "%d", &major)
+	if major >= 17 {
+		return nil // reasonably current
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabOutdatedVersion,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    target,
+		Title:    fmt.Sprintf("GitLab %s is outdated and likely contains known vulnerabilities", verInfo.Version),
+		Description: fmt.Sprintf(
+			"GitLab %s is running on this instance. Versions below the current stable release "+
+				"are likely missing critical security patches. Check GitLab's release blog for "+
+				"applicable CVEs and upgrade to the latest stable release.", verInfo.Version),
+		Evidence:     map[string]any{"version": verInfo.Version, "url": url},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | jq .version", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkHealthExposed(ctx context.Context, target string) []finding.Finding {
+	for _, path := range []string{"/-/health", "/-/readiness", "/-/liveness"} {
+		url := target + path
+		resp, _, err := s.get(ctx, url)
+		if err != nil || resp.StatusCode != 200 {
+			continue
+		}
+		return []finding.Finding{{
+			CheckID:  finding.CheckGitLabHealthExposed,
+			Module:   "cicd",
+			Scanner:  scannerName,
+			Severity: finding.SeverityLow,
+			Asset:    target,
+			Title:    "GitLab health check endpoints exposed",
+			Description: "Health/readiness/liveness endpoints are accessible without authentication. " +
+				"While typically low risk, these can reveal operational state and may assist " +
+				"in timing attacks or confirming the application stack.",
+			Evidence:     map[string]any{"url": url, "status": resp.StatusCode},
+			ProofCommand: fmt.Sprintf("curl -s '%s'", url),
+			DiscoveredAt: time.Now(),
+		}}
+	}
+	return nil
+}
+
+func (s *Scanner) checkPrometheusExposed(ctx context.Context, target string) []finding.Finding {
+	url := target + "/-/metrics"
+	resp, body, err := s.get(ctx, url)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	if !strings.Contains(string(body), "# HELP") && !strings.Contains(string(body), "# TYPE") {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabPrometheusExposed,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    target,
+		Title:    "GitLab Prometheus metrics endpoint exposed without authentication",
+		Description: "The /-/metrics endpoint exposes Prometheus metrics without authentication. " +
+			"Metrics can reveal user counts, request rates, job queue depth, database latency, " +
+			"and other operational details useful for reconnaissance. Restrict access in " +
+			"Admin → Settings → Metrics and profiling → Metrics - Prometheus.",
+		Evidence:     map[string]any{"url": url},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | head -20", url),
+		DiscoveredAt: time.Now(),
+	}}
+}
+
+func (s *Scanner) checkAPIUnauth(ctx context.Context, target string) []finding.Finding {
+	url := target + "/api/v4/projects?per_page=1"
+	resp, body, err := s.get(ctx, url)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+	// Verify it's actually returning project data.
+	var projects []json.RawMessage
+	if err := json.Unmarshal(body, &projects); err != nil || len(projects) == 0 {
+		return nil
+	}
+	return []finding.Finding{{
+		CheckID:  finding.CheckGitLabAPIUnauth,
+		Module:   "cicd",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Asset:    target,
+		Title:    "GitLab API v4 accessible without authentication",
+		Description: "The GitLab REST API returns project data without authentication. Attackers can " +
+			"enumerate projects, users, groups, and CI/CD configurations. Require authentication " +
+			"for all API access in Admin → Settings → General → Visibility and access controls.",
+		Evidence:     map[string]any{"url": url, "project_count_sample": len(projects)},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | jq '.[].path_with_namespace'", url),
+		DiscoveredAt: time.Now(),
+	}}
+}

@@ -63,6 +63,9 @@ const (
 	// Source control / CI
 	AssetTypeGitHubRepo     AssetType = "github_repo"
 	AssetTypeGitHubWorkflow AssetType = "github_workflow"
+	AssetTypeJenkinsServer  AssetType = "jenkins_server"
+	AssetTypeGitLabInstance AssetType = "gitlab_instance"
+	AssetTypeTeamCityServer AssetType = "teamcity_server"
 
 	// Infrastructure as Code
 	AssetTypeTerraformModule   AssetType = "terraform_module"
