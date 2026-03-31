@@ -175,11 +175,11 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 	existing := s.findings[scanRunID]
 	seen := make(map[string]bool, len(existing))
 	for _, f := range existing {
-		key := f.CheckID + "|" + f.Asset + "|" + f.Title
+		key := f.CheckID + "\x00" + f.Asset + "\x00" + f.Title
 		seen[key] = true
 	}
 	for _, f := range cp {
-		key := f.CheckID + "|" + f.Asset + "|" + f.Title
+		key := f.CheckID + "\x00" + f.Asset + "\x00" + f.Title
 		if !seen[key] {
 			existing = append(existing, f)
 			seen[key] = true

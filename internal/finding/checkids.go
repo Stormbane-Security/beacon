@@ -449,6 +449,8 @@ const (
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
 	CheckWebFileUpload        CheckID = "web.file_upload_bypass"     // file upload MIME/extension bypass
 	CheckWebAPIFuzz           CheckID = "web.api_fuzz_error"         // API endpoint returns 500 on fuzz input
+	CheckHTTPClickjacking     CheckID = "http.clickjacking"          // missing X-Frame-Options / CSP frame-ancestors
+	CheckWebSocketCSWSH       CheckID = "websocket.cswsh"            // cross-site WebSocket hijacking
 	CheckCVELog4Shell              CheckID = "cve.log4shell"                   // CVE-2021-44228 Log4j JNDI injection
 	CheckCVEN8nRCE                 CheckID = "cve.n8n_rce"                     // CVE-2026-21858/CVE-2025-68613 n8n pre-auth RCE
 	CheckCVECraftCMSRCE            CheckID = "cve.craftcms_rce"                // CVE-2025-32432 Craft CMS pre-auth code injection
@@ -1930,6 +1932,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
 	CheckWebFileUpload:         {CheckWebFileUpload, SeverityCritical, ModeDeep},
 	CheckWebAPIFuzz:            {CheckWebAPIFuzz, SeverityHigh, ModeDeep},
+	CheckHTTPClickjacking:     {CheckHTTPClickjacking, SeverityMedium, ModeSurface},
+	CheckWebSocketCSWSH:       {CheckWebSocketCSWSH, SeverityHigh, ModeDeep},
 	CheckCVELog4Shell:          {CheckCVELog4Shell, SeverityCritical, ModeDeep},
 
 	// Nmap additional

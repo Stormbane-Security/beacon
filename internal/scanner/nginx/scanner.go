@@ -58,8 +58,8 @@ func New() *Scanner { return &Scanner{} }
 // Name returns the stable scanner identifier.
 func (s *Scanner) Name() string { return scannerName }
 
-// Run executes the nginx/IIS scan. Runs in both surface and deep modes.
-func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+// Run executes the nginx/IIS scan.
+func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -73,55 +73,58 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	var findings []finding.Finding
 
 	// Nginx alias traversal: probe each common path with traversal suffixes.
-	for _, path := range commonPaths {
-		for _, suffix := range traversalSuffixes {
-			probePath := path + "/" + suffix
-			u := base + probePath
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-			if err != nil {
-				continue
+	// These are active attack payloads that require at least ScanDeep mode.
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+		for _, path := range commonPaths {
+			for _, suffix := range traversalSuffixes {
+				probePath := path + "/" + suffix
+				u := base + probePath
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+				resp.Body.Close()
+
+				bodyStr := string(body)
+				signal := passwdSignalFound(bodyStr)
+				if signal == "" {
+					continue
+				}
+
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebNginxAliasTraversal,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("Nginx alias traversal exposes /etc/passwd on %s", asset),
+					Description: fmt.Sprintf(
+						"The path %s on %s returned /etc/passwd content (%q). "+
+							"This indicates a misconfigured Nginx alias directive that allows "+
+							"directory traversal outside the intended document root. "+
+							"An attacker can read arbitrary files from the server filesystem.",
+						probePath, asset, signal),
+					Asset: asset,
+					ProofCommand: fmt.Sprintf(
+						`curl -s "%s%s" | grep "root:"`, base, probePath),
+					Evidence: map[string]any{
+						"url":    u,
+						"path":   probePath,
+						"signal": signal,
+					},
+					DiscoveredAt: time.Now(),
+				})
+
+				// One finding per path prefix is sufficient.
+				break
 			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				continue
-			}
-
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-			resp.Body.Close()
-
-			bodyStr := string(body)
-			signal := passwdSignalFound(bodyStr)
-			if signal == "" {
-				continue
-			}
-
-			findings = append(findings, finding.Finding{
-				CheckID:  finding.CheckWebNginxAliasTraversal,
-				Module:   "surface",
-				Scanner:  scannerName,
-				Severity: finding.SeverityCritical,
-				Title:    fmt.Sprintf("Nginx alias traversal exposes /etc/passwd on %s", asset),
-				Description: fmt.Sprintf(
-					"The path %s on %s returned /etc/passwd content (%q). "+
-						"This indicates a misconfigured Nginx alias directive that allows "+
-						"directory traversal outside the intended document root. "+
-						"An attacker can read arbitrary files from the server filesystem.",
-					probePath, asset, signal),
-				Asset: asset,
-				ProofCommand: fmt.Sprintf(
-					`curl -s "%s%s" | grep "root:"`, base, probePath),
-				Evidence: map[string]any{
-					"url":    u,
-					"path":   probePath,
-					"signal": signal,
-				},
-				DiscoveredAt: time.Now(),
-			})
-
-			// One finding per path prefix is sufficient.
-			break
 		}
 	}
 

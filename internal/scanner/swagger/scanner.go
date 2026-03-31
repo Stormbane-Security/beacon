@@ -28,6 +28,12 @@ import (
 	"github.com/stormbane/beacon/internal/module"
 )
 
+// sanitizeShellArg wraps a value in single quotes with proper escaping to
+// prevent shell metacharacter injection in ProofCommand strings.
+func sanitizeShellArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 const scannerName = "swagger"
 
 // specPaths are common locations where Swagger/OpenAPI specs are served.
@@ -127,7 +133,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		Title:        fmt.Sprintf("OpenAPI/Swagger spec publicly accessible at %s", specURL),
 		Description:  "The API specification is publicly accessible. It documents all endpoints, parameters, authentication requirements, and data models — providing a complete attack map to anyone who can access it.",
 		Asset:        asset,
-		ProofCommand: fmt.Sprintf("curl -s %s | python3 -m json.tool | head -60", specURL),
+		ProofCommand: fmt.Sprintf("curl -s %s | python3 -m json.tool | head -60", sanitizeShellArg(specURL)),
 		Evidence: map[string]any{
 			"url":       specURL,
 			"spec_size": len(specBody),
@@ -274,7 +280,7 @@ func probeMissingParams(ctx context.Context, client *http.Client, asset, url, me
 			"status_code":     resp.StatusCode,
 			"response_prefix": string(body[:min(len(body), 300)]),
 		},
-		ProofCommand: fmt.Sprintf("curl -s -X %s %s -H 'Content-Type: application/json' -d '{}' | head -20", method, url),
+		ProofCommand: fmt.Sprintf("curl -s -X %s %s -H 'Content-Type: application/json' -d '{}' | head -20", sanitizeShellArg(method), sanitizeShellArg(url)),
 		DiscoveredAt: time.Now(),
 	}
 }
@@ -338,7 +344,7 @@ func probeTypeFuzz(ctx context.Context, client *http.Client, asset, url, method 
 			"sql_error_hint":  sqlError,
 			"response_prefix": string(body[:min(len(body), 300)]),
 		},
-		ProofCommand: fmt.Sprintf("curl -s -X %s %s -H 'Content-Type: application/json' -d '%s'", method, url, payload),
+		ProofCommand: fmt.Sprintf("curl -s -X %s %s -H 'Content-Type: application/json' -d %s", sanitizeShellArg(method), sanitizeShellArg(url), sanitizeShellArg(payload)),
 		DiscoveredAt: time.Now(),
 	}
 }
@@ -377,9 +383,3 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	return "https"
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

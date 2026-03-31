@@ -70,7 +70,9 @@ func (m *Module) Name() string { return "cloud" }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputCloud} }
 
 // Run implements module.Module.
-// It runs whichever cloud scanners are compiled in and have credentials available.
+// It runs whichever cloud scanners are compiled in and have credentials
+// available. All providers run concurrently; individual provider errors
+// are logged but do not abort the module.
 func (m *Module) Run(ctx context.Context, inp module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	providersMu.RLock()
 	defer providersMu.RUnlock()
@@ -79,23 +81,38 @@ func (m *Module) Run(ctx context.Context, inp module.Input, scanType module.Scan
 		return nil, fmt.Errorf("no cloud providers compiled in (binary built with cloud exclusion tags)")
 	}
 
-	var all []finding.Finding
-
-	// Run providers in sorted order for deterministic output.
+	// Snapshot provider names for deterministic final ordering.
 	names := make([]string, 0, len(providers))
 	for name := range providers {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	for _, name := range names {
-		fn := providers[name]
-		findings, err := fn(ctx, inp, scanType)
-		if err != nil {
-			log.Printf("[cloud] %s scanner error: %v", name, err)
+	type result struct {
+		name     string
+		findings []finding.Finding
+		err      error
+	}
+
+	results := make([]result, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Add(1)
+		go func(idx int, provName string, fn providerFunc) {
+			defer wg.Done()
+			findings, err := fn(ctx, inp, scanType)
+			results[idx] = result{name: provName, findings: findings, err: err}
+		}(i, name, providers[name])
+	}
+	wg.Wait()
+
+	var all []finding.Finding
+	for _, r := range results {
+		if r.err != nil {
+			log.Printf("[cloud] %s scanner error: %v", r.name, r.err)
 			continue
 		}
-		all = append(all, findings...)
+		all = append(all, r.findings...)
 	}
 
 	return all, nil

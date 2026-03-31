@@ -653,9 +653,12 @@ Type exactly: I have written authorization for %s
 			// Scan already finished while we were in browse — fall through to save.
 		default:
 			// Still running — mark stopped and exit. Findings saved so far are lost.
+			// Use a fresh context because the scan context may already be cancelled.
+			dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dbCancel()
 			run.Status = store.StatusStopped
 			run.Error = "detached by user"
-			_ = st.UpdateScanRun(ctx, run)
+			_ = st.UpdateScanRun(dbCtx, run)
 			return
 		}
 		// Scan finished while in browse — save its results.
@@ -1281,16 +1284,12 @@ Type exactly: I have written authorization for all listed targets
 
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
-		scanTypeStr := "surface"
-		if deep {
-			scanTypeStr = "deep"
-		}
 		domainLabel := strings.Join(targets, ",")
 		firstRunID := ""
 		if len(allResults) > 0 && allResults[0].run != nil {
 			firstRunID = allResults[0].run.ID
 		}
-		raw, err := report.RenderRawJSON(domainLabel, scanTypeStr, firstRunID, time.Now(), allFindings)
+		raw, err := report.RenderRawJSON(domainLabel, string(scanType), firstRunID, time.Now(), allFindings)
 		if err != nil {
 			fatalf("render raw findings: %v", err)
 		}
@@ -1714,13 +1713,50 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 		return
 	}
 
-	// Render findings as plain text summary.
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60)))
-	for _, f := range filtered {
-		sb.WriteString(fmt.Sprintf("[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset))
+	// Build output in the requested format.
+	var out string
+	switch strings.ToLower(format) {
+	case "json":
+		// Wrap raw findings in EnrichedFinding for the JSON renderer.
+		enriched := make([]enrichment.EnrichedFinding, len(filtered))
+		for i, f := range filtered {
+			enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		}
+		now := time.Now()
+		syntheticRun := store.ScanRun{
+			Domain:    orgOrRepo,
+			ScanType:  module.ScanSurface,
+			StartedAt: now,
+			CompletedAt: &now,
+			FindingCount: len(enriched),
+		}
+		var err error
+		out, err = report.RenderJSON(syntheticRun, enriched, "", nil)
+		if err != nil {
+			fatalf("render json: %v", err)
+		}
+	case "markdown", "md":
+		enriched := make([]enrichment.EnrichedFinding, len(filtered))
+		for i, f := range filtered {
+			enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		}
+		now := time.Now()
+		syntheticRun := store.ScanRun{
+			Domain:    orgOrRepo,
+			ScanType:  module.ScanSurface,
+			StartedAt: now,
+			CompletedAt: &now,
+			FindingCount: len(enriched),
+		}
+		out = report.RenderMarkdown(syntheticRun, enriched, "", nil)
+	default: // "text" or empty
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60)))
+		for _, f := range filtered {
+			sb.WriteString(fmt.Sprintf("[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset))
+		}
+		out = sb.String()
 	}
-	out := sb.String()
 
 	if outPath != "" {
 		if err := os.WriteFile(outPath, []byte(out), 0o600); err != nil {
@@ -2213,7 +2249,12 @@ func browseInteractive(cfg *config.Config) browseResult {
 	browseRender(bs)
 
 	// Read stdin in a goroutine so the main loop can also respond to ticks.
+	// The done channel signals the goroutine to exit when browseInteractive
+	// returns. Because os.Stdin.Read blocks, the goroutine may linger until the
+	// next keypress or process exit; the done check prevents it from sending on
+	// a closed inputCh after the function returns.
 	inputCh := make(chan []byte, 4)
+	browseDone := make(chan struct{})
 	go func() {
 		ibuf := make([]byte, 16)
 		for {
@@ -2222,11 +2263,21 @@ func browseInteractive(cfg *config.Config) browseResult {
 				close(inputCh)
 				return
 			}
+			select {
+			case <-browseDone:
+				return
+			default:
+			}
 			cp := make([]byte, n)
 			copy(cp, ibuf[:n])
-			inputCh <- cp
+			select {
+			case inputCh <- cp:
+			case <-browseDone:
+				return
+			}
 		}
 	}()
+	defer close(browseDone)
 
 	// Ticker drives spinner animation and periodic DB refresh for running scans.
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -3111,6 +3162,8 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 	// Build filter label for header.
 	var filterLabel string
 	switch bs.findMinSev {
+	case finding.SeverityLow:
+		filterLabel = "  \x1b[36mMin: LOW\x1b[0m"
 	case finding.SeverityMedium:
 		filterLabel = "  \x1b[33mMin: MED\x1b[0m"
 	case finding.SeverityHigh:
@@ -4736,6 +4789,8 @@ func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.Sc
 		return err
 	}
 	defer resp.Body.Close()
+	// Drain the response body so the underlying TCP connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
 	}
@@ -5105,10 +5160,11 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		isDetach := buf[0] == 'q' || (r.headless && isEsc && r.mode == "progress")
 		isBack := buf[0] == 'b' || (r.headless && isEsc)
 		if isDetach || (isBack && r.mode == "progress") {
-			r.mu.Unlock()
+			// Close channels under the lock so that a concurrent
+			// attachJob reset cannot swap them between the decision
+			// to close and the actual close call.
 			r.stopOnce.Do(func() { close(r.stop) })
 			r.detachOnce.Do(func() { close(r.detached) })
-			r.mu.Lock()
 			return
 		}
 		if isBack {
@@ -5153,11 +5209,10 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			r.discoveredCursor = 0
 			r.mode = "discovered"
 		case buf[0] == 'b' || isEsc:
-			// Signal detach back to the browse TUI.
-			r.mu.Unlock()
+			// Signal detach back to the browse TUI. Close under the lock
+			// to avoid a race with attachJob channel reset.
 			r.stopOnce.Do(func() { close(r.stop) })
 			r.detachOnce.Do(func() { close(r.detached) })
-			r.mu.Lock() // re-acquire so caller's deferred unlock is safe
 			return
 		case buf[0] == 's':
 			// 's' stops the scan (with confirmation). 'q'/'b' just detach.
@@ -5737,9 +5792,9 @@ func (r *progressRenderer) startInputLoop() {
 			}
 			// 'q' detaches. 'b' navigates back one level; only detaches from "progress".
 			if buf[0] == 'q' || (buf[0] == 'b' && r.mode == "progress") || (isEsc && r.mode == "progress") {
-				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
 				r.detachOnce.Do(func() { close(r.detached) })
+				r.mu.Unlock()
 				return
 			}
 			if buf[0] == 'b' || isEsc {

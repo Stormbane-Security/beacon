@@ -10,12 +10,22 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
 )
+
+// htmlTagRe matches HTML tags for sanitization of AI response fields.
+var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
+
+// sanitizeAIField strips HTML tags from an AI response field to prevent
+// stored XSS when the field is later rendered in HTML reports.
+func sanitizeAIField(s string) string {
+	return htmlTagRe.ReplaceAllString(s, "")
+}
 
 //go:embed prompts/finding.tmpl
 var defaultFindingTmpl string
@@ -448,12 +458,12 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 	}
 
 	// Build the full report summary: executive summary + narrative + roadmap.
-	fullSummary := result.Summary
+	fullSummary := sanitizeAIField(result.Summary)
 	if result.AttackNarrative != "" {
-		fullSummary += "\n\n## Attack Narrative\n\n" + result.AttackNarrative
+		fullSummary += "\n\n## Attack Narrative\n\n" + sanitizeAIField(result.AttackNarrative)
 	}
 	if result.RemediationRoadmap != "" {
-		fullSummary += "\n\n## Remediation Roadmap\n\n" + result.RemediationRoadmap
+		fullSummary += "\n\n## Remediation Roadmap\n\n" + sanitizeAIField(result.RemediationRoadmap)
 	}
 
 	// Index the contextual updates by (check_id, asset).
@@ -468,8 +478,8 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 	index := make(map[key]update, len(result.Findings))
 	for _, f := range result.Findings {
 		index[key{strings.ToLower(f.CheckID), strings.ToLower(strings.TrimRight(f.Asset, "."))}] = update{
-			f.Omit, f.MitigatedBy, f.CrossAssetNote,
-			f.TechSpecificRemediation, f.ComplianceTags,
+			f.Omit, sanitizeAIField(f.MitigatedBy), sanitizeAIField(f.CrossAssetNote),
+			sanitizeAIField(f.TechSpecificRemediation), f.ComplianceTags,
 		}
 	}
 
@@ -878,7 +888,12 @@ func parseEnrichedResponse(findings []finding.Finding, text string) ([]EnrichedF
 	}
 	enrichMap := make(map[string]enrichEntry)
 	for _, p := range parsed {
-		enrichMap[p.CheckID] = enrichEntry{p.Explanation, p.Impact, p.Remediation, p.TerraformFix}
+		enrichMap[p.CheckID] = enrichEntry{
+			sanitizeAIField(p.Explanation),
+			sanitizeAIField(p.Impact),
+			sanitizeAIField(p.Remediation),
+			sanitizeAIField(p.TerraformFix),
+		}
 	}
 
 	out := make([]EnrichedFinding, len(findings))

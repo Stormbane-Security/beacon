@@ -334,6 +334,7 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckWebHPP:                 true,
 		finding.CheckWebFileUpload:          true,
 		finding.CheckWebAPIFuzz:             true,
+		finding.CheckWebSocketCSWSH:         true,
 		// Log4Shell — deep mode sends JNDI payload in headers
 		finding.CheckCVELog4Shell: true,
 		// CVE-2025-24813 Apache Tomcat partial PUT — writes a 1-byte temp file,

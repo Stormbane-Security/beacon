@@ -402,10 +402,16 @@ func TestParseFillGapsResponse_ValuesLowercased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// signal_type "Header" is not in validSignalTypes (which only has lowercase),
-	// so this rule should be filtered out.
-	if len(result.ProposedRules) != 0 {
-		t.Errorf("expected case-sensitive signal_type filtering to reject 'Header', got %d rules", len(result.ProposedRules))
+	// Validation is case-insensitive: "Header" should be accepted and
+	// stored as lowercase "header".
+	if len(result.ProposedRules) != 1 {
+		t.Fatalf("expected 1 proposed rule (case-insensitive match), got %d", len(result.ProposedRules))
+	}
+	if result.ProposedRules[0].SignalType != "header" {
+		t.Errorf("expected signal_type lowercased to 'header', got %q", result.ProposedRules[0].SignalType)
+	}
+	if result.ProposedRules[0].Value != "express" {
+		t.Errorf("expected value lowercased to 'express', got %q", result.ProposedRules[0].Value)
 	}
 }
 

@@ -665,9 +665,3 @@ func resolveChainID(hexID string) string {
 	return hexID
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

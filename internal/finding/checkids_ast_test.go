@@ -140,7 +140,7 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"api": true, "osint": true, "supply_chain": true,
 		"correlation": true, "terraform": true, "aifp": true,
 		"authfuzz": true, "netdev": true, "wifi": true, "gitlab": true,
-		"teamcity": true, "oidc": true,
+		"teamcity": true, "oidc": true, "http": true, "websocket": true,
 	}
 
 	for _, decl := range f.Decls {

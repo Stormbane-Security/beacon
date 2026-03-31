@@ -303,6 +303,13 @@ func (c *Config) Redacted() Config {
 		redactedAuth[i] = a
 	}
 	r.Auth = redactedAuth
+	// Deep-copy ProxyPool to prevent mutations of the returned copy from
+	// affecting the original config.
+	if c.ProxyPool != nil {
+		pp := make([]string, len(c.ProxyPool))
+		copy(pp, c.ProxyPool)
+		r.ProxyPool = pp
+	}
 	return r
 }
 

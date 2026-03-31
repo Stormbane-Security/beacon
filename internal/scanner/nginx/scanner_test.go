@@ -29,7 +29,7 @@ func TestNginx_AliasTraversal(t *testing.T) {
 	defer srv.Close()
 
 	asset := strings.TrimPrefix(srv.URL, "http://")
-	findings, err := New().Run(context.Background(), asset, module.ScanSurface)
+	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
