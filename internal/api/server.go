@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/stormbane/beacon/internal/config"
-	"github.com/stormbane/beacon/internal/project"
 	"github.com/stormbane/beacon/internal/store"
 	"github.com/stormbane/beacon/internal/web"
 	"github.com/stormbane/beacon/internal/worker"
@@ -19,33 +17,18 @@ var timeNow = func() time.Time { return time.Now().UTC() }
 
 // Server holds the dependencies shared across all handlers.
 type Server struct {
-	st       store.Store
-	pool     *worker.Pool
-	apiKey   string
-	aiCfg    config.AIConfig
-	projects *project.Store
+	st     store.Store
+	pool   *worker.Pool
+	apiKey string
 }
 
 // New creates a Server and registers all routes on mux.
-func New(st store.Store, pool *worker.Pool, apiKey string, opts ...Option) *Server {
-	s := &Server{
-		st:       st,
-		pool:     pool,
-		apiKey:   apiKey,
-		projects: project.NewStore(),
+func New(st store.Store, pool *worker.Pool, apiKey string) *Server {
+	return &Server{
+		st:     st,
+		pool:   pool,
+		apiKey: apiKey,
 	}
-	for _, o := range opts {
-		o(s)
-	}
-	return s
-}
-
-// Option configures optional Server dependencies.
-type Option func(*Server)
-
-// WithAI sets the AI provider configuration for scaffold chat.
-func WithAI(ai config.AIConfig) Option {
-	return func(s *Server) { s.aiCfg = ai }
 }
 
 // Handler returns the root HTTP handler with all routes registered.
@@ -78,26 +61,6 @@ func (s *Server) Handler() http.Handler {
 
 	// Bosun export.
 	v1.HandleFunc("POST /export/bosun", s.handleExportBosun)
-
-	// Scaffold catalog and generation.
-	v1.HandleFunc("GET /catalog", s.handleCatalog)
-	v1.HandleFunc("GET /catalog/{id}", s.handleCatalogEntry)
-	v1.HandleFunc("POST /scaffold", s.handleScaffold)
-	v1.HandleFunc("POST /scaffold/match", s.handleScaffoldMatch)
-	v1.HandleFunc("POST /scaffold/chat", s.handleScaffoldChat)
-
-	// Projects (workspace: integrations, plans, context).
-	v1.HandleFunc("POST /projects", s.handleCreateProject)
-	v1.HandleFunc("GET /projects", s.handleListProjects)
-	v1.HandleFunc("GET /projects/{id}", s.handleGetProject)
-	v1.HandleFunc("PUT /projects/{id}", s.handleUpdateProject)
-	v1.HandleFunc("DELETE /projects/{id}", s.handleDeleteProject)
-	v1.HandleFunc("POST /projects/{id}/integrations", s.handleAddIntegration)
-	v1.HandleFunc("DELETE /projects/{id}/integrations/{intgId}", s.handleRemoveIntegration)
-	v1.HandleFunc("POST /projects/{id}/integrations/{intgId}/sync", s.handleSyncIntegration)
-	v1.HandleFunc("GET /projects/{id}/context", s.handleProjectContext)
-	v1.HandleFunc("POST /projects/{id}/plans", s.handleCreatePlan)
-	v1.HandleFunc("GET /projects/{id}/repos", s.handleListRepos)
 
 	mux.Handle("/v1/", s.authMiddleware(http.StripPrefix("/v1", v1)))
 

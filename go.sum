@@ -209,10 +209,6 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
-github.com/stormbane-security/bosun v0.0.0-20260331171300-bef61326f35f h1:6a58ytfTxkKB4y7TwrrsmRnTarbP0YhsP4+lE7ndHbQ=
-github.com/stormbane-security/bosun v0.0.0-20260331171300-bef61326f35f/go.mod h1:2Z96YhyJHEfS6EcXC6/xbRZfzvoawMoi9Dt4vqsRAls=
-github.com/stormbane-security/bosun v0.0.0-20260331172710-c66305234634 h1:qNqOk+9/3xDOTOZ4GHpRl+QpF6Pm0JOZHBpq/zO0bHg=
-github.com/stormbane-security/bosun v0.0.0-20260331172710-c66305234634/go.mod h1:2Z96YhyJHEfS6EcXC6/xbRZfzvoawMoi9Dt4vqsRAls=
 github.com/stormbane-security/bosun v0.0.0-20260331174331-9c2633fb1dc9 h1:tmKjZEORoKv5EpMOPHcLI2QN7fUCpStxWTqRBs+A2dg=
 github.com/stormbane-security/bosun v0.0.0-20260331174331-9c2633fb1dc9/go.mod h1:2Z96YhyJHEfS6EcXC6/xbRZfzvoawMoi9Dt4vqsRAls=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
