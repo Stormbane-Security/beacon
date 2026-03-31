@@ -124,7 +124,9 @@ func (p *Pool) process(job Job) {
 		return
 	}
 	run.Status = store.StatusRunning
-	_ = p.st.UpdateScanRun(ctx, run)
+	if err := p.st.UpdateScanRun(ctx, run); err != nil {
+		p.emitError(job.ScanRunID, fmt.Sprintf("update scan run status: %v", err))
+	}
 
 	// Run surface module
 	mod, err := surface.New(surface.Config{

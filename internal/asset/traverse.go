@@ -241,6 +241,13 @@ func reconstructPath(parent map[string]string, src, dst string) []string {
 	var path []string
 	for cur := dst; cur != src; cur = parent[cur] {
 		path = append(path, cur)
+		next, ok := parent[cur]
+		if !ok {
+			return nil // broken chain — no valid path
+		}
+		if next == cur {
+			return nil // self-loop — prevent infinite loop
+		}
 	}
 	path = append(path, src)
 	// Reverse.

@@ -216,7 +216,10 @@ func fetchOIDCToken(ctx context.Context, clientID, clientSecret, tokenURL string
 		return "", err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr != nil {
+		return "", fmt.Errorf("reading token response: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
 	}

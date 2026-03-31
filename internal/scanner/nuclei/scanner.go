@@ -255,6 +255,9 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue // skip malformed lines
 		}
+		if r.TemplateID == "" || r.Info.Name == "" {
+			continue // skip incomplete results
+		}
 
 		checkID := finding.MapNucleiTemplate(r.TemplateID)
 		sev := finding.ParseSeverity(r.Info.Severity)

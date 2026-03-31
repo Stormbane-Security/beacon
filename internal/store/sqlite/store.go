@@ -1238,7 +1238,9 @@ func (s *Store) GetScannerROI(ctx context.Context, domain string) ([]store.Scann
 		}
 		if r.AvgDurationMs > 0 && r.RunCount > 0 {
 			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
-			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			if totalDurationMs > 0 {
+				r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			}
 		}
 		out = append(out, r)
 	}
@@ -1419,7 +1421,9 @@ func (s *Store) GetCrossDomainScannerSummary(ctx context.Context) ([]store.Cross
 		}
 		if r.AvgDurationMs > 0 && r.RunCount > 0 {
 			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
-			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			if totalDurationMs > 0 {
+				r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			}
 		}
 		out = append(out, r)
 	}

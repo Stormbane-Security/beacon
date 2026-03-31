@@ -628,6 +628,19 @@ func wsUpgradeConfirmed(ctx context.Context, host, port string) bool {
 // WebSocket endpoint and sends eth_chainId, printing the raw response.
 // Uses only stdlib so it works without wscat or any npm tools.
 func wsProofPython(host, port string) string {
+	// Sanitize host and port to prevent shell/Python injection.
+	safeHost := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '-' || r == ':' {
+			return r
+		}
+		return -1
+	}, host)
+	safePort := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, port)
 	return fmt.Sprintf(
 		`import socket,struct,base64,os; `+
 			`s=socket.create_connection(('%s',%s),timeout=5); `+
@@ -638,7 +651,7 @@ func wsProofPython(host, port string) string {
 			`s.sendall(frame); `+
 			`print(s.recv(256)[2:].decode(errors=\"replace\")); `+
 			`s.close()`,
-		host, port, host, port,
+		safeHost, safePort, safeHost, safePort,
 	)
 }
 

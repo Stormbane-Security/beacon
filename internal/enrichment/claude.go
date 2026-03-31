@@ -614,7 +614,10 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	if readErr != nil {
+		return "", fmt.Errorf("reading OpenAI-compat response body: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
@@ -677,7 +680,10 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	if readErr != nil {
+		return "", fmt.Errorf("reading Gemini response body: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		// Redact the response body to avoid leaking the API key.
 		safeBody := strings.TrimSpace(string(data))
@@ -733,7 +739,10 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("Ollama request failed (is Ollama running?): %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	if readErr != nil {
+		return "", fmt.Errorf("reading Ollama response body: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
