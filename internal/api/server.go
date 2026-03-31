@@ -45,6 +45,15 @@ func (s *Server) Handler() http.Handler {
 	v1.HandleFunc("GET /suppressions", s.handleListSuppressions)
 	v1.HandleFunc("DELETE /suppressions/{id}", s.handleDeleteSuppression)
 
+	// Asset groups (view-only merge/split).
+	v1.HandleFunc("POST /asset-groups", s.handleCreateAssetGroup)
+	v1.HandleFunc("GET /asset-groups", s.handleListAssetGroups)
+	v1.HandleFunc("PUT /asset-groups/{id}", s.handleUpdateAssetGroup)
+	v1.HandleFunc("DELETE /asset-groups/{id}", s.handleDeleteAssetGroup)
+
+	// Bosun export.
+	v1.HandleFunc("POST /export/bosun", s.handleExportBosun)
+
 	mux.Handle("/v1/", s.authMiddleware(http.StripPrefix("/v1", v1)))
 
 	// Web UI — served without auth; the browser sends Bearer tokens itself.

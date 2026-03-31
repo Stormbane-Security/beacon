@@ -169,6 +169,10 @@ const I = {
   chevron: `<svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>`,
   refresh: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>`,
   scan: `<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35"/></svg>`,
+  merge: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>`,
+  unlink: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.36 5.64a5 5 0 010 7.07L15 16.07M5.64 18.36a5 5 0 010-7.07L9 7.93M2 2l20 20"/></svg>`,
+  wrench: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`,
+  download: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`,
 };
 
 // ── Router ───────────────────────────────────────────────────────────────────
@@ -297,6 +301,8 @@ function pageTarget() {
   if (tab === 'findings') content = tabFindings(dom);
   else if (tab === 'compliance') content = tabCompliance(dom);
   else if (tab === 'trend') content = tabTrend(dom);
+  else if (tab === 'assets') content = tabAssets(dom);
+  else if (tab === 'remediate') content = tabRemediate(dom);
   const topRight = `<button class="btn btn-primary" onclick="rescan('${esc(dom)}')">${I.refresh} Re-scan</button>`;
   return `${sidebar()}
     <div class="main">
@@ -316,6 +322,8 @@ function pageTarget() {
           <div class="tab ${tab==='findings'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/findings')">Findings</div>
           <div class="tab ${tab==='compliance'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/compliance')">Compliance</div>
           <div class="tab ${tab==='trend'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/trend')">Trend</div>
+          <div class="tab ${tab==='assets'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/assets')">Assets</div>
+          <div class="tab ${tab==='remediate'?'active':''}" onclick="nav('#/targets/${encodeURIComponent(dom)}/remediate')">Remediate</div>
         </div>
         ${content}
       </div>
@@ -445,6 +453,190 @@ function tabTrend(dom) {
     </div>`;
 }
 
+// ── Assets (merge/split) ──────────────────────────────────────────────────
+function tabAssets(dom) {
+  const fKey = 'f:' + dom;
+  const gKey = 'g:' + dom;
+  const d = S.cache[fKey];
+  if (!d && !S.loading[fKey]) load(fKey, () => api('/targets/' + encodeURIComponent(dom) + '/findings'));
+  if (!S.cache[gKey] && !S.loading[gKey]) load(gKey, () => api('/asset-groups?domain=' + encodeURIComponent(dom)));
+  if (S.loading[fKey] || S.loading[gKey]) return `<div class="loading"><div class="spinner"></div> Loading assets…</div>`;
+  if (!d) return `<div class="empty"><h3>No findings</h3><p>Run a scan first</p></div>`;
+
+  const all = d.findings || [];
+  const assetMap = {};
+  all.forEach(f => {
+    if (!f.asset) return;
+    if (!assetMap[f.asset]) assetMap[f.asset] = { findings: [] };
+    assetMap[f.asset].findings.push(f);
+  });
+  const assets = Object.keys(assetMap).sort();
+  const grps = (S.cache[gKey]?.groups || []);
+
+  const groupCards = grps.map(g => `
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <span style="font-weight:600;font-size:13px">${esc(g.name)}</span>
+          <span style="color:var(--muted);font-size:11px;margin-left:6px">${g.assets.length} assets</span>
+        </div>
+        <button class="btn btn-secondary" style="font-size:11px;padding:4px 8px" onclick="W.unmerge('${esc(g.id)}','${esc(dom)}')">${I.unlink} Unmerge</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        ${g.assets.map(a => `<span class="ctag">${esc(a)}</span>`).join('')}
+      </div>
+    </div>`).join('');
+
+  const rows = assets.map(a => {
+    const inGroup = grps.some(g => g.assets.includes(a));
+    const cnt = assetMap[a].findings.length;
+    const sevs = {};
+    assetMap[a].findings.forEach(f => sevs[f.severity] = (sevs[f.severity]||0)+1);
+    const sevBadges = ['critical','high','medium','low','info']
+      .filter(s => sevs[s])
+      .map(s => `<span class="badge ${s}" style="font-size:10px">${sevs[s]}</span>`)
+      .join(' ');
+    return `<tr>
+      <td><input type="checkbox" class="asset-cb" value="${esc(a)}" ${inGroup?'disabled title="Already in a group"':''}></td>
+      <td style="font-weight:500;font-size:12px">${esc(a)}</td>
+      <td>${sevBadges}</td>
+      <td style="color:var(--muted);font-size:12px">${cnt} finding${cnt!==1?'s':''}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    ${grps.length ? `<div style="margin-bottom:20px">
+      <h3 style="font-size:13px;font-weight:600;margin-bottom:10px">Asset Groups</h3>
+      ${groupCards}
+    </div>` : ''}
+    <div class="tbl-wrap">
+      <div class="tbl-head">
+        <h2>All Assets (${assets.length})</h2>
+        <button class="btn btn-primary" onclick="W.mergeSelected('${esc(dom)}')">${I.merge} Merge Selected</button>
+      </div>
+      <table><thead><tr><th style="width:30px"></th><th>Asset</th><th>Findings</th><th>Count</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+      Select 2+ assets and click Merge to create a view-only group. Groups do not affect scan data and can be unmerged at any time.
+    </div>`;
+}
+
+function mergeSelected(dom) {
+  const boxes = document.querySelectorAll('.asset-cb:checked');
+  if (boxes.length < 2) { alert('Select at least 2 assets to merge.'); return; }
+  const assets = Array.from(boxes).map(cb => cb.value);
+  const name = prompt('Group name:', assets[0].split('.')[0] + '-group');
+  if (!name) return;
+  api('/asset-groups', {
+    method: 'POST',
+    body: JSON.stringify({ name, domain: dom, assets })
+  }).then(() => { bust('g:' + dom); render(); })
+    .catch(e => alert('Error: ' + e.message));
+}
+
+function unmerge(groupId, dom) {
+  if (!confirm('Unmerge this group? Assets will return to individual view.')) return;
+  api('/asset-groups/' + groupId, { method: 'DELETE' })
+    .then(() => { bust('g:' + dom); render(); })
+    .catch(e => alert('Error: ' + e.message));
+}
+
+// ── Remediate (Bosun integration) ─────────────────────────────────────────
+function tabRemediate(dom) {
+  const fKey = 'f:' + dom;
+  const gKey = 'g:' + dom;
+  const d = S.cache[fKey];
+  if (!d && !S.loading[fKey]) load(fKey, () => api('/targets/' + encodeURIComponent(dom) + '/findings'));
+  if (!S.cache[gKey] && !S.loading[gKey]) load(gKey, () => api('/asset-groups?domain=' + encodeURIComponent(dom)));
+  if (S.loading[fKey]) return `<div class="loading"><div class="spinner"></div> Loading…</div>`;
+  if (!d) return `<div class="empty"><h3>No findings</h3><p>Run a scan first</p></div>`;
+
+  const all = d.findings || [];
+  const grps = (S.cache[gKey]?.groups || []);
+
+  const categories = {};
+  all.forEach(f => {
+    const cat = f.check_id.split('.')[0] || 'other';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push(f);
+  });
+
+  const catOrder = ['cloud','iam','ghaction','supply_chain','tls','cors','jwt','other'];
+  const catNames = {cloud:'Cloud Posture',iam:'Identity & Access',ghaction:'CI/CD Security',supply_chain:'Supply Chain',tls:'TLS/SSL',cors:'CORS',jwt:'JWT',other:'Other'};
+  const sortedCats = [...catOrder.filter(c => categories[c]), ...Object.keys(categories).filter(c => !catOrder.includes(c))];
+
+  const catSections = sortedCats.map(cat => {
+    const findings = categories[cat];
+    const rows = findings.map(f => `<div class="ctrl-row">
+      ${badge(f.severity)}
+      <span style="flex:1;font-weight:500;font-size:12px">${esc(f.title)}</span>
+      <span style="color:var(--muted);font-size:11px;font-family:monospace">${esc(f.check_id)}</span>
+    </div>`).join('');
+    return `<div class="fw-block">
+      <h3>${catNames[cat] || cat} (${findings.length})</h3>
+      <div class="tbl-wrap" style="margin-bottom:8px">${rows}</div>
+    </div>`;
+  }).join('');
+
+  const groupOpts = grps.length ? `<div class="form-group">
+    <label class="form-label">Export for Asset Group</label>
+    <select class="form-input" id="export-group" style="cursor:pointer">
+      <option value="">All assets</option>
+      ${grps.map(g => `<option value="${esc(g.id)}">${esc(g.name)} (${g.assets.length} assets)</option>`).join('')}
+    </select>
+  </div>` : '';
+
+  const exportResult = S.cache['export:' + dom] || null;
+  const exportJson = exportResult ? `
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:600">${exportResult.findings.length} findings exported</span>
+        <button class="btn btn-secondary" onclick="W.downloadExport('${esc(dom)}')">${I.download} Download JSON</button>
+      </div>
+      <div class="proof" style="max-height:200px;overflow:auto;white-space:pre-wrap;font-size:10px">${esc(JSON.stringify(exportResult.findings, null, 2).slice(0, 2000))}${exportResult.findings.length > 10 ? '\n  ...' : ''}</div>
+      <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+        Run: <code style="color:var(--info)">bosun remediate --input findings.json --repo owner/repo</code>
+      </div>
+    </div>` : '';
+
+  return `
+    <div class="alert alert-info" style="margin-bottom:18px">
+      ${I.wrench} Export findings to <strong>Bosun</strong> for automated Terraform and CI/CD remediation generation.
+      Bosun matches findings to remediation templates and can open PRs directly.
+    </div>
+    ${catSections}
+    <div class="card" style="margin-top:20px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:14px">${I.wrench} Generate Remediation</h3>
+      ${groupOpts}
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="W.exportBosun('${esc(dom)}')">${I.download} Export for Bosun</button>
+      </div>
+      ${exportJson}
+    </div>`;
+}
+
+function exportBosun(dom) {
+  const groupId = document.getElementById('export-group')?.value || '';
+  api('/export/bosun', {
+    method: 'POST',
+    body: JSON.stringify({ domain: dom, group_id: groupId })
+  }).then(data => {
+    S.cache['export:' + dom] = data;
+    render();
+  }).catch(e => alert('Export error: ' + e.message));
+}
+
+function downloadExport(dom) {
+  const data = S.cache['export:' + dom];
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data.findings, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = dom.replace(/[^a-zA-Z0-9.-]/g, '_') + '-findings.json';
+  a.click(); URL.revokeObjectURL(url);
+}
+
 // ── New Scan ─────────────────────────────────────────────────────────────────
 function pageScan() {
   const sc = S.scan;
@@ -567,6 +759,7 @@ const W = {
   search(v) { S.q = v; S.expanded = null; render(); },
   expand(i) { S.expanded = S.expanded === i ? null : i; render(); },
   copy(text, e) { e.stopPropagation(); navigator.clipboard.writeText(text).catch(()=>{}); },
+  mergeSelected, unmerge, exportBosun, downloadExport,
   login, startScan, rescan,
 };
 window.W = W;
