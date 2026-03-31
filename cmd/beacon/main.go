@@ -28,7 +28,6 @@ import (
 	"github.com/stormbane/beacon/internal/analyze"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/verify"
-	"github.com/stormbane/beacon/internal/api"
 	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/enrichment"
 	"github.com/stormbane/beacon/internal/finding"
@@ -79,8 +78,6 @@ SCAN FLAGS:
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
-  --server <url>             Run against a remote beacond instance
-  --api-key <key>            API key for the remote server
 
 ENRICH FLAGS:
   --input <file>             Raw findings JSON from --output-raw (required)
@@ -94,16 +91,10 @@ REPORT FLAGS:
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
-REMOTE MODE:
-  Set BEACON_SERVER_URL and BEACON_SERVER_API_KEY environment variables,
-  or configure them in ~/.beacon/config.yaml, to route all commands to a
-  remote beacond instance instead of running locally.
-
 EXAMPLES:
   beacon scan --domain example.com
   beacon scan --domain example.com --format json
   beacon scan --domain example.com --severity high
-  beacon scan --domain example.com --server https://beacon.example.com --api-key sk-...
   beacon scan --domain example.com --out report.html --format html
   beacon scan --domain example.com --deep --permission-confirmed
   beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
@@ -247,8 +238,6 @@ func cmdScan(cfg *config.Config, args []string) {
 		severityFlag        string
 		verbose             bool
 		noTUI               bool
-		serverURL           string
-		apiKey              string
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -302,16 +291,6 @@ func cmdScan(cfg *config.Config, args []string) {
 			verbose = true
 		case "--no-tui":
 			noTUI = true
-		case "--server":
-			i++
-			if i < len(args) {
-				serverURL = args[i]
-			}
-		case "--api-key":
-			i++
-			if i < len(args) {
-				apiKey = args[i]
-			}
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -394,7 +373,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg)
 		return
 	}
 
@@ -463,20 +442,6 @@ Type exactly: I have written authorization for %s
 			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
 		}
 		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
-	}
-
-	// Resolve server URL: flag > env/config
-	if serverURL == "" {
-		serverURL = cfg.Server.URL
-	}
-	if apiKey == "" {
-		apiKey = cfg.Server.APIKey
-	}
-
-	// Remote mode: delegate to beacond
-	if serverURL != "" {
-		cmdScanRemote(serverURL, apiKey, domain, deep, permissionConfirmed, authorized, outPath)
-		return
 	}
 
 	scanType := module.ScanSurface
@@ -956,7 +921,6 @@ func cmdScanMultiAsset(
 	deep, permissionConfirmed, authorized bool,
 	outPath, outputRawPath, format, severityFlag string,
 	verbose, noTUI bool,
-	serverURL, apiKey string,
 	extraCIDRs []string,
 	cloudEnabled bool,
 	awsProfile, gcpCredentials, azureSubscription string,
@@ -1008,22 +972,6 @@ Type exactly: I have written authorization for all listed targets
 			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
 		}
 		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
-	}
-
-	// Resolve server URL.
-	if serverURL == "" {
-		serverURL = cfg.Server.URL
-	}
-	if apiKey == "" {
-		apiKey = cfg.Server.APIKey
-	}
-
-	// Remote multi-asset: delegate each target to the remote server.
-	if serverURL != "" {
-		for _, d := range targets {
-			cmdScanRemote(serverURL, apiKey, d, deep, permissionConfirmed, authorized, outPath)
-		}
-		return
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -1692,44 +1640,6 @@ func uniqueStrings(ss []string) []string {
 		}
 	}
 	return out
-}
-
-// ---------- remote scan ----------
-
-func cmdScanRemote(serverURL, apiKey, domain string, deep, permissionConfirmed, authorized bool, outPath string) {
-	client := api.NewClient(serverURL, apiKey)
-
-	fmt.Fprintf(os.Stderr, "beacon: submitting scan for %s to %s...\n", domain, serverURL)
-
-	result, err := client.SubmitScan(domain, deep, permissionConfirmed, authorized)
-	if err != nil {
-		fatalf("submit scan: %v", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "beacon: scan started — ID: %s\n", result.ScanRunID)
-	fmt.Fprintf(os.Stderr, "beacon: streaming progress...\n")
-
-	if err := client.StreamScan(result.ScanRunID, func(line string) {
-		fmt.Fprintf(os.Stderr, "  %s\n", line)
-	}); err != nil {
-		fatalf("stream scan: %v", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "beacon: scan complete — fetching report...\n")
-
-	html, err := client.GetReport(result.ScanRunID)
-	if err != nil {
-		fatalf("get report: %v", err)
-	}
-
-	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(html), 0o600); err != nil {
-			fatalf("write report file: %v", err)
-		}
-		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
-	} else {
-		fmt.Print(html)
-	}
 }
 
 // ---------- github scan ----------

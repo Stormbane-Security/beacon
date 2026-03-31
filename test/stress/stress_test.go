@@ -5,22 +5,17 @@ package stress
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stormbane/beacon/internal/api"
 	"github.com/stormbane/beacon/internal/asset"
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
 	"github.com/stormbane/beacon/internal/playbook"
 	"github.com/stormbane/beacon/internal/store"
-	"github.com/stormbane/beacon/internal/store/memory"
 	sqlitestore "github.com/stormbane/beacon/internal/store/sqlite"
 )
 
@@ -327,100 +322,6 @@ func TestAssetGraphBlastRadius(t *testing.T) {
 	reachable := trav.Reachable("chain:0", nil)
 	if len(reachable) != chainLen-1 {
 		t.Errorf("deep chain: expected %d reachable, got %d", chainLen-1, len(reachable))
-	}
-}
-
-// TestConcurrentAPIRequests starts an httptest server with the Beacon API
-// and fires 50 concurrent GET /v1/scans + 10 concurrent POST /v1/scans
-// requests. Verifies no panics, no data races, and all requests return
-// valid status codes.
-//
-// Run with -race:
-//
-//	go test ./test/stress/ -tags=stress -run=TestConcurrentAPIRequests -race -timeout=30s
-func TestConcurrentAPIRequests(t *testing.T) {
-	st := memory.New()
-
-	// Seed a target and some scan runs for GET to return.
-	ctx := context.Background()
-	target, err := st.UpsertTarget(ctx, "api-stress.example.com")
-	if err != nil {
-		t.Fatalf("upserting target: %v", err)
-	}
-	for i := range 5 {
-		_ = st.CreateScanRun(ctx, &store.ScanRun{
-			ID:        uuid.NewString(),
-			TargetID:  target.ID,
-			Domain:    "api-stress.example.com",
-			ScanType:  module.ScanSurface,
-			Modules:   []string{"surface"},
-			Status:    store.StatusCompleted,
-			StartedAt: time.Now().Add(-time.Duration(i) * time.Hour),
-		})
-	}
-
-	apiKey := "test-stress-key"
-	srv := api.New(st, nil, apiKey)
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	const getRequests = 50
-	const postRequests = 10
-
-	var wg sync.WaitGroup
-	errs := make(chan error, getRequests+postRequests)
-
-	// Fire GET /v1/scans concurrently.
-	for range getRequests {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/scans", nil)
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				errs <- fmt.Errorf("GET /v1/scans: %w", err)
-				return
-			}
-			resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 500 {
-				errs <- fmt.Errorf("GET /v1/scans: status %d", resp.StatusCode)
-			}
-		}()
-	}
-
-	// Fire POST /v1/scans concurrently.
-	for i := range postRequests {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-
-			body := fmt.Sprintf(`{"domain":"post-stress-%d.example.com"}`, idx)
-			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/scans",
-				strings.NewReader(body))
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-			req.Header.Set("Content-Type", "application/json")
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				errs <- fmt.Errorf("POST /v1/scans: %w", err)
-				return
-			}
-			resp.Body.Close()
-			// POST returns 201 on success or 400 for validation errors, both valid.
-			if resp.StatusCode >= 500 {
-				errs <- fmt.Errorf("POST /v1/scans: status %d", resp.StatusCode)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	close(errs)
-
-	for err := range errs {
-		t.Errorf("API error: %v", err)
 	}
 }
 
