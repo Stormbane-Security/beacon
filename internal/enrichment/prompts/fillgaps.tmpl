@@ -50,7 +50,7 @@ detected_backend_services: {{range .BackendServices}}{{safe .}} {{end}}
 {{- if .Headers}}
 raw_headers:
 {{- range $k, $v := .Headers}}
-  {{$k}}: {{safe $v}}
+  {{safe $k}}: {{safe $v}}
 {{- end}}
 {{- end}}
 {{- if .CookieNames}}

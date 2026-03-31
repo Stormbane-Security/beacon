@@ -23,10 +23,10 @@ For terraform_fix: produce complete, copy-paste-ready HCL. Use placeholder value
 Security findings to enrich:
 {{range .}}
 ---
-check_id: {{.CheckID}}
+check_id: {{safe .CheckID}}
 title: {{safe .Title}}
 description: {{safe .Description}}
-severity: {{.Severity}}
+severity: {{printf "%s" .Severity | safe}}
 asset: {{safe .Asset}}
 {{if .Reference.DocSummary}}reference: {{.Reference.DocSummary}}{{end}}
 {{if .Reference.TerraformExample}}terraform_example: {{.Reference.TerraformExample}}{{end}}

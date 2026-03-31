@@ -205,6 +205,27 @@ func TestApplyContextualResponse_OmitSetToTrue(t *testing.T) {
 
 	text := buildJSON("summary", "", "", []map[string]any{
 		{
+			"check_id":     "headers.missing_csp",
+			"asset":        "example.com",
+			"omit":         true,
+			"mitigated_by": "WAF enforces CSP via response rewriting",
+		},
+	})
+
+	out, _, err := applyContextualResponse(enriched, text)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !out[0].Omit {
+		t.Errorf("expected Omit=true, got false")
+	}
+}
+
+func TestApplyContextualResponse_OmitIgnoredWithoutMitigatedBy(t *testing.T) {
+	enriched := []EnrichedFinding{makeEnrichedFinding("headers.missing_csp", "example.com")}
+
+	text := buildJSON("summary", "", "", []map[string]any{
+		{
 			"check_id": "headers.missing_csp",
 			"asset":    "example.com",
 			"omit":     true,
@@ -215,8 +236,8 @@ func TestApplyContextualResponse_OmitSetToTrue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !out[0].Omit {
-		t.Errorf("expected Omit=true, got false")
+	if out[0].Omit {
+		t.Errorf("expected Omit=false when mitigated_by is empty, got true")
 	}
 }
 

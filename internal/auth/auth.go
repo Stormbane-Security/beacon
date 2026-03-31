@@ -44,6 +44,21 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 	if ac.Token != "" && strings.ContainsAny(ac.Token, "\r\n") {
 		return nil, nil, fmt.Errorf("auth: token contains invalid characters")
 	}
+	// Reject cookie values containing CR/LF to prevent header injection.
+	if ac.Cookie != "" && strings.ContainsAny(ac.Cookie, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: cookie contains invalid characters")
+	}
+	// Reject basic auth credentials containing CR/LF to prevent header injection.
+	if ac.Username != "" && strings.ContainsAny(ac.Username, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: username contains invalid characters")
+	}
+	if ac.Password != "" && strings.ContainsAny(ac.Password, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: password contains invalid characters")
+	}
+	// Reject custom header names containing CR/LF to prevent header injection.
+	if ac.Header != "" && strings.ContainsAny(ac.Header, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: header name contains invalid characters")
+	}
 
 	switch ac.Method {
 	case "bearer":

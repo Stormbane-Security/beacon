@@ -477,8 +477,15 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 	}
 	index := make(map[key]update, len(result.Findings))
 	for _, f := range result.Findings {
+		omit := f.Omit
+		mitigatedBy := sanitizeAIField(f.MitigatedBy)
+		// Prevent prompt injection from suppressing findings: omit=true
+		// is only honoured when mitigated_by explains the mitigation.
+		if omit && mitigatedBy == "" {
+			omit = false
+		}
 		index[key{strings.ToLower(f.CheckID), strings.ToLower(strings.TrimRight(f.Asset, "."))}] = update{
-			f.Omit, sanitizeAIField(f.MitigatedBy), sanitizeAIField(f.CrossAssetNote),
+			omit, mitigatedBy, sanitizeAIField(f.CrossAssetNote),
 			sanitizeAIField(f.TechSpecificRemediation), f.ComplianceTags,
 		}
 	}

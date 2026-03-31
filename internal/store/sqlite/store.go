@@ -43,10 +43,13 @@ CREATE TABLE IF NOT EXISTS scan_runs (
     discovery_duration_ms INTEGER   NOT NULL DEFAULT 0,
     scan_duration_ms      INTEGER   NOT NULL DEFAULT 0,
     asset_count           INTEGER   NOT NULL DEFAULT 0,
-    discovery_sources     TEXT      NOT NULL DEFAULT '[]'
+    discovery_sources     TEXT      NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_runs_domain ON scan_runs(domain);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_target ON scan_runs(target_id);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_started_at ON scan_runs(started_at);
 
 CREATE TABLE IF NOT EXISTS findings (
     id            TEXT      PRIMARY KEY,
@@ -64,6 +67,8 @@ CREATE TABLE IF NOT EXISTS findings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_findings_scan_run ON findings(scan_run_id);
+CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS idx_findings_check_id ON findings(check_id);
 
 CREATE TABLE IF NOT EXISTS enriched_findings (
     id            TEXT      PRIMARY KEY,
@@ -116,6 +121,7 @@ CREATE TABLE IF NOT EXISTS unmatched_assets (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unmatched_fingerprint ON unmatched_assets(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_unmatched_assets_scan_run ON unmatched_assets(scan_run_id);
 
 -- Playbook suggestions: output of batch analysis job
 CREATE TABLE IF NOT EXISTS playbook_suggestions (
@@ -201,7 +207,7 @@ CREATE TABLE IF NOT EXISTS discovery_audit (
     created_at  DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_discovery_audit_scan ON discovery_audit(scan_run_id);
-CREATE INDEX IF NOT EXISTS idx_discovery_audit_domain ON discovery_audit(scan_run_id, source);
+CREATE INDEX IF NOT EXISTS idx_discovery_audit_run_source ON discovery_audit(scan_run_id, source);
 
 -- Sanitized cross-domain scanner metrics: no domain/hostname/IP stored.
 -- Used to learn scanner effectiveness patterns across all customers without PII.
@@ -268,6 +274,10 @@ func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path+"?_journal=WAL&_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 
 	db.SetMaxOpenConns(1) // SQLite doesn't handle concurrent writers

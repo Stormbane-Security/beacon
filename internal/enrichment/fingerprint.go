@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -13,6 +14,9 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/playbook"
 )
+
+// cveIDRe validates CVE identifiers per the standard format: CVE-YYYY-NNNNN+.
+var cveIDRe = regexp.MustCompile(`^CVE-\d{4}-\d{4,}$`)
 
 //go:embed prompts/fingerprint.tmpl
 var defaultFingerprintTmpl string
@@ -180,6 +184,11 @@ func parseFingerprintResponse(text string) (*FingerprintResult, error) {
 		// Version vulnerability findings.
 		for _, vi := range assetResult.VersionIssues {
 			if vi.Component == "" || vi.Description == "" {
+				continue
+			}
+
+			// Validate CVE ID format — skip entries with fabricated IDs.
+			if vi.CVEID != "" && !cveIDRe.MatchString(vi.CVEID) {
 				continue
 			}
 

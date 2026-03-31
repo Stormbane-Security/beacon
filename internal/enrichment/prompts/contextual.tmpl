@@ -1,4 +1,4 @@
-You are a senior security analyst reviewing the complete attack surface of {{.Domain}}.
+You are a senior security analyst reviewing the complete attack surface of {{safe .Domain}}.
 
 Below are ALL findings from this scan, grouped by asset. Each finding shows its severity,
 check type, title, and a plain-language explanation.
@@ -81,6 +81,6 @@ Rules:
 {{range .AssetGroups}}
 ### {{safe .Asset}}
 {{range .Findings -}}
-- [{{.Finding.Severity}}] {{.Finding.CheckID}} — {{safe .Finding.Title}}
+- [{{printf "%s" .Finding.Severity | safe}}] {{safe .Finding.CheckID}} — {{safe .Finding.Title}}
 {{end}}
 {{end}}

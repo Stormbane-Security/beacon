@@ -112,7 +112,8 @@ func (p *Pool) run() {
 }
 
 func (p *Pool) process(job Job) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
 
 	p.emit(job.ScanRunID, fmt.Sprintf("scan started: %s (%s)", job.Domain, job.ScanType))
 
@@ -265,7 +266,9 @@ func (p *Pool) emit(scanRunID, line string) {
 	fmt.Fprintln(os.Stderr, "beacond:", msg)
 
 	p.logMu.Lock()
-	p.logs[scanRunID] = append(p.logs[scanRunID], msg)
+	if len(p.logs[scanRunID]) < 10000 {
+		p.logs[scanRunID] = append(p.logs[scanRunID], msg)
+	}
 	p.logMu.Unlock()
 
 	p.subsMu.RLock()
