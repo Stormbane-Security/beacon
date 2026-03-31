@@ -52,6 +52,7 @@ USAGE:
   beacon install                                 Install all required external tools
   beacon scan        --domain <domain> [flags]   Run a surface/deep scan
   beacon scan        --github <org> [flags]      Scan a GitHub org's Actions workflows
+  beacon enrich      --input <file> [flags]      Enrich raw findings from a previous scan
   beacon browse                                  Interactive TUI browser for past scans
   beacon scans       [--limit N]                 List all past scans (no TUI)
   beacon history     --domain <domain>           List past scans for a domain
@@ -72,11 +73,18 @@ SCAN FLAGS:
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
   --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
+  --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
   --server <url>             Run against a remote beacond instance
   --api-key <key>            API key for the remote server
+
+ENRICH FLAGS:
+  --input <file>             Raw findings JSON from --output-raw (required)
+  --format <fmt>             Output format: text (default), json, markdown
+  --out <path>               Write report to file instead of stdout
+  --severity <level>         Minimum severity: critical, high, medium, low, info (default)
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
@@ -98,6 +106,8 @@ EXAMPLES:
   beacon scan --domain example.com --deep --permission-confirmed
   beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
   beacon scan --targets hosts.txt --deep --permission-confirmed
+  beacon scan --domain example.com --output-raw findings.json
+  beacon enrich --input findings.json --format json --out enriched.json
   beacon report --id <id> --format markdown
   beacon scan --domain example.com --format graph | dot -Tsvg -o topology.svg
   beacon analyze
@@ -179,6 +189,8 @@ func main() {
 		cmdTerraform(cfg, os.Args[2:])
 	case "cloud":
 		cmdScanCloud(cfg, os.Args[2:])
+	case "enrich":
+		cmdEnrich(cfg, os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -224,6 +236,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		permissionConfirmed bool
 		authorized          bool
 		outPath             string
+		outputRawPath       string
 		format              string
 		severityFlag        string
 		verbose             bool
@@ -259,6 +272,11 @@ func cmdScan(cfg *config.Config, args []string) {
 			i++
 			if i < len(args) {
 				outPath = args[i]
+			}
+		case "--output-raw":
+			i++
+			if i < len(args) {
+				outputRawPath = args[i]
 			}
 		case "--format":
 			i++
@@ -346,7 +364,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
 		return
 	}
 
@@ -704,6 +722,30 @@ Type exactly: I have written authorization for %s
 		findings = filtered
 	}
 
+	// --output-raw: write raw findings and exit before enrichment.
+	if outputRawPath != "" {
+		scanType := "surface"
+		if deep {
+			scanType = "deep"
+		}
+		raw, err := report.RenderRawJSON(domain, scanType, run.ID, run.StartedAt, findings)
+		if err != nil {
+			fatalf("render raw findings: %v", err)
+		}
+		if err := os.WriteFile(outputRawPath, []byte(raw), 0o644); err != nil {
+			fatalf("write raw findings: %v", err)
+		}
+		// Mark completed so the run shows in history.
+		now := time.Now()
+		run.Status = store.StatusCompleted
+		run.CompletedAt = &now
+		run.FindingCount = totalFindingCount
+		_ = st.UpdateScanRun(ctx, run)
+		fmt.Fprintf(os.Stderr, "beacon: %d raw findings written to %s\n", len(findings), outputRawPath)
+		fmt.Fprintf(os.Stderr, "beacon: enrich later with: beacon enrich --input %s\n", outputRawPath)
+		return
+	}
+
 	// Enrich findings
 	var enricher enrichment.Enricher
 	if ai := cfg.ActiveAI(); ai != nil {
@@ -844,7 +886,7 @@ func cmdScanMultiAsset(
 	cfg *config.Config,
 	targets []string,
 	deep, permissionConfirmed, authorized bool,
-	outPath, format, severityFlag string,
+	outPath, outputRawPath, format, severityFlag string,
 	verbose, noTUI bool,
 	serverURL, apiKey string,
 	extraCIDRs []string,
@@ -1198,6 +1240,29 @@ Type exactly: I have written authorization for all listed targets
 				}
 			}
 		}
+	}
+
+	// --output-raw: write raw findings and exit before enrichment.
+	if outputRawPath != "" {
+		scanTypeStr := "surface"
+		if deep {
+			scanTypeStr = "deep"
+		}
+		domainLabel := strings.Join(targets, ",")
+		firstRunID := ""
+		if len(allResults) > 0 && allResults[0].run != nil {
+			firstRunID = allResults[0].run.ID
+		}
+		raw, err := report.RenderRawJSON(domainLabel, scanTypeStr, firstRunID, time.Now(), allFindings)
+		if err != nil {
+			fatalf("render raw findings: %v", err)
+		}
+		if err := os.WriteFile(outputRawPath, []byte(raw), 0o644); err != nil {
+			fatalf("write raw findings: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "beacon: %d raw findings written to %s\n", len(allFindings), outputRawPath)
+		fmt.Fprintf(os.Stderr, "beacon: enrich later with: beacon enrich --input %s\n", outputRawPath)
+		return
 	}
 
 	// ── Unified cross-module enrichment ─────────────────────────────────────
@@ -4205,6 +4270,144 @@ func printTerraformText(enriched []enrichment.EnrichedFinding) {
 			}
 		}
 		fmt.Println()
+	}
+}
+
+// ---------- enrich ----------
+
+func cmdEnrich(cfg *config.Config, args []string) {
+	var (
+		inputPath    string
+		outPath      string
+		format       string
+		severityFlag string
+	)
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--input":
+			i++
+			if i < len(args) {
+				inputPath = args[i]
+			}
+		case "--out":
+			i++
+			if i < len(args) {
+				outPath = args[i]
+			}
+		case "--format":
+			i++
+			if i < len(args) {
+				format = args[i]
+			}
+		case "--severity":
+			i++
+			if i < len(args) {
+				severityFlag = args[i]
+			}
+		}
+	}
+
+	if inputPath == "" {
+		fatalf("usage: beacon enrich --input <raw-findings.json> [--format text|json|markdown] [--out <path>] [--severity <level>]")
+	}
+
+	data, err := os.ReadFile(inputPath)
+	if err != nil {
+		fatalf("read input: %v", err)
+	}
+	raw, err := report.ParseRawJSON(data)
+	if err != nil {
+		fatalf("%v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "beacon: loaded %d findings for %s from %s\n", len(raw.Findings), raw.Domain, inputPath)
+
+	findings := raw.Findings
+
+	// Apply severity filter before enrichment.
+	minSev := finding.ParseSeverity(severityFlag)
+	if minSev > finding.SeverityInfo {
+		var filtered []finding.Finding
+		for _, f := range findings {
+			if f.Severity >= minSev {
+				filtered = append(filtered, f)
+			}
+		}
+		findings = filtered
+	}
+
+	ctx := context.Background()
+
+	// Initialize enricher.
+	var enricher enrichment.Enricher
+	if ai := cfg.ActiveAI(); ai != nil {
+		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
+		if err != nil {
+			fatalf("init enricher: %v", err)
+		}
+		// Open store for cache support.
+		st, stErr := sqlitestore.Open(cfg.Store.Path)
+		if stErr == nil {
+			enricher = ce.WithCache(st)
+			defer st.Close()
+		} else {
+			enricher = ce
+		}
+		fmt.Fprintf(os.Stderr, "beacon: enriching %d findings with AI (%s)...\n", len(findings), ai.Provider)
+	} else {
+		enricher = enrichment.NewNoop()
+		fmt.Fprintf(os.Stderr, "beacon: no AI configured — building report with noop enrichment...\n")
+	}
+
+	enriched, err := enricher.Enrich(ctx, findings)
+	if err != nil {
+		fatalf("enrich: %v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
+	enriched, summary, err := enricher.ContextualizeAndSummarize(ctx, enriched, raw.Domain)
+	if err != nil {
+		fatalf("contextualize: %v", err)
+	}
+
+	// Drop findings marked as having no actionable value.
+	enriched = filterOmitted(enriched)
+	enriched = filterBySeverity(enriched, severityFlag)
+
+	// Build a synthetic ScanRun for rendering.
+	now := time.Now()
+	syntheticRun := store.ScanRun{
+		ID:           raw.ScanID,
+		Domain:       raw.Domain,
+		ScanType:     module.ScanType(raw.ScanType),
+		Status:       store.StatusCompleted,
+		StartedAt:    raw.StartedAt,
+		CompletedAt:  &now,
+		FindingCount: len(enriched),
+	}
+
+	// Render output.
+	var output string
+	switch strings.ToLower(format) {
+	case "json":
+		output, err = report.RenderJSON(syntheticRun, enriched, summary, nil)
+	case "markdown", "md":
+		output = report.RenderMarkdown(syntheticRun, enriched, summary, nil)
+	default:
+		output = report.RenderText(syntheticRun, enriched, summary, nil)
+	}
+	if err != nil {
+		fatalf("render: %v", err)
+	}
+
+	if outPath != "" {
+		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+			fatalf("write report: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "beacon: enriched report written to %s\n", outPath)
+	} else {
+		fmt.Print(output)
 	}
 }
 
