@@ -14,7 +14,7 @@ match:
   any:
     - header_present: "x-ghost-cache-status"
     - header_present: "x-cache-invalidate"
-    - body_contains: "Ghost"
+    - body_contains: "Ghost CMS"
     - body_contains: "ghost.io"
     - path_responds: "/ghost/api"
     - path_responds: "/ghost"

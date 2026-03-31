@@ -34,7 +34,10 @@ COPY --from=tools /root/go/bin/nuclei /usr/local/bin/nuclei
 COPY --from=tools /root/go/bin/subfinder /usr/local/bin/subfinder
 COPY --from=tools /usr/local/bin/testssl.sh /usr/local/bin/testssl.sh
 
-RUN mkdir -p /root/.beacon
+RUN adduser -D -s /bin/false -h /nonexistent beacon && \
+    mkdir -p /home/beacon/.beacon && \
+    chown -R beacon:beacon /home/beacon/.beacon
 
+USER beacon
 ENTRYPOINT ["beacon"]
 CMD ["--help"]

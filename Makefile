@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install tools
+.PHONY: build test lint clean install tools smoke
 
 BINARY := beacon
 BUILD_DIR := ./dist

@@ -16,14 +16,6 @@ surface:
   scanners:
     - portscan
     - exposedfiles
-  dictionary:
-    - /v1/catalog/nodes
-    - /v1/catalog/services
-    - /v1/kv/
-    - /v1/agent/members
-    - /v1/acl/tokens
-    - /v1/acl/policies
-    - /ui/
   nuclei_tags:
     - consul
     - exposure
@@ -32,6 +24,13 @@ deep:
   scanners:
     - exposedfiles
   dictionary:
+    - /v1/catalog/nodes
+    - /v1/catalog/services
+    - /v1/kv/
+    - /v1/agent/members
+    - /v1/acl/tokens
+    - /v1/acl/policies
+    - /ui/
     - /v1/kv/?recurse=true
     - /v1/snapshot
     - /v1/operator/raft/configuration

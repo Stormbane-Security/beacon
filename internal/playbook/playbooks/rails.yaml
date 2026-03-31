@@ -13,11 +13,9 @@ description: >
   expose internal message channels.
 match:
   any:
-    - body_contains: "rails"
     - body_contains: "Ruby on Rails"
     - path_responds: "/rails/info"
     - path_responds: "/rails/info/properties"
-    - path_responds: "/cable"
     - header_value:
         name: "x-powered-by"
         contains: "Phusion Passenger"
@@ -27,10 +25,8 @@ match:
     - header_value:
         name: "server"
         contains: "Puma"
-    - header_value:
-        name: "set-cookie"
-        contains: "_session"
     - framework_contains: "rails"
+    - title_contains: "Ruby on Rails"
 surface:
   nuclei_tags:
     - rails

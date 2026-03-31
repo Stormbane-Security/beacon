@@ -1,0 +1,14 @@
+.git
+.github
+.vscode
+.claude
+*.db
+*.sqlite
+beacon
+dist/
+*.env
+*.env.*
+.env.local
+.DS_Store
+CLAUDE.md
+SCANNER_AUDIT_REPORT.md

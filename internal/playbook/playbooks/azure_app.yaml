@@ -17,11 +17,7 @@ match:
     - cname_contains: ".trafficmanager.net"
     - cname_contains: ".azureedge.net"
     - cert_san_contains: ".azurewebsites.net"
-    - header_present: "x-ms-request-id"
     - header_present: "x-msedge-ref"
-    - header_value:
-        name: "x-powered-by"
-        contains: "ASP.NET"
 surface:
   nuclei_tags:
     - azure

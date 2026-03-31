@@ -15,7 +15,6 @@ match:
   any:
     - title_contains: "Traefik"
     - path_responds: "/api/rawdata"
-    - path_responds: "/dashboard"
     - path_responds: "/api/overview"
     - body_contains: "Traefik"
     - proxy_type_contains: "traefik"
@@ -31,6 +30,11 @@ discovery:
 surface:
   scanners:
     - exposedfiles
+  nuclei_tags:
+    - traefik
+    - exposure
+deep:
+  scanners:
     - httpmethods
   dictionary:
     - /api/rawdata
@@ -41,10 +45,6 @@ surface:
     - /api/middlewares
     - /dashboard/
     - /ping
-  nuclei_tags:
-    - traefik
-    - exposure
-deep:
   nuclei_tags:
     - traefik
     - proxy

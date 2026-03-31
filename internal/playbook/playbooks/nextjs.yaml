@@ -28,7 +28,6 @@ surface:
     - nextjs
     - react
     - exposure
-    - cves
 deep:
   scanners:
     - exposedfiles

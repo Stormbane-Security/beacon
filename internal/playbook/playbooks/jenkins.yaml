@@ -16,9 +16,6 @@ match:
     # x-jenkins and x-hudson are set by Jenkins on every response.
     - header_present: "x-jenkins"
     - header_present: "x-hudson"
-    - header_value:
-        name: "x-jenkins"
-        contains: ""
     # Title and body matches are Jenkins-specific strings unlikely elsewhere.
     - title_contains: "Jenkins"
     - body_contains: "Jenkins"

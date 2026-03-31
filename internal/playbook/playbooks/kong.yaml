@@ -13,7 +13,7 @@ match:
   any:
     - proxy_type_contains: "kong"
     - header_contains: "kong"
-    - body_contains: "Kong"
+    - body_contains: "Kong Gateway"
     - path_responds: "/kong"
 discovery:
   - type: probe_subdomains

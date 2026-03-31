@@ -16,7 +16,6 @@ match:
     - title_contains: "Remote Support"
     - title_contains: "Privileged Remote Access"
     - body_contains: "BeyondTrust"
-    - path_responds: "/login"
 surface:
   scanners:
     - exposedfiles

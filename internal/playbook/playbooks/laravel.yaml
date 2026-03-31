@@ -20,9 +20,6 @@ match:
     - path_responds: "/_ignition"
     - path_responds: "/telescope"
     - header_value:
-        name: "x-powered-by"
-        contains: "PHP"
-    - header_value:
         name: "set-cookie"
         contains: "laravel_session"
     - framework_contains: "laravel"

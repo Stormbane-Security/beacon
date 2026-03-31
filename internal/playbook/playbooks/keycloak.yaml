@@ -16,7 +16,6 @@ match:
     - title_contains: "Keycloak"
     - path_responds: "/auth/realms"
     - path_responds: "/realms"
-    - path_responds: "/auth"
     - body_contains: "keycloak"
     - body_contains: "Keycloak"
     - path_responds: "/auth/admin"

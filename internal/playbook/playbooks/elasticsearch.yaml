@@ -17,7 +17,7 @@ match:
     - path_responds: "/_cluster/health"
     - path_responds: "/_nodes"
     - body_contains: "cluster_name"
-    - body_contains: "elasticsearch"
+    - body_contains: "\"cluster_name\""
     - header_value:
         name: "x-elastic-product"
         contains: "Elasticsearch"

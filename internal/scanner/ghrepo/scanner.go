@@ -331,6 +331,11 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 	// Scan top-level and common paths for .env files and secrets.
 	all = append(all, s.scanForSecrets(ctx, owner, repo, repoSlug)...)
 
+	// GitHub Packages — enumerate public packages (requires token with read:packages).
+	if s.token != "" {
+		all = append(all, s.checkPackages(ctx, owner, repo, repoSlug)...)
+	}
+
 	// Webhooks (requires token with admin:repo_hook or admin:org_hook scope).
 	if s.token != "" {
 		hooks, err := s.getWebhooks(ctx, owner, repo)
@@ -1115,6 +1120,72 @@ func checkStaleCollaborators(collabs []ghCollaborator, repoSlug string) []findin
 		}
 	}
 	return findings
+}
+
+// -------------------------------------------------------------------------
+// GitHub Packages checks
+// -------------------------------------------------------------------------
+
+type ghPackage struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	PackageType string `json:"package_type"` // "container", "npm", "maven", "nuget", "rubygems"
+	Visibility string `json:"visibility"`    // "public", "private"
+	HTMLURL    string `json:"html_url"`
+	Owner      struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+}
+
+// checkPackages enumerates GitHub Packages associated with the repo's owner
+// and flags any that are publicly visible. Public packages in private repos
+// are a common source of unintentional information exposure.
+func (s *Scanner) checkPackages(ctx context.Context, owner, repo, repoSlug string) []finding.Finding {
+	var allFindings []finding.Finding
+	for _, pkgType := range []string{"container", "npm", "maven", "nuget", "rubygems"} {
+		url := fmt.Sprintf("https://api.github.com/orgs/%s/packages?package_type=%s&per_page=100", owner, pkgType)
+		body, err := s.apiGet(ctx, url)
+		if err != nil {
+			// Try user endpoint if org endpoint fails (personal accounts).
+			url = fmt.Sprintf("https://api.github.com/users/%s/packages?package_type=%s&per_page=100", owner, pkgType)
+			body, err = s.apiGet(ctx, url)
+			if err != nil {
+				continue
+			}
+		}
+		var pkgs []ghPackage
+		if err := json.Unmarshal(body, &pkgs); err != nil {
+			continue
+		}
+		for _, pkg := range pkgs {
+			if pkg.Visibility == "public" {
+				allFindings = append(allFindings, finding.Finding{
+					CheckID:  finding.CheckGitHubPackagePublic,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityMedium,
+					Asset:    repoSlug,
+					Title:    fmt.Sprintf("Public %s package: %s", pkg.PackageType, pkg.Name),
+					Description: fmt.Sprintf(
+						"The %s package %q owned by %s is publicly visible. Public packages "+
+							"expose version history, release artifacts, and potentially internal naming "+
+							"conventions. If this package is intended to be internal, change its visibility "+
+							"to private under the package settings. Public container images may also expose "+
+							"application binaries, configuration, and secrets baked into image layers.",
+						pkg.PackageType, pkg.Name, owner),
+					Evidence: map[string]any{
+						"package_name": pkg.Name,
+						"package_type": pkg.PackageType,
+						"visibility":   pkg.Visibility,
+						"html_url":     pkg.HTMLURL,
+					},
+					ProofCommand: fmt.Sprintf("gh api orgs/%s/packages?package_type=%s --jq '.[] | select(.visibility==\"public\")'", owner, pkgType),
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+	}
+	return allFindings
 }
 
 // -------------------------------------------------------------------------

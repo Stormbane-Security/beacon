@@ -13,13 +13,9 @@ description: >
 match:
   any:
     - path_responds: "/remote/login"
-    - path_responds: "/login"
     - title_contains: "FortiGate"
     - title_contains: "FortiNet"
     - body_contains: "FortiGate"
-    - header_value:
-        name: "server"
-        contains: "xxxxxxxx-xxxxx"
 surface:
   scanners:
     - exposedfiles

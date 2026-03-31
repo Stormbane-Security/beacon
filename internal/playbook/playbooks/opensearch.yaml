@@ -14,8 +14,7 @@ match:
   any:
     - path_responds: "/_cat/indices"
     - path_responds: "/_cluster/health"
-    - body_contains: "opensearch"
-    - body_contains: "OpenSearch"
+    - body_contains: "\"cluster_name\""
     - header_value:
         name: "x-opensearch-product"
         contains: "OpenSearch"

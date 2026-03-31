@@ -149,6 +149,8 @@ func (t *Traverser) BlastRadius(assetID string) BlastRadiusResult {
 			result.ClustersReachable++
 		case AssetTypeGitHubRepo:
 			result.ReposReachable++
+		case AssetTypeGitHubPackage:
+			result.PackagesReachable++
 		}
 	}
 
@@ -166,6 +168,7 @@ type BlastRadiusResult struct {
 	CloudAccountsReachable int               `json:"cloud_accounts_reachable"`
 	ClustersReachable      int               `json:"clusters_reachable"`
 	ReposReachable         int               `json:"repos_reachable"`
+	PackagesReachable      int               `json:"packages_reachable"`
 	RiskScore              float64           `json:"risk_score"`
 }
 

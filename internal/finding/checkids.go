@@ -347,6 +347,9 @@ const (
 	CheckGitHubSecretInCode            CheckID = "github.secret_in_code"
 	CheckGitHubPrivateKeyInRepo        CheckID = "github.private_key_in_repo"
 
+	// GitHub Packages — container and package registry visibility
+	CheckGitHubPackagePublic CheckID = "github.package_public"
+
 	// Dependency confusion — package name lookup in public registry → Surface
 	CheckDependencyConfusion CheckID = "supply_chain.dependency_confusion"
 
@@ -1565,6 +1568,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGitHubDefaultTokenWrite:      {CheckGitHubDefaultTokenWrite, SeverityHigh, ModeSurface},
 	CheckGitHubActionsUnrestricted:    {CheckGitHubActionsUnrestricted, SeverityMedium, ModeSurface},
 	CheckGitHubWebhookNoSecret:        {CheckGitHubWebhookNoSecret, SeverityHigh, ModeSurface},
+	CheckGitHubPackagePublic:          {CheckGitHubPackagePublic, SeverityMedium, ModeSurface},
 	CheckGitHubOrgMFANotRequired:      {CheckGitHubOrgMFANotRequired, SeverityCritical, ModeSurface},
 	CheckGitHubNoPushProtection:       {CheckGitHubNoPushProtection, SeverityHigh, ModeSurface},
 	CheckGitHubNoSignedCommits:        {CheckGitHubNoSignedCommits, SeverityLow, ModeSurface},

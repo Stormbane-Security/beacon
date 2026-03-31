@@ -17,7 +17,6 @@ match:
   # Grafana reliably injects "grafana" into every page body.
   all:
     - body_contains: "grafana"
-    - header_present: "x-forwarded-for"
 surface:
   nuclei_tags:
     - grafana

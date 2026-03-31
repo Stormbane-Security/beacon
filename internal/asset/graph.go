@@ -63,6 +63,7 @@ const (
 	// Source control / CI
 	AssetTypeGitHubRepo     AssetType = "github_repo"
 	AssetTypeGitHubWorkflow AssetType = "github_workflow"
+	AssetTypeGitHubPackage  AssetType = "github_package"
 	AssetTypeJenkinsServer  AssetType = "jenkins_server"
 	AssetTypeGitLabInstance AssetType = "gitlab_instance"
 	AssetTypeTeamCityServer AssetType = "teamcity_server"
@@ -84,6 +85,8 @@ const (
 	RelManages         RelationshipType = "manages"           // repo/terraform → cloud resource
 	RelExposes         RelationshipType = "exposes"           // service → API / port
 	RelDeploysTo       RelationshipType = "deploys_to"        // workflow → cluster/project
+	RelPublishes       RelationshipType = "publishes"         // workflow → package/registry
+	RelDeployedFrom    RelationshipType = "deployed_from"     // k8s workload/cloud instance → package
 	RelUses            RelationshipType = "uses"              // workload → identity
 	RelAccesses        RelationshipType = "accesses"          // identity → resource
 	RelBelongsTo       RelationshipType = "belongs_to"        // subdomain → domain

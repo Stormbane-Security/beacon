@@ -20,9 +20,7 @@ match:
     - path_responds: "/api/v4/system/ping"
     - title_contains: "Mattermost"
     - body_contains: "Mattermost"
-    - header_value:
-        name: "x-version-id"
-        contains: ""
+    - header_present: "x-version-id"
 surface:
   scanners:
     - exposedfiles

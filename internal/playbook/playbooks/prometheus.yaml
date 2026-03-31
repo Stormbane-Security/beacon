@@ -14,7 +14,6 @@ description: >
 match:
   any:
     - title_contains: "Prometheus"
-    - path_responds: "/metrics"
     - path_responds: "/-/healthy"
     - path_responds: "/targets"
     - body_contains: "# HELP"
