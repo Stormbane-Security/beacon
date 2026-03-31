@@ -87,8 +87,12 @@ func scanAuditLogging(ctx context.Context, projectID, asset string, opts []optio
 }
 
 func formatMissing(types []string) string {
-	if len(types) == 1 {
+	switch len(types) {
+	case 0:
+		return ""
+	case 1:
 		return types[0]
+	default:
+		return types[0] + " and " + types[1]
 	}
-	return types[0] + " and " + types[1]
 }

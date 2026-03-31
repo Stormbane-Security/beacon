@@ -166,13 +166,14 @@ func materiallyDifferent(baseline, r *hostResponse) bool {
 		diff = -diff
 	}
 	if diff > 500 {
-		larger := r.bodyLen
-		if baseline.bodyLen > larger {
-			larger = baseline.bodyLen
-		}
-		if larger > 0 && float64(diff)/float64(larger) > 0.20 {
-			return true
-		}
+		return true
+	}
+	larger := r.bodyLen
+	if baseline.bodyLen > larger {
+		larger = baseline.bodyLen
+	}
+	if larger > 0 && float64(diff)/float64(larger) > 0.20 {
+		return true
 	}
 	// Different page title is a strong signal
 	if r.title != "" && baseline.title != "" && r.title != baseline.title {

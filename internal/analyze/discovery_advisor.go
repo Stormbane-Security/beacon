@@ -284,7 +284,12 @@ func QuickFingerprint(ctx context.Context, hostnames []string) []AssetHint {
 	for i, h := range hostnames {
 		i, h := i, h
 		go func() {
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results <- result{idx: i}
+				return
+			}
 			defer func() { <-sem }()
 			results <- result{idx: i, hint: probeHint(ctx, h)}
 		}()
