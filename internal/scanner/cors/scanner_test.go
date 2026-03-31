@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -756,9 +757,9 @@ func TestCORSConnectionRefused(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCORSContextCancellation(t *testing.T) {
-	requestCount := 0
+	var requestCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 		origin := r.Header.Get("Origin")
 		if origin != "" && origin != "null" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -772,7 +773,7 @@ func TestCORSContextCancellation(t *testing.T) {
 	// Cancel after a very short delay to catch the scanner mid-flight.
 	go func() {
 		// Let 1-2 requests through, then cancel.
-		for requestCount < 1 {
+		for requestCount.Load() < 1 {
 			// busy wait — acceptable in tests
 		}
 		cancel()
