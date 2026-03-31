@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stormbane/beacon/internal/analyze"
+	"github.com/stormbane/beacon/internal/dedup"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/verify"
 	"github.com/stormbane/beacon/internal/config"
@@ -758,6 +759,9 @@ Type exactly: I have written authorization for %s
 		findings = filtered
 	}
 
+	// Flag potential duplicates across scanners and overlapping assets.
+	dedup.FlagDuplicates(findings)
+
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
 		scanTypeStr := string(scanType)
@@ -1285,6 +1289,9 @@ Type exactly: I have written authorization for all listed targets
 			}
 		}
 	}
+
+	// Flag potential duplicates across scanners and overlapping assets.
+	dedup.FlagDuplicates(allFindings)
 
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
@@ -4401,6 +4408,9 @@ func cmdEnrich(cfg *config.Config, args []string) {
 		}
 		findings = filtered
 	}
+
+	// Flag potential duplicates (idempotent — won't re-flag already-flagged findings).
+	dedup.FlagDuplicates(findings)
 
 	ctx := context.Background()
 
