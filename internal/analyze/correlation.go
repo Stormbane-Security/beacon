@@ -68,6 +68,23 @@ func severityLabel(s finding.Severity) string {
 	}
 }
 
+// sanitizeEvidence strips control characters and Unicode bidi overrides from
+// raw evidence before embedding it in an LLM prompt.
+func sanitizeEvidence(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 0x20 && r != '\t' && r != '\n' {
+			continue
+		}
+		if r == 0x7f || (r >= 0x200e && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // truncateStr truncates s to at most maxChars runes, appending "…" if cut.
 func truncateStr(s string, maxChars int) string {
 	if utf8.RuneCountInString(s) <= maxChars {
@@ -154,7 +171,7 @@ func extractDetailedEvidence(evidence map[string]any, maxPairs, maxValChars int)
 		if isHTMLOrBase64(strVal) {
 			continue
 		}
-		pairs = append(pairs, fmt.Sprintf("%s=%s", k, truncateStr(strVal, maxValChars)))
+		pairs = append(pairs, fmt.Sprintf("%s=%s", k, truncateStr(sanitizeEvidence(strVal), maxValChars)))
 	}
 	return strings.Join(pairs, ", ")
 }
@@ -227,8 +244,8 @@ func extractKeyEvidence(evidence map[string]any) string {
 			continue
 		}
 
-		// Truncate long-ish values to 60 chars.
-		displayVal := truncateStr(strVal, 60)
+		// Sanitize and truncate long-ish values to 60 chars.
+		displayVal := truncateStr(sanitizeEvidence(strVal), 60)
 
 		pairs = append(pairs, fmt.Sprintf("%s=%s", k, displayVal))
 	}

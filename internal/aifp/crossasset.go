@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -171,7 +172,7 @@ func parseCrossAssetResponse(text, rootDomain string) (*CrossAssetResult, error)
 			continue
 		}
 		checkID := finding.CheckID(cf.CheckID)
-		if checkID == "" {
+		if checkID == "" || !validCheckID(string(checkID)) {
 			checkID = finding.CheckAIFPCrossAsset
 		}
 		sev := parseSeverity(cf.Severity)
@@ -196,6 +197,16 @@ func parseCrossAssetResponse(text, rootDomain string) (*CrossAssetResult, error)
 		}
 	}
 	return result, nil
+}
+
+// validCheckIDRe matches check IDs in the format "category.check_name" where
+// components are lowercase alphanumeric with underscores, separated by dots.
+var validCheckIDRe = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
+
+// validCheckID returns true when s looks like a well-formed check ID
+// (e.g. "cors.misconfiguration", "aifp.cross_asset_finding").
+func validCheckID(s string) bool {
+	return validCheckIDRe.MatchString(s)
 }
 
 func parseSeverity(s string) finding.Severity {

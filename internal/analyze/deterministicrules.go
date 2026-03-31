@@ -13,6 +13,7 @@ package analyze
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -313,6 +314,13 @@ func RunDeterministicCorrelations(ctx context.Context, st store.Store, scanRunID
 	var corrResults []store.CorrelationFinding
 	var plainFindings []finding.Finding
 
+	// Sort asset names for deterministic iteration over byAsset.
+	sortedAssets := make([]string, 0, len(byAsset))
+	for asset := range byAsset {
+		sortedAssets = append(sortedAssets, asset)
+	}
+	sort.Strings(sortedAssets)
+
 	for _, rule := range deterministicRules {
 		if emitted[rule.title] {
 			continue
@@ -328,7 +336,10 @@ func RunDeterministicCorrelations(ctx context.Context, st store.Store, scanRunID
 
 		if rule.sameAsset {
 			// All required checks must appear on a single asset.
-			for asset, checks := range byAsset {
+			// Collect ALL qualifying assets for deterministic results.
+			var matchingAssets []string
+			for _, asset := range sortedAssets {
+				checks := byAsset[asset]
 				allPresent := true
 				for _, id := range rule.required {
 					if !checks[id] {
@@ -337,11 +348,13 @@ func RunDeterministicCorrelations(ctx context.Context, st store.Store, scanRunID
 					}
 				}
 				if allPresent {
-					fired = true
-					affectedAssets = []string{asset}
-					primaryAsset = asset
-					break
+					matchingAssets = append(matchingAssets, asset)
 				}
+			}
+			if len(matchingAssets) > 0 {
+				fired = true
+				affectedAssets = matchingAssets
+				primaryAsset = matchingAssets[0] // deterministic: first alphabetically
 			}
 		} else {
 			var ok bool
