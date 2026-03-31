@@ -173,6 +173,11 @@ const I = {
   unlink: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.36 5.64a5 5 0 010 7.07L15 16.07M5.64 18.36a5 5 0 010-7.07L9 7.93M2 2l20 20"/></svg>`,
   wrench: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`,
   download: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`,
+  layers: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  github: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></svg>`,
+  cloud: `<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg>`,
+  link: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`,
+  sync: `<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>`,
 };
 
 // ── Router ───────────────────────────────────────────────────────────────────
@@ -184,6 +189,8 @@ function route() {
   if (p[0] === 'targets') return { page: 'targets' };
   if (p[0] === 'scan') return { page: 'scan' };
   if (p[0] === 'scaffold') return { page: 'scaffold' };
+  if (p[0] === 'projects' && p[1]) return { page: 'project', projectId: p[1], tab: p[2] || 'overview' };
+  if (p[0] === 'projects') return { page: 'projects' };
   return { page: p[0] };
 }
 function nav(hash) { location.hash = hash; }
@@ -243,6 +250,7 @@ function sidebar() {
       <a class="nav-item ${r.page==='targets'||r.page==='target'?'active':''}" href="#/targets">${I.globe} Targets</a>
       <a class="nav-item ${r.page==='scan'?'active':''}" href="#/scan">${I.plus} New Scan</a>
       <a class="nav-item ${r.page==='scaffold'?'active':''}" href="#/scaffold">${I.wrench} Scaffold</a>
+      <a class="nav-item ${r.page==='projects'||r.page==='project'?'active':''}" href="#/projects">${I.layers} Projects</a>
     </div>
   </nav>`;
 }
@@ -900,6 +908,422 @@ function scaffoldDownload() {
   URL.revokeObjectURL(a.href);
 }
 
+// ── Projects ─────────────────────────────────────────────────────────────────
+function pageProjects() {
+  const projects = S.cache['projects'];
+  if (!projects && !S.loading['projects']) load('projects', () => api('/projects'));
+  if (S.loading['projects']) return wrap('Projects', '<div class="loading"><div class="spinner"></div> Loading…</div>');
+  const list = projects?.projects || [];
+
+  let cards = '';
+  if (list.length === 0) {
+    cards = `<div class="empty"><h3>No projects yet</h3><p>Create a project to group your scans, connect GitHub repos, and plan infrastructure.</p></div>`;
+  } else {
+    cards = '<div class="grid grid-3">' + list.map(p => `
+      <div class="card" style="cursor:pointer" onclick="nav('#/projects/${p.id}')">
+        <div class="card-title">${esc(p.name)}</div>
+        <div class="card-body">
+          <p style="font-size:12px;color:var(--muted)">${esc(p.description||'No description')}</p>
+          <div style="margin-top:8px">
+            ${(p.domains||[]).map(d=>'<span class="badge badge-info">'+esc(d)+'</span>').join(' ')}
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted)">
+            ${p.integrations?.length||0} integrations · ${p.plans?.length||0} plans
+          </div>
+        </div>
+      </div>
+    `).join('') + '</div>';
+  }
+
+  return wrap('Projects', `
+    <div style="margin-bottom:16px">
+      <button class="btn btn-primary" onclick="W.showCreateProject()">+ New Project</button>
+    </div>
+    <div id="create-project-form" style="display:none;margin-bottom:16px">
+      <div class="card"><div class="card-body">
+        <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="proj-name" placeholder="my-platform"></div>
+        <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="proj-desc" placeholder="Production infrastructure workspace"></div>
+        <div class="form-group"><label class="form-label">Domains (comma-separated Beacon scan targets)</label><input class="form-input" id="proj-domains" placeholder="example.com, api.example.com"></div>
+        <div style="margin-top:8px"><button class="btn btn-primary" onclick="W.createProject()">Create</button> <button class="btn" onclick="W.showCreateProject()">Cancel</button></div>
+      </div></div>
+    </div>
+    ${cards}
+  `);
+}
+
+function pageProject() {
+  const id = S.projectId;
+  if (!id) { nav('#/projects'); return ''; }
+  const key = 'project_'+id;
+  const p = S.cache[key];
+  if (!p && !S.loading[key]) load(key, () => api('/projects/'+id));
+  if (S.loading[key]) return wrap('Project', '<div class="loading"><div class="spinner"></div> Loading…</div>');
+  if (!p) return wrap('Project', '<div class="empty"><h3>Project not found</h3></div>');
+
+  const tab = S.tab || 'overview';
+  const tabs = `<div class="topbar-sub">
+    <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)">
+      <div class="tab ${tab==='overview'?'active':''}" onclick="nav('#/projects/${id}/overview')">Overview</div>
+      <div class="tab ${tab==='integrations'?'active':''}" onclick="nav('#/projects/${id}/integrations')">Integrations</div>
+      <div class="tab ${tab==='resources'?'active':''}" onclick="nav('#/projects/${id}/resources')">Resources</div>
+      <div class="tab ${tab==='plan'?'active':''}" onclick="nav('#/projects/${id}/plan')">Plan</div>
+      <div class="tab ${tab==='architect'?'active':''}" onclick="nav('#/projects/${id}/architect')">AI Architect</div>
+    </div>
+  </div>`;
+
+  let content = '';
+  switch (tab) {
+    case 'overview':      content = projectOverview(p); break;
+    case 'integrations':  content = projectIntegrations(p); break;
+    case 'resources':     content = projectResources(p); break;
+    case 'plan':          content = projectPlans(p); break;
+    case 'architect':     content = projectArchitect(p); break;
+    default:              content = projectOverview(p);
+  }
+
+  return wrap(`<span onclick="nav('#/projects')" style="cursor:pointer">Projects</span> / ${esc(p.name)}`, tabs + content);
+}
+
+function projectOverview(p) {
+  return `
+    <div class="grid grid-2">
+      <div class="card"><div class="card-title">Details</div><div class="card-body">
+        <p><strong>Name:</strong> ${esc(p.name)}</p>
+        <p><strong>Description:</strong> ${esc(p.description||'—')}</p>
+        <p><strong>Created:</strong> ${new Date(p.created_at).toLocaleDateString()}</p>
+      </div></div>
+      <div class="card"><div class="card-title">Linked Domains</div><div class="card-body">
+        ${(p.domains||[]).length ? p.domains.map(d => '<div style="margin:4px 0"><span class="badge badge-info" style="cursor:pointer" onclick="nav(\'#/targets/'+encodeURIComponent(d)+'\')">'+esc(d)+'</span></div>').join('') : '<p style="color:var(--muted)">No domains linked. Add scan targets to connect scan results.</p>'}
+        <div style="margin-top:8px"><input class="form-input" id="add-domain" placeholder="Add domain…" style="max-width:200px;display:inline-block"> <button class="btn btn-sm" onclick="W.addProjectDomain('${p.id}')">Add</button></div>
+      </div></div>
+    </div>
+    <div class="grid grid-3" style="margin-top:16px">
+      <div class="card"><div class="card-body" style="text-align:center">
+        <div style="font-size:28px;font-weight:700">${p.integrations?.length||0}</div>
+        <div style="font-size:12px;color:var(--muted)">Integrations</div>
+      </div></div>
+      <div class="card"><div class="card-body" style="text-align:center">
+        <div style="font-size:28px;font-weight:700">${countResources(p)}</div>
+        <div style="font-size:12px;color:var(--muted)">Resources Discovered</div>
+      </div></div>
+      <div class="card"><div class="card-body" style="text-align:center">
+        <div style="font-size:28px;font-weight:700">${p.plans?.length||0}</div>
+        <div style="font-size:12px;color:var(--muted)">Plans</div>
+      </div></div>
+    </div>`;
+}
+
+function countResources(p) {
+  let n = 0;
+  for (const intg of (p.integrations||[])) n += (intg.resources||[]).length;
+  return n;
+}
+
+function projectIntegrations(p) {
+  const intgs = p.integrations || [];
+  let list = '';
+  if (intgs.length) {
+    list = intgs.map(i => `<div class="card" style="margin-bottom:8px">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>${i.type==='github'?I.github:I.cloud} ${esc(i.name)}</span>
+        <span>
+          <span class="badge ${i.status==='connected'?'badge-info':'badge-warn'}">${esc(i.status)}</span>
+          <button class="btn btn-sm" onclick="W.syncIntegration('${p.id}','${i.id}')" title="Sync">${I.sync} Sync</button>
+          <button class="btn btn-sm" onclick="W.removeIntegration('${p.id}','${i.id}')" title="Remove" style="color:var(--critical)">×</button>
+        </span>
+      </div>
+      <div class="card-body">
+        <div style="font-size:12px;color:var(--muted)">${(i.resources||[]).length} resources discovered${i.last_sync ? ' · Last sync: '+new Date(i.last_sync).toLocaleString() : ''}</div>
+        ${i.error ? '<div style="color:var(--critical);font-size:12px;margin-top:4px">'+esc(i.error)+'</div>' : ''}
+      </div>
+    </div>`).join('');
+  } else {
+    list = '<p style="color:var(--muted)">No integrations yet. Connect a GitHub repo or cloud account below.</p>';
+  }
+
+  return `
+    ${list}
+    <div class="card" style="margin-top:16px"><div class="card-title">Add Integration</div><div class="card-body">
+      <div class="grid grid-2">
+        <div>
+          <h4 style="margin:0 0 8px">${I.github} GitHub Repository</h4>
+          <div class="form-group"><label class="form-label">Repository (owner/repo)</label><input class="form-input" id="gh-repo" placeholder="stormbane-security/infra"></div>
+          <div class="form-group"><label class="form-label">Personal Access Token</label><input class="form-input" id="gh-token" type="password" placeholder="ghp_..."></div>
+          <div class="form-group"><label class="form-label">Branch</label><input class="form-input" id="gh-branch" placeholder="main" value="main"></div>
+          <button class="btn btn-primary" onclick="W.addGitHubIntegration('${p.id}')">Connect Repository</button>
+        </div>
+        <div>
+          <h4 style="margin:0 0 8px">${I.cloud} Cloud Account</h4>
+          <div class="form-group"><label class="form-label">Provider</label>
+            <select class="form-input" id="cloud-provider"><option value="gcp">Google Cloud</option><option value="aws">AWS</option><option value="azure">Azure</option></select>
+          </div>
+          <div class="form-group"><label class="form-label">Project / Account ID</label><input class="form-input" id="cloud-id" placeholder="my-gcp-project"></div>
+          <button class="btn btn-primary" onclick="W.addCloudIntegration('${p.id}')">Connect Account</button>
+          <p style="font-size:11px;color:var(--muted);margin-top:6px">Cloud resources are discovered via Beacon scans. Link the account ID to correlate.</p>
+        </div>
+      </div>
+    </div></div>`;
+}
+
+function projectResources(p) {
+  const ctxKey = 'ctx_'+p.id;
+  const ctx = S.cache[ctxKey];
+  if (!ctx && !S.loading[ctxKey]) load(ctxKey, () => api('/projects/'+p.id+'/context'));
+  if (S.loading[ctxKey]) return '<div class="loading"><div class="spinner"></div> Loading resources…</div>';
+  if (!ctx) return '<div class="empty"><h3>No context available</h3></div>';
+
+  const existing = ctx.existing_resources || [];
+  const managed = ctx.managed_resources || [];
+  const gaps = ctx.unmanaged_gaps || [];
+
+  // Group by provider.
+  const byProvider = {};
+  for (const r of existing) {
+    const prov = r.provider || 'other';
+    if (!byProvider[prov]) byProvider[prov] = [];
+    byProvider[prov].push(r);
+  }
+
+  let resourcesHtml = '';
+  for (const [prov, items] of Object.entries(byProvider)) {
+    resourcesHtml += `<div class="card" style="margin-bottom:12px"><div class="card-title">${esc(prov.toUpperCase())} <span class="badge">${items.length}</span></div><div class="card-body">
+      <table class="tbl"><thead><tr><th>Type</th><th>Name</th><th>Source</th><th>Managed</th><th>Details</th></tr></thead><tbody>`;
+    for (const r of items) {
+      const attrs = r.attrs ? Object.entries(r.attrs).map(([k,v])=>esc(k)+'='+esc(v)).join(', ') : '';
+      resourcesHtml += `<tr>
+        <td><code style="font-size:11px">${esc(r.type)}</code></td>
+        <td>${esc(r.name)}</td>
+        <td><span class="badge ${r.source==='terraform'?'badge-info':'badge-warn'}">${esc(r.source)}</span></td>
+        <td>${r.managed?'<span style="color:var(--info)">✓</span>':'<span style="color:var(--warning)">✗</span>'}</td>
+        <td style="font-size:11px;color:var(--muted)">${attrs}${r.file_path?' · '+esc(r.file_path):''}</td>
+      </tr>`;
+    }
+    resourcesHtml += '</tbody></table></div></div>';
+  }
+
+  let gapsHtml = '';
+  if (gaps.length > 0) {
+    gapsHtml = `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--warning)"><div class="card-title" style="color:var(--warning)">Unmanaged Gaps (${gaps.length})</div><div class="card-body">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">These resources exist in your cloud but are not managed by Terraform. Consider importing them or creating Terraform configs.</p>
+      <table class="tbl"><thead><tr><th>Type</th><th>Name</th><th>Provider</th></tr></thead><tbody>`;
+    for (const r of gaps) {
+      gapsHtml += `<tr><td><code style="font-size:11px">${esc(r.type)}</code></td><td>${esc(r.name)}</td><td>${esc(r.provider)}</td></tr>`;
+    }
+    gapsHtml += '</tbody></table></div></div>';
+  }
+
+  return `
+    <div class="grid grid-3" style="margin-bottom:16px">
+      <div class="card"><div class="card-body" style="text-align:center">
+        <div style="font-size:24px;font-weight:700">${existing.length}</div>
+        <div style="font-size:12px;color:var(--muted)">Total Resources</div>
+      </div></div>
+      <div class="card"><div class="card-body" style="text-align:center">
+        <div style="font-size:24px;font-weight:700;color:var(--info)">${managed.length}</div>
+        <div style="font-size:12px;color:var(--muted)">Terraform Managed</div>
+      </div></div>
+      <div class="card"><div class="card-body" style="text-align:center">
+        <div style="font-size:24px;font-weight:700;color:var(--warning)">${gaps.length}</div>
+        <div style="font-size:12px;color:var(--muted)">Unmanaged Gaps</div>
+      </div></div>
+    </div>
+    <button class="btn btn-sm" onclick="W.refreshContext('${p.id}')" style="margin-bottom:12px">${I.sync} Refresh</button>
+    ${gapsHtml}
+    ${resourcesHtml || '<p style="color:var(--muted)">No resources discovered yet. Sync an integration to discover infrastructure.</p>'}
+  `;
+}
+
+function projectPlans(p) {
+  const plans = p.plans || [];
+  if (!plans.length) {
+    return `<div class="empty"><h3>No plans yet</h3><p>Go to the AI Architect tab to create a consolidated infrastructure plan.</p></div>`;
+  }
+
+  return plans.map(plan => `
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">${esc(plan.name)}</div>
+      <div class="card-body">
+        <p style="font-size:12px;color:var(--muted);margin-bottom:8px">${esc(plan.description||'')}</p>
+        ${Object.keys(plan.shared_vars||{}).length ? '<div style="margin-bottom:8px"><strong style="font-size:12px">Shared Variables:</strong><div style="font-size:11px;margin-top:4px">'+Object.entries(plan.shared_vars).map(([k,v])=>'<span class="badge">'+esc(k)+'='+esc(v)+'</span>').join(' ')+'</div></div>' : ''}
+        <table class="tbl"><thead><tr><th>Template</th><th>Status</th><th>Parameters</th><th></th></tr></thead><tbody>
+        ${(plan.items||[]).map(item => `<tr>
+          <td><strong>${esc(item.name||item.catalog_id)}</strong><br><span style="font-size:11px;color:var(--muted)">${esc(item.description||'')}</span></td>
+          <td><span class="badge ${item.status==='generated'?'badge-info':'badge-warn'}">${esc(item.status||'planned')}</span></td>
+          <td style="font-size:11px">${Object.entries(item.params||{}).map(([k,v])=>esc(k)+'='+esc(v)).join(', ')}</td>
+          <td>${item.status!=='generated'?'<button class="btn btn-sm btn-primary" onclick="W.generatePlanItem(\''+p.id+'\',\''+plan.id+'\',\''+item.catalog_id+'\')">Generate</button>':
+            '<button class="btn btn-sm" onclick="W.viewPlanFiles(\''+plan.id+'\',\''+item.catalog_id+'\')">View Files</button>'}</td>
+        </tr>`).join('')}
+        </tbody></table>
+      </div>
+    </div>
+  `).join('');
+}
+
+function projectArchitect(p) {
+  // Reuse the scaffold chat but inject project context.
+  S._scaffoldProjectId = p.id;
+  if (!S._catalogCache) scaffoldLoadCatalog();
+
+  const chatMsgs = (S._scaffoldChat || []).map(m => {
+    const cls = m.role === 'user' ? 'chat-user' : 'chat-ai';
+    const label = m.role === 'user' ? 'You' : 'Architect';
+    let content = esc(m.content);
+    content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    content = content.replace(/```json\n?([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:6px;border-radius:4px;font-size:11px;margin:4px 0">$1</pre>');
+    content = content.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+    content = content.replace(/\n/g, '<br>');
+    return `<div class="${cls}" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;${m.role==='user'?'background:var(--primary);color:white;margin-left:20%':'background:var(--card-bg);border:1px solid var(--border);margin-right:20%'}">
+      <div style="font-size:11px;font-weight:600;margin-bottom:4px;opacity:0.7">${label}</div>
+      <div style="font-size:13px;line-height:1.5">${content}</div>
+    </div>`;
+  }).join('');
+
+  const ctxKey = 'ctx_'+p.id;
+  const ctx = S.cache[ctxKey];
+  const ctxLoaded = !!ctx;
+  if (!ctx && !S.loading[ctxKey]) load(ctxKey, () => api('/projects/'+p.id+'/context'));
+
+  let ctxSummary = '';
+  if (ctxLoaded) {
+    const res = ctx.existing_resources||[];
+    const managed = ctx.managed_resources||[];
+    const gaps = ctx.unmanaged_gaps||[];
+    ctxSummary = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:8px;background:var(--bg);border-radius:4px">
+      Project context loaded: ${res.length} resources, ${managed.length} managed, ${gaps.length} unmanaged gaps
+      ${ctx.domains?.length ? ' · Domains: '+ctx.domains.join(', ') : ''}
+    </div>`;
+  }
+
+  return `
+    <div class="card"><div class="card-title">AI Infrastructure Architect</div><div class="card-body">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px">The AI sees your project context: existing infrastructure, Terraform state, scan findings, and the security-hardened catalog. It will recommend templates and generate consolidated plans.</p>
+      ${ctxSummary}
+      <div id="chat-messages" style="max-height:450px;overflow-y:auto;margin-bottom:12px;padding:4px">
+        ${chatMsgs || '<div style="text-align:center;color:var(--muted);padding:40px;font-size:13px">Start a conversation — describe what infrastructure you need</div>'}
+      </div>
+      <div style="display:flex;gap:8px">
+        <input class="form-input" id="chat-input" placeholder="e.g. I need to deploy a new microservice to our existing GKE cluster…" style="flex:1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();W.scaffoldChatSend()}" ${S._scaffoldChatLoading?'disabled':''}>
+        <button class="btn btn-primary" onclick="W.scaffoldChatSend()" ${S._scaffoldChatLoading?'disabled':''}>${S._scaffoldChatLoading?'Thinking…':'Send'}</button>
+      </div>
+      ${S._scaffoldChat?.length ? '<button class="btn btn-sm" onclick="W.scaffoldChatClear()" style="margin-top:8px;float:right">Clear</button>' : ''}
+    </div></div>`;
+}
+
+// ── Project Handlers ─────────────────────────────────────────────────────────
+function showCreateProject() {
+  const el = document.getElementById('create-project-form');
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function createProject() {
+  const name = document.getElementById('proj-name')?.value?.trim();
+  const desc = document.getElementById('proj-desc')?.value?.trim();
+  const domainsStr = document.getElementById('proj-domains')?.value?.trim();
+  if (!name) { alert('Name is required'); return; }
+  const domains = domainsStr ? domainsStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+  try {
+    const p = await F('/v1/projects', { method:'POST', body: JSON.stringify({ name, description: desc, domains }) });
+    S.cache['projects'] = null;
+    nav('#/projects/' + p.id);
+  } catch(e) { alert('Failed: '+e.message); }
+}
+
+async function addProjectDomain(projectId) {
+  const domain = document.getElementById('add-domain')?.value?.trim();
+  if (!domain) return;
+  const key = 'project_'+projectId;
+  const p = S.cache[key];
+  if (!p) return;
+  const domains = [...(p.domains||[]), domain];
+  try {
+    await F('/v1/projects/'+projectId, { method:'PUT', body: JSON.stringify({ domains }) });
+    S.cache[key] = null;
+    render();
+  } catch(e) { alert('Failed: '+e.message); }
+}
+
+async function addGitHubIntegration(projectId) {
+  const repo = document.getElementById('gh-repo')?.value?.trim();
+  const token = document.getElementById('gh-token')?.value?.trim();
+  const branch = document.getElementById('gh-branch')?.value?.trim() || 'main';
+  if (!repo || !token) { alert('Repository and token are required'); return; }
+  try {
+    await F('/v1/projects/'+projectId+'/integrations', { method:'POST', body: JSON.stringify({
+      type: 'github', name: repo, config: { token, branch }
+    })});
+    S.cache['project_'+projectId] = null;
+    render();
+  } catch(e) { alert('Failed: '+e.message); }
+}
+
+async function addCloudIntegration(projectId) {
+  const provider = document.getElementById('cloud-provider')?.value;
+  const cloudId = document.getElementById('cloud-id')?.value?.trim();
+  if (!cloudId) { alert('Project/Account ID required'); return; }
+  try {
+    await F('/v1/projects/'+projectId+'/integrations', { method:'POST', body: JSON.stringify({
+      type: provider, name: cloudId, config: { project_id: cloudId }
+    })});
+    S.cache['project_'+projectId] = null;
+    render();
+  } catch(e) { alert('Failed: '+e.message); }
+}
+
+async function syncIntegration(projectId, intgId) {
+  try {
+    await F('/v1/projects/'+projectId+'/integrations/'+intgId+'/sync', { method:'POST' });
+    S.cache['project_'+projectId] = null;
+    S.cache['ctx_'+projectId] = null;
+    render();
+  } catch(e) { alert('Sync failed: '+e.message); }
+}
+
+async function removeIntegration(projectId, intgId) {
+  if (!confirm('Remove this integration?')) return;
+  try {
+    await F('/v1/projects/'+projectId+'/integrations/'+intgId, { method:'DELETE' });
+    S.cache['project_'+projectId] = null;
+    S.cache['ctx_'+projectId] = null;
+    render();
+  } catch(e) { alert('Failed: '+e.message); }
+}
+
+function refreshContext(projectId) {
+  S.cache['ctx_'+projectId] = null;
+  render();
+}
+
+async function generatePlanItem(projectId, planId, catalogId) {
+  // Get the plan item's params and generate Terraform.
+  const p = S.cache['project_'+projectId];
+  if (!p) return;
+  const plan = (p.plans||[]).find(pl => pl.id === planId);
+  if (!plan) return;
+  const item = (plan.items||[]).find(i => i.catalog_id === catalogId);
+  if (!item) return;
+  try {
+    const r = await F('/v1/scaffold', { method:'POST', body: JSON.stringify({ catalog_id: catalogId, params: item.params }) });
+    item.files = r.files;
+    item.status = 'generated';
+    S.cache['project_'+projectId] = p;
+    render();
+  } catch(e) { alert('Generation failed: '+e.message); }
+}
+
+function viewPlanFiles(planId, catalogId) {
+  // Find the files in cache and display them.
+  const p = S.cache['project_'+S.projectId];
+  if (!p) return;
+  const plan = (p.plans||[]).find(pl => pl.id === planId);
+  if (!plan) return;
+  const item = (plan.items||[]).find(i => i.catalog_id === catalogId);
+  if (!item?.files) return;
+  S._scaffoldOutput = item.files;
+  S._scaffoldEntry = { id: catalogId };
+  render();
+}
+
 // ── Scaffold Chat ────────────────────────────────────────────────────────────
 function scaffoldSetMode(mode) {
   S._scaffoldMode = mode;
@@ -926,18 +1350,17 @@ async function scaffoldChatSend() {
   try {
     const r = await F('/v1/scaffold/chat', {
       method: 'POST',
-      body: JSON.stringify({ messages: S._scaffoldChat }),
+      body: JSON.stringify({ messages: S._scaffoldChat, project_id: S._scaffoldProjectId || undefined }),
     });
     S._scaffoldChat.push({ role: 'assistant', content: r.reply });
 
-    // Check if the AI included an action block to auto-select a template.
-    const actionMatch = r.reply.match(/```json\s*\n?\s*(\{[\s\S]*?"action"\s*:\s*"select"[\s\S]*?\})\s*\n?```/);
+    // Check if the AI included an action block.
+    const actionMatch = r.reply.match(/```json\s*\n?\s*(\{[\s\S]*?"action"\s*:\s*"(?:select|plan)"[\s\S]*?\})\s*\n?```/);
     if (actionMatch) {
       try {
         const action = JSON.parse(actionMatch[1]);
-        if (action.catalog_id) {
+        if (action.action === 'select' && action.catalog_id) {
           await scaffoldSelect(action.catalog_id);
-          // Pre-fill params from AI suggestion.
           if (action.params) {
             setTimeout(() => {
               const form = document.getElementById('scaffold-form');
@@ -949,6 +1372,17 @@ async function scaffoldChatSend() {
               }
             }, 100);
           }
+        } else if (action.action === 'plan' && S._scaffoldProjectId) {
+          // Create a consolidated plan in the project.
+          try {
+            await F('/v1/projects/'+S._scaffoldProjectId+'/plans', { method:'POST', body: JSON.stringify({
+              name: action.name || 'AI Plan',
+              description: action.description || '',
+              items: (action.items||[]).map(i => ({ catalog_id: i.catalog_id, name: i.name||i.catalog_id, params: i.params||{}, status: 'planned' })),
+              shared_vars: action.shared_vars || {}
+            })});
+            S.cache['project_'+S._scaffoldProjectId] = null;
+          } catch(e) { /* plan save failed */ }
         }
       } catch(e) { /* ignore parse errors in action block */ }
     }
@@ -1002,6 +1436,7 @@ function wrap(title, content, extra = '') {
 function render() {
   const r = route();
   S.page = r.page; S.domain = r.domain||null; if(r.tab) S.tab = r.tab;
+  if (r.projectId) S.projectId = r.projectId;
   const root = document.getElementById('root');
   if (S.page === 'login') { root.innerHTML = pageLogin(); return; }
   let html = '';
@@ -1011,6 +1446,8 @@ function render() {
     case 'target':    html = pageTarget();    break;
     case 'scan':      html = pageScan();      break;
     case 'scaffold':  if(!S._catalogCache) scaffoldLoadCatalog().then(()=>render()); html = pageScaffold(); break;
+    case 'projects':  html = pageProjects();  break;
+    case 'project':   html = pageProject();   break;
     default:          html = pageDashboard();
   }
   root.innerHTML = `<div style="display:flex;width:100%;height:100%">${html}</div>`;
@@ -1030,6 +1467,9 @@ const W = {
   mergeSelected, unmerge, exportBosun, downloadExport,
   scaffoldMatch, scaffoldSelect, scaffoldClear, scaffoldGenerate, scaffoldDownload,
   scaffoldSetMode, scaffoldChatSend, scaffoldChatClear,
+  showCreateProject, createProject, addProjectDomain,
+  addGitHubIntegration, addCloudIntegration, syncIntegration, removeIntegration,
+  refreshContext, generatePlanItem, viewPlanFiles,
   login, startScan, rescan,
 };
 window.W = W;

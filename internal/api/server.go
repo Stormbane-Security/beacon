@@ -5,24 +5,35 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/stormbane/beacon/internal/config"
+	"github.com/stormbane/beacon/internal/project"
 	"github.com/stormbane/beacon/internal/store"
 	"github.com/stormbane/beacon/internal/web"
 	"github.com/stormbane/beacon/internal/worker"
 )
 
+// timeNow returns the current UTC time. Package-level var for testing.
+var timeNow = func() time.Time { return time.Now().UTC() }
+
 // Server holds the dependencies shared across all handlers.
 type Server struct {
-	st     store.Store
-	pool   *worker.Pool
-	apiKey string
-	aiCfg  config.AIConfig
+	st       store.Store
+	pool     *worker.Pool
+	apiKey   string
+	aiCfg    config.AIConfig
+	projects *project.Store
 }
 
 // New creates a Server and registers all routes on mux.
 func New(st store.Store, pool *worker.Pool, apiKey string, opts ...Option) *Server {
-	s := &Server{st: st, pool: pool, apiKey: apiKey}
+	s := &Server{
+		st:       st,
+		pool:     pool,
+		apiKey:   apiKey,
+		projects: project.NewStore(),
+	}
 	for _, o := range opts {
 		o(s)
 	}
@@ -74,6 +85,19 @@ func (s *Server) Handler() http.Handler {
 	v1.HandleFunc("POST /scaffold", s.handleScaffold)
 	v1.HandleFunc("POST /scaffold/match", s.handleScaffoldMatch)
 	v1.HandleFunc("POST /scaffold/chat", s.handleScaffoldChat)
+
+	// Projects (workspace: integrations, plans, context).
+	v1.HandleFunc("POST /projects", s.handleCreateProject)
+	v1.HandleFunc("GET /projects", s.handleListProjects)
+	v1.HandleFunc("GET /projects/{id}", s.handleGetProject)
+	v1.HandleFunc("PUT /projects/{id}", s.handleUpdateProject)
+	v1.HandleFunc("DELETE /projects/{id}", s.handleDeleteProject)
+	v1.HandleFunc("POST /projects/{id}/integrations", s.handleAddIntegration)
+	v1.HandleFunc("DELETE /projects/{id}/integrations/{intgId}", s.handleRemoveIntegration)
+	v1.HandleFunc("POST /projects/{id}/integrations/{intgId}/sync", s.handleSyncIntegration)
+	v1.HandleFunc("GET /projects/{id}/context", s.handleProjectContext)
+	v1.HandleFunc("POST /projects/{id}/plans", s.handleCreatePlan)
+	v1.HandleFunc("GET /projects/{id}/repos", s.handleListRepos)
 
 	mux.Handle("/v1/", s.authMiddleware(http.StripPrefix("/v1", v1)))
 

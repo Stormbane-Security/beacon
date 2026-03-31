@@ -133,7 +133,8 @@ type chatMessage struct {
 }
 
 type chatRequest struct {
-	Messages []chatMessage `json:"messages"`
+	Messages  []chatMessage `json:"messages"`
+	ProjectID string        `json:"project_id,omitempty"`
 }
 
 // buildCatalogContext produces a compact text summary of the catalog for the system prompt.
@@ -182,7 +183,81 @@ Only include the action block when you have gathered enough information to make 
 
 Always prioritize security. Explain what security hardening each template provides. If the user asks for something insecure (public buckets, no encryption, overly permissive IAM), push back and explain why.
 
+When generating a consolidated plan with multiple resources that share variables (e.g. a GKE cluster + a CI/CD pipeline that deploys to it), use a plan action block:
+` + "```" + `json
+{"action":"plan","name":"Plan name","items":[{"catalog_id":"...","params":{...}},...],"shared_vars":{"project_id":"...","region":"..."}}
+` + "```" + `
+
 %s`
+
+// buildProjectContext formats the project's existing infrastructure for the system prompt.
+func (s *Server) buildProjectContext(projectID string) string {
+	if projectID == "" {
+		return ""
+	}
+	ctx, err := s.projects.BuildContext(projectID)
+	if err != nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("\n\n## Current Project Context\n\n")
+	fmt.Fprintf(&b, "Project: %s\n", ctx.ProjectName)
+	if len(ctx.Domains) > 0 {
+		fmt.Fprintf(&b, "Scanned domains: %s\n", strings.Join(ctx.Domains, ", "))
+	}
+
+	if len(ctx.ExistingResources) > 0 {
+		b.WriteString("\n### Existing Infrastructure (discovered from scans, cloud APIs, and Terraform)\n")
+		bySource := make(map[string][]string)
+		for _, r := range ctx.ExistingResources {
+			label := fmt.Sprintf("  - %s: %s (%s)", r.Type, r.Name, r.Provider)
+			if len(r.Attrs) > 0 {
+				var attrs []string
+				for k, v := range r.Attrs {
+					attrs = append(attrs, k+"="+v)
+				}
+				label += " [" + strings.Join(attrs, ", ") + "]"
+			}
+			bySource[r.Source] = append(bySource[r.Source], label)
+		}
+		for source, items := range bySource {
+			fmt.Fprintf(&b, "\nSource: %s\n", source)
+			for _, item := range items {
+				b.WriteString(item + "\n")
+			}
+		}
+	}
+
+	if len(ctx.ManagedResources) > 0 {
+		fmt.Fprintf(&b, "\n### Terraform-Managed Resources (%d total)\n", len(ctx.ManagedResources))
+		for _, r := range ctx.ManagedResources {
+			fmt.Fprintf(&b, "  - %s.%s", r.Type, r.Name)
+			if r.FilePath != "" {
+				fmt.Fprintf(&b, " (in %s)", r.FilePath)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	if len(ctx.UnmanagedGaps) > 0 {
+		fmt.Fprintf(&b, "\n### Unmanaged Gaps (in cloud but NOT in Terraform — consider importing or creating TF for these)\n")
+		for _, r := range ctx.UnmanagedGaps {
+			fmt.Fprintf(&b, "  - %s: %s (%s)\n", r.Type, r.Name, r.Provider)
+		}
+	}
+
+	if len(ctx.Plans) > 0 {
+		b.WriteString("\n### Existing Plans\n")
+		for _, p := range ctx.Plans {
+			fmt.Fprintf(&b, "  - %s: %s (%d items)\n", p.Name, p.Description, len(p.Items))
+		}
+	}
+
+	b.WriteString("\nUse this context to make informed recommendations. When the user asks to build something, check if related infrastructure already exists and suggest connecting to it rather than duplicating. Identify shared variables (project_id, region, VPC, etc.) from existing resources.\n")
+
+	return b.String()
+}
 
 func (s *Server) handleScaffoldChat(w http.ResponseWriter, r *http.Request) {
 	if s.aiCfg.APIKey == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
@@ -201,8 +276,10 @@ func (s *Server) handleScaffoldChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the system prompt with catalog context.
-	systemPrompt := fmt.Sprintf(scaffoldSystemPrompt, buildCatalogContext())
+	// Build the system prompt with catalog + optional project context.
+	catalogCtx := buildCatalogContext()
+	projectCtx := s.buildProjectContext(req.ProjectID)
+	systemPrompt := fmt.Sprintf(scaffoldSystemPrompt, catalogCtx+projectCtx)
 
 	// Resolve AI provider settings.
 	apiKey := s.aiCfg.APIKey
