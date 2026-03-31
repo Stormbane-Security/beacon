@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
@@ -204,15 +205,17 @@ func scanEKS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 			// A CNI plugin with network policy support (e.g., Calico, Cilium)
 			// must be installed separately.
 			hasNetworkPolicyAddon := false
-			if cluster.Health != nil {
-				// Check cluster addons/health for indicators of a network policy provider.
-				// The presence of vpc-cni alone does not provide NetworkPolicy enforcement.
-			}
-			// Also attempt to detect via the cluster's Kubernetes network config.
-			if cluster.KubernetesNetworkConfig != nil {
-				// The VPC CNI is always present but does not enforce NetworkPolicy
-				// unless Amazon Network Policy Controller is also installed.
-				// There is no direct API field for this — flag as a warning.
+			if addonsErr == nil {
+				for _, addon := range addonsResp.Addons {
+					switch addon {
+					case "amazon-network-policy-controller-k8s", "aws-network-policy-agent":
+						hasNetworkPolicyAddon = true
+					}
+					al := strings.ToLower(addon)
+					if strings.Contains(al, "calico") || strings.Contains(al, "cilium") {
+						hasNetworkPolicyAddon = true
+					}
+				}
 			}
 			if !hasNetworkPolicyAddon {
 				findings = append(findings, finding.Finding{

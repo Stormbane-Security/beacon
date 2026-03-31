@@ -8,6 +8,7 @@ import (
 
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/stormbane/beacon/internal/finding"
 )
@@ -91,9 +92,20 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 			}
 
 			// Check encryption.
-			enc, err := svc.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: bucket.Name})
-			if err != nil || enc.ServerSideEncryptionConfiguration == nil ||
+			enc, encErr := svc.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: bucket.Name})
+			noEncryption := false
+			if encErr != nil {
+				encMsg := encErr.Error()
+				if strings.Contains(encMsg, "ServerSideEncryptionConfigurationNotFoundError") ||
+					strings.Contains(encMsg, "NoSuchEncryption") {
+					noEncryption = true
+				}
+				// Permission errors (AccessDenied) — skip, don't flag as missing.
+			} else if enc.ServerSideEncryptionConfiguration == nil ||
 				len(enc.ServerSideEncryptionConfiguration.Rules) == 0 {
+				noEncryption = true
+			}
+			if noEncryption {
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudAWSS3NoEncryption,
 					Title:   fmt.Sprintf("S3 bucket does not enforce server-side encryption: %s", name),
@@ -110,6 +122,75 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 					Evidence:     map[string]any{"bucket": name, "account_id": accountID},
 					DiscoveredAt: time.Now(),
 				})
+			}
+
+			// Check versioning.
+			ver, verErr := svc.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: bucket.Name})
+			if verErr == nil && ver.Status != s3types.BucketVersioningStatusEnabled {
+				findings = append(findings, finding.Finding{
+					CheckID:     finding.CheckCloudAWSS3NoVersioning,
+					Title:       fmt.Sprintf("S3 bucket does not have versioning enabled: %s", name),
+					Description: fmt.Sprintf("S3 bucket %s does not have versioning enabled. Without versioning, accidental or malicious deletions and overwrites are permanent. Enable versioning to maintain a complete history of object changes.", name),
+					Severity:    finding.SeverityMedium,
+					Asset:       asset, Scanner: "cloud/aws",
+					ProofCommand: fmt.Sprintf("aws s3api get-bucket-versioning --bucket %s", name),
+					Evidence:     map[string]any{"bucket": name, "account_id": accountID, "status": string(ver.Status)},
+					DiscoveredAt: time.Now(),
+				})
+			}
+
+			// Check server access logging.
+			log, logErr := svc.GetBucketLogging(ctx, &s3.GetBucketLoggingInput{Bucket: bucket.Name})
+			if logErr == nil && log.LoggingEnabled == nil {
+				findings = append(findings, finding.Finding{
+					CheckID:     finding.CheckCloudAWSS3NoLogging,
+					Title:       fmt.Sprintf("S3 bucket does not have server access logging: %s", name),
+					Description: fmt.Sprintf("S3 bucket %s does not have server access logging enabled. Access logs record all requests made to the bucket, which are critical for security auditing, forensics, and compliance. Enable server access logging to a separate logging bucket.", name),
+					Severity:    finding.SeverityMedium,
+					Asset:       asset, Scanner: "cloud/aws",
+					ProofCommand: fmt.Sprintf("aws s3api get-bucket-logging --bucket %s", name),
+					Evidence:     map[string]any{"bucket": name, "account_id": accountID},
+					DiscoveredAt: time.Now(),
+				})
+			}
+
+			// Check bucket policy for SSL-only enforcement.
+			pol, polErr := svc.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: bucket.Name})
+			hasSSLOnly := false
+			if polErr == nil && pol.Policy != nil {
+				// A bucket policy enforcing SSL contains "aws:SecureTransport": "false" with Deny effect.
+				hasSSLOnly = strings.Contains(*pol.Policy, "aws:SecureTransport")
+			}
+			if !hasSSLOnly {
+				findings = append(findings, finding.Finding{
+					CheckID:     finding.CheckCloudAWSS3NoSSLOnly,
+					Title:       fmt.Sprintf("S3 bucket policy does not enforce SSL-only access: %s", name),
+					Description: fmt.Sprintf("S3 bucket %s does not have a bucket policy denying non-SSL (HTTP) requests. Without this policy, data can be transmitted in plaintext. Add a bucket policy with Effect:Deny and Condition aws:SecureTransport=false.", name),
+					Severity:    finding.SeverityHigh,
+					Asset:       asset, Scanner: "cloud/aws",
+					ProofCommand: fmt.Sprintf("aws s3api get-bucket-policy --bucket %s", name),
+					Evidence:     map[string]any{"bucket": name, "account_id": accountID},
+					DiscoveredAt: time.Now(),
+				})
+			}
+
+			// Check lifecycle configuration.
+			lc, lcErr := svc.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: bucket.Name})
+			if lcErr != nil || lc.Rules == nil || len(lc.Rules) == 0 {
+				// Only flag if the error is "no lifecycle" (not permission denied).
+				isNoLifecycle := lcErr != nil && (strings.Contains(lcErr.Error(), "NoSuchLifecycleConfiguration") || strings.Contains(lcErr.Error(), "NoSuchLifecycle"))
+				if isNoLifecycle || (lcErr == nil && (lc.Rules == nil || len(lc.Rules) == 0)) {
+					findings = append(findings, finding.Finding{
+						CheckID:     finding.CheckCloudAWSS3NoLifecycle,
+						Title:       fmt.Sprintf("S3 bucket has no lifecycle configuration: %s", name),
+						Description: fmt.Sprintf("S3 bucket %s does not have a lifecycle policy configured. Lifecycle policies automate transitioning objects to cheaper storage tiers and expiring old data, reducing costs and limiting data exposure window.", name),
+						Severity:    finding.SeverityLow,
+						Asset:       asset, Scanner: "cloud/aws",
+						ProofCommand: fmt.Sprintf("aws s3api get-bucket-lifecycle-configuration --bucket %s", name),
+						Evidence:     map[string]any{"bucket": name, "account_id": accountID},
+						DiscoveredAt: time.Now(),
+					})
+				}
 			}
 		}
 	}

@@ -49,14 +49,22 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.22 // indirect
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.39.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.60.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.62.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.75.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.13 // indirect
+	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/guardduty v1.74.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.13 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/opensearch v1.62.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/redshift v1.62.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/securityhub v1.68.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.9 // indirect

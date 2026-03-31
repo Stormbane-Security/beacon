@@ -424,6 +424,57 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		// New deep-mode checks added in scanner gaps pass
 		finding.CheckGraphQLAliasDos:                   true,
 		finding.CheckOAuthSubdomainBypass:              true,
+		// AWS — S3 extended
+		finding.CheckCloudAWSS3NoVersioning:       true,
+		finding.CheckCloudAWSS3NoLogging:          true,
+		finding.CheckCloudAWSS3NoSSLOnly:          true,
+		finding.CheckCloudAWSS3NoLifecycle:        true,
+		// AWS — Lambda extended
+		finding.CheckCloudAWSLambdaNoVPC:          true,
+		finding.CheckCloudAWSLambdaEnvSecrets:     true,
+		finding.CheckCloudAWSLambdaRuntimeEOL:     true,
+		finding.CheckCloudAWSLambdaNoDLQ:          true,
+		finding.CheckCloudAWSLambdaNoTracing:      true,
+		// AWS — ELB/ALB
+		finding.CheckCloudAWSELBNoHTTPS:              true,
+		finding.CheckCloudAWSELBNoAccessLogs:          true,
+		finding.CheckCloudAWSELBInsecureTLS:           true,
+		finding.CheckCloudAWSELBNoDropInvalidHeaders:  true,
+		finding.CheckCloudAWSELBNoDesyncMitigation:    true,
+		// AWS — ECS
+		finding.CheckCloudAWSECSTaskRoleOverpriv:      true,
+		finding.CheckCloudAWSECSHostNetworkMode:       true,
+		finding.CheckCloudAWSECSExecEnabled:           true,
+		finding.CheckCloudAWSECSNoLogging:             true,
+		finding.CheckCloudAWSECSPrivilegedContainer:   true,
+		finding.CheckCloudAWSECSSecretsInEnv:          true,
+		// AWS — DynamoDB
+		finding.CheckCloudAWSDynamoDBNoEncryption:     true,
+		finding.CheckCloudAWSDynamoDBNoPITR:           true,
+		finding.CheckCloudAWSDynamoDBNoBackup:         true,
+		// AWS — ElastiCache
+		finding.CheckCloudAWSElastiCacheNoEncTransit:  true,
+		finding.CheckCloudAWSElastiCacheNoEncRest:     true,
+		finding.CheckCloudAWSElastiCacheNoAuth:        true,
+		finding.CheckCloudAWSElastiCacheNoAutoUpgrade: true,
+		// AWS — CloudFront
+		finding.CheckCloudAWSCloudFrontNoHTTPS:        true,
+		finding.CheckCloudAWSCloudFrontNoWAF:          true,
+		finding.CheckCloudAWSCloudFrontNoOAC:          true,
+		finding.CheckCloudAWSCloudFrontNoLogging:      true,
+		finding.CheckCloudAWSCloudFrontInsecureTLS:    true,
+		finding.CheckCloudAWSCloudFrontDefaultCert:    true,
+		// AWS — OpenSearch
+		finding.CheckCloudAWSOpenSearchPublic:         true,
+		finding.CheckCloudAWSOpenSearchNoEncRest:      true,
+		finding.CheckCloudAWSOpenSearchNoEncTransit:   true,
+		finding.CheckCloudAWSOpenSearchNoVPC:          true,
+		finding.CheckCloudAWSOpenSearchNoLogs:         true,
+		// AWS — Redshift
+		finding.CheckCloudAWSRedshiftPublic:           true,
+		finding.CheckCloudAWSRedshiftNoEncryption:     true,
+		finding.CheckCloudAWSRedshiftNoAuditLog:       true,
+		finding.CheckCloudAWSRedshiftNoSSL:            true,
 	}
 
 	for id, meta := range finding.Registry {

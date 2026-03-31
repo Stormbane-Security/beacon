@@ -122,5 +122,53 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		all = append(all, secFindings...)
 	}
 
+	// Lambda extended checks.
+	lambdaFindings, err := scanLambda(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, lambdaFindings...)
+	}
+
+	// ELB/ALB checks.
+	elbFindings, err := scanELB(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, elbFindings...)
+	}
+
+	// ECS checks.
+	ecsFindings, err := scanECS(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, ecsFindings...)
+	}
+
+	// DynamoDB checks.
+	dynamoFindings, err := scanDynamoDB(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, dynamoFindings...)
+	}
+
+	// ElastiCache checks.
+	ecacheFindings, err := scanElastiCache(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, ecacheFindings...)
+	}
+
+	// CloudFront checks (global — no region).
+	cfFindings, err := scanCloudFront(ctx, cfg, accountID, asset)
+	if err == nil {
+		all = append(all, cfFindings...)
+	}
+
+	// OpenSearch checks.
+	osFindings, err := scanOpenSearch(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, osFindings...)
+	}
+
+	// Redshift checks.
+	rsFindings, err := scanRedshift(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, rsFindings...)
+	}
+
 	return all, nil
 }

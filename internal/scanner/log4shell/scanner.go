@@ -74,9 +74,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	targetURL := scheme + "://" + asset + "/"
 
 	if scanType == module.ScanSurface {
-		// Passive: fetch the root page and inspect headers/cookies only.
-		detectJavaSignals(ctx, client, targetURL, asset)
-		// Surface mode never emits a finding — signals are informational only.
+		// Surface mode never emits a finding — Java signals are only used
+		// by the authorized-mode deep scan to gate header-reflection evidence.
 		return nil, nil
 	}
 

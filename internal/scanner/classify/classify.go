@@ -1113,7 +1113,7 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.CloudProvider = "aws" // S3
 	case h["x-azure-ref"] != "" || h["x-ms-request-id"] != "":
 		e.CloudProvider = "azure"
-	case strings.HasPrefix(h["x-goog-request-id"], "") && h["x-goog-request-id"] != "":
+	case h["x-goog-request-id"] != "":
 		e.CloudProvider = "gcp"
 	case strings.Contains(strings.ToLower(h["via"]), "google"):
 		e.CloudProvider = "gcp"

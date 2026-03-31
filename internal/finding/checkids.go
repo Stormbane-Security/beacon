@@ -1020,6 +1020,66 @@ const (
 	CheckCloudAWSSNSNoEncryption       CheckID = "cloud.aws.sns_no_encryption"          // SNS topic without encryption
 	CheckCloudAWSSQSNoEncryption       CheckID = "cloud.aws.sqs_no_encryption"          // SQS queue without encryption
 
+	// ── AWS — S3 extended ──
+	CheckCloudAWSS3NoVersioning       CheckID = "cloud.aws.s3_no_versioning"           // S3 bucket without versioning enabled
+	CheckCloudAWSS3NoLogging          CheckID = "cloud.aws.s3_no_logging"              // S3 bucket without server access logging
+	CheckCloudAWSS3NoSSLOnly          CheckID = "cloud.aws.s3_no_ssl_only"             // S3 bucket policy does not enforce SSL-only access
+	CheckCloudAWSS3NoLifecycle        CheckID = "cloud.aws.s3_no_lifecycle"            // S3 bucket without lifecycle configuration
+
+	// ── AWS — Lambda extended ──
+	CheckCloudAWSLambdaNoVPC          CheckID = "cloud.aws.lambda_no_vpc"              // Lambda function not in VPC
+	CheckCloudAWSLambdaEnvSecrets     CheckID = "cloud.aws.lambda_env_secrets"         // Lambda environment variables contain secrets
+	CheckCloudAWSLambdaRuntimeEOL     CheckID = "cloud.aws.lambda_runtime_eol"         // Lambda uses end-of-life runtime
+	CheckCloudAWSLambdaNoDLQ          CheckID = "cloud.aws.lambda_no_dlq"              // Lambda function without dead-letter queue
+	CheckCloudAWSLambdaNoTracing      CheckID = "cloud.aws.lambda_no_tracing"          // Lambda function without X-Ray tracing
+
+	// ── AWS — ELB/ALB ──
+	CheckCloudAWSELBNoHTTPS           CheckID = "cloud.aws.elb_no_https"               // Load balancer listener without HTTPS
+	CheckCloudAWSELBNoAccessLogs      CheckID = "cloud.aws.elb_no_access_logs"         // Load balancer without access logging
+	CheckCloudAWSELBInsecureTLS       CheckID = "cloud.aws.elb_insecure_tls"           // Load balancer using outdated TLS policy
+	CheckCloudAWSELBNoDropInvalidHeaders CheckID = "cloud.aws.elb_no_drop_invalid_headers" // ALB not dropping invalid HTTP headers
+	CheckCloudAWSELBNoDesyncMitigation CheckID = "cloud.aws.elb_no_desync_mitigation"  // ALB HTTP desync mitigation not strictest
+
+	// ── AWS — ECS ──
+	CheckCloudAWSECSTaskRoleOverpriv  CheckID = "cloud.aws.ecs_task_role_overprivileged" // ECS task role with admin/wildcard
+	CheckCloudAWSECSHostNetworkMode   CheckID = "cloud.aws.ecs_host_network_mode"      // ECS task using host network mode
+	CheckCloudAWSECSExecEnabled       CheckID = "cloud.aws.ecs_exec_enabled"           // ECS service with execute-command enabled
+	CheckCloudAWSECSNoLogging         CheckID = "cloud.aws.ecs_no_logging"             // ECS task definition without logging configured
+	CheckCloudAWSECSPrivilegedContainer CheckID = "cloud.aws.ecs_privileged_container" // ECS task runs privileged container
+	CheckCloudAWSECSSecretsInEnv      CheckID = "cloud.aws.ecs_secrets_in_env"         // ECS task passes secrets via environment variables
+
+	// ── AWS — DynamoDB ──
+	CheckCloudAWSDynamoDBNoEncryption CheckID = "cloud.aws.dynamodb_no_encryption"     // DynamoDB table without CMK encryption
+	CheckCloudAWSDynamoDBNoPITR       CheckID = "cloud.aws.dynamodb_no_pitr"           // DynamoDB table without point-in-time recovery
+	CheckCloudAWSDynamoDBNoBackup     CheckID = "cloud.aws.dynamodb_no_backup"         // DynamoDB table without backup plan
+
+	// ── AWS — ElastiCache ──
+	CheckCloudAWSElastiCacheNoEncTransit CheckID = "cloud.aws.elasticache_no_enc_transit" // ElastiCache replication group without encryption in transit
+	CheckCloudAWSElastiCacheNoEncRest    CheckID = "cloud.aws.elasticache_no_enc_rest"    // ElastiCache replication group without encryption at rest
+	CheckCloudAWSElastiCacheNoAuth       CheckID = "cloud.aws.elasticache_no_auth"        // ElastiCache replication group without AUTH token
+	CheckCloudAWSElastiCacheNoAutoUpgrade CheckID = "cloud.aws.elasticache_no_auto_upgrade" // ElastiCache without auto minor version upgrade
+
+	// ── AWS — CloudFront ──
+	CheckCloudAWSCloudFrontNoHTTPS    CheckID = "cloud.aws.cloudfront_no_https"        // CloudFront distribution without HTTPS enforcement
+	CheckCloudAWSCloudFrontNoWAF      CheckID = "cloud.aws.cloudfront_no_waf"          // CloudFront distribution without WAF
+	CheckCloudAWSCloudFrontNoOAC      CheckID = "cloud.aws.cloudfront_no_oac"          // CloudFront distribution without Origin Access Control
+	CheckCloudAWSCloudFrontNoLogging  CheckID = "cloud.aws.cloudfront_no_logging"      // CloudFront distribution without access logging
+	CheckCloudAWSCloudFrontInsecureTLS CheckID = "cloud.aws.cloudfront_insecure_tls"   // CloudFront using minimum TLS < 1.2
+	CheckCloudAWSCloudFrontDefaultCert CheckID = "cloud.aws.cloudfront_default_cert"   // CloudFront using default *.cloudfront.net certificate
+
+	// ── AWS — OpenSearch ──
+	CheckCloudAWSOpenSearchPublic     CheckID = "cloud.aws.opensearch_public"          // OpenSearch domain publicly accessible
+	CheckCloudAWSOpenSearchNoEncRest  CheckID = "cloud.aws.opensearch_no_enc_rest"     // OpenSearch domain without encryption at rest
+	CheckCloudAWSOpenSearchNoEncTransit CheckID = "cloud.aws.opensearch_no_enc_transit" // OpenSearch domain without node-to-node encryption
+	CheckCloudAWSOpenSearchNoVPC      CheckID = "cloud.aws.opensearch_no_vpc"          // OpenSearch domain not in VPC
+	CheckCloudAWSOpenSearchNoLogs     CheckID = "cloud.aws.opensearch_no_logs"         // OpenSearch domain without audit/slow logs
+
+	// ── AWS — Redshift ──
+	CheckCloudAWSRedshiftPublic       CheckID = "cloud.aws.redshift_public"            // Redshift cluster publicly accessible
+	CheckCloudAWSRedshiftNoEncryption CheckID = "cloud.aws.redshift_no_encryption"     // Redshift cluster without encryption
+	CheckCloudAWSRedshiftNoAuditLog   CheckID = "cloud.aws.redshift_no_audit_log"      // Redshift cluster without audit logging
+	CheckCloudAWSRedshiftNoSSL        CheckID = "cloud.aws.redshift_no_ssl"            // Redshift cluster not requiring SSL connections
+
 	// ── GCP — CIS/Prowler gaps ──
 	CheckCloudGCPNoVPCFlowLogs         CheckID = "cloud.gcp.no_vpc_flow_logs"           // VPC Flow Logs not enabled on subnet
 	CheckCloudGCPKMSNoRotation         CheckID = "cloud.gcp.kms_no_rotation"            // KMS key without rotation period
@@ -1999,6 +2059,66 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAWSAPIGatewayNoAuth:      {CheckCloudAWSAPIGatewayNoAuth, SeverityHigh, ModeDeep},
 	CheckCloudAWSSNSNoEncryption:       {CheckCloudAWSSNSNoEncryption, SeverityMedium, ModeDeep},
 	CheckCloudAWSSQSNoEncryption:       {CheckCloudAWSSQSNoEncryption, SeverityMedium, ModeDeep},
+
+	// AWS — S3 extended
+	CheckCloudAWSS3NoVersioning:       {CheckCloudAWSS3NoVersioning, SeverityMedium, ModeDeep},
+	CheckCloudAWSS3NoLogging:          {CheckCloudAWSS3NoLogging, SeverityMedium, ModeDeep},
+	CheckCloudAWSS3NoSSLOnly:          {CheckCloudAWSS3NoSSLOnly, SeverityHigh, ModeDeep},
+	CheckCloudAWSS3NoLifecycle:        {CheckCloudAWSS3NoLifecycle, SeverityLow, ModeDeep},
+
+	// AWS — Lambda extended
+	CheckCloudAWSLambdaNoVPC:          {CheckCloudAWSLambdaNoVPC, SeverityMedium, ModeDeep},
+	CheckCloudAWSLambdaEnvSecrets:     {CheckCloudAWSLambdaEnvSecrets, SeverityHigh, ModeDeep},
+	CheckCloudAWSLambdaRuntimeEOL:     {CheckCloudAWSLambdaRuntimeEOL, SeverityHigh, ModeDeep},
+	CheckCloudAWSLambdaNoDLQ:          {CheckCloudAWSLambdaNoDLQ, SeverityLow, ModeDeep},
+	CheckCloudAWSLambdaNoTracing:      {CheckCloudAWSLambdaNoTracing, SeverityLow, ModeDeep},
+
+	// AWS — ELB/ALB
+	CheckCloudAWSELBNoHTTPS:           {CheckCloudAWSELBNoHTTPS, SeverityHigh, ModeDeep},
+	CheckCloudAWSELBNoAccessLogs:      {CheckCloudAWSELBNoAccessLogs, SeverityMedium, ModeDeep},
+	CheckCloudAWSELBInsecureTLS:       {CheckCloudAWSELBInsecureTLS, SeverityHigh, ModeDeep},
+	CheckCloudAWSELBNoDropInvalidHeaders: {CheckCloudAWSELBNoDropInvalidHeaders, SeverityMedium, ModeDeep},
+	CheckCloudAWSELBNoDesyncMitigation: {CheckCloudAWSELBNoDesyncMitigation, SeverityMedium, ModeDeep},
+
+	// AWS — ECS
+	CheckCloudAWSECSTaskRoleOverpriv:  {CheckCloudAWSECSTaskRoleOverpriv, SeverityHigh, ModeDeep},
+	CheckCloudAWSECSHostNetworkMode:   {CheckCloudAWSECSHostNetworkMode, SeverityHigh, ModeDeep},
+	CheckCloudAWSECSExecEnabled:       {CheckCloudAWSECSExecEnabled, SeverityMedium, ModeDeep},
+	CheckCloudAWSECSNoLogging:         {CheckCloudAWSECSNoLogging, SeverityMedium, ModeDeep},
+	CheckCloudAWSECSPrivilegedContainer: {CheckCloudAWSECSPrivilegedContainer, SeverityCritical, ModeDeep},
+	CheckCloudAWSECSSecretsInEnv:      {CheckCloudAWSECSSecretsInEnv, SeverityHigh, ModeDeep},
+
+	// AWS — DynamoDB
+	CheckCloudAWSDynamoDBNoEncryption: {CheckCloudAWSDynamoDBNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudAWSDynamoDBNoPITR:       {CheckCloudAWSDynamoDBNoPITR, SeverityMedium, ModeDeep},
+	CheckCloudAWSDynamoDBNoBackup:     {CheckCloudAWSDynamoDBNoBackup, SeverityMedium, ModeDeep},
+
+	// AWS — ElastiCache
+	CheckCloudAWSElastiCacheNoEncTransit: {CheckCloudAWSElastiCacheNoEncTransit, SeverityHigh, ModeDeep},
+	CheckCloudAWSElastiCacheNoEncRest:    {CheckCloudAWSElastiCacheNoEncRest, SeverityMedium, ModeDeep},
+	CheckCloudAWSElastiCacheNoAuth:       {CheckCloudAWSElastiCacheNoAuth, SeverityHigh, ModeDeep},
+	CheckCloudAWSElastiCacheNoAutoUpgrade: {CheckCloudAWSElastiCacheNoAutoUpgrade, SeverityLow, ModeDeep},
+
+	// AWS — CloudFront
+	CheckCloudAWSCloudFrontNoHTTPS:     {CheckCloudAWSCloudFrontNoHTTPS, SeverityHigh, ModeDeep},
+	CheckCloudAWSCloudFrontNoWAF:       {CheckCloudAWSCloudFrontNoWAF, SeverityMedium, ModeDeep},
+	CheckCloudAWSCloudFrontNoOAC:       {CheckCloudAWSCloudFrontNoOAC, SeverityMedium, ModeDeep},
+	CheckCloudAWSCloudFrontNoLogging:   {CheckCloudAWSCloudFrontNoLogging, SeverityMedium, ModeDeep},
+	CheckCloudAWSCloudFrontInsecureTLS: {CheckCloudAWSCloudFrontInsecureTLS, SeverityHigh, ModeDeep},
+	CheckCloudAWSCloudFrontDefaultCert: {CheckCloudAWSCloudFrontDefaultCert, SeverityLow, ModeDeep},
+
+	// AWS — OpenSearch
+	CheckCloudAWSOpenSearchPublic:       {CheckCloudAWSOpenSearchPublic, SeverityCritical, ModeDeep},
+	CheckCloudAWSOpenSearchNoEncRest:    {CheckCloudAWSOpenSearchNoEncRest, SeverityMedium, ModeDeep},
+	CheckCloudAWSOpenSearchNoEncTransit: {CheckCloudAWSOpenSearchNoEncTransit, SeverityHigh, ModeDeep},
+	CheckCloudAWSOpenSearchNoVPC:        {CheckCloudAWSOpenSearchNoVPC, SeverityHigh, ModeDeep},
+	CheckCloudAWSOpenSearchNoLogs:       {CheckCloudAWSOpenSearchNoLogs, SeverityMedium, ModeDeep},
+
+	// AWS — Redshift
+	CheckCloudAWSRedshiftPublic:       {CheckCloudAWSRedshiftPublic, SeverityCritical, ModeDeep},
+	CheckCloudAWSRedshiftNoEncryption: {CheckCloudAWSRedshiftNoEncryption, SeverityHigh, ModeDeep},
+	CheckCloudAWSRedshiftNoAuditLog:   {CheckCloudAWSRedshiftNoAuditLog, SeverityMedium, ModeDeep},
+	CheckCloudAWSRedshiftNoSSL:        {CheckCloudAWSRedshiftNoSSL, SeverityHigh, ModeDeep},
 
 	// GCP — new checks
 	CheckCloudGCPNoVPCFlowLogs:         {CheckCloudGCPNoVPCFlowLogs, SeverityHigh, ModeDeep},
