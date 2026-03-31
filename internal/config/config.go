@@ -150,6 +150,10 @@ type Config struct {
 
 	GitHubToken string `yaml:"github_token"`
 
+	// Okta configuration for IAM scanning.
+	OktaDomain string `yaml:"okta_domain"` // e.g., "yourorg.okta.com"
+	OktaToken  string `yaml:"okta_token"`  // Okta API token (read-only admin)
+
 	// External tool binary paths
 	NmapBin      string `yaml:"nmap_bin"`
 	NucleiBin    string `yaml:"nuclei_bin"`
@@ -286,6 +290,7 @@ func (c *Config) Redacted() Config {
 	r.CensysAPISecret = redact(r.CensysAPISecret)
 	r.GreyNoiseAPIKey = redact(r.GreyNoiseAPIKey)
 	r.GitHubToken = redact(r.GitHubToken)
+	r.OktaToken = redact(r.OktaToken)
 	// Server / webhook credentials
 	r.Server.APIKey = redact(r.Server.APIKey)
 	r.WebhookAPIKey = redact(r.WebhookAPIKey)
@@ -457,6 +462,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("BEACON_GITHUB_TOKEN"); v != "" {
 		cfg.GitHubToken = v
+	}
+	if v := os.Getenv("BEACON_OKTA_DOMAIN"); v != "" {
+		cfg.OktaDomain = v
+	}
+	if v := os.Getenv("BEACON_OKTA_TOKEN"); v != "" {
+		cfg.OktaToken = v
 	}
 	if v := os.Getenv("BEACON_NMAP_BIN"); v != "" {
 		cfg.NmapBin = v

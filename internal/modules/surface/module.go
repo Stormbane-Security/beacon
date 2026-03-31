@@ -108,6 +108,7 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/artifactsign"
 	"github.com/stormbane/beacon/internal/scanner/bitbucket"
 	"github.com/stormbane/beacon/internal/scanner/circleci"
+	oktascanner "github.com/stormbane/beacon/internal/scanner/okta"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/profiler"
@@ -269,6 +270,11 @@ type Config struct {
 	// githubactions scanner to fetch workflow files via the GitHub API.
 	// Without it the scanner is limited to 60 unauthenticated requests/hour.
 	GitHubToken string
+
+	// OktaDomain is the Okta org domain (e.g., "yourorg.okta.com").
+	OktaDomain string
+	// OktaToken is the Okta API token for IAM configuration scanning.
+	OktaToken string
 }
 
 const (
@@ -397,6 +403,7 @@ func New(cfg Config) (*Module, error) {
 		"artifactsign":    artifactsign.New(),
 		"bitbucket":       bitbucket.New(),
 		"circleci":        circleci.New(cfg.GitHubToken),
+		"okta":            oktascanner.New(cfg.OktaDomain, cfg.OktaToken),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

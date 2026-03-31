@@ -124,6 +124,8 @@ CLOUD FLAGS:
   --azure-subscription <id>  Azure subscription ID (default: all accessible)
   --do-token <token>         DigitalOcean API token
   --oci-config <file>        Oracle Cloud Infrastructure config file path (default: ~/.oci/config)
+  --okta-domain <domain>     Okta organization domain (e.g., yourorg.okta.com)
+  --okta-token <token>       Okta API token (read-only admin)
   --domain <domain>          Asset label to associate findings with
   --format <fmt>             Output format: text (default), json, markdown
   --out <path>               Write report to file instead of stdout
@@ -253,6 +255,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		azureSubscription   string
 		doToken             string
 		ociConfigFile       string
+		oktaDomain          string
+		oktaToken           string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -349,6 +353,16 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				ociConfigFile = args[i]
 			}
+		case "--okta-domain":
+			i++
+			if i < len(args) {
+				oktaDomain = args[i]
+			}
+		case "--okta-token":
+			i++
+			if i < len(args) {
+				oktaToken = args[i]
+			}
 		}
 	}
 
@@ -379,7 +393,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, githubOrg)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg)
 		return
 	}
 
@@ -545,6 +559,8 @@ Type exactly: I have written authorization for %s
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
 		GitHubToken:          cfg.GitHubToken,
+		OktaDomain:           cfg.OktaDomain,
+		OktaToken:            cfg.OktaToken,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -944,6 +960,7 @@ func cmdScanMultiAsset(
 	cloudEnabled bool,
 	awsProfile, gcpCredentials, azureSubscription string,
 	doToken, ociConfigFile string,
+	oktaDomain, oktaToken string,
 	githubOrg string,
 ) {
 	scanType := module.ScanSurface
@@ -1052,6 +1069,8 @@ Type exactly: I have written authorization for all listed targets
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
 		GitHubToken:          cfg.GitHubToken,
+		OktaDomain:           strOr(oktaDomain, cfg.OktaDomain),
+		OktaToken:            strOr(oktaToken, cfg.OktaToken),
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -2195,6 +2214,8 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
 		GitHubToken:          cfg.GitHubToken,
+		OktaDomain:           cfg.OktaDomain,
+		OktaToken:            cfg.OktaToken,
 	})
 	if err != nil {
 		cancel()
@@ -8859,4 +8880,12 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// strOr returns the first non-empty string (CLI flag overrides config file).
+func strOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

@@ -1299,6 +1299,23 @@ const (
 	// ── Dockerfile supply chain ──────────────────────────────────────────
 	CheckDockerfileCurlPipe  CheckID = "supply_chain.dockerfile_curl_pipe"   // Dockerfile runs curl|sh or wget|sh — arbitrary code execution in build
 	CheckDockerfileRootUser  CheckID = "supply_chain.dockerfile_root_user"   // Dockerfile has no USER directive — container runs as root
+
+	// ── Okta Identity Provider ────────────────────────────────────────────
+	CheckOktaMFANotEnforced         CheckID = "iam.okta_mfa_not_enforced"          // Okta sign-on policy does not require MFA
+	CheckOktaWeakPasswordPolicy     CheckID = "iam.okta_weak_password_policy"      // password policy allows short or simple passwords
+	CheckOktaNoSessionTimeout       CheckID = "iam.okta_no_session_timeout"        // global session policy has no max lifetime or idle timeout
+	CheckOktaInactiveAdmin          CheckID = "iam.okta_inactive_admin"            // admin account has not logged in for 90+ days
+	CheckOktaAPITokenNoExpiry       CheckID = "iam.okta_api_token_no_expiry"       // API token has no expiration set
+	CheckOktaAPITokenLongLived      CheckID = "iam.okta_api_token_long_lived"      // API token expires in 90+ days
+	CheckOktaSCIMMisconfigured      CheckID = "iam.okta_scim_misconfigured"        // SCIM provisioning app has errors or is disabled
+	CheckOktaGroupNoMembers         CheckID = "iam.okta_group_no_members"          // group exists with zero members — potential stale config
+	CheckOktaUserNoMFA              CheckID = "iam.okta_user_no_mfa"               // individual user has no MFA factors enrolled
+	CheckOktaAppNoSignOnPolicy      CheckID = "iam.okta_app_no_sign_on_policy"     // application has no custom sign-on policy (falls through to default)
+	CheckOktaAppPermissiveAccess    CheckID = "iam.okta_app_permissive_access"     // application assigned to Everyone group
+	CheckOktaWeakAuthPolicy         CheckID = "iam.okta_weak_auth_policy"          // authentication policy allows knowledge-only (password) factor
+	CheckOktaDomainNotVerified      CheckID = "iam.okta_domain_not_verified"       // custom domain configured but not verified
+	CheckOktaThreatInsightDisabled  CheckID = "iam.okta_threat_insight_disabled"   // ThreatInsight is not set to log-and-enforce mode
+	CheckOktaNoGroupRules           CheckID = "iam.okta_no_group_rules"            // no group rules defined — groups managed manually
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -2590,6 +2607,23 @@ var Registry = map[CheckID]CheckMeta{
 	// Dockerfile supply chain
 	CheckDockerfileCurlPipe:  {CheckDockerfileCurlPipe, SeverityHigh, ModeSurface},
 	CheckDockerfileRootUser:  {CheckDockerfileRootUser, SeverityMedium, ModeSurface},
+
+	// Okta Identity Provider
+	CheckOktaMFANotEnforced:        {CheckOktaMFANotEnforced, SeverityCritical, ModeSurface},
+	CheckOktaWeakPasswordPolicy:    {CheckOktaWeakPasswordPolicy, SeverityHigh, ModeSurface},
+	CheckOktaNoSessionTimeout:      {CheckOktaNoSessionTimeout, SeverityMedium, ModeSurface},
+	CheckOktaInactiveAdmin:         {CheckOktaInactiveAdmin, SeverityMedium, ModeSurface},
+	CheckOktaAPITokenNoExpiry:      {CheckOktaAPITokenNoExpiry, SeverityHigh, ModeSurface},
+	CheckOktaAPITokenLongLived:     {CheckOktaAPITokenLongLived, SeverityMedium, ModeSurface},
+	CheckOktaSCIMMisconfigured:     {CheckOktaSCIMMisconfigured, SeverityMedium, ModeSurface},
+	CheckOktaGroupNoMembers:        {CheckOktaGroupNoMembers, SeverityLow, ModeSurface},
+	CheckOktaUserNoMFA:             {CheckOktaUserNoMFA, SeverityHigh, ModeSurface},
+	CheckOktaAppNoSignOnPolicy:     {CheckOktaAppNoSignOnPolicy, SeverityMedium, ModeSurface},
+	CheckOktaAppPermissiveAccess:   {CheckOktaAppPermissiveAccess, SeverityHigh, ModeSurface},
+	CheckOktaWeakAuthPolicy:        {CheckOktaWeakAuthPolicy, SeverityHigh, ModeSurface},
+	CheckOktaDomainNotVerified:     {CheckOktaDomainNotVerified, SeverityLow, ModeSurface},
+	CheckOktaThreatInsightDisabled: {CheckOktaThreatInsightDisabled, SeverityMedium, ModeSurface},
+	CheckOktaNoGroupRules:          {CheckOktaNoGroupRules, SeverityInfo, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
