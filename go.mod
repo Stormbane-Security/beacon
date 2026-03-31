@@ -56,7 +56,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.3
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/google/uuid v1.6.0
-	github.com/stormbane-security/bosun v0.0.0-20260331174331-9c2633fb1dc9
 	golang.org/x/crypto v0.49.0
 	golang.org/x/term v0.41.0
 	google.golang.org/api v0.273.0
