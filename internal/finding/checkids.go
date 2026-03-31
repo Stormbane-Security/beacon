@@ -1178,6 +1178,99 @@ const (
 	CheckCloudAzureRedisNoFirewall       CheckID = "cloud.azure.redis_no_firewall"         // Redis without firewall rules
 	CheckCloudAzurePostgresPublic        CheckID = "cloud.azure.postgres_public"           // PostgreSQL flexible server with public access
 	CheckCloudAzurePostgresNoSSL         CheckID = "cloud.azure.postgres_no_ssl"           // PostgreSQL flexible server not requiring SSL
+
+	// ── IDOR / BOLA — Authorized mode only ──────────────────────────────────
+	CheckIDORSequentialID     CheckID = "api.idor_sequential_id"     // resource accessible via sequential/predictable ID
+	CheckBOLAHorizontalAccess CheckID = "api.bola_horizontal_access" // resource from another user accessible
+
+	// ── Broken Access Control — Authorized mode only ────────────────────────
+	CheckAccessControlVerticalEscalation  CheckID = "api.vertical_escalation"       // non-admin user can access admin endpoints
+	CheckAccessControlMethodBypass        CheckID = "api.method_bypass"              // HTTP method change bypasses auth
+	CheckAccessControlPathTraversalBypass CheckID = "api.path_traversal_auth_bypass" // path manipulation bypasses auth middleware
+
+	// ── API Key Exposure in URLs / JS ───────────────────────────────────────
+	CheckJSAPIKeyInURL       CheckID = "js.api_key_in_url"        // API key passed as URL query parameter in JS bundle
+	CheckJSAPIKeyInSourceMap CheckID = "js.api_key_in_source_map" // API key found in exposed source map
+
+	// ── DigitalOcean Cloud Posture ──────────────────────────────────────────
+	CheckCloudDOScanError          CheckID = "cloud.do.scan_error"
+	CheckCloudDOSpacesPublic       CheckID = "cloud.do.spaces_public"        // Spaces bucket publicly accessible
+	CheckCloudDOSpacesNoEncryption CheckID = "cloud.do.spaces_no_encryption" // Spaces bucket without server-side encryption
+	CheckCloudDODropletPublicIP    CheckID = "cloud.do.droplet_public_ip"    // Droplet with public IP and open firewall
+	CheckCloudDONoFirewall         CheckID = "cloud.do.no_firewall"          // Droplet without firewall attached
+	CheckCloudDOFirewallAllOpen    CheckID = "cloud.do.firewall_all_open"    // Firewall allows all inbound from 0.0.0.0/0
+	CheckCloudDOFirewallSSHOpen    CheckID = "cloud.do.firewall_ssh_open"    // Firewall allows SSH from 0.0.0.0/0
+
+	// ── Oracle Cloud (OCI) Posture ──────────────────────────────────────────
+	CheckCloudOCIScanError           CheckID = "cloud.oci.scan_error"
+	CheckCloudOCIBucketPublic        CheckID = "cloud.oci.bucket_public"        // Object Storage bucket publicly accessible
+	CheckCloudOCIBucketNoEncryption  CheckID = "cloud.oci.bucket_no_encryption" // Bucket without customer-managed encryption
+	CheckCloudOCIVaultKeyNoRotation  CheckID = "cloud.oci.vault_key_no_rotation" // Vault key without rotation
+	CheckCloudOCISecurityListAllOpen CheckID = "cloud.oci.security_list_all_open" // Security list allows all inbound
+	CheckCloudOCISecurityListSSHOpen CheckID = "cloud.oci.security_list_ssh_open" // Security list allows SSH from 0.0.0.0/0
+	CheckCloudOCINSGAllOpen          CheckID = "cloud.oci.nsg_all_open"          // NSG allows all inbound from 0.0.0.0/0
+
+	// ── Dependency Confusion — additional ecosystems ────────────────────────
+	CheckDependencyConfusionGo       CheckID = "supply_chain.dependency_confusion_go"   // Go module claimable on proxy.golang.org
+	CheckDependencyConfusionRuby     CheckID = "supply_chain.dependency_confusion_ruby"  // RubyGem name claimable on rubygems.org
+	CheckDependencyConfusionComposer CheckID = "supply_chain.dependency_confusion_php"   // Composer package claimable on packagist.org
+
+	// ── Expression Language Injection ───────────────────────────────────────
+	CheckWebELInjection   CheckID = "web.el_injection"    // JSP/JSF Expression Language injection
+	CheckWebSpELInjection CheckID = "web.spel_injection"  // Spring Expression Language injection
+	CheckWebOGNLInjection CheckID = "web.ognl_injection"  // OGNL injection (Struts/Confluence)
+
+	// ── MFA Enforcement — Cloud IAM ─────────────────────────────────────────
+	CheckCloudGCPNo2SV                 CheckID = "cloud.gcp.no_org_2sv"                 // GCP org without 2-Step Verification enforced
+	CheckCloudAzureNoConditionalAccessMFA CheckID = "cloud.azure.no_conditional_access_mfa" // Azure AD without conditional access MFA policy
+	CheckCloudAWSIAMMFANotEnforced     CheckID = "cloud.aws.iam_mfa_not_enforced"       // IAM policy allows escalation without MFA condition
+
+	// ── Encryption at Rest — Storage ────────────────────────────────────────
+	CheckCloudGCPBucketNoCMEK         CheckID = "cloud.gcp.bucket_no_cmek"         // GCS bucket without customer-managed encryption key
+	CheckCloudAzureBlobNoCMK          CheckID = "cloud.azure.blob_no_cmk"          // Blob storage without customer-managed encryption
+	CheckCloudAzureStorageNoInfraEncrypt CheckID = "cloud.azure.storage_no_infra_encrypt" // Storage without infrastructure encryption
+
+	// ── Database Public Reachability ────────────────────────────────────────
+	CheckCloudAWSRDSPublicReachable     CheckID = "cloud.aws.rds_public_reachable"       // RDS instance actually reachable from internet
+	CheckCloudGCPCloudSQLReachable      CheckID = "cloud.gcp.cloudsql_public_reachable"  // Cloud SQL actually reachable from internet
+	CheckCloudAzureCosmosDBReachable    CheckID = "cloud.azure.cosmosdb_public_reachable" // Cosmos DB actually reachable from internet
+
+	// ── LDAP Injection — additional patterns ────────────────────────────────
+	CheckLDAPBlindInjection CheckID = "iam.ldap_blind_injection" // blind LDAP injection via response timing
+	CheckLDAPAuthBypass     CheckID = "iam.ldap_auth_bypass"     // LDAP authentication bypass via injection
+
+	// ── Bitbucket Pipelines CI ──────────────────────────────────────────────
+	CheckBitbucketPipelineUnpinned     CheckID = "bitbucket.pipeline_unpinned_image"  // pipeline uses unpinned Docker image
+	CheckBitbucketPipelineSecretEchoed CheckID = "bitbucket.pipeline_secret_echoed"   // pipeline echoes secret variables
+	CheckBitbucketPipelineInsecureStep CheckID = "bitbucket.pipeline_insecure_step"   // pipeline step with dangerous permissions
+	CheckBitbucketPublicPipeline       CheckID = "bitbucket.public_pipeline"          // pipeline config visible on public repo
+
+	// ── GitLab CI extensions ────────────────────────────────────────────────
+	CheckGitLabCISecretInScript   CheckID = "gitlab.ci_secret_in_script"    // secret variable referenced in script block
+	CheckGitLabCIUnpinnedImage    CheckID = "gitlab.ci_unpinned_image"      // CI job uses unpinned Docker image
+	CheckGitLabCIPrivilegedRunner CheckID = "gitlab.ci_privileged_runner"   // CI job runs with Docker-in-Docker privileged mode
+
+	// ── Container Image / Registry ──────────────────────────────────────────
+	CheckContainerRegistryExposed      CheckID = "container.registry_exposed"       // Docker registry V2 API accessible without auth
+	CheckContainerImageUnsigned        CheckID = "container.image_unsigned"         // container image without signature
+	CheckContainerImageLatestTag       CheckID = "container.image_latest_tag"       // image tagged only as :latest
+	CheckContainerRegistryAnonymousPush CheckID = "container.registry_anonymous_push" // registry accepts unauthenticated push
+
+	// ── GraphQL DoS — fragment and nesting amplification ────────────────────
+	CheckGraphQLFragmentDos CheckID = "graphql.fragment_dos"  // deeply nested fragment causes amplification
+	CheckGraphQLDeepNesting CheckID = "graphql.deep_nesting"  // query depth exceeds 10 levels without rejection
+
+	// ── API Version Auth Bypass ─────────────────────────────────────────────
+	CheckAPIVersionAuthBypass      CheckID = "api.version_auth_bypass"      // older API version lacks authentication
+	CheckAPIVersionRateLimitBypass CheckID = "api.version_ratelimit_bypass" // older API version lacks rate limiting
+
+	// ── ReDoS — Regex Denial of Service ─────────────────────────────────────
+	CheckWebReDoS CheckID = "web.redos" // input causes excessive response time via regex backtracking
+
+	// ── Unsigned Build Artifacts ─────────────────────────────────────────────
+	CheckSupplyChainUnsignedNPM       CheckID = "supply_chain.unsigned_npm"        // npm package without provenance
+	CheckSupplyChainUnsignedPyPI      CheckID = "supply_chain.unsigned_pypi"       // PyPI package without Sigstore signature
+	CheckSupplyChainUnsignedContainer CheckID = "supply_chain.unsigned_container"  // container image without cosign signature
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -2346,6 +2439,101 @@ var Registry = map[CheckID]CheckMeta{
 	CheckSIWENonceReuse:           {CheckSIWENonceReuse, SeverityHigh, ModeDeep},
 	CheckSIWEChainBypass:          {CheckSIWEChainBypass, SeverityHigh, ModeDeep},
 	CheckSIWEReplayAttack:         {CheckSIWEReplayAttack, SeverityCritical, ModeDeep},
+
+	// ── New coverage gap scanners ───────────────────────────────────────────
+
+	// IDOR / BOLA — Deep (active probing with different auth contexts)
+	CheckIDORSequentialID:     {CheckIDORSequentialID, SeverityCritical, ModeDeep},
+	CheckBOLAHorizontalAccess: {CheckBOLAHorizontalAccess, SeverityCritical, ModeDeep},
+
+	// Broken Access Control — Deep
+	CheckAccessControlVerticalEscalation:  {CheckAccessControlVerticalEscalation, SeverityCritical, ModeDeep},
+	CheckAccessControlMethodBypass:        {CheckAccessControlMethodBypass, SeverityHigh, ModeDeep},
+	CheckAccessControlPathTraversalBypass: {CheckAccessControlPathTraversalBypass, SeverityCritical, ModeDeep},
+
+	// API Key in URL / JS — Surface (passive scan of response content)
+	CheckJSAPIKeyInURL:       {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
+	CheckJSAPIKeyInSourceMap: {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
+
+	// DigitalOcean Cloud — Deep (requires API token)
+	CheckCloudDOScanError:          {CheckCloudDOScanError, SeverityInfo, ModeDeep},
+	CheckCloudDOSpacesPublic:       {CheckCloudDOSpacesPublic, SeverityCritical, ModeDeep},
+	CheckCloudDOSpacesNoEncryption: {CheckCloudDOSpacesNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudDODropletPublicIP:    {CheckCloudDODropletPublicIP, SeverityMedium, ModeDeep},
+	CheckCloudDONoFirewall:         {CheckCloudDONoFirewall, SeverityHigh, ModeDeep},
+	CheckCloudDOFirewallAllOpen:    {CheckCloudDOFirewallAllOpen, SeverityCritical, ModeDeep},
+	CheckCloudDOFirewallSSHOpen:    {CheckCloudDOFirewallSSHOpen, SeverityHigh, ModeDeep},
+
+	// OCI Cloud — Deep (requires config file)
+	CheckCloudOCIScanError:           {CheckCloudOCIScanError, SeverityInfo, ModeDeep},
+	CheckCloudOCIBucketPublic:        {CheckCloudOCIBucketPublic, SeverityCritical, ModeDeep},
+	CheckCloudOCIBucketNoEncryption:  {CheckCloudOCIBucketNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudOCIVaultKeyNoRotation:  {CheckCloudOCIVaultKeyNoRotation, SeverityMedium, ModeDeep},
+	CheckCloudOCISecurityListAllOpen: {CheckCloudOCISecurityListAllOpen, SeverityCritical, ModeDeep},
+	CheckCloudOCISecurityListSSHOpen: {CheckCloudOCISecurityListSSHOpen, SeverityHigh, ModeDeep},
+	CheckCloudOCINSGAllOpen:          {CheckCloudOCINSGAllOpen, SeverityCritical, ModeDeep},
+
+	// Dependency Confusion — additional ecosystems — Surface
+	CheckDependencyConfusionGo:       {CheckDependencyConfusionGo, SeverityCritical, ModeSurface},
+	CheckDependencyConfusionRuby:     {CheckDependencyConfusionRuby, SeverityCritical, ModeSurface},
+	CheckDependencyConfusionComposer: {CheckDependencyConfusionComposer, SeverityCritical, ModeSurface},
+
+	// Expression Language Injection — Deep
+	CheckWebELInjection:   {CheckWebELInjection, SeverityCritical, ModeDeep},
+	CheckWebSpELInjection: {CheckWebSpELInjection, SeverityCritical, ModeDeep},
+	CheckWebOGNLInjection: {CheckWebOGNLInjection, SeverityCritical, ModeDeep},
+
+	// MFA Enforcement — Deep (cloud API)
+	CheckCloudGCPNo2SV:                    {CheckCloudGCPNo2SV, SeverityHigh, ModeDeep},
+	CheckCloudAzureNoConditionalAccessMFA: {CheckCloudAzureNoConditionalAccessMFA, SeverityHigh, ModeDeep},
+	CheckCloudAWSIAMMFANotEnforced:        {CheckCloudAWSIAMMFANotEnforced, SeverityHigh, ModeDeep},
+
+	// Encryption at Rest — Deep
+	CheckCloudGCPBucketNoCMEK:              {CheckCloudGCPBucketNoCMEK, SeverityMedium, ModeDeep},
+	CheckCloudAzureBlobNoCMK:               {CheckCloudAzureBlobNoCMK, SeverityMedium, ModeDeep},
+	CheckCloudAzureStorageNoInfraEncrypt:   {CheckCloudAzureStorageNoInfraEncrypt, SeverityMedium, ModeDeep},
+
+	// Database Public Reachability — Deep
+	CheckCloudAWSRDSPublicReachable:  {CheckCloudAWSRDSPublicReachable, SeverityCritical, ModeDeep},
+	CheckCloudGCPCloudSQLReachable:   {CheckCloudGCPCloudSQLReachable, SeverityCritical, ModeDeep},
+	CheckCloudAzureCosmosDBReachable: {CheckCloudAzureCosmosDBReachable, SeverityCritical, ModeDeep},
+
+	// LDAP Injection — Deep
+	CheckLDAPBlindInjection: {CheckLDAPBlindInjection, SeverityHigh, ModeDeep},
+	CheckLDAPAuthBypass:     {CheckLDAPAuthBypass, SeverityCritical, ModeDeep},
+
+	// Bitbucket Pipelines — Surface (static file analysis)
+	CheckBitbucketPipelineUnpinned:     {CheckBitbucketPipelineUnpinned, SeverityMedium, ModeSurface},
+	CheckBitbucketPipelineSecretEchoed: {CheckBitbucketPipelineSecretEchoed, SeverityHigh, ModeSurface},
+	CheckBitbucketPipelineInsecureStep: {CheckBitbucketPipelineInsecureStep, SeverityHigh, ModeSurface},
+	CheckBitbucketPublicPipeline:       {CheckBitbucketPublicPipeline, SeverityMedium, ModeSurface},
+
+	// GitLab CI extensions — Surface (static file analysis)
+	CheckGitLabCISecretInScript:   {CheckGitLabCISecretInScript, SeverityHigh, ModeSurface},
+	CheckGitLabCIUnpinnedImage:    {CheckGitLabCIUnpinnedImage, SeverityMedium, ModeSurface},
+	CheckGitLabCIPrivilegedRunner: {CheckGitLabCIPrivilegedRunner, SeverityHigh, ModeSurface},
+
+	// Container Registry — Deep (active probe)
+	CheckContainerRegistryExposed:       {CheckContainerRegistryExposed, SeverityCritical, ModeDeep},
+	CheckContainerImageUnsigned:         {CheckContainerImageUnsigned, SeverityMedium, ModeDeep},
+	CheckContainerImageLatestTag:        {CheckContainerImageLatestTag, SeverityLow, ModeDeep},
+	CheckContainerRegistryAnonymousPush: {CheckContainerRegistryAnonymousPush, SeverityCritical, ModeDeep},
+
+	// GraphQL DoS — Deep
+	CheckGraphQLFragmentDos: {CheckGraphQLFragmentDos, SeverityMedium, ModeDeep},
+	CheckGraphQLDeepNesting: {CheckGraphQLDeepNesting, SeverityMedium, ModeDeep},
+
+	// API Version Auth Bypass — Deep
+	CheckAPIVersionAuthBypass:      {CheckAPIVersionAuthBypass, SeverityCritical, ModeDeep},
+	CheckAPIVersionRateLimitBypass: {CheckAPIVersionRateLimitBypass, SeverityMedium, ModeDeep},
+
+	// ReDoS — Deep
+	CheckWebReDoS: {CheckWebReDoS, SeverityMedium, ModeDeep},
+
+	// Unsigned Build Artifacts — Surface (public registry query)
+	CheckSupplyChainUnsignedNPM:       {CheckSupplyChainUnsignedNPM, SeverityMedium, ModeSurface},
+	CheckSupplyChainUnsignedPyPI:      {CheckSupplyChainUnsignedPyPI, SeverityMedium, ModeSurface},
+	CheckSupplyChainUnsignedContainer: {CheckSupplyChainUnsignedContainer, SeverityMedium, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

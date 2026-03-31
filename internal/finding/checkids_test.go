@@ -602,6 +602,60 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckSIWEReplayAttack:          true,
 		// Port-level active probes
 		finding.CheckPortMinIODefaultCreds: true,
+		// MFA enforcement — cloud API
+		finding.CheckCloudGCPNo2SV:                    true,
+		finding.CheckCloudAzureNoConditionalAccessMFA: true,
+		finding.CheckCloudAWSIAMMFANotEnforced:        true,
+		// Encryption at rest — cloud API
+		finding.CheckCloudGCPBucketNoCMEK:            true,
+		finding.CheckCloudAzureBlobNoCMK:              true,
+		finding.CheckCloudAzureStorageNoInfraEncrypt:  true,
+		// Database public reachability — TCP connect
+		finding.CheckCloudAWSRDSPublicReachable:  true,
+		finding.CheckCloudGCPCloudSQLReachable:   true,
+		finding.CheckCloudAzureCosmosDBReachable: true,
+		// LDAP injection
+		finding.CheckLDAPBlindInjection: true,
+		finding.CheckLDAPAuthBypass:     true,
+		// Container registry
+		finding.CheckContainerRegistryExposed:       true,
+		finding.CheckContainerImageUnsigned:         true,
+		finding.CheckContainerImageLatestTag:        true,
+		finding.CheckContainerRegistryAnonymousPush: true,
+		// GraphQL DoS
+		finding.CheckGraphQLFragmentDos: true,
+		finding.CheckGraphQLDeepNesting: true,
+		// API version bypass
+		finding.CheckAPIVersionAuthBypass:      true,
+		finding.CheckAPIVersionRateLimitBypass: true,
+		// ReDoS
+		finding.CheckWebReDoS: true,
+		// Expression language injection
+		finding.CheckWebELInjection:   true,
+		finding.CheckWebSpELInjection: true,
+		finding.CheckWebOGNLInjection: true,
+		// API authorization — active probe
+		finding.CheckBOLAHorizontalAccess:             true,
+		finding.CheckAccessControlVerticalEscalation:  true,
+		finding.CheckIDORSequentialID:                 true,
+		finding.CheckAccessControlMethodBypass:        true,
+		finding.CheckAccessControlPathTraversalBypass: true,
+		// DigitalOcean cloud
+		finding.CheckCloudDOScanError:          true,
+		finding.CheckCloudDOSpacesPublic:       true,
+		finding.CheckCloudDOSpacesNoEncryption: true,
+		finding.CheckCloudDODropletPublicIP:    true,
+		finding.CheckCloudDONoFirewall:         true,
+		finding.CheckCloudDOFirewallAllOpen:    true,
+		finding.CheckCloudDOFirewallSSHOpen:    true,
+		// OCI cloud
+		finding.CheckCloudOCIScanError:           true,
+		finding.CheckCloudOCIBucketPublic:        true,
+		finding.CheckCloudOCIBucketNoEncryption:  true,
+		finding.CheckCloudOCIVaultKeyNoRotation:  true,
+		finding.CheckCloudOCISecurityListAllOpen: true,
+		finding.CheckCloudOCISecurityListSSHOpen: true,
+		finding.CheckCloudOCINSGAllOpen:          true,
 	}
 
 	for id, meta := range finding.Registry {
