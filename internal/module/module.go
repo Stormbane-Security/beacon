@@ -15,6 +15,7 @@ const (
 	InputIaC        InputType = "iac"
 	InputCloud      InputType = "cloud"
 	InputKubernetes InputType = "kubernetes"
+	InputOnPrem     InputType = "onprem"
 )
 
 // ScanType controls depth: surface is passive-only, deep adds active probing.

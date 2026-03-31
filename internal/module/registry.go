@@ -59,6 +59,10 @@ func inputSatisfied(required []InputType, input Input) bool {
 			if input.KubeconfigPath == "" {
 				return false
 			}
+		case InputOnPrem:
+			if !input.OnPremEnabled {
+				return false
+			}
 		}
 	}
 	return true
