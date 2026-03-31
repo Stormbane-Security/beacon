@@ -883,6 +883,13 @@ const (
 	CheckCorrelationLateralMovement    CheckID = "correlation.lateral_movement_path"
 	CheckCorrelationGeneric            CheckID = "correlation.attack_chain"
 
+	// ── Asset overlap correlation ──────────────────────────────────────────
+	CheckCorrelationIPOverlap           CheckID = "correlation.ip_overlap"             // surface asset and cloud resource share the same IP
+	CheckCorrelationTLSSANOverlap       CheckID = "correlation.tls_san_overlap"        // domain appears in cloud resource's TLS certificate SAN
+	CheckCorrelationCNAMEToCloud        CheckID = "correlation.cname_to_cloud"         // domain CNAMEs to cloud provider hostname
+	CheckCorrelationSharedInfra         CheckID = "correlation.shared_infrastructure"  // multiple assets share the same backend IP
+	CheckCorrelationCloudToSurface      CheckID = "correlation.cloud_to_surface"       // cloud resource serves a scanned domain (composite signal)
+
 	// Terraform / IaC static analysis
 	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
 	CheckTerraformGCSBucketPublic      CheckID = "terraform.gcs_bucket_public"
@@ -2126,6 +2133,13 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationCredentialReuse:    {CheckCorrelationCredentialReuse, SeverityCritical, ModeSurface},
 	CheckCorrelationLateralMovement:    {CheckCorrelationLateralMovement, SeverityCritical, ModeSurface},
 	CheckCorrelationGeneric:            {CheckCorrelationGeneric, SeverityHigh, ModeSurface},
+
+	// ── Asset overlap correlation ──────────────────────────────────────────
+	CheckCorrelationIPOverlap:      {CheckCorrelationIPOverlap, SeverityInfo, ModeSurface},
+	CheckCorrelationTLSSANOverlap:  {CheckCorrelationTLSSANOverlap, SeverityInfo, ModeSurface},
+	CheckCorrelationCNAMEToCloud:   {CheckCorrelationCNAMEToCloud, SeverityInfo, ModeSurface},
+	CheckCorrelationSharedInfra:    {CheckCorrelationSharedInfra, SeverityInfo, ModeSurface},
+	CheckCorrelationCloudToSurface: {CheckCorrelationCloudToSurface, SeverityMedium, ModeSurface},
 
 	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
 	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ModeSurface},

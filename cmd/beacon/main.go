@@ -1264,6 +1264,25 @@ Type exactly: I have written authorization for all listed targets
 		}
 	}
 
+	// ── Asset correlation (surface ↔ cloud) ──────────────────────────────
+	// Deterministic correlation: match surface-scanned domains to cloud
+	// resources by IP overlap, CNAME chains, and TLS SAN matching.
+	// Produces advisory findings — never merges or deduplicates assets.
+	if len(cloudFindings) > 0 {
+		var surfaceFindings []finding.Finding
+		for _, res := range allResults {
+			surfaceFindings = append(surfaceFindings, res.findings...)
+		}
+		assetCorrFindings := analyze.CorrelateAssets(surfaceFindings, cloudFindings)
+		if len(assetCorrFindings) > 0 {
+			fmt.Fprintf(os.Stderr, "beacon: asset correlation — %d link(s) found\n", len(assetCorrFindings))
+			allFindings = append(allFindings, assetCorrFindings...)
+			if len(allResults) > 0 && allResults[0].run != nil {
+				_ = st.SaveFindings(ctx, allResults[0].run.ID, assetCorrFindings)
+			}
+		}
+	}
+
 	// ── AI fingerprint enrichment (multi-asset) ─────────────────────────────
 	// Analyse collected fingerprint evidence across all assets to find
 	// version-specific vulnerabilities and configuration anomalies.
