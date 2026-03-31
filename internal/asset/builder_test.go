@@ -2261,3 +2261,134 @@ func TestAddDomainAssetFull_BackwardCompatible(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GitHub package assets: workflow publishes package
+// ---------------------------------------------------------------------------
+
+func TestBuild_GitHubWorkflowPublishesPackage(t *testing.T) {
+	b := NewBuilder("run-pkg", "example.com")
+
+	// Add a GitHub workflow asset.
+	workflowAsset := Asset{
+		ID:           "github_workflow:example-org/api-service/.github/workflows/release.yml",
+		Type:         AssetTypeGitHubWorkflow,
+		Provider:     "github",
+		Name:         "release.yml",
+		DiscoveredBy: "ghrepo",
+		Confidence:   1.0,
+	}
+	b.AddAsset(workflowAsset)
+
+	// Add a GitHub package asset.
+	packageAsset := Asset{
+		ID:           "github_package:example-org/api-service/ghcr.io/example-org/api-service",
+		Type:         AssetTypeGitHubPackage,
+		Provider:     "github",
+		Name:         "ghcr.io/example-org/api-service",
+		DiscoveredBy: "ghrepo",
+		Confidence:   1.0,
+	}
+	b.AddAsset(packageAsset)
+
+	// Add a "publishes" relationship: workflow -> package.
+	b.AddRelationship(Relationship{
+		FromID:     workflowAsset.ID,
+		ToID:       packageAsset.ID,
+		Type:       RelPublishes,
+		Confidence: 1.0,
+		Evidence:   map[string]any{"method": "workflow_analysis"},
+	})
+
+	graph := b.Build()
+
+	// Verify both assets are in the graph.
+	foundWorkflow := false
+	foundPackage := false
+	for _, a := range graph.Assets {
+		if a.ID == workflowAsset.ID && a.Type == AssetTypeGitHubWorkflow {
+			foundWorkflow = true
+		}
+		if a.ID == packageAsset.ID && a.Type == AssetTypeGitHubPackage {
+			foundPackage = true
+		}
+	}
+	if !foundWorkflow {
+		t.Error("workflow asset not found in built graph")
+	}
+	if !foundPackage {
+		t.Error("package asset not found in built graph")
+	}
+
+	// Verify the publishes relationship appears in the graph.
+	foundRel := false
+	for _, r := range graph.Relationships {
+		if r.FromID == workflowAsset.ID &&
+			r.ToID == packageAsset.ID &&
+			r.Type == RelPublishes {
+			foundRel = true
+			if r.Confidence != 1.0 {
+				t.Errorf("publishes relationship confidence = %f, want 1.0", r.Confidence)
+			}
+			break
+		}
+	}
+	if !foundRel {
+		t.Error("publishes relationship (workflow -> package) not found in built graph")
+	}
+}
+
+func TestBuild_GitHubPackageDeployedFromRelationship(t *testing.T) {
+	b := NewBuilder("run-deploy", "example.com")
+
+	// Package asset
+	pkg := Asset{
+		ID:           "github_package:org/svc/ghcr.io/org/svc",
+		Type:         AssetTypeGitHubPackage,
+		Provider:     "github",
+		Name:         "ghcr.io/org/svc",
+		DiscoveredBy: "ghrepo",
+		Confidence:   1.0,
+	}
+	b.AddAsset(pkg)
+
+	// Cloud instance running this package image
+	instance := Asset{
+		ID:       "gcp_compute_instance:projects/acme/zones/us-central1-a/instances/svc-prod",
+		Type:     AssetTypeGCPInstance,
+		Provider: "gcp",
+		Name:     "svc-prod",
+		Metadata: map[string]any{
+			"external_ip":     "34.100.200.1",
+			"container_image": "ghcr.io/org/svc:latest",
+		},
+		DiscoveredBy: "gcp-compute",
+		Confidence:   1.0,
+	}
+	b.AddAsset(instance)
+
+	// deployed_from: instance -> package
+	b.AddRelationship(Relationship{
+		FromID:     instance.ID,
+		ToID:       pkg.ID,
+		Type:       RelDeployedFrom,
+		Confidence: 0.95,
+		Evidence:   map[string]any{"image": "ghcr.io/org/svc:latest"},
+	})
+
+	graph := b.Build()
+
+	// Verify deployed_from relationship
+	foundDeployedFrom := false
+	for _, r := range graph.Relationships {
+		if r.FromID == instance.ID &&
+			r.ToID == pkg.ID &&
+			r.Type == RelDeployedFrom {
+			foundDeployedFrom = true
+			break
+		}
+	}
+	if !foundDeployedFrom {
+		t.Error("deployed_from relationship (instance -> package) not found in built graph")
+	}
+}

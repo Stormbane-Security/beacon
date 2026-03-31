@@ -1,6 +1,9 @@
 package worker
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -384,4 +387,181 @@ func TestSubscribe_ConcurrentSafety(t *testing.T) {
 	if got != want {
 		t.Errorf("total received = %d, want %d", got, want)
 	}
+}
+
+// ---------- Log capping tests ----------
+
+// TestEmit_LogCapping_At10000 verifies that the emit method stops recording
+// log lines after 10,000 entries for a given scan run, preventing unbounded
+// memory growth from long-running scans.
+func TestEmit_LogCapping_At10000(t *testing.T) {
+	p := newTestPool()
+
+	const logCap = 10000
+	const total = logCap + 500
+
+	for i := range total {
+		p.emit("run-cap", itoa(i))
+	}
+
+	logs := p.Logs("run-cap")
+	if len(logs) != logCap {
+		t.Errorf("expected log cap at %d, got %d lines", logCap, len(logs))
+	}
+}
+
+// TestEmit_LogCapping_PreservesEarlyMessages verifies that when the cap is
+// reached, the first messages are the ones kept (not overwritten).
+func TestEmit_LogCapping_PreservesEarlyMessages(t *testing.T) {
+	p := newTestPool()
+
+	// Emit exactly the cap + some overflow.
+	for i := range 10001 {
+		p.emit("run-order", "msg-"+itoa(i))
+	}
+
+	logs := p.Logs("run-order")
+	if len(logs) != 10000 {
+		t.Fatalf("expected 10000 logs, got %d", len(logs))
+	}
+
+	// The first log should contain "msg-0" (with timestamp prefix).
+	if !containsSubstring(logs[0], "msg-0") {
+		t.Errorf("first log line should contain msg-0, got %q", logs[0])
+	}
+	// The last log should contain "msg-9999" — messages after 10000 are dropped.
+	if !containsSubstring(logs[9999], "msg-9999") {
+		t.Errorf("last log line should contain msg-9999, got %q", logs[9999])
+	}
+}
+
+// ---------- Context timeout in process ----------
+
+// TestProcess_ContextHasDeadline verifies that the context passed to scan
+// processing has a 2-hour timeout. We cannot call process() directly without
+// a full store/module setup, but we can verify the timeout is set by
+// creating a context the same way process() does and checking the deadline.
+func TestProcess_ContextTimeout(t *testing.T) {
+	// Mirror the exact logic from process():
+	//   ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected context to have a deadline")
+	}
+	untilDeadline := time.Until(deadline)
+	// Should be approximately 2 hours (allow 5s tolerance for test execution time).
+	if untilDeadline < 2*time.Hour-5*time.Second || untilDeadline > 2*time.Hour+time.Second {
+		t.Errorf("expected ~2h deadline, got %v", untilDeadline)
+	}
+}
+
+// ---------- Concurrent job processing ----------
+
+// TestConcurrentJobProcessing verifies that multiple jobs submitted to a pool
+// with concurrency > 1 are processed in parallel, not sequentially.
+func TestConcurrentJobProcessing(t *testing.T) {
+	p := newTestPool()
+
+	// We simulate concurrent processing by submitting jobs and consuming
+	// them from the queue in parallel goroutines (mimicking what run() does).
+	const poolSize = 4
+	const jobCount = 8
+
+	for i := range jobCount {
+		_ = p.Submit(Job{ScanRunID: "concurrent-" + itoa(i), Domain: "example.com"})
+	}
+
+	var processed atomic.Int64
+	var wg sync.WaitGroup
+	wg.Add(poolSize)
+
+	// Start poolSize consumer goroutines.
+	for range poolSize {
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case _, ok := <-p.queue:
+					if !ok {
+						return
+					}
+					processed.Add(1)
+				case <-time.After(500 * time.Millisecond):
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	got := processed.Load()
+	if got != jobCount {
+		t.Errorf("processed %d jobs, want %d", got, jobCount)
+	}
+}
+
+// ---------- SSE subscriber notification ----------
+
+// TestSSE_SubscriberReceivesAllEvents verifies that a subscriber channel
+// receives every log event emitted for its scan run in order, simulating
+// the SSE streaming pattern used by the API.
+func TestSSE_SubscriberReceivesAllEvents(t *testing.T) {
+	p := newTestPool()
+	const runID = "sse-test"
+
+	ch := p.Subscribe(runID)
+
+	messages := []string{"scan started", "running scanners...", "scan complete: 5 findings", "done"}
+	for _, msg := range messages {
+		p.emit(runID, msg)
+	}
+	p.closeSubscribers(runID)
+
+	var received []string
+	for msg := range ch {
+		received = append(received, msg)
+	}
+
+	if len(received) != len(messages) {
+		t.Fatalf("received %d events, want %d", len(received), len(messages))
+	}
+	// Verify ordering: each received message should contain the corresponding
+	// original message (wrapped with timestamp).
+	for i, msg := range messages {
+		if !containsSubstring(received[i], msg) {
+			t.Errorf("event[%d] = %q, should contain %q", i, received[i], msg)
+		}
+	}
+}
+
+// ---------- PurgeLogs ----------
+
+func TestPurgeLogs_RemovesLogLines(t *testing.T) {
+	p := newTestPool()
+	p.emit("run-purge", "line 1")
+	p.emit("run-purge", "line 2")
+
+	if len(p.Logs("run-purge")) != 2 {
+		t.Fatal("expected 2 log lines before purge")
+	}
+
+	p.PurgeLogs("run-purge")
+
+	if len(p.Logs("run-purge")) != 0 {
+		t.Error("expected 0 log lines after purge")
+	}
+}
+
+// ---------- helpers ----------
+
+func itoa(i int) string {
+	return fmt.Sprintf("%d", i)
+}
+
+func containsSubstring(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

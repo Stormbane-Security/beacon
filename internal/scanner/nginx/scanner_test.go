@@ -86,6 +86,44 @@ func TestNginx_IISShortname(t *testing.T) {
 	}
 }
 
+// TestNginx_SurfaceMode_NoTraversalPayloads verifies that traversal payloads
+// are NOT emitted in ScanSurface mode. Traversal probes are active attack
+// payloads that require at least ScanDeep.
+func TestNginx_SurfaceMode_NoTraversalPayloads(t *testing.T) {
+	var requestedPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPaths = append(requestedPaths, r.URL.Path)
+		// Simulate a vulnerable server that would return passwd content
+		// if traversal paths are probed.
+		if strings.Contains(r.URL.Path, "etc/passwd") {
+			fmt.Fprintln(w, "root:x:0:0:root:/root:/bin/bash")
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// Verify no traversal findings are produced in surface mode.
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebNginxAliasTraversal {
+			t.Errorf("traversal finding emitted in ScanSurface mode: %s", f.Title)
+		}
+	}
+
+	// Verify no traversal paths were even requested.
+	for _, path := range requestedPaths {
+		if strings.Contains(path, "etc/passwd") || strings.Contains(path, "..") {
+			t.Errorf("traversal path %q was probed in ScanSurface mode", path)
+		}
+	}
+}
+
 // TestNginx_NormalServer verifies that a normal server with no vulnerabilities
 // produces no findings.
 func TestNginx_NormalServer(t *testing.T) {

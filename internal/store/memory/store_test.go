@@ -299,6 +299,92 @@ func TestDeleteScanRun_NoErrorForNonexistentID(t *testing.T) {
 
 // --- Findings ---
 
+func TestSaveFindings_DedupBySameCheckIDAssetTitle(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	f1 := finding.Finding{
+		CheckID: "cors.wildcard_origin",
+		Asset:   "api.example.com",
+		Title:   "Wildcard CORS origin",
+		Scanner: "cors",
+		Module:  "surface",
+	}
+	f2 := f1 // exact same CheckID + Asset + Title
+
+	// Save the same finding twice in separate batches.
+	s.SaveFindings(ctx(), run.ID, []finding.Finding{f1})
+	s.SaveFindings(ctx(), run.ID, []finding.Finding{f2})
+
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("expected 1 finding after dedup, got %d", len(got))
+	}
+}
+
+func TestSaveFindings_DifferentCheckIDsNotDeduped(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	f1 := finding.Finding{
+		CheckID: "cors.wildcard_origin",
+		Asset:   "api.example.com",
+		Title:   "Wildcard CORS origin",
+		Scanner: "cors",
+		Module:  "surface",
+	}
+	f2 := finding.Finding{
+		CheckID: "tls.expired_cert",
+		Asset:   "api.example.com",
+		Title:   "Expired TLS certificate",
+		Scanner: "tls",
+		Module:  "surface",
+	}
+
+	s.SaveFindings(ctx(), run.ID, []finding.Finding{f1, f2})
+
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 findings (different CheckIDs), got %d", len(got))
+	}
+}
+
+func TestSaveFindings_SameCheckIDDifferentAssetNotDeduped(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	f1 := finding.Finding{
+		CheckID: "cors.wildcard_origin",
+		Asset:   "api.example.com",
+		Title:   "Wildcard CORS origin",
+		Scanner: "cors",
+		Module:  "surface",
+	}
+	f2 := finding.Finding{
+		CheckID: "cors.wildcard_origin",
+		Asset:   "app.example.com",
+		Title:   "Wildcard CORS origin",
+		Scanner: "cors",
+		Module:  "surface",
+	}
+
+	s.SaveFindings(ctx(), run.ID, []finding.Finding{f1, f2})
+
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 findings (same CheckID, different assets), got %d", len(got))
+	}
+}
+
 func TestSaveFindings_AppendsBatches(t *testing.T) {
 	s := newStore()
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)

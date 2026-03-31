@@ -152,3 +152,52 @@ func TestIsValidHostname(t *testing.T) {
 		})
 	}
 }
+
+// TestRunWithTags_RejectsShellMetachars verifies that RunWithTags rejects
+// hostnames containing shell metacharacters that could lead to command
+// injection via the nuclei subprocess.
+func TestRunWithTags_RejectsShellMetachars(t *testing.T) {
+	s := New("/nonexistent/nuclei", "", "")
+
+	malicious := []struct {
+		name  string
+		input string
+	}{
+		{"semicolon", "example.com;whoami"},
+		{"pipe", "example.com|cat /etc/passwd"},
+		{"dollar_expansion", "$(whoami).example.com"},
+		{"backtick", "example.com`id`"},
+		{"ampersand", "example.com&sleep 5"},
+		{"newline", "example.com\nwhoami"},
+		{"space", "example.com whoami"},
+	}
+
+	for _, tt := range malicious {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := s.RunWithTags(t.Context(), tt.input, []string{"ssl"})
+			if err == nil {
+				t.Errorf("RunWithTags(%q) should reject hostname with shell metachar, got nil error", tt.input)
+			}
+			if err != nil && !strings.Contains(err.Error(), "invalid hostname") {
+				t.Errorf("RunWithTags(%q) error = %v, want 'invalid hostname' error", tt.input, err)
+			}
+		})
+	}
+}
+
+// TestRunWithTags_AcceptsValidHostname verifies that RunWithTags passes
+// validation for well-formed hostnames (it will fail at the binary-not-found
+// stage, which proves the hostname validation itself passed).
+func TestRunWithTags_AcceptsValidHostname(t *testing.T) {
+	s := New("/nonexistent/nuclei", "", "")
+
+	_, err := s.RunWithTags(t.Context(), "valid.example.com", []string{"ssl"})
+	if err == nil {
+		// Shouldn't happen since the binary doesn't exist
+		return
+	}
+	// The error should NOT be about invalid hostname — it should be about the missing binary.
+	if strings.Contains(err.Error(), "invalid hostname") {
+		t.Errorf("valid hostname was incorrectly rejected: %v", err)
+	}
+}
