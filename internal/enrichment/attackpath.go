@@ -39,7 +39,7 @@ func (c *ClaudeEnricher) AnalyzeAttackPaths(ctx context.Context, enriched []Enri
 	sb.WriteString("Below are all security findings grouped by scan module.\n\n")
 
 	for mod, findings := range byModule {
-		fmt.Fprintf(&sb, "=== Module: %s ===\n", strings.ToUpper(mod))
+		fmt.Fprintf(&sb, "=== Module: %s ===\n", sanitize(strings.ToUpper(mod), 64))
 		for _, ef := range findings {
 			f := ef.Finding
 			fmt.Fprintf(&sb, "  - [%s] %s | severity: %s | asset: %s\n",
@@ -50,7 +50,7 @@ func (c *ClaudeEnricher) AnalyzeAttackPaths(ctx context.Context, enriched []Enri
 				cloudFields := []string{"instance_id", "project_id", "external_ip", "public_ips"}
 				for _, key := range cloudFields {
 					if val, ok := f.Evidence[key]; ok && val != nil {
-						fmt.Fprintf(&sb, "      %s: %v\n", key, val)
+						fmt.Fprintf(&sb, "      %s: %s\n", key, sanitize(fmt.Sprint(val), 256))
 					}
 				}
 			}

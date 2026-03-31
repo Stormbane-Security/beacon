@@ -823,7 +823,7 @@ func extractJSONArray(text string) string {
 // with unparsed Claude responses.
 func looksLikeRawJSON(s string) bool {
 	t := strings.TrimSpace(s)
-	return strings.HasPrefix(t, "[{") || strings.HasPrefix(t, "```")
+	return strings.HasPrefix(t, "[") || strings.HasPrefix(t, "{") || strings.HasPrefix(t, "```")
 }
 
 // parseEnrichedResponse parses the JSON array Claude returns for batch enrichment.

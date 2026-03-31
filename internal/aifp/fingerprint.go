@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -112,12 +113,12 @@ func (r *ClassifyResult) MergeInto(ev *playbook.Evidence) {
 	}
 	seen := map[string]bool{}
 	for _, s := range ev.BackendServices {
-		seen[s] = true
+		seen[strings.ToLower(s)] = true
 	}
 	for _, s := range r.BackendServices {
-		if !seen[s] && s != "" {
+		if !seen[strings.ToLower(s)] && s != "" {
 			ev.BackendServices = append(ev.BackendServices, s)
-			seen[s] = true
+			seen[strings.ToLower(s)] = true
 		}
 	}
 	if ev.ClassificationSource == "" && r.Confidence != "" {
@@ -190,11 +191,15 @@ func (c *Classifier) Classify(ctx context.Context, ev *playbook.Evidence) (*Clas
 	if c.st != nil {
 		// Persist proposed fingerprint rules.
 		for i := range result.ProposedRules {
-			_ = c.st.UpsertFingerprintRule(ctx, &result.ProposedRules[i])
+			if err := c.st.UpsertFingerprintRule(ctx, &result.ProposedRules[i]); err != nil {
+				fmt.Fprintf(os.Stderr, "aifp: failed to persist fingerprint rule: %v\n", err)
+			}
 		}
 		// Persist a proposed playbook when the classifier has enough signal.
 		if sugg := buildProposedPlaybook(result); sugg != nil {
-			_ = c.st.SavePlaybookSuggestion(ctx, sugg)
+			if err := c.st.SavePlaybookSuggestion(ctx, sugg); err != nil {
+				fmt.Fprintf(os.Stderr, "aifp: failed to persist playbook suggestion: %v\n", err)
+			}
 		}
 	}
 	return result, nil
@@ -470,7 +475,7 @@ nuclei, cms-plugins, aillm, jenkins, ratelimit, smuggling, cdnbypass, depconf.
 Rules for proposed_rules:
 - Only include rules where the signal is clearly visible in the evidence above.
 - signal_type "header" requires signal_key (header name) and signal_value (substring).
-- confidence 0.0–1.0; only emit rules you are ≥0.7 confident about.
+- confidence 0.0–1.0; only emit rules you are ≥0.75 confident about.
 - Leave framework/proxy_type/cloud_provider empty string if uncertain.`)
 
 	return b.String()
@@ -514,6 +519,14 @@ func parseClassifyResponse(text string) (*ClassifyResult, error) {
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 
+	// Validate confidence is one of the expected values.
+	switch raw.Confidence {
+	case "high", "medium", "low":
+		// valid
+	default:
+		raw.Confidence = "low"
+	}
+
 	result := &ClassifyResult{
 		Framework:         raw.Framework,
 		ProxyType:         raw.ProxyType,
@@ -533,6 +546,14 @@ func parseClassifyResponse(text string) (*ClassifyResult, error) {
 	for _, r := range raw.ProposedRules {
 		if r.Field == "" || r.Value == "" || r.SignalType == "" {
 			continue
+		}
+		// Header rules require a signal key (the header name).
+		if r.SignalType == "header" && r.SignalKey == "" {
+			continue
+		}
+		// Clamp confidence to valid range.
+		if r.Confidence < 0 || r.Confidence > 1.0 {
+			r.Confidence = 0.5
 		}
 		result.ProposedRules = append(result.ProposedRules, store.FingerprintRule{
 			SignalType:  r.SignalType,

@@ -470,7 +470,7 @@ Type exactly: I have written authorization for %s
 
 	// Seed built-in fingerprint rules (idempotent — safe to call every scan).
 	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
-		_ = seedErr // non-fatal
+		fmt.Fprintf(os.Stderr, "beacon: warning: fingerprint seed failed: %v\n", seedErr)
 	}
 
 	// Upsert target
@@ -732,7 +732,7 @@ Type exactly: I have written authorization for %s
 		if err != nil {
 			fatalf("render raw findings: %v", err)
 		}
-		if err := os.WriteFile(outputRawPath, []byte(raw), 0o644); err != nil {
+		if err := os.WriteFile(outputRawPath, []byte(raw), 0o600); err != nil {
 			fatalf("write raw findings: %v", err)
 		}
 		// Mark completed so the run shows in history.
@@ -817,7 +817,7 @@ Type exactly: I have written authorization for %s
 	}
 
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
 			fatalf("write report file: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
@@ -966,7 +966,7 @@ Type exactly: I have written authorization for all listed targets
 	defer st.Close()
 
 	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
-		_ = seedErr
+		fmt.Fprintf(os.Stderr, "beacon: warning: fingerprint seed failed: %v\n", seedErr)
 	}
 
 	warnMissingAPIKeys(cfg)
@@ -1257,7 +1257,7 @@ Type exactly: I have written authorization for all listed targets
 		if err != nil {
 			fatalf("render raw findings: %v", err)
 		}
-		if err := os.WriteFile(outputRawPath, []byte(raw), 0o644); err != nil {
+		if err := os.WriteFile(outputRawPath, []byte(raw), 0o600); err != nil {
 			fatalf("write raw findings: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: %d raw findings written to %s\n", len(allFindings), outputRawPath)
@@ -1369,7 +1369,7 @@ Type exactly: I have written authorization for all listed targets
 	if format == "graph" {
 		dot := report.RenderGraphDOT(graph)
 		if outPath != "" {
-			if err := os.WriteFile(outPath, []byte(dot), 0o644); err != nil {
+			if err := os.WriteFile(outPath, []byte(dot), 0o600); err != nil {
 				fatalf("write graph file: %v", err)
 			}
 			fmt.Fprintf(os.Stderr, "beacon: graph written to %s\n", outPath)
@@ -1628,7 +1628,7 @@ func cmdScanRemote(serverURL, apiKey, domain string, deep, permissionConfirmed, 
 	}
 
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(html), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(html), 0o600); err != nil {
 			fatalf("write report file: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
@@ -1683,7 +1683,7 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 	out := sb.String()
 
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(out), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(out), 0o600); err != nil {
 			fatalf("write report: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
@@ -3784,7 +3784,7 @@ func cmdReport(cfg *config.Config, args []string) {
 	}
 
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
 			fatalf("write report file: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
@@ -3927,7 +3927,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 
 	report := md.String()
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(report), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(report), 0o600); err != nil {
 			fatalf("write output: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
@@ -4017,9 +4017,10 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 
 	// Write YAML to a temp file and open a PR via gh CLI.
 	yamlPath := filepath.Join(os.TempDir(), "beacon-playbook-"+safeName+".yaml")
-	if err := os.WriteFile(yamlPath, []byte(target.SuggestedYAML), 0o644); err != nil {
+	if err := os.WriteFile(yamlPath, []byte(target.SuggestedYAML), 0o600); err != nil {
 		fatalf("write yaml: %v", err)
 	}
+	defer os.Remove(yamlPath)
 
 	prTitle := fmt.Sprintf("playbook: add/update %s", target.TargetPlaybook)
 	prBody := fmt.Sprintf("AI-suggested playbook change.\n\n**Reasoning:** %s\n\n**Type:** %s\n\n```yaml\n%s\n```",
@@ -4040,7 +4041,9 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	}
 
 	target.Status = "pr_opened"
-	_ = st.UpdatePlaybookSuggestion(ctx, target)
+	if err := st.UpdatePlaybookSuggestion(ctx, target); err != nil {
+		fmt.Fprintf(os.Stderr, "beacon: warning: failed to update suggestion status: %v\n", err)
+	}
 }
 
 // cmdPlaybookImport writes an approved suggestion's YAML to
@@ -4402,7 +4405,7 @@ func cmdEnrich(cfg *config.Config, args []string) {
 	}
 
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
 			fatalf("write report: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "beacon: enriched report written to %s\n", outPath)
@@ -5617,6 +5620,10 @@ func importPlaybookSuggestion(sugg *store.PlaybookSuggestion) error {
 	safeName := safePlaybookName(sugg.TargetPlaybook)
 	if safeName == "" {
 		return fmt.Errorf("invalid playbook name: %q", sugg.TargetPlaybook)
+	}
+	// Validate that the suggested YAML is a parseable playbook before writing.
+	if _, err := playbook.ParsePlaybook([]byte(sugg.SuggestedYAML)); err != nil {
+		return fmt.Errorf("invalid playbook YAML: %w", err)
 	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {

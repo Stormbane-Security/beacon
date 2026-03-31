@@ -275,9 +275,9 @@ func TestLooksLikeRawJSON_WhitespaceBeforeJSON(t *testing.T) {
 }
 
 func TestLooksLikeRawJSON_SingleOpenBrace(t *testing.T) {
-	// A string starting with "{" alone (not "[{") is not raw JSON in our definition.
-	if looksLikeRawJSON("{\"key\":\"val\"}") {
-		t.Error("expected false for JSON object (not array)")
+	// A JSON object response should also be detected to prevent cache poisoning.
+	if !looksLikeRawJSON("{\"key\":\"val\"}") {
+		t.Error("expected true for JSON object")
 	}
 }
 

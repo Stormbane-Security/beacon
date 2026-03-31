@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -304,7 +305,12 @@ func Open(path string) (*Store, error) {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup ON findings(scan_run_id, check_id, asset, title)`,
 	}
 	for _, m := range migrations {
-		_, _ = db.Exec(m) // ignore "duplicate column" errors
+		if _, err := db.Exec(m); err != nil {
+			msg := err.Error()
+			if !strings.Contains(msg, "duplicate column") && !strings.Contains(msg, "already exists") {
+				fmt.Fprintf(os.Stderr, "beacon: migration warning: %v\n", err)
+			}
+		}
 	}
 
 	return &Store{db: db}, nil
