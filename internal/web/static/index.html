@@ -183,6 +183,7 @@ function route() {
   if (p[0] === 'targets' && p[1]) return { page: 'target', domain: decodeURIComponent(p[1]), tab: p[2] || 'findings' };
   if (p[0] === 'targets') return { page: 'targets' };
   if (p[0] === 'scan') return { page: 'scan' };
+  if (p[0] === 'scaffold') return { page: 'scaffold' };
   return { page: p[0] };
 }
 function nav(hash) { location.hash = hash; }
@@ -241,6 +242,7 @@ function sidebar() {
       <a class="nav-item ${r.page==='dashboard'?'active':''}" href="#/dashboard">${I.grid} Dashboard</a>
       <a class="nav-item ${r.page==='targets'||r.page==='target'?'active':''}" href="#/targets">${I.globe} Targets</a>
       <a class="nav-item ${r.page==='scan'?'active':''}" href="#/scan">${I.plus} New Scan</a>
+      <a class="nav-item ${r.page==='scaffold'?'active':''}" href="#/scaffold">${I.wrench} Scaffold</a>
     </div>
   </nav>`;
 }
@@ -705,6 +707,271 @@ function rescan(domain) {
   setTimeout(() => { const i = document.getElementById('scan-domain'); if(i) i.value = domain; }, 60);
 }
 
+// ── Scaffold ─────────────────────────────────────────────────────────────────
+function pageScaffold() {
+  const providers = ['gcp','aws','azure','okta','cicd'];
+  const groupLabels = { gcp:'Google Cloud', aws:'Amazon Web Services', azure:'Microsoft Azure', okta:'Okta / Identity', cicd:'CI / CD' };
+  let cards = '';
+  for (const p of providers) {
+    const items = (S._catalogCache||[]).filter(e => e.provider === p || (p === 'cicd' && e.category === 'cicd'));
+    if (!items.length) continue;
+    cards += `<h3 style="margin:18px 0 8px">${groupLabels[p]||p}</h3><div class="grid grid-3">`;
+    for (const e of items) {
+      cards += `<div class="card" style="cursor:pointer" onclick="W.scaffoldSelect('${e.id}')">
+        <div class="card-title">${esc(e.name)}</div>
+        <div class="card-body" style="font-size:12px;color:var(--muted)">${esc(e.description)}</div>
+        <div style="margin-top:6px">${(e.tags||[]).map(t=>'<span class="badge badge-info">'+esc(t)+'</span>').join(' ')}</div>
+      </div>`;
+    }
+    cards += '</div>';
+  }
+
+  const sel = S._scaffoldEntry;
+  let formHtml = '';
+  if (sel) {
+    formHtml = `<div class="card" style="margin-top:16px">
+      <div class="card-title">${esc(sel.name)} <button class="btn btn-sm" onclick="W.scaffoldClear()" style="float:right">Back to catalog</button></div>
+      <div class="card-body">
+        <p style="color:var(--muted);font-size:13px">${esc(sel.description)}</p>
+        ${sel.security_notes?.length ? '<div class="alert alert-info" style="margin:8px 0;font-size:12px"><strong>Security notes:</strong><ul style="margin:4px 0 0 16px">'+sel.security_notes.map(n=>'<li>'+esc(n)+'</li>').join('')+'</ul></div>' : ''}
+        <form id="scaffold-form" onsubmit="event.preventDefault();W.scaffoldGenerate()">
+          ${(sel.params||[]).map(p => `<div class="form-group" style="margin-top:8px">
+            <label class="form-label">${esc(p.name)} ${p.required?'<span style="color:var(--critical)">*</span>':''}</label>
+            <input class="form-input" name="${esc(p.name)}" placeholder="${esc(p.default_value||p.description||'')}" ${p.required?'required':''} value="${esc(p.default_value||'')}">
+            ${p.description?'<small style="color:var(--muted)">'+esc(p.description)+'</small>':''}
+          </div>`).join('')}
+          <button class="btn btn-primary" type="submit" style="margin-top:12px">Generate Terraform</button>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  let outputHtml = '';
+  if (S._scaffoldOutput) {
+    outputHtml = `<div class="card" style="margin-top:16px">
+      <div class="card-title">Generated Files <button class="btn btn-sm" onclick="W.scaffoldDownload()" style="float:right">${I.download} Download</button></div>
+      <div class="card-body">`;
+    for (const [name, content] of Object.entries(S._scaffoldOutput)) {
+      outputHtml += `<details style="margin-bottom:8px"><summary style="cursor:pointer;font-weight:600;font-size:13px">${esc(name)}</summary>
+        <pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;overflow-x:auto;margin-top:4px">${esc(content)}</pre></details>`;
+    }
+    outputHtml += '</div></div>';
+  }
+
+  let matchHtml = '';
+  if (S._scaffoldMatches && S._scaffoldMatches.length) {
+    matchHtml = `<div class="card" style="margin-top:16px"><div class="card-title">Matching Templates</div><div class="card-body"><table class="tbl"><thead><tr><th>Name</th><th>Provider</th><th>Description</th><th></th></tr></thead><tbody>`;
+    for (const m of S._scaffoldMatches) {
+      matchHtml += `<tr><td>${esc(m.name)}</td><td><span class="badge">${esc(m.provider)}</span></td><td style="font-size:12px">${esc(m.description)}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="W.scaffoldSelect('${m.id}')">Use</button></td></tr>`;
+    }
+    matchHtml += '</tbody></table></div></div>';
+  }
+
+  const chatMsgs = (S._scaffoldChat || []).map(m => {
+    const cls = m.role === 'user' ? 'chat-user' : 'chat-ai';
+    const label = m.role === 'user' ? 'You' : 'Architect';
+    // Parse action blocks from AI messages.
+    let content = esc(m.content);
+    // Render markdown-ish bold.
+    content = content.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Render code blocks.
+    content = content.replace(/```json\n?([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:6px;border-radius:4px;font-size:11px;margin:4px 0">$1</pre>');
+    content = content.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+    content = content.replace(/\n/g, '<br>');
+    return `<div class="${cls}" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;${m.role==='user'?'background:var(--primary);color:white;margin-left:20%':'background:var(--card-bg);border:1px solid var(--border);margin-right:20%'}">
+      <div style="font-size:11px;font-weight:600;margin-bottom:4px;opacity:0.7">${label}</div>
+      <div style="font-size:13px;line-height:1.5">${content}</div>
+    </div>`;
+  }).join('');
+
+  const chatPanel = `<div class="card" style="margin-top:16px">
+    <div class="card-title">AI Infrastructure Architect</div>
+    <div class="card-body">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Describe what you want to build. The AI will ask questions, recommend templates, and help you configure security-hardened infrastructure.</p>
+      <div id="chat-messages" style="max-height:400px;overflow-y:auto;margin-bottom:12px;padding:4px">
+        ${chatMsgs || '<div style="text-align:center;color:var(--muted);padding:40px;font-size:13px">Start a conversation — tell me what you want to build</div>'}
+      </div>
+      <div style="display:flex;gap:8px">
+        <input class="form-input" id="chat-input" placeholder="e.g. I need a GKE cluster for a production microservices app…" style="flex:1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();W.scaffoldChatSend()}" ${S._scaffoldChatLoading?'disabled':''}>
+        <button class="btn btn-primary" onclick="W.scaffoldChatSend()" ${S._scaffoldChatLoading?'disabled':''}>${S._scaffoldChatLoading?'Thinking…':'Send'}</button>
+      </div>
+      ${S._scaffoldChat?.length ? '<button class="btn btn-sm" onclick="W.scaffoldChatClear()" style="margin-top:8px;float:right">Clear conversation</button>' : ''}
+    </div>
+  </div>`;
+
+  const mode = S._scaffoldMode || 'chat';
+  const tabs = `<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)">
+    <button class="btn ${mode==='chat'?'btn-primary':''}" style="border-radius:6px 6px 0 0;border-bottom:none" onclick="W.scaffoldSetMode('chat')">AI Architect</button>
+    <button class="btn ${mode==='catalog'?'btn-primary':''}" style="border-radius:6px 6px 0 0;border-bottom:none" onclick="W.scaffoldSetMode('catalog')">Browse Catalog</button>
+  </div>`;
+
+  let body = '';
+  if (mode === 'chat') {
+    body = chatPanel + (sel ? formHtml : '') + outputHtml;
+  } else {
+    body = `<div style="display:flex;gap:8px;margin-bottom:16px">
+      <input class="form-input" id="scaffold-query" placeholder="Search templates…" style="flex:1"
+        onkeydown="if(event.key==='Enter')W.scaffoldMatch()">
+      <button class="btn btn-primary" onclick="W.scaffoldMatch()">Find Templates</button>
+    </div>
+    ${matchHtml}
+    ${sel ? formHtml : cards}
+    ${outputHtml}`;
+  }
+
+  return wrap('Scaffold Infrastructure', tabs + body);
+}
+
+async function scaffoldLoadCatalog() {
+  if (S._catalogCache) return;
+  try {
+    const r = await F('/v1/catalog');
+    S._catalogCache = r.entries || [];
+  } catch(e) { S._catalogCache = []; }
+}
+
+async function scaffoldMatch() {
+  const q = document.getElementById('scaffold-query')?.value?.trim();
+  if (!q) return;
+  try {
+    const r = await F('/v1/scaffold/match', { method:'POST', body: JSON.stringify({ query: q }) });
+    S._scaffoldMatches = r.matches || [];
+    S._scaffoldEntry = null;
+    S._scaffoldOutput = null;
+    render();
+  } catch(e) { alert('Match failed: '+e.message); }
+}
+
+async function scaffoldSelect(id) {
+  if (!S._catalogCache) await scaffoldLoadCatalog();
+  const entry = (S._catalogCache||[]).find(e => e.id === id);
+  if (!entry) {
+    try {
+      const r = await F('/v1/catalog/' + id);
+      S._scaffoldEntry = r;
+    } catch(e) { alert('Failed to load entry: '+e.message); return; }
+  } else {
+    S._scaffoldEntry = entry;
+  }
+  S._scaffoldMatches = null;
+  S._scaffoldOutput = null;
+  render();
+}
+
+function scaffoldClear() {
+  S._scaffoldEntry = null;
+  S._scaffoldMatches = null;
+  S._scaffoldOutput = null;
+  render();
+}
+
+async function scaffoldGenerate() {
+  const form = document.getElementById('scaffold-form');
+  if (!form || !S._scaffoldEntry) return;
+  const params = {};
+  for (const inp of form.querySelectorAll('input[name]')) {
+    if (inp.value.trim()) params[inp.name] = inp.value.trim();
+  }
+  try {
+    const r = await F('/v1/scaffold', { method:'POST', body: JSON.stringify({ catalog_id: S._scaffoldEntry.id, params }) });
+    if (r.missing_params) {
+      alert('Missing required params: ' + r.missing_params.join(', '));
+      return;
+    }
+    S._scaffoldOutput = r.files || {};
+    render();
+  } catch(e) { alert('Generation failed: '+e.message); }
+}
+
+function scaffoldDownload() {
+  if (!S._scaffoldOutput) return;
+  const files = S._scaffoldOutput;
+  let combined = '';
+  for (const [name, content] of Object.entries(files)) {
+    combined += '# --- ' + name + ' ---\n' + content + '\n\n';
+  }
+  const blob = new Blob([combined], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (S._scaffoldEntry?.id || 'scaffold') + '.tf';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Scaffold Chat ────────────────────────────────────────────────────────────
+function scaffoldSetMode(mode) {
+  S._scaffoldMode = mode;
+  render();
+}
+
+async function scaffoldChatSend() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  if (!S._scaffoldChat) S._scaffoldChat = [];
+  S._scaffoldChat.push({ role: 'user', content: text });
+  S._scaffoldChatLoading = true;
+  render();
+
+  // Scroll chat to bottom.
+  setTimeout(() => {
+    const el = document.getElementById('chat-messages');
+    if (el) el.scrollTop = el.scrollHeight;
+  }, 50);
+
+  try {
+    const r = await F('/v1/scaffold/chat', {
+      method: 'POST',
+      body: JSON.stringify({ messages: S._scaffoldChat }),
+    });
+    S._scaffoldChat.push({ role: 'assistant', content: r.reply });
+
+    // Check if the AI included an action block to auto-select a template.
+    const actionMatch = r.reply.match(/```json\s*\n?\s*(\{[\s\S]*?"action"\s*:\s*"select"[\s\S]*?\})\s*\n?```/);
+    if (actionMatch) {
+      try {
+        const action = JSON.parse(actionMatch[1]);
+        if (action.catalog_id) {
+          await scaffoldSelect(action.catalog_id);
+          // Pre-fill params from AI suggestion.
+          if (action.params) {
+            setTimeout(() => {
+              const form = document.getElementById('scaffold-form');
+              if (form) {
+                for (const [k, v] of Object.entries(action.params)) {
+                  const inp = form.querySelector(`input[name="${k}"]`);
+                  if (inp) inp.value = v;
+                }
+              }
+            }, 100);
+          }
+        }
+      } catch(e) { /* ignore parse errors in action block */ }
+    }
+  } catch(e) {
+    S._scaffoldChat.push({ role: 'assistant', content: 'Sorry, I encountered an error: ' + e.message + '. Make sure your AI provider is configured (set ANTHROPIC_API_KEY or configure ai: in ~/.beacon/config.yaml).' });
+  }
+  S._scaffoldChatLoading = false;
+  render();
+
+  setTimeout(() => {
+    const el = document.getElementById('chat-messages');
+    if (el) el.scrollTop = el.scrollHeight;
+  }, 50);
+}
+
+function scaffoldChatClear() {
+  S._scaffoldChat = null;
+  S._scaffoldChatLoading = false;
+  S._scaffoldEntry = null;
+  S._scaffoldOutput = null;
+  render();
+}
+
 // ── Login ────────────────────────────────────────────────────────────────────
 function pageLogin() {
   return `<div class="login-wrap"><div class="login-card">
@@ -743,6 +1010,7 @@ function render() {
     case 'targets':   html = pageTargets();   break;
     case 'target':    html = pageTarget();    break;
     case 'scan':      html = pageScan();      break;
+    case 'scaffold':  if(!S._catalogCache) scaffoldLoadCatalog().then(()=>render()); html = pageScaffold(); break;
     default:          html = pageDashboard();
   }
   root.innerHTML = `<div style="display:flex;width:100%;height:100%">${html}</div>`;
@@ -760,6 +1028,8 @@ const W = {
   expand(i) { S.expanded = S.expanded === i ? null : i; render(); },
   copy(text, e) { e.stopPropagation(); navigator.clipboard.writeText(text).catch(()=>{}); },
   mergeSelected, unmerge, exportBosun, downloadExport,
+  scaffoldMatch, scaffoldSelect, scaffoldClear, scaffoldGenerate, scaffoldDownload,
+  scaffoldSetMode, scaffoldChatSend, scaffoldChatClear,
   login, startScan, rescan,
 };
 window.W = W;

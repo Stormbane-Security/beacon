@@ -6,6 +6,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/store"
 	"github.com/stormbane/beacon/internal/web"
 	"github.com/stormbane/beacon/internal/worker"
@@ -16,11 +17,24 @@ type Server struct {
 	st     store.Store
 	pool   *worker.Pool
 	apiKey string
+	aiCfg  config.AIConfig
 }
 
 // New creates a Server and registers all routes on mux.
-func New(st store.Store, pool *worker.Pool, apiKey string) *Server {
-	return &Server{st: st, pool: pool, apiKey: apiKey}
+func New(st store.Store, pool *worker.Pool, apiKey string, opts ...Option) *Server {
+	s := &Server{st: st, pool: pool, apiKey: apiKey}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// Option configures optional Server dependencies.
+type Option func(*Server)
+
+// WithAI sets the AI provider configuration for scaffold chat.
+func WithAI(ai config.AIConfig) Option {
+	return func(s *Server) { s.aiCfg = ai }
 }
 
 // Handler returns the root HTTP handler with all routes registered.
@@ -53,6 +67,13 @@ func (s *Server) Handler() http.Handler {
 
 	// Bosun export.
 	v1.HandleFunc("POST /export/bosun", s.handleExportBosun)
+
+	// Scaffold catalog and generation.
+	v1.HandleFunc("GET /catalog", s.handleCatalog)
+	v1.HandleFunc("GET /catalog/{id}", s.handleCatalogEntry)
+	v1.HandleFunc("POST /scaffold", s.handleScaffold)
+	v1.HandleFunc("POST /scaffold/match", s.handleScaffoldMatch)
+	v1.HandleFunc("POST /scaffold/chat", s.handleScaffoldChat)
 
 	mux.Handle("/v1/", s.authMiddleware(http.StripPrefix("/v1", v1)))
 

@@ -52,7 +52,7 @@ func main() {
 	defer st.Close()
 
 	pool := worker.NewPool(workers, st, cfg)
-	srv := api.New(st, pool, apiKey)
+	srv := api.New(st, pool, apiKey, api.WithAI(cfg.AI))
 
 	server := &http.Server{
 		Addr:         addr,
