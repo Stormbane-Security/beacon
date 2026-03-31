@@ -170,5 +170,59 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		all = append(all, rsFindings...)
 	}
 
+	// Route 53 checks.
+	r53Findings, err := scanRoute53(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, r53Findings...)
+	}
+
+	// Cognito checks.
+	cognitoFindings, err := scanCognito(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, cognitoFindings...)
+	}
+
+	// CloudWatch Logs checks.
+	cwFindings, err := scanCloudWatch(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, cwFindings...)
+	}
+
+	// SSM Parameter Store checks.
+	ssmFindings, err := scanSSM(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, ssmFindings...)
+	}
+
+	// WAF checks.
+	wafFindings, err := scanWAF(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, wafFindings...)
+	}
+
+	// Kinesis checks.
+	kinesisFindings, err := scanKinesis(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, kinesisFindings...)
+	}
+
+	// DocumentDB checks.
+	docdbFindings, err := scanDocumentDB(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, docdbFindings...)
+	}
+
+	// SES checks.
+	sesFindings, err := scanSES(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, sesFindings...)
+	}
+
+	// RDS extended checks (auto-upgrade, deletion protection, IAM auth).
+	rdsExtFindings, err := scanRDSExtended(ctx, cfg, accountID, region, asset)
+	if err == nil {
+		all = append(all, rdsExtFindings...)
+	}
+
 	return all, nil
 }

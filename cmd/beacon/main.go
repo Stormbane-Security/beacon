@@ -1116,7 +1116,8 @@ Type exactly: I have written authorization for all listed targets
 	// ── Cloud module (once per session) ───────────────────────────────────────
 	var cloudFindings []finding.Finding
 	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" {
-		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan...\n")
+		providerList := cloudmodule.RegisteredProviders()
+		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan (providers: %s)...\n", strings.Join(providerList, ", "))
 		cloudAsset := "cloud"
 		if len(targets) > 0 {
 			cloudAsset = targets[0]
@@ -4472,6 +4473,12 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 		AzureSubscriptionID: azureSubscription,
 		Domain:              domain,
 	}
+
+	providerList := cloudmodule.RegisteredProviders()
+	if len(providerList) == 0 {
+		fatalf("no cloud providers compiled in — rebuild without -tags no_cloud")
+	}
+	fmt.Fprintf(os.Stderr, "beacon: cloud providers: %s\n", strings.Join(providerList, ", "))
 
 	ctx := context.Background()
 	m := cloudmodule.New()

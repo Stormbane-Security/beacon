@@ -198,6 +198,41 @@ var allCheckIDs = []finding.CheckID{
 	finding.CheckCorrelationCredentialReuse,
 	finding.CheckCorrelationLateralMovement,
 	finding.CheckCorrelationGeneric,
+	// AWS — Route 53
+	finding.CheckCloudAWSRoute53NoDNSSEC,
+	finding.CheckCloudAWSRoute53NoQueryLogging,
+	// AWS — Cognito
+	finding.CheckCloudAWSCognitoNoMFA,
+	finding.CheckCloudAWSCognitoWeakPassword,
+	finding.CheckCloudAWSCognitoNoAdvancedSecurity,
+	// AWS — CloudWatch Logs
+	finding.CheckCloudAWSCloudWatchLogNoEncryption,
+	finding.CheckCloudAWSCloudWatchLogShortRetention,
+	// AWS — SSM Parameter Store
+	finding.CheckCloudAWSSSMParamNoEncryption,
+	// AWS — WAF
+	finding.CheckCloudAWSWAFNoWebACL,
+	finding.CheckCloudAWSWAFNoLogging,
+	// AWS — Kinesis
+	finding.CheckCloudAWSKinesisNoEncryption,
+	// GitLab — self-hosted instance checks
+	finding.CheckGitLabPublicRegistration,
+	finding.CheckGitLabPublicSnippets,
+	finding.CheckGitLabPublicProjects,
+	finding.CheckGitLabCILintExposed,
+	finding.CheckGitLabGraphQLIntrospection,
+	finding.CheckGitLabOutdatedVersion,
+	finding.CheckGitLabHealthExposed,
+	finding.CheckGitLabPrometheusExposed,
+	finding.CheckGitLabAPIUnauth,
+	// TeamCity — self-hosted instance checks
+	finding.CheckTeamCityGuestAccess,
+	finding.CheckTeamCityAgentDetailsExposed,
+	finding.CheckTeamCityBuildConfigsExposed,
+	finding.CheckTeamCityUserListExposed,
+	finding.CheckTeamCityProjectListExposed,
+	finding.CheckTeamCityOutdatedVersion,
+	finding.CheckTeamCityDebugEndpoint,
 }
 
 // TestAllCheckIDsRegistered ensures every CheckID constant has a Registry entry.
@@ -475,6 +510,80 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudAWSRedshiftNoEncryption:     true,
 		finding.CheckCloudAWSRedshiftNoAuditLog:       true,
 		finding.CheckCloudAWSRedshiftNoSSL:            true,
+		// AWS — DocumentDB
+		finding.CheckCloudAWSDocDBNoEncryption:        true,
+		finding.CheckCloudAWSDocDBNoBackup:            true,
+		finding.CheckCloudAWSDocDBNoAuditLog:          true,
+		// AWS — SES
+		finding.CheckCloudAWSSESNoDKIM:                true,
+		// AWS — RDS extended
+		finding.CheckCloudAWSRDSNoAutoMinorUpgrade:    true,
+		finding.CheckCloudAWSRDSNoDeletionProtection:  true,
+		finding.CheckCloudAWSRDSNoIAMAuth:             true,
+		// AWS — Route 53
+		finding.CheckCloudAWSRoute53NoDNSSEC:           true,
+		finding.CheckCloudAWSRoute53NoQueryLogging:     true,
+		// AWS — Cognito
+		finding.CheckCloudAWSCognitoNoMFA:              true,
+		finding.CheckCloudAWSCognitoWeakPassword:       true,
+		finding.CheckCloudAWSCognitoNoAdvancedSecurity: true,
+		// AWS — CloudWatch Logs
+		finding.CheckCloudAWSCloudWatchLogNoEncryption:  true,
+		finding.CheckCloudAWSCloudWatchLogShortRetention: true,
+		// AWS — SSM Parameter Store
+		finding.CheckCloudAWSSSMParamNoEncryption:      true,
+		// AWS — WAF
+		finding.CheckCloudAWSWAFNoWebACL:               true,
+		finding.CheckCloudAWSWAFNoLogging:              true,
+		// AWS — Kinesis
+		finding.CheckCloudAWSKinesisNoEncryption:       true,
+		// GCP — Secret Manager
+		finding.CheckCloudGCPSecretNoRotation:          true,
+		finding.CheckCloudGCPSecretNoVersionDestroy:    true,
+		// GCP — Network/Firewall
+		finding.CheckCloudGCPFirewallSSHOpen:           true,
+		finding.CheckCloudGCPFirewallRDPOpen:           true,
+		finding.CheckCloudGCPFirewallAllOpen:           true,
+		// GCP — Pub/Sub
+		finding.CheckCloudGCPPubSubNoEncryption:        true,
+		// GCP — Memorystore
+		finding.CheckCloudGCPMemorystoreNoAuth:         true,
+		finding.CheckCloudGCPMemorystoreNoTransitEncryption: true,
+		// GCP — Cloud DNS
+		finding.CheckCloudGCPDNSNoDNSSEC:              true,
+		// Azure — VM
+		finding.CheckCloudAzureVMNoDiskEncryption:      true,
+		finding.CheckCloudAzureVMPublicIP:              true,
+		// Azure — Cosmos DB
+		finding.CheckCloudAzureCosmosDBPublic:          true,
+		finding.CheckCloudAzureCosmosDBNoFirewall:      true,
+		// Azure — Function App
+		finding.CheckCloudAzureFunctionAppNoHTTPS:      true,
+		finding.CheckCloudAzureFunctionAppNoManagedID:  true,
+		// Azure — Redis
+		finding.CheckCloudAzureRedisNoTLS:              true,
+		finding.CheckCloudAzureRedisNoFirewall:         true,
+		// Azure — PostgreSQL
+		finding.CheckCloudAzurePostgresPublic:          true,
+		finding.CheckCloudAzurePostgresNoSSL:           true,
+		// GitLab — self-hosted instance checks
+		finding.CheckGitLabPublicRegistration:   true,
+		finding.CheckGitLabPublicSnippets:       true,
+		finding.CheckGitLabPublicProjects:       true,
+		finding.CheckGitLabCILintExposed:        true,
+		finding.CheckGitLabGraphQLIntrospection: true,
+		finding.CheckGitLabOutdatedVersion:      true,
+		finding.CheckGitLabHealthExposed:        true,
+		finding.CheckGitLabPrometheusExposed:    true,
+		finding.CheckGitLabAPIUnauth:            true,
+		// TeamCity — self-hosted instance checks
+		finding.CheckTeamCityGuestAccess:         true,
+		finding.CheckTeamCityAgentDetailsExposed: true,
+		finding.CheckTeamCityBuildConfigsExposed: true,
+		finding.CheckTeamCityUserListExposed:     true,
+		finding.CheckTeamCityProjectListExposed:  true,
+		finding.CheckTeamCityOutdatedVersion:     true,
+		finding.CheckTeamCityDebugEndpoint:       true,
 	}
 
 	for id, meta := range finding.Registry {

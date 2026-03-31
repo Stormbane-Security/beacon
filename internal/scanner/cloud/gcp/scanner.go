@@ -132,6 +132,36 @@ func (s *Scanner) scanProject(ctx context.Context, projectID, asset string, opts
 		findings = append(findings, securityFindings...)
 	}
 
+	// Secret Manager checks
+	secretFindings, err := scanSecretManager(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, secretFindings...)
+	}
+
+	// Firewall rule checks
+	firewallFindings, err := scanFirewallRules(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, firewallFindings...)
+	}
+
+	// Pub/Sub checks
+	pubsubFindings, err := scanPubSub(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, pubsubFindings...)
+	}
+
+	// Memorystore Redis checks
+	memorystoreFindings, err := scanMemorystore(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, memorystoreFindings...)
+	}
+
+	// Cloud DNS checks
+	dnsFindings, err := scanCloudDNS(ctx, projectID, asset, opts)
+	if err == nil {
+		findings = append(findings, dnsFindings...)
+	}
+
 	return findings, nil
 }
 

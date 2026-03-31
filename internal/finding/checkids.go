@@ -984,6 +984,26 @@ const (
 	CheckGHActionTrojanSource         CheckID = "ghaction.trojan_source"           // Unicode bidirectional override chars in workflow file
 	CheckGHActionRunnerLabelSpoof     CheckID = "ghaction.runner_label_spoof"      // self-hosted runner uses default labels (ubuntu-latest spoofable)
 
+	// ── GitLab — Self-hosted Instance Misconfigurations ──
+	CheckGitLabPublicRegistration    CheckID = "gitlab.public_registration"       // user self-registration enabled on self-hosted GitLab
+	CheckGitLabPublicSnippets        CheckID = "gitlab.public_snippets"           // public snippet listing accessible without auth
+	CheckGitLabPublicProjects        CheckID = "gitlab.public_projects"           // public project listing accessible without auth
+	CheckGitLabCILintExposed         CheckID = "gitlab.ci_lint_exposed"           // CI lint API accessible without auth
+	CheckGitLabGraphQLIntrospection  CheckID = "gitlab.graphql_introspection"     // GraphQL introspection enabled without auth
+	CheckGitLabOutdatedVersion       CheckID = "gitlab.outdated_version"          // GitLab version is outdated with known CVEs
+	CheckGitLabHealthExposed         CheckID = "gitlab.health_exposed"            // health/readiness/liveness endpoints exposed
+	CheckGitLabPrometheusExposed     CheckID = "gitlab.prometheus_exposed"        // Prometheus metrics exposed without auth
+	CheckGitLabAPIUnauth             CheckID = "gitlab.api_unauth"                // REST API v4 accessible without authentication
+
+	// ── TeamCity — Self-hosted Instance Misconfigurations ──
+	CheckTeamCityGuestAccess           CheckID = "teamcity.guest_access"            // guest user access enabled — full REST API exposed
+	CheckTeamCityAgentDetailsExposed   CheckID = "teamcity.agent_details_exposed"   // build agent details accessible via guest API
+	CheckTeamCityBuildConfigsExposed   CheckID = "teamcity.build_configs_exposed"   // build configurations accessible via guest API
+	CheckTeamCityUserListExposed       CheckID = "teamcity.user_list_exposed"       // user enumeration via guest API
+	CheckTeamCityProjectListExposed    CheckID = "teamcity.project_list_exposed"    // project list accessible via guest API
+	CheckTeamCityOutdatedVersion       CheckID = "teamcity.outdated_version"        // TeamCity version is outdated with known CVEs
+	CheckTeamCityDebugEndpoint         CheckID = "teamcity.debug_endpoint"          // JVM debug endpoint exposes system properties
+
 	// ── Kubernetes — CIS Benchmark & Microsoft Threat Matrix ──
 	CheckCloudGKEShieldedNodesDisabled  CheckID = "cloud.gcp.gke_shielded_nodes_disabled" // GKE Shielded Nodes not enabled
 	CheckCloudGKENoNetworkPolicy        CheckID = "cloud.gcp.gke_no_network_policy"       // GKE cluster without network policy enforcement
@@ -1080,6 +1100,42 @@ const (
 	CheckCloudAWSRedshiftNoAuditLog   CheckID = "cloud.aws.redshift_no_audit_log"      // Redshift cluster without audit logging
 	CheckCloudAWSRedshiftNoSSL        CheckID = "cloud.aws.redshift_no_ssl"            // Redshift cluster not requiring SSL connections
 
+	// ── AWS — DocumentDB ──
+	CheckCloudAWSDocDBNoEncryption    CheckID = "cloud.aws.docdb_no_encryption"        // DocumentDB cluster without encryption at rest
+	CheckCloudAWSDocDBNoBackup        CheckID = "cloud.aws.docdb_no_backup"            // DocumentDB cluster without automated backups
+	CheckCloudAWSDocDBNoAuditLog      CheckID = "cloud.aws.docdb_no_audit_log"         // DocumentDB cluster without audit logging
+
+	// ── AWS — SES ──
+	CheckCloudAWSSESNoDKIM            CheckID = "cloud.aws.ses_no_dkim"                // SES identity without DKIM verification
+
+	// ── AWS — RDS extended ──
+	CheckCloudAWSRDSNoAutoMinorUpgrade CheckID = "cloud.aws.rds_no_auto_minor_upgrade" // RDS instance without auto minor version upgrade
+	CheckCloudAWSRDSNoDeletionProtection CheckID = "cloud.aws.rds_no_deletion_protection" // RDS instance without deletion protection
+	CheckCloudAWSRDSNoIAMAuth          CheckID = "cloud.aws.rds_no_iam_auth"           // RDS instance without IAM database authentication
+
+	// ── AWS — Route 53 ──
+	CheckCloudAWSRoute53NoDNSSEC      CheckID = "cloud.aws.route53_no_dnssec"          // Route 53 hosted zone without DNSSEC signing
+	CheckCloudAWSRoute53NoQueryLogging CheckID = "cloud.aws.route53_no_query_logging" // Route 53 hosted zone without DNS query logging
+
+	// ── AWS — Cognito ──
+	CheckCloudAWSCognitoNoMFA             CheckID = "cloud.aws.cognito_no_mfa"              // Cognito user pool without MFA enabled
+	CheckCloudAWSCognitoWeakPassword      CheckID = "cloud.aws.cognito_weak_password"       // Cognito user pool with weak password policy
+	CheckCloudAWSCognitoNoAdvancedSecurity CheckID = "cloud.aws.cognito_no_advanced_security" // Cognito user pool without advanced security features
+
+	// ── AWS — CloudWatch Logs ──
+	CheckCloudAWSCloudWatchLogNoEncryption  CheckID = "cloud.aws.cloudwatch_log_no_encryption"  // CloudWatch log group without KMS encryption
+	CheckCloudAWSCloudWatchLogShortRetention CheckID = "cloud.aws.cloudwatch_log_short_retention" // CloudWatch log group with retention < 90 days
+
+	// ── AWS — SSM Parameter Store ──
+	CheckCloudAWSSSMParamNoEncryption CheckID = "cloud.aws.ssm_param_no_encryption" // SSM parameter with secret-like name not encrypted
+
+	// ── AWS — WAF ──
+	CheckCloudAWSWAFNoWebACL  CheckID = "cloud.aws.waf_no_web_acl"  // No WAF web ACLs configured in region
+	CheckCloudAWSWAFNoLogging CheckID = "cloud.aws.waf_no_logging"  // WAF web ACL without logging enabled
+
+	// ── AWS — Kinesis ──
+	CheckCloudAWSKinesisNoEncryption CheckID = "cloud.aws.kinesis_no_encryption" // Kinesis data stream without server-side encryption
+
 	// ── GCP — CIS/Prowler gaps ──
 	CheckCloudGCPNoVPCFlowLogs         CheckID = "cloud.gcp.no_vpc_flow_logs"           // VPC Flow Logs not enabled on subnet
 	CheckCloudGCPKMSNoRotation         CheckID = "cloud.gcp.kms_no_rotation"            // KMS key without rotation period
@@ -1087,6 +1143,15 @@ const (
 	CheckCloudGCPBigQueryPublic        CheckID = "cloud.gcp.bigquery_public"             // BigQuery dataset publicly accessible
 	CheckCloudGCPShieldedVMDisabled    CheckID = "cloud.gcp.shielded_vm_disabled"        // Compute instance without Shielded VM
 	CheckCloudGCPNoOrgPolicyRestrict   CheckID = "cloud.gcp.no_org_policy_restriction"  // domain-restricted sharing not enforced
+	CheckCloudGCPSecretNoRotation      CheckID = "cloud.gcp.secret_no_rotation"         // Secret Manager secret without automatic rotation
+	CheckCloudGCPSecretNoVersionDestroy CheckID = "cloud.gcp.secret_no_version_destroy" // Secret Manager secret without automatic version destruction
+	CheckCloudGCPFirewallSSHOpen       CheckID = "cloud.gcp.firewall_ssh_open"          // Firewall rule allows SSH from 0.0.0.0/0
+	CheckCloudGCPFirewallRDPOpen       CheckID = "cloud.gcp.firewall_rdp_open"          // Firewall rule allows RDP from 0.0.0.0/0
+	CheckCloudGCPFirewallAllOpen       CheckID = "cloud.gcp.firewall_all_open"          // Firewall rule allows ALL ports from 0.0.0.0/0
+	CheckCloudGCPPubSubNoEncryption    CheckID = "cloud.gcp.pubsub_no_encryption"       // Pub/Sub topic without customer-managed encryption
+	CheckCloudGCPMemorystoreNoAuth     CheckID = "cloud.gcp.memorystore_no_auth"        // Memorystore Redis without AUTH enabled
+	CheckCloudGCPMemorystoreNoTransitEncryption CheckID = "cloud.gcp.memorystore_no_transit_encryption" // Memorystore Redis without in-transit encryption
+	CheckCloudGCPDNSNoDNSSEC           CheckID = "cloud.gcp.dns_no_dnssec"              // Cloud DNS managed zone without DNSSEC
 
 	// ── Azure — CIS/Prowler gaps ──
 	CheckCloudAzureNoNSGFlowLogs       CheckID = "cloud.azure.no_nsg_flow_logs"         // NSG Flow Logs not enabled
@@ -1096,6 +1161,18 @@ const (
 	CheckCloudAzureAppServiceNoHTTPS   CheckID = "cloud.azure.appservice_no_https"      // App Service without HTTPS only
 	CheckCloudAzureAppServiceNoManagedID CheckID = "cloud.azure.appservice_no_managed_id" // App Service without managed identity
 	CheckCloudAzureSQLNoATP            CheckID = "cloud.azure.sql_no_atp"               // SQL Server without Advanced Threat Protection
+
+	// ── Azure — VM, Cosmos DB, Function App, Redis, PostgreSQL ──
+	CheckCloudAzureVMNoDiskEncryption    CheckID = "cloud.azure.vm_no_disk_encryption"     // VM OS disk without encryption
+	CheckCloudAzureVMPublicIP            CheckID = "cloud.azure.vm_public_ip"              // VM with public IP directly attached
+	CheckCloudAzureCosmosDBPublic        CheckID = "cloud.azure.cosmosdb_public"           // Cosmos DB account with public network access
+	CheckCloudAzureCosmosDBNoFirewall    CheckID = "cloud.azure.cosmosdb_no_firewall"      // Cosmos DB account without IP firewall rules
+	CheckCloudAzureFunctionAppNoHTTPS    CheckID = "cloud.azure.functionapp_no_https"      // Function App without HTTPS only
+	CheckCloudAzureFunctionAppNoManagedID CheckID = "cloud.azure.functionapp_no_managed_id" // Function App without managed identity
+	CheckCloudAzureRedisNoTLS            CheckID = "cloud.azure.redis_no_tls"              // Redis without minimum TLS 1.2
+	CheckCloudAzureRedisNoFirewall       CheckID = "cloud.azure.redis_no_firewall"         // Redis without firewall rules
+	CheckCloudAzurePostgresPublic        CheckID = "cloud.azure.postgres_public"           // PostgreSQL flexible server with public access
+	CheckCloudAzurePostgresNoSSL         CheckID = "cloud.azure.postgres_no_ssl"           // PostgreSQL flexible server not requiring SSL
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -2028,6 +2105,26 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGHActionTrojanSource:         {CheckGHActionTrojanSource, SeverityCritical, ModeSurface},
 	CheckGHActionRunnerLabelSpoof:     {CheckGHActionRunnerLabelSpoof, SeverityHigh, ModeSurface},
 
+	// GitLab — self-hosted instance checks
+	CheckGitLabPublicRegistration:   {CheckGitLabPublicRegistration, SeverityHigh, ModeDeep},
+	CheckGitLabPublicSnippets:       {CheckGitLabPublicSnippets, SeverityMedium, ModeDeep},
+	CheckGitLabPublicProjects:       {CheckGitLabPublicProjects, SeverityMedium, ModeDeep},
+	CheckGitLabCILintExposed:        {CheckGitLabCILintExposed, SeverityMedium, ModeDeep},
+	CheckGitLabGraphQLIntrospection: {CheckGitLabGraphQLIntrospection, SeverityMedium, ModeDeep},
+	CheckGitLabOutdatedVersion:      {CheckGitLabOutdatedVersion, SeverityHigh, ModeDeep},
+	CheckGitLabHealthExposed:        {CheckGitLabHealthExposed, SeverityLow, ModeDeep},
+	CheckGitLabPrometheusExposed:    {CheckGitLabPrometheusExposed, SeverityHigh, ModeDeep},
+	CheckGitLabAPIUnauth:            {CheckGitLabAPIUnauth, SeverityHigh, ModeDeep},
+
+	// TeamCity — self-hosted instance checks
+	CheckTeamCityGuestAccess:         {CheckTeamCityGuestAccess, SeverityCritical, ModeDeep},
+	CheckTeamCityAgentDetailsExposed: {CheckTeamCityAgentDetailsExposed, SeverityHigh, ModeDeep},
+	CheckTeamCityBuildConfigsExposed: {CheckTeamCityBuildConfigsExposed, SeverityHigh, ModeDeep},
+	CheckTeamCityUserListExposed:     {CheckTeamCityUserListExposed, SeverityMedium, ModeDeep},
+	CheckTeamCityProjectListExposed:  {CheckTeamCityProjectListExposed, SeverityHigh, ModeDeep},
+	CheckTeamCityOutdatedVersion:     {CheckTeamCityOutdatedVersion, SeverityHigh, ModeDeep},
+	CheckTeamCityDebugEndpoint:       {CheckTeamCityDebugEndpoint, SeverityCritical, ModeDeep},
+
 	// Kubernetes — managed K8s new checks
 	CheckCloudGKEShieldedNodesDisabled:  {CheckCloudGKEShieldedNodesDisabled, SeverityMedium, ModeDeep},
 	CheckCloudGKENoNetworkPolicy:        {CheckCloudGKENoNetworkPolicy, SeverityMedium, ModeDeep},
@@ -2120,6 +2217,42 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAWSRedshiftNoAuditLog:   {CheckCloudAWSRedshiftNoAuditLog, SeverityMedium, ModeDeep},
 	CheckCloudAWSRedshiftNoSSL:        {CheckCloudAWSRedshiftNoSSL, SeverityHigh, ModeDeep},
 
+	// AWS — DocumentDB
+	CheckCloudAWSDocDBNoEncryption:    {CheckCloudAWSDocDBNoEncryption, SeverityHigh, ModeDeep},
+	CheckCloudAWSDocDBNoBackup:        {CheckCloudAWSDocDBNoBackup, SeverityMedium, ModeDeep},
+	CheckCloudAWSDocDBNoAuditLog:      {CheckCloudAWSDocDBNoAuditLog, SeverityMedium, ModeDeep},
+
+	// AWS — SES
+	CheckCloudAWSSESNoDKIM:            {CheckCloudAWSSESNoDKIM, SeverityMedium, ModeDeep},
+
+	// AWS — RDS extended
+	CheckCloudAWSRDSNoAutoMinorUpgrade:  {CheckCloudAWSRDSNoAutoMinorUpgrade, SeverityLow, ModeDeep},
+	CheckCloudAWSRDSNoDeletionProtection: {CheckCloudAWSRDSNoDeletionProtection, SeverityMedium, ModeDeep},
+	CheckCloudAWSRDSNoIAMAuth:            {CheckCloudAWSRDSNoIAMAuth, SeverityMedium, ModeDeep},
+
+	// AWS — Route 53
+	CheckCloudAWSRoute53NoDNSSEC:      {CheckCloudAWSRoute53NoDNSSEC, SeverityMedium, ModeDeep},
+	CheckCloudAWSRoute53NoQueryLogging: {CheckCloudAWSRoute53NoQueryLogging, SeverityLow, ModeDeep},
+
+	// AWS — Cognito
+	CheckCloudAWSCognitoNoMFA:             {CheckCloudAWSCognitoNoMFA, SeverityHigh, ModeDeep},
+	CheckCloudAWSCognitoWeakPassword:      {CheckCloudAWSCognitoWeakPassword, SeverityMedium, ModeDeep},
+	CheckCloudAWSCognitoNoAdvancedSecurity: {CheckCloudAWSCognitoNoAdvancedSecurity, SeverityMedium, ModeDeep},
+
+	// AWS — CloudWatch Logs
+	CheckCloudAWSCloudWatchLogNoEncryption:  {CheckCloudAWSCloudWatchLogNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudAWSCloudWatchLogShortRetention: {CheckCloudAWSCloudWatchLogShortRetention, SeverityLow, ModeDeep},
+
+	// AWS — SSM Parameter Store
+	CheckCloudAWSSSMParamNoEncryption: {CheckCloudAWSSSMParamNoEncryption, SeverityHigh, ModeDeep},
+
+	// AWS — WAF
+	CheckCloudAWSWAFNoWebACL:  {CheckCloudAWSWAFNoWebACL, SeverityMedium, ModeDeep},
+	CheckCloudAWSWAFNoLogging: {CheckCloudAWSWAFNoLogging, SeverityMedium, ModeDeep},
+
+	// AWS — Kinesis
+	CheckCloudAWSKinesisNoEncryption: {CheckCloudAWSKinesisNoEncryption, SeverityHigh, ModeDeep},
+
 	// GCP — new checks
 	CheckCloudGCPNoVPCFlowLogs:         {CheckCloudGCPNoVPCFlowLogs, SeverityHigh, ModeDeep},
 	CheckCloudGCPKMSNoRotation:         {CheckCloudGCPKMSNoRotation, SeverityMedium, ModeDeep},
@@ -2127,6 +2260,15 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudGCPBigQueryPublic:        {CheckCloudGCPBigQueryPublic, SeverityCritical, ModeDeep},
 	CheckCloudGCPShieldedVMDisabled:    {CheckCloudGCPShieldedVMDisabled, SeverityMedium, ModeDeep},
 	CheckCloudGCPNoOrgPolicyRestrict:   {CheckCloudGCPNoOrgPolicyRestrict, SeverityMedium, ModeDeep},
+	CheckCloudGCPSecretNoRotation:      {CheckCloudGCPSecretNoRotation, SeverityMedium, ModeDeep},
+	CheckCloudGCPSecretNoVersionDestroy: {CheckCloudGCPSecretNoVersionDestroy, SeverityLow, ModeDeep},
+	CheckCloudGCPFirewallSSHOpen:       {CheckCloudGCPFirewallSSHOpen, SeverityCritical, ModeDeep},
+	CheckCloudGCPFirewallRDPOpen:       {CheckCloudGCPFirewallRDPOpen, SeverityCritical, ModeDeep},
+	CheckCloudGCPFirewallAllOpen:       {CheckCloudGCPFirewallAllOpen, SeverityCritical, ModeDeep},
+	CheckCloudGCPPubSubNoEncryption:    {CheckCloudGCPPubSubNoEncryption, SeverityLow, ModeDeep},
+	CheckCloudGCPMemorystoreNoAuth:     {CheckCloudGCPMemorystoreNoAuth, SeverityHigh, ModeDeep},
+	CheckCloudGCPMemorystoreNoTransitEncryption: {CheckCloudGCPMemorystoreNoTransitEncryption, SeverityHigh, ModeDeep},
+	CheckCloudGCPDNSNoDNSSEC:           {CheckCloudGCPDNSNoDNSSEC, SeverityMedium, ModeDeep},
 
 	// Azure — new checks
 	CheckCloudAzureNoNSGFlowLogs:         {CheckCloudAzureNoNSGFlowLogs, SeverityHigh, ModeDeep},
@@ -2136,6 +2278,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAzureAppServiceNoHTTPS:      {CheckCloudAzureAppServiceNoHTTPS, SeverityHigh, ModeDeep},
 	CheckCloudAzureAppServiceNoManagedID:  {CheckCloudAzureAppServiceNoManagedID, SeverityMedium, ModeDeep},
 	CheckCloudAzureSQLNoATP:               {CheckCloudAzureSQLNoATP, SeverityHigh, ModeDeep},
+
+	// Azure — VM, Cosmos DB, Function App, Redis, PostgreSQL
+	CheckCloudAzureVMNoDiskEncryption:     {CheckCloudAzureVMNoDiskEncryption, SeverityHigh, ModeDeep},
+	CheckCloudAzureVMPublicIP:             {CheckCloudAzureVMPublicIP, SeverityHigh, ModeDeep},
+	CheckCloudAzureCosmosDBPublic:         {CheckCloudAzureCosmosDBPublic, SeverityHigh, ModeDeep},
+	CheckCloudAzureCosmosDBNoFirewall:     {CheckCloudAzureCosmosDBNoFirewall, SeverityMedium, ModeDeep},
+	CheckCloudAzureFunctionAppNoHTTPS:     {CheckCloudAzureFunctionAppNoHTTPS, SeverityHigh, ModeDeep},
+	CheckCloudAzureFunctionAppNoManagedID: {CheckCloudAzureFunctionAppNoManagedID, SeverityMedium, ModeDeep},
+	CheckCloudAzureRedisNoTLS:             {CheckCloudAzureRedisNoTLS, SeverityHigh, ModeDeep},
+	CheckCloudAzureRedisNoFirewall:        {CheckCloudAzureRedisNoFirewall, SeverityMedium, ModeDeep},
+	CheckCloudAzurePostgresPublic:         {CheckCloudAzurePostgresPublic, SeverityHigh, ModeDeep},
+	CheckCloudAzurePostgresNoSSL:          {CheckCloudAzurePostgresNoSSL, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

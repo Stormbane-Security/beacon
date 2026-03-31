@@ -122,6 +122,31 @@ func (s *Scanner) scanSubscription(ctx context.Context, cred *azidentity.Default
 		findings = append(findings, securityFindings...)
 	}
 
+	vmFindings, err := scanVMs(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, vmFindings...)
+	}
+
+	cosmosFindings, err := scanCosmosDB(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, cosmosFindings...)
+	}
+
+	functionAppFindings, err := scanFunctionApps(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, functionAppFindings...)
+	}
+
+	redisFindings, err := scanRedis(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, redisFindings...)
+	}
+
+	postgresFindings, err := scanPostgres(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, postgresFindings...)
+	}
+
 	return findings, nil
 }
 
