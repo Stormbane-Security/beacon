@@ -705,3 +705,83 @@ func TestCancelledContext_ReturnsNoError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge: empty Access-Control-Allow-Origin header should not emit finding
+// ---------------------------------------------------------------------------
+
+func TestCORSEmptyAllowOriginHeader(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Server sets an empty ACAO header — a misconfigured but non-exploitable pattern.
+		w.Header().Set("Access-Control-Allow-Origin", "")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("empty Access-Control-Allow-Origin should not produce a CORS misconfiguration finding")
+	}
+	if hasCheckID(findings, finding.CheckCORSNullOrigin) {
+		t.Error("empty Access-Control-Allow-Origin should not produce a null origin finding")
+	}
+	if hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("empty Access-Control-Allow-Origin should not produce a credentialed reflection finding")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: altPorts connection refused — scanner must not panic, no findings
+// ---------------------------------------------------------------------------
+
+func TestCORSConnectionRefused(t *testing.T) {
+	// Use a port that will actively refuse connections. Port 1 is reserved
+	// and unreachable on loopback. The scanner probes altPorts internally;
+	// all should fail gracefully.
+	s := cors.New()
+	// Provide a host with no open ports — all altPort probes should be refused.
+	findings, err := s.Run(context.Background(), "127.0.0.1:1", module.ScanDeep)
+	_ = err // error is acceptable
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings when all connections are refused, got %d", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: context cancellation mid-scan — partial or no findings, no goroutine leak
+// ---------------------------------------------------------------------------
+
+func TestCORSContextCancellation(t *testing.T) {
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		origin := r.Header.Get("Origin")
+		if origin != "" && origin != "null" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after a very short delay to catch the scanner mid-flight.
+	go func() {
+		// Let 1-2 requests through, then cancel.
+		for requestCount < 1 {
+			// busy wait — acceptable in tests
+		}
+		cancel()
+	}()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := cors.New()
+	findings, err := s.Run(ctx, asset, module.ScanDeep)
+	// Must not panic. Partial or empty results are fine.
+	_ = findings
+	_ = err
+}

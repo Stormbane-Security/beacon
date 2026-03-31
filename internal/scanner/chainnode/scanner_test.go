@@ -893,3 +893,140 @@ func TestWsProofPython_Format(t *testing.T) {
 		t.Error("expected eth_chainId in proof command")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge: wsProofPython strips shell metacharacters from host/port
+// ---------------------------------------------------------------------------
+
+func TestWsProofPythonHostSanitization(t *testing.T) {
+	// wsProofPython uses strings.Map to keep only [a-zA-Z0-9.\-:] for hosts
+	// and [0-9] for ports. The test verifies that shell/Python metacharacters
+	// in the *interpolated values* are stripped. We extract the host and port
+	// values from the output by parsing the create_connection(('HOST',PORT))
+	// pattern, since the Python template itself contains metacharacters.
+	tests := []struct {
+		name         string
+		host         string
+		port         string
+		wantHost     string // expected sanitized host in the output
+		wantPort     string // expected sanitized port in the output
+	}{
+		{
+			name:     "command_substitution",
+			host:     "$(whoami)",
+			port:     "8546",
+			wantHost: "whoami",  // $, (, ) stripped
+			wantPort: "8546",
+		},
+		{
+			name:     "backtick_injection",
+			host:     "`whoami`",
+			port:     "8546",
+			wantHost: "whoami",
+			wantPort: "8546",
+		},
+		{
+			name:     "semicolon_chaining",
+			host:     "10.0.0.1;rm -rf /",
+			port:     "8546",
+			wantHost: "10.0.0.1rm-rf",  // ; space / stripped
+			wantPort: "8546",
+		},
+		{
+			name:     "pipe_injection",
+			host:     "10.0.0.1|cat /etc/passwd",
+			port:     "8546",
+			wantHost: "10.0.0.1catetcpasswd",  // | space / stripped
+			wantPort: "8546",
+		},
+		{
+			name:     "port_with_metacharacters",
+			host:     "10.0.0.1",
+			port:     "8546;whoami",
+			wantHost: "10.0.0.1",
+			wantPort: "8546",  // ;whoami stripped (only digits kept)
+		},
+		{
+			name:     "single_quote_escape",
+			host:     "10.0.0.1'$(whoami)'",
+			port:     "8546",
+			wantHost: "10.0.0.1whoami",  // ' $ ( ) stripped
+			wantPort: "8546",
+		},
+		{
+			name:     "dollar_brace_expansion",
+			host:     "${IFS}10.0.0.1",
+			port:     "8546",
+			wantHost: "IFS10.0.0.1",  // $ { } stripped
+			wantPort: "8546",
+		},
+		{
+			name:     "ampersand_background",
+			host:     "10.0.0.1&",
+			port:     "8546",
+			wantHost: "10.0.0.1",  // & stripped
+			wantPort: "8546",
+		},
+		{
+			name:     "newline_injection",
+			host:     "10.0.0.1\nwhoami",
+			port:     "8546",
+			wantHost: "10.0.0.1whoami",  // \n stripped
+			wantPort: "8546",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wsProofPython(tt.host, tt.port)
+
+			// Extract the host from create_connection(('HOST',PORT)) in the output.
+			prefix := "create_connection(('"
+			idx := strings.Index(result, prefix)
+			if idx < 0 {
+				t.Fatalf("output missing create_connection pattern:\n%s", result)
+			}
+			after := result[idx+len(prefix):]
+			endQuote := strings.Index(after, "',")
+			if endQuote < 0 {
+				t.Fatalf("output missing closing quote after host:\n%s", result)
+			}
+			gotHost := after[:endQuote]
+
+			// Extract port: it follows "'," and ends at ")".
+			portStr := after[endQuote+2:]
+			endParen := strings.Index(portStr, ")")
+			if endParen < 0 {
+				t.Fatalf("output missing closing paren after port:\n%s", result)
+			}
+			gotPort := portStr[:endParen]
+
+			if gotHost != tt.wantHost {
+				t.Errorf("sanitized host = %q, want %q", gotHost, tt.wantHost)
+			}
+			if gotPort != tt.wantPort {
+				t.Errorf("sanitized port = %q, want %q", gotPort, tt.wantPort)
+			}
+
+			// Verify no shell metacharacters leaked into the host value.
+			dangerous := []rune{'$', '(', ')', '`', ';', '|', '&', '\'', '"', '\n', '\r', '\\', '{', '}', '<', '>'}
+			for _, d := range dangerous {
+				if strings.ContainsRune(gotHost, d) {
+					t.Errorf("sanitized host %q still contains dangerous rune %q", gotHost, string(d))
+				}
+			}
+
+			// Verify port is digits only.
+			for _, r := range gotPort {
+				if r < '0' || r > '9' {
+					t.Errorf("sanitized port %q contains non-digit rune %q", gotPort, string(r))
+				}
+			}
+
+			// The output must still contain the eth_chainId method call.
+			if !strings.Contains(result, "eth_chainId") {
+				t.Errorf("wsProofPython sanitization removed the RPC method; output:\n%s", result)
+			}
+		})
+	}
+}

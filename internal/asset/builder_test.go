@@ -2392,3 +2392,270 @@ func TestBuild_GitHubPackageDeployedFromRelationship(t *testing.T) {
 		t.Error("deployed_from relationship (instance -> package) not found in built graph")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case: CNAME cycle in CrossReferenceByCNAME
+// ---------------------------------------------------------------------------
+
+func TestBuilderCNAMECycle(t *testing.T) {
+	b := NewBuilder("run-cname-cycle", "example.com")
+
+	// Add cloud assets so CNAME matching has something to match against.
+	b.AddAsset(Asset{
+		ID:       "aws_load_balancer:cycle-lb",
+		Type:     AssetTypeAWSELB,
+		Provider: "aws",
+		Name:     "cycle-lb",
+	})
+
+	// Create a CNAME cycle: A points to B, B points to C, C points back to A.
+	// All happen to match the AWS ELB pattern.
+	b.AddDomainAssetFull("a.example.com", nil,
+		[]string{"b.example.com.elb.amazonaws.com"}, "dns")
+	b.AddDomainAssetFull("b.example.com", nil,
+		[]string{"c.example.com.elb.amazonaws.com"}, "dns")
+	b.AddDomainAssetFull("c.example.com", nil,
+		[]string{"a.example.com.elb.amazonaws.com"}, "dns")
+
+	// Build must terminate without infinite loop.
+	graph := b.Build()
+
+	// Verify all three domain assets were created.
+	assetIDs := make(map[string]bool)
+	for _, a := range graph.Assets {
+		assetIDs[a.ID] = true
+	}
+	for _, expected := range []string{"domain:a.example.com", "domain:b.example.com", "domain:c.example.com"} {
+		if !assetIDs[expected] {
+			t.Errorf("expected asset %s in graph", expected)
+		}
+	}
+
+	// Verify points_to relationships exist for the CNAME hops.
+	cnameRels := 0
+	for _, r := range graph.Relationships {
+		if r.Type == RelPointsTo {
+			if ev, ok := r.Evidence["method"]; ok && ev == "cname" {
+				cnameRels++
+			}
+		}
+	}
+	if cnameRels != 3 {
+		t.Errorf("expected 3 CNAME points_to relationships, got %d", cnameRels)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: concurrent AddDomainAsset calls
+// ---------------------------------------------------------------------------
+
+func TestBuilderConcurrentAddDomainAsset(t *testing.T) {
+	b := NewBuilder("run-concurrent", "example.com")
+
+	const goroutines = 100
+	done := make(chan struct{}, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(n int) {
+			defer func() { done <- struct{}{} }()
+			hostname := fmt.Sprintf("host-%d.example.com", n)
+			ip := fmt.Sprintf("10.%d.%d.%d", n/65536%256, n/256%256, n%256)
+			b.AddDomainAsset(hostname, []string{ip}, "dns")
+		}(i)
+	}
+
+	// Wait for all goroutines.
+	for i := 0; i < goroutines; i++ {
+		<-done
+	}
+
+	graph := b.Build()
+
+	// Each goroutine adds a unique subdomain + IP = 200 assets total.
+	// Count unique domain assets and unique IP assets.
+	domainCount := 0
+	ipCount := 0
+	for _, a := range graph.Assets {
+		switch a.Type {
+		case AssetTypeSubdomain:
+			domainCount++
+		case AssetTypeIP:
+			ipCount++
+		}
+	}
+	if domainCount != goroutines {
+		t.Errorf("expected %d subdomain assets, got %d", goroutines, domainCount)
+	}
+	if ipCount != goroutines {
+		t.Errorf("expected %d IP assets, got %d", goroutines, ipCount)
+	}
+
+	// Verify no duplicates: total unique IDs should equal total assets.
+	seenIDs := make(map[string]bool)
+	for _, a := range graph.Assets {
+		if seenIDs[a.ID] {
+			t.Errorf("duplicate asset ID in built graph: %s", a.ID)
+		}
+		seenIDs[a.ID] = true
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: IPv6 normalization across different formats
+// ---------------------------------------------------------------------------
+
+func TestBuilderIPv6Normalization(t *testing.T) {
+	b := NewBuilder("run-v6", "example.com")
+
+	// Add a cloud asset with a full-form IPv6 external IP.
+	b.AddAsset(Asset{
+		ID:       "gcp_compute_instance:proj/zone/v6-vm",
+		Type:     AssetTypeGCPInstance,
+		Provider: "gcp",
+		Name:     "v6-vm",
+		Metadata: map[string]any{"external_ip": "2001:0db8:0000:0000:0000:0000:0000:0001"},
+	})
+
+	// Add a domain that resolves to the same IPv6 address in compressed form.
+	b.AddDomainAsset("v6.example.com", []string{"2001:db8::1"}, "dns")
+
+	// Add another domain that resolves to the IPv4-mapped IPv6 address.
+	b.AddAsset(Asset{
+		ID:       "gcp_compute_instance:proj/zone/v4mapped-vm",
+		Type:     AssetTypeGCPInstance,
+		Provider: "gcp",
+		Name:     "v4mapped-vm",
+		Metadata: map[string]any{"external_ip": "::ffff:192.168.1.1"},
+	})
+	// ::ffff:192.168.1.1 normalizes to 192.168.1.1 via net.IP.String()
+	b.AddDomainAsset("v4m.example.com", []string{"192.168.1.1"}, "dns")
+
+	graph := b.Build()
+
+	// The full-form IPv6 should have been normalized to "2001:db8::1" in the
+	// ipIndex, so the domain resolving to "2001:db8::1" should cross-reference.
+	foundV6Link := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelLikelySameAs &&
+			r.FromID == "domain:v6.example.com" &&
+			r.ToID == "gcp_compute_instance:proj/zone/v6-vm" {
+			foundV6Link = true
+		}
+	}
+	if !foundV6Link {
+		t.Error("expected likely_same_as between v6 domain and cloud asset via normalized IPv6")
+	}
+
+	// The IPv4-mapped IPv6 "::ffff:192.168.1.1" normalizes to "192.168.1.1",
+	// so the domain resolving to "192.168.1.1" should cross-reference.
+	foundV4MLink := false
+	for _, r := range graph.Relationships {
+		if r.Type == RelLikelySameAs &&
+			r.FromID == "domain:v4m.example.com" &&
+			r.ToID == "gcp_compute_instance:proj/zone/v4mapped-vm" {
+			foundV4MLink = true
+		}
+	}
+	if !foundV4MLink {
+		t.Error("expected likely_same_as between IPv4-mapped domain and cloud asset via normalized IP")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: duplicate asset ID with different metadata (merge behavior)
+// ---------------------------------------------------------------------------
+
+func TestBuilderDuplicateAssetID(t *testing.T) {
+	b := NewBuilder("run-dup", "example.com")
+
+	// First add with confidence 0.7 and one label.
+	b.AddAsset(Asset{
+		ID:         "domain:api.example.com",
+		Type:       AssetTypeSubdomain,
+		Provider:   "web",
+		Name:       "api.example.com",
+		Confidence: 0.7,
+		Labels:     map[string]string{"source": "passive"},
+		Aliases:    []string{"alias-1"},
+	})
+
+	// Second add with higher confidence, different label, different alias,
+	// and a fingerprint.
+	b.AddAsset(Asset{
+		ID:         "domain:api.example.com",
+		Type:       AssetTypeSubdomain,
+		Provider:   "web",
+		Name:       "api.example.com",
+		Confidence: 0.95,
+		Labels:     map[string]string{"stack": "go"},
+		Aliases:    []string{"alias-2"},
+		Fingerprint: &AssetFingerprint{
+			Tech: []TechSignal{{Name: "Go", Confidence: 0.9}},
+		},
+	})
+
+	// Third add with lower confidence; should not lower confidence.
+	b.AddAsset(Asset{
+		ID:         "domain:api.example.com",
+		Type:       AssetTypeSubdomain,
+		Provider:   "web",
+		Name:       "api.example.com",
+		Confidence: 0.5,
+		Labels:     map[string]string{"tier": "frontend"},
+	})
+
+	// Should still be one asset, not three.
+	if len(b.assets) != 1 {
+		t.Fatalf("expected 1 asset after merging duplicates, got %d", len(b.assets))
+	}
+
+	stored := b.assets["domain:api.example.com"]
+	if stored == nil {
+		t.Fatal("merged asset not found")
+	}
+
+	// Confidence should be the highest seen.
+	if stored.Confidence != 0.95 {
+		t.Errorf("Confidence = %f, want 0.95 (highest)", stored.Confidence)
+	}
+
+	// All labels should be merged.
+	if stored.Labels["source"] != "passive" {
+		t.Errorf("Labels[source] = %q, want %q", stored.Labels["source"], "passive")
+	}
+	if stored.Labels["stack"] != "go" {
+		t.Errorf("Labels[stack] = %q, want %q", stored.Labels["stack"], "go")
+	}
+	if stored.Labels["tier"] != "frontend" {
+		t.Errorf("Labels[tier] = %q, want %q", stored.Labels["tier"], "frontend")
+	}
+
+	// Aliases should be unioned.
+	aliasSet := make(map[string]bool)
+	for _, a := range stored.Aliases {
+		aliasSet[a] = true
+	}
+	if !aliasSet["alias-1"] || !aliasSet["alias-2"] {
+		t.Errorf("expected aliases [alias-1, alias-2], got %v", stored.Aliases)
+	}
+
+	// Fingerprint should be set from the second add.
+	if stored.Fingerprint == nil {
+		t.Fatal("Fingerprint should be set after merge")
+	}
+	if len(stored.Fingerprint.Tech) != 1 || stored.Fingerprint.Tech[0].Name != "Go" {
+		t.Errorf("Fingerprint tech = %+v, want [Go]", stored.Fingerprint.Tech)
+	}
+
+	// Verify the built graph also has exactly one asset with this ID.
+	graph := b.Build()
+	count := 0
+	for _, a := range graph.Assets {
+		if a.ID == "domain:api.example.com" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 asset in built graph, got %d", count)
+	}
+}

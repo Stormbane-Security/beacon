@@ -804,3 +804,180 @@ func TestDotEscape_EmptyString(t *testing.T) {
 		t.Errorf("dotEscape(\"\") = %q; want empty", out)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case: completely empty graph (zero assets, zero relationships)
+// ---------------------------------------------------------------------------
+
+func TestRenderGraphDOTEmpty(t *testing.T) {
+	g := asset.AssetGraph{
+		ScanRunID:     "run-zero",
+		Domain:        "zero.example.com",
+		Assets:        []asset.Asset{},
+		Relationships: []asset.Relationship{},
+		Findings:      []asset.FindingRef{},
+	}
+	out := RenderGraphDOT(g)
+
+	// Must still produce valid DOT digraph wrapper.
+	if !strings.HasPrefix(out, "digraph beacon {") {
+		t.Error("empty graph should produce valid DOT digraph header")
+	}
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasSuffix(trimmed, "}") {
+		t.Error("empty graph should end with closing brace")
+	}
+	// Should not contain any edges.
+	if strings.Contains(out, "->") {
+		t.Error("empty graph should not contain any edges")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: asset names with all dangerous DOT characters combined
+// ---------------------------------------------------------------------------
+
+func TestRenderGraphDOTSpecialChars(t *testing.T) {
+	g := asset.AssetGraph{
+		ScanRunID: "run-chars",
+		Domain:    "example.com",
+		Assets: []asset.Asset{
+			{
+				ID:       "domain:dquote",
+				Type:     asset.AssetTypeDomain,
+				Provider: "web",
+				Name:     `asset"with"double-quotes`,
+			},
+			{
+				ID:       "domain:backslash",
+				Type:     asset.AssetTypeDomain,
+				Provider: "web",
+				Name:     `asset\with\backslashes`,
+			},
+			{
+				ID:       "domain:angle",
+				Type:     asset.AssetTypeDomain,
+				Provider: "web",
+				Name:     `asset<with>angle-brackets`,
+			},
+			{
+				ID:       "domain:newline",
+				Type:     asset.AssetTypeDomain,
+				Provider: "web",
+				Name:     "asset\nwith\nnewlines",
+			},
+			{
+				ID:       "domain:combined",
+				Type:     asset.AssetTypeDomain,
+				Provider: "web",
+				Name:     "evil\"<script>\nalert(1)</script>\\",
+			},
+		},
+	}
+	out := RenderGraphDOT(g)
+
+	// Output must be valid DOT: starts with digraph, ends with brace.
+	if !strings.HasPrefix(out, "digraph beacon {") {
+		t.Error("should produce valid DOT header despite special chars")
+	}
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasSuffix(trimmed, "}") {
+		t.Error("should produce valid DOT closing brace despite special chars")
+	}
+
+	// Raw angle brackets must not appear (would break DOT label HTML parsing).
+	// Check each line that defines a node (contains label=).
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "label=") {
+			if strings.Contains(line, "<script>") {
+				t.Errorf("unescaped <script> tag found in DOT output line: %s", line)
+			}
+		}
+	}
+
+	// Raw newlines must not appear inside any label string.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "label=") && strings.Contains(line, "\n") {
+			t.Error("raw newline found inside DOT label — would break DOT syntax")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: disconnected nodes with no relationships
+// ---------------------------------------------------------------------------
+
+func TestRenderGraphDOTDisconnectedNodes(t *testing.T) {
+	g := asset.AssetGraph{
+		ScanRunID: "run-disconnected",
+		Domain:    "example.com",
+		Assets: []asset.Asset{
+			{ID: "domain:a.example.com", Type: asset.AssetTypeDomain, Provider: "web", Name: "a.example.com"},
+			{ID: "ip:10.0.0.1", Type: asset.AssetTypeIP, Provider: "network", Name: "10.0.0.1"},
+			{ID: "domain:b.example.com", Type: asset.AssetTypeSubdomain, Provider: "web", Name: "b.example.com"},
+		},
+		Relationships: []asset.Relationship{}, // no edges
+	}
+	out := RenderGraphDOT(g)
+
+	// All three nodes should appear as orphan nodes.
+	for _, id := range []string{"n_domain_a_example_com", "n_ip_10_0_0_1", "n_domain_b_example_com"} {
+		if !strings.Contains(out, id) {
+			t.Errorf("expected orphan node %q in DOT output", id)
+		}
+	}
+
+	// No edges should be present.
+	if strings.Contains(out, "->") {
+		t.Error("expected no edges in graph with empty relationships")
+	}
+
+	// Must still be valid DOT.
+	if !strings.HasPrefix(out, "digraph beacon {") {
+		t.Error("should produce valid DOT header")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: dangling relationship referencing non-existent asset IDs
+// ---------------------------------------------------------------------------
+
+func TestRenderGraphDOTDanglingRelationship(t *testing.T) {
+	g := asset.AssetGraph{
+		ScanRunID: "run-dangling",
+		Domain:    "example.com",
+		Assets: []asset.Asset{
+			{ID: "domain:real.example.com", Type: asset.AssetTypeDomain, Provider: "web", Name: "real.example.com"},
+		},
+		Relationships: []asset.Relationship{
+			{
+				FromID:     "domain:phantom-src",  // does not exist in Assets
+				ToID:       "domain:phantom-dest", // does not exist in Assets
+				Type:       asset.RelPointsTo,
+				Confidence: 1.0,
+			},
+			{
+				FromID:     "domain:real.example.com", // exists
+				ToID:       "domain:phantom-dest",     // does not exist
+				Type:       asset.RelPointsTo,
+				Confidence: 0.5,
+			},
+		},
+	}
+
+	// Must not panic even though relationships reference missing asset IDs.
+	out := RenderGraphDOT(g)
+
+	if !strings.HasPrefix(out, "digraph beacon {") {
+		t.Error("should produce valid DOT output despite dangling relationships")
+	}
+	trimmed := strings.TrimSpace(out)
+	if !strings.HasSuffix(trimmed, "}") {
+		t.Error("should end with closing brace despite dangling relationships")
+	}
+
+	// The real node should still appear.
+	if !strings.Contains(out, "n_domain_real_example_com") {
+		t.Error("expected real node to still appear in output")
+	}
+}

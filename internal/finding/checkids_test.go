@@ -683,3 +683,94 @@ func TestMetaReturnsCorrectModeForRepresentativeDeepChecks(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case: ParseSeverity with unusual inputs
+// ---------------------------------------------------------------------------
+
+func TestParseUnknownSeverity(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected finding.Severity
+	}{
+		{"empty string", "", finding.SeverityInfo},
+		{"uppercase CRITICAL", "CRITICAL", finding.SeverityCritical},
+		{"mixed case High", "High", finding.SeverityHigh},
+		{"unknown word", "unknown", finding.SeverityInfo},
+		{"hyphenated", "high-priority", finding.SeverityInfo},
+		{"trailing space", "medium ", finding.SeverityInfo},    // not trimmed — should fall through
+		{"leading space", " low", finding.SeverityInfo},        // not trimmed — should fall through
+		{"numeric", "5", finding.SeverityInfo},
+		{"info explicit", "info", finding.SeverityInfo},
+		{"medium normal", "medium", finding.SeverityMedium},
+		{"low normal", "low", finding.SeverityLow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := finding.ParseSeverity(tt.input)
+			if got != tt.expected {
+				t.Errorf("ParseSeverity(%q) = %v; want %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: Meta/ComplianceTags with unregistered CheckID
+// ---------------------------------------------------------------------------
+
+func TestRegistryUnknownCheckID(t *testing.T) {
+	unknown := finding.CheckID("nonexistent.check")
+
+	// Meta should return a safe default without panicking.
+	meta := finding.Meta(unknown)
+	if meta.CheckID != unknown {
+		t.Errorf("Meta(%q).CheckID = %q; want echo-back of input", unknown, meta.CheckID)
+	}
+	if meta.DefaultSeverity != finding.SeverityInfo {
+		t.Errorf("Meta(%q).DefaultSeverity = %v; want SeverityInfo", unknown, meta.DefaultSeverity)
+	}
+	if meta.Mode != finding.ModeDeep {
+		t.Errorf("Meta(%q).Mode = %v; want ModeDeep (fail closed)", unknown, meta.Mode)
+	}
+
+	// ComplianceTags should return nil without panicking.
+	tags := finding.ComplianceTags(unknown)
+	if tags != nil {
+		t.Errorf("ComplianceTags(%q) = %v; want nil for unregistered check", unknown, tags)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: MapNucleiTemplate with unknown template ID
+// ---------------------------------------------------------------------------
+
+func TestMapNucleiTemplateUnknown(t *testing.T) {
+	tests := []struct {
+		name       string
+		templateID string
+		expected   finding.CheckID
+	}{
+		{"totally unknown", "some-custom-template", "nuclei.some-custom-template"},
+		{"empty string", "", "nuclei."},
+		{"with spaces", "My Custom Template", "nuclei.my-custom-template"},
+		{"mixed case", "FooBar-Check", "nuclei.foobar-check"},
+		{"already lowercase", "already-lower", "nuclei.already-lower"},
+		{"special characters preserved", "check/v2.1", "nuclei.check/v2.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := finding.MapNucleiTemplate(tt.templateID)
+			if got != tt.expected {
+				t.Errorf("MapNucleiTemplate(%q) = %q; want %q", tt.templateID, got, tt.expected)
+			}
+		})
+	}
+
+	// Known templates should return the mapped CheckID, not the fallback.
+	known := finding.MapNucleiTemplate("ssl-dns-names")
+	if known != finding.CheckTLSCertHostnameMismatch {
+		t.Errorf("MapNucleiTemplate(\"ssl-dns-names\") = %q; want %q", known, finding.CheckTLSCertHostnameMismatch)
+	}
+}

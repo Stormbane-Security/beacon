@@ -412,3 +412,191 @@ func TestApplyContextualResponse_EmptyFindingsSlice(t *testing.T) {
 		t.Errorf("summary = %q; expected remediation roadmap section", summary)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case tests
+// ---------------------------------------------------------------------------
+
+func TestApplyContextualResponseMissingFields(t *testing.T) {
+	enriched := []EnrichedFinding{
+		makeEnrichedFinding("cors.wildcard", "api.example.com"),
+		makeEnrichedFinding("tls.weak_cipher", "web.example.com"),
+	}
+
+	// Response has findings entries but some are missing fields:
+	// - First finding has no "explanation" (which isn't even a contextual field,
+	//   but we verify the function handles sparse JSON without panicking).
+	// - Second finding has null-like empty strings for compliance_tags.
+	rawJSON := `{
+		"summary": "Test summary",
+		"findings": [
+			{
+				"check_id": "cors.wildcard",
+				"asset": "api.example.com",
+				"mitigated_by": "WAF blocks it"
+			},
+			{
+				"check_id": "tls.weak_cipher",
+				"asset": "web.example.com",
+				"compliance_tags": null,
+				"cross_asset_note": ""
+			}
+		]
+	}`
+
+	out, summary, err := applyContextualResponse(enriched, rawJSON)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(out))
+	}
+
+	// First finding should have MitigatedBy set, no panic from missing fields.
+	if out[0].MitigatedBy != "WAF blocks it" {
+		t.Errorf("finding[0].MitigatedBy = %q; want %q", out[0].MitigatedBy, "WAF blocks it")
+	}
+	// Original explanation should be preserved since contextual response doesn't overwrite it.
+	if out[0].Explanation != "original explanation" {
+		t.Errorf("finding[0].Explanation = %q; want %q (should be unchanged)", out[0].Explanation, "original explanation")
+	}
+
+	// Second finding should handle null compliance_tags gracefully.
+	if out[1].ComplianceTags != nil && len(out[1].ComplianceTags) != 0 {
+		t.Errorf("finding[1].ComplianceTags = %v; want nil or empty for null input", out[1].ComplianceTags)
+	}
+	if out[1].CrossAssetNote != "" {
+		t.Errorf("finding[1].CrossAssetNote = %q; want empty string", out[1].CrossAssetNote)
+	}
+
+	// Summary should still be populated.
+	if !strings.Contains(summary, "Test summary") {
+		t.Errorf("summary = %q; want to contain 'Test summary'", summary)
+	}
+}
+
+func TestApplyContextualResponseExtraFields(t *testing.T) {
+	enriched := []EnrichedFinding{
+		makeEnrichedFinding("dns.axfr_allowed", "ns1.example.com"),
+	}
+
+	// Response includes unknown extra fields that don't map to any struct field.
+	// json.Unmarshal should silently ignore them.
+	rawJSON := `{
+		"summary": "Summary with extra fields",
+		"unknown_top_level_field": "should be ignored",
+		"severity_override": 99,
+		"findings": [
+			{
+				"check_id": "dns.axfr_allowed",
+				"asset": "ns1.example.com",
+				"mitigated_by": "Firewall restricts zone transfers",
+				"extra_field_1": "ignored value",
+				"extra_nested": {"foo": "bar"},
+				"extra_array": [1, 2, 3]
+			}
+		]
+	}`
+
+	out, summary, err := applyContextualResponse(enriched, rawJSON)
+	if err != nil {
+		t.Fatalf("unexpected error on extra fields: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(out))
+	}
+
+	// Known fields should still be parsed correctly.
+	if out[0].MitigatedBy != "Firewall restricts zone transfers" {
+		t.Errorf("MitigatedBy = %q; want %q", out[0].MitigatedBy, "Firewall restricts zone transfers")
+	}
+	if !strings.Contains(summary, "Summary with extra fields") {
+		t.Errorf("summary = %q; want to contain 'Summary with extra fields'", summary)
+	}
+}
+
+func TestEnrichFindingsEmptySlice(t *testing.T) {
+	// Directly test the early-return path in Enrich for empty input.
+	// The Enrich method on ClaudeEnricher returns (nil, nil) for empty input,
+	// which means no API calls are made.
+	// We can't easily construct a full ClaudeEnricher without a real API key,
+	// but applyContextualResponse with empty enriched slice should be safe.
+	out, summary, err := applyContextualResponse([]EnrichedFinding{}, `{"summary":"empty"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("expected 0 findings, got %d", len(out))
+	}
+	if !strings.Contains(summary, "empty") {
+		t.Errorf("summary = %q; want to contain 'empty'", summary)
+	}
+
+	// Also test with nil slice.
+	out2, _, err2 := applyContextualResponse(nil, `{"summary":"nil input"}`)
+	if err2 != nil {
+		t.Fatalf("unexpected error with nil: %v", err2)
+	}
+	if len(out2) != 0 {
+		t.Errorf("expected 0 findings for nil input, got %d", len(out2))
+	}
+}
+
+func TestExtractJSONArrayMalformed(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "truncated JSON",
+			input: `[{"a":1`,
+		},
+		{
+			name:  "trailing garbage after valid array",
+			input: `[{"a":1}]GARBAGE`,
+		},
+		{
+			name:  "no JSON at all",
+			input: `This is just plain text with no brackets or braces.`,
+		},
+		{
+			name:  "empty string",
+			input: ``,
+		},
+		{
+			name:  "only opening bracket",
+			input: `[`,
+		},
+		{
+			name:  "only closing bracket",
+			input: `]`,
+		},
+		{
+			name:  "markdown fence with truncated JSON inside",
+			input: "```json\n[{\"check_id\": \"test\"\n```",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// extractJSONArray must not panic on any malformed input.
+			result := extractJSONArray(tt.input)
+			// The result is a best-effort extraction; we just verify no panic.
+			_ = result
+		})
+	}
+
+	// Verify trailing garbage is stripped: extractJSONArray finds outermost [ ... ]
+	// so trailing text after ] should be removed.
+	result := extractJSONArray(`[{"a":1}]GARBAGE`)
+	if result != `[{"a":1}]` {
+		t.Errorf("trailing garbage not stripped: got %q; want %q", result, `[{"a":1}]`)
+	}
+
+	// Verify plain text with no array markers returns whatever is left after trimming.
+	result2 := extractJSONArray(`Just plain text`)
+	// Since there's no [ or ], the function returns the trimmed text as-is.
+	if result2 != "Just plain text" {
+		t.Errorf("no-array input: got %q; want %q", result2, "Just plain text")
+	}
+}

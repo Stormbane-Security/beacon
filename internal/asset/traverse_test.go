@@ -214,3 +214,232 @@ func TestAssetLookup(t *testing.T) {
 		t.Error("expected nil for nonexistent asset")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge case: reconstructPath with broken parent chain
+// ---------------------------------------------------------------------------
+
+func TestReconstructPathBrokenChain(t *testing.T) {
+	// Build a graph A→B→C→D, but we'll call reconstructPath with a parent
+	// map that is missing intermediate node C. This simulates a corrupted
+	// parent chain that should return nil instead of looping.
+	g := &AssetGraph{
+		ScanRunID: "test-broken",
+		Assets: []Asset{
+			{ID: "a", Type: AssetTypeDomain, Provider: "web", Name: "a"},
+			{ID: "b", Type: AssetTypeDomain, Provider: "web", Name: "b"},
+			{ID: "d", Type: AssetTypeDomain, Provider: "web", Name: "d"},
+		},
+		Relationships: []Relationship{
+			{FromID: "a", ToID: "b", Type: RelPointsTo, Confidence: 1.0},
+			// b→c edge missing (c doesn't exist), but we have a→b
+		},
+	}
+	_ = NewTraverser(g) // just ensure construction works
+
+	// Directly test reconstructPath with a parent map that has a gap.
+	// d's parent is c, but c has no parent entry (broken chain).
+	parent := map[string]string{
+		"b": "a",
+		"d": "c",
+		// "c" has no entry — broken chain
+	}
+	path := reconstructPath(parent, "a", "d")
+	if path != nil {
+		t.Errorf("expected nil path for broken parent chain, got %v", path)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: reconstructPath with self-loop in parent map
+// ---------------------------------------------------------------------------
+
+func TestReconstructPathSelfLoop(t *testing.T) {
+	// A parent map where an entry points to itself should return nil
+	// rather than looping forever.
+	parent := map[string]string{
+		"b": "a",
+		"c": "c", // self-loop
+		"d": "c",
+	}
+	path := reconstructPath(parent, "a", "d")
+	if path != nil {
+		t.Errorf("expected nil path for self-loop in parent chain, got %v", path)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: Traverser on a nil/empty graph
+// ---------------------------------------------------------------------------
+
+func TestTraverserNilGraph(t *testing.T) {
+	g := &AssetGraph{
+		ScanRunID: "test-empty",
+		// Zero assets, zero relationships, zero findings.
+	}
+	tr := NewTraverser(g)
+
+	// Reachable from a nonexistent node should return empty, not panic.
+	reachable := tr.Reachable("nonexistent", nil)
+	if len(reachable) != 0 {
+		t.Errorf("Reachable on empty graph: expected 0, got %d", len(reachable))
+	}
+
+	// Ancestors from a nonexistent node should return empty.
+	ancestors := tr.Ancestors("nonexistent", nil)
+	if len(ancestors) != 0 {
+		t.Errorf("Ancestors on empty graph: expected 0, got %d", len(ancestors))
+	}
+
+	// BlastRadius on a nonexistent node should return zero-value result.
+	br := tr.BlastRadius("nonexistent")
+	if br.RiskScore != 0 {
+		t.Errorf("BlastRadius on empty graph: expected risk score 0, got %f", br.RiskScore)
+	}
+	if len(br.ReachableIDs) != 0 {
+		t.Errorf("BlastRadius on empty graph: expected 0 reachable, got %d", len(br.ReachableIDs))
+	}
+
+	// ShortestPath on nonexistent nodes should return nil.
+	path := tr.ShortestPath("nonexistent-a", "nonexistent-b")
+	if path != nil {
+		t.Errorf("ShortestPath on empty graph: expected nil, got %v", path)
+	}
+
+	// Neighbors on nonexistent node should return empty.
+	neighbors := tr.Neighbors("nonexistent")
+	if len(neighbors) != 0 {
+		t.Errorf("Neighbors on empty graph: expected 0, got %d", len(neighbors))
+	}
+
+	// FindingsFor on nonexistent node should return nil/empty.
+	findings := tr.FindingsFor("nonexistent")
+	if len(findings) != 0 {
+		t.Errorf("FindingsFor on empty graph: expected 0, got %d", len(findings))
+	}
+
+	// Asset lookup on nonexistent node should return nil.
+	a := tr.Asset("nonexistent")
+	if a != nil {
+		t.Errorf("Asset on empty graph: expected nil, got %+v", a)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: BlastRadius on a nonexistent asset in a populated graph
+// ---------------------------------------------------------------------------
+
+func TestBlastRadiusEmptyGraph(t *testing.T) {
+	g := testGraph()
+	tr := NewTraverser(g)
+
+	result := tr.BlastRadius("totally-fake-asset-id")
+
+	if result.OriginID != "totally-fake-asset-id" {
+		t.Errorf("OriginID = %q, want %q", result.OriginID, "totally-fake-asset-id")
+	}
+	if len(result.ReachableIDs) != 0 {
+		t.Errorf("expected 0 reachable IDs, got %d", len(result.ReachableIDs))
+	}
+	if result.RiskScore != 0 {
+		t.Errorf("expected risk score 0 for nonexistent asset, got %f", result.RiskScore)
+	}
+	if result.CloudAccountsReachable != 0 {
+		t.Errorf("expected 0 cloud accounts, got %d", result.CloudAccountsReachable)
+	}
+	if result.ClustersReachable != 0 {
+		t.Errorf("expected 0 clusters, got %d", result.ClustersReachable)
+	}
+	if result.ReposReachable != 0 {
+		t.Errorf("expected 0 repos, got %d", result.ReposReachable)
+	}
+	if result.PackagesReachable != 0 {
+		t.Errorf("expected 0 packages, got %d", result.PackagesReachable)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: ShortestPath between two disconnected nodes
+// ---------------------------------------------------------------------------
+
+func TestShortestPathNoPath(t *testing.T) {
+	// Build a graph with two isolated clusters: A→B and C→D (no edges between them).
+	g := &AssetGraph{
+		ScanRunID: "test-nopath",
+		Assets: []Asset{
+			{ID: "a", Type: AssetTypeDomain, Provider: "web", Name: "a"},
+			{ID: "b", Type: AssetTypeDomain, Provider: "web", Name: "b"},
+			{ID: "c", Type: AssetTypeDomain, Provider: "web", Name: "c"},
+			{ID: "d", Type: AssetTypeDomain, Provider: "web", Name: "d"},
+		},
+		Relationships: []Relationship{
+			{FromID: "a", ToID: "b", Type: RelPointsTo, Confidence: 1.0},
+			{FromID: "c", ToID: "d", Type: RelPointsTo, Confidence: 1.0},
+		},
+	}
+	tr := NewTraverser(g)
+
+	// a can reach b, but not c or d.
+	path := tr.ShortestPath("a", "c")
+	if path != nil {
+		t.Errorf("expected nil path between disconnected nodes, got %v", path)
+	}
+
+	path = tr.ShortestPath("a", "d")
+	if path != nil {
+		t.Errorf("expected nil path between disconnected nodes, got %v", path)
+	}
+
+	// Verify path within the same cluster still works.
+	path = tr.ShortestPath("a", "b")
+	if path == nil || len(path) != 2 {
+		t.Errorf("expected [a, b] path, got %v", path)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge case: Reachable with cycles in the graph
+// ---------------------------------------------------------------------------
+
+func TestReachableWithCycles(t *testing.T) {
+	// Build a cyclic graph: A→B→C→A.
+	g := &AssetGraph{
+		ScanRunID: "test-cycle",
+		Assets: []Asset{
+			{ID: "a", Type: AssetTypeDomain, Provider: "web", Name: "a"},
+			{ID: "b", Type: AssetTypeDomain, Provider: "web", Name: "b"},
+			{ID: "c", Type: AssetTypeDomain, Provider: "web", Name: "c"},
+		},
+		Relationships: []Relationship{
+			{FromID: "a", ToID: "b", Type: RelPointsTo, Confidence: 1.0},
+			{FromID: "b", ToID: "c", Type: RelPointsTo, Confidence: 1.0},
+			{FromID: "c", ToID: "a", Type: RelPointsTo, Confidence: 1.0},
+		},
+	}
+	tr := NewTraverser(g)
+
+	reachable := tr.Reachable("a", nil)
+
+	// Should contain b and c exactly once each; a is the start node and should
+	// not appear in the results (Reachable excludes the start node).
+	if len(reachable) != 2 {
+		t.Fatalf("expected 2 reachable nodes from a in cycle, got %d: %v", len(reachable), reachable)
+	}
+
+	reachableSet := map[string]bool{}
+	for _, id := range reachable {
+		if reachableSet[id] {
+			t.Errorf("node %q appears more than once in reachable set", id)
+		}
+		reachableSet[id] = true
+	}
+	if !reachableSet["b"] {
+		t.Error("expected b to be reachable from a")
+	}
+	if !reachableSet["c"] {
+		t.Error("expected c to be reachable from a")
+	}
+	if reachableSet["a"] {
+		t.Error("start node a should not appear in reachable results")
+	}
+}

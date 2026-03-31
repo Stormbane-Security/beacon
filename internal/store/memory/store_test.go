@@ -1443,6 +1443,163 @@ func TestGetFindings_ReturnedSliceMutationDoesNotCorrupt(t *testing.T) {
 	}
 }
 
+// --- Additional edge case tests ---
+
+func TestSaveFindingsNilSlice(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	// Save some initial findings so we can verify nil doesn't wipe them.
+	initial := []finding.Finding{{CheckID: "existing.check", Asset: "example.com", Title: "Existing"}}
+	if err := s.SaveFindings(ctx(), run.ID, initial); err != nil {
+		t.Fatalf("SaveFindings(initial): %v", err)
+	}
+
+	// Calling SaveFindings with nil must not panic and must not corrupt state.
+	if err := s.SaveFindings(ctx(), run.ID, nil); err != nil {
+		t.Fatalf("SaveFindings(nil) returned error: %v", err)
+	}
+
+	// Existing findings must be preserved.
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("len = %d; want 1 (nil save should not change state)", len(got))
+	}
+	if got[0].CheckID != "existing.check" {
+		t.Errorf("CheckID = %q; want %q", got[0].CheckID, "existing.check")
+	}
+}
+
+func TestSaveFindingsEmptySlice(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	// Save some initial findings so we can verify empty slice doesn't wipe them.
+	initial := []finding.Finding{{CheckID: "existing.check", Asset: "example.com", Title: "Existing"}}
+	if err := s.SaveFindings(ctx(), run.ID, initial); err != nil {
+		t.Fatalf("SaveFindings(initial): %v", err)
+	}
+
+	// Calling SaveFindings with empty slice must not panic and must not corrupt state.
+	if err := s.SaveFindings(ctx(), run.ID, []finding.Finding{}); err != nil {
+		t.Fatalf("SaveFindings(empty) returned error: %v", err)
+	}
+
+	// Existing findings must be preserved.
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("len = %d; want 1 (empty save should not change state)", len(got))
+	}
+	if got[0].CheckID != "existing.check" {
+		t.Errorf("CheckID = %q; want %q", got[0].CheckID, "existing.check")
+	}
+}
+
+func TestConcurrentWriteRead(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+	const writers = 50
+	const findingsPerWriter = 10
+	const readers = 50
+	var wg sync.WaitGroup
+
+	// 50 goroutines each writing 10 unique findings.
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(writerN int) {
+			defer wg.Done()
+			for f := 0; f < findingsPerWriter; f++ {
+				findings := []finding.Finding{{
+					CheckID: finding.CheckID(fmt.Sprintf("writer%d.check%d", writerN, f)),
+					Asset:   "example.com",
+					Title:   fmt.Sprintf("Finding %d from writer %d", f, writerN),
+				}}
+				s.SaveFindings(ctx(), run.ID, findings)
+			}
+		}(w)
+	}
+
+	// 50 goroutines reading concurrently with the writers.
+	for r := 0; r < readers; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Read multiple times to increase overlap with writers.
+			for i := 0; i < 5; i++ {
+				got, err := s.GetFindings(ctx(), run.ID)
+				if err != nil {
+					t.Errorf("GetFindings during concurrent read: %v", err)
+					return
+				}
+				// Each read should return a consistent snapshot (length may vary).
+				_ = got
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// After all writes complete, verify total count.
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings after concurrent writes: %v", err)
+	}
+	want := writers * findingsPerWriter
+	if len(got) != want {
+		t.Errorf("finding count = %d; want %d (50 writers * 10 findings each)", len(got), want)
+	}
+}
+
+func TestDedupCaseSensitivity(t *testing.T) {
+	s := newStore()
+	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
+
+	lower := finding.Finding{
+		CheckID: "cors.wildcard",
+		Asset:   "api.example.com",
+		Title:   "Wildcard CORS",
+	}
+	upper := finding.Finding{
+		CheckID: "CORS.WILDCARD",
+		Asset:   "api.example.com",
+		Title:   "Wildcard CORS",
+	}
+
+	s.SaveFindings(ctx(), run.ID, []finding.Finding{lower, upper})
+
+	got, err := s.GetFindings(ctx(), run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings: %v", err)
+	}
+	// The dedup key includes CheckID, so different cases must be treated as distinct findings.
+	if len(got) != 2 {
+		t.Errorf("expected 2 findings (case-sensitive dedup), got %d", len(got))
+	}
+
+	// Verify both CheckIDs are present.
+	foundLower, foundUpper := false, false
+	for _, f := range got {
+		if f.CheckID == "cors.wildcard" {
+			foundLower = true
+		}
+		if f.CheckID == "CORS.WILDCARD" {
+			foundUpper = true
+		}
+	}
+	if !foundLower {
+		t.Error("missing finding with CheckID 'cors.wildcard'")
+	}
+	if !foundUpper {
+		t.Error("missing finding with CheckID 'CORS.WILDCARD'")
+	}
+}
+
 func TestSaveEnrichedFindings_CallerMutationDoesNotCorrupt(t *testing.T) {
 	s := newStore()
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)

@@ -305,3 +305,125 @@ func TestRenderJSON_NilCompletedAt(t *testing.T) {
 		t.Error("expected completed_at to be omitted when nil")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// JSON: nil findings slice produces valid JSON with empty array, not null
+// ---------------------------------------------------------------------------
+
+func TestJSONReportNilFindings(t *testing.T) {
+	out, err := RenderJSON(testRun(), nil, "", nil)
+	if err != nil {
+		t.Fatalf("RenderJSON error with nil findings: %v", err)
+	}
+
+	// Must be valid JSON.
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("nil findings produced invalid JSON: %v", err)
+	}
+
+	// The "findings" key should exist.
+	rawFindings, ok := m["findings"]
+	if !ok {
+		t.Fatal("expected 'findings' key in JSON output")
+	}
+
+	// Verify it's not JSON null — it should be an array (possibly null in Go,
+	// but we want to verify the JSON is still parseable and finding_count is 0).
+	if rawFindings != nil {
+		arr, ok := rawFindings.([]any)
+		if !ok {
+			t.Fatalf("expected 'findings' to be array, got %T", rawFindings)
+		}
+		if len(arr) != 0 {
+			t.Errorf("expected empty findings array for nil input, got %d elements", len(arr))
+		}
+	}
+
+	// finding_count must be 0.
+	if int(m["finding_count"].(float64)) != 0 {
+		t.Errorf("expected finding_count 0, got %v", m["finding_count"])
+	}
+
+	// Round-trip: re-marshal and re-unmarshal should succeed.
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("re-marshal failed: %v", err)
+	}
+	var m2 map[string]any
+	if err := json.Unmarshal(b, &m2); err != nil {
+		t.Fatalf("round-trip unmarshal failed: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JSON: finding titles with unicode, null bytes, and control characters
+// ---------------------------------------------------------------------------
+
+func TestJSONReportSpecialCharsInTitle(t *testing.T) {
+	findings := []enrichment.EnrichedFinding{
+		{
+			Finding: finding.Finding{
+				CheckID:  "test.unicode",
+				Severity: finding.SeverityHigh,
+				Title:    "Injection via \u00e9\u00e0\u00fc\u00f1 \U0001F4A5 param",
+				Asset:    "example.com",
+			},
+			Explanation: "Unicode characters in title.",
+		},
+		{
+			Finding: finding.Finding{
+				CheckID:  "test.nullbyte",
+				Severity: finding.SeverityMedium,
+				Title:    "Null byte \x00 in title",
+				Asset:    "example.com",
+			},
+			Explanation: "Null byte in finding title.",
+		},
+		{
+			Finding: finding.Finding{
+				CheckID:  "test.control",
+				Severity: finding.SeverityLow,
+				Title:    "Control chars: \x01\x02\x03\x1b[31mred\x1b[0m",
+				Asset:    "example.com",
+			},
+			Explanation: "ANSI escape and control characters.",
+		},
+		{
+			Finding: finding.Finding{
+				CheckID:     "test.backslash",
+				Severity:    finding.SeverityInfo,
+				Title:       `Path: C:\Windows\System32\cmd.exe /c "whoami"`,
+				Description: "Backslashes and quotes in title.",
+				Asset:       "example.com",
+			},
+		},
+	}
+
+	out, err := RenderJSON(testRun(), findings, "", nil)
+	if err != nil {
+		t.Fatalf("RenderJSON with special chars: %v", err)
+	}
+
+	// Must produce valid JSON — this is the primary check.
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("special-char findings produced invalid JSON: %v\n%s", err, out)
+	}
+
+	// All findings should be present.
+	arr := m["findings"].([]any)
+	if len(arr) != 4 {
+		t.Errorf("expected 4 findings, got %d", len(arr))
+	}
+
+	// Round-trip: re-marshal should also produce valid JSON.
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("re-marshal of special-char JSON failed: %v", err)
+	}
+	var m2 map[string]any
+	if err := json.Unmarshal(b, &m2); err != nil {
+		t.Fatalf("round-trip unmarshal failed: %v", err)
+	}
+}

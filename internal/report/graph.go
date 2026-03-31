@@ -131,11 +131,12 @@ func buildNodeLabel(a asset.Asset, s *assetStats) string {
 	// Type label (short form)
 	typeLabel := assetTypeLabel(a.Type)
 
-	// Name — truncate if too long
+	// Name — truncate if too long, then escape for DOT label safety.
 	name := a.Name
 	if len(name) > 45 {
 		name = name[:20] + "..." + name[len(name)-20:]
 	}
+	name = dotEscape(name)
 
 	label := typeLabel + "\\n" + name
 

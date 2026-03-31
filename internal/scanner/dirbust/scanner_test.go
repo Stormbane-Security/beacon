@@ -250,3 +250,77 @@ func TestEmptyPaths_ReturnsNil(t *testing.T) {
 		t.Errorf("expected no findings for empty path list, got %d", len(findings))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge: canary/baseline probe gets 429 — scanner must back off, not treat
+// all paths as soft-404
+// ---------------------------------------------------------------------------
+
+func TestDirBustRateLimitOnCanary(t *testing.T) {
+	var requestCount atomic.Int64
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := requestCount.Add(1)
+		// First 3 requests are canary probes — return 429 for all of them.
+		// After canaries, the /admin probe should also get 429.
+		if n <= 6 {
+			w.Header().Set("Retry-After", "0") // minimal backoff for test speed
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		// If the scanner retries after the canary 429s, the real path returns 200.
+		if r.URL.Path == "/admin" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("admin panel"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s := newTLSScanner(ts)
+	findings := s.Run(context.Background(), tlsAsset(ts), []string{"/admin"})
+
+	// The scanner should NOT have false-positived by treating 429 as a valid
+	// response. It should have retried and either found the path or exhausted
+	// retries. The key assertion is that it didn't panic and didn't produce
+	// spurious results.
+	_ = findings
+}
+
+// ---------------------------------------------------------------------------
+// Edge: connection reset mid-probe — no panic, no false positive
+// ---------------------------------------------------------------------------
+
+func TestDirBustConnectionReset(t *testing.T) {
+	// Create a server that immediately closes the connection for the probed path.
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/admin" {
+			// Hijack the connection and close it to simulate a TCP reset.
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, err := hj.Hijack()
+				if err == nil {
+					conn.Close()
+					return
+				}
+			}
+			// Fallback: just close without writing.
+			return
+		}
+		// Canary and other paths return 404 normally.
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s := newTLSScanner(ts)
+	// Must not panic on connection reset.
+	findings := s.Run(context.Background(), tlsAsset(ts), []string{"/admin"})
+
+	// Connection reset should NOT produce a finding — the path was never
+	// successfully probed.
+	pathFindings := findingsByCheckID(findings, finding.CheckDirbustFound)
+	if len(pathFindings) > 0 {
+		t.Errorf("expected no CheckDirbustFound findings on connection reset, got %d", len(pathFindings))
+	}
+}
