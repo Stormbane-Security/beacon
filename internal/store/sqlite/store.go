@@ -1075,7 +1075,8 @@ func (s *Store) ListRecentScanRuns(_ context.Context, limit int) ([]store.ScanRu
 		       started_at, completed_at, finding_count, error,
 		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs
-		ORDER BY started_at DESC LIMIT ?`, limit)
+		WHERE status = 'completed'
+		ORDER BY completed_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1226,8 +1227,9 @@ func (s *Store) GetScannerROI(_ context.Context, domain string) ([]store.Scanner
 		); err != nil {
 			return nil, err
 		}
-		if r.AvgDurationMs > 0 {
-			r.FindingsPerMin = float64(r.TotalFindings) / (float64(r.AvgDurationMs) / 60000.0)
+		if r.AvgDurationMs > 0 && r.RunCount > 0 {
+			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
+			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
 		}
 		out = append(out, r)
 	}
@@ -1406,8 +1408,9 @@ func (s *Store) GetCrossDomainScannerSummary(_ context.Context) ([]store.CrossDo
 		); err != nil {
 			return nil, err
 		}
-		if r.AvgDurationMs > 0 {
-			r.FindingsPerMin = float64(r.TotalFindings) / (float64(r.AvgDurationMs) / 60000.0)
+		if r.AvgDurationMs > 0 && r.RunCount > 0 {
+			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
+			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
 		}
 		out = append(out, r)
 	}

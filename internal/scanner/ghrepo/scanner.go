@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -92,23 +93,30 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 	if repoMeta.DefaultBranch != "" {
 		bp, err := s.getBranchProtection(ctx, owner, repo, repoMeta.DefaultBranch)
 		if err != nil {
-			// No protection at all — the API returns 404 when protection is absent.
-			all = append(all, finding.Finding{
-				CheckID:  finding.CheckGitHubNoBranchProtection,
-				Module:   "github",
-				Scanner:  scannerName,
-				Severity: finding.SeverityHigh,
-				Asset:    repoSlug,
-				Title:    fmt.Sprintf("No branch protection on default branch %q", repoMeta.DefaultBranch),
-				Description: fmt.Sprintf(
-					"The default branch %q has no branch protection rules. Anyone with write access can "+
-						"force-push commits, bypass required reviews, and merge unreviewed code directly "+
-						"to the production branch. Enable branch protection with at minimum: required pull "+
-						"request reviews (1+), dismiss stale reviews, and prevent force pushes.",
-					repoMeta.DefaultBranch),
-				Evidence:     map[string]any{"branch": repoMeta.DefaultBranch},
-				DiscoveredAt: time.Now(),
-			})
+			// Only emit a finding when the API returns 404 (no protection configured).
+			// Other errors (rate limits, 500s, permission denials) should not be
+			// treated as "no branch protection" — that produces false positives.
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "HTTP 404") {
+				all = append(all, finding.Finding{
+					CheckID:  finding.CheckGitHubNoBranchProtection,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Asset:    repoSlug,
+					Title:    fmt.Sprintf("No branch protection on default branch %q", repoMeta.DefaultBranch),
+					Description: fmt.Sprintf(
+						"The default branch %q has no branch protection rules. Anyone with write access can "+
+							"force-push commits, bypass required reviews, and merge unreviewed code directly "+
+							"to the production branch. Enable branch protection with at minimum: required pull "+
+							"request reviews (1+), dismiss stale reviews, and prevent force pushes.",
+						repoMeta.DefaultBranch),
+					Evidence:     map[string]any{"branch": repoMeta.DefaultBranch},
+					DiscoveredAt: time.Now(),
+				})
+			} else {
+				log.Printf("ghrepo: skipping branch protection check for %s (%s): %v", repoSlug, repoMeta.DefaultBranch, err)
+			}
 		} else {
 			all = append(all, checkBranchProtection(bp, repoMeta.DefaultBranch, repoSlug)...)
 		}

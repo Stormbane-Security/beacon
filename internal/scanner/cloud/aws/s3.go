@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -158,8 +159,30 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 			pol, polErr := svc.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: bucket.Name})
 			hasSSLOnly := false
 			if polErr == nil && pol.Policy != nil {
-				// A bucket policy enforcing SSL contains "aws:SecureTransport": "false" with Deny effect.
-				hasSSLOnly = strings.Contains(*pol.Policy, "aws:SecureTransport")
+				// Parse the policy JSON and look for a Deny statement with
+				// Condition.Bool["aws:SecureTransport"] == "false", which is the
+				// standard pattern for enforcing SSL-only access.
+				type policyStatement struct {
+					Effect    string                            `json:"Effect"`
+					Condition map[string]map[string]interface{} `json:"Condition"`
+				}
+				type bucketPolicy struct {
+					Statement []policyStatement `json:"Statement"`
+				}
+				var bp bucketPolicy
+				if err := json.Unmarshal([]byte(*pol.Policy), &bp); err == nil {
+					for _, stmt := range bp.Statement {
+						if stmt.Effect == "Deny" {
+							if boolCond, ok := stmt.Condition["Bool"]; ok {
+								if val, ok := boolCond["aws:SecureTransport"]; ok {
+									if valStr, ok := val.(string); ok && valStr == "false" {
+										hasSSLOnly = true
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 			if !hasSSLOnly {
 				findings = append(findings, finding.Finding{

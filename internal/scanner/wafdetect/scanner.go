@@ -260,7 +260,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if bypassHeader, bypassed := testBypassHeaders(ctx, client, asset, scheme, headers); bypassed {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWAFBypassHeader,
-				Module:   "surface",
+				Module:   "deep",
 				Scanner:  scannerName,
 				Severity: finding.SeverityHigh,
 				Asset:    asset,

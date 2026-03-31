@@ -2290,6 +2290,54 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudAzureRedisNoFirewall:        {CheckCloudAzureRedisNoFirewall, SeverityMedium, ModeDeep},
 	CheckCloudAzurePostgresPublic:         {CheckCloudAzurePostgresPublic, SeverityHigh, ModeDeep},
 	CheckCloudAzurePostgresNoSSL:          {CheckCloudAzurePostgresNoSSL, SeverityHigh, ModeDeep},
+
+	// GitHub Actions — static workflow analysis → Surface
+	CheckGHActionUnpinned:          {CheckGHActionUnpinned, SeverityMedium, ModeSurface},
+	CheckGHActionPRTargetUnsafe:    {CheckGHActionPRTargetUnsafe, SeverityHigh, ModeSurface},
+	CheckGHActionScriptInjection:   {CheckGHActionScriptInjection, SeverityCritical, ModeSurface},
+	CheckGHActionOverpermissioned:  {CheckGHActionOverpermissioned, SeverityMedium, ModeSurface},
+	CheckGHActionSecretsEchoed:     {CheckGHActionSecretsEchoed, SeverityHigh, ModeSurface},
+	CheckGHActionSelfHostedPublic:  {CheckGHActionSelfHostedPublic, SeverityHigh, ModeSurface},
+	CheckCICDAttackPath:            {CheckCICDAttackPath, SeverityCritical, ModeSurface},
+
+	// AI / LLM endpoint exposure — Surface (passive probing)
+	CheckAIEndpointExposed:    {CheckAIEndpointExposed, SeverityHigh, ModeSurface},
+	CheckAIKeyExposed:         {CheckAIKeyExposed, SeverityCritical, ModeSurface},
+	CheckAIStreamingOpen:      {CheckAIStreamingOpen, SeverityMedium, ModeSurface},
+	CheckAIModelInfoExposed:   {CheckAIModelInfoExposed, SeverityMedium, ModeSurface},
+	CheckAIPromptInjection:    {CheckAIPromptInjection, SeverityHigh, ModeDeep},
+	CheckAISystemLeak:         {CheckAISystemLeak, SeverityHigh, ModeDeep},
+	CheckAISSRFViaPLLM:        {CheckAISSRFViaPLLM, SeverityCritical, ModeDeep},
+	CheckAIDataExfil:          {CheckAIDataExfil, SeverityCritical, ModeDeep},
+	CheckAIToolAbuse:          {CheckAIToolAbuse, SeverityHigh, ModeDeep},
+	CheckAIIndirectInjection:  {CheckAIIndirectInjection, SeverityHigh, ModeDeep},
+
+	// UDP/protocol exposure — Surface (port probing)
+	CheckPortNTPExposed:        {CheckPortNTPExposed, SeverityLow, ModeSurface},
+	CheckPortNTPAmplification:  {CheckPortNTPAmplification, SeverityHigh, ModeSurface},
+	CheckPortTFTPAnonymous:     {CheckPortTFTPAnonymous, SeverityHigh, ModeSurface},
+	CheckPortSSDPExposed:       {CheckPortSSDPExposed, SeverityMedium, ModeSurface},
+	CheckPortIKEExposed:        {CheckPortIKEExposed, SeverityLow, ModeSurface},
+	CheckPortNetBIOSNSExposed:  {CheckPortNetBIOSNSExposed, SeverityMedium, ModeSurface},
+	CheckPortSTUNExposed:       {CheckPortSTUNExposed, SeverityLow, ModeSurface},
+	CheckPortMDNSExposed:       {CheckPortMDNSExposed, SeverityLow, ModeSurface},
+	CheckPortFTPWingRCE:        {CheckPortFTPWingRCE, SeverityCritical, ModeSurface},
+	CheckPortRedisVulnerableCVE2025: {CheckPortRedisVulnerableCVE2025, SeverityCritical, ModeSurface},
+	CheckPortBGPExposed:        {CheckPortBGPExposed, SeverityMedium, ModeSurface},
+	CheckPortKibanaVulnerable:  {CheckPortKibanaVulnerable, SeverityCritical, ModeSurface},
+	CheckPortMinIODefaultCreds: {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
+
+	// AI profiler — informational
+	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},
+
+	// Auth fuzzing — Deep (active probing)
+	CheckAuthFuzzStateBypass:      {CheckAuthFuzzStateBypass, SeverityHigh, ModeDeep},
+	CheckAuthFuzzCodeInterception: {CheckAuthFuzzCodeInterception, SeverityCritical, ModeDeep},
+	CheckAuthFuzzRedirectAbuse:    {CheckAuthFuzzRedirectAbuse, SeverityHigh, ModeDeep},
+	CheckAuthFuzzTokenSubstitution: {CheckAuthFuzzTokenSubstitution, SeverityCritical, ModeDeep},
+	CheckSIWENonceReuse:           {CheckSIWENonceReuse, SeverityHigh, ModeDeep},
+	CheckSIWEChainBypass:          {CheckSIWEChainBypass, SeverityHigh, ModeDeep},
+	CheckSIWEReplayAttack:         {CheckSIWEReplayAttack, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

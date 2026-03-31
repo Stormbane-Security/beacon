@@ -354,8 +354,11 @@ func probeSSDPUDP(ctx context.Context, host string) *finding.Finding {
 	}
 	buf := make([]byte, 2048)
 	n, err := conn.Read(buf)
+	if err != nil {
+		return nil
+	}
 	resp := string(buf[:n])
-	if err != nil || !strings.Contains(resp, "HTTP/1.1") {
+	if !strings.Contains(resp, "HTTP/1.1") {
 		return nil
 	}
 

@@ -178,7 +178,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 			break
 		}
 
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break
+		}
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

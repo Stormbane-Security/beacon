@@ -467,7 +467,7 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 	}
 	index := make(map[key]update, len(result.Findings))
 	for _, f := range result.Findings {
-		index[key{f.CheckID, f.Asset}] = update{
+		index[key{strings.ToLower(f.CheckID), strings.ToLower(strings.TrimRight(f.Asset, "."))}] = update{
 			f.Omit, f.MitigatedBy, f.CrossAssetNote,
 			f.TechSpecificRemediation, f.ComplianceTags,
 		}
@@ -475,7 +475,7 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 
 	out := make([]EnrichedFinding, len(enriched))
 	for i, ef := range enriched {
-		k := key{ef.Finding.CheckID, ef.Finding.Asset}
+		k := key{strings.ToLower(ef.Finding.CheckID), strings.ToLower(strings.TrimRight(ef.Finding.Asset, "."))}
 		if u, ok := index[k]; ok {
 			ef.Omit = u.Omit
 			ef.MitigatedBy = u.MitigatedBy
@@ -514,6 +514,7 @@ type claudeResponse struct {
 // callLLM dispatches to the configured provider with exponential backoff retry.
 // Transient failures (network errors, 429 rate-limits, 5xx server errors) are
 // retried up to 3 times with 1s → 2s → 4s delays before returning an error.
+// Non-transient errors (400, 401, 403) are returned immediately without retry.
 func (c *ClaudeEnricher) callLLM(ctx context.Context, model, prompt string) (string, error) {
 	const maxAttempts = 3
 	var lastErr error
@@ -546,8 +547,28 @@ func (c *ClaudeEnricher) callLLM(ctx context.Context, model, prompt string) (str
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
+		// Don't retry non-transient HTTP errors (bad request, auth failures).
+		if isNonTransientError(err) {
+			return "", err
+		}
 	}
 	return "", fmt.Errorf("after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// isNonTransientError returns true for HTTP errors that should not be retried
+// (400 Bad Request, 401 Unauthorized, 403 Forbidden). All provider call
+// functions format HTTP errors as "... HTTP %d: ...".
+func isNonTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, code := range []string{"HTTP 400:", "HTTP 401:", "HTTP 403:", "HTTP 404:"} {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
 }
 
 // callOpenAICompat calls any OpenAI-compatible chat completions endpoint
@@ -611,7 +632,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 	if base == "" {
 		base = geminiAPIURL
 	}
-	url := fmt.Sprintf("%s/%s:generateContent?key=%s", strings.TrimRight(base, "/"), model, c.apiKey)
+	url := fmt.Sprintf("%s/%s:generateContent", strings.TrimRight(base, "/"), model)
 
 	body, _ := json.Marshal(struct {
 		Contents []struct {
@@ -632,6 +653,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -640,8 +662,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if resp.StatusCode != http.StatusOK {
-		// Redact the response body to avoid leaking the API key, which
-		// is passed as a URL query parameter for the Gemini API.
+		// Redact the response body to avoid leaking the API key.
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
 			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
@@ -753,7 +774,7 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, claudeAPIURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.providerEndpoint(), bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

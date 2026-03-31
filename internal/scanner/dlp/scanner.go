@@ -641,8 +641,8 @@ func fetchBody(ctx context.Context, client *http.Client, asset string) ([]byte, 
 		if err != nil {
 			continue
 		}
-		defer resp.Body.Close()
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+		resp.Body.Close()
 		if err != nil {
 			return nil, url, err
 		}

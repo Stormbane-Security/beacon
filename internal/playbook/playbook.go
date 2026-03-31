@@ -106,7 +106,16 @@ func (p *Playbook) Matches(e Evidence) bool {
 				return false
 			}
 		}
-		return true
+		// If there are also Any rules, at least one must match.
+		if len(p.Match.Any) > 0 {
+			for _, rule := range p.Match.Any {
+				if ruleMatches(rule, e) {
+					return true
+				}
+			}
+			return false // no Any rule matched
+		}
+		return true // all All rules matched, no Any rules
 	}
 	for _, rule := range p.Match.Any {
 		if ruleMatches(rule, e) {

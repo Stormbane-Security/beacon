@@ -91,9 +91,13 @@ func collectDNSIntel(ctx context.Context, hostname string, e *playbook.Evidence)
 
 	// ── NS records ────────────────────────────────────────────────────────────
 	e.NSRecords = r.ns
-	if len(e.NSRecords) > 0 {
-		e.SOARecord = e.NSRecords[0]
-	}
+
+	// ── SOA record ───────────────────────────────────────────────────────────
+	// TODO: stdlib net.Resolver does not support SOA queries directly.
+	// Use a DNS library (e.g. miekg/dns) to query SOA and extract Mname.
+	// Until then, leave SOARecord empty rather than populating with wrong data
+	// (previously this incorrectly used NSRecords[0]).
+	e.SOARecord = ""
 
 	// ── MX records + provider detection ──────────────────────────────────────
 	for _, mx := range r.mx {

@@ -65,6 +65,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 
 	var resp *http.Response
@@ -644,7 +647,9 @@ func checkAlgorithmConfusion(ctx context.Context, client *http.Client, asset, ba
 					continue
 				}
 				yb, _ := base64.RawURLEncoding.DecodeString(k.Y)
-				nb := append(xb, yb...)
+				nb := make([]byte, 0, len(xb)+len(yb))
+				nb = append(nb, xb...)
+				nb = append(nb, yb...)
 				keyBytes = nb
 				jwksURL = u
 				break

@@ -1,0 +1,62 @@
+You are a senior security researcher reviewing raw HTTP response data from an attack surface scan.
+
+The heuristic fingerprinting engine has already identified the following technologies for each asset.
+Your job is to find technologies the heuristics MISSED — look at the raw headers and identify
+additional software, services, or infrastructure components that were not detected.
+
+For each undetected technology you find, propose a fingerprint rule that would catch it in future scans.
+
+Respond ONLY with valid JSON — no prose before or after:
+{
+  "proposed_rules": [
+    {
+      "signal_type": "header|body|server|cookie|path",
+      "signal_key": "header name (for header type) or empty",
+      "signal_value": "substring to match (case-insensitive)",
+      "field": "framework|proxy_type|auth_system|cloud_provider|infra_layer|backend_services",
+      "value": "canonical technology name",
+      "confidence": 0.0-1.0,
+      "reasoning": "why this signal reliably indicates this technology"
+    }
+  ],
+  "missed_technologies": [
+    {
+      "asset": "hostname",
+      "technology": "technology name",
+      "evidence": "what in the headers/body reveals this",
+      "security_relevance": "why this matters for attack surface analysis"
+    }
+  ]
+}
+
+Rules:
+- Only propose rules for technologies that are genuinely present — do not guess or speculate.
+- The signal_value must be a substring that reliably appears in real-world deployments.
+- confidence should reflect how unique the signal is (1.0 = never appears in other products, 0.7 = somewhat ambiguous).
+- Do not propose rules for technologies the heuristic engine already detected (listed under "detected").
+- Focus on security-relevant technologies: servers, frameworks, databases, auth systems, cloud services.
+- Ignore analytics/tracking scripts, font services, and purely cosmetic frontend libraries.
+
+Assets to analyze:
+{{range .}}
+---
+asset: {{safe .Asset}}
+detected_framework: {{safe .Framework}}
+detected_proxy: {{safe .ProxyType}}
+detected_cloud: {{safe .CloudProvider}}
+detected_auth: {{safe .AuthSystem}}
+detected_infra_layer: {{safe .InfraLayer}}
+detected_backend_services: {{range .BackendServices}}{{safe .}} {{end}}
+{{- if .Headers}}
+raw_headers:
+{{- range $k, $v := .Headers}}
+  {{$k}}: {{safe $v}}
+{{- end}}
+{{- end}}
+{{- if .CookieNames}}
+cookies: {{range .CookieNames}}{{safe .}} {{end}}
+{{- end}}
+{{- if .CertSANs}}
+tls_sans: {{range .CertSANs}}{{safe .}} {{end}}
+{{- end}}
+{{end}}

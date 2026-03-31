@@ -1035,13 +1035,13 @@ func TestFindingDeduplication_StoreAppend(t *testing.T) {
 		t.Fatalf("save batch 2: %v", err)
 	}
 
-	// Without dedup, store appends both.
+	// Store deduplicates by (CheckID, Asset, Title) — only 1 copy stored.
 	all, err := s.GetFindings(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("expected 2 raw findings (store appends), got %d", len(all))
+	if len(all) != 1 {
+		t.Fatalf("expected 1 finding (store deduplicates), got %d", len(all))
 	}
 
 	// Dedup at the report layer: group by (CheckID, Asset) and keep unique.

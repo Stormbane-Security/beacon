@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -643,13 +644,28 @@ func probeXXEHostname(ctx context.Context, client *http.Client, asset, acsURL st
 		return nil
 	}
 
-	// If the response echoes the issuer and it changed from our entity
-	// reference to something else (the hostname), flag it. We can detect
-	// this by checking if the body does NOT contain our literal payload
-	// marker but DOES contain a non-error, non-empty response.
-	// For reliability, only flag if we see a clear hostname pattern.
-	// This is a weaker signal than /etc/passwd, so we require HTTP 200.
-	if resp.StatusCode == http.StatusOK && !isSAMLError(bodyStr) && len(bodyStr) > 0 {
+	// To reduce false positives, obtain a baseline response by POSTing a
+	// benign (non-XXE) SAMLResponse to the same endpoint. If the XXE response
+	// body is identical to the baseline, the server is just returning a
+	// generic response and did not actually expand the entity.
+	baselineEncoded := base64.StdEncoding.EncodeToString([]byte(minimalSAMLResponse(
+		"https://idp.beacon-test.invalid", acsURL, acsURL)))
+	baselineForm := url.Values{
+		"SAMLResponse": {baselineEncoded},
+		"RelayState":   {"/"},
+	}
+	_, baselineBody, baselineErr := doFormPOST(ctx, client, acsURL, baselineForm)
+	if baselineErr == nil && bodyStr == string(baselineBody) {
+		// Response is identical to the non-XXE baseline — no evidence of expansion.
+		return nil
+	}
+
+	// Only flag if the response body contains a hostname-like token that
+	// plausibly came from /etc/hostname expansion. A Linux hostname is
+	// alphanumeric with dashes/dots, typically 1-63 chars per label.
+	hostnameRe := regexp.MustCompile(`(?m)^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$`)
+	if resp.StatusCode == http.StatusOK && !isSAMLError(bodyStr) && len(bodyStr) > 0 &&
+		hostnameRe.MatchString(strings.TrimSpace(bodyStr)) {
 		return &finding.Finding{
 			CheckID:  finding.CheckSAMLXXEInjection,
 			Module:   "deep",
@@ -657,9 +673,10 @@ func probeXXEHostname(ctx context.Context, client *http.Client, asset, acsURL st
 			Severity: finding.SeverityCritical,
 			Title:    "XXE injection via SAML SAMLResponse (hostname entity)",
 			Description: "The SAML XML parser resolved an external entity (file:///etc/hostname) embedded in a " +
-				"SAMLResponse. The server accepted the payload without returning a SAML error, indicating " +
-				"the XML parser processes external entities. This constitutes a confirmed XML External Entity " +
-				"(XXE) injection vulnerability enabling local file read and potentially SSRF.",
+				"SAMLResponse. The response body contains a hostname-like value that differs from the " +
+				"baseline response, indicating the XML parser processes external entities. This constitutes " +
+				"a confirmed XML External Entity (XXE) injection vulnerability enabling local file read " +
+				"and potentially SSRF.",
 			Asset: asset,
 			ProofCommand: fmt.Sprintf(
 				"# Expected: response contains hostname content\n"+

@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -570,13 +571,17 @@ Type exactly: I have written authorization for %s
 	waitScanResult := func() ([]finding.Finding, bool) {
 		res := <-resultCh
 		if res.err != nil {
-			if res.err == context.Canceled || strings.Contains(res.err.Error(), "context canceled") {
+			// Use a fresh context for post-cancellation DB cleanup so saves
+			// don't fail with "context canceled".
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cleanupCancel()
+			if errors.Is(res.err, context.Canceled) || strings.Contains(res.err.Error(), "context canceled") {
 				// Graceful user stop — save partial findings, mark stopped.
 				run.Status = store.StatusStopped
 				run.Error = "stopped by user"
-				_ = st.UpdateScanRun(ctx, run)
+				_ = st.UpdateScanRun(cleanupCtx, run)
 				if len(res.findings) > 0 {
-					if err := st.SaveFindings(ctx, run.ID, res.findings); err != nil {
+					if err := st.SaveFindings(cleanupCtx, run.ID, res.findings); err != nil {
 						fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
 					}
 				}
@@ -584,7 +589,7 @@ Type exactly: I have written authorization for %s
 			}
 			run.Status = store.StatusFailed
 			run.Error = res.err.Error()
-			_ = st.UpdateScanRun(ctx, run)
+			_ = st.UpdateScanRun(cleanupCtx, run)
 			fatalf("scan failed: %v", res.err)
 		}
 		return res.findings, false
@@ -595,12 +600,14 @@ Type exactly: I have written authorization for %s
 	case res := <-resultCh:
 		pr.Done() // restore terminal before any post-scan output
 		if res.err != nil {
-			if res.err == context.Canceled || strings.Contains(res.err.Error(), "context canceled") {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cleanupCancel()
+			if errors.Is(res.err, context.Canceled) || strings.Contains(res.err.Error(), "context canceled") {
 				run.Status = store.StatusStopped
 				run.Error = "stopped by user"
-				_ = st.UpdateScanRun(ctx, run)
+				_ = st.UpdateScanRun(cleanupCtx, run)
 				if len(res.findings) > 0 {
-					if err := st.SaveFindings(ctx, run.ID, res.findings); err != nil {
+					if err := st.SaveFindings(cleanupCtx, run.ID, res.findings); err != nil {
 						fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
 					}
 				}
@@ -612,7 +619,7 @@ Type exactly: I have written authorization for %s
 			}
 			run.Status = store.StatusFailed
 			run.Error = res.err.Error()
-			_ = st.UpdateScanRun(ctx, run)
+			_ = st.UpdateScanRun(cleanupCtx, run)
 			fatalf("scan failed: %v", res.err)
 		}
 		findings = res.findings
@@ -704,6 +711,36 @@ Type exactly: I have written authorization for %s
 						fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
 					}
 				}
+
+				// FillGaps — ask AI to identify technologies the heuristic engine missed.
+				// Proposed rules are saved with status=pending for human approval.
+				fmt.Fprintf(os.Stderr, "beacon: checking for fingerprint detection gaps...\n")
+				gapResult, gapErr := ce.FillGaps(ctx, fpInputs)
+				if gapErr != nil {
+					fmt.Fprintf(os.Stderr, "beacon: fillgaps: %v\n", gapErr)
+				} else {
+					if len(gapResult.ProposedRules) > 0 {
+						fmt.Fprintf(os.Stderr, "beacon: AI proposed %d new fingerprint rule(s) — run 'beacon fingerprints pending' to review\n", len(gapResult.ProposedRules))
+						for _, pr := range gapResult.ProposedRules {
+							rule := store.FingerprintRule{
+								SignalType:  pr.SignalType,
+								SignalKey:   pr.SignalKey,
+								SignalValue: pr.SignalValue,
+								Field:       pr.Field,
+								Value:       pr.Value,
+								Source:      "ai",
+								Status:      "pending",
+								Confidence:  pr.Confidence,
+							}
+							if err := st.UpsertFingerprintRule(ctx, &rule); err != nil {
+								fmt.Fprintf(os.Stderr, "beacon: save proposed rule: %v\n", err)
+							}
+						}
+					}
+					if len(gapResult.MissedTechnologies) > 0 {
+						fmt.Fprintf(os.Stderr, "beacon: AI identified %d undetected technolog(ies)\n", len(gapResult.MissedTechnologies))
+					}
+				}
 			}
 		}
 	}
@@ -724,11 +761,8 @@ Type exactly: I have written authorization for %s
 
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
-		scanType := "surface"
-		if deep {
-			scanType = "deep"
-		}
-		raw, err := report.RenderRawJSON(domain, scanType, run.ID, run.StartedAt, findings)
+		scanTypeStr := string(scanType)
+		raw, err := report.RenderRawJSON(domain, scanTypeStr, run.ID, run.StartedAt, findings)
 		if err != nil {
 			fatalf("render raw findings: %v", err)
 		}
@@ -1058,7 +1092,6 @@ Type exactly: I have written authorization for all listed targets
 			pr = newProgressRenderer(verbose, finding.ParseSeverity(severityFlag))
 		}
 		pr.cancelFn = cancel
-		defer pr.Done()
 
 		input := module.Input{
 			Domain:              domain,
@@ -1073,22 +1106,25 @@ Type exactly: I have written authorization for all listed targets
 		pr.Done()
 
 		if scanErr != nil {
-			if scanErr == context.Canceled || strings.Contains(scanErr.Error(), "context canceled") {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if errors.Is(scanErr, context.Canceled) || strings.Contains(scanErr.Error(), "context canceled") {
 				run.Status = store.StatusStopped
 				run.Error = "stopped by user"
-				_ = st.UpdateScanRun(ctx, run)
+				_ = st.UpdateScanRun(cleanupCtx, run)
 				if len(findings) > 0 {
-					if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
+					if err := st.SaveFindings(cleanupCtx, run.ID, findings); err != nil {
 						fmt.Fprintf(os.Stderr, "beacon: save partial findings %s: %v\n", domain, err)
 					}
 				}
+				cleanupCancel()
 				fmt.Fprintf(os.Stderr, "beacon: scan stopped for %s — %d findings saved\n", domain, len(findings))
 				break
 			}
 			fmt.Fprintf(os.Stderr, "beacon: scan failed for %s: %v\n", domain, scanErr)
 			run.Status = store.StatusFailed
 			run.Error = scanErr.Error()
-			_ = st.UpdateScanRun(ctx, run)
+			_ = st.UpdateScanRun(cleanupCtx, run)
+			cleanupCancel()
 			continue
 		}
 
@@ -1274,7 +1310,7 @@ Type exactly: I have written authorization for all listed targets
 	if ai := cfg.ActiveAI(); ai != nil && len(allFindings) > 0 {
 		enricher, enrichErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if enrichErr == nil {
-			enricher.WithCache(st)
+			enricher = enricher.WithCache(st)
 
 			fmt.Fprintf(os.Stderr, "beacon: enriching %d findings across all modules...\n", len(allFindings))
 			allEnriched, enrichErr := enricher.Enrich(ctx, allFindings)
@@ -1283,7 +1319,10 @@ Type exactly: I have written authorization for all listed targets
 			} else {
 				// Contextual analysis — cross-module compound risk identification.
 				domainStr := strings.Join(targets, ", ")
-				allEnriched, summary, _ := enricher.ContextualizeAndSummarize(ctx, allEnriched, domainStr)
+				allEnriched, summary, ctxErr := enricher.ContextualizeAndSummarize(ctx, allEnriched, domainStr)
+				if ctxErr != nil {
+					fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", ctxErr)
+				}
 				if summary != "" {
 					fmt.Fprintf(os.Stderr, "\n\x1b[1mExecutive Summary:\x1b[0m\n%s\n", summary)
 				}
@@ -2531,13 +2570,13 @@ func browseInteractive(cfg *config.Config) browseResult {
 				case '1':
 					bs.findMinSev = finding.SeverityInfo
 				case '2':
-					bs.findMinSev = finding.SeverityMedium
+					bs.findMinSev = finding.SeverityLow
 				case '3':
-					bs.findMinSev = finding.SeverityHigh
+					bs.findMinSev = finding.SeverityMedium
 				case '4':
-					bs.findMinSev = finding.SeverityCritical
+					bs.findMinSev = finding.SeverityHigh
 				case '5':
-					bs.findMinSev = finding.SeverityInfo
+					bs.findMinSev = finding.SeverityCritical
 				}
 				bs.findCursor = 0
 				bs.findOff = 0
@@ -2803,6 +2842,7 @@ func attachJob(bs *browseState, job *liveJob) {
 		job.renderer.detached = make(chan struct{})
 		job.renderer.stop = make(chan struct{})
 		job.renderer.stopOnce = sync.Once{}
+		job.renderer.detachOnce = sync.Once{}
 		// Reset to the top-level overview so the user doesn't land inside a
 		// sub-view (e.g. assets) they left before detaching.
 		job.renderer.mode = "progress"
@@ -4520,7 +4560,7 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 	// Render output.
 	var w io.Writer = os.Stdout
 	if outPath != "" {
-		f, err := os.Create(outPath)
+		f, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			fatalf("cloud: create output file: %v", err)
 		}
@@ -4924,9 +4964,10 @@ type progressRenderer struct {
 	pendingReviewSuggs []store.PlaybookSuggestion
 	reviewCursor       int
 
-	stopOnce  sync.Once
-	stop      chan struct{}
-	detached  chan struct{} // closed when user presses b to detach (browse while scan runs)
+	stopOnce    sync.Once
+	stop        chan struct{}
+	detachOnce  sync.Once
+	detached    chan struct{} // closed when user presses b to detach (browse while scan runs)
 	restoreFn func() // restores terminal from raw mode; nil when unused
 	cancelFn      func() // cancels the scan context; set by cmdScan after construction
 	confirmingExit bool // true when waiting for y/n confirmation to stop scan
@@ -5066,7 +5107,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		if isDetach || (isBack && r.mode == "progress") {
 			r.mu.Unlock()
 			r.stopOnce.Do(func() { close(r.stop) })
-			close(r.detached)
+			r.detachOnce.Do(func() { close(r.detached) })
 			r.mu.Lock()
 			return
 		}
@@ -5115,7 +5156,7 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			// Signal detach back to the browse TUI.
 			r.mu.Unlock()
 			r.stopOnce.Do(func() { close(r.stop) })
-			close(r.detached)
+			r.detachOnce.Do(func() { close(r.detached) })
 			r.mu.Lock() // re-acquire so caller's deferred unlock is safe
 			return
 		case buf[0] == 's':
@@ -5698,7 +5739,7 @@ func (r *progressRenderer) startInputLoop() {
 			if buf[0] == 'q' || (buf[0] == 'b' && r.mode == "progress") || (isEsc && r.mode == "progress") {
 				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
-				close(r.detached)
+				r.detachOnce.Do(func() { close(r.detached) })
 				return
 			}
 			if buf[0] == 'b' || isEsc {

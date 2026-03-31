@@ -527,13 +527,6 @@ func checkAliasDos(ctx context.Context, client *http.Client, asset, endpoint str
 	}
 }
 
-// min returns the smaller of a and b.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // compactSnippet re-encodes the JSON body compactly and truncates it to max bytes.
 func compactSnippet(raw []byte, max int) string {

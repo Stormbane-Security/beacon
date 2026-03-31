@@ -309,12 +309,6 @@ func staticChecks(f finding.Finding) []Issue {
 	return issues
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // sanitizeForPrompt removes newlines and control characters from a string to
 // prevent prompt injection when interpolating user-controlled data into AI

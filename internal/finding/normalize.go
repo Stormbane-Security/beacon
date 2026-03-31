@@ -28,7 +28,7 @@ var NucleiTemplateToCheckID = map[string]CheckID{
 	// Exposure
 	"git-config":              CheckExposureGitExposed,
 	"git-head":                CheckExposureGitExposed,
-	"ds-store":                CheckExposureGitExposed,
+	"ds-store":                CheckExposureSensitiveFile,
 	"swagger-api":             CheckExposureAPIDocs,
 	"swagger-ui":              CheckExposureAPIDocs,
 	"graphql-introspection":   CheckGraphQLIntrospection,

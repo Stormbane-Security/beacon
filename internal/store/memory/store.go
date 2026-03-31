@@ -86,6 +86,16 @@ func (s *Store) CreateScanRun(_ context.Context, run *store.ScanRun) error {
 		run.ID = uuid.NewString()
 	}
 	cp := *run
+	if run.Modules != nil {
+		cp.Modules = make([]string, len(run.Modules))
+		copy(cp.Modules, run.Modules)
+	}
+	if run.DiscoverySources != nil {
+		cp.DiscoverySources = make(map[string]int, len(run.DiscoverySources))
+		for k, v := range run.DiscoverySources {
+			cp.DiscoverySources[k] = v
+		}
+	}
 	s.runs[run.ID] = &cp
 	return nil
 }
@@ -97,6 +107,16 @@ func (s *Store) UpdateScanRun(_ context.Context, run *store.ScanRun) error {
 		return fmt.Errorf("scan run not found: %s", run.ID)
 	}
 	cp := *run
+	if run.Modules != nil {
+		cp.Modules = make([]string, len(run.Modules))
+		copy(cp.Modules, run.Modules)
+	}
+	if run.DiscoverySources != nil {
+		cp.DiscoverySources = make(map[string]int, len(run.DiscoverySources))
+		for k, v := range run.DiscoverySources {
+			cp.DiscoverySources[k] = v
+		}
+	}
 	s.runs[run.ID] = &cp
 	return nil
 }
@@ -151,7 +171,21 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 	defer s.mu.Unlock()
 	cp := make([]finding.Finding, len(findings))
 	copy(cp, findings)
-	s.findings[scanRunID] = append(s.findings[scanRunID], cp...)
+
+	existing := s.findings[scanRunID]
+	seen := make(map[string]bool, len(existing))
+	for _, f := range existing {
+		key := f.CheckID + "|" + f.Asset + "|" + f.Title
+		seen[key] = true
+	}
+	for _, f := range cp {
+		key := f.CheckID + "|" + f.Asset + "|" + f.Title
+		if !seen[key] {
+			existing = append(existing, f)
+			seen[key] = true
+		}
+	}
+	s.findings[scanRunID] = existing
 	return nil
 }
 

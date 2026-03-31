@@ -584,6 +584,23 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckTeamCityProjectListExposed:  true,
 		finding.CheckTeamCityOutdatedVersion:     true,
 		finding.CheckTeamCityDebugEndpoint:       true,
+		// AI/LLM deep probes
+		finding.CheckAIPromptInjection:     true,
+		finding.CheckAISystemLeak:          true,
+		finding.CheckAISSRFViaPLLM:         true,
+		finding.CheckAIDataExfil:           true,
+		finding.CheckAIToolAbuse:           true,
+		finding.CheckAIIndirectInjection:   true,
+		// Auth fuzzing — active probing
+		finding.CheckAuthFuzzStateBypass:       true,
+		finding.CheckAuthFuzzCodeInterception:  true,
+		finding.CheckAuthFuzzRedirectAbuse:     true,
+		finding.CheckAuthFuzzTokenSubstitution: true,
+		finding.CheckSIWENonceReuse:            true,
+		finding.CheckSIWEChainBypass:           true,
+		finding.CheckSIWEReplayAttack:          true,
+		// Port-level active probes
+		finding.CheckPortMinIODefaultCreds: true,
 	}
 
 	for id, meta := range finding.Registry {

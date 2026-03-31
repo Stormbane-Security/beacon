@@ -264,7 +264,12 @@ func isCloudAssetType(t AssetType) bool {
 func (b *Builder) CrossReferenceByIP() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.crossReferenceByIPLocked()
+}
 
+// crossReferenceByIPLocked is the lock-free implementation of CrossReferenceByIP.
+// The caller must hold b.mu.
+func (b *Builder) crossReferenceByIPLocked() {
 	var newRels []Relationship
 	for _, a := range b.assets {
 		if !isCloudAssetType(a.Type) {
@@ -321,7 +326,12 @@ var cloudCNAMEPatterns = []struct {
 func (b *Builder) CrossReferenceByCNAME() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.crossReferenceByCNAMELocked()
+}
 
+// crossReferenceByCNAMELocked is the lock-free implementation of CrossReferenceByCNAME.
+// The caller must hold b.mu.
+func (b *Builder) crossReferenceByCNAMELocked() {
 	var newRels []Relationship
 	for domainID, chain := range b.cnameChains {
 		for _, cname := range chain {
@@ -420,12 +430,11 @@ func (b *Builder) deduplicateRelationships() {
 
 // Build assembles the final AssetGraph.
 func (b *Builder) Build() AssetGraph {
-	b.CrossReferenceByIP()
-	b.CrossReferenceByCNAME()
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.crossReferenceByIPLocked()
+	b.crossReferenceByCNAMELocked()
 	b.deduplicateRelationships()
 
 	assets := make([]Asset, 0, len(b.assets))
@@ -433,14 +442,23 @@ func (b *Builder) Build() AssetGraph {
 		assets = append(assets, *a)
 	}
 
+	rels := make([]Relationship, len(b.relationships))
+	copy(rels, b.relationships)
+
+	findings := make([]FindingRef, len(b.findingRefs))
+	copy(findings, b.findingRefs)
+
+	iacRefs := make([]IaCReference, len(b.iacRefs))
+	copy(iacRefs, b.iacRefs)
+
 	return AssetGraph{
 		ScanRunID:     b.scanRunID,
 		Domain:        b.domain,
 		GeneratedAt:   time.Now(),
 		Assets:        assets,
-		Relationships: b.relationships,
-		Findings:      b.findingRefs,
-		IaCReferences: b.iacRefs,
+		Relationships: rels,
+		Findings:      findings,
+		IaCReferences: iacRefs,
 	}
 }
 

@@ -282,6 +282,11 @@ func TestListRecentScanRuns(t *testing.T) {
 		r := makeScanRun("example.com")
 		r.StartedAt = time.Now().UTC().Add(time.Duration(i) * time.Second)
 		s.CreateScanRun(ctx, r)
+		// Simulate completion — UpdateScanRun persists completed_at.
+		r.Status = store.StatusCompleted
+		completedAt := r.StartedAt.Add(time.Second)
+		r.CompletedAt = &completedAt
+		s.UpdateScanRun(ctx, r)
 	}
 
 	runs, err := s.ListRecentScanRuns(ctx, 3)
@@ -291,8 +296,11 @@ func TestListRecentScanRuns(t *testing.T) {
 	if len(runs) != 3 {
 		t.Errorf("expected 3 runs, got %d", len(runs))
 	}
-	// Should be ordered by started_at DESC
-	if runs[0].StartedAt.Before(runs[1].StartedAt) {
+	// Should be ordered by completed_at DESC
+	if runs[0].CompletedAt == nil || runs[1].CompletedAt == nil {
+		t.Fatal("expected CompletedAt to be set on completed runs")
+	}
+	if runs[0].CompletedAt.Before(*runs[1].CompletedAt) {
 		t.Error("expected most recent run first")
 	}
 }
@@ -2058,6 +2066,9 @@ func TestListRecentScanRuns_NegativeLimit(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		r := makeScanRun("example.com")
 		r.StartedAt = time.Now().UTC().Add(time.Duration(i) * time.Second)
+		r.Status = store.StatusCompleted
+		completedAt := r.StartedAt.Add(time.Second)
+		r.CompletedAt = &completedAt
 		s.CreateScanRun(ctx, r)
 	}
 
