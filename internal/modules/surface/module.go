@@ -107,6 +107,7 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/redos"
 	"github.com/stormbane/beacon/internal/scanner/artifactsign"
 	"github.com/stormbane/beacon/internal/scanner/bitbucket"
+	"github.com/stormbane/beacon/internal/scanner/circleci"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/profiler"
@@ -395,6 +396,7 @@ func New(cfg Config) (*Module, error) {
 		"redos":           redos.New(),
 		"artifactsign":    artifactsign.New(),
 		"bitbucket":       bitbucket.New(),
+		"circleci":        circleci.New(cfg.GitHubToken),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

@@ -53,6 +53,10 @@ type ociConfig struct {
 type Scanner struct {
 	cfg    Config
 	client *http.Client
+
+	// baseURL overrides the scheme+host for all API requests when non-empty.
+	// Used only by tests with httptest.Server.
+	baseURL string
 }
 
 // New creates a new OCI cloud scanner.
@@ -201,7 +205,12 @@ func parsePrivateKey(block *pem.Block) (*rsa.PrivateKey, error) {
 // doSignedRequest performs an OCI API request with request signing per
 // https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm
 func (s *Scanner) doSignedRequest(ctx context.Context, ociCfg *ociConfig, method, host, path string, dst any) error {
-	url := "https://" + host + path
+	var url string
+	if s.baseURL != "" {
+		url = s.baseURL + path
+	} else {
+		url = "https://" + host + path
+	}
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
@@ -213,29 +222,32 @@ func (s *Scanner) doSignedRequest(ctx context.Context, ociCfg *ociConfig, method
 	req.Header.Set("host", host)
 	req.Header.Set("content-type", "application/json")
 
-	// Build the signing string.
-	// For GET requests, sign: (request-target) date host
-	signingHeaders := "(request-target) date host"
-	requestTarget := strings.ToLower(method) + " " + path
-	signingString := fmt.Sprintf("(request-target): %s\ndate: %s\nhost: %s",
-		requestTarget,
-		req.Header.Get("date"),
-		host,
-	)
+	// Skip request signing when baseURL is set (test mode with httptest).
+	if s.baseURL == "" {
+		// Build the signing string.
+		// For GET requests, sign: (request-target) date host
+		signingHeaders := "(request-target) date host"
+		requestTarget := strings.ToLower(method) + " " + path
+		signingString := fmt.Sprintf("(request-target): %s\ndate: %s\nhost: %s",
+			requestTarget,
+			req.Header.Get("date"),
+			host,
+		)
 
-	// Sign with RSA-SHA256.
-	hash := sha256.Sum256([]byte(signingString))
-	signature, err := rsa.SignPKCS1v15(nil, ociCfg.privateKey, crypto.SHA256, hash[:])
-	if err != nil {
-		return fmt.Errorf("sign request: %w", err)
+		// Sign with RSA-SHA256.
+		hash := sha256.Sum256([]byte(signingString))
+		signature, err := rsa.SignPKCS1v15(nil, ociCfg.privateKey, crypto.SHA256, hash[:])
+		if err != nil {
+			return fmt.Errorf("sign request: %w", err)
+		}
+
+		keyID := fmt.Sprintf("%s/%s/%s", ociCfg.Tenancy, ociCfg.User, ociCfg.Fingerprint)
+		authHeader := fmt.Sprintf(
+			`Signature version="1",keyId="%s",algorithm="rsa-sha256",headers="%s",signature="%s"`,
+			keyID, signingHeaders, base64.StdEncoding.EncodeToString(signature),
+		)
+		req.Header.Set("authorization", authHeader)
 	}
-
-	keyID := fmt.Sprintf("%s/%s/%s", ociCfg.Tenancy, ociCfg.User, ociCfg.Fingerprint)
-	authHeader := fmt.Sprintf(
-		`Signature version="1",keyId="%s",algorithm="rsa-sha256",headers="%s",signature="%s"`,
-		keyID, signingHeaders, base64.StdEncoding.EncodeToString(signature),
-	)
-	req.Header.Set("authorization", authHeader)
 
 	resp, err := s.client.Do(req)
 	if err != nil {

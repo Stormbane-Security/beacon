@@ -1245,6 +1245,14 @@ const (
 	CheckBitbucketPipelineInsecureStep CheckID = "bitbucket.pipeline_insecure_step"   // pipeline step with dangerous permissions
 	CheckBitbucketPublicPipeline       CheckID = "bitbucket.public_pipeline"          // pipeline config visible on public repo
 
+	// ── CircleCI ────────────────────────────────────────────────────────────
+	CheckCircleCIUnpinnedImage     CheckID = "circleci.unpinned_image"       // job uses Docker image without sha256 digest
+	CheckCircleCISecretEchoed      CheckID = "circleci.secret_echoed"        // step echoes secret/sensitive variable
+	CheckCircleCIInsecureStep      CheckID = "circleci.insecure_step"        // step with dangerous configuration
+	CheckCircleCIPublicConfig      CheckID = "circleci.public_config"        // config.yml visible on public repo
+	CheckCircleCIUnconstrained     CheckID = "circleci.unconstrained_context" // shared org context without branch filter
+	CheckCircleCIMachineExecutor   CheckID = "circleci.machine_executor"     // machine executor runs with full VM privileges
+
 	// ── GitLab CI extensions ────────────────────────────────────────────────
 	CheckGitLabCISecretInScript   CheckID = "gitlab.ci_secret_in_script"    // secret variable referenced in script block
 	CheckGitLabCIUnpinnedImage    CheckID = "gitlab.ci_unpinned_image"      // CI job uses unpinned Docker image
@@ -2507,6 +2515,14 @@ var Registry = map[CheckID]CheckMeta{
 	CheckBitbucketPipelineSecretEchoed: {CheckBitbucketPipelineSecretEchoed, SeverityHigh, ModeSurface},
 	CheckBitbucketPipelineInsecureStep: {CheckBitbucketPipelineInsecureStep, SeverityHigh, ModeSurface},
 	CheckBitbucketPublicPipeline:       {CheckBitbucketPublicPipeline, SeverityMedium, ModeSurface},
+
+	// CircleCI — Surface (static file analysis)
+	CheckCircleCIUnpinnedImage:    {CheckCircleCIUnpinnedImage, SeverityMedium, ModeSurface},
+	CheckCircleCISecretEchoed:     {CheckCircleCISecretEchoed, SeverityHigh, ModeSurface},
+	CheckCircleCIInsecureStep:     {CheckCircleCIInsecureStep, SeverityHigh, ModeSurface},
+	CheckCircleCIPublicConfig:     {CheckCircleCIPublicConfig, SeverityInfo, ModeSurface},
+	CheckCircleCIUnconstrained:    {CheckCircleCIUnconstrained, SeverityMedium, ModeSurface},
+	CheckCircleCIMachineExecutor:  {CheckCircleCIMachineExecutor, SeverityMedium, ModeSurface},
 
 	// GitLab CI extensions — Surface (static file analysis)
 	CheckGitLabCISecretInScript:   {CheckGitLabCISecretInScript, SeverityHigh, ModeSurface},

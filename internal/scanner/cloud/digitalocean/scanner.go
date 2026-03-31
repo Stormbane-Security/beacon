@@ -31,6 +31,10 @@ type Config struct {
 type Scanner struct {
 	cfg    Config
 	client *http.Client
+
+	// baseURL overrides apiBase for testing. When empty, the production
+	// DigitalOcean API endpoint is used.
+	baseURL string
 }
 
 // New creates a new DigitalOcean cloud scanner.
@@ -42,6 +46,10 @@ func New(cfg Config) *Scanner {
 		},
 	}
 }
+
+// SetBaseURL overrides the API base URL. Used in tests to point the scanner
+// at an httptest server.
+func (s *Scanner) SetBaseURL(u string) { s.baseURL = u }
 
 // Name implements scanner.Scanner.
 func (s *Scanner) Name() string { return scannerTag }
@@ -85,7 +93,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 // doRequest performs an authenticated GET against the DigitalOcean API and
 // decodes the JSON response into dst.
 func (s *Scanner) doRequest(ctx context.Context, path string, dst any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
+	base := apiBase
+	if s.baseURL != "" {
+		base = s.baseURL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
