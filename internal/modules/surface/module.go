@@ -100,6 +100,13 @@ import (
 	"github.com/stormbane/beacon/internal/scanner/githubactions"
 	"github.com/stormbane/beacon/internal/scanner/nextjs"
 	"github.com/stormbane/beacon/internal/scanner/wifi"
+	"github.com/stormbane/beacon/internal/scanner/idor"
+	"github.com/stormbane/beacon/internal/scanner/accesscontrol"
+	"github.com/stormbane/beacon/internal/scanner/elinjection"
+	"github.com/stormbane/beacon/internal/scanner/containerimage"
+	"github.com/stormbane/beacon/internal/scanner/redos"
+	"github.com/stormbane/beacon/internal/scanner/artifactsign"
+	"github.com/stormbane/beacon/internal/scanner/bitbucket"
 	"github.com/stormbane/beacon/internal/evasion"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/profiler"
@@ -381,6 +388,13 @@ func New(cfg Config) (*Module, error) {
 		"githubactions":   githubactions.New(cfg.GitHubToken),
 		"nextjs":          nextjs.New(),
 		"wifi":            wifi.New(),
+		"idor":            idor.New(),
+		"accesscontrol":   accesscontrol.New(),
+		"elinjection":     elinjection.New(),
+		"containerimage":  containerimage.New(),
+		"redos":           redos.New(),
+		"artifactsign":    artifactsign.New(),
+		"bitbucket":       bitbucket.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

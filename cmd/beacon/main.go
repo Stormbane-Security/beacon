@@ -122,6 +122,8 @@ CLOUD FLAGS:
   --aws-profile <profile>    AWS CLI profile (default: env/default)
   --gcp-credentials <file>   GCP service account key JSON path (default: ADC)
   --azure-subscription <id>  Azure subscription ID (default: all accessible)
+  --do-token <token>         DigitalOcean API token
+  --oci-config <file>        Oracle Cloud Infrastructure config file path (default: ~/.oci/config)
   --domain <domain>          Asset label to associate findings with
   --format <fmt>             Output format: text (default), json, markdown
   --out <path>               Write report to file instead of stdout
@@ -249,6 +251,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		awsProfile          string
 		gcpCredentials      string
 		azureSubscription   string
+		doToken             string
+		ociConfigFile       string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -335,6 +339,16 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				azureSubscription = args[i]
 			}
+		case "--do-token":
+			i++
+			if i < len(args) {
+				doToken = args[i]
+			}
+		case "--oci-config":
+			i++
+			if i < len(args) {
+				ociConfigFile = args[i]
+			}
 		}
 	}
 
@@ -365,7 +379,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, githubOrg)
 		return
 	}
 
@@ -929,6 +943,7 @@ func cmdScanMultiAsset(
 	extraCIDRs []string,
 	cloudEnabled bool,
 	awsProfile, gcpCredentials, azureSubscription string,
+	doToken, ociConfigFile string,
 	githubOrg string,
 ) {
 	scanType := module.ScanSurface
@@ -1154,7 +1169,7 @@ Type exactly: I have written authorization for all listed targets
 
 	// ── Cloud module (once per session) ───────────────────────────────────────
 	var cloudFindings []finding.Finding
-	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" {
+	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" || doToken != "" || ociConfigFile != "" {
 		providerList := cloudmodule.RegisteredProviders()
 		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan (providers: %s)...\n", strings.Join(providerList, ", "))
 		cloudAsset := "cloud"
@@ -1167,6 +1182,8 @@ Type exactly: I have written authorization for all listed targets
 			AWSProfile:          awsProfile,
 			GCPCredentialsFile:  gcpCredentials,
 			AzureSubscriptionID: azureSubscription,
+			DOToken:             doToken,
+			OCIConfigFile:       ociConfigFile,
 			Domain:              cloudAsset,
 		}
 		if cf, err := cloudMod.Run(ctx, cloudInput, scanType); err != nil {
@@ -4513,6 +4530,8 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 		awsProfile         string
 		gcpCredentials     string
 		azureSubscription  string
+		doToken            string
+		ociConfigFile      string
 		domain             string
 		format             = "text"
 		outPath            string
@@ -4535,6 +4554,16 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 			if i+1 < len(args) {
 				i++
 				azureSubscription = args[i]
+			}
+		case "--do-token":
+			if i+1 < len(args) {
+				i++
+				doToken = args[i]
+			}
+		case "--oci-config":
+			if i+1 < len(args) {
+				i++
+				ociConfigFile = args[i]
 			}
 		case "--domain":
 			if i+1 < len(args) {
@@ -4564,6 +4593,8 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 		AWSProfile:          awsProfile,
 		GCPCredentialsFile:  gcpCredentials,
 		AzureSubscriptionID: azureSubscription,
+		DOToken:             doToken,
+		OCIConfigFile:       ociConfigFile,
 		Domain:              domain,
 	}
 

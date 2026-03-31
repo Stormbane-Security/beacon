@@ -41,6 +41,8 @@ type Input struct {
 	AWSProfile          string
 	GCPCredentialsFile  string
 	AzureSubscriptionID string
+	DOToken             string // DigitalOcean API token
+	OCIConfigFile       string // Oracle Cloud Infrastructure config file path
 
 	// Kubernetes — used by: Kubernetes module (Phase 3)
 	KubeconfigPath string
