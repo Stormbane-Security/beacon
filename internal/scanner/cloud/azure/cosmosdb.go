@@ -3,6 +3,8 @@ package azure
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -65,6 +67,46 @@ func evaluateCosmosDBAccount(name string, props *armcosmos.DatabaseAccountGetPro
 			},
 			DiscoveredAt: time.Now(),
 		})
+
+		// TCP connectivity test: confirm whether the public Cosmos DB account
+		// is actually reachable from the internet.
+		if props.DocumentEndpoint != nil && *props.DocumentEndpoint != "" {
+			endpoint := *props.DocumentEndpoint
+			parsed, parseErr := url.Parse(endpoint)
+			if parseErr == nil && parsed.Host != "" {
+				host := parsed.Host
+				// Cosmos DB uses HTTPS (port 443) by default.
+				if parsed.Port() == "" {
+					host = host + ":443"
+				}
+				conn, dialErr := net.DialTimeout("tcp", host, 5*time.Second)
+				if dialErr == nil {
+					conn.Close()
+					findings = append(findings, finding.Finding{
+						CheckID: finding.CheckCloudAzureCosmosDBReachable,
+						Title:   fmt.Sprintf("Cosmos DB account is publicly reachable via TCP: %s", name),
+						Description: fmt.Sprintf(
+							"Cosmos DB account %s is not only configured with public network access "+
+								"but actually accepts TCP connections from the internet on %s. "+
+								"This confirms the endpoint is reachable. Disable public network "+
+								"access and use private endpoints.",
+							name, host,
+						),
+						Severity:     finding.SeverityCritical,
+						Asset:        asset,
+						Scanner:      "cloud/azure",
+						ProofCommand: fmt.Sprintf("nc -zv %s", host),
+						Evidence: map[string]any{
+							"account_name":    name,
+							"subscription_id": subID,
+							"resource_type":   "Microsoft.DocumentDB/databaseAccounts",
+							"endpoint":        endpoint,
+						},
+						DiscoveredAt: time.Now(),
+					})
+				}
+			}
+		}
 	}
 
 	// Check for missing IP firewall rules.

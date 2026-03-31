@@ -147,6 +147,11 @@ func (s *Scanner) scanSubscription(ctx context.Context, cred *azidentity.Default
 		findings = append(findings, postgresFindings...)
 	}
 
+	mfaFindings, err := scanConditionalAccessMFA(ctx, cred, subID, asset)
+	if err == nil {
+		findings = append(findings, mfaFindings...)
+	}
+
 	return findings, nil
 }
 

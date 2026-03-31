@@ -158,10 +158,15 @@ func TestStorageAccount_SharedKeyAccessDisabled(t *testing.T) {
 // -------------------------------------------------------------------------
 
 func TestStorageAccount_FullySecure_NoFindings(t *testing.T) {
+	keySource := armstorage.KeySourceMicrosoftKeyvault
 	props := &armstorage.AccountProperties{
 		AllowBlobPublicAccess:  boolPtr(false),
 		EnableHTTPSTrafficOnly: boolPtr(true),
 		AllowSharedKeyAccess:   boolPtr(false),
+		Encryption: &armstorage.Encryption{
+			KeySource:                       &keySource,
+			RequireInfrastructureEncryption: boolPtr(true),
+		},
 	}
 	findings := evaluateStorageAccount("securesa", props, "sub-123", "example.com")
 	if len(findings) != 0 {
@@ -181,13 +186,16 @@ func TestStorageAccount_AllMisconfigured(t *testing.T) {
 		AllowBlobPublicAccess:  boolPtr(true),
 		EnableHTTPSTrafficOnly: boolPtr(false),
 		AllowSharedKeyAccess:   boolPtr(true),
+		// No Encryption field → triggers both CMK and infra encryption findings.
 	}
 	findings := evaluateStorageAccount("badstorage", props, "sub-123", "example.com")
 	assertHasCheckID(t, findings, finding.CheckCloudAzureBlobPublic)
 	assertHasCheckID(t, findings, finding.CheckCloudAzureStorageHTTP)
 	assertHasCheckID(t, findings, finding.CheckCloudAzureStorageSharedKey)
-	if len(findings) != 3 {
-		t.Errorf("expected exactly 3 findings for fully misconfigured account, got %d", len(findings))
+	assertHasCheckID(t, findings, finding.CheckCloudAzureBlobNoCMK)
+	assertHasCheckID(t, findings, finding.CheckCloudAzureStorageNoInfraEncrypt)
+	if len(findings) != 5 {
+		t.Errorf("expected exactly 5 findings for fully misconfigured account, got %d", len(findings))
 	}
 }
 
@@ -196,10 +204,15 @@ func TestStorageAccount_AllMisconfigured(t *testing.T) {
 // -------------------------------------------------------------------------
 
 func TestStorageAccount_FindingMetadata(t *testing.T) {
+	keySource := armstorage.KeySourceMicrosoftKeyvault
 	props := &armstorage.AccountProperties{
 		AllowBlobPublicAccess:  boolPtr(true),
 		EnableHTTPSTrafficOnly: boolPtr(true),
 		AllowSharedKeyAccess:   boolPtr(false),
+		Encryption: &armstorage.Encryption{
+			KeySource:                       &keySource,
+			RequireInfrastructureEncryption: boolPtr(true),
+		},
 	}
 	findings := evaluateStorageAccount("myaccount", props, "sub-abc", "target.com")
 	if len(findings) != 1 {

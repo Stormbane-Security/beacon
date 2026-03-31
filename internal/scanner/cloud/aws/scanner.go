@@ -224,5 +224,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		all = append(all, rdsExtFindings...)
 	}
 
+	// IAM MFA enforcement checks.
+	mfaFindings, err := scanIAMMFA(ctx, cfg, accountID, asset)
+	if err == nil {
+		all = append(all, mfaFindings...)
+	}
+
 	return all, nil
 }
