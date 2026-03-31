@@ -17,7 +17,6 @@ description: >
   systems and cloud environments the pipelines connect to.
 match:
   any:
-    - path_responds: "/api/v1/health"
     - title_contains: "Airflow"
     - body_contains: "Airflow"
     - body_contains: "airflow"

@@ -34,6 +34,11 @@ import (
 	"github.com/stormbane/beacon/internal/module"
 )
 
+// sanitizeShellArg wraps s in single quotes, escaping embedded single quotes.
+func sanitizeShellArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 const scannerName = "oauth"
 
 // Scanner probes for OAuth/OIDC/JWT vulnerabilities.
@@ -430,7 +435,7 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 					"content_type":    ct,
 					"response_snippet": bodyStr[:min(300, len(bodyStr))],
 				},
-				ProofCommand:  fmt.Sprintf("curl -s -X POST '%s' -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=client_credentials' | python3 -m json.tool", u),
+				ProofCommand:  fmt.Sprintf("curl -s -X POST %s -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=client_credentials' | python3 -m json.tool", sanitizeShellArg(u)),
 				DiscoveredAt: time.Now(),
 			}
 		}
@@ -478,7 +483,7 @@ func checkJWKSExposure(ctx context.Context, client *http.Client, asset, base str
 				u,
 			),
 			Evidence:     map[string]any{"url": u, "path": path},
-			ProofCommand: fmt.Sprintf("curl -s '%s' | python3 -m json.tool", u),
+			ProofCommand: fmt.Sprintf("curl -s %s | python3 -m json.tool", sanitizeShellArg(u)),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -734,7 +739,7 @@ func checkMissingState(ctx context.Context, client *http.Client, asset, authEndp
 				"can trick a user into authorizing an attacker-controlled application or completing an " +
 				"attacker-initiated flow (login CSRF)." + note,
 			Evidence:     ev,
-			ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=code&client_id=test&redirect_uri=https://example.com/callback' | grep -i 'location\\|HTTP/'", authEndpoint),
+			ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location\\|HTTP/'", sanitizeShellArg(authEndpoint+"?response_type=code&client_id=test&redirect_uri=https://example.com/callback")),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -790,7 +795,7 @@ func checkMissingPKCE(ctx context.Context, client *http.Client, asset, authEndpo
 				"intercepted by a malicious native app or browser extension can be exchanged for " +
 				"access tokens without possession of the original code_verifier." + note,
 			Evidence:     ev,
-			ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=code&client_id=test&redirect_uri=https://example.com/callback&state=test' | grep -i 'location\\|HTTP/'", authEndpoint),
+			ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location\\|HTTP/'", sanitizeShellArg(authEndpoint+"?response_type=code&client_id=test&redirect_uri=https://example.com/callback&state=test")),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -837,7 +842,7 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 				"authorization URL that, upon completion, redirects the victim's authorization code " +
 				"or access token to an attacker-controlled server." + note,
 			Evidence:     ev,
-			ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=code&client_id=test&redirect_uri=https://evil.com/steal-tokens&state=test' | grep -i 'location\\|evil'", authEndpoint),
+			ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location\\|evil'", sanitizeShellArg(authEndpoint+"?response_type=code&client_id=test&redirect_uri=https://evil.com/steal-tokens&state=test")),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -900,8 +905,8 @@ func checkSubdomainBypass(ctx context.Context, client *http.Client, asset, authE
 					"access tokens.", evilRedirect) + note,
 			Evidence: ev,
 			ProofCommand: fmt.Sprintf(
-				"curl -sI '%s?response_type=code&client_id=%s&redirect_uri=%s&state=test' | grep -i 'location'",
-				authEndpoint, pc.id, url.QueryEscape(evilRedirect)),
+				"curl -sI %s | grep -i 'location'",
+				sanitizeShellArg(fmt.Sprintf("%s?response_type=code&client_id=%s&redirect_uri=%s&state=test", authEndpoint, pc.id, url.QueryEscape(evilRedirect)))),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -969,7 +974,7 @@ func checkWeakState(ctx context.Context, client *http.Client, asset, authEndpoin
 				"by an attacker. Generate state values using a CSPRNG with at least 128 bits (16 bytes) " +
 				"of entropy, base64url-encoded." + note,
 			Evidence:     ev,
-			ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=code&client_id=%s&redirect_uri=https://example.com/callback&state=a1' | grep -i 'location'", authEndpoint, pc.id),
+			ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location'", sanitizeShellArg(fmt.Sprintf("%s?response_type=code&client_id=%s&redirect_uri=https://example.com/callback&state=a1", authEndpoint, pc.id))),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -1054,7 +1059,7 @@ func checkImplicitFlowAccepted(ctx context.Context, client *http.Client, asset, 
 			"The implicit flow is deprecated in OAuth 2.1 (draft-ietf-oauth-v2-1-10). " +
 			"Migrate all clients to the authorization code flow with PKCE." + note,
 		Evidence:     ev,
-		ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=token&client_id=%s&redirect_uri=https://example.com/callback&state=test' | grep -i 'location\\|HTTP/'", authEndpoint, pc.id),
+		ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location\\|HTTP/'", sanitizeShellArg(fmt.Sprintf("%s?response_type=token&client_id=%s&redirect_uri=https://example.com/callback&state=test", authEndpoint, pc.id))),
 		DiscoveredAt: time.Now(),
 	}
 }
@@ -1104,7 +1109,7 @@ func checkTokenLeakReferer(ctx context.Context, client *http.Client, asset, auth
 			"third-party resources loaded by the redirect target page, and are recorded in browser " +
 			"history, server logs, and proxy logs. Migrate to authorization code flow with PKCE.",
 		Evidence:     ev,
-		ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=token&client_id=test&redirect_uri=https://example.com/callback&state=test' | grep -i 'location\\|access_token'", authEndpoint),
+		ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location\\|access_token'", sanitizeShellArg(authEndpoint+"?response_type=token&client_id=test&redirect_uri=https://example.com/callback&state=test")),
 		DiscoveredAt: time.Now(),
 	}
 }
@@ -1170,7 +1175,7 @@ func checkJWTNoVerification(ctx context.Context, client *http.Client, asset, bas
 					"response_status": resp.StatusCode,
 					"response_body":   string(body)[:min(200, len(body))],
 				},
-				ProofCommand: fmt.Sprintf("curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiYWRtaW4iOnRydWV9.INVALIDSIG' '%s' | python3 -m json.tool", u),
+				ProofCommand: fmt.Sprintf("curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiYWRtaW4iOnRydWV9.INVALIDSIG' %s | python3 -m json.tool", sanitizeShellArg(u)),
 				DiscoveredAt: time.Now(),
 			}
 		}
@@ -1214,7 +1219,7 @@ func checkTokenInFragment(asset string, doc *oidcDocument) *finding.Finding {
 			"response_types_supported": doc.ResponseTypesSupported,
 			"authorization_endpoint":   authEndpoint,
 		},
-		ProofCommand: fmt.Sprintf("curl -sI '%s?response_type=token&client_id=test&redirect_uri=https://example.com/callback&state=test' | grep -i 'location\\|access_token'", authEndpoint),
+		ProofCommand: fmt.Sprintf("curl -sI %s | grep -i 'location\\|access_token'", sanitizeShellArg(authEndpoint+"?response_type=token&client_id=test&redirect_uri=https://example.com/callback&state=test")),
 		DiscoveredAt: time.Now(),
 	}
 }
@@ -1308,7 +1313,7 @@ func checkTokenLongExpiry(ctx context.Context, client *http.Client, asset, base,
 				"expires_in": tokenResp.ExpiresIn,
 				"hours":      hours,
 			},
-			ProofCommand: fmt.Sprintf("curl -s -X POST '%s' -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=client_credentials&client_id=test&client_secret=test' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('expires_in:', d.get('expires_in'))\"", u),
+			ProofCommand: fmt.Sprintf("curl -s -X POST %s -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=client_credentials&client_id=test&client_secret=test' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('expires_in:', d.get('expires_in'))\"", sanitizeShellArg(u)),
 			DiscoveredAt: time.Now(),
 		}
 	}
@@ -1431,7 +1436,7 @@ func checkRefreshNotRotated(ctx context.Context, client *http.Client, asset, bas
 			"endpoint":      tokenURL,
 			"reuse_success": successCount,
 		},
-		ProofCommand: fmt.Sprintf("# Obtain refresh_token first, then:\ncurl -s -X POST '%s' -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=refresh_token&refresh_token=<TOKEN>' | python3 -m json.tool", tokenURL),
+		ProofCommand: fmt.Sprintf("# Obtain refresh_token first, then:\ncurl -s -X POST %s -H 'Content-Type: application/x-www-form-urlencoded' -d 'grant_type=refresh_token&refresh_token=<TOKEN>' | python3 -m json.tool", sanitizeShellArg(tokenURL)),
 		DiscoveredAt: time.Now(),
 	}
 }

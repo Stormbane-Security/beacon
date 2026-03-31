@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -58,6 +59,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		if data := fetchManifest(ctx, client, base, "/requirements.txt"); data != nil {
 			for _, name := range parsePyPIPackages(data) {
 				allPackages = append(allPackages, packageRef{name: name, ecosystem: "pypi", manifest: "/requirements.txt"})
+			}
+		}
+
+		// go.mod — Go modules
+		if data := fetchManifest(ctx, client, base, "/go.mod"); data != nil {
+			for _, name := range parseGoModules(data) {
+				allPackages = append(allPackages, packageRef{name: name, ecosystem: "go", manifest: "/go.mod"})
+			}
+		}
+
+		// Gemfile — Ruby gems
+		if data := fetchManifest(ctx, client, base, "/Gemfile"); data != nil {
+			for _, name := range parseGemfilePackages(data) {
+				allPackages = append(allPackages, packageRef{name: name, ecosystem: "ruby", manifest: "/Gemfile"})
+			}
+		}
+
+		// composer.json — PHP Composer
+		if data := fetchManifest(ctx, client, base, "/composer.json"); data != nil {
+			for _, name := range parseComposerPackages(data) {
+				allPackages = append(allPackages, packageRef{name: name, ecosystem: "composer", manifest: "/composer.json"})
 			}
 		}
 
@@ -105,24 +127,43 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			exists = checkNPM(ctx, client, p.name)
 		case "pypi":
 			exists = checkPyPI(ctx, client, p.name)
+		case "go":
+			exists = checkGoProxy(ctx, client, p.name)
+		case "ruby":
+			exists = checkRubyGems(ctx, client, p.name)
+		case "composer":
+			exists = checkPackagist(ctx, client, p.name)
 		}
 
 		if !exists {
 			continue
 		}
 
+		var checkID finding.CheckID
 		var proofCmd string
 		switch p.ecosystem {
 		case "npm":
+			checkID = finding.CheckDependencyConfusion
 			proofCmd = fmt.Sprintf("curl -s https://registry.npmjs.org/%s | jq '.name,.version,.description'", p.name)
 		case "pypi":
+			checkID = finding.CheckDependencyConfusion
 			proofCmd = fmt.Sprintf("curl -s https://pypi.org/pypi/%s/json | jq '.info.name,.info.version,.info.author'", p.name)
+		case "go":
+			checkID = finding.CheckDependencyConfusionGo
+			proofCmd = fmt.Sprintf("curl -sI https://proxy.golang.org/%s/@v/list", p.name)
+		case "ruby":
+			checkID = finding.CheckDependencyConfusionRuby
+			proofCmd = fmt.Sprintf("curl -s https://rubygems.org/api/v1/gems/%s.json | jq '.name,.version,.authors'", p.name)
+		case "composer":
+			checkID = finding.CheckDependencyConfusionComposer
+			proofCmd = fmt.Sprintf("curl -s https://packagist.org/packages/%s.json | jq '.package.name,.package.versions'", p.name)
 		default:
+			checkID = finding.CheckDependencyConfusion
 			proofCmd = fmt.Sprintf("# verify %s exists on public %s registry", p.name, p.ecosystem)
 		}
 
 		findings = append(findings, finding.Finding{
-			CheckID:  finding.CheckDependencyConfusion,
+			CheckID:  checkID,
 			Module:   "surface",
 			Scanner:  scannerName,
 			Severity: finding.SeverityCritical,
@@ -300,6 +341,167 @@ func checkPyPI(ctx context.Context, client *http.Client, name string) bool {
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// knownGoHosts are well-known public module hosts; modules under these prefixes
+// are unlikely to be internal and are skipped during dependency confusion checks.
+var knownGoHosts = []string{
+	"github.com/", "gitlab.com/", "bitbucket.org/",
+	"golang.org/", "google.golang.org/", "go.uber.org/",
+	"gopkg.in/", "k8s.io/", "sigs.k8s.io/",
+	"cloud.google.com/", "go.opentelemetry.io/",
+	"go.etcd.io/", "gonum.org/",
+}
+
+// parseGoModules extracts private-looking module paths from a go.mod file.
+// Only require directives whose module path does not start with a known public
+// host are returned — these are candidates for dependency confusion.
+func parseGoModules(data []byte) []string {
+	var names []string
+	inRequire := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		// Block require ( ... )
+		if strings.HasPrefix(line, "require (") || line == "require (" {
+			inRequire = true
+			continue
+		}
+		if inRequire && line == ")" {
+			inRequire = false
+			continue
+		}
+		// Single-line require directive
+		var modulePath string
+		if inRequire {
+			parts := strings.Fields(line)
+			if len(parts) >= 1 {
+				modulePath = parts[0]
+			}
+		} else if strings.HasPrefix(line, "require ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				modulePath = parts[1]
+			}
+		}
+		if modulePath == "" {
+			continue
+		}
+		// Skip well-known public hosts.
+		isPublic := false
+		for _, host := range knownGoHosts {
+			if strings.HasPrefix(modulePath, host) {
+				isPublic = true
+				break
+			}
+		}
+		if !isPublic {
+			names = append(names, modulePath)
+		}
+	}
+	return names
+}
+
+// gemRe matches gem declarations in a Gemfile: gem 'name' or gem "name"
+var gemRe = regexp.MustCompile(`(?m)^\s*gem\s+['"]([a-zA-Z0-9._-]+)['"]`)
+
+// parseGemfilePackages extracts gem names from a Gemfile.
+func parseGemfilePackages(data []byte) []string {
+	matches := gemRe.FindAllStringSubmatch(string(data), -1)
+	var names []string
+	for _, m := range matches {
+		if len(m) >= 2 && m[1] != "" {
+			names = append(names, m[1])
+		}
+	}
+	return names
+}
+
+// parseComposerPackages extracts package names from a composer.json require block.
+func parseComposerPackages(data []byte) []string {
+	var pkg struct {
+		Require    map[string]string `json:"require"`
+		RequireDev map[string]string `json:"require-dev"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var names []string
+	for name := range pkg.Require {
+		// Skip PHP platform requirements (php, ext-*)
+		if name == "php" || strings.HasPrefix(name, "ext-") {
+			continue
+		}
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	for name := range pkg.RequireDev {
+		if name == "php" || strings.HasPrefix(name, "ext-") {
+			continue
+		}
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// checkGoProxy returns true if the Go module exists on the public Go module proxy.
+// A 404 from proxy.golang.org means the module name is claimable.
+// We return true (exists = claimable) when the proxy returns 404.
+func checkGoProxy(ctx context.Context, client *http.Client, modulePath string) bool {
+	u := "https://proxy.golang.org/" + modulePath + "/@v/list"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	// 404 means the module does not exist on the public proxy — claimable.
+	return resp.StatusCode == http.StatusNotFound
+}
+
+// checkRubyGems returns true if the gem name is claimable on rubygems.org.
+// A 404 means the gem does not exist and could be registered by an attacker.
+func checkRubyGems(ctx context.Context, client *http.Client, name string) bool {
+	u := "https://rubygems.org/api/v1/gems/" + name + ".json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	// 404 means the gem does not exist — claimable.
+	return resp.StatusCode == http.StatusNotFound
+}
+
+// checkPackagist returns true if the Composer package is claimable on packagist.org.
+// A 404 means the package does not exist and could be registered by an attacker.
+func checkPackagist(ctx context.Context, client *http.Client, name string) bool {
+	u := "https://packagist.org/packages/" + name + ".json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	// 404 means the package does not exist — claimable.
+	return resp.StatusCode == http.StatusNotFound
 }
 
 // baseName returns the first label of a domain, e.g. "acme" from "app.acme.com".

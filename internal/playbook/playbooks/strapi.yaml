@@ -23,7 +23,6 @@ match:
         contains: "strapi"
 surface:
   scanners:
-    - httpmethods
     - exposedfiles
     - apiversions
     - webcontent
@@ -48,6 +47,7 @@ deep:
     - cors
     - ratelimit
     - jwt
+    - httpmethods
   nuclei_tags:
     - strapi
     - cms

@@ -40,3 +40,7 @@ deep:
     - exposure
     - misconfiguration
     - default-logins
+  dictionary:
+    - /api/databases
+    - /api/instance
+    - /api/info

@@ -347,6 +347,9 @@ const (
 	CheckGitHubSecretInCode            CheckID = "github.secret_in_code"
 	CheckGitHubPrivateKeyInRepo        CheckID = "github.private_key_in_repo"
 
+	// GitHub Packages — container and package registry visibility
+	CheckGitHubPackagePublic CheckID = "github.package_public"
+
 	// Dependency confusion — package name lookup in public registry → Surface
 	CheckDependencyConfusion CheckID = "supply_chain.dependency_confusion"
 
@@ -449,6 +452,8 @@ const (
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
 	CheckWebFileUpload        CheckID = "web.file_upload_bypass"     // file upload MIME/extension bypass
 	CheckWebAPIFuzz           CheckID = "web.api_fuzz_error"         // API endpoint returns 500 on fuzz input
+	CheckHTTPClickjacking     CheckID = "http.clickjacking"          // missing X-Frame-Options / CSP frame-ancestors
+	CheckWebSocketCSWSH       CheckID = "websocket.cswsh"            // cross-site WebSocket hijacking
 	CheckCVELog4Shell              CheckID = "cve.log4shell"                   // CVE-2021-44228 Log4j JNDI injection
 	CheckCVEN8nRCE                 CheckID = "cve.n8n_rce"                     // CVE-2026-21858/CVE-2025-68613 n8n pre-auth RCE
 	CheckCVECraftCMSRCE            CheckID = "cve.craftcms_rce"                // CVE-2025-32432 Craft CMS pre-auth code injection
@@ -878,6 +883,13 @@ const (
 	CheckCorrelationLateralMovement    CheckID = "correlation.lateral_movement_path"
 	CheckCorrelationGeneric            CheckID = "correlation.attack_chain"
 
+	// ── Asset overlap correlation ──────────────────────────────────────────
+	CheckCorrelationIPOverlap           CheckID = "correlation.ip_overlap"             // surface asset and cloud resource share the same IP
+	CheckCorrelationTLSSANOverlap       CheckID = "correlation.tls_san_overlap"        // domain appears in cloud resource's TLS certificate SAN
+	CheckCorrelationCNAMEToCloud        CheckID = "correlation.cname_to_cloud"         // domain CNAMEs to cloud provider hostname
+	CheckCorrelationSharedInfra         CheckID = "correlation.shared_infrastructure"  // multiple assets share the same backend IP
+	CheckCorrelationCloudToSurface      CheckID = "correlation.cloud_to_surface"       // cloud resource serves a scanned domain (composite signal)
+
 	// Terraform / IaC static analysis
 	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
 	CheckTerraformGCSBucketPublic      CheckID = "terraform.gcs_bucket_public"
@@ -977,6 +989,10 @@ const (
 	// ── CI/CD — OWASP CICD-SEC-8: Ungoverned 3rd Party Services ──
 	CheckGHActionUnverifiedCreator  CheckID = "ghaction.unverified_creator"      // action from non-verified marketplace creator
 	CheckGitHubWebhookExternalDest  CheckID = "github.webhook_external_dest"    // webhook sends data to non-org domain
+
+	// ── GitHub — Terraform State Exposure ──
+	CheckGitHubTFStateCommitted     CheckID = "github.tfstate_committed"         // .tfstate file committed to repo — contains secrets, resource IDs, full infra map
+	CheckGitHubTFStateInHistory     CheckID = "github.tfstate_in_history"        // .tfstate found in git history (deleted but still in commits)
 
 	// ── CI/CD — Threat Matrix: Execution & Defense Evasion ──
 	CheckGHActionRunnerMetadataAccess CheckID = "ghaction.runner_metadata_access"  // workflow can reach 169.254.169.254 from self-hosted runner
@@ -1173,6 +1189,230 @@ const (
 	CheckCloudAzureRedisNoFirewall       CheckID = "cloud.azure.redis_no_firewall"         // Redis without firewall rules
 	CheckCloudAzurePostgresPublic        CheckID = "cloud.azure.postgres_public"           // PostgreSQL flexible server with public access
 	CheckCloudAzurePostgresNoSSL         CheckID = "cloud.azure.postgres_no_ssl"           // PostgreSQL flexible server not requiring SSL
+
+	// ── IDOR / BOLA — Authorized mode only ──────────────────────────────────
+	CheckIDORSequentialID     CheckID = "api.idor_sequential_id"     // resource accessible via sequential/predictable ID
+	CheckBOLAHorizontalAccess CheckID = "api.bola_horizontal_access" // resource from another user accessible
+
+	// ── Broken Access Control — Authorized mode only ────────────────────────
+	CheckAccessControlVerticalEscalation  CheckID = "api.vertical_escalation"       // non-admin user can access admin endpoints
+	CheckAccessControlMethodBypass        CheckID = "api.method_bypass"              // HTTP method change bypasses auth
+	CheckAccessControlPathTraversalBypass CheckID = "api.path_traversal_auth_bypass" // path manipulation bypasses auth middleware
+
+	// ── API Key Exposure in URLs / JS ───────────────────────────────────────
+	CheckJSAPIKeyInURL       CheckID = "js.api_key_in_url"        // API key passed as URL query parameter in JS bundle
+	CheckJSAPIKeyInSourceMap CheckID = "js.api_key_in_source_map" // API key found in exposed source map
+
+	// ── DigitalOcean Cloud Posture ──────────────────────────────────────────
+	CheckCloudDOScanError          CheckID = "cloud.do.scan_error"
+	CheckCloudDOSpacesPublic       CheckID = "cloud.do.spaces_public"        // Spaces bucket publicly accessible
+	CheckCloudDOSpacesNoEncryption CheckID = "cloud.do.spaces_no_encryption" // Spaces bucket without server-side encryption
+	CheckCloudDODropletPublicIP    CheckID = "cloud.do.droplet_public_ip"    // Droplet with public IP and open firewall
+	CheckCloudDONoFirewall         CheckID = "cloud.do.no_firewall"          // Droplet without firewall attached
+	CheckCloudDOFirewallAllOpen    CheckID = "cloud.do.firewall_all_open"    // Firewall allows all inbound from 0.0.0.0/0
+	CheckCloudDOFirewallSSHOpen    CheckID = "cloud.do.firewall_ssh_open"    // Firewall allows SSH from 0.0.0.0/0
+
+	// ── Oracle Cloud (OCI) Posture ──────────────────────────────────────────
+	CheckCloudOCIScanError           CheckID = "cloud.oci.scan_error"
+	CheckCloudOCIBucketPublic        CheckID = "cloud.oci.bucket_public"        // Object Storage bucket publicly accessible
+	CheckCloudOCIBucketNoEncryption  CheckID = "cloud.oci.bucket_no_encryption" // Bucket without customer-managed encryption
+	CheckCloudOCIVaultKeyNoRotation  CheckID = "cloud.oci.vault_key_no_rotation" // Vault key without rotation
+	CheckCloudOCISecurityListAllOpen CheckID = "cloud.oci.security_list_all_open" // Security list allows all inbound
+	CheckCloudOCISecurityListSSHOpen CheckID = "cloud.oci.security_list_ssh_open" // Security list allows SSH from 0.0.0.0/0
+	CheckCloudOCINSGAllOpen          CheckID = "cloud.oci.nsg_all_open"          // NSG allows all inbound from 0.0.0.0/0
+
+	// ── Dependency Confusion — additional ecosystems ────────────────────────
+	CheckDependencyConfusionGo       CheckID = "supply_chain.dependency_confusion_go"   // Go module claimable on proxy.golang.org
+	CheckDependencyConfusionRuby     CheckID = "supply_chain.dependency_confusion_ruby"  // RubyGem name claimable on rubygems.org
+	CheckDependencyConfusionComposer CheckID = "supply_chain.dependency_confusion_php"   // Composer package claimable on packagist.org
+
+	// ── Expression Language Injection ───────────────────────────────────────
+	CheckWebELInjection   CheckID = "web.el_injection"    // JSP/JSF Expression Language injection
+	CheckWebSpELInjection CheckID = "web.spel_injection"  // Spring Expression Language injection
+	CheckWebOGNLInjection CheckID = "web.ognl_injection"  // OGNL injection (Struts/Confluence)
+
+	// ── MFA Enforcement — Cloud IAM ─────────────────────────────────────────
+	CheckCloudGCPNo2SV                 CheckID = "cloud.gcp.no_org_2sv"                 // GCP org without 2-Step Verification enforced
+	CheckCloudAzureNoConditionalAccessMFA CheckID = "cloud.azure.no_conditional_access_mfa" // Azure AD without conditional access MFA policy
+	CheckCloudAWSIAMMFANotEnforced     CheckID = "cloud.aws.iam_mfa_not_enforced"       // IAM policy allows escalation without MFA condition
+
+	// ── Encryption at Rest — Storage ────────────────────────────────────────
+	CheckCloudGCPBucketNoCMEK         CheckID = "cloud.gcp.bucket_no_cmek"         // GCS bucket without customer-managed encryption key
+	CheckCloudAzureBlobNoCMK          CheckID = "cloud.azure.blob_no_cmk"          // Blob storage without customer-managed encryption
+	CheckCloudAzureStorageNoInfraEncrypt CheckID = "cloud.azure.storage_no_infra_encrypt" // Storage without infrastructure encryption
+
+	// ── Database Public Reachability ────────────────────────────────────────
+	CheckCloudAWSRDSPublicReachable     CheckID = "cloud.aws.rds_public_reachable"       // RDS instance actually reachable from internet
+	CheckCloudGCPCloudSQLReachable      CheckID = "cloud.gcp.cloudsql_public_reachable"  // Cloud SQL actually reachable from internet
+	CheckCloudAzureCosmosDBReachable    CheckID = "cloud.azure.cosmosdb_public_reachable" // Cosmos DB actually reachable from internet
+
+	// ── LDAP Injection — additional patterns ────────────────────────────────
+	CheckLDAPBlindInjection CheckID = "iam.ldap_blind_injection" // blind LDAP injection via response timing
+	CheckLDAPAuthBypass     CheckID = "iam.ldap_auth_bypass"     // LDAP authentication bypass via injection
+
+	// ── Bitbucket Pipelines CI ──────────────────────────────────────────────
+	CheckBitbucketPipelineUnpinned     CheckID = "bitbucket.pipeline_unpinned_image"  // pipeline uses unpinned Docker image
+	CheckBitbucketPipelineSecretEchoed CheckID = "bitbucket.pipeline_secret_echoed"   // pipeline echoes secret variables
+	CheckBitbucketPipelineInsecureStep CheckID = "bitbucket.pipeline_insecure_step"   // pipeline step with dangerous permissions
+	CheckBitbucketPublicPipeline       CheckID = "bitbucket.public_pipeline"          // pipeline config visible on public repo
+
+	// ── CircleCI ────────────────────────────────────────────────────────────
+	CheckCircleCIUnpinnedImage     CheckID = "circleci.unpinned_image"       // job uses Docker image without sha256 digest
+	CheckCircleCISecretEchoed      CheckID = "circleci.secret_echoed"        // step echoes secret/sensitive variable
+	CheckCircleCIInsecureStep      CheckID = "circleci.insecure_step"        // step with dangerous configuration
+	CheckCircleCIPublicConfig      CheckID = "circleci.public_config"        // config.yml visible on public repo
+	CheckCircleCIUnconstrained     CheckID = "circleci.unconstrained_context" // shared org context without branch filter
+	CheckCircleCIMachineExecutor   CheckID = "circleci.machine_executor"     // machine executor runs with full VM privileges
+
+	// ── GitLab CI extensions ────────────────────────────────────────────────
+	CheckGitLabCISecretInScript   CheckID = "gitlab.ci_secret_in_script"    // secret variable referenced in script block
+	CheckGitLabCIUnpinnedImage    CheckID = "gitlab.ci_unpinned_image"      // CI job uses unpinned Docker image
+	CheckGitLabCIPrivilegedRunner CheckID = "gitlab.ci_privileged_runner"   // CI job runs with Docker-in-Docker privileged mode
+
+	// ── Container Image / Registry ──────────────────────────────────────────
+	CheckContainerRegistryExposed      CheckID = "container.registry_exposed"       // Docker registry V2 API accessible without auth
+	CheckContainerImageUnsigned        CheckID = "container.image_unsigned"         // container image without signature
+	CheckContainerImageLatestTag       CheckID = "container.image_latest_tag"       // image tagged only as :latest
+	CheckContainerRegistryAnonymousPush CheckID = "container.registry_anonymous_push" // registry accepts unauthenticated push
+
+	// ── GraphQL DoS — fragment and nesting amplification ────────────────────
+	CheckGraphQLFragmentDos CheckID = "graphql.fragment_dos"  // deeply nested fragment causes amplification
+	CheckGraphQLDeepNesting CheckID = "graphql.deep_nesting"  // query depth exceeds 10 levels without rejection
+
+	// ── API Version Auth Bypass ─────────────────────────────────────────────
+	CheckAPIVersionAuthBypass      CheckID = "api.version_auth_bypass"      // older API version lacks authentication
+	CheckAPIVersionRateLimitBypass CheckID = "api.version_ratelimit_bypass" // older API version lacks rate limiting
+
+	// ── ReDoS — Regex Denial of Service ─────────────────────────────────────
+	CheckWebReDoS CheckID = "web.redos" // input causes excessive response time via regex backtracking
+
+	// ── Unsigned Build Artifacts ─────────────────────────────────────────────
+	CheckSupplyChainUnsignedNPM       CheckID = "supply_chain.unsigned_npm"        // npm package without provenance
+	CheckSupplyChainUnsignedPyPI      CheckID = "supply_chain.unsigned_pypi"       // PyPI package without Sigstore signature
+	CheckSupplyChainUnsignedContainer CheckID = "supply_chain.unsigned_container"  // container image without cosign signature
+
+	// ── Supply chain pipeline correlation ──────────────────────────────────
+	CheckCICDNoImageSigning         CheckID = "cicd.no_image_signing"                       // CI/CD builds container but has no signing step
+	CheckCICDMutableImageTag        CheckID = "cicd.mutable_image_tag"                      // CI/CD deploys with mutable tag (:latest, :main, etc.)
+	CheckCICDLongLivedRegistryCreds CheckID = "cicd.long_lived_registry_creds"               // registry auth uses stored secrets instead of OIDC
+	CheckCICDNoSBOMGeneration       CheckID = "cicd.no_sbom_generation"                     // container build has no SBOM generation step
+	CheckCICDNoVulnScan             CheckID = "cicd.no_vuln_scan"                           // container build has no vulnerability scan step
+	CheckSupplyChainNoProvenance    CheckID = "supply_chain.no_provenance"                  // deployed image has no build provenance attestation
+	CheckSupplyChainRegistryToCluster CheckID = "supply_chain.registry_to_cluster_unsigned" // image flows from registry to cluster without signature verification
+
+	// ── Dockerfile supply chain ──────────────────────────────────────────
+	CheckDockerfileCurlPipe  CheckID = "supply_chain.dockerfile_curl_pipe"   // Dockerfile runs curl|sh or wget|sh — arbitrary code execution in build
+	CheckDockerfileRootUser  CheckID = "supply_chain.dockerfile_root_user"   // Dockerfile has no USER directive — container runs as root
+
+	// ── Okta Identity Provider ────────────────────────────────────────────
+	CheckOktaMFANotEnforced         CheckID = "iam.okta_mfa_not_enforced"          // Okta sign-on policy does not require MFA
+	CheckOktaWeakPasswordPolicy     CheckID = "iam.okta_weak_password_policy"      // password policy allows short or simple passwords
+	CheckOktaNoSessionTimeout       CheckID = "iam.okta_no_session_timeout"        // global session policy has no max lifetime or idle timeout
+	CheckOktaInactiveAdmin          CheckID = "iam.okta_inactive_admin"            // admin account has not logged in for 90+ days
+	CheckOktaAPITokenNoExpiry       CheckID = "iam.okta_api_token_no_expiry"       // API token has no expiration set
+	CheckOktaAPITokenLongLived      CheckID = "iam.okta_api_token_long_lived"      // API token expires in 90+ days
+	CheckOktaSCIMMisconfigured      CheckID = "iam.okta_scim_misconfigured"        // SCIM provisioning app has errors or is disabled
+	CheckOktaGroupNoMembers         CheckID = "iam.okta_group_no_members"          // group exists with zero members — potential stale config
+	CheckOktaUserNoMFA              CheckID = "iam.okta_user_no_mfa"               // individual user has no MFA factors enrolled
+	CheckOktaAppNoSignOnPolicy      CheckID = "iam.okta_app_no_sign_on_policy"     // application has no custom sign-on policy (falls through to default)
+	CheckOktaAppPermissiveAccess    CheckID = "iam.okta_app_permissive_access"     // application assigned to Everyone group
+	CheckOktaWeakAuthPolicy         CheckID = "iam.okta_weak_auth_policy"          // authentication policy allows knowledge-only (password) factor
+	CheckOktaDomainNotVerified      CheckID = "iam.okta_domain_not_verified"       // custom domain configured but not verified
+	CheckOktaThreatInsightDisabled  CheckID = "iam.okta_threat_insight_disabled"   // ThreatInsight is not set to log-and-enforce mode
+	CheckOktaNoGroupRules           CheckID = "iam.okta_no_group_rules"            // no group rules defined — groups managed manually
+
+	// ── On-prem — Proxmox VE ──────────────────────────────────────────────
+	CheckOnpremProxmoxScanError          CheckID = "onprem.proxmox.scan_error"              // Proxmox API scan failed
+	CheckOnpremProxmoxNoTLS              CheckID = "onprem.proxmox.no_tls"                  // Proxmox API accessible over HTTP without TLS
+	CheckOnpremProxmoxDefaultCreds       CheckID = "onprem.proxmox.default_creds"           // Proxmox API accepts default root credentials
+	CheckOnpremProxmoxRootAPIToken       CheckID = "onprem.proxmox.root_api_token"          // API token belongs to root@pam — use unprivileged user
+	CheckOnpremProxmoxNoFirewall         CheckID = "onprem.proxmox.no_firewall"             // Proxmox datacenter firewall not enabled
+	CheckOnpremProxmoxPrivilegedCT       CheckID = "onprem.proxmox.privileged_container"    // LXC container running in privileged mode
+	CheckOnpremProxmoxVMNoBackup         CheckID = "onprem.proxmox.vm_no_backup"            // VM/container without scheduled backup
+	CheckOnpremProxmoxOutdatedVersion    CheckID = "onprem.proxmox.outdated_version"        // Proxmox VE version has known CVEs
+	CheckOnpremProxmoxNoHA               CheckID = "onprem.proxmox.no_ha"                   // single-node cluster without HA
+	CheckOnpremProxmoxStorageNoEncrypt   CheckID = "onprem.proxmox.storage_no_encryption"   // storage backend without encryption at rest
+	CheckOnpremProxmoxVMNoAgent          CheckID = "onprem.proxmox.vm_no_agent"             // VM without QEMU guest agent — limits visibility
+	CheckOnpremProxmoxOpenConsole        CheckID = "onprem.proxmox.open_console"            // noVNC/SPICE console accessible without additional auth
+
+	// ── On-prem — Docker Engine ──────────────────────────────────────────
+	CheckOnpremDockerScanError           CheckID = "onprem.docker.scan_error"               // Docker API scan failed
+	CheckOnpremDockerExposedAPI          CheckID = "onprem.docker.exposed_api"              // Docker daemon TCP API exposed without TLS
+	CheckOnpremDockerPrivilegedContainer CheckID = "onprem.docker.privileged_container"     // container running in --privileged mode
+	CheckOnpremDockerHostNetwork         CheckID = "onprem.docker.host_network"             // container using host network namespace
+	CheckOnpremDockerRootUser            CheckID = "onprem.docker.root_user"                // container running as UID 0
+	CheckOnpremDockerNoResourceLimits    CheckID = "onprem.docker.no_resource_limits"       // container without CPU/memory limits
+	CheckOnpremDockerHostMount           CheckID = "onprem.docker.host_mount"               // container with sensitive host path mounted (/, /etc, /var/run/docker.sock)
+	CheckOnpremDockerNoHealthcheck       CheckID = "onprem.docker.no_healthcheck"           // container without healthcheck configured
+	CheckOnpremDockerCapSysAdmin         CheckID = "onprem.docker.cap_sys_admin"            // container has CAP_SYS_ADMIN capability
+	CheckOnpremDockerHostPID             CheckID = "onprem.docker.host_pid"                 // container shares host PID namespace
+	CheckOnpremDockerHostIPC             CheckID = "onprem.docker.host_ipc"                 // container shares host IPC namespace
+	CheckOnpremDockerOutdatedImage       CheckID = "onprem.docker.outdated_image"           // container image >90 days old without update
+	CheckOnpremDockerWritableRootFS      CheckID = "onprem.docker.writable_rootfs"          // container rootfs is writable (no --read-only)
+
+	// ── On-prem — Kubernetes (kubeconfig-based) ──────────────────────────
+	CheckOnpremK8sScanError              CheckID = "onprem.k8s.scan_error"                  // Kubernetes API scan failed
+	CheckOnpremK8sAnonymousAuth          CheckID = "onprem.k8s.anonymous_auth"              // API server accepts anonymous requests
+	CheckOnpremK8sDefaultSA              CheckID = "onprem.k8s.default_sa"                  // pod using default service account with auto-mounted token
+	CheckOnpremK8sPrivilegedPod          CheckID = "onprem.k8s.privileged_pod"              // pod running in privileged security context
+	CheckOnpremK8sHostPID                CheckID = "onprem.k8s.host_pid"                    // pod shares host PID namespace
+	CheckOnpremK8sHostNetwork            CheckID = "onprem.k8s.host_network"                // pod uses host network
+	CheckOnpremK8sNoNetworkPolicy        CheckID = "onprem.k8s.no_network_policy"           // namespace has no network policies
+	CheckOnpremK8sNoResourceLimits       CheckID = "onprem.k8s.no_resource_limits"          // container without resource limits set
+	CheckOnpremK8sRBACWildcard           CheckID = "onprem.k8s.rbac_wildcard"               // RBAC binding with wildcard verbs or resources
+	CheckOnpremK8sClusterAdminBinding    CheckID = "onprem.k8s.cluster_admin_binding"       // cluster-admin bound to user/SA outside kube-system
+	CheckOnpremK8sNoSecurityContext      CheckID = "onprem.k8s.no_security_context"         // pod without securityContext set
+	CheckOnpremK8sWritableRootFS         CheckID = "onprem.k8s.writable_rootfs"             // container rootfs is writable
+	CheckOnpremK8sLatestTag              CheckID = "onprem.k8s.latest_tag"                  // pod uses :latest image tag
+	CheckOnpremK8sTillerExposed          CheckID = "onprem.k8s.tiller_exposed"              // Helm Tiller (v2) deployed — full cluster admin
+	CheckOnpremK8sSecretNotEncrypted     CheckID = "onprem.k8s.secret_not_encrypted"        // etcd encryption not configured for Secrets
+	CheckOnpremK8sDashboardExposed       CheckID = "onprem.k8s.dashboard_exposed"           // Kubernetes Dashboard with skip-login or no auth
+	CheckOnpremK8sRunAsRoot              CheckID = "onprem.k8s.run_as_root"                 // container explicitly runs as root (UID 0)
+
+	// ── On-prem — VMware ESXi/vCenter ────────────────────────────────────
+	CheckOnpremVMwareScanError           CheckID = "onprem.vmware.scan_error"               // VMware API scan failed
+	CheckOnpremVMwareESXiSSH             CheckID = "onprem.vmware.esxi_ssh"                 // SSH service enabled on ESXi host
+	CheckOnpremVMwareESXiShell           CheckID = "onprem.vmware.esxi_shell"               // ESXi Shell service enabled
+	CheckOnpremVMwareNoLockdown          CheckID = "onprem.vmware.no_lockdown"              // ESXi host not in lockdown mode
+	CheckOnpremVMwareDefaultCerts        CheckID = "onprem.vmware.default_certs"            // vCenter/ESXi using default self-signed certificate
+	CheckOnpremVMwareVMNoTools           CheckID = "onprem.vmware.vm_no_tools"              // VM without VMware Tools installed
+	CheckOnpremVMwareDatastoreNoEncrypt  CheckID = "onprem.vmware.datastore_no_encryption"  // datastore without encryption
+	CheckOnpremVMwareVMCopyPaste         CheckID = "onprem.vmware.vm_copy_paste"            // VM allows copy/paste between guest and host
+	CheckOnpremVMwareVMDiskShrink        CheckID = "onprem.vmware.vm_disk_shrink"           // VM allows disk shrinking (escape vector)
+	CheckOnpremVMwareVMDragDrop          CheckID = "onprem.vmware.vm_drag_drop"             // VM allows drag-drop file transfer
+	CheckOnpremVMwareOutdatedVersion     CheckID = "onprem.vmware.outdated_version"         // ESXi/vCenter version has known CVEs
+	CheckOnpremVMwareVMNoSnapshot        CheckID = "onprem.vmware.vm_no_snapshot"           // VM without any snapshots (no rollback capability)
+
+	// ── On-prem — Network Discovery (SNMP/SSDP/mDNS) ────────────────────
+	CheckOnpremNetworkScanError          CheckID = "onprem.network.scan_error"              // network discovery scan failed
+	CheckOnpremNetworkSNMPDefaultComm    CheckID = "onprem.network.snmp_default_community"  // device accepts default SNMP community string (public/private)
+	CheckOnpremNetworkSNMPv1v2           CheckID = "onprem.network.snmpv1v2"                // device uses SNMPv1/v2c (cleartext community strings)
+	CheckOnpremNetworkUPnPExposed        CheckID = "onprem.network.upnp_exposed"            // UPnP service exposed with device info
+	CheckOnpremNetworkMDNSExposed        CheckID = "onprem.network.mdns_exposed"            // mDNS service advertising internal service info
+	CheckOnpremNetworkTelnetEnabled      CheckID = "onprem.network.telnet_enabled"          // management via Telnet (cleartext credentials)
+	CheckOnpremNetworkDefaultCreds       CheckID = "onprem.network.default_creds"           // network device accepts default credentials
+	CheckOnpremNetworkNoSNMPv3           CheckID = "onprem.network.no_snmpv3"               // SNMP configured but SNMPv3 not available
+	CheckOnpremNetworkHTTPMgmt           CheckID = "onprem.network.http_mgmt"               // device management UI over HTTP without TLS
+
+	// ── On-prem — NAS Appliances (Synology/TrueNAS/QNAP) ────────────────
+	CheckOnpremNASScanError              CheckID = "onprem.nas.scan_error"                  // NAS scan failed
+	CheckOnpremNASSMBv1                  CheckID = "onprem.nas.smbv1"                       // NAS supports SMBv1 (EternalBlue vector)
+	CheckOnpremNASNoTLS                  CheckID = "onprem.nas.no_tls"                      // NAS web management without TLS
+	CheckOnpremNASDefaultAdmin           CheckID = "onprem.nas.default_admin"               // NAS accepts default admin credentials
+	CheckOnpremNASPublicShares           CheckID = "onprem.nas.public_shares"               // NFS/SMB shares accessible without authentication
+	CheckOnpremNASOutdatedFirmware       CheckID = "onprem.nas.outdated_firmware"            // NAS firmware has known CVEs
+	CheckOnpremNASSSHRoot                CheckID = "onprem.nas.ssh_root"                    // SSH root login enabled on NAS
+	CheckOnpremNASNoSnapshotProtection   CheckID = "onprem.nas.no_snapshot_protection"      // NAS without immutable snapshot protection (ransomware risk)
+	CheckOnpremNASiSCSINoAuth            CheckID = "onprem.nas.iscsi_no_auth"               // iSCSI target without CHAP authentication
+
+	// ── On-prem — libvirt/KVM ────────────────────────────────────────────
+	CheckOnpremLibvirtScanError          CheckID = "onprem.libvirt.scan_error"              // libvirt API scan failed
+	CheckOnpremLibvirtTCPNoAuth          CheckID = "onprem.libvirt.tcp_no_auth"             // libvirt TCP listener without authentication
+	CheckOnpremLibvirtTLSDisabled        CheckID = "onprem.libvirt.tls_disabled"            // libvirt listening without TLS
+	CheckOnpremLibvirtVMNoSecureBoot     CheckID = "onprem.libvirt.vm_no_secure_boot"       // VM without UEFI Secure Boot
+	CheckOnpremLibvirtVMRawDisk          CheckID = "onprem.libvirt.vm_raw_disk"             // VM using raw disk format (no snapshot support)
+	CheckOnpremLibvirtNetNoIsolation     CheckID = "onprem.libvirt.net_no_isolation"         // virtual network in default NAT mode without isolation
+	CheckOnpremLibvirtVMNoMemBalloon     CheckID = "onprem.libvirt.vm_no_memballoon"        // VM without memory balloon driver (can't reclaim memory)
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1563,6 +1803,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckGitHubDefaultTokenWrite:      {CheckGitHubDefaultTokenWrite, SeverityHigh, ModeSurface},
 	CheckGitHubActionsUnrestricted:    {CheckGitHubActionsUnrestricted, SeverityMedium, ModeSurface},
 	CheckGitHubWebhookNoSecret:        {CheckGitHubWebhookNoSecret, SeverityHigh, ModeSurface},
+	CheckGitHubPackagePublic:          {CheckGitHubPackagePublic, SeverityMedium, ModeSurface},
 	CheckGitHubOrgMFANotRequired:      {CheckGitHubOrgMFANotRequired, SeverityCritical, ModeSurface},
 	CheckGitHubNoPushProtection:       {CheckGitHubNoPushProtection, SeverityHigh, ModeSurface},
 	CheckGitHubNoSignedCommits:        {CheckGitHubNoSignedCommits, SeverityLow, ModeSurface},
@@ -1930,6 +2171,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
 	CheckWebFileUpload:         {CheckWebFileUpload, SeverityCritical, ModeDeep},
 	CheckWebAPIFuzz:            {CheckWebAPIFuzz, SeverityHigh, ModeDeep},
+	CheckHTTPClickjacking:     {CheckHTTPClickjacking, SeverityMedium, ModeSurface},
+	CheckWebSocketCSWSH:       {CheckWebSocketCSWSH, SeverityHigh, ModeDeep},
 	CheckCVELog4Shell:          {CheckCVELog4Shell, SeverityCritical, ModeDeep},
 
 	// Nmap additional
@@ -2004,6 +2247,13 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationCredentialReuse:    {CheckCorrelationCredentialReuse, SeverityCritical, ModeSurface},
 	CheckCorrelationLateralMovement:    {CheckCorrelationLateralMovement, SeverityCritical, ModeSurface},
 	CheckCorrelationGeneric:            {CheckCorrelationGeneric, SeverityHigh, ModeSurface},
+
+	// ── Asset overlap correlation ──────────────────────────────────────────
+	CheckCorrelationIPOverlap:      {CheckCorrelationIPOverlap, SeverityInfo, ModeSurface},
+	CheckCorrelationTLSSANOverlap:  {CheckCorrelationTLSSANOverlap, SeverityInfo, ModeSurface},
+	CheckCorrelationCNAMEToCloud:   {CheckCorrelationCNAMEToCloud, SeverityInfo, ModeSurface},
+	CheckCorrelationSharedInfra:    {CheckCorrelationSharedInfra, SeverityInfo, ModeSurface},
+	CheckCorrelationCloudToSurface: {CheckCorrelationCloudToSurface, SeverityMedium, ModeSurface},
 
 	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
 	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ModeSurface},
@@ -2338,6 +2588,236 @@ var Registry = map[CheckID]CheckMeta{
 	CheckSIWENonceReuse:           {CheckSIWENonceReuse, SeverityHigh, ModeDeep},
 	CheckSIWEChainBypass:          {CheckSIWEChainBypass, SeverityHigh, ModeDeep},
 	CheckSIWEReplayAttack:         {CheckSIWEReplayAttack, SeverityCritical, ModeDeep},
+
+	// ── New coverage gap scanners ───────────────────────────────────────────
+
+	// IDOR / BOLA — Deep (active probing with different auth contexts)
+	CheckIDORSequentialID:     {CheckIDORSequentialID, SeverityCritical, ModeDeep},
+	CheckBOLAHorizontalAccess: {CheckBOLAHorizontalAccess, SeverityCritical, ModeDeep},
+
+	// Broken Access Control — Deep
+	CheckAccessControlVerticalEscalation:  {CheckAccessControlVerticalEscalation, SeverityCritical, ModeDeep},
+	CheckAccessControlMethodBypass:        {CheckAccessControlMethodBypass, SeverityHigh, ModeDeep},
+	CheckAccessControlPathTraversalBypass: {CheckAccessControlPathTraversalBypass, SeverityCritical, ModeDeep},
+
+	// API Key in URL / JS — Surface (passive scan of response content)
+	CheckJSAPIKeyInURL:       {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
+	CheckJSAPIKeyInSourceMap: {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
+
+	// DigitalOcean Cloud — Deep (requires API token)
+	CheckCloudDOScanError:          {CheckCloudDOScanError, SeverityInfo, ModeDeep},
+	CheckCloudDOSpacesPublic:       {CheckCloudDOSpacesPublic, SeverityCritical, ModeDeep},
+	CheckCloudDOSpacesNoEncryption: {CheckCloudDOSpacesNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudDODropletPublicIP:    {CheckCloudDODropletPublicIP, SeverityMedium, ModeDeep},
+	CheckCloudDONoFirewall:         {CheckCloudDONoFirewall, SeverityHigh, ModeDeep},
+	CheckCloudDOFirewallAllOpen:    {CheckCloudDOFirewallAllOpen, SeverityCritical, ModeDeep},
+	CheckCloudDOFirewallSSHOpen:    {CheckCloudDOFirewallSSHOpen, SeverityHigh, ModeDeep},
+
+	// OCI Cloud — Deep (requires config file)
+	CheckCloudOCIScanError:           {CheckCloudOCIScanError, SeverityInfo, ModeDeep},
+	CheckCloudOCIBucketPublic:        {CheckCloudOCIBucketPublic, SeverityCritical, ModeDeep},
+	CheckCloudOCIBucketNoEncryption:  {CheckCloudOCIBucketNoEncryption, SeverityMedium, ModeDeep},
+	CheckCloudOCIVaultKeyNoRotation:  {CheckCloudOCIVaultKeyNoRotation, SeverityMedium, ModeDeep},
+	CheckCloudOCISecurityListAllOpen: {CheckCloudOCISecurityListAllOpen, SeverityCritical, ModeDeep},
+	CheckCloudOCISecurityListSSHOpen: {CheckCloudOCISecurityListSSHOpen, SeverityHigh, ModeDeep},
+	CheckCloudOCINSGAllOpen:          {CheckCloudOCINSGAllOpen, SeverityCritical, ModeDeep},
+
+	// Dependency Confusion — additional ecosystems — Surface
+	CheckDependencyConfusionGo:       {CheckDependencyConfusionGo, SeverityCritical, ModeSurface},
+	CheckDependencyConfusionRuby:     {CheckDependencyConfusionRuby, SeverityCritical, ModeSurface},
+	CheckDependencyConfusionComposer: {CheckDependencyConfusionComposer, SeverityCritical, ModeSurface},
+
+	// Expression Language Injection — Deep
+	CheckWebELInjection:   {CheckWebELInjection, SeverityCritical, ModeDeep},
+	CheckWebSpELInjection: {CheckWebSpELInjection, SeverityCritical, ModeDeep},
+	CheckWebOGNLInjection: {CheckWebOGNLInjection, SeverityCritical, ModeDeep},
+
+	// MFA Enforcement — Deep (cloud API)
+	CheckCloudGCPNo2SV:                    {CheckCloudGCPNo2SV, SeverityHigh, ModeDeep},
+	CheckCloudAzureNoConditionalAccessMFA: {CheckCloudAzureNoConditionalAccessMFA, SeverityHigh, ModeDeep},
+	CheckCloudAWSIAMMFANotEnforced:        {CheckCloudAWSIAMMFANotEnforced, SeverityHigh, ModeDeep},
+
+	// Encryption at Rest — Deep
+	CheckCloudGCPBucketNoCMEK:              {CheckCloudGCPBucketNoCMEK, SeverityMedium, ModeDeep},
+	CheckCloudAzureBlobNoCMK:               {CheckCloudAzureBlobNoCMK, SeverityMedium, ModeDeep},
+	CheckCloudAzureStorageNoInfraEncrypt:   {CheckCloudAzureStorageNoInfraEncrypt, SeverityMedium, ModeDeep},
+
+	// Database Public Reachability — Deep
+	CheckCloudAWSRDSPublicReachable:  {CheckCloudAWSRDSPublicReachable, SeverityCritical, ModeDeep},
+	CheckCloudGCPCloudSQLReachable:   {CheckCloudGCPCloudSQLReachable, SeverityCritical, ModeDeep},
+	CheckCloudAzureCosmosDBReachable: {CheckCloudAzureCosmosDBReachable, SeverityCritical, ModeDeep},
+
+	// LDAP Injection — Deep
+	CheckLDAPBlindInjection: {CheckLDAPBlindInjection, SeverityHigh, ModeDeep},
+	CheckLDAPAuthBypass:     {CheckLDAPAuthBypass, SeverityCritical, ModeDeep},
+
+	// Bitbucket Pipelines — Surface (static file analysis)
+	CheckBitbucketPipelineUnpinned:     {CheckBitbucketPipelineUnpinned, SeverityMedium, ModeSurface},
+	CheckBitbucketPipelineSecretEchoed: {CheckBitbucketPipelineSecretEchoed, SeverityHigh, ModeSurface},
+	CheckBitbucketPipelineInsecureStep: {CheckBitbucketPipelineInsecureStep, SeverityHigh, ModeSurface},
+	CheckBitbucketPublicPipeline:       {CheckBitbucketPublicPipeline, SeverityMedium, ModeSurface},
+
+	// CircleCI — Surface (static file analysis)
+	CheckCircleCIUnpinnedImage:    {CheckCircleCIUnpinnedImage, SeverityMedium, ModeSurface},
+	CheckCircleCISecretEchoed:     {CheckCircleCISecretEchoed, SeverityHigh, ModeSurface},
+	CheckCircleCIInsecureStep:     {CheckCircleCIInsecureStep, SeverityHigh, ModeSurface},
+	CheckCircleCIPublicConfig:     {CheckCircleCIPublicConfig, SeverityInfo, ModeSurface},
+	CheckCircleCIUnconstrained:    {CheckCircleCIUnconstrained, SeverityMedium, ModeSurface},
+	CheckCircleCIMachineExecutor:  {CheckCircleCIMachineExecutor, SeverityMedium, ModeSurface},
+
+	// GitLab CI extensions — Surface (static file analysis)
+	CheckGitLabCISecretInScript:   {CheckGitLabCISecretInScript, SeverityHigh, ModeSurface},
+	CheckGitLabCIUnpinnedImage:    {CheckGitLabCIUnpinnedImage, SeverityMedium, ModeSurface},
+	CheckGitLabCIPrivilegedRunner: {CheckGitLabCIPrivilegedRunner, SeverityHigh, ModeSurface},
+
+	// Container Registry — Deep (active probe)
+	CheckContainerRegistryExposed:       {CheckContainerRegistryExposed, SeverityCritical, ModeDeep},
+	CheckContainerImageUnsigned:         {CheckContainerImageUnsigned, SeverityMedium, ModeDeep},
+	CheckContainerImageLatestTag:        {CheckContainerImageLatestTag, SeverityLow, ModeDeep},
+	CheckContainerRegistryAnonymousPush: {CheckContainerRegistryAnonymousPush, SeverityCritical, ModeDeep},
+
+	// GraphQL DoS — Deep
+	CheckGraphQLFragmentDos: {CheckGraphQLFragmentDos, SeverityMedium, ModeDeep},
+	CheckGraphQLDeepNesting: {CheckGraphQLDeepNesting, SeverityMedium, ModeDeep},
+
+	// API Version Auth Bypass — Deep
+	CheckAPIVersionAuthBypass:      {CheckAPIVersionAuthBypass, SeverityCritical, ModeDeep},
+	CheckAPIVersionRateLimitBypass: {CheckAPIVersionRateLimitBypass, SeverityMedium, ModeDeep},
+
+	// ReDoS — Deep
+	CheckWebReDoS: {CheckWebReDoS, SeverityMedium, ModeDeep},
+
+	// Unsigned Build Artifacts — Surface (public registry query)
+	CheckSupplyChainUnsignedNPM:       {CheckSupplyChainUnsignedNPM, SeverityMedium, ModeSurface},
+	CheckSupplyChainUnsignedPyPI:      {CheckSupplyChainUnsignedPyPI, SeverityMedium, ModeSurface},
+	CheckSupplyChainUnsignedContainer: {CheckSupplyChainUnsignedContainer, SeverityMedium, ModeSurface},
+
+	// Supply chain pipeline correlation
+	CheckCICDNoImageSigning:           {CheckCICDNoImageSigning, SeverityHigh, ModeSurface},
+	CheckCICDMutableImageTag:          {CheckCICDMutableImageTag, SeverityMedium, ModeSurface},
+	CheckCICDLongLivedRegistryCreds:   {CheckCICDLongLivedRegistryCreds, SeverityHigh, ModeSurface},
+	CheckCICDNoSBOMGeneration:         {CheckCICDNoSBOMGeneration, SeverityLow, ModeSurface},
+	CheckCICDNoVulnScan:               {CheckCICDNoVulnScan, SeverityMedium, ModeSurface},
+	CheckSupplyChainNoProvenance:      {CheckSupplyChainNoProvenance, SeverityHigh, ModeSurface},
+	CheckSupplyChainRegistryToCluster: {CheckSupplyChainRegistryToCluster, SeverityCritical, ModeDeep},
+
+	// Dockerfile supply chain
+	CheckDockerfileCurlPipe:  {CheckDockerfileCurlPipe, SeverityHigh, ModeSurface},
+	CheckDockerfileRootUser:  {CheckDockerfileRootUser, SeverityMedium, ModeSurface},
+
+	// Okta Identity Provider
+	CheckOktaMFANotEnforced:        {CheckOktaMFANotEnforced, SeverityCritical, ModeSurface},
+	CheckOktaWeakPasswordPolicy:    {CheckOktaWeakPasswordPolicy, SeverityHigh, ModeSurface},
+	CheckOktaNoSessionTimeout:      {CheckOktaNoSessionTimeout, SeverityMedium, ModeSurface},
+	CheckOktaInactiveAdmin:         {CheckOktaInactiveAdmin, SeverityMedium, ModeSurface},
+	CheckOktaAPITokenNoExpiry:      {CheckOktaAPITokenNoExpiry, SeverityHigh, ModeSurface},
+	CheckOktaAPITokenLongLived:     {CheckOktaAPITokenLongLived, SeverityMedium, ModeSurface},
+	CheckOktaSCIMMisconfigured:     {CheckOktaSCIMMisconfigured, SeverityMedium, ModeSurface},
+	CheckOktaGroupNoMembers:        {CheckOktaGroupNoMembers, SeverityLow, ModeSurface},
+	CheckOktaUserNoMFA:             {CheckOktaUserNoMFA, SeverityHigh, ModeSurface},
+	CheckOktaAppNoSignOnPolicy:     {CheckOktaAppNoSignOnPolicy, SeverityMedium, ModeSurface},
+	CheckOktaAppPermissiveAccess:   {CheckOktaAppPermissiveAccess, SeverityHigh, ModeSurface},
+	CheckOktaWeakAuthPolicy:        {CheckOktaWeakAuthPolicy, SeverityHigh, ModeSurface},
+	CheckOktaDomainNotVerified:     {CheckOktaDomainNotVerified, SeverityLow, ModeSurface},
+	CheckOktaThreatInsightDisabled: {CheckOktaThreatInsightDisabled, SeverityMedium, ModeSurface},
+	CheckOktaNoGroupRules:          {CheckOktaNoGroupRules, SeverityInfo, ModeSurface},
+
+	// GitHub — Terraform state exposure
+	CheckGitHubTFStateCommitted: {CheckGitHubTFStateCommitted, SeverityCritical, ModeSurface},
+	CheckGitHubTFStateInHistory: {CheckGitHubTFStateInHistory, SeverityCritical, ModeSurface},
+
+	// On-prem — Proxmox VE (all Deep — requires API credentials)
+	CheckOnpremProxmoxScanError:        {CheckOnpremProxmoxScanError, SeverityInfo, ModeDeep},
+	CheckOnpremProxmoxNoTLS:            {CheckOnpremProxmoxNoTLS, SeverityHigh, ModeDeep},
+	CheckOnpremProxmoxDefaultCreds:     {CheckOnpremProxmoxDefaultCreds, SeverityCritical, ModeDeep},
+	CheckOnpremProxmoxRootAPIToken:     {CheckOnpremProxmoxRootAPIToken, SeverityHigh, ModeDeep},
+	CheckOnpremProxmoxNoFirewall:       {CheckOnpremProxmoxNoFirewall, SeverityMedium, ModeDeep},
+	CheckOnpremProxmoxPrivilegedCT:     {CheckOnpremProxmoxPrivilegedCT, SeverityHigh, ModeDeep},
+	CheckOnpremProxmoxVMNoBackup:       {CheckOnpremProxmoxVMNoBackup, SeverityMedium, ModeDeep},
+	CheckOnpremProxmoxOutdatedVersion:  {CheckOnpremProxmoxOutdatedVersion, SeverityHigh, ModeDeep},
+	CheckOnpremProxmoxNoHA:             {CheckOnpremProxmoxNoHA, SeverityLow, ModeDeep},
+	CheckOnpremProxmoxStorageNoEncrypt: {CheckOnpremProxmoxStorageNoEncrypt, SeverityMedium, ModeDeep},
+	CheckOnpremProxmoxVMNoAgent:        {CheckOnpremProxmoxVMNoAgent, SeverityLow, ModeDeep},
+	CheckOnpremProxmoxOpenConsole:      {CheckOnpremProxmoxOpenConsole, SeverityMedium, ModeDeep},
+
+	// On-prem — Docker Engine (all Deep — requires Docker API access)
+	CheckOnpremDockerScanError:           {CheckOnpremDockerScanError, SeverityInfo, ModeDeep},
+	CheckOnpremDockerExposedAPI:          {CheckOnpremDockerExposedAPI, SeverityCritical, ModeSurface},
+	CheckOnpremDockerPrivilegedContainer: {CheckOnpremDockerPrivilegedContainer, SeverityCritical, ModeDeep},
+	CheckOnpremDockerHostNetwork:         {CheckOnpremDockerHostNetwork, SeverityHigh, ModeDeep},
+	CheckOnpremDockerRootUser:            {CheckOnpremDockerRootUser, SeverityMedium, ModeDeep},
+	CheckOnpremDockerNoResourceLimits:    {CheckOnpremDockerNoResourceLimits, SeverityLow, ModeDeep},
+	CheckOnpremDockerHostMount:           {CheckOnpremDockerHostMount, SeverityCritical, ModeDeep},
+	CheckOnpremDockerNoHealthcheck:       {CheckOnpremDockerNoHealthcheck, SeverityLow, ModeDeep},
+	CheckOnpremDockerCapSysAdmin:         {CheckOnpremDockerCapSysAdmin, SeverityCritical, ModeDeep},
+	CheckOnpremDockerHostPID:             {CheckOnpremDockerHostPID, SeverityHigh, ModeDeep},
+	CheckOnpremDockerHostIPC:             {CheckOnpremDockerHostIPC, SeverityMedium, ModeDeep},
+	CheckOnpremDockerOutdatedImage:       {CheckOnpremDockerOutdatedImage, SeverityMedium, ModeDeep},
+	CheckOnpremDockerWritableRootFS:      {CheckOnpremDockerWritableRootFS, SeverityLow, ModeDeep},
+
+	// On-prem — Kubernetes (all Deep — requires kubeconfig)
+	CheckOnpremK8sScanError:           {CheckOnpremK8sScanError, SeverityInfo, ModeDeep},
+	CheckOnpremK8sAnonymousAuth:       {CheckOnpremK8sAnonymousAuth, SeverityCritical, ModeDeep},
+	CheckOnpremK8sDefaultSA:           {CheckOnpremK8sDefaultSA, SeverityMedium, ModeDeep},
+	CheckOnpremK8sPrivilegedPod:       {CheckOnpremK8sPrivilegedPod, SeverityCritical, ModeDeep},
+	CheckOnpremK8sHostPID:             {CheckOnpremK8sHostPID, SeverityHigh, ModeDeep},
+	CheckOnpremK8sHostNetwork:         {CheckOnpremK8sHostNetwork, SeverityHigh, ModeDeep},
+	CheckOnpremK8sNoNetworkPolicy:     {CheckOnpremK8sNoNetworkPolicy, SeverityMedium, ModeDeep},
+	CheckOnpremK8sNoResourceLimits:    {CheckOnpremK8sNoResourceLimits, SeverityLow, ModeDeep},
+	CheckOnpremK8sRBACWildcard:        {CheckOnpremK8sRBACWildcard, SeverityCritical, ModeDeep},
+	CheckOnpremK8sClusterAdminBinding: {CheckOnpremK8sClusterAdminBinding, SeverityCritical, ModeDeep},
+	CheckOnpremK8sNoSecurityContext:   {CheckOnpremK8sNoSecurityContext, SeverityMedium, ModeDeep},
+	CheckOnpremK8sWritableRootFS:      {CheckOnpremK8sWritableRootFS, SeverityLow, ModeDeep},
+	CheckOnpremK8sLatestTag:           {CheckOnpremK8sLatestTag, SeverityMedium, ModeDeep},
+	CheckOnpremK8sTillerExposed:       {CheckOnpremK8sTillerExposed, SeverityCritical, ModeDeep},
+	CheckOnpremK8sSecretNotEncrypted:  {CheckOnpremK8sSecretNotEncrypted, SeverityHigh, ModeDeep},
+	CheckOnpremK8sDashboardExposed:    {CheckOnpremK8sDashboardExposed, SeverityCritical, ModeDeep},
+	CheckOnpremK8sRunAsRoot:           {CheckOnpremK8sRunAsRoot, SeverityMedium, ModeDeep},
+
+	// On-prem — VMware ESXi/vCenter (all Deep — requires vSphere API access)
+	CheckOnpremVMwareScanError:          {CheckOnpremVMwareScanError, SeverityInfo, ModeDeep},
+	CheckOnpremVMwareESXiSSH:            {CheckOnpremVMwareESXiSSH, SeverityMedium, ModeDeep},
+	CheckOnpremVMwareESXiShell:          {CheckOnpremVMwareESXiShell, SeverityMedium, ModeDeep},
+	CheckOnpremVMwareNoLockdown:         {CheckOnpremVMwareNoLockdown, SeverityHigh, ModeDeep},
+	CheckOnpremVMwareDefaultCerts:       {CheckOnpremVMwareDefaultCerts, SeverityMedium, ModeDeep},
+	CheckOnpremVMwareVMNoTools:          {CheckOnpremVMwareVMNoTools, SeverityLow, ModeDeep},
+	CheckOnpremVMwareDatastoreNoEncrypt: {CheckOnpremVMwareDatastoreNoEncrypt, SeverityMedium, ModeDeep},
+	CheckOnpremVMwareVMCopyPaste:        {CheckOnpremVMwareVMCopyPaste, SeverityLow, ModeDeep},
+	CheckOnpremVMwareVMDiskShrink:       {CheckOnpremVMwareVMDiskShrink, SeverityMedium, ModeDeep},
+	CheckOnpremVMwareVMDragDrop:         {CheckOnpremVMwareVMDragDrop, SeverityLow, ModeDeep},
+	CheckOnpremVMwareOutdatedVersion:    {CheckOnpremVMwareOutdatedVersion, SeverityHigh, ModeDeep},
+	CheckOnpremVMwareVMNoSnapshot:       {CheckOnpremVMwareVMNoSnapshot, SeverityLow, ModeDeep},
+
+	// On-prem — Network discovery (Surface for passive discovery, Deep for credential checks)
+	CheckOnpremNetworkScanError:       {CheckOnpremNetworkScanError, SeverityInfo, ModeSurface},
+	CheckOnpremNetworkSNMPDefaultComm: {CheckOnpremNetworkSNMPDefaultComm, SeverityCritical, ModeDeep},
+	CheckOnpremNetworkSNMPv1v2:        {CheckOnpremNetworkSNMPv1v2, SeverityHigh, ModeDeep},
+	CheckOnpremNetworkUPnPExposed:     {CheckOnpremNetworkUPnPExposed, SeverityMedium, ModeSurface},
+	CheckOnpremNetworkMDNSExposed:     {CheckOnpremNetworkMDNSExposed, SeverityLow, ModeSurface},
+	CheckOnpremNetworkTelnetEnabled:   {CheckOnpremNetworkTelnetEnabled, SeverityHigh, ModeSurface},
+	CheckOnpremNetworkDefaultCreds:    {CheckOnpremNetworkDefaultCreds, SeverityCritical, ModeDeep},
+	CheckOnpremNetworkNoSNMPv3:        {CheckOnpremNetworkNoSNMPv3, SeverityMedium, ModeDeep},
+	CheckOnpremNetworkHTTPMgmt:        {CheckOnpremNetworkHTTPMgmt, SeverityMedium, ModeSurface},
+
+	// On-prem — NAS appliances (Deep — requires API/SMB access)
+	CheckOnpremNASScanError:            {CheckOnpremNASScanError, SeverityInfo, ModeDeep},
+	CheckOnpremNASSMBv1:                {CheckOnpremNASSMBv1, SeverityHigh, ModeDeep},
+	CheckOnpremNASNoTLS:                {CheckOnpremNASNoTLS, SeverityMedium, ModeDeep},
+	CheckOnpremNASDefaultAdmin:         {CheckOnpremNASDefaultAdmin, SeverityCritical, ModeDeep},
+	CheckOnpremNASPublicShares:         {CheckOnpremNASPublicShares, SeverityHigh, ModeDeep},
+	CheckOnpremNASOutdatedFirmware:     {CheckOnpremNASOutdatedFirmware, SeverityHigh, ModeDeep},
+	CheckOnpremNASSSHRoot:              {CheckOnpremNASSSHRoot, SeverityMedium, ModeDeep},
+	CheckOnpremNASNoSnapshotProtection: {CheckOnpremNASNoSnapshotProtection, SeverityHigh, ModeDeep},
+	CheckOnpremNASiSCSINoAuth:          {CheckOnpremNASiSCSINoAuth, SeverityHigh, ModeDeep},
+
+	// On-prem — libvirt/KVM (all Deep — requires libvirt API access)
+	CheckOnpremLibvirtScanError:      {CheckOnpremLibvirtScanError, SeverityInfo, ModeDeep},
+	CheckOnpremLibvirtTCPNoAuth:      {CheckOnpremLibvirtTCPNoAuth, SeverityCritical, ModeDeep},
+	CheckOnpremLibvirtTLSDisabled:    {CheckOnpremLibvirtTLSDisabled, SeverityHigh, ModeDeep},
+	CheckOnpremLibvirtVMNoSecureBoot: {CheckOnpremLibvirtVMNoSecureBoot, SeverityMedium, ModeDeep},
+	CheckOnpremLibvirtVMRawDisk:      {CheckOnpremLibvirtVMRawDisk, SeverityLow, ModeDeep},
+	CheckOnpremLibvirtNetNoIsolation: {CheckOnpremLibvirtNetNoIsolation, SeverityMedium, ModeDeep},
+	CheckOnpremLibvirtVMNoMemBalloon: {CheckOnpremLibvirtVMNoMemBalloon, SeverityLow, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

@@ -34,10 +34,10 @@ func TestMateriallyDifferent(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "body diff over 500 but under 20%",
+			name:     "body diff over 500 — always flagged regardless of percentage",
 			baseline: &hostResponse{status: 200, bodyLen: 10000, title: "Home"},
 			response: &hostResponse{status: 200, bodyLen: 10600, title: "Home"},
-			want:     false,
+			want:     true,
 		},
 		{
 			name:     "body diff exactly 500 — not over threshold",

@@ -41,9 +41,42 @@ type Input struct {
 	AWSProfile          string
 	GCPCredentialsFile  string
 	AzureSubscriptionID string
+	DOToken             string // DigitalOcean API token
+	OCIConfigFile       string // Oracle Cloud Infrastructure config file path
 
 	// Kubernetes — used by: Kubernetes module (Phase 3)
 	KubeconfigPath string
+
+	// On-prem infrastructure — used by: OnPrem module.
+	OnPremEnabled bool
+
+	// Proxmox VE
+	ProxmoxEndpoint    string // e.g., "https://192.168.1.100:8006"
+	ProxmoxTokenID     string // e.g., "user@pam!tokenid"
+	ProxmoxTokenSecret string
+	ProxmoxSkipTLS     bool
+
+	// Docker Engine
+	DockerEndpoint string // e.g., "http://192.168.1.100:2375" or "unix:///var/run/docker.sock"
+
+	// VMware vSphere/ESXi
+	VMwareEndpoint string // e.g., "https://vcenter.local"
+	VMwareUsername string
+	VMwarePassword string
+	VMwareSkipTLS  bool
+
+	// libvirt/KVM
+	LibvirtEndpoint string // REST proxy URL or host for TCP/TLS check
+
+	// Network discovery
+	NetworkTargets []string // IP addresses or CIDR ranges
+
+	// NAS appliances
+	NASEndpoint string
+	NASUsername  string
+	NASPassword string
+	NASType     string // auto, synology, truenas, qnap
+	NASSkipTLS  bool
 
 	// PermissionConfirmed must be true for deep scans.
 	// This is a legal/ethical safeguard: the user confirms they own

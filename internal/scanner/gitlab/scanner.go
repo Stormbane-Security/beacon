@@ -10,11 +10,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
+)
+
+// Regex patterns for .gitlab-ci.yml analysis.
+var (
+	// Matches image directives without a digest pin (no @sha256:).
+	reUnpinnedImage = regexp.MustCompile(`(?m)^\s*image:\s*["']?([^@\s"']+)["']?\s*$`)
+	// Matches secret-like CI variables referenced in script blocks.
+	reSecretInScript = regexp.MustCompile(`(?m)\$\{?(CI_JOB_TOKEN|SECRET_\w+|PRIVATE_TOKEN|DEPLOY_TOKEN|API_KEY\w*|AWS_SECRET_ACCESS_KEY|PASSWORD\w*)\}?`)
+	// Matches privileged Docker-in-Docker configuration.
+	rePrivilegedDind = regexp.MustCompile(`(?m)^\s*-?\s*["']?docker:.*dind["']?\s*$`)
+	rePrivilegedFlag = regexp.MustCompile(`(?mi)privileged\s*:\s*["']?true["']?`)
 )
 
 const scannerName = "gitlab"
@@ -60,6 +72,7 @@ func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanTy
 		{s.checkHealthExposed},
 		{s.checkPrometheusExposed},
 		{s.checkAPIUnauth},
+		{s.checkCIConfig},
 	}
 
 	for _, c := range checks {
@@ -351,4 +364,158 @@ func (s *Scanner) checkAPIUnauth(ctx context.Context, target string) []finding.F
 		ProofCommand: fmt.Sprintf("curl -s '%s' | jq '.[].path_with_namespace'", url),
 		DiscoveredAt: time.Now(),
 	}}
+}
+
+// checkCIConfig fetches .gitlab-ci.yml from accessible public projects and
+// analyzes them for common CI/CD security issues: unpinned images, secrets in
+// scripts, and privileged Docker-in-Docker runners.
+func (s *Scanner) checkCIConfig(ctx context.Context, target string) []finding.Finding {
+	// First, enumerate public projects to find .gitlab-ci.yml files.
+	projectsURL := target + "/api/v4/projects?visibility=public&per_page=20&simple=true"
+	resp, body, err := s.get(ctx, projectsURL)
+	if err != nil || resp.StatusCode != 200 {
+		return nil
+	}
+
+	var projects []struct {
+		ID                int    `json:"id"`
+		PathWithNamespace string `json:"path_with_namespace"`
+		DefaultBranch     string `json:"default_branch"`
+	}
+	if err := json.Unmarshal(body, &projects); err != nil || len(projects) == 0 {
+		return nil
+	}
+
+	var findings []finding.Finding
+	for _, proj := range projects {
+		if ctx.Err() != nil {
+			break
+		}
+		if proj.DefaultBranch == "" {
+			proj.DefaultBranch = "main"
+		}
+
+		// Fetch .gitlab-ci.yml from the repository files API.
+		ciURL := fmt.Sprintf("%s/api/v4/projects/%d/repository/files/.gitlab-ci.yml/raw?ref=%s",
+			target, proj.ID, proj.DefaultBranch)
+		ciResp, ciBody, ciErr := s.get(ctx, ciURL)
+		if ciErr != nil || ciResp.StatusCode != 200 {
+			continue
+		}
+
+		ciContent := string(ciBody)
+		findings = append(findings, s.analyzeCIYAML(target, proj.PathWithNamespace, ciContent)...)
+	}
+
+	return findings
+}
+
+// analyzeCIYAML checks a .gitlab-ci.yml content string for security issues.
+func (s *Scanner) analyzeCIYAML(target, projectPath, content string) []finding.Finding {
+	var findings []finding.Finding
+
+	// Check for unpinned Docker images.
+	// Images without a @sha256: digest can be silently replaced upstream.
+	matches := reUnpinnedImage.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		image := match[1]
+		// Skip if it contains a digest pin.
+		if strings.Contains(image, "@sha256:") {
+			continue
+		}
+		// Skip variable references — can't evaluate those statically.
+		if strings.Contains(image, "$") {
+			continue
+		}
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitLabCIUnpinnedImage,
+			Module:   "cicd",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    target,
+			Title:    fmt.Sprintf("GitLab CI uses unpinned Docker image in %s: %s", projectPath, image),
+			Description: fmt.Sprintf(
+				"Project %s uses Docker image '%s' in .gitlab-ci.yml without a digest pin (@sha256:). "+
+					"An attacker who compromises the image registry or gains push access to the tag "+
+					"can inject malicious code into every CI pipeline run. Pin images by digest.",
+				projectPath, image,
+			),
+			Evidence: map[string]any{
+				"project": projectPath,
+				"image":   image,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s/api/v4/projects/%s/repository/files/.gitlab-ci.yml/raw?ref=main' | grep -i 'image:'",
+				target, strings.ReplaceAll(projectPath, "/", "%%2F")),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Check for secret variables referenced directly in script blocks.
+	secretMatches := reSecretInScript.FindAllStringSubmatch(content, -1)
+	seen := make(map[string]bool)
+	for _, match := range secretMatches {
+		if len(match) < 2 {
+			continue
+		}
+		varName := match[1]
+		if seen[varName] {
+			continue
+		}
+		seen[varName] = true
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitLabCISecretInScript,
+			Module:   "cicd",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    target,
+			Title:    fmt.Sprintf("GitLab CI references secret variable in script: %s ($%s)", projectPath, varName),
+			Description: fmt.Sprintf(
+				"Project %s references secret variable $%s directly in a .gitlab-ci.yml script block. "+
+					"CI job logs may capture expanded variable values. If the project is public or logs "+
+					"are accessible, secrets can be leaked. Use CI/CD file variables or masked variables "+
+					"and avoid echoing them in script blocks.",
+				projectPath, varName,
+			),
+			Evidence: map[string]any{
+				"project":  projectPath,
+				"variable": varName,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s/api/v4/projects/%s/repository/files/.gitlab-ci.yml/raw?ref=main' | grep -i '%s'",
+				target, strings.ReplaceAll(projectPath, "/", "%%2F"), varName),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Check for privileged Docker-in-Docker.
+	// DinD services with privileged: true give the CI job full host access.
+	hasDind := rePrivilegedDind.MatchString(content)
+	hasPrivileged := rePrivilegedFlag.MatchString(content)
+	if hasDind && hasPrivileged {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckGitLabCIPrivilegedRunner,
+			Module:   "cicd",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    target,
+			Title:    fmt.Sprintf("GitLab CI uses privileged Docker-in-Docker in %s", projectPath),
+			Description: fmt.Sprintf(
+				"Project %s uses Docker-in-Docker (docker:dind) with privileged: true in "+
+					".gitlab-ci.yml. Privileged containers have full access to the host kernel, "+
+					"allowing container escape and host compromise. Use Kaniko, Buildah, or "+
+					"unprivileged build tools instead of privileged DinD.",
+				projectPath,
+			),
+			Evidence: map[string]any{
+				"project": projectPath,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s/api/v4/projects/%s/repository/files/.gitlab-ci.yml/raw?ref=main' | grep -E '(dind|privileged)'",
+				target, strings.ReplaceAll(projectPath, "/", "%%2F")),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	return findings
 }

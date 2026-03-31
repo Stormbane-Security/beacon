@@ -341,12 +341,12 @@ func buildGapPrompt(ev *playbook.Evidence) string {
 	}
 	for k, v := range ev.Headers {
 		if k != "server" { // already included above
-			writeField(&sb, "Header "+k, v)
+			writeField(&sb, "Header "+k, sanitizeEvidence(v))
 		}
 	}
 	if ev.Body512 != "" {
 		sb.WriteString("- Response body (first 512 bytes): ")
-		sb.WriteString(ev.Body512)
+		sb.WriteString(sanitizeEvidence(ev.Body512))
 		sb.WriteString("\n")
 	}
 	if len(ev.RespondingPaths) > 0 {
@@ -516,9 +516,19 @@ func inferRule(field, value string, ev *playbook.Evidence) *store.FingerprintRul
 	return nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// sanitizeEvidence strips control characters and common prompt-injection
+// markers from raw HTTP evidence before embedding it in an LLM prompt.
+func sanitizeEvidence(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 0x20 && r != '\t' && r != '\n' {
+			continue
+		}
+		if r == 0x7f || (r >= 0x200e && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+			continue
+		}
+		b.WriteRune(r)
 	}
-	return b
+	return b.String()
 }

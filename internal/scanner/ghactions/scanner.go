@@ -114,6 +114,12 @@ func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanTy
 		all = append(all, checkDraftPRTrigger(content, repoSlug)...)
 		all = append(all, checkTrojanSource(content, repoSlug)...)
 		all = append(all, checkRunnerLabelSpoof(content, repoSlug)...)
+		// Container pipeline checks
+		all = append(all, checkImageBuildNoSigning(content, repoSlug)...)
+		all = append(all, checkMutableImageTag(content, repoSlug)...)
+		all = append(all, checkLongLivedRegistryCreds(content, repoSlug)...)
+		all = append(all, checkNoSBOM(content, repoSlug)...)
+		all = append(all, checkNoVulnScan(content, repoSlug)...)
 	}
 
 	// Deep mode: query the GitHub Advisory Database for any actions advisories

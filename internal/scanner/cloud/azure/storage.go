@@ -81,6 +81,64 @@ func evaluateStorageAccount(name string, props *armstorage.AccountProperties, su
 		})
 	}
 
+	// Check for customer-managed key (CMK) encryption.
+	// When KeySource is not "Microsoft.Keyvault", the account uses Microsoft-managed keys.
+	// CMK gives the organization control over encryption key lifecycle and access.
+	hasCMK := false
+	if props.Encryption != nil && props.Encryption.KeySource != nil {
+		if *props.Encryption.KeySource == armstorage.KeySourceMicrosoftKeyvault {
+			hasCMK = true
+		}
+	}
+	if !hasCMK {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudAzureBlobNoCMK,
+			Title:   fmt.Sprintf("Azure storage account uses Microsoft-managed encryption keys: %s", name),
+			Description: fmt.Sprintf(
+				"Storage account %s uses Microsoft-managed encryption keys instead of "+
+					"customer-managed keys (CMK) from Azure Key Vault. CMK provides organizational "+
+					"control over encryption key rotation, revocation, and access policies. "+
+					"Configure a Key Vault key as the encryption key for this storage account.",
+				name,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/azure",
+			ProofCommand: fmt.Sprintf("az storage account show --name %s --query 'encryption.keySource'", name),
+			Evidence:     map[string]any{"account_name": name, "subscription_id": subID},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Check for infrastructure encryption (double encryption at rest).
+	// When RequireInfrastructureEncryption is not true, the storage account uses
+	// only a single layer of encryption. Infrastructure encryption adds a second
+	// layer using a platform-managed key for defense in depth.
+	hasInfraEncrypt := false
+	if props.Encryption != nil && props.Encryption.RequireInfrastructureEncryption != nil {
+		hasInfraEncrypt = *props.Encryption.RequireInfrastructureEncryption
+	}
+	if !hasInfraEncrypt {
+		findings = append(findings, finding.Finding{
+			CheckID: finding.CheckCloudAzureStorageNoInfraEncrypt,
+			Title:   fmt.Sprintf("Azure storage account lacks infrastructure encryption: %s", name),
+			Description: fmt.Sprintf(
+				"Storage account %s does not have infrastructure encryption enabled. "+
+					"Infrastructure encryption adds a second layer of encryption at the storage "+
+					"infrastructure level using a platform-managed key. This provides defense in "+
+					"depth if the primary encryption algorithm or key is ever compromised. "+
+					"Enable infrastructure encryption when creating the storage account.",
+				name,
+			),
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Scanner:      "cloud/azure",
+			ProofCommand: fmt.Sprintf("az storage account show --name %s --query 'encryption.requireInfrastructureEncryption'", name),
+			Evidence:     map[string]any{"account_name": name, "subscription_id": subID},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings
 }
 

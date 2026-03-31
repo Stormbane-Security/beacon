@@ -15,13 +15,9 @@ match:
   any:
     - title_contains: "GitLab"
     - header_present: "x-gitlab-meta"
-    - header_present: "x-request-id"
     - path_responds: "/-/health"
     - path_responds: "/-/readiness"
     - body_contains: "GitLab"
-    - header_value:
-        name: "x-content-type-options"
-        contains: "nosniff"
 surface:
   nuclei_tags:
     - gitlab

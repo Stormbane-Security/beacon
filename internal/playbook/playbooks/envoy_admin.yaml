@@ -15,10 +15,7 @@ description: >
 match:
   any:
     - title_contains: "Envoy Admin"
-    - path_responds: "/clusters"
     - path_responds: "/config_dump"
-    - body_contains: "envoy"
-    - body_contains: "Envoy"
     - proxy_type_contains: "envoy"
 surface:
   nuclei_tags:

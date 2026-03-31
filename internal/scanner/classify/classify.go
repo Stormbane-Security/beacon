@@ -840,12 +840,13 @@ var pathBodySignatures = map[string]string{
 	"/api2/json/version": `"version"`,
 	// Ansible AWX/Tower
 	"/api/v2/ping": `"ha"`,
-	// Jaeger
+	// Jaeger — /api/traces response contains "traceID" key (Jaeger format)
+	"/api/traces":   `"traceID"`,
 	"/api/services": `"data"`,
 	// Loki
 	"/loki/api/v1/labels": `"data"`,
-	// Tempo
-	"/tempo/api/traces": `"traces"`,
+	// Tempo — /tempo/api/traces is Tempo-specific; body contains "rootServiceName"
+	"/tempo/api/traces": `"rootServiceName"`,
 	// VictoriaMetrics
 	"/vmui": `victoriametrics`,
 	// Harbor

@@ -7,9 +7,7 @@ description: >
   allows full database access without credentials.
 match:
   any:
-    - path_responds: "/ping"
     - path_responds: "/query"
-    - path_responds: "/health"
     - title_contains: "InfluxDB"
     - service_version_contains: "influxdb"
 surface:

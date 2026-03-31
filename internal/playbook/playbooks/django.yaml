@@ -16,9 +16,6 @@ match:
     - body_contains: "Django"
     - body_contains: "DJANGO_SETTINGS_MODULE"
     - header_value:
-        name: "x-frame-options"
-        contains: "SAMEORIGIN"
-    - header_value:
         name: "set-cookie"
         contains: "csrftoken"
     - header_value:

@@ -375,9 +375,3 @@ func probeRPCMethods(ctx context.Context, client *http.Client, address, rpcURL s
 	return findings
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

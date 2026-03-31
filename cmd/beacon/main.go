@@ -28,7 +28,6 @@ import (
 	"github.com/stormbane/beacon/internal/analyze"
 	"github.com/stormbane/beacon/internal/fingerprintdb"
 	"github.com/stormbane/beacon/internal/verify"
-	"github.com/stormbane/beacon/internal/api"
 	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/enrichment"
 	"github.com/stormbane/beacon/internal/finding"
@@ -45,6 +44,7 @@ import (
 	sqlitestore "github.com/stormbane/beacon/internal/store/sqlite"
 	"github.com/stormbane/beacon/internal/scanner/toolinstall"
 	"golang.org/x/term"
+
 )
 
 const usageText = `Beacon — security reconnaissance tool
@@ -78,8 +78,6 @@ SCAN FLAGS:
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
-  --server <url>             Run against a remote beacond instance
-  --api-key <key>            API key for the remote server
 
 ENRICH FLAGS:
   --input <file>             Raw findings JSON from --output-raw (required)
@@ -93,16 +91,10 @@ REPORT FLAGS:
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
-REMOTE MODE:
-  Set BEACON_SERVER_URL and BEACON_SERVER_API_KEY environment variables,
-  or configure them in ~/.beacon/config.yaml, to route all commands to a
-  remote beacond instance instead of running locally.
-
 EXAMPLES:
   beacon scan --domain example.com
   beacon scan --domain example.com --format json
   beacon scan --domain example.com --severity high
-  beacon scan --domain example.com --server https://beacon.example.com --api-key sk-...
   beacon scan --domain example.com --out report.html --format html
   beacon scan --domain example.com --deep --permission-confirmed
   beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
@@ -122,6 +114,10 @@ CLOUD FLAGS:
   --aws-profile <profile>    AWS CLI profile (default: env/default)
   --gcp-credentials <file>   GCP service account key JSON path (default: ADC)
   --azure-subscription <id>  Azure subscription ID (default: all accessible)
+  --do-token <token>         DigitalOcean API token
+  --oci-config <file>        Oracle Cloud Infrastructure config file path (default: ~/.oci/config)
+  --okta-domain <domain>     Okta organization domain (e.g., yourorg.okta.com)
+  --okta-token <token>       Okta API token (read-only admin)
   --domain <domain>          Asset label to associate findings with
   --format <fmt>             Output format: text (default), json, markdown
   --out <path>               Write report to file instead of stdout
@@ -242,13 +238,15 @@ func cmdScan(cfg *config.Config, args []string) {
 		severityFlag        string
 		verbose             bool
 		noTUI               bool
-		serverURL           string
-		apiKey              string
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
 		gcpCredentials      string
 		azureSubscription   string
+		doToken             string
+		ociConfigFile       string
+		oktaDomain          string
+		oktaToken           string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -293,16 +291,6 @@ func cmdScan(cfg *config.Config, args []string) {
 			verbose = true
 		case "--no-tui":
 			noTUI = true
-		case "--server":
-			i++
-			if i < len(args) {
-				serverURL = args[i]
-			}
-		case "--api-key":
-			i++
-			if i < len(args) {
-				apiKey = args[i]
-			}
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -335,6 +323,26 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				azureSubscription = args[i]
 			}
+		case "--do-token":
+			i++
+			if i < len(args) {
+				doToken = args[i]
+			}
+		case "--oci-config":
+			i++
+			if i < len(args) {
+				ociConfigFile = args[i]
+			}
+		case "--okta-domain":
+			i++
+			if i < len(args) {
+				oktaDomain = args[i]
+			}
+		case "--okta-token":
+			i++
+			if i < len(args) {
+				oktaToken = args[i]
+			}
 		}
 	}
 
@@ -365,7 +373,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, serverURL, apiKey, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, githubOrg)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg)
 		return
 	}
 
@@ -434,20 +442,6 @@ Type exactly: I have written authorization for %s
 			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
 		}
 		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
-	}
-
-	// Resolve server URL: flag > env/config
-	if serverURL == "" {
-		serverURL = cfg.Server.URL
-	}
-	if apiKey == "" {
-		apiKey = cfg.Server.APIKey
-	}
-
-	// Remote mode: delegate to beacond
-	if serverURL != "" {
-		cmdScanRemote(serverURL, apiKey, domain, deep, permissionConfirmed, authorized, outPath)
-		return
 	}
 
 	scanType := module.ScanSurface
@@ -531,6 +525,8 @@ Type exactly: I have written authorization for %s
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
 		GitHubToken:          cfg.GitHubToken,
+		OktaDomain:           cfg.OktaDomain,
+		OktaToken:            cfg.OktaToken,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -653,9 +649,12 @@ Type exactly: I have written authorization for %s
 			// Scan already finished while we were in browse — fall through to save.
 		default:
 			// Still running — mark stopped and exit. Findings saved so far are lost.
+			// Use a fresh context because the scan context may already be cancelled.
+			dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dbCancel()
 			run.Status = store.StatusStopped
 			run.Error = "detached by user"
-			_ = st.UpdateScanRun(ctx, run)
+			_ = st.UpdateScanRun(dbCtx, run)
 			return
 		}
 		// Scan finished while in browse — save its results.
@@ -922,10 +921,11 @@ func cmdScanMultiAsset(
 	deep, permissionConfirmed, authorized bool,
 	outPath, outputRawPath, format, severityFlag string,
 	verbose, noTUI bool,
-	serverURL, apiKey string,
 	extraCIDRs []string,
 	cloudEnabled bool,
 	awsProfile, gcpCredentials, azureSubscription string,
+	doToken, ociConfigFile string,
+	oktaDomain, oktaToken string,
 	githubOrg string,
 ) {
 	scanType := module.ScanSurface
@@ -974,22 +974,6 @@ Type exactly: I have written authorization for all listed targets
 		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
 	}
 
-	// Resolve server URL.
-	if serverURL == "" {
-		serverURL = cfg.Server.URL
-	}
-	if apiKey == "" {
-		apiKey = cfg.Server.APIKey
-	}
-
-	// Remote multi-asset: delegate each target to the remote server.
-	if serverURL != "" {
-		for _, d := range targets {
-			cmdScanRemote(serverURL, apiKey, d, deep, permissionConfirmed, authorized, outPath)
-		}
-		return
-	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -1034,6 +1018,8 @@ Type exactly: I have written authorization for all listed targets
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
 		GitHubToken:          cfg.GitHubToken,
+		OktaDomain:           strOr(oktaDomain, cfg.OktaDomain),
+		OktaToken:            strOr(oktaToken, cfg.OktaToken),
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -1151,7 +1137,7 @@ Type exactly: I have written authorization for all listed targets
 
 	// ── Cloud module (once per session) ───────────────────────────────────────
 	var cloudFindings []finding.Finding
-	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" {
+	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" || doToken != "" || ociConfigFile != "" {
 		providerList := cloudmodule.RegisteredProviders()
 		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan (providers: %s)...\n", strings.Join(providerList, ", "))
 		cloudAsset := "cloud"
@@ -1164,6 +1150,8 @@ Type exactly: I have written authorization for all listed targets
 			AWSProfile:          awsProfile,
 			GCPCredentialsFile:  gcpCredentials,
 			AzureSubscriptionID: azureSubscription,
+			DOToken:             doToken,
+			OCIConfigFile:       ociConfigFile,
 			Domain:              cloudAsset,
 		}
 		if cf, err := cloudMod.Run(ctx, cloudInput, scanType); err != nil {
@@ -1244,6 +1232,25 @@ Type exactly: I have written authorization for all listed targets
 		}
 	}
 
+	// ── Asset correlation (surface ↔ cloud) ──────────────────────────────
+	// Deterministic correlation: match surface-scanned domains to cloud
+	// resources by IP overlap, CNAME chains, and TLS SAN matching.
+	// Produces advisory findings — never merges or deduplicates assets.
+	if len(cloudFindings) > 0 {
+		var surfaceFindings []finding.Finding
+		for _, res := range allResults {
+			surfaceFindings = append(surfaceFindings, res.findings...)
+		}
+		assetCorrFindings := analyze.CorrelateAssets(surfaceFindings, cloudFindings)
+		if len(assetCorrFindings) > 0 {
+			fmt.Fprintf(os.Stderr, "beacon: asset correlation — %d link(s) found\n", len(assetCorrFindings))
+			allFindings = append(allFindings, assetCorrFindings...)
+			if len(allResults) > 0 && allResults[0].run != nil {
+				_ = st.SaveFindings(ctx, allResults[0].run.ID, assetCorrFindings)
+			}
+		}
+	}
+
 	// ── AI fingerprint enrichment (multi-asset) ─────────────────────────────
 	// Analyse collected fingerprint evidence across all assets to find
 	// version-specific vulnerabilities and configuration anomalies.
@@ -1281,16 +1288,12 @@ Type exactly: I have written authorization for all listed targets
 
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
-		scanTypeStr := "surface"
-		if deep {
-			scanTypeStr = "deep"
-		}
 		domainLabel := strings.Join(targets, ",")
 		firstRunID := ""
 		if len(allResults) > 0 && allResults[0].run != nil {
 			firstRunID = allResults[0].run.ID
 		}
-		raw, err := report.RenderRawJSON(domainLabel, scanTypeStr, firstRunID, time.Now(), allFindings)
+		raw, err := report.RenderRawJSON(domainLabel, string(scanType), firstRunID, time.Now(), allFindings)
 		if err != nil {
 			fatalf("render raw findings: %v", err)
 		}
@@ -1639,44 +1642,6 @@ func uniqueStrings(ss []string) []string {
 	return out
 }
 
-// ---------- remote scan ----------
-
-func cmdScanRemote(serverURL, apiKey, domain string, deep, permissionConfirmed, authorized bool, outPath string) {
-	client := api.NewClient(serverURL, apiKey)
-
-	fmt.Fprintf(os.Stderr, "beacon: submitting scan for %s to %s...\n", domain, serverURL)
-
-	result, err := client.SubmitScan(domain, deep, permissionConfirmed, authorized)
-	if err != nil {
-		fatalf("submit scan: %v", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "beacon: scan started — ID: %s\n", result.ScanRunID)
-	fmt.Fprintf(os.Stderr, "beacon: streaming progress...\n")
-
-	if err := client.StreamScan(result.ScanRunID, func(line string) {
-		fmt.Fprintf(os.Stderr, "  %s\n", line)
-	}); err != nil {
-		fatalf("stream scan: %v", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "beacon: scan complete — fetching report...\n")
-
-	html, err := client.GetReport(result.ScanRunID)
-	if err != nil {
-		fatalf("get report: %v", err)
-	}
-
-	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(html), 0o600); err != nil {
-			fatalf("write report file: %v", err)
-		}
-		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
-	} else {
-		fmt.Print(html)
-	}
-}
-
 // ---------- github scan ----------
 
 func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format string, severityFlag string) {
@@ -1714,13 +1679,50 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 		return
 	}
 
-	// Render findings as plain text summary.
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60)))
-	for _, f := range filtered {
-		sb.WriteString(fmt.Sprintf("[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset))
+	// Build output in the requested format.
+	var out string
+	switch strings.ToLower(format) {
+	case "json":
+		// Wrap raw findings in EnrichedFinding for the JSON renderer.
+		enriched := make([]enrichment.EnrichedFinding, len(filtered))
+		for i, f := range filtered {
+			enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		}
+		now := time.Now()
+		syntheticRun := store.ScanRun{
+			Domain:    orgOrRepo,
+			ScanType:  module.ScanSurface,
+			StartedAt: now,
+			CompletedAt: &now,
+			FindingCount: len(enriched),
+		}
+		var err error
+		out, err = report.RenderJSON(syntheticRun, enriched, "", nil)
+		if err != nil {
+			fatalf("render json: %v", err)
+		}
+	case "markdown", "md":
+		enriched := make([]enrichment.EnrichedFinding, len(filtered))
+		for i, f := range filtered {
+			enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		}
+		now := time.Now()
+		syntheticRun := store.ScanRun{
+			Domain:    orgOrRepo,
+			ScanType:  module.ScanSurface,
+			StartedAt: now,
+			CompletedAt: &now,
+			FindingCount: len(enriched),
+		}
+		out = report.RenderMarkdown(syntheticRun, enriched, "", nil)
+	default: // "text" or empty
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60)))
+		for _, f := range filtered {
+			sb.WriteString(fmt.Sprintf("[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset))
+		}
+		out = sb.String()
 	}
-	out := sb.String()
 
 	if outPath != "" {
 		if err := os.WriteFile(outPath, []byte(out), 0o600); err != nil {
@@ -2123,6 +2125,8 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		ClaudeModel:          cfg.ClaudeModel,
 		Auth:                 cfg.Auth,
 		GitHubToken:          cfg.GitHubToken,
+		OktaDomain:           cfg.OktaDomain,
+		OktaToken:            cfg.OktaToken,
 	})
 	if err != nil {
 		cancel()
@@ -2213,7 +2217,12 @@ func browseInteractive(cfg *config.Config) browseResult {
 	browseRender(bs)
 
 	// Read stdin in a goroutine so the main loop can also respond to ticks.
+	// The done channel signals the goroutine to exit when browseInteractive
+	// returns. Because os.Stdin.Read blocks, the goroutine may linger until the
+	// next keypress or process exit; the done check prevents it from sending on
+	// a closed inputCh after the function returns.
 	inputCh := make(chan []byte, 4)
+	browseDone := make(chan struct{})
 	go func() {
 		ibuf := make([]byte, 16)
 		for {
@@ -2222,11 +2231,21 @@ func browseInteractive(cfg *config.Config) browseResult {
 				close(inputCh)
 				return
 			}
+			select {
+			case <-browseDone:
+				return
+			default:
+			}
 			cp := make([]byte, n)
 			copy(cp, ibuf[:n])
-			inputCh <- cp
+			select {
+			case inputCh <- cp:
+			case <-browseDone:
+				return
+			}
 		}
 	}()
+	defer close(browseDone)
 
 	// Ticker drives spinner animation and periodic DB refresh for running scans.
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -3111,6 +3130,8 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 	// Build filter label for header.
 	var filterLabel string
 	switch bs.findMinSev {
+	case finding.SeverityLow:
+		filterLabel = "  \x1b[36mMin: LOW\x1b[0m"
 	case finding.SeverityMedium:
 		filterLabel = "  \x1b[33mMin: MED\x1b[0m"
 	case finding.SeverityHigh:
@@ -4460,6 +4481,8 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 		awsProfile         string
 		gcpCredentials     string
 		azureSubscription  string
+		doToken            string
+		ociConfigFile      string
 		domain             string
 		format             = "text"
 		outPath            string
@@ -4482,6 +4505,16 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 			if i+1 < len(args) {
 				i++
 				azureSubscription = args[i]
+			}
+		case "--do-token":
+			if i+1 < len(args) {
+				i++
+				doToken = args[i]
+			}
+		case "--oci-config":
+			if i+1 < len(args) {
+				i++
+				ociConfigFile = args[i]
 			}
 		case "--domain":
 			if i+1 < len(args) {
@@ -4511,6 +4544,8 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 		AWSProfile:          awsProfile,
 		GCPCredentialsFile:  gcpCredentials,
 		AzureSubscriptionID: azureSubscription,
+		DOToken:             doToken,
+		OCIConfigFile:       ociConfigFile,
 		Domain:              domain,
 	}
 
@@ -4736,6 +4771,8 @@ func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.Sc
 		return err
 	}
 	defer resp.Body.Close()
+	// Drain the response body so the underlying TCP connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
 	}
@@ -5105,10 +5142,11 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 		isDetach := buf[0] == 'q' || (r.headless && isEsc && r.mode == "progress")
 		isBack := buf[0] == 'b' || (r.headless && isEsc)
 		if isDetach || (isBack && r.mode == "progress") {
-			r.mu.Unlock()
+			// Close channels under the lock so that a concurrent
+			// attachJob reset cannot swap them between the decision
+			// to close and the actual close call.
 			r.stopOnce.Do(func() { close(r.stop) })
 			r.detachOnce.Do(func() { close(r.detached) })
-			r.mu.Lock()
 			return
 		}
 		if isBack {
@@ -5153,11 +5191,10 @@ func (r *progressRenderer) processKey(buf []byte, n int) {
 			r.discoveredCursor = 0
 			r.mode = "discovered"
 		case buf[0] == 'b' || isEsc:
-			// Signal detach back to the browse TUI.
-			r.mu.Unlock()
+			// Signal detach back to the browse TUI. Close under the lock
+			// to avoid a race with attachJob channel reset.
 			r.stopOnce.Do(func() { close(r.stop) })
 			r.detachOnce.Do(func() { close(r.detached) })
-			r.mu.Lock() // re-acquire so caller's deferred unlock is safe
 			return
 		case buf[0] == 's':
 			// 's' stops the scan (with confirmation). 'q'/'b' just detach.
@@ -5737,9 +5774,9 @@ func (r *progressRenderer) startInputLoop() {
 			}
 			// 'q' detaches. 'b' navigates back one level; only detaches from "progress".
 			if buf[0] == 'q' || (buf[0] == 'b' && r.mode == "progress") || (isEsc && r.mode == "progress") {
-				r.mu.Unlock()
 				r.stopOnce.Do(func() { close(r.stop) })
 				r.detachOnce.Do(func() { close(r.detached) })
+				r.mu.Unlock()
 				return
 			}
 			if buf[0] == 'b' || isEsc {
@@ -8754,4 +8791,12 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// strOr returns the first non-empty string (CLI flag overrides config file).
+func strOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

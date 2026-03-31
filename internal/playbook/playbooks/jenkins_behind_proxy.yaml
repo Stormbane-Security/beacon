@@ -18,7 +18,6 @@ match:
   # Using 'all' with the most reliable Jenkins header; the jenkins playbook
   # (any-based) will also fire if x-jenkins is absent but body/title match.
   all:
-    - header_present: "x-forwarded-for"
     - header_present: "x-jenkins"
 surface:
   nuclei_tags:

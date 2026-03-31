@@ -130,10 +130,10 @@ func parseFillGapsResponse(text string) (*FillGapsResult, error) {
 	}
 
 	for _, proposed := range resp.ProposedRules {
-		if !validSignalTypes[proposed.SignalType] {
+		if !validSignalTypes[strings.ToLower(proposed.SignalType)] {
 			continue
 		}
-		if !validFields[proposed.Field] {
+		if !validFields[strings.ToLower(proposed.Field)] {
 			continue
 		}
 		if proposed.SignalValue == "" || proposed.Value == "" {

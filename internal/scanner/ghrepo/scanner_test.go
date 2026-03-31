@@ -194,6 +194,120 @@ func TestSecretPattern_NoMatch_NoFinding(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
+// Dockerfile supply chain checks
+// -------------------------------------------------------------------------
+
+func TestDockerfile_UnpinnedBaseImage_VersionTag(t *testing.T) {
+	content := "FROM node:18\nRUN npm install\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckCICDMutableImageTag)
+}
+
+func TestDockerfile_UnpinnedBaseImage_LatestExplicit(t *testing.T) {
+	content := "FROM ubuntu:latest\nRUN apt-get update\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckCICDMutableImageTag)
+	// :latest should be high severity
+	for _, f := range findings {
+		if f.CheckID == finding.CheckCICDMutableImageTag && f.Severity != finding.SeverityHigh {
+			t.Errorf("expected SeverityHigh for :latest tag, got %s", f.Severity)
+		}
+	}
+}
+
+func TestDockerfile_UnpinnedBaseImage_BareImage(t *testing.T) {
+	content := "FROM ubuntu\nRUN echo hello\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckCICDMutableImageTag)
+	// bare image (implicit :latest) should be high severity
+	for _, f := range findings {
+		if f.CheckID == finding.CheckCICDMutableImageTag && f.Severity != finding.SeverityHigh {
+			t.Errorf("expected SeverityHigh for bare image (implicit latest), got %s", f.Severity)
+		}
+	}
+}
+
+func TestDockerfile_PinnedBaseImage_NoFinding(t *testing.T) {
+	content := "FROM node@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890\nRUN npm install\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckCICDMutableImageTag)
+}
+
+func TestDockerfile_ScratchBaseImage_NoFinding(t *testing.T) {
+	content := "FROM scratch\nCOPY myapp /app\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckCICDMutableImageTag)
+}
+
+func TestDockerfile_CurlPipeSh(t *testing.T) {
+	content := "FROM ubuntu:22.04\nRUN curl -fsSL https://example.com/install.sh | sh\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckDockerfileCurlPipe)
+}
+
+func TestDockerfile_WgetPipeBash(t *testing.T) {
+	content := "FROM ubuntu:22.04\nRUN wget -qO- https://example.com/setup | bash\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckDockerfileCurlPipe)
+}
+
+func TestDockerfile_NoCurlPipe_NoFinding(t *testing.T) {
+	content := "FROM ubuntu:22.04\nRUN curl -o /tmp/file.tar.gz https://example.com/file.tar.gz\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckDockerfileCurlPipe)
+}
+
+func TestDockerfile_RunsAsRoot(t *testing.T) {
+	content := "FROM node:18\nRUN npm install\nCMD [\"node\", \"app.js\"]\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckDockerfileRootUser)
+}
+
+func TestDockerfile_NonRootUser_NoFinding(t *testing.T) {
+	content := "FROM node:18\nRUN npm install\nUSER appuser\nCMD [\"node\", \"app.js\"]\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertNotHasCheckID(t, findings, finding.CheckDockerfileRootUser)
+}
+
+func TestDockerfile_MultiStage_OnlyFinalStageMatters(t *testing.T) {
+	content := "FROM golang:1.22 AS builder\nRUN go build\n\nFROM alpine:3.19\nCOPY --from=builder /app /app\nUSER nobody\nCMD [\"/app\"]\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	// Final stage has USER nobody — no root finding
+	assertNotHasCheckID(t, findings, finding.CheckDockerfileRootUser)
+	// Both stages have unpinned images
+	count := 0
+	for _, f := range findings {
+		if f.CheckID == finding.CheckCICDMutableImageTag {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected 2 unpinned image findings for multi-stage build, got %d", count)
+	}
+}
+
+func TestDockerfile_MultiStage_FinalStageNoUser(t *testing.T) {
+	content := "FROM golang:1.22 AS builder\nUSER builduser\nRUN go build\n\nFROM alpine:3.19\nCOPY --from=builder /app /app\nCMD [\"/app\"]\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	// USER in first stage should not count for the final stage
+	assertHasCheckID(t, findings, finding.CheckDockerfileRootUser)
+}
+
+func TestDockerfile_ExplicitRootUser_FindingEmitted(t *testing.T) {
+	content := "FROM node:18\nUSER root\nRUN npm install\nCMD [\"node\", \"app.js\"]\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	assertHasCheckID(t, findings, finding.CheckDockerfileRootUser)
+}
+
+func TestDockerfile_AllClean_NoFindings(t *testing.T) {
+	content := "FROM node@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890\nRUN npm install\nUSER appuser\nCMD [\"node\", \"app.js\"]\n"
+	findings := analyzeDockerfile(content, "org/repo")
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for clean Dockerfile, got %d", len(findings))
+	}
+}
+
+// -------------------------------------------------------------------------
 // helpers
 // -------------------------------------------------------------------------
 

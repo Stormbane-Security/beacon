@@ -44,6 +44,21 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 	if ac.Token != "" && strings.ContainsAny(ac.Token, "\r\n") {
 		return nil, nil, fmt.Errorf("auth: token contains invalid characters")
 	}
+	// Reject cookie values containing CR/LF to prevent header injection.
+	if ac.Cookie != "" && strings.ContainsAny(ac.Cookie, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: cookie contains invalid characters")
+	}
+	// Reject basic auth credentials containing CR/LF to prevent header injection.
+	if ac.Username != "" && strings.ContainsAny(ac.Username, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: username contains invalid characters")
+	}
+	if ac.Password != "" && strings.ContainsAny(ac.Password, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: password contains invalid characters")
+	}
+	// Reject custom header names containing CR/LF to prevent header injection.
+	if ac.Header != "" && strings.ContainsAny(ac.Header, "\r\n") {
+		return nil, nil, fmt.Errorf("auth: header name contains invalid characters")
+	}
 
 	switch ac.Method {
 	case "bearer":
@@ -201,7 +216,10 @@ func fetchOIDCToken(ctx context.Context, clientID, clientSecret, tokenURL string
 		return "", err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr != nil {
+		return "", fmt.Errorf("reading token response: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
 	}

@@ -183,7 +183,7 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 	}
 
 	return &finding.Finding{
-		CheckID:     "websocket.cswsh",
+		CheckID:     finding.CheckWebSocketCSWSH,
 		Module:      "deep",
 		Scanner:     scannerName,
 		Severity:    severity,

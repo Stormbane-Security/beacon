@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -2371,5 +2372,190 @@ func TestListAllScanRuns_NegativeLimit(t *testing.T) {
 	}
 	if len(runs) != 50 {
 		t.Errorf("len = %d; want 50 (default for negative limit)", len(runs))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Context propagation regression
+// ---------------------------------------------------------------------------
+
+func TestContextDeadline_PropagatesError(t *testing.T) {
+	s := openTestStore(t)
+
+	// Create an already-expired context (1ms timeout in the past).
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	time.Sleep(2 * time.Millisecond) // ensure deadline has passed
+	defer cancel()
+
+	// UpsertTarget should fail because the context has already expired.
+	_, err := s.UpsertTarget(ctx, "should-fail.com")
+	if err == nil {
+		t.Fatal("expected context deadline exceeded error, got nil")
+	}
+	if !strings.Contains(err.Error(), "context deadline exceeded") &&
+		!strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("expected context-related error, got: %v", err)
+	}
+}
+
+func TestContextCancel_PropagatesError(t *testing.T) {
+	s := openTestStore(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	_, err := s.UpsertTarget(ctx, "should-fail.com")
+	if err == nil {
+		t.Fatal("expected context canceled error, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Store round-trip integration test
+// ---------------------------------------------------------------------------
+
+func TestStoreRoundTrip_FullLifecycle(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// 1. CreateTarget
+	tgt, err := s.UpsertTarget(ctx, "roundtrip.example.com")
+	if err != nil {
+		t.Fatalf("UpsertTarget: %v", err)
+	}
+
+	// 2. CreateScanRun
+	run := &store.ScanRun{
+		TargetID:  tgt.ID,
+		Domain:    "roundtrip.example.com",
+		ScanType:  module.ScanSurface,
+		Modules:   []string{"surface"},
+		Status:    store.StatusRunning,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := s.CreateScanRun(ctx, run); err != nil {
+		t.Fatalf("CreateScanRun: %v", err)
+	}
+	if run.ID == "" {
+		t.Fatal("expected non-empty scan run ID")
+	}
+
+	// 3. SaveFindings with dedup
+	f1 := finding.Finding{
+		CheckID: "cors.wildcard", Module: "surface", Scanner: "cors",
+		Severity: finding.SeverityHigh, Title: "CORS wildcard origin",
+		Description: "Origin * allowed", Asset: "api.roundtrip.example.com",
+		DiscoveredAt: time.Now().UTC(),
+	}
+	f2 := finding.Finding{
+		CheckID: "tls.expired", Module: "surface", Scanner: "tls",
+		Severity: finding.SeverityCritical, Title: "Expired TLS cert",
+		Description: "Certificate expired", Asset: "api.roundtrip.example.com",
+		DiscoveredAt: time.Now().UTC(),
+	}
+	f1Dup := f1 // exact duplicate — should be deduped
+
+	if err := s.SaveFindings(ctx, run.ID, []finding.Finding{f1, f2}); err != nil {
+		t.Fatalf("SaveFindings (first batch): %v", err)
+	}
+	if err := s.SaveFindings(ctx, run.ID, []finding.Finding{f1Dup}); err != nil {
+		t.Fatalf("SaveFindings (duplicate batch): %v", err)
+	}
+
+	findings, err := s.GetFindings(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetFindings: %v", err)
+	}
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings after dedup, got %d", len(findings))
+	}
+
+	// 4. Save enriched findings
+	ef := []enrichment.EnrichedFinding{
+		{
+			Finding:     f1,
+			Explanation: "CORS allows any origin",
+			Impact:      "credential theft",
+			Remediation: "Set specific allowed origins",
+		},
+	}
+	if err := s.SaveEnrichedFindings(ctx, run.ID, ef); err != nil {
+		t.Fatalf("SaveEnrichedFindings: %v", err)
+	}
+
+	// 5. Save scanner metrics
+	metric := &store.ScannerMetric{
+		ScanRunID:   run.ID,
+		Asset:       "api.roundtrip.example.com",
+		ScannerName: "cors",
+		DurationMs:  150,
+		FindingsHigh: 1,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := s.SaveScannerMetric(ctx, metric); err != nil {
+		t.Fatalf("SaveScannerMetric: %v", err)
+	}
+
+	// 6. Complete the scan run
+	now := time.Now().UTC()
+	run.Status = store.StatusCompleted
+	run.CompletedAt = &now
+	run.FindingCount = 2
+	if err := s.UpdateScanRun(ctx, run); err != nil {
+		t.Fatalf("UpdateScanRun: %v", err)
+	}
+
+	// 7. GetScanRun — verify the update persisted
+	got, err := s.GetScanRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetScanRun: %v", err)
+	}
+	if got.Status != store.StatusCompleted {
+		t.Errorf("status = %q, want %q", got.Status, store.StatusCompleted)
+	}
+	if got.FindingCount != 2 {
+		t.Errorf("finding_count = %d, want 2", got.FindingCount)
+	}
+
+	// 8. ListRecentScanRuns — should include the completed run
+	recent, err := s.ListRecentScanRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRecentScanRuns: %v", err)
+	}
+	found := false
+	for _, r := range recent {
+		if r.ID == run.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("completed run not found in ListRecentScanRuns")
+	}
+
+	// 9. DeleteScanRun — should cascade to all child tables
+	if err := s.DeleteScanRun(ctx, run.ID); err != nil {
+		t.Fatalf("DeleteScanRun: %v", err)
+	}
+
+	// 10. Verify cascade cleanup
+	_, err = s.GetScanRun(ctx, run.ID)
+	if err == nil {
+		t.Error("expected error after DeleteScanRun, got nil (run still exists)")
+	}
+
+	deletedFindings, _ := s.GetFindings(ctx, run.ID)
+	if len(deletedFindings) != 0 {
+		t.Errorf("findings not cascaded: got %d remaining", len(deletedFindings))
+	}
+
+	deletedEnriched, _ := s.GetEnrichedFindings(ctx, run.ID)
+	if len(deletedEnriched) != 0 {
+		t.Errorf("enriched findings not cascaded: got %d remaining", len(deletedEnriched))
+	}
+
+	deletedMetrics, _ := s.ListScannerMetrics(ctx, run.ID)
+	if len(deletedMetrics) != 0 {
+		t.Errorf("scanner metrics not cascaded: got %d remaining", len(deletedMetrics))
 	}
 }

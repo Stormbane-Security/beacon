@@ -75,7 +75,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	url := scheme + "://" + asset
 	return []finding.Finding{{
-		CheckID:     "http.clickjacking",
+		CheckID:     finding.CheckHTTPClickjacking,
 		Module:      "surface",
 		Scanner:     scannerName,
 		Severity:    finding.SeverityMedium,

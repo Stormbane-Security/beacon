@@ -731,7 +731,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 			if strings.HasPrefix(rcptResp, "250") {
 				findings = append(findings, finding.Finding{
 					CheckID:      finding.CheckEmailSMTPOpenRelay,
-					Module:       "surface",
+					Module:       "deep",
 					Scanner:      scannerName,
 					Severity:     finding.SeverityCritical,
 					Title:        "SMTP open relay — server accepts mail for external domains",

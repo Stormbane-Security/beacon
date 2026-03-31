@@ -16,8 +16,6 @@ match:
     - title_contains: "Firepower Management Center"
     - title_contains: "Cisco Firepower"
     - body_contains: "Firepower Management Center"
-    - body_contains: "FMC"
-    - path_responds: "/login"
 surface:
   scanners:
     - exposedfiles

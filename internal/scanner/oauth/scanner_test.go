@@ -869,3 +869,61 @@ func TestOAuth_UnreachableServer_NoPanic(t *testing.T) {
 		t.Errorf("expected 0 findings for unreachable server, got %d", len(findings))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Edge: token endpoint returns truncated JSON — scanner must not panic
+// ---------------------------------------------------------------------------
+
+func TestOAuthTokenEndpointTruncatedJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			// Truncated JSON: missing closing brace and value.
+			w.Write([]byte(`{"access_token":`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	// Must not panic on invalid/truncated JSON body.
+	f := checkTokenEndpointAuth(t.Context(), client, asset(srv), srv.URL, "")
+	// The function may or may not emit a finding (the body contains "access_token"),
+	// but it absolutely must not panic during unmarshalling.
+	_ = f
+}
+
+// ---------------------------------------------------------------------------
+// Edge: ProofCommand sanitization of single quotes in URLs
+// ---------------------------------------------------------------------------
+
+func TestOAuthProofCommandSanitization(t *testing.T) {
+	// sanitizeShellArg should wrap in single quotes and escape embedded quotes.
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"single_quote", "https://example.com/path?name=O'Brien"},
+		{"multiple_quotes", "https://example.com/'test'/'value'"},
+		{"quote_at_end", "https://example.com/test'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeShellArg(tt.input)
+			// Result must start and end with single quotes.
+			if !strings.HasPrefix(result, "'") || !strings.HasSuffix(result, "'") {
+				t.Errorf("sanitizeShellArg(%q) = %q; expected single-quote wrapping", tt.input, result)
+			}
+			// The result must not contain an unescaped single quote inside the outer pair.
+			// The only valid single quotes inside are in the escape sequence '\'' .
+			inner := result[1 : len(result)-1]
+			// After removing all '\'' escape sequences, no bare single quotes should remain.
+			cleaned := strings.ReplaceAll(inner, "'\\''", "")
+			if strings.Contains(cleaned, "'") {
+				t.Errorf("sanitizeShellArg(%q) = %q; contains unescaped single quote in interior", tt.input, result)
+			}
+		})
+	}
+}

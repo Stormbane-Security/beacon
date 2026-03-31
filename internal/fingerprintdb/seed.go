@@ -77,7 +77,7 @@ var builtinRules = []store.FingerprintRule{
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/kernels", Field: "backend_services", Value: "jupyter", Source: "builtin", Status: "active", Confidence: 1.0},
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/v1/dags", Field: "backend_services", Value: "airflow", Source: "builtin", Status: "active", Confidence: 1.0},
 	{SignalType: "path", SignalKey: "", SignalValue: "/v1/graphql", Field: "backend_services", Value: "hasura", Source: "builtin", Status: "active", Confidence: 0.9},
-	{SignalType: "path", SignalKey: "", SignalValue: "/api/health", Field: "backend_services", Value: "grafana", Source: "builtin", Status: "active", Confidence: 0.8},
+	{SignalType: "path", SignalKey: "", SignalValue: "/api/health", Field: "backend_services", Value: "grafana", Source: "builtin", Status: "active", Confidence: 0.5},
 
 	// ── CNAME-based cloud detection ────────────────────────────────────────
 	{SignalType: "cname", SignalKey: "", SignalValue: ".cloudfront.net", Field: "cloud_provider", Value: "aws", Source: "builtin", Status: "active", Confidence: 1.0},
@@ -123,8 +123,8 @@ var builtinRules = []store.FingerprintRule{
 	{SignalType: "header", SignalKey: "server", SignalValue: "hypercorn", Field: "framework", Value: "fastapi", Source: "builtin", Status: "active", Confidence: 0.85},
 	{SignalType: "header", SignalKey: "server", SignalValue: "daphne", Field: "framework", Value: "django", Source: "builtin", Status: "active", Confidence: 0.9},
 	{SignalType: "header", SignalKey: "server", SignalValue: "gunicorn", Field: "framework", Value: "python", Source: "builtin", Status: "active", Confidence: 0.85},
-	{SignalType: "path", SignalKey: "", SignalValue: "/docs", Field: "framework", Value: "fastapi", Source: "builtin", Status: "active", Confidence: 0.7},
-	{SignalType: "path", SignalKey: "", SignalValue: "/redoc", Field: "framework", Value: "fastapi", Source: "builtin", Status: "active", Confidence: 0.7},
+	{SignalType: "path", SignalKey: "", SignalValue: "/docs", Field: "framework", Value: "fastapi", Source: "builtin", Status: "active", Confidence: 0.4},
+	{SignalType: "path", SignalKey: "", SignalValue: "/redoc", Field: "framework", Value: "fastapi", Source: "builtin", Status: "active", Confidence: 0.5},
 
 	// ── Framework detection — Go ──────────────────────────────────────────────
 	{SignalType: "header", SignalKey: "x-powered-by", SignalValue: "gin", Field: "framework", Value: "gin", Source: "builtin", Status: "active", Confidence: 1.0},
@@ -159,13 +159,18 @@ var builtinRules = []store.FingerprintRule{
 	// ── Red Hat — Ansible/AWX ─────────────────────────────────────────────────
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/v2/ping", Field: "backend_services", Value: "ansible-awx", Source: "builtin", Status: "active", Confidence: 0.9},
 	{SignalType: "body", SignalKey: "", SignalValue: "ansible tower", Field: "backend_services", Value: "ansible-awx", Source: "builtin", Status: "active", Confidence: 1.0},
-	{SignalType: "body", SignalKey: "", SignalValue: "awx", Field: "backend_services", Value: "ansible-awx", Source: "builtin", Status: "active", Confidence: 0.8},
+	{SignalType: "body", SignalKey: "", SignalValue: "ansible awx", Field: "backend_services", Value: "ansible-awx", Source: "builtin", Status: "active", Confidence: 0.9},
+	{SignalType: "body", SignalKey: "", SignalValue: "awx-manage", Field: "backend_services", Value: "ansible-awx", Source: "builtin", Status: "active", Confidence: 0.95},
 
 	// ── Monitoring — Jaeger ───────────────────────────────────────────────────
-	{SignalType: "path", SignalKey: "", SignalValue: "/api/traces", Field: "backend_services", Value: "jaeger", Source: "builtin", Status: "active", Confidence: 0.9},
+	// /api/traces is shared with Tempo; /api/services is Jaeger-specific.
+	// Path-only /api/traces confidence is lowered; body/header discriminators
+	// resolve ambiguity.
+	{SignalType: "path", SignalKey: "", SignalValue: "/api/traces", Field: "backend_services", Value: "jaeger", Source: "builtin", Status: "active", Confidence: 0.5},
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/services", Field: "backend_services", Value: "jaeger", Source: "builtin", Status: "active", Confidence: 0.85},
 	{SignalType: "body", SignalKey: "", SignalValue: "jaeger ui", Field: "backend_services", Value: "jaeger", Source: "builtin", Status: "active", Confidence: 1.0},
 	{SignalType: "body", SignalKey: "", SignalValue: "jaeger-ui", Field: "backend_services", Value: "jaeger", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "\"traceID\"", Field: "backend_services", Value: "jaeger", Source: "builtin", Status: "active", Confidence: 0.85},
 
 	// ── Monitoring — Zipkin ───────────────────────────────────────────────────
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/v2/traces", Field: "backend_services", Value: "zipkin", Source: "builtin", Status: "active", Confidence: 0.9},
@@ -176,8 +181,11 @@ var builtinRules = []store.FingerprintRule{
 	{SignalType: "path", SignalKey: "", SignalValue: "/loki/api/v1/query", Field: "backend_services", Value: "loki", Source: "builtin", Status: "active", Confidence: 1.0},
 
 	// ── Monitoring — Grafana Tempo ────────────────────────────────────────────
-	{SignalType: "path", SignalKey: "", SignalValue: "/api/traces", Field: "backend_services", Value: "tempo", Source: "builtin", Status: "active", Confidence: 0.8},
+	// /tempo/api/traces is Tempo-specific. /api/traces overlaps with Jaeger;
+	// use the x-tempo-snapshot header or "rootServiceName" body key to disambiguate.
 	{SignalType: "path", SignalKey: "", SignalValue: "/tempo/api/traces", Field: "backend_services", Value: "tempo", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "header", SignalKey: "x-tempo-snapshot", SignalValue: "", Field: "backend_services", Value: "tempo", Source: "builtin", Status: "active", Confidence: 1.0},
+	{SignalType: "body", SignalKey: "", SignalValue: "rootServiceName", Field: "backend_services", Value: "tempo", Source: "builtin", Status: "active", Confidence: 0.9},
 
 	// ── Monitoring — VictoriaMetrics ──────────────────────────────────────────
 	{SignalType: "path", SignalKey: "", SignalValue: "/vmui", Field: "backend_services", Value: "victoriametrics", Source: "builtin", Status: "active", Confidence: 1.0},
@@ -190,7 +198,8 @@ var builtinRules = []store.FingerprintRule{
 
 	// ── Container registries — Harbor ─────────────────────────────────────────
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/v2.0/systeminfo", Field: "backend_services", Value: "harbor", Source: "builtin", Status: "active", Confidence: 1.0},
-	{SignalType: "body", SignalKey: "", SignalValue: "harbor", Field: "backend_services", Value: "harbor", Source: "builtin", Status: "active", Confidence: 0.75},
+	{SignalType: "body", SignalKey: "", SignalValue: "harbor_version", Field: "backend_services", Value: "harbor", Source: "builtin", Status: "active", Confidence: 0.95},
+	{SignalType: "body", SignalKey: "", SignalValue: "harbor registry", Field: "backend_services", Value: "harbor", Source: "builtin", Status: "active", Confidence: 0.9},
 	{SignalType: "header", SignalKey: "x-harbor-csrf-token", SignalValue: "", Field: "backend_services", Value: "harbor", Source: "builtin", Status: "active", Confidence: 1.0},
 
 	// ── Container registries — Quay ───────────────────────────────────────────
@@ -208,7 +217,8 @@ var builtinRules = []store.FingerprintRule{
 
 	// ── CI/CD — Drone CI ──────────────────────────────────────────────────────
 	{SignalType: "path", SignalKey: "", SignalValue: "/api/user", Field: "backend_services", Value: "drone", Source: "builtin", Status: "active", Confidence: 0.6},
-	{SignalType: "body", SignalKey: "", SignalValue: "drone", Field: "backend_services", Value: "drone", Source: "builtin", Status: "active", Confidence: 0.7},
+	{SignalType: "body", SignalKey: "", SignalValue: "drone ci", Field: "backend_services", Value: "drone", Source: "builtin", Status: "active", Confidence: 0.9},
+	{SignalType: "body", SignalKey: "", SignalValue: "drone-server", Field: "backend_services", Value: "drone", Source: "builtin", Status: "active", Confidence: 0.95},
 
 	// ── Databases — CouchDB ───────────────────────────────────────────────────
 	{SignalType: "header", SignalKey: "server", SignalValue: "couchdb", Field: "backend_services", Value: "couchdb", Source: "builtin", Status: "active", Confidence: 1.0},
@@ -268,7 +278,7 @@ var builtinRules = []store.FingerprintRule{
 	{SignalType: "header", SignalKey: "x-powered-by", SignalValue: "strapi", Field: "backend_services", Value: "strapi", Source: "builtin", Status: "active", Confidence: 1.0},
 
 	// ── Mattermost ────────────────────────────────────────────────────────────
-	{SignalType: "header", SignalKey: "x-version-id", SignalValue: "", Field: "backend_services", Value: "mattermost", Source: "builtin", Status: "active", Confidence: 0.7},
+	{SignalType: "header", SignalKey: "x-version-id", SignalValue: "", Field: "backend_services", Value: "mattermost", Source: "builtin", Status: "active", Confidence: 0.4},
 	{SignalType: "body", SignalKey: "", SignalValue: "mattermost", Field: "backend_services", Value: "mattermost", Source: "builtin", Status: "active", Confidence: 0.85},
 
 	// ── SonarQube ─────────────────────────────────────────────────────────────

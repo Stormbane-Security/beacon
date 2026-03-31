@@ -43,10 +43,13 @@ CREATE TABLE IF NOT EXISTS scan_runs (
     discovery_duration_ms INTEGER   NOT NULL DEFAULT 0,
     scan_duration_ms      INTEGER   NOT NULL DEFAULT 0,
     asset_count           INTEGER   NOT NULL DEFAULT 0,
-    discovery_sources     TEXT      NOT NULL DEFAULT '[]'
+    discovery_sources     TEXT      NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_runs_domain ON scan_runs(domain);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_target ON scan_runs(target_id);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_started_at ON scan_runs(started_at);
 
 CREATE TABLE IF NOT EXISTS findings (
     id            TEXT      PRIMARY KEY,
@@ -64,6 +67,8 @@ CREATE TABLE IF NOT EXISTS findings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_findings_scan_run ON findings(scan_run_id);
+CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS idx_findings_check_id ON findings(check_id);
 
 CREATE TABLE IF NOT EXISTS enriched_findings (
     id            TEXT      PRIMARY KEY,
@@ -116,6 +121,7 @@ CREATE TABLE IF NOT EXISTS unmatched_assets (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unmatched_fingerprint ON unmatched_assets(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_unmatched_assets_scan_run ON unmatched_assets(scan_run_id);
 
 -- Playbook suggestions: output of batch analysis job
 CREATE TABLE IF NOT EXISTS playbook_suggestions (
@@ -201,7 +207,7 @@ CREATE TABLE IF NOT EXISTS discovery_audit (
     created_at  DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_discovery_audit_scan ON discovery_audit(scan_run_id);
-CREATE INDEX IF NOT EXISTS idx_discovery_audit_domain ON discovery_audit(scan_run_id, source);
+CREATE INDEX IF NOT EXISTS idx_discovery_audit_run_source ON discovery_audit(scan_run_id, source);
 
 -- Sanitized cross-domain scanner metrics: no domain/hostname/IP stored.
 -- Used to learn scanner effectiveness patterns across all customers without PII.
@@ -270,6 +276,10 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
+
 	db.SetMaxOpenConns(1) // SQLite doesn't handle concurrent writers
 
 	if _, err := db.Exec(schema); err != nil {
@@ -320,11 +330,11 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // --- Targets ---
 
-func (s *Store) UpsertTarget(_ context.Context, domain string) (*store.Target, error) {
+func (s *Store) UpsertTarget(ctx context.Context, domain string) (*store.Target, error) {
 	id := uuid.NewString()
 	now := time.Now().UTC()
 
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO targets (id, domain, created_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(domain) DO NOTHING`,
@@ -333,11 +343,11 @@ func (s *Store) UpsertTarget(_ context.Context, domain string) (*store.Target, e
 		return nil, err
 	}
 
-	return s.GetTarget(context.Background(), domain)
+	return s.GetTarget(ctx, domain)
 }
 
-func (s *Store) GetTarget(_ context.Context, domain string) (*store.Target, error) {
-	row := s.db.QueryRow(`SELECT id, domain, created_at FROM targets WHERE domain = ?`, domain)
+func (s *Store) GetTarget(ctx context.Context, domain string) (*store.Target, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, domain, created_at FROM targets WHERE domain = ?`, domain)
 	t := &store.Target{}
 	if err := row.Scan(&t.ID, &t.Domain, &t.CreatedAt); err != nil {
 		if err == sql.ErrNoRows {
@@ -348,8 +358,8 @@ func (s *Store) GetTarget(_ context.Context, domain string) (*store.Target, erro
 	return t, nil
 }
 
-func (s *Store) ListTargets(_ context.Context) ([]store.Target, error) {
-	rows, err := s.db.Query(`SELECT id, domain, created_at FROM targets ORDER BY created_at DESC`)
+func (s *Store) ListTargets(ctx context.Context) ([]store.Target, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, domain, created_at FROM targets ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +378,7 @@ func (s *Store) ListTargets(_ context.Context) ([]store.Target, error) {
 
 // --- Scan runs ---
 
-func (s *Store) CreateScanRun(_ context.Context, run *store.ScanRun) error {
+func (s *Store) CreateScanRun(ctx context.Context, run *store.ScanRun) error {
 	if run.ID == "" {
 		run.ID = uuid.NewString()
 	}
@@ -376,7 +386,7 @@ func (s *Store) CreateScanRun(_ context.Context, run *store.ScanRun) error {
 	mods, _ := json.Marshal(run.Modules)
 	discSources, _ := json.Marshal(run.DiscoverySources)
 
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO scan_runs (id, target_id, domain, scan_type, modules, status, started_at, finding_count, error,
 		                       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -386,11 +396,11 @@ func (s *Store) CreateScanRun(_ context.Context, run *store.ScanRun) error {
 	return err
 }
 
-func (s *Store) UpdateScanRun(_ context.Context, run *store.ScanRun) error {
+func (s *Store) UpdateScanRun(ctx context.Context, run *store.ScanRun) error {
 	mods, _ := json.Marshal(run.Modules)
 	discSources, _ := json.Marshal(run.DiscoverySources)
 
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE scan_runs
 		SET status=?, completed_at=?, finding_count=?, modules=?, error=?,
 		    discovery_duration_ms=?, scan_duration_ms=?, asset_count=?, discovery_sources=?
@@ -401,8 +411,8 @@ func (s *Store) UpdateScanRun(_ context.Context, run *store.ScanRun) error {
 	return err
 }
 
-func (s *Store) GetScanRun(_ context.Context, id string) (*store.ScanRun, error) {
-	row := s.db.QueryRow(`
+func (s *Store) GetScanRun(ctx context.Context, id string) (*store.ScanRun, error) {
+	row := s.db.QueryRowContext(ctx, `
 		SELECT id, target_id, domain, scan_type, modules, status,
 		       started_at, completed_at, finding_count, error,
 		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
@@ -411,8 +421,8 @@ func (s *Store) GetScanRun(_ context.Context, id string) (*store.ScanRun, error)
 	return scanRun(row)
 }
 
-func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListScanRuns(ctx context.Context, domain string) ([]store.ScanRun, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, target_id, domain, scan_type, modules, status,
 		       started_at, completed_at, finding_count, error,
 		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
@@ -433,11 +443,11 @@ func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun,
 	return out, rows.Err()
 }
 
-func (s *Store) ListAllScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
+func (s *Store) ListAllScanRuns(ctx context.Context, limit int) ([]store.ScanRun, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, target_id, domain, scan_type, modules, status,
 		       started_at, completed_at, finding_count, error,
 		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
@@ -459,8 +469,8 @@ func (s *Store) ListAllScanRuns(_ context.Context, limit int) ([]store.ScanRun, 
 }
 
 // DeleteScanRun removes a scan run and all associated data in a single transaction.
-func (s *Store) DeleteScanRun(_ context.Context, id string) error {
-	tx, err := s.db.Begin()
+func (s *Store) DeleteScanRun(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -478,11 +488,11 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 		"asset_graphs",
 	}
 	for _, tbl := range tables {
-		if _, err := tx.Exec(`DELETE FROM `+tbl+` WHERE scan_run_id = ?`, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+tbl+` WHERE scan_run_id = ?`, id); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM scan_runs WHERE id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM scan_runs WHERE id = ?`, id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -491,9 +501,9 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 // PurgeOrphanedRuns deletes failed, stopped, and orphaned scan runs started
 // before olderThan. Running and pending scans that are older than 2 hours are
 // also deleted — they are orphaned (no live goroutine backing them).
-func (s *Store) PurgeOrphanedRuns(_ context.Context, olderThan time.Time) (int, error) {
+func (s *Store) PurgeOrphanedRuns(ctx context.Context, olderThan time.Time) (int, error) {
 	orphanThreshold := olderThan.Add(-2 * time.Hour)
-	rows, err := s.db.Query(
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id FROM scan_runs WHERE
 			(status NOT IN ('completed', 'running', 'pending') AND started_at < ?)
 			OR (status IN ('running', 'pending') AND started_at < ?)`,
@@ -516,7 +526,6 @@ func (s *Store) PurgeOrphanedRuns(_ context.Context, olderThan time.Time) (int, 
 		return 0, err
 	}
 
-	ctx := context.Background()
 	for _, id := range ids {
 		if err := s.DeleteScanRun(ctx, id); err != nil {
 			return 0, err
@@ -566,18 +575,18 @@ func scanRun(row scanner) (*store.ScanRun, error) {
 
 // --- Raw findings ---
 
-func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []finding.Finding) error {
+func (s *Store) SaveFindings(ctx context.Context, scanRunID string, findings []finding.Finding) error {
 	if len(findings) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	stmt, err := tx.Prepare(`
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT OR IGNORE INTO findings (id, scan_run_id, check_id, module, scanner, severity,
 		                                title, description, asset, evidence, deep_only, proof_command, discovered_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -592,7 +601,7 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 		if f.DeepOnly {
 			deepOnly = 1
 		}
-		if _, err := stmt.Exec(
+		if _, err := stmt.ExecContext(ctx,
 			uuid.NewString(), scanRunID,
 			string(f.CheckID), f.Module, f.Scanner, f.Severity.String(),
 			f.Title, f.Description, f.Asset, string(ev), deepOnly, f.ProofCommand, f.DiscoveredAt,
@@ -604,8 +613,8 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 	return tx.Commit()
 }
 
-func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Finding, error) {
-	rows, err := s.db.Query(`
+func (s *Store) GetFindings(ctx context.Context, scanRunID string) ([]finding.Finding, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT check_id, module, scanner, severity, title, description,
 		       asset, evidence, deep_only, proof_command, discovered_at
 		FROM findings WHERE scan_run_id = ?
@@ -638,23 +647,23 @@ func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Find
 
 // --- Enriched findings ---
 
-func (s *Store) SaveEnrichedFindings(_ context.Context, scanRunID string, efs []enrichment.EnrichedFinding) error {
+func (s *Store) SaveEnrichedFindings(ctx context.Context, scanRunID string, efs []enrichment.EnrichedFinding) error {
 	if len(efs) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
 	// Delete any previous enrichment for this scan run (idempotent re-enrichment)
-	if _, err := tx.Exec(`DELETE FROM enriched_findings WHERE scan_run_id = ?`, scanRunID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM enriched_findings WHERE scan_run_id = ?`, scanRunID); err != nil {
 		return err
 	}
 
-	stmt, err := tx.Prepare(`
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO enriched_findings (id, scan_run_id, finding_id, finding_json, explanation, impact, remediation, enriched_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
@@ -665,7 +674,7 @@ func (s *Store) SaveEnrichedFindings(_ context.Context, scanRunID string, efs []
 	now := time.Now().UTC()
 	for _, ef := range efs {
 		fJSON, _ := json.Marshal(ef.Finding)
-		if _, err := stmt.Exec(
+		if _, err := stmt.ExecContext(ctx,
 			uuid.NewString(), scanRunID,
 			string(ef.Finding.CheckID), // kept for backward compat with old rows
 			string(fJSON),
@@ -678,10 +687,10 @@ func (s *Store) SaveEnrichedFindings(_ context.Context, scanRunID string, efs []
 	return tx.Commit()
 }
 
-func (s *Store) GetEnrichedFindings(_ context.Context, scanRunID string) ([]enrichment.EnrichedFinding, error) {
+func (s *Store) GetEnrichedFindings(ctx context.Context, scanRunID string) ([]enrichment.EnrichedFinding, error) {
 	// Read finding_json directly — no JOIN. The old approach joined on check_id
 	// which produced Cartesian products when the same check fired on multiple assets.
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT finding_json, explanation, impact, remediation
 		FROM enriched_findings
 		WHERE scan_run_id = ?
@@ -707,10 +716,10 @@ func (s *Store) GetEnrichedFindings(_ context.Context, scanRunID string) ([]enri
 	return out, rows.Err()
 }
 
-func (s *Store) GetPreviousEnrichedFindings(_ context.Context, domain, currentScanRunID string) ([]enrichment.EnrichedFinding, error) {
+func (s *Store) GetPreviousEnrichedFindings(ctx context.Context, domain, currentScanRunID string) ([]enrichment.EnrichedFinding, error) {
 	// Find the most recent completed scan run for this domain that isn't the current one
 	var prevRunID string
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id FROM scan_runs
 		WHERE domain = ? AND id != ? AND status = 'completed'
 		ORDER BY completed_at DESC LIMIT 1`, domain, currentScanRunID).Scan(&prevRunID)
@@ -721,12 +730,12 @@ func (s *Store) GetPreviousEnrichedFindings(_ context.Context, domain, currentSc
 		return nil, err
 	}
 	// Reuse the existing GetEnrichedFindings logic - just call it with the prev run ID
-	return s.GetEnrichedFindings(context.Background(), prevRunID)
+	return s.GetEnrichedFindings(ctx, prevRunID)
 }
 
 // --- Reports ---
 
-func (s *Store) SaveReport(_ context.Context, r *store.Report) error {
+func (s *Store) SaveReport(ctx context.Context, r *store.Report) error {
 	if r.ID == "" {
 		r.ID = uuid.NewString()
 	}
@@ -734,7 +743,7 @@ func (s *Store) SaveReport(_ context.Context, r *store.Report) error {
 		r.CreatedAt = time.Now().UTC()
 	}
 
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO reports (id, scan_run_id, domain, html_content, summary, emailed_to, emailed_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(scan_run_id) DO UPDATE SET
@@ -747,8 +756,8 @@ func (s *Store) SaveReport(_ context.Context, r *store.Report) error {
 	return err
 }
 
-func (s *Store) GetReport(_ context.Context, scanRunID string) (*store.Report, error) {
-	row := s.db.QueryRow(`
+func (s *Store) GetReport(ctx context.Context, scanRunID string) (*store.Report, error) {
+	row := s.db.QueryRowContext(ctx, `
 		SELECT id, scan_run_id, domain, html_content, summary,
 		       COALESCE(emailed_to,''), emailed_at, created_at
 		FROM reports WHERE scan_run_id = ?`, scanRunID)
@@ -772,7 +781,7 @@ func (s *Store) GetReport(_ context.Context, scanRunID string) (*store.Report, e
 
 // --- Asset executions ---
 
-func (s *Store) SaveAssetExecution(_ context.Context, e *store.AssetExecution) error {
+func (s *Store) SaveAssetExecution(ctx context.Context, e *store.AssetExecution) error {
 	if e.ID == "" {
 		e.ID = uuid.NewString()
 	}
@@ -786,7 +795,7 @@ func (s *Store) SaveAssetExecution(_ context.Context, e *store.AssetExecution) e
 	dbRun, _ := json.Marshal(e.DirbustPathsRun)
 	dbFound, _ := json.Marshal(e.DirbustPathsFound)
 
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO asset_executions
 		  (id, scan_run_id, asset, evidence_json, matched_playbooks, scanners_run,
 		   nuclei_tags_run, dirbust_paths_run, dirbust_paths_found, findings_count,
@@ -799,8 +808,8 @@ func (s *Store) SaveAssetExecution(_ context.Context, e *store.AssetExecution) e
 	return err
 }
 
-func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]store.AssetExecution, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListAssetExecutions(ctx context.Context, scanRunID string) ([]store.AssetExecution, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, scan_run_id, asset, evidence_json, matched_playbooks,
 		       scanners_run, nuclei_tags_run, dirbust_paths_run, dirbust_paths_found,
 		       findings_count, classify_duration_ms, expanded_from, created_at
@@ -845,7 +854,7 @@ func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]stor
 
 // --- Unmatched assets ---
 
-func (s *Store) SaveUnmatchedAsset(_ context.Context, u *store.UnmatchedAsset) error {
+func (s *Store) SaveUnmatchedAsset(ctx context.Context, u *store.UnmatchedAsset) error {
 	if u.ID == "" {
 		u.ID = uuid.NewString()
 	}
@@ -853,7 +862,7 @@ func (s *Store) SaveUnmatchedAsset(_ context.Context, u *store.UnmatchedAsset) e
 		u.CreatedAt = time.Now().UTC()
 	}
 	evJSON, _ := json.Marshal(u.Evidence)
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO unmatched_assets (id, scan_run_id, fingerprint, asset, evidence_json, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(fingerprint) DO NOTHING`,
@@ -861,14 +870,14 @@ func (s *Store) SaveUnmatchedAsset(_ context.Context, u *store.UnmatchedAsset) e
 	return err
 }
 
-func (s *Store) FingerprintExists(_ context.Context, fingerprint string) (bool, error) {
+func (s *Store) FingerprintExists(ctx context.Context, fingerprint string) (bool, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT COUNT(1) FROM unmatched_assets WHERE fingerprint = ?`, fingerprint).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM unmatched_assets WHERE fingerprint = ?`, fingerprint).Scan(&count)
 	return count > 0, err
 }
 
-func (s *Store) ListUnmatchedAssets(_ context.Context) ([]store.UnmatchedAsset, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListUnmatchedAssets(ctx context.Context) ([]store.UnmatchedAsset, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, scan_run_id, fingerprint, asset, evidence_json, created_at
 		FROM unmatched_assets ORDER BY created_at DESC`)
 	if err != nil {
@@ -893,7 +902,7 @@ func (s *Store) ListUnmatchedAssets(_ context.Context) ([]store.UnmatchedAsset, 
 
 // --- Playbook suggestions ---
 
-func (s *Store) SavePlaybookSuggestion(_ context.Context, sg *store.PlaybookSuggestion) error {
+func (s *Store) SavePlaybookSuggestion(ctx context.Context, sg *store.PlaybookSuggestion) error {
 	if sg.ID == "" {
 		sg.ID = uuid.NewString()
 	}
@@ -904,7 +913,7 @@ func (s *Store) SavePlaybookSuggestion(_ context.Context, sg *store.PlaybookSugg
 		sg.Status = "pending"
 	}
 	affectedDomains, _ := json.Marshal(sg.AffectedDomains)
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO playbook_suggestions
 		  (id, type, target_playbook, suggested_yaml, reasoning, pr_url, status,
 		   suggestion_kind, code_snippet, priority, affected_domains, created_at)
@@ -916,11 +925,11 @@ func (s *Store) SavePlaybookSuggestion(_ context.Context, sg *store.PlaybookSugg
 	return err
 }
 
-func (s *Store) ListPlaybookSuggestions(_ context.Context, status string) ([]store.PlaybookSuggestion, error) {
+func (s *Store) ListPlaybookSuggestions(ctx context.Context, status string) ([]store.PlaybookSuggestion, error) {
 	var rows *sql.Rows
 	var err error
 	if status == "" {
-		rows, err = s.db.Query(`
+		rows, err = s.db.QueryContext(ctx, `
 			SELECT id, type, target_playbook, suggested_yaml, reasoning,
 			       COALESCE(pr_url,''), status,
 			       COALESCE(suggestion_kind,''), COALESCE(code_snippet,''),
@@ -928,7 +937,7 @@ func (s *Store) ListPlaybookSuggestions(_ context.Context, status string) ([]sto
 			       created_at
 			FROM playbook_suggestions ORDER BY created_at DESC`)
 	} else {
-		rows, err = s.db.Query(`
+		rows, err = s.db.QueryContext(ctx, `
 			SELECT id, type, target_playbook, suggested_yaml, reasoning,
 			       COALESCE(pr_url,''), status,
 			       COALESCE(suggestion_kind,''), COALESCE(code_snippet,''),
@@ -961,8 +970,8 @@ func (s *Store) ListPlaybookSuggestions(_ context.Context, status string) ([]sto
 	return out, rows.Err()
 }
 
-func (s *Store) UpdatePlaybookSuggestion(_ context.Context, sg *store.PlaybookSuggestion) error {
-	_, err := s.db.Exec(`
+func (s *Store) UpdatePlaybookSuggestion(ctx context.Context, sg *store.PlaybookSuggestion) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE playbook_suggestions SET status=?, pr_url=? WHERE id=?`,
 		sg.Status, nullString(sg.PRURL), sg.ID)
 	return err
@@ -970,8 +979,8 @@ func (s *Store) UpdatePlaybookSuggestion(_ context.Context, sg *store.PlaybookSu
 
 // --- Enrichment cache ---
 
-func (s *Store) GetEnrichmentCache(_ context.Context, checkID finding.CheckID) (explanation, impact, remediation string, found bool) {
-	err := s.db.QueryRow(`
+func (s *Store) GetEnrichmentCache(ctx context.Context, checkID finding.CheckID) (explanation, impact, remediation string, found bool) {
+	err := s.db.QueryRowContext(ctx, `
 		SELECT explanation, impact, remediation FROM enrichment_cache WHERE check_id = ?`,
 		string(checkID)).Scan(&explanation, &impact, &remediation)
 	if err != nil {
@@ -980,8 +989,8 @@ func (s *Store) GetEnrichmentCache(_ context.Context, checkID finding.CheckID) (
 	return explanation, impact, remediation, true
 }
 
-func (s *Store) SaveEnrichmentCache(_ context.Context, checkID finding.CheckID, explanation, impact, remediation string) error {
-	_, err := s.db.Exec(`
+func (s *Store) SaveEnrichmentCache(ctx context.Context, checkID finding.CheckID, explanation, impact, remediation string) error {
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO enrichment_cache (check_id, explanation, impact, remediation, cached_at)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(check_id) DO UPDATE SET
@@ -995,18 +1004,18 @@ func (s *Store) SaveEnrichmentCache(_ context.Context, checkID finding.CheckID, 
 
 // --- Correlation findings ---
 
-func (s *Store) SaveCorrelationFindings(_ context.Context, findings []store.CorrelationFinding) error {
+func (s *Store) SaveCorrelationFindings(ctx context.Context, findings []store.CorrelationFinding) error {
 	if len(findings) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	stmt, err := tx.Prepare(`
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO correlation_findings
 		  (id, scan_run_id, domain, title, severity, description, affected_assets, contributing_checks, remediation, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -1025,7 +1034,7 @@ func (s *Store) SaveCorrelationFindings(_ context.Context, findings []store.Corr
 		}
 		assets, _ := json.Marshal(f.AffectedAssets)
 		checks, _ := json.Marshal(f.ContributingChecks)
-		if _, err := stmt.Exec(
+		if _, err := stmt.ExecContext(ctx,
 			f.ID, f.ScanRunID, f.Domain, f.Title, f.Severity.String(),
 			f.Description, string(assets), string(checks), f.Remediation, f.CreatedAt,
 		); err != nil {
@@ -1036,8 +1045,8 @@ func (s *Store) SaveCorrelationFindings(_ context.Context, findings []store.Corr
 	return tx.Commit()
 }
 
-func (s *Store) ListCorrelationFindings(_ context.Context, domain string) ([]store.CorrelationFinding, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListCorrelationFindings(ctx context.Context, domain string) ([]store.CorrelationFinding, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, scan_run_id, domain, title, severity, description,
 		       affected_assets, contributing_checks, remediation, created_at
 		FROM correlation_findings WHERE domain = ?
@@ -1069,8 +1078,8 @@ func (s *Store) ListCorrelationFindings(_ context.Context, domain string) ([]sto
 	return out, rows.Err()
 }
 
-func (s *Store) ListRecentScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListRecentScanRuns(ctx context.Context, limit int) ([]store.ScanRun, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, target_id, domain, scan_type, modules, status,
 		       started_at, completed_at, finding_count, error,
 		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
@@ -1095,12 +1104,12 @@ func (s *Store) ListRecentScanRuns(_ context.Context, limit int) ([]store.ScanRu
 
 // --- Finding suppressions ---
 
-func (s *Store) UpsertSuppression(_ context.Context, sup *store.FindingSuppression) error {
+func (s *Store) UpsertSuppression(ctx context.Context, sup *store.FindingSuppression) error {
 	if sup.ID == "" {
 		sup.ID = uuid.NewString()
 	}
 	now := time.Now().UTC()
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO finding_suppressions (id, domain, check_id, asset, status, note, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(domain, check_id, asset) DO UPDATE SET
@@ -1109,8 +1118,8 @@ func (s *Store) UpsertSuppression(_ context.Context, sup *store.FindingSuppressi
 	return err
 }
 
-func (s *Store) ListSuppressions(_ context.Context, domain string) ([]store.FindingSuppression, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListSuppressions(ctx context.Context, domain string) ([]store.FindingSuppression, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, domain, check_id, asset, status, note, created_at
 		FROM finding_suppressions WHERE domain = ? ORDER BY created_at DESC`, domain)
 	if err != nil {
@@ -1131,8 +1140,8 @@ func (s *Store) ListSuppressions(_ context.Context, domain string) ([]store.Find
 	return out, rows.Err()
 }
 
-func (s *Store) DeleteSuppression(_ context.Context, id string) error {
-	_, err := s.db.Exec(`DELETE FROM finding_suppressions WHERE id = ?`, id)
+func (s *Store) DeleteSuppression(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM finding_suppressions WHERE id = ?`, id)
 	return err
 }
 
@@ -1151,8 +1160,8 @@ func nullTime(t *time.Time) sql.NullTime {
 
 // --- Scanner Metrics ---
 
-func (s *Store) SaveScannerMetric(_ context.Context, m *store.ScannerMetric) error {
-	_, err := s.db.Exec(`
+func (s *Store) SaveScannerMetric(ctx context.Context, m *store.ScannerMetric) error {
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO scanner_metrics
 			(id, scan_run_id, asset, scanner_name, duration_ms,
 			 findings_critical, findings_high, findings_medium, findings_low, findings_info,
@@ -1165,8 +1174,8 @@ func (s *Store) SaveScannerMetric(_ context.Context, m *store.ScannerMetric) err
 	return err
 }
 
-func (s *Store) ListScannerMetrics(_ context.Context, scanRunID string) ([]store.ScannerMetric, error) {
-	rows, err := s.db.Query(`
+func (s *Store) ListScannerMetrics(ctx context.Context, scanRunID string) ([]store.ScannerMetric, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, scan_run_id, asset, scanner_name, duration_ms,
 		       findings_critical, findings_high, findings_medium, findings_low, findings_info,
 		       error_count, error_message, skipped, skip_reason, created_at
@@ -1195,8 +1204,8 @@ func (s *Store) ListScannerMetrics(_ context.Context, scanRunID string) ([]store
 
 // GetScannerROI aggregates scanner_metrics across all completed scan runs for
 // a domain, returning per-scanner ROI statistics for the AI batch analysis job.
-func (s *Store) GetScannerROI(_ context.Context, domain string) ([]store.ScannerROISummary, error) {
-	rows, err := s.db.Query(`
+func (s *Store) GetScannerROI(ctx context.Context, domain string) ([]store.ScannerROISummary, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			sm.scanner_name,
 			COUNT(*)                                          AS run_count,
@@ -1229,7 +1238,9 @@ func (s *Store) GetScannerROI(_ context.Context, domain string) ([]store.Scanner
 		}
 		if r.AvgDurationMs > 0 && r.RunCount > 0 {
 			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
-			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			if totalDurationMs > 0 {
+				r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			}
 		}
 		out = append(out, r)
 	}
@@ -1245,27 +1256,27 @@ func boolToInt(b bool) int {
 
 // --- Discovery audit ---
 
-func (s *Store) SaveDiscoveryAudit(_ context.Context, audits []store.DiscoveryAudit) error {
-	tx, err := s.db.Begin()
+func (s *Store) SaveDiscoveryAudit(ctx context.Context, audits []store.DiscoveryAudit) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	stmt, err := tx.Prepare(`INSERT INTO discovery_audit (id, scan_run_id, asset, source, created_at) VALUES (?,?,?,?,?)`)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO discovery_audit (id, scan_run_id, asset, source, created_at) VALUES (?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, a := range audits {
-		if _, err := stmt.Exec(a.ID, a.ScanRunID, a.Asset, a.Source, a.CreatedAt); err != nil {
+		if _, err := stmt.ExecContext(ctx,a.ID, a.ScanRunID, a.Asset, a.Source, a.CreatedAt); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-func (s *Store) GetDiscoverySourceSummary(_ context.Context, domain string) ([]store.DiscoverySourceSummary, error) {
-	rows, err := s.db.Query(`
+func (s *Store) GetDiscoverySourceSummary(ctx context.Context, domain string) ([]store.DiscoverySourceSummary, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT da.source, COUNT(*) as cnt
 		FROM discovery_audit da
 		JOIN scan_runs sr ON da.scan_run_id = sr.id
@@ -1288,8 +1299,8 @@ func (s *Store) GetDiscoverySourceSummary(_ context.Context, domain string) ([]s
 	return out, rows.Err()
 }
 
-func (s *Store) GetDiscoverySourcesByRun(_ context.Context, scanRunID string) (map[string]string, error) {
-	rows, err := s.db.Query(`SELECT asset, source FROM discovery_audit WHERE scan_run_id = ?`, scanRunID)
+func (s *Store) GetDiscoverySourcesByRun(ctx context.Context, scanRunID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT asset, source FROM discovery_audit WHERE scan_run_id = ?`, scanRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -1305,11 +1316,11 @@ func (s *Store) GetDiscoverySourcesByRun(_ context.Context, scanRunID string) (m
 	return out, rows.Err()
 }
 
-func (s *Store) GetFalsePositivePatterns(_ context.Context, domain string) ([]string, error) {
+func (s *Store) GetFalsePositivePatterns(ctx context.Context, domain string) ([]string, error) {
 	// Returns check_ids that appear in findings for this domain but whose enriched
 	// explanations contain "no actionable" or "not applicable" or similar dismissals.
 	// This signals checks that consistently produce false positives for this tech stack.
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT f.check_id
 		FROM findings f
 		JOIN enriched_findings ef ON ef.scan_run_id = f.scan_run_id
@@ -1341,16 +1352,16 @@ func (s *Store) GetFalsePositivePatterns(_ context.Context, domain string) ([]st
 
 // --- Sanitized cross-domain metrics ---
 
-func (s *Store) SaveSanitizedMetrics(_ context.Context, metrics []store.SanitizedScannerMetric) error {
+func (s *Store) SaveSanitizedMetrics(ctx context.Context, metrics []store.SanitizedScannerMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	stmt, err := tx.Prepare(`
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO sanitized_scanner_metrics
 		  (id, scanner_name, tech_category, playbook_name, duration_ms,
 		   findings_critical, findings_high, findings_medium, findings_low, findings_info,
@@ -1365,7 +1376,7 @@ func (s *Store) SaveSanitizedMetrics(_ context.Context, metrics []store.Sanitize
 		if m.Skipped {
 			skipped = 1
 		}
-		if _, err := stmt.Exec(
+		if _, err := stmt.ExecContext(ctx,
 			m.ID, m.ScannerName, m.TechCategory, m.PlaybookName, m.DurationMs,
 			m.FindingsCritical, m.FindingsHigh, m.FindingsMedium, m.FindingsLow, m.FindingsInfo,
 			m.ErrorCount, skipped, m.CreatedAt,
@@ -1376,8 +1387,8 @@ func (s *Store) SaveSanitizedMetrics(_ context.Context, metrics []store.Sanitize
 	return tx.Commit()
 }
 
-func (s *Store) GetCrossDomainScannerSummary(_ context.Context) ([]store.CrossDomainScannerSummary, error) {
-	rows, err := s.db.Query(`
+func (s *Store) GetCrossDomainScannerSummary(ctx context.Context) ([]store.CrossDomainScannerSummary, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			scanner_name,
 			tech_category,
@@ -1410,7 +1421,9 @@ func (s *Store) GetCrossDomainScannerSummary(_ context.Context) ([]store.CrossDo
 		}
 		if r.AvgDurationMs > 0 && r.RunCount > 0 {
 			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
-			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			if totalDurationMs > 0 {
+				r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
+			}
 		}
 		out = append(out, r)
 	}

@@ -141,6 +141,77 @@ func scanIAM(ctx context.Context, projectID, asset string, opts []option.ClientO
 		return nil, fmt.Errorf("list service accounts: %w", err)
 	}
 
+	// Check IAM bindings for missing MFA/2SV conditions.
+	// Since the Admin SDK 2-Step Verification status is not available via
+	// standard GCP Resource Manager APIs, we look for bindings that lack IAM
+	// conditions requiring MFA (e.g., request.auth.claims based conditions).
+	// Bindings on sensitive roles without such conditions suggest that 2SV
+	// enforcement may not be present at the org/project level.
+	sensitiveRoles := map[string]bool{
+		"roles/owner":                    true,
+		"roles/editor":                   true,
+		"roles/iam.securityAdmin":        true,
+		"roles/iam.serviceAccountAdmin":  true,
+		"roles/resourcemanager.projectIamAdmin": true,
+		"roles/compute.admin":            true,
+		"roles/storage.admin":            true,
+	}
+	hasAnyMFACondition := false
+	for _, binding := range policy.Bindings {
+		if binding.Condition != nil {
+			expr := binding.Condition.Expression
+			if strings.Contains(expr, "request.auth.claims") ||
+				strings.Contains(expr, "mfa") ||
+				strings.Contains(expr, "2sv") ||
+				strings.Contains(expr, "multi_factor") {
+				hasAnyMFACondition = true
+				break
+			}
+		}
+	}
+	if !hasAnyMFACondition {
+		// Check if any sensitive role binding exists without an MFA condition.
+		for _, binding := range policy.Bindings {
+			if !sensitiveRoles[binding.Role] {
+				continue
+			}
+			hasMFACondition := false
+			if binding.Condition != nil {
+				expr := binding.Condition.Expression
+				if strings.Contains(expr, "request.auth.claims") ||
+					strings.Contains(expr, "mfa") ||
+					strings.Contains(expr, "2sv") ||
+					strings.Contains(expr, "multi_factor") {
+					hasMFACondition = true
+				}
+			}
+			if !hasMFACondition {
+				findings = append(findings, finding.Finding{
+					CheckID: finding.CheckCloudGCPNo2SV,
+					Title:   fmt.Sprintf("GCP project %s has no IAM conditions enforcing 2-Step Verification", projectID),
+					Description: fmt.Sprintf(
+						"Project %s has sensitive role bindings (e.g. %s) without IAM conditions "+
+							"requiring MFA/2-Step Verification. Without org-level 2SV enforcement or "+
+							"IAM Conditions gating on authenticated claims, compromised credentials alone "+
+							"are sufficient to access privileged roles. Enforce 2-Step Verification at the "+
+							"Google Workspace/Cloud Identity org level, or add IAM Conditions on sensitive bindings.",
+						projectID, binding.Role,
+					),
+					Severity:     finding.SeverityHigh,
+					Asset:        asset,
+					Scanner:      "cloud/gcp",
+					ProofCommand: fmt.Sprintf("gcloud projects get-iam-policy %s --flatten='bindings[].members' --format='table(bindings.role,bindings.condition.expression)'", projectID),
+					Evidence: map[string]any{
+						"project_id":     projectID,
+						"sensitive_role": binding.Role,
+					},
+					DiscoveredAt: time.Now(),
+				})
+				break // One finding per project is sufficient.
+			}
+		}
+	}
+
 	return findings, nil
 }
 

@@ -193,6 +193,9 @@ func (s *Scanner) TemplateAge() time.Duration {
 // RunWithTags runs nuclei against the asset using a specific set of tags
 // instead of a template list file. Used by the playbook engine.
 func (s *Scanner) RunWithTags(ctx context.Context, asset string, tags []string) ([]finding.Finding, error) {
+	if !isValidHostname(asset) {
+		return nil, fmt.Errorf("nuclei: invalid hostname %q", asset)
+	}
 	resolvedBin, err := toolinstall.Ensure(s.bin)
 	if err != nil {
 		return nil, fmt.Errorf("nuclei: %w", err)
@@ -251,6 +254,9 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 		var r nucleiResult
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue // skip malformed lines
+		}
+		if r.TemplateID == "" || r.Info.Name == "" {
+			continue // skip incomplete results
 		}
 
 		checkID := finding.MapNucleiTemplate(r.TemplateID)

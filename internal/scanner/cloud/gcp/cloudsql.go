@@ -3,6 +3,7 @@ package gcp
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"google.golang.org/api/option"
@@ -82,6 +83,45 @@ func checkCloudSQLInstance(inst *sqladmin.DatabaseInstance, projectID, asset str
 					},
 					DiscoveredAt: time.Now(),
 				})
+
+				// TCP connectivity test: confirm whether the public Cloud SQL
+				// instance is actually reachable from the internet.
+				for _, ipAddr := range inst.IpAddresses {
+					if ipAddr.Type == "PRIMARY" && ipAddr.IpAddress != "" {
+						// Cloud SQL default ports: MySQL=3306, PostgreSQL=5432, SQL Server=1433.
+						port := databasePort(inst.DatabaseVersion)
+						addr := net.JoinHostPort(ipAddr.IpAddress, fmt.Sprintf("%d", port))
+						conn, dialErr := net.DialTimeout("tcp", addr, 5*time.Second)
+						if dialErr == nil {
+							conn.Close()
+							findings = append(findings, finding.Finding{
+								CheckID: finding.CheckCloudGCPCloudSQLReachable,
+								Title:   fmt.Sprintf("Cloud SQL instance is publicly reachable via TCP: %s", instanceName),
+								Description: fmt.Sprintf(
+									"Cloud SQL instance %s in project %s is not only configured with a "+
+										"public IP and 0.0.0.0/0 authorized network but actually accepts TCP "+
+										"connections from the internet on %s. An attacker can attempt brute-force "+
+										"authentication. Restrict network access immediately.",
+									instanceName, projectID, addr,
+								),
+								Severity:     finding.SeverityCritical,
+								Asset:        asset,
+								Scanner:      "cloud/gcp",
+								ProofCommand: fmt.Sprintf("nc -zv %s %d", ipAddr.IpAddress, port),
+								Evidence: map[string]any{
+									"instance":      instanceName,
+									"resource_type": "cloud_sql_instance",
+									"project_id":    projectID,
+									"region":        region,
+									"endpoint":      addr,
+								},
+								DiscoveredAt: time.Now(),
+							})
+						}
+						break
+					}
+				}
+
 				break // One finding per instance is enough.
 			}
 		}
@@ -142,4 +182,18 @@ func checkCloudSQLInstance(inst *sqladmin.DatabaseInstance, projectID, asset str
 	}
 
 	return findings
+}
+
+// databasePort returns the default port for a Cloud SQL database version string.
+func databasePort(databaseVersion string) int {
+	switch {
+	case len(databaseVersion) >= 5 && databaseVersion[:5] == "MYSQL":
+		return 3306
+	case len(databaseVersion) >= 8 && databaseVersion[:8] == "POSTGRES":
+		return 5432
+	case len(databaseVersion) >= 9 && databaseVersion[:9] == "SQLSERVER":
+		return 1433
+	default:
+		return 3306
+	}
 }

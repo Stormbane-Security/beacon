@@ -15,12 +15,8 @@ description: >
 match:
   any:
     - path_responds: "/v1/graphql"
-    - path_responds: "/healthz"
     - path_responds: "/v1/metadata"
-    - path_responds: "/console"
-    - header_value:
-        name: "x-hasura-role"
-        contains: ""
+    - header_present: "x-hasura-role"
 surface:
   scanners:
     - graphql

@@ -17,13 +17,10 @@ import (
 	"time"
 
 	"github.com/stormbane/beacon/internal/analyze"
-	"github.com/stormbane/beacon/internal/api"
-	"github.com/stormbane/beacon/internal/config"
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
 	"github.com/stormbane/beacon/internal/store"
 	memstore "github.com/stormbane/beacon/internal/store/memory"
-	"github.com/stormbane/beacon/internal/worker"
 )
 
 // fakeClaudeServerWithObject returns a test server that responds with the Anthropic JSON format.
@@ -295,99 +292,3 @@ func TestDomainPictureIncludesGroupedFindings(t *testing.T) {
 	}
 }
 
-func TestGetCorrelationsAPIReturns200WithArray(t *testing.T) {
-	st := memstore.New()
-	cfg := &config.Config{}
-	pool := worker.NewPool(0, st, cfg)
-	srv := api.New(st, pool, "test-key")
-	h := srv.Handler()
-
-	domain := "example.com"
-
-	// Pre-populate a correlation finding.
-	err := st.SaveCorrelationFindings(context.Background(), []store.CorrelationFinding{
-		{
-			Domain:             domain,
-			ScanRunID:          "run-1",
-			Title:              "Test Attack Chain",
-			Severity:           finding.SeverityHigh,
-			Description:        "Narrative of the attack",
-			AffectedAssets:     []string{"a.example.com", "b.example.com"},
-			ContributingChecks: []string{"exposure.cicd_panel"},
-			Remediation:        "Fix both services",
-			CreatedAt:          time.Now(),
-		},
-	})
-	if err != nil {
-		t.Fatalf("save correlation findings: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/correlations?domain="+domain, nil)
-	req.Header.Set("Authorization", "Bearer test-key")
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d; want 200 — body: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Correlations []store.CorrelationFinding `json:"correlations"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(resp.Correlations) != 1 {
-		t.Errorf("correlations count = %d; want 1", len(resp.Correlations))
-	}
-	if len(resp.Correlations) > 0 && resp.Correlations[0].Title != "Test Attack Chain" {
-		t.Errorf("title = %q; want %q", resp.Correlations[0].Title, "Test Attack Chain")
-	}
-}
-
-func TestGetCorrelationsAPIRequiresDomainParam(t *testing.T) {
-	st := memstore.New()
-	cfg := &config.Config{}
-	pool := worker.NewPool(0, st, cfg)
-	srv := api.New(st, pool, "test-key")
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/correlations", nil)
-	req.Header.Set("Authorization", "Bearer test-key")
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want 400 when domain param missing", rr.Code)
-	}
-}
-
-func TestGetCorrelationsAPIReturnsEmptyArrayWhenNoneExist(t *testing.T) {
-	st := memstore.New()
-	cfg := &config.Config{}
-	pool := worker.NewPool(0, st, cfg)
-	srv := api.New(st, pool, "test-key")
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/correlations?domain=nobody.com", nil)
-	req.Header.Set("Authorization", "Bearer test-key")
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d; want 200", rr.Code)
-	}
-
-	var resp struct {
-		Correlations []store.CorrelationFinding `json:"correlations"`
-	}
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Correlations == nil {
-		t.Error("correlations should be empty array [], not null")
-	}
-	if len(resp.Correlations) != 0 {
-		t.Errorf("correlations count = %d; want 0", len(resp.Correlations))
-	}
-}

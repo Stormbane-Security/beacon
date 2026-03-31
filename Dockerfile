@@ -100,9 +100,13 @@ ENV BEACON_ADDR=:8080 \
     BEACON_FFUF_BIN=/usr/local/bin/ffuf \
     BEACON_NMAP_BIN=/usr/bin/nmap
 
-RUN mkdir -p /data
+RUN useradd -r -s /bin/false -d /nonexistent beacon && \
+    mkdir -p /data && \
+    chown beacon:beacon /data
+
 VOLUME ["/data"]
 
 EXPOSE 8080
 
+USER beacon
 ENTRYPOINT ["/usr/local/bin/beacond"]

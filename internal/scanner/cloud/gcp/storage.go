@@ -55,6 +55,34 @@ func scanBuckets(ctx context.Context, projectID, asset string, opts []option.Cli
 						}
 					}
 				}
+				// Check for missing customer-managed encryption key (CMEK).
+				// When encryption.defaultKmsKeyName is empty, the bucket uses
+				// Google-managed encryption (GMEK). CMEK gives the organization
+				// control over key rotation, revocation, and access policies.
+				if bucket.Encryption == nil || bucket.Encryption.DefaultKmsKeyName == "" {
+					findings = append(findings, finding.Finding{
+						CheckID: finding.CheckCloudGCPBucketNoCMEK,
+						Title:   fmt.Sprintf("GCS bucket has no customer-managed encryption key: gs://%s", bucket.Name),
+						Description: fmt.Sprintf(
+							"GCS bucket gs://%s in project %s does not have a customer-managed encryption "+
+								"key (CMEK) configured. Data is encrypted with Google-managed keys by default, "+
+								"but CMEK provides organizational control over key rotation schedules, "+
+								"revocation, and access policies. Configure a Cloud KMS key as the default "+
+								"encryption key for the bucket.",
+							bucket.Name, projectID,
+						),
+						Severity:     finding.SeverityMedium,
+						Asset:        asset,
+						Scanner:      "cloud/gcp",
+						ProofCommand: fmt.Sprintf("gsutil kms get gs://%s", bucket.Name),
+						Evidence: map[string]any{
+							"bucket":     bucket.Name,
+							"project_id": projectID,
+							"location":   bucket.Location,
+						},
+						DiscoveredAt: time.Now(),
+					})
+				}
 			}
 			return nil
 		}); err != nil {

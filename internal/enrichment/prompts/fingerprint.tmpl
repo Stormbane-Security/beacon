@@ -61,13 +61,13 @@ asset: {{safe .Asset}}
 {{- if .Headers}}
 headers:
 {{- range $k, $v := .Headers}}
-  {{$k}}: {{safe $v}}
+  {{safe $k}}: {{safe $v}}
 {{- end}}
 {{- end}}
 {{- if .ServerVersions}}
 versions:
 {{- range $k, $v := .ServerVersions}}
-  {{$k}}: {{safe $v}}
+  {{safe $k}}: {{safe $v}}
 {{- end}}
 {{- end}}
 {{- if .Framework}}

@@ -331,6 +331,14 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 	// Scan top-level and common paths for .env files and secrets.
 	all = append(all, s.scanForSecrets(ctx, owner, repo, repoSlug)...)
 
+	// Dockerfile supply chain: unpinned base images, curl|sh, running as root.
+	all = append(all, s.checkDockerfile(ctx, owner, repo, repoSlug)...)
+
+	// GitHub Packages — enumerate public packages (requires token with read:packages).
+	if s.token != "" {
+		all = append(all, s.checkPackages(ctx, owner, repo, repoSlug)...)
+	}
+
 	// Webhooks (requires token with admin:repo_hook or admin:org_hook scope).
 	if s.token != "" {
 		hooks, err := s.getWebhooks(ctx, owner, repo)
@@ -937,6 +945,159 @@ func (s *Scanner) scanForSecrets(ctx context.Context, owner, repo, repoSlug stri
 }
 
 // -------------------------------------------------------------------------
+// Dockerfile supply chain checks
+// -------------------------------------------------------------------------
+
+// Regexes for Dockerfile analysis — compiled once at package init.
+var (
+	// Match FROM lines: FROM image, FROM image:tag, FROM image:tag AS alias, FROM image@sha256:...
+	reDockerfileFrom = regexp.MustCompile(`(?im)^\s*FROM\s+(\S+)`)
+
+	// Match curl|sh or wget|sh patterns (common arbitrary code execution in builds).
+	// Catches: curl ... | sh, curl ... | bash, wget ... | sh, etc.
+	reDockerfileCurlPipe = regexp.MustCompile(`(?i)(curl|wget)\s+[^|]*\|\s*(sh|bash|zsh|dash|ksh)`)
+
+	// Match USER directive to check if a non-root user is set.
+	reDockerfileUser = regexp.MustCompile(`(?im)^\s*USER\s+(\S+)`)
+)
+
+// checkDockerfile fetches Dockerfile from the repository root and analyzes it
+// for supply chain issues: unpinned base images, curl|sh execution, and
+// running as root.
+func (s *Scanner) checkDockerfile(ctx context.Context, owner, repo, repoSlug string) []finding.Finding {
+	content, err := s.fetchFileContent(ctx, owner, repo, "Dockerfile", "")
+	if err != nil {
+		return nil // no Dockerfile — nothing to check
+	}
+	return analyzeDockerfile(content, repoSlug)
+}
+
+// analyzeDockerfile inspects Dockerfile content for supply chain risks.
+// Separated from checkDockerfile for testability.
+func analyzeDockerfile(content, repoSlug string) []finding.Finding {
+	var findings []finding.Finding
+
+	// --- Unpinned base images (mutable tags) ---
+	fromMatches := reDockerfileFrom.FindAllStringSubmatch(content, -1)
+	for _, m := range fromMatches {
+		image := m[1]
+
+		// Skip build-stage references like "FROM builder" that refer to
+		// a previous AS alias, and the scratch base image.
+		if strings.EqualFold(image, "scratch") {
+			continue
+		}
+
+		// If the image reference includes a @sha256: digest, it's pinned.
+		if strings.Contains(image, "@sha256:") {
+			continue
+		}
+
+		// Anything without a digest is mutable — :latest, :18, or bare image name.
+		severity := finding.SeverityMedium
+		tag := "latest (implicit)"
+		if idx := strings.LastIndex(image, ":"); idx != -1 {
+			tag = image[idx+1:]
+		}
+		if tag == "latest" || tag == "latest (implicit)" {
+			severity = finding.SeverityHigh
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCICDMutableImageTag,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: severity,
+			Asset:    repoSlug,
+			Title:    fmt.Sprintf("Dockerfile uses unpinned base image: %s", image),
+			Description: fmt.Sprintf(
+				"The Dockerfile uses FROM %s without a @sha256: digest pin. Mutable tags "+
+					"(including version tags like :18 and :latest) can be overwritten at any time — "+
+					"a compromised or updated base image silently changes every subsequent build. "+
+					"Pin the image by digest: FROM %s@sha256:<digest>. Use `docker pull %s && "+
+					"docker inspect --format='{{index .RepoDigests 0}}' %s` to obtain the current digest.",
+				image, image, image, image),
+			Evidence: map[string]any{
+				"dockerfile": "Dockerfile",
+				"image":      image,
+				"tag":        tag,
+			},
+			ProofCommand: fmt.Sprintf("gh api repos/%s/contents/Dockerfile --jq '.content' | base64 -d | grep -i '^FROM'", repoSlug),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// --- curl|sh or wget|sh (arbitrary code execution in build) ---
+	curlMatches := reDockerfileCurlPipe.FindAllString(content, -1)
+	for _, match := range curlMatches {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckDockerfileCurlPipe,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    repoSlug,
+			Title:    "Dockerfile pipes remote script to shell",
+			Description: fmt.Sprintf(
+				"The Dockerfile contains a %q pattern that downloads and executes a remote "+
+					"script in a single command. If the remote server is compromised, DNS is hijacked, "+
+					"or the connection is intercepted (no TLS verification), arbitrary code runs inside "+
+					"the build with full privileges. Instead: download the script to a file, verify its "+
+					"checksum against a known-good hash, then execute it.",
+				match),
+			Evidence: map[string]any{
+				"dockerfile": "Dockerfile",
+				"pattern":    match,
+			},
+			ProofCommand: fmt.Sprintf("gh api repos/%s/contents/Dockerfile --jq '.content' | base64 -d | grep -iE 'curl|wget'", repoSlug),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// --- Running as root (no USER directive after the last FROM) ---
+	// Walk the Dockerfile line by line: track the last FROM and whether a USER
+	// directive appeared after it. Only the final stage matters for the runtime image.
+	lines := strings.Split(content, "\n")
+	hasUserAfterLastFrom := false
+	seenFrom := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(trimmed), "FROM ") {
+			seenFrom = true
+			hasUserAfterLastFrom = false // reset on each new stage
+		}
+		if reDockerfileUser.MatchString(line) {
+			userMatch := reDockerfileUser.FindStringSubmatch(line)
+			if len(userMatch) > 1 && userMatch[1] != "root" && userMatch[1] != "0" {
+				hasUserAfterLastFrom = true
+			}
+		}
+	}
+	if seenFrom && !hasUserAfterLastFrom {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckDockerfileRootUser,
+			Module:   "github",
+			Scanner:  scannerName,
+			Severity: finding.SeverityMedium,
+			Asset:    repoSlug,
+			Title:    "Dockerfile does not set a non-root USER",
+			Description: "The Dockerfile's final build stage does not contain a USER directive " +
+				"that sets a non-root user. The container will run as root (UID 0) by default, " +
+				"which violates the principle of least privilege and increases the blast radius " +
+				"of container breakout vulnerabilities. Add a USER directive after installing " +
+				"dependencies: `RUN adduser --disabled-password appuser && USER appuser`.",
+			Evidence: map[string]any{
+				"dockerfile": "Dockerfile",
+				"issue":      "no non-root USER directive in final stage",
+			},
+			ProofCommand: fmt.Sprintf("gh api repos/%s/contents/Dockerfile --jq '.content' | base64 -d | grep -i '^USER'", repoSlug),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	return findings
+}
+
+// -------------------------------------------------------------------------
 // Webhook checks
 // -------------------------------------------------------------------------
 
@@ -1115,6 +1276,72 @@ func checkStaleCollaborators(collabs []ghCollaborator, repoSlug string) []findin
 		}
 	}
 	return findings
+}
+
+// -------------------------------------------------------------------------
+// GitHub Packages checks
+// -------------------------------------------------------------------------
+
+type ghPackage struct {
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	PackageType string `json:"package_type"` // "container", "npm", "maven", "nuget", "rubygems"
+	Visibility string `json:"visibility"`    // "public", "private"
+	HTMLURL    string `json:"html_url"`
+	Owner      struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+}
+
+// checkPackages enumerates GitHub Packages associated with the repo's owner
+// and flags any that are publicly visible. Public packages in private repos
+// are a common source of unintentional information exposure.
+func (s *Scanner) checkPackages(ctx context.Context, owner, repo, repoSlug string) []finding.Finding {
+	var allFindings []finding.Finding
+	for _, pkgType := range []string{"container", "npm", "maven", "nuget", "rubygems"} {
+		url := fmt.Sprintf("https://api.github.com/orgs/%s/packages?package_type=%s&per_page=100", owner, pkgType)
+		body, err := s.apiGet(ctx, url)
+		if err != nil {
+			// Try user endpoint if org endpoint fails (personal accounts).
+			url = fmt.Sprintf("https://api.github.com/users/%s/packages?package_type=%s&per_page=100", owner, pkgType)
+			body, err = s.apiGet(ctx, url)
+			if err != nil {
+				continue
+			}
+		}
+		var pkgs []ghPackage
+		if err := json.Unmarshal(body, &pkgs); err != nil {
+			continue
+		}
+		for _, pkg := range pkgs {
+			if pkg.Visibility == "public" {
+				allFindings = append(allFindings, finding.Finding{
+					CheckID:  finding.CheckGitHubPackagePublic,
+					Module:   "github",
+					Scanner:  scannerName,
+					Severity: finding.SeverityMedium,
+					Asset:    repoSlug,
+					Title:    fmt.Sprintf("Public %s package: %s", pkg.PackageType, pkg.Name),
+					Description: fmt.Sprintf(
+						"The %s package %q owned by %s is publicly visible. Public packages "+
+							"expose version history, release artifacts, and potentially internal naming "+
+							"conventions. If this package is intended to be internal, change its visibility "+
+							"to private under the package settings. Public container images may also expose "+
+							"application binaries, configuration, and secrets baked into image layers.",
+						pkg.PackageType, pkg.Name, owner),
+					Evidence: map[string]any{
+						"package_name": pkg.Name,
+						"package_type": pkg.PackageType,
+						"visibility":   pkg.Visibility,
+						"html_url":     pkg.HTMLURL,
+					},
+					ProofCommand: fmt.Sprintf("gh api orgs/%s/packages?package_type=%s --jq '.[] | select(.visibility==\"public\")'", owner, pkgType),
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+	}
+	return allFindings
 }
 
 // -------------------------------------------------------------------------

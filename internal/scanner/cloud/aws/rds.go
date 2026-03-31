@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
@@ -59,6 +60,40 @@ func scanRDS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					},
 					DiscoveredAt: time.Now(),
 				})
+
+				// TCP connectivity test: confirm whether the publicly accessible
+				// RDS instance is actually reachable from the internet.
+				if db.Endpoint != nil && db.Endpoint.Address != nil {
+					addr := net.JoinHostPort(awscfg.ToString(db.Endpoint.Address), fmt.Sprintf("%d", awscfg.ToInt32(db.Endpoint.Port)))
+					conn, dialErr := net.DialTimeout("tcp", addr, 5*time.Second)
+					if dialErr == nil {
+						conn.Close()
+						findings = append(findings, finding.Finding{
+							CheckID: finding.CheckCloudAWSRDSPublicReachable,
+							Title:   fmt.Sprintf("RDS instance is publicly reachable via TCP: %s", dbID),
+							Description: fmt.Sprintf(
+								"RDS instance %s (engine: %s) in %s is not only configured as publicly "+
+									"accessible but actually accepts TCP connections from the internet on %s. "+
+									"This confirms the database port is open through security groups and NACLs. "+
+									"An attacker can attempt brute-force authentication. Restrict network access immediately.",
+								dbID, engine, region, addr,
+							),
+							Severity:     finding.SeverityCritical,
+							Asset:        asset,
+							Scanner:      "cloud/aws",
+							ProofCommand: fmt.Sprintf("nc -zv %s %d", awscfg.ToString(db.Endpoint.Address), awscfg.ToInt32(db.Endpoint.Port)),
+							Evidence: map[string]any{
+								"account_id":    accountID,
+								"db_instance":   dbID,
+								"engine":        engine,
+								"region":        region,
+								"endpoint":      addr,
+								"resource_type": "rds_instance",
+							},
+							DiscoveredAt: time.Now(),
+						})
+					}
+				}
 			}
 
 			// Check if storage encryption is disabled.

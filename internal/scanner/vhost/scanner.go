@@ -166,13 +166,14 @@ func materiallyDifferent(baseline, r *hostResponse) bool {
 		diff = -diff
 	}
 	if diff > 500 {
-		larger := r.bodyLen
-		if baseline.bodyLen > larger {
-			larger = baseline.bodyLen
-		}
-		if larger > 0 && float64(diff)/float64(larger) > 0.20 {
-			return true
-		}
+		return true
+	}
+	larger := r.bodyLen
+	if baseline.bodyLen > larger {
+		larger = baseline.bodyLen
+	}
+	if larger > 0 && float64(diff)/float64(larger) > 0.20 {
+		return true
 	}
 	// Different page title is a strong signal
 	if r.title != "" && baseline.title != "" && r.title != baseline.title {
@@ -257,7 +258,10 @@ func buildClient(ip string) *http.Client {
 }
 
 func extractVHostTitle(body string) string {
-	lower := strings.ToLower(body)
+	// ASCII-only lowercasing preserves byte length (unlike strings.ToLower
+	// which can change byte length for characters like ẞ→ß), so indices
+	// from the lowered version are valid for slicing the original body.
+	lower := asciiLower(body)
 	start := strings.Index(lower, "<title>")
 	if start == -1 {
 		return ""
@@ -268,4 +272,18 @@ func extractVHostTitle(body string) string {
 		return ""
 	}
 	return strings.TrimSpace(body[start : start+end])
+}
+
+// asciiLower lowercases only ASCII A-Z, preserving all byte positions.
+func asciiLower(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 32
+		} else {
+			b[i] = c
+		}
+	}
+	return string(b)
 }

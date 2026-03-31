@@ -87,21 +87,21 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			// --- AWS S3 ---
 			s3URL := fmt.Sprintf("https://%s.s3.amazonaws.com/", c)
 			local = append(local, probeURL(ctx, client, asset, s3URL, "AWS S3", c, pageText, now))
-			if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+			if scanType == module.ScanAuthorized {
 				local = append(local, probeWrite(ctx, client, asset, s3URL, "AWS S3", c, now))
 			}
 
 			// --- Google Cloud Storage ---
 			gcsURL := fmt.Sprintf("https://storage.googleapis.com/%s/", c)
 			local = append(local, probeURL(ctx, client, asset, gcsURL, "GCS", c, pageText, now))
-			if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+			if scanType == module.ScanAuthorized {
 				local = append(local, probeWrite(ctx, client, asset, gcsURL, "GCS", c, now))
 			}
 
 			// --- Azure Blob Storage ---
 			azureURL := fmt.Sprintf("https://%s.blob.core.windows.net/", c)
 			local = append(local, probeURL(ctx, client, asset, azureURL, "Azure Blob", c, pageText, now))
-			if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+			if scanType == module.ScanAuthorized {
 				local = append(local, probeWrite(ctx, client, asset, azureURL, "Azure Blob", c, now))
 			}
 
@@ -377,9 +377,10 @@ func probeWrite(ctx context.Context, client *http.Client, asset, baseURL, provid
 	delReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, writeURL, nil)
 	if err == nil {
 		delResp, err := client.Do(delReq)
-		if err == nil {
+		if delResp != nil {
 			delResp.Body.Close()
 		}
+		_ = err
 	}
 
 	return &finding.Finding{

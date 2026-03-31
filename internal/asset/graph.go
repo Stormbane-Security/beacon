@@ -63,6 +63,7 @@ const (
 	// Source control / CI
 	AssetTypeGitHubRepo     AssetType = "github_repo"
 	AssetTypeGitHubWorkflow AssetType = "github_workflow"
+	AssetTypeGitHubPackage  AssetType = "github_package"
 	AssetTypeJenkinsServer  AssetType = "jenkins_server"
 	AssetTypeGitLabInstance AssetType = "gitlab_instance"
 	AssetTypeTeamCityServer AssetType = "teamcity_server"
@@ -75,6 +76,38 @@ const (
 	AssetTypeK8sCluster   AssetType = "k8s_cluster"
 	AssetTypeK8sNamespace AssetType = "k8s_namespace"
 	AssetTypeK8sWorkload  AssetType = "k8s_workload"
+
+	// On-prem — Proxmox VE
+	AssetTypeProxmoxNode      AssetType = "proxmox_node"
+	AssetTypeProxmoxVM        AssetType = "proxmox_vm"
+	AssetTypeProxmoxContainer AssetType = "proxmox_container"
+	AssetTypeProxmoxStorage   AssetType = "proxmox_storage"
+
+	// On-prem — Docker
+	AssetTypeDockerHost      AssetType = "docker_host"
+	AssetTypeDockerContainer AssetType = "docker_container"
+	AssetTypeDockerImage     AssetType = "docker_image"
+	AssetTypeDockerNetwork   AssetType = "docker_network"
+	AssetTypeDockerVolume    AssetType = "docker_volume"
+
+	// On-prem — VMware
+	AssetTypeVMwareHost      AssetType = "vmware_host"
+	AssetTypeVMwareVM        AssetType = "vmware_vm"
+	AssetTypeVMwareDatastore AssetType = "vmware_datastore"
+
+	// On-prem — libvirt/KVM
+	AssetTypeLibvirtHost   AssetType = "libvirt_host"
+	AssetTypeLibvirtDomain AssetType = "libvirt_domain"
+
+	// On-prem — Network devices
+	AssetTypeNetworkDevice AssetType = "network_device"
+	AssetTypeNetworkSwitch AssetType = "network_switch"
+	AssetTypeNetworkRouter AssetType = "network_router"
+	AssetTypeNetworkAP     AssetType = "network_access_point"
+
+	// On-prem — NAS appliances
+	AssetTypeNASAppliance AssetType = "nas_appliance"
+	AssetTypeNASShare     AssetType = "nas_share"
 )
 
 // RelationshipType describes the semantic direction of an edge.
@@ -84,6 +117,8 @@ const (
 	RelManages         RelationshipType = "manages"           // repo/terraform → cloud resource
 	RelExposes         RelationshipType = "exposes"           // service → API / port
 	RelDeploysTo       RelationshipType = "deploys_to"        // workflow → cluster/project
+	RelPublishes       RelationshipType = "publishes"         // workflow → package/registry
+	RelDeployedFrom    RelationshipType = "deployed_from"     // k8s workload/cloud instance → package
 	RelUses            RelationshipType = "uses"              // workload → identity
 	RelAccesses        RelationshipType = "accesses"          // identity → resource
 	RelBelongsTo       RelationshipType = "belongs_to"        // subdomain → domain

@@ -10,12 +10,22 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
 )
+
+// htmlTagRe matches HTML tags for sanitization of AI response fields.
+var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
+
+// sanitizeAIField strips HTML tags from an AI response field to prevent
+// stored XSS when the field is later rendered in HTML reports.
+func sanitizeAIField(s string) string {
+	return htmlTagRe.ReplaceAllString(s, "")
+}
 
 //go:embed prompts/finding.tmpl
 var defaultFindingTmpl string
@@ -448,12 +458,12 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 	}
 
 	// Build the full report summary: executive summary + narrative + roadmap.
-	fullSummary := result.Summary
+	fullSummary := sanitizeAIField(result.Summary)
 	if result.AttackNarrative != "" {
-		fullSummary += "\n\n## Attack Narrative\n\n" + result.AttackNarrative
+		fullSummary += "\n\n## Attack Narrative\n\n" + sanitizeAIField(result.AttackNarrative)
 	}
 	if result.RemediationRoadmap != "" {
-		fullSummary += "\n\n## Remediation Roadmap\n\n" + result.RemediationRoadmap
+		fullSummary += "\n\n## Remediation Roadmap\n\n" + sanitizeAIField(result.RemediationRoadmap)
 	}
 
 	// Index the contextual updates by (check_id, asset).
@@ -467,9 +477,16 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 	}
 	index := make(map[key]update, len(result.Findings))
 	for _, f := range result.Findings {
+		omit := f.Omit
+		mitigatedBy := sanitizeAIField(f.MitigatedBy)
+		// Prevent prompt injection from suppressing findings: omit=true
+		// is only honoured when mitigated_by explains the mitigation.
+		if omit && mitigatedBy == "" {
+			omit = false
+		}
 		index[key{strings.ToLower(f.CheckID), strings.ToLower(strings.TrimRight(f.Asset, "."))}] = update{
-			f.Omit, f.MitigatedBy, f.CrossAssetNote,
-			f.TechSpecificRemediation, f.ComplianceTags,
+			omit, mitigatedBy, sanitizeAIField(f.CrossAssetNote),
+			sanitizeAIField(f.TechSpecificRemediation), f.ComplianceTags,
 		}
 	}
 
@@ -597,7 +614,10 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	if readErr != nil {
+		return "", fmt.Errorf("reading OpenAI-compat response body: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
@@ -660,7 +680,10 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	if readErr != nil {
+		return "", fmt.Errorf("reading Gemini response body: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		// Redact the response body to avoid leaking the API key.
 		safeBody := strings.TrimSpace(string(data))
@@ -716,7 +739,10 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("Ollama request failed (is Ollama running?): %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
+	if readErr != nil {
+		return "", fmt.Errorf("reading Ollama response body: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		safeBody := strings.TrimSpace(string(data))
 		if c.apiKey != "" {
@@ -878,7 +904,12 @@ func parseEnrichedResponse(findings []finding.Finding, text string) ([]EnrichedF
 	}
 	enrichMap := make(map[string]enrichEntry)
 	for _, p := range parsed {
-		enrichMap[p.CheckID] = enrichEntry{p.Explanation, p.Impact, p.Remediation, p.TerraformFix}
+		enrichMap[p.CheckID] = enrichEntry{
+			sanitizeAIField(p.Explanation),
+			sanitizeAIField(p.Impact),
+			sanitizeAIField(p.Remediation),
+			sanitizeAIField(p.TerraformFix),
+		}
 	}
 
 	out := make([]EnrichedFinding, len(findings))

@@ -16,9 +16,6 @@ match:
     - title_contains: "Welcome to nginx"
     - body_contains: "Welcome to nginx"
     - body_contains: "nginx/1."
-    - header_value:
-        name: "server"
-        contains: "nginx"
 surface:
   nuclei_tags:
     - nginx

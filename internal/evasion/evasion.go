@@ -10,9 +10,11 @@ package evasion
 
 import (
 	"context"
+	"log"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -79,6 +81,10 @@ func (s *Strategy) nextProxy() string {
 type evasionTransport struct {
 	base     http.RoundTripper
 	strategy *Strategy
+
+	// mu guards the transports cache.
+	mu         sync.Mutex
+	transports map[string]*http.Transport // proxy URL → cached transport
 }
 
 func (t *evasionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -93,12 +99,29 @@ func (t *evasionTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	parsed, err := url.Parse(proxyURL)
 	if err != nil {
-		// Misconfigured proxy — fall back to direct.
+		// Misconfigured proxy — log a warning and fall back to direct.
+		log.Printf("evasion: invalid proxy URL %q, falling back to direct connection: %v", proxyURL, err)
 		return t.base.RoundTrip(req)
 	}
 
-	// Build a one-shot transport with the chosen proxy. We clone the default
-	// transport rather than the base to avoid mutating shared state.
+	// Look up or create a cached transport for this proxy URL.
+	transport := t.getOrCreateTransport(proxyURL, parsed)
+	return transport.RoundTrip(req)
+}
+
+// getOrCreateTransport returns a cached *http.Transport for the given proxy URL,
+// creating one if it doesn't already exist.
+func (t *evasionTransport) getOrCreateTransport(proxyURL string, parsed *url.URL) *http.Transport {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.transports == nil {
+		t.transports = make(map[string]*http.Transport)
+	}
+	if tr, ok := t.transports[proxyURL]; ok {
+		return tr
+	}
+
 	proxied := &http.Transport{
 		Proxy: http.ProxyURL(parsed),
 	}
@@ -106,5 +129,6 @@ func (t *evasionTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		proxied = dt.Clone()
 		proxied.Proxy = http.ProxyURL(parsed)
 	}
-	return proxied.RoundTrip(req)
+	t.transports[proxyURL] = proxied
+	return proxied
 }

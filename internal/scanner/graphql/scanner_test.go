@@ -316,6 +316,86 @@ func TestCheckBatchQuery_ArrayWithErrorsKey_FindingEmitted(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Edge: introspection disabled — server returns error/400 on introspection query.
+// Scanner must not emit a false positive.
+// ---------------------------------------------------------------------------
+
+func TestGraphQLIntrospectionDisabled(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"errors":[{"message":"Introspection is not allowed"}]}`))
+	}))
+	defer ts.Close()
+
+	exposed, snippet := checkIntrospection(context.Background(), ts.Client(), ts.URL)
+	if exposed {
+		t.Error("expected introspection NOT detected when server returns 400 error")
+	}
+	if snippet != "" {
+		t.Errorf("expected empty snippet when introspection is disabled, got %q", snippet)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: truncated JSON response — scanner must not panic
+// ---------------------------------------------------------------------------
+
+func TestGraphQLTruncatedResponse(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Truncated JSON: "__schema" is present as a string but the JSON is incomplete.
+		w.Write([]byte(`{"data":{"__schema":{"types":[{"name":"Qu`))
+	}))
+	defer ts.Close()
+
+	// Must not panic. The function may or may not detect introspection depending
+	// on whether __schema substring match is enough, but the key assertion is
+	// no crash.
+	exposed, snippet := checkIntrospection(context.Background(), ts.Client(), ts.URL)
+	// Even with truncated JSON, the string "__schema" IS present, so the scanner
+	// may detect it as exposed. What matters is it doesn't panic.
+	_ = exposed
+	_ = snippet
+}
+
+// ---------------------------------------------------------------------------
+// Edge: checkBatchQuery with truncated/invalid JSON — no panic
+// ---------------------------------------------------------------------------
+
+func TestCheckBatchQuery_TruncatedJSON_NoPanic(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[{"data":{"__typename":"Qu`)) // truncated
+	}))
+	defer ts.Close()
+
+	// Must not panic on invalid JSON.
+	f := checkBatchQuery(context.Background(), ts.Client(), "example.com", ts.URL)
+	_ = f
+}
+
+// ---------------------------------------------------------------------------
+// Edge: checkIntrospection with 200 but HTML body (not JSON) — no false positive
+// ---------------------------------------------------------------------------
+
+func TestCheckIntrospection_HTMLResponse_ReturnsFalse(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<html><body>Not a GraphQL endpoint</body></html>`))
+	}))
+	defer ts.Close()
+
+	exposed, _ := checkIntrospection(context.Background(), ts.Client(), ts.URL)
+	if exposed {
+		t.Error("should not detect introspection on HTML response")
+	}
+}
+
 // Note: Run() cannot be integration-tested at this layer because isHTTPReachable()
 // requires the target to accept TCP connections on port 80 or 443. Binding to those
 // ports requires privilege and is not feasible in unit tests. All detection logic is

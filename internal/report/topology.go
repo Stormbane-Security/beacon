@@ -239,14 +239,14 @@ func RenderTopologyMermaid(executions []store.AssetExecution, findings []finding
 
 		if !declaredProvs[g.provider] {
 			declaredProvs[g.provider] = true
-			b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", provID, g.provider))
+			b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", provID, mermaidEscape(g.provider)))
 		}
 
 		ipLabel := g.ip
 		if len(g.hosts) > 1 {
 			ipLabel = fmt.Sprintf("%s\\n(%d hosts)", g.ip, len(g.hosts))
 		}
-		b.WriteString(fmt.Sprintf("    %s([\"%s\"])\n", ipID, ipLabel))
+		b.WriteString(fmt.Sprintf("    %s([\"%s\"])\n", ipID, mermaidEscape(ipLabel)))
 		b.WriteString(fmt.Sprintf("    %s --> %s\n", provID, ipID))
 
 		for hi, h := range g.hosts {
@@ -255,12 +255,12 @@ func RenderTopologyMermaid(executions []store.AssetExecution, findings []finding
 			if d := hostDetail(h); d != "" {
 				label += "\\n" + d
 			}
-			b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", hostID, label))
+			b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", hostID, mermaidEscape(label)))
 			b.WriteString(fmt.Sprintf("    %s --> %s\n", ipID, hostID))
 
 			for si, svc := range h.services {
 				svcID := mermaidID(fmt.Sprintf("svc_%d_%d_%d_%s", gi, hi, si, svc.service))
-				b.WriteString(fmt.Sprintf("    %s{{\":%d %s\"}}\n", svcID, svc.port, svc.service))
+				b.WriteString(fmt.Sprintf("    %s{{\":%d %s\"}}\n", svcID, svc.port, mermaidEscape(svc.service)))
 				b.WriteString(fmt.Sprintf("    %s --> %s\n", hostID, svcID))
 			}
 		}
@@ -290,6 +290,12 @@ func hostDetail(h topoEntry) string {
 func mermaidID(s string) string {
 	r := strings.NewReplacer(".", "_", "-", "_", ":", "_", "/", "_", " ", "_", "(", "_", ")", "_")
 	return r.Replace(s)
+}
+
+// mermaidEscape escapes characters that have special meaning inside
+// Mermaid quoted labels. Double quotes would terminate the label string.
+func mermaidEscape(s string) string {
+	return strings.ReplaceAll(s, `"`, "#quot;")
 }
 
 // evidenceInt extracts an integer from a finding evidence map.

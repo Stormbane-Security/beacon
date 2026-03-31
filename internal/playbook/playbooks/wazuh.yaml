@@ -17,7 +17,6 @@ match:
     - check_id: "port.wazuh_api_exposed"
     - title_contains: "Wazuh"
     - body_contains: "Wazuh"
-    - path_responds: "/api/v2/"
 surface:
   scanners:
     - exposedfiles

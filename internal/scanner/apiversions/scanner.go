@@ -51,6 +51,15 @@ var versionPaths = []struct {
 	{"/services/v2/", "v2"},
 }
 
+// activeVersion records a discovered API version endpoint's metadata.
+type activeVersion struct {
+	path    string
+	version string
+	status  int
+	ct      string
+	bodyLen int
+}
+
 // Scanner probes for active API version endpoints.
 type Scanner struct{}
 
@@ -80,14 +89,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// Collect active versions — probe all paths concurrently (max 10 in flight).
-	type activeVersion struct {
-		path    string
-		version string
-		status  int
-		ct      string
-		bodyLen int
-	}
-
 	type result struct {
 		path    string
 		version string
@@ -247,7 +248,211 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// Deep-mode probes: check if older versions bypass auth or rate limiting.
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+		findings = append(findings, checkVersionAuthBypass(ctx, client, asset, base, active)...)
+	}
+
 	return findings, nil
+}
+
+// checkVersionAuthBypass compares auth and rate-limit behavior across discovered
+// API versions. If the latest version requires auth (401/403) but an older version
+// returns 200 for the same path, it flags an auth bypass. It also checks if older
+// versions have weaker rate limiting by sending a burst of requests.
+func checkVersionAuthBypass(ctx context.Context, client *http.Client, asset, base string, versions []activeVersion) []finding.Finding {
+	if len(versions) < 2 {
+		return nil
+	}
+
+	// Find the "current" version — prefer the highest numbered version that
+	// returns 401 or 403 (auth-gated). This is the security baseline.
+	var currentVersion *activeVersion
+	var olderVersions []activeVersion
+	for i := range versions {
+		v := &versions[i]
+		if v.status == http.StatusUnauthorized || v.status == http.StatusForbidden {
+			if currentVersion == nil {
+				currentVersion = v
+			}
+		}
+	}
+
+	if currentVersion == nil {
+		// No auth-gated version found — can't compare.
+		return nil
+	}
+
+	// Collect older versions that returned 200 OK.
+	for i := range versions {
+		v := &versions[i]
+		if v.path == currentVersion.path {
+			continue
+		}
+		if v.status == http.StatusOK {
+			olderVersions = append(olderVersions, *v)
+		}
+	}
+
+	var findings []finding.Finding
+	now := time.Now()
+
+	for _, older := range olderVersions {
+		select {
+		case <-ctx.Done():
+			return findings
+		default:
+		}
+
+		// Confirm: request the older version path without auth headers and check
+		// if it returns 200 while the current version returns 401/403.
+		olderURL := base + older.path
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, olderURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Accept", "application/json")
+		// Explicitly omit Authorization header.
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
+
+		ct := resp.Header.Get("Content-Type")
+		// Skip HTML responses — likely a catch-all.
+		if strings.Contains(ct, "text/html") {
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckAPIVersionAuthBypass,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Asset:    asset,
+				Title:    fmt.Sprintf("API version %s accessible without authentication (current %s requires auth)", older.version, currentVersion.version),
+				Description: fmt.Sprintf(
+					"The API endpoint %s%s returned HTTP 200 without authentication, while the "+
+						"current version at %s%s requires authentication (HTTP %d). "+
+						"This indicates the older API version is missing the authentication middleware "+
+						"applied to newer versions, allowing unauthenticated access to API functionality.",
+					base, older.path, base, currentVersion.path, currentVersion.status),
+				Evidence: map[string]any{
+					"older_url":           base + older.path,
+					"older_version":       older.version,
+					"older_status":        resp.StatusCode,
+					"current_url":         base + currentVersion.path,
+					"current_version":     currentVersion.version,
+					"current_status":      currentVersion.status,
+					"body_snippet":        truncateBytes(body, 200),
+				},
+				ProofCommand: fmt.Sprintf(
+					"curl -si -H 'Accept: application/json' '%s%s' && echo '---' && curl -si -H 'Accept: application/json' '%s%s'",
+					base, older.path, base, currentVersion.path),
+				DeepOnly:     true,
+				DiscoveredAt: now,
+			})
+		}
+
+		// Rate-limit bypass check: send a burst of 10 rapid requests to the older
+		// version. If none are rate-limited (429), flag weaker rate limiting.
+		rateLimited := false
+		const burstSize = 10
+		for range burstSize {
+			select {
+			case <-ctx.Done():
+				return findings
+			default:
+			}
+			rlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, olderURL, nil)
+			if err != nil {
+				break
+			}
+			rlReq.Header.Set("Accept", "application/json")
+			rlResp, err := client.Do(rlReq)
+			if err != nil {
+				break
+			}
+			rlResp.Body.Close()
+			if rlResp.StatusCode == http.StatusTooManyRequests {
+				rateLimited = true
+				break
+			}
+		}
+
+		if !rateLimited {
+			// Also send a burst to the current version to compare.
+			currentRateLimited := false
+			currentURL := base + currentVersion.path
+			for range burstSize {
+				select {
+				case <-ctx.Done():
+					return findings
+				default:
+				}
+				rlReq, err := http.NewRequestWithContext(ctx, http.MethodGet, currentURL, nil)
+				if err != nil {
+					break
+				}
+				rlReq.Header.Set("Accept", "application/json")
+				rlResp, err := client.Do(rlReq)
+				if err != nil {
+					break
+				}
+				rlResp.Body.Close()
+				if rlResp.StatusCode == http.StatusTooManyRequests {
+					currentRateLimited = true
+					break
+				}
+			}
+
+			// Only flag if the current version IS rate-limited but the older one is NOT.
+			if currentRateLimited {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckAPIVersionRateLimitBypass,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityMedium,
+					Asset:    asset,
+					Title:    fmt.Sprintf("Rate limiting weaker on older API version %s (vs %s)", older.version, currentVersion.version),
+					Description: fmt.Sprintf(
+						"The older API version at %s%s did not return HTTP 429 after %d rapid requests, "+
+							"while the current version at %s%s enforces rate limiting. "+
+							"Attackers can target the older version to bypass rate limits for brute-force, "+
+							"credential stuffing, or enumeration attacks.",
+						base, older.path, burstSize, base, currentVersion.path),
+					Evidence: map[string]any{
+						"older_url":            base + older.path,
+						"older_version":        older.version,
+						"current_url":          base + currentVersion.path,
+						"current_version":      currentVersion.version,
+						"burst_size":           burstSize,
+						"older_rate_limited":   false,
+						"current_rate_limited": true,
+					},
+					ProofCommand: fmt.Sprintf(
+						"for i in $(seq 1 %d); do curl -so /dev/null -w '%%{http_code}\\n' '%s%s'; done",
+						burstSize, base, older.path),
+					DeepOnly:     true,
+					DiscoveredAt: now,
+				})
+			}
+		}
+	}
+
+	return findings
+}
+
+// truncateBytes returns the first n bytes of b as a string, appending "..." if truncated.
+func truncateBytes(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "..."
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset, port string) string {

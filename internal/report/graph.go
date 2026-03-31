@@ -131,11 +131,12 @@ func buildNodeLabel(a asset.Asset, s *assetStats) string {
 	// Type label (short form)
 	typeLabel := assetTypeLabel(a.Type)
 
-	// Name — truncate if too long
+	// Name — truncate if too long, then escape for DOT label safety.
 	name := a.Name
 	if len(name) > 45 {
 		name = name[:20] + "..." + name[len(name)-20:]
 	}
+	name = dotEscape(name)
 
 	label := typeLabel + "\\n" + name
 
@@ -176,6 +177,7 @@ func assetTypeLabel(t asset.AssetType) string {
 		asset.AssetTypeAzureAKS:            "AKS Cluster",
 		asset.AssetTypeGitHubRepo:          "GitHub Repo",
 		asset.AssetTypeGitHubWorkflow:      "GH Workflow",
+		asset.AssetTypeGitHubPackage:       "GH Package",
 		asset.AssetTypeTerraformModule:     "TF Module",
 		asset.AssetTypeTerraformResource:   "TF Resource",
 		asset.AssetTypeK8sCluster:          "K8s Cluster",
@@ -202,7 +204,7 @@ func nodeShape(t asset.AssetType) string {
 		return "hexagon"
 	case asset.AssetTypeGCPServiceAccount, asset.AssetTypeAWSIAMUser, asset.AssetTypeAWSIAMRole:
 		return "diamond"
-	case asset.AssetTypeGitHubRepo, asset.AssetTypeGitHubWorkflow:
+	case asset.AssetTypeGitHubRepo, asset.AssetTypeGitHubWorkflow, asset.AssetTypeGitHubPackage:
 		return "note"
 	case asset.AssetTypeTerraformModule, asset.AssetTypeTerraformResource:
 		return "parallelogram"
