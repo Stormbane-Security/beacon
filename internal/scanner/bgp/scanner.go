@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +67,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return nil, nil
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Dedicated transport for external API calls (ip-api.com, bgpview.io).
+	// MaxIdleConnsPerHost matches the asnSem concurrency of 5 so connections
+	// are reused rather than torn down and re-established for each lookup.
+	apiTransport := &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     30 * time.Second,
+	}
+	client := &http.Client{
+		Timeout:   15 * time.Second,
+		Transport: apiTransport,
+	}
 
 	// Step 1: collect all IPs associated with the domain — A records directly,
 	// plus MX and NS hostnames resolved to IPs. This catches orgs that host
@@ -173,11 +185,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return results, nil
 	}
 
-	// Derive the root domain for PTR matching (last two labels of asset).
-	rootDomain := asset
-	if parts := strings.Split(asset, "."); len(parts) > 2 {
-		rootDomain = strings.Join(parts[len(parts)-2:], ".")
-	}
+	// Derive the root domain for PTR matching.
+	rootDomain := bgpRootDomain(asset)
 
 	results = append(results, probeASNIPRange(ctx, allPrefixes)...)
 	results = append(results, probeASNPTRRecords(ctx, allPrefixes, rootDomain)...)
@@ -264,10 +273,15 @@ func probeASNIPRange(ctx context.Context, prefixes []string) []finding.Finding {
 	sem := make(chan struct{}, 20)
 	var wg sync.WaitGroup
 
+	// DisableKeepAlives: each probe target is a different IP, so connection
+	// reuse has no value and holding idle connections wastes file descriptors.
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
 		},
 	}
 
@@ -438,9 +452,11 @@ func parseCIDR(cidr string) (*net.IPNet, int, bool) {
 	return ipNet, ones, true
 }
 
-// enumerateIPs returns all host IP strings in ipNet.
-// No internal cap — callers control the total via maxIPsPerScan.
+// enumerateIPs returns host IP strings in ipNet, capped at 65536 to prevent
+// OOM on broad prefixes (e.g. /8 or /0). Callers additionally cap the total
+// across all prefixes via maxIPsPerScan.
 func enumerateIPs(ipNet *net.IPNet) []string {
+	const maxPerPrefix = 1 << 16 // 65536
 	var ips []string
 	ip := cloneIP(ipNet.IP.To4())
 	if ip == nil {
@@ -448,6 +464,9 @@ func enumerateIPs(ipNet *net.IPNet) []string {
 	}
 	for ipNet.Contains(ip) {
 		ips = append(ips, ip.String())
+		if len(ips) >= maxPerPrefix {
+			break
+		}
 		incrementIP(ip)
 	}
 	return ips
@@ -471,11 +490,92 @@ func incrementIP(ip net.IP) {
 	}
 }
 
+// bgpTwoPartTLDs are country-code TLDs that require three labels for a
+// registrable domain (e.g. example.co.uk).
+var bgpTwoPartTLDs = map[string]bool{
+	"co.uk": true, "org.uk": true, "ac.uk": true, "gov.uk": true,
+	"com.au": true, "net.au": true, "org.au": true, "com.br": true,
+	"co.nz": true, "net.nz": true, "org.nz": true,
+	"co.jp": true, "or.jp": true, "ne.jp": true,
+	"co.kr": true, "or.kr": true,
+	"co.in": true, "net.in": true, "org.in": true,
+	"co.za": true, "org.za": true, "web.za": true,
+	"com.cn": true, "net.cn": true, "org.cn": true,
+	"com.mx": true, "org.mx": true,
+	"com.tr": true, "org.tr": true,
+	"co.il": true, "org.il": true,
+	"com.sg": true, "org.sg": true,
+	"com.hk": true, "org.hk": true,
+	"com.tw": true, "org.tw": true,
+}
+
+// bgpRootDomain extracts the registrable root domain from asset, handling
+// two-part TLDs like co.uk correctly.
+func bgpRootDomain(asset string) string {
+	parts := strings.Split(asset, ".")
+	if len(parts) <= 2 {
+		return asset
+	}
+	suffix := parts[len(parts)-2] + "." + parts[len(parts)-1]
+	if bgpTwoPartTLDs[suffix] {
+		if len(parts) <= 3 {
+			return asset
+		}
+		return strings.Join(parts[len(parts)-3:], ".")
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
 // ipAPIResponse is the relevant subset of ip-api.com's JSON response.
 type ipAPIResponse struct {
 	AS     string `json:"as"`     // e.g. "AS13335 Cloudflare, Inc."
 	Org    string `json:"org"`    // e.g. "AS13335 Cloudflare, Inc."
 	Status string `json:"status"` // "success" or "fail"
+}
+
+// retryGet executes an HTTP GET with exponential back-off on 429 and 5xx
+// responses. It respects the Retry-After header when present and retries
+// up to maxAttempts times before returning the last response.
+func retryGet(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
+	const maxAttempts = 3
+	var lastResp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s
+			// Honour Retry-After if the server provided one.
+			if lastResp != nil {
+				if ra := lastResp.Header.Get("Retry-After"); ra != "" {
+					if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs < 120 {
+						delay = time.Duration(secs) * time.Second
+					}
+				}
+				lastResp.Body.Close()
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+			// Clone request for retry (Body is nil for GETs so cloning is safe).
+			clone := req.Clone(ctx)
+			req = clone
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			lastResp = resp
+			continue
+		}
+		return resp, nil
+	}
+	if lastResp != nil {
+		return lastResp, nil // return last response so callers can inspect the status
+	}
+	return nil, lastErr
 }
 
 func lookupASN(ctx context.Context, client *http.Client, ip string) (int, string, error) {
@@ -485,7 +585,7 @@ func lookupASN(ctx context.Context, client *http.Client, ip string) (int, string
 		return 0, "", err
 	}
 
-	resp, err := client.Do(req)
+	resp, err := retryGet(ctx, client, req)
 	if err != nil {
 		return 0, "", fmt.Errorf("ip-api lookup failed")
 	}
@@ -542,7 +642,7 @@ func fetchASNPrefixes(ctx context.Context, client *http.Client, asn int) ([]stri
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
 
-	resp, err := client.Do(req)
+	resp, err := retryGet(ctx, client, req)
 	if err != nil {
 		return nil, fmt.Errorf("bgpview fetch failed: %w", err)
 	}

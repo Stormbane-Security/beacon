@@ -1,0 +1,23 @@
+name: cisco_smart_install
+description: >
+  Cisco Smart Install client is reachable on TCP/4786. Smart Install allows
+  unauthenticated remote configuration of Cisco IOS switches — an attacker can
+  overwrite the startup configuration, replace the IOS image with a malicious
+  firmware, or exfiltrate stored credentials and configurations with no
+  authentication required. Disable with 'no vstack' on IOS 12.2(55)SE3+.
+  KEV-listed; actively exploited by state actors (e.g., VPNFilter campaign).
+match:
+  any:
+    - check_id: "port.cisco_smart_install"
+surface:
+  scanners:
+    - portscan
+  nuclei_tags:
+    - cisco
+    - exposure
+deep:
+  scanners:
+    - portscan
+  nuclei_tags:
+    - cisco
+    - misconfiguration

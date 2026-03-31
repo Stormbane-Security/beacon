@@ -380,6 +380,166 @@ func TestJWT_JWKSMissingKID(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// allSensitiveFields integrity — verify that the package-level append
+// does not mutate the underlying sensitiveDataFields slice.
+// ---------------------------------------------------------------------------
+
+func TestAllSensitiveFields_DoesNotMutateSensitiveDataFields(t *testing.T) {
+	// sensitiveDataFields should not contain any of the role fields.
+	for _, rf := range sensitiveRoleFields {
+		for _, df := range sensitiveDataFields {
+			if df == rf {
+				t.Errorf("sensitiveDataFields was mutated — it now contains role field %q", rf)
+			}
+		}
+	}
+	// allSensitiveFields must contain both sets.
+	if len(allSensitiveFields) != len(sensitiveDataFields)+len(sensitiveRoleFields) {
+		t.Errorf("allSensitiveFields has %d entries, expected %d+%d=%d",
+			len(allSensitiveFields),
+			len(sensitiveDataFields), len(sensitiveRoleFields),
+			len(sensitiveDataFields)+len(sensitiveRoleFields))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JWT found in large body — verify the 512 KB limit catches JWTs
+// ---------------------------------------------------------------------------
+
+func TestRun_JWTInLargeBody_Detected(t *testing.T) {
+	// Create a page where a JWT appears after 8 KB of padding.
+	exp := time.Now().Add(15 * time.Minute).Unix()
+	token := makeToken(
+		map[string]any{"alg": "none", "typ": "JWT"},
+		map[string]any{"sub": "1", "exp": exp},
+	)
+	padding := strings.Repeat("x", 8192)
+	body := padding + `<script>var token="` + token + `";</script>`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return 404 for the catch-all canary path so the scanner does not
+		// bail out with "catch-all server" detection.
+		if strings.Contains(r.URL.Path, "beacon-probe-") {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := New()
+	findings, err := s.Run(t.Context(), host, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJWTWeakAlg {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected JWT finding for alg:none token embedded after 8KB of padding")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Deep-mode checks run under ScanAuthorized too
+// ---------------------------------------------------------------------------
+
+func TestRun_ScanAuthorized_RunsDeepChecks(t *testing.T) {
+	// Serve a catch-all that returns 404 for all paths except the JWKS path
+	// to ensure the scanner processes deep-mode checks under ScanAuthorized.
+	// We use the alg:none variant check as a proxy for "deep checks ran".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return JSON for all API paths to make submitTokenProbe accept it.
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Bearer ") {
+			// Accept any token — simulates a broken server for the test
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"user":"test","id":1}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := New()
+	findings, err := s.Run(t.Context(), host, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Under ScanAuthorized, deep checks should run. The alg:none check
+	// submits a forged token. Because our server accepts everything, we
+	// should see the alg:none finding.
+	var deepCheckRan bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJWTAlgNoneVariant ||
+			f.CheckID == finding.CheckJWTEmptySecret ||
+			f.CheckID == finding.CheckJWTAlgorithmConfusion ||
+			f.CheckID == finding.CheckJWTKidInjection {
+			deepCheckRan = true
+			break
+		}
+	}
+	if !deepCheckRan {
+		t.Error("expected deep-mode JWT checks to run under ScanAuthorized, but none fired")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// analyseToken: JWE token (5 parts) — skipped, no panic
+// ---------------------------------------------------------------------------
+
+func TestAnalyseToken_JWE_5Parts_NoFindings(t *testing.T) {
+	// JWE tokens have 5 base64url segments. The scanner should skip payload analysis.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RSA-OAEP","enc":"A256GCM"}`))
+	token := header + ".enc_key.iv.ciphertext.tag"
+	findings := analyseToken("example.com", token)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for JWE token, got %d: %v", len(findings), findings)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// analyseToken: no "alg" in header — must return nil (not a JWT)
+// ---------------------------------------------------------------------------
+
+func TestAnalyseToken_NoAlgHeader_NoFindings(t *testing.T) {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"1"}`))
+	token := header + "." + payload + ".sig"
+	findings := analyseToken("example.com", token)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for token without alg header, got %d", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Server returning empty response — no panic
+// ---------------------------------------------------------------------------
+
+func TestRun_EmptyResponse_NoPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// Intentionally empty body.
+	}))
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	s := New()
+	findings, err := s.Run(t.Context(), host, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = findings // must not panic
+}
+
 // TestOIDC_WeakSigningAlg spins up a mock OIDC discovery document that
 // advertises "none" in id_token_signing_alg_values_supported and asserts that
 // the oauth scanner emits CheckOIDCWeakSigningAlg (High severity).

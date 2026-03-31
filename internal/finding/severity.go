@@ -1,5 +1,7 @@
 package finding
 
+import "strings"
+
 // Severity represents the risk level of a finding.
 type Severity int
 
@@ -41,9 +43,10 @@ func (s Severity) Weight() int {
 	}
 }
 
-// ParseSeverity converts a string to Severity. Returns SeverityInfo if unknown.
+// ParseSeverity converts a string to Severity. Case-insensitive.
+// Returns SeverityInfo if unknown.
 func ParseSeverity(s string) Severity {
-	switch s {
+	switch strings.ToLower(s) {
 	case "critical":
 		return SeverityCritical
 	case "high":
@@ -57,42 +60,3 @@ func ParseSeverity(s string) Severity {
 	}
 }
 
-// ConversionValue reflects how compelling a finding is as a reason to upgrade.
-type ConversionValue int
-
-const (
-	ConversionLow ConversionValue = iota
-	ConversionMedium
-	ConversionHigh
-)
-
-func (c ConversionValue) Weight() int {
-	switch c {
-	case ConversionHigh:
-		return 30
-	case ConversionMedium:
-		return 15
-	default:
-		return 0
-	}
-}
-
-// FounderClarity reflects how understandable a finding is to a non-technical reader.
-type FounderClarity int
-
-const (
-	ClarityLow FounderClarity = iota
-	ClarityMedium
-	ClarityHigh
-)
-
-func (f FounderClarity) Weight() int {
-	switch f {
-	case ClarityHigh:
-		return 20
-	case ClarityMedium:
-		return 10
-	default:
-		return 0
-	}
-}

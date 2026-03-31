@@ -1,0 +1,36 @@
+name: tplink_omada
+description: >
+  TP-Link Omada Network Management System is accessible. Omada manages
+  enterprise WiFi, switches, and routers. CVE-2023-1389 (CVSS 9.8, KEV)
+  is a pre-authentication command injection in Omada controllers <= 5.9.32
+  and OC200/OC300 firmware <= 1.3.2. An unauthenticated attacker can achieve
+  RCE on the controller server via the locale parameter. Upgrade to
+  Omada Controller 5.9.33+ and restrict access to trusted management networks.
+match:
+  any:
+    - check_id: "netdev.tplink_omada"
+    - check_id: "cve.tplink_omada_rce"
+    - title_contains: "Omada"
+    - path_responds: "/api/v2/hotspot/login"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  dictionary:
+    - /api/v2/hotspot/login
+    - /api/v2/controller/setting
+    - /api/v2/user/login
+    - /api/v2/sites
+  nuclei_tags:
+    - omada
+    - tplink
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - omada
+    - tplink
+    - default-logins
+    - cves

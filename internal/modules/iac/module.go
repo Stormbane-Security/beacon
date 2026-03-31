@@ -14,7 +14,6 @@ type Module struct{}
 func New() *Module { return &Module{} }
 
 func (m *Module) Name() string                       { return "iac" }
-func (m *Module) Tier() module.PricingTier           { return module.TierPro }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputIaC} }
 
 func (m *Module) Run(_ context.Context, _ module.Input, _ module.ScanType) ([]finding.Finding, error) {

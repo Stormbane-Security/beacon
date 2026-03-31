@@ -157,6 +157,71 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// ── OOB redirect-to-metadata detection ─────────────────────────────────
+	// When a server redirects to the user-supplied URL instead of fetching it
+	// server-side, the Location header will contain a metadata IP. While this
+	// is technically an open redirect, redirecting to cloud metadata IPs is a
+	// well-known SSRF escalation pattern (e.g. IMDS via 302 redirect on ELB).
+	for _, param := range probeParams {
+		for _, payload := range metadataPayloads {
+			u := base + "/?" + param + "=" + url.QueryEscape(payload)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+			resp.Body.Close()
+
+			if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+				continue
+			}
+
+			location := resp.Header.Get("Location")
+			if location == "" {
+				continue
+			}
+
+			if !isMetadataRedirect(location) {
+				continue
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWebSSRFRedirectMetadata,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("SSRF via redirect: parameter %q redirects to cloud metadata on %s", param, asset),
+				Description: fmt.Sprintf(
+					"The parameter %q on %s caused a redirect (HTTP %d) to a cloud metadata "+
+						"endpoint (%s). When this application runs behind a load balancer or reverse proxy "+
+						"that follows redirects, the metadata service is reachable. An attacker can use "+
+						"this to steal IAM credentials and instance metadata.",
+					param, asset, resp.StatusCode, location),
+				Asset:    asset,
+				DeepOnly: true,
+				ProofCommand: fmt.Sprintf(
+					`curl -si "%s/?%s=%s" | grep -i Location`,
+					base, param, url.QueryEscape(payload)),
+				Evidence: map[string]any{
+					"url":              u,
+					"param":            param,
+					"payload":          payload,
+					"redirect_location": location,
+					"status_code":      resp.StatusCode,
+				},
+				DiscoveredAt: time.Now(),
+			})
+			// One finding per param is sufficient.
+			break
+		}
+	}
+
 	// Azure IMDS requires a Metadata: true header. Proxying servers may strip
 	// non-standard headers, so the main loop above tests without it. Here we
 	// probe explicitly with the header to catch servers that do forward it.
@@ -215,6 +280,70 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		break
 	}
 
+	// ── Protocol scheme bypass probes ────────────────────────────────────
+	// Some SSRF filters only block http:// URLs. file:// and gopher:// can
+	// bypass these to read local files or interact with internal services.
+	protocolPayloads := []struct {
+		url    string
+		signal string
+		desc   string
+	}{
+		{"file:///etc/passwd", "root:", "local file read via file:// protocol"},
+		{"file:///c:/windows/win.ini", "[fonts]", "local file read via file:// protocol (Windows)"},
+	}
+	for _, param := range probeParams {
+		for _, pp := range protocolPayloads {
+			u := base + "/?" + param + "=" + url.QueryEscape(pp.url)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+			resp.Body.Close()
+
+			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+				continue
+			}
+
+			bodyStr := string(body)
+			if !strings.Contains(bodyStr, pp.signal) {
+				continue
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWebSSRF,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("SSRF via %s protocol: parameter %q on %s", strings.SplitN(pp.url, ":", 2)[0], param, asset),
+				Description: fmt.Sprintf(
+					"The parameter %q on %s accepted a %s URL (%s) and returned content "+
+						"indicating %s. The SSRF filter does not block non-HTTP protocol schemes, "+
+						"allowing an attacker to read local files or interact with internal services.",
+					param, asset, strings.SplitN(pp.url, ":", 2)[0], pp.url, pp.desc),
+				Asset:    asset,
+				DeepOnly: true,
+				ProofCommand: fmt.Sprintf(
+					`curl -s --max-redirs 0 "%s/?%s=%s"`,
+					base, param, url.QueryEscape(pp.url)),
+				Evidence: map[string]any{
+					"url":      u,
+					"param":    param,
+					"payload":  pp.url,
+					"protocol": strings.SplitN(pp.url, ":", 2)[0],
+				},
+				DiscoveredAt: time.Now(),
+			})
+			break
+		}
+	}
+
 	return findings, nil
 }
 
@@ -229,9 +358,28 @@ func metadataSignalFound(body string) string {
 	return ""
 }
 
+// metadataIPs are the IP addresses and hostnames associated with cloud
+// metadata services. A redirect to any of these is a strong SSRF signal.
+var metadataIPs = []string{
+	"169.254.169.254",         // AWS, Azure, DigitalOcean, Oracle
+	"metadata.google.internal", // GCP
+	"100.100.100.200",         // Alibaba Cloud
+}
+
+// isMetadataRedirect returns true if the Location header points to a known
+// cloud metadata endpoint IP or hostname.
+func isMetadataRedirect(location string) bool {
+	for _, ip := range metadataIPs {
+		if strings.Contains(location, ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // detectScheme tries HTTPS first, falling back to HTTP.
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://"+asset, nil)
 	if err != nil {
 		return "http"
 	}
@@ -239,6 +387,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return "https"
 }

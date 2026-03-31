@@ -1,0 +1,41 @@
+name: sonarqube
+description: >
+  Asset is an exposed SonarQube code quality and security analysis server.
+  SonarQube stores detailed source code analysis results including security
+  vulnerabilities, code smells, and duplications. Risks include: public
+  project access exposing vulnerability reports, API access without
+  authentication leaking security hotspots and code snippets, default
+  admin/admin credentials, and webhook configurations containing tokens
+  for CI/CD systems. The security reports directly reveal exploitable
+  weaknesses in the scanned applications.
+match:
+  any:
+    - body_contains: "sonarqube"
+    - path_responds: "/api/system/status"
+    - title_contains: "SonarQube"
+surface:
+  nuclei_tags:
+    - sonarqube
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "sonarqube.{domain}"
+      - "sonar.{domain}"
+      - "code-quality.{domain}"
+deep:
+  nuclei_tags:
+    - sonarqube
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /api/system/status
+    - /api/projects/search
+    - /api/issues/search
+    - /api/security_reports/list
+    - /api/users/search
+    - /api/webhooks/list
+    - /api/settings/values
+    - /api/plugins/installed

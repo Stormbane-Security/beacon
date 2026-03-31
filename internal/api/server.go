@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane/beacon/internal/web"
 	"github.com/stormbane/beacon/internal/worker"
 )
 
@@ -34,6 +35,10 @@ func (s *Server) Handler() http.Handler {
 	v1.HandleFunc("GET /scans/{id}/stream", s.handleStreamScan)
 	v1.HandleFunc("GET /scans/{id}/report", s.handleGetReport)
 	v1.HandleFunc("GET /targets", s.handleListTargets)
+	v1.HandleFunc("GET /targets/{domain}/findings", s.handleDomainFindings)
+	v1.HandleFunc("GET /targets/{domain}/trend", s.handleDomainTrend)
+	v1.HandleFunc("GET /targets/{domain}/compliance", s.handleDomainCompliance)
+	v1.HandleFunc("GET /dashboard", s.handleDashboard)
 	v1.HandleFunc("GET /playbook/suggestions", s.handleListPlaybookSuggestions)
 	v1.HandleFunc("GET /correlations", s.handleListCorrelations)
 	v1.HandleFunc("POST /suppressions", s.handleUpsertSuppression)
@@ -41,6 +46,18 @@ func (s *Server) Handler() http.Handler {
 	v1.HandleFunc("DELETE /suppressions/{id}", s.handleDeleteSuppression)
 
 	mux.Handle("/v1/", s.authMiddleware(http.StripPrefix("/v1", v1)))
+
+	// Web UI — served without auth; the browser sends Bearer tokens itself.
+	mux.Handle("/ui/", http.StripPrefix("/ui", web.Handler()))
+	// Root catch-all: redirect / → /ui/, 404 everything else.
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok")) //nolint:errcheck

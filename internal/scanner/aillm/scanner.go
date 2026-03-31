@@ -49,7 +49,7 @@ func NewWithEvidence(ev *playbook.Evidence) *Scanner { return &Scanner{Evidence:
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 

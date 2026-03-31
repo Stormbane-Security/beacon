@@ -57,6 +57,23 @@ var payloads = []payload{
 	{expr: "<%= 7*7 %>", expect: "49", engine: "ERB/JSP"},
 	{expr: "#{7*7}", expect: "49", engine: "Ruby/Pebble"},
 	{expr: "{{7*'7'}}", expect: "7777777", engine: "Jinja2"},
+	// Polyglot payload — triggers across multiple template engines simultaneously.
+	// If any engine evaluates the embedded expression, "49" appears in the response.
+	{expr: `${{<%[%'"}}%\`, expect: "49", engine: "Polyglot"},
+	// Engine-specific additional payloads
+	{expr: "${7*7}", expect: "49", engine: "Java EL"},
+	// FreeMarker — uses [#assign] directive for variable assignment.
+	// The expression 13*29=377 avoids false positives: "377" does not appear
+	// in the payload itself, so a server that merely reflects input won't match.
+	{expr: "[#assign x=13*29]${x}", expect: "377", engine: "FreeMarker"},
+	// Velocity — uses #set directive for variable assignment
+	{expr: "#set($x=13*29)${x}", expect: "377", engine: "Velocity"},
+	// Smarty (PHP) — uses {math} function
+	{expr: "{math equation=\"13*29\"}", expect: "377", engine: "Smarty"},
+	// ASP.NET Razor — uses @() inline expression
+	{expr: "@(13*29)", expect: "377", engine: "Razor"},
+	// Thymeleaf (Java Spring) — uses __${expr}__ preprocessing
+	{expr: "__${13*29}__", expect: "377", engine: "Thymeleaf"},
 }
 
 // wordBoundary49 matches "49" as a standalone word (not part of a longer number).
@@ -64,6 +81,9 @@ var wordBoundary49 = regexp.MustCompile(`\b49\b`)
 
 // wordBoundary7777777 matches "7777777" as a standalone word.
 var wordBoundary7777777 = regexp.MustCompile(`\b7777777\b`)
+
+// wordBoundary377 matches "377" as a standalone word.
+var wordBoundary377 = regexp.MustCompile(`\b377\b`)
 
 // Scanner probes for server-side template injection vulnerabilities.
 type Scanner struct{}
@@ -178,6 +198,8 @@ func evaluatedInBody(expect, body string) bool {
 		return wordBoundary49.MatchString(body)
 	case "7777777":
 		return wordBoundary7777777.MatchString(body)
+	case "377":
+		return wordBoundary377.MatchString(body)
 	default:
 		return strings.Contains(body, expect)
 	}
@@ -193,6 +215,7 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	if err != nil {
 		return false
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusNotFound
 }
@@ -221,6 +244,8 @@ func countOccurrences(expect, body string) int {
 		return len(wordBoundary49.FindAllString(body, -1))
 	case "7777777":
 		return len(wordBoundary7777777.FindAllString(body, -1))
+	case "377":
+		return len(wordBoundary377.FindAllString(body, -1))
 	default:
 		return strings.Count(body, expect)
 	}
@@ -228,7 +253,7 @@ func countOccurrences(expect, body string) int {
 
 // detectScheme tries HTTPS first, falling back to HTTP.
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "https://"+asset, nil)
 	if err != nil {
 		return "http"
 	}
@@ -236,6 +261,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 	resp.Body.Close()
 	return "https"
 }

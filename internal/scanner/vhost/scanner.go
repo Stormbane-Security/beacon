@@ -42,7 +42,7 @@ func (s *Scanner) Name() string { return scannerName }
 // When the asset is behind a CDN, use RunWithOriginIP instead — pass the real
 // backend IP so probes never hit shared CDN edge nodes.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 	addrs, err := net.DefaultResolver.LookupHost(ctx, asset)
@@ -57,7 +57,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 // has been discovered by wafdetect — ensures probes reach the target's own
 // server and never hit shared CDN edge infrastructure.
 func (s *Scanner) RunWithOriginIP(ctx context.Context, asset, originIP string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 	return s.runWithIP(ctx, asset, originIP, scanType)

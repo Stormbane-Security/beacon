@@ -2,15 +2,6 @@ package finding
 
 import "time"
 
-// Tier indicates which pricing tier is required to access this finding.
-type Tier string
-
-const (
-	TierFree       Tier = "free"       // always visible
-	TierPro        Tier = "pro"        // requires pro subscription
-	TierEnterprise Tier = "enterprise" // enterprise only
-)
-
 // Finding is the canonical normalized finding produced by any scanner.
 // All scanners return []Finding regardless of the underlying tool.
 type Finding struct {
@@ -28,20 +19,10 @@ type Finding struct {
 
 	// ScannedBy identifies the scanner or module that produced this finding.
 	// Format: "module.scanner", e.g. "surface.wafdetect", "github.actions", "web3.contract"
-	// Used for pricing gate: free tier gets surface findings; paid tiers unlock module-specific findings.
 	ScannedBy string `json:"scanned_by,omitempty"`
-
-	// ModuleTier indicates which subscription tier is required to see this finding.
-	// Defaults to TierFree when not set.
-	ModuleTier Tier `json:"module_tier,omitempty"`
 }
 
 // Meta returns the CheckMeta for this finding's CheckID.
 func (f Finding) Meta() CheckMeta {
 	return Meta(f.CheckID)
-}
-
-// DisplayScore returns the composite score used for free-tier ordering.
-func (f Finding) DisplayScore() int {
-	return f.Meta().DisplayScore()
 }

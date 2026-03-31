@@ -8,8 +8,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,16 +30,20 @@ CREATE TABLE IF NOT EXISTS targets (
 );
 
 CREATE TABLE IF NOT EXISTS scan_runs (
-    id             TEXT      PRIMARY KEY,
-    target_id      TEXT      NOT NULL,
-    domain         TEXT      NOT NULL,
-    scan_type      TEXT      NOT NULL,
-    modules        TEXT      NOT NULL DEFAULT '[]',
-    status         TEXT      NOT NULL,
-    started_at     DATETIME  NOT NULL,
-    completed_at   DATETIME,
-    finding_count  INTEGER   NOT NULL DEFAULT 0,
-    error          TEXT
+    id                    TEXT      PRIMARY KEY,
+    target_id             TEXT      NOT NULL,
+    domain                TEXT      NOT NULL,
+    scan_type             TEXT      NOT NULL,
+    modules               TEXT      NOT NULL DEFAULT '[]',
+    status                TEXT      NOT NULL,
+    started_at            DATETIME  NOT NULL,
+    completed_at          DATETIME,
+    finding_count         INTEGER   NOT NULL DEFAULT 0,
+    error                 TEXT,
+    discovery_duration_ms INTEGER   NOT NULL DEFAULT 0,
+    scan_duration_ms      INTEGER   NOT NULL DEFAULT 0,
+    asset_count           INTEGER   NOT NULL DEFAULT 0,
+    discovery_sources     TEXT      NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_runs_domain ON scan_runs(domain);
@@ -239,6 +245,12 @@ CREATE TABLE IF NOT EXISTS fingerprint_rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fingerprint_rules_status ON fingerprint_rules(status);
+
+CREATE TABLE IF NOT EXISTS asset_graphs (
+    scan_run_id TEXT PRIMARY KEY,
+    graph_json  BLOB NOT NULL,
+    FOREIGN KEY (scan_run_id) REFERENCES scan_runs(id) ON DELETE CASCADE
+);
 `
 
 // Store is a SQLite-backed implementation of store.Store.
@@ -288,9 +300,17 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE playbook_suggestions ADD COLUMN priority TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE playbook_suggestions ADD COLUMN affected_domains TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE fingerprint_rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+		`ALTER TABLE findings ADD COLUMN proof_command TEXT NOT NULL DEFAULT ''`,
+		// Dedup index so per-asset incremental saves + final save don't produce duplicates.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup ON findings(scan_run_id, check_id, asset, title)`,
 	}
 	for _, m := range migrations {
-		_, _ = db.Exec(m) // ignore "duplicate column" errors
+		if _, err := db.Exec(m); err != nil {
+			msg := err.Error()
+			if !strings.Contains(msg, "duplicate column") && !strings.Contains(msg, "already exists") {
+				fmt.Fprintf(os.Stderr, "beacon: migration warning: %v\n", err)
+			}
+		}
 	}
 
 	return &Store{db: db}, nil
@@ -384,7 +404,8 @@ func (s *Store) UpdateScanRun(_ context.Context, run *store.ScanRun) error {
 func (s *Store) GetScanRun(_ context.Context, id string) (*store.ScanRun, error) {
 	row := s.db.QueryRow(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs WHERE id = ?`, id)
 
 	return scanRun(row)
@@ -393,8 +414,34 @@ func (s *Store) GetScanRun(_ context.Context, id string) (*store.ScanRun, error)
 func (s *Store) ListScanRuns(_ context.Context, domain string) ([]store.ScanRun, error) {
 	rows, err := s.db.Query(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs WHERE domain = ? ORDER BY started_at DESC`, domain)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []store.ScanRun
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListAllScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`
+		SELECT id, target_id, domain, scan_type, modules, status,
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
+		FROM scan_runs ORDER BY started_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -428,6 +475,7 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 		"scanner_metrics",
 		"discovery_audit",
 		"correlation_findings",
+		"asset_graphs",
 	}
 	for _, tbl := range tables {
 		if _, err := tx.Exec(`DELETE FROM `+tbl+` WHERE scan_run_id = ?`, id); err != nil {
@@ -487,10 +535,12 @@ func scanRun(row scanner) (*store.ScanRun, error) {
 	var modsJSON string
 	var completedAt sql.NullTime
 	var errStr sql.NullString
+	var discSourcesJSON sql.NullString
 
 	if err := row.Scan(
 		&r.ID, &r.TargetID, &r.Domain, &r.ScanType, &modsJSON,
 		&r.Status, &r.StartedAt, &completedAt, &r.FindingCount, &errStr,
+		&r.DiscoveryDurationMs, &r.ScanDurationMs, &r.AssetCount, &discSourcesJSON,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("scan run not found")
@@ -498,11 +548,18 @@ func scanRun(row scanner) (*store.ScanRun, error) {
 		return nil, err
 	}
 
-	_ = json.Unmarshal([]byte(modsJSON), &r.Modules)
+	if err := json.Unmarshal([]byte(modsJSON), &r.Modules); err != nil {
+		log.Printf("sqlite: failed to unmarshal scan run modules: %v", err)
+	}
 	if completedAt.Valid {
 		r.CompletedAt = &completedAt.Time
 	}
 	r.Error = errStr.String
+	if discSourcesJSON.Valid && discSourcesJSON.String != "" {
+		if err := json.Unmarshal([]byte(discSourcesJSON.String), &r.DiscoverySources); err != nil {
+			log.Printf("sqlite: failed to unmarshal discovery_sources: %v", err)
+		}
+	}
 
 	return &r, nil
 }
@@ -521,9 +578,9 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO findings (id, scan_run_id, check_id, module, scanner, severity,
-		                      title, description, asset, evidence, deep_only, discovered_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		INSERT OR IGNORE INTO findings (id, scan_run_id, check_id, module, scanner, severity,
+		                                title, description, asset, evidence, deep_only, proof_command, discovered_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -538,7 +595,7 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 		if _, err := stmt.Exec(
 			uuid.NewString(), scanRunID,
 			string(f.CheckID), f.Module, f.Scanner, f.Severity.String(),
-			f.Title, f.Description, f.Asset, string(ev), deepOnly, f.DiscoveredAt,
+			f.Title, f.Description, f.Asset, string(ev), deepOnly, f.ProofCommand, f.DiscoveredAt,
 		); err != nil {
 			return err
 		}
@@ -550,7 +607,7 @@ func (s *Store) SaveFindings(_ context.Context, scanRunID string, findings []fin
 func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Finding, error) {
 	rows, err := s.db.Query(`
 		SELECT check_id, module, scanner, severity, title, description,
-		       asset, evidence, deep_only, discovered_at
+		       asset, evidence, deep_only, proof_command, discovered_at
 		FROM findings WHERE scan_run_id = ?
 		ORDER BY discovered_at`, scanRunID)
 	if err != nil {
@@ -565,12 +622,14 @@ func (s *Store) GetFindings(_ context.Context, scanRunID string) ([]finding.Find
 		var deepOnly int
 		if err := rows.Scan(
 			&f.CheckID, &f.Module, &f.Scanner, &sevStr,
-			&f.Title, &f.Description, &f.Asset, &evJSON, &deepOnly, &f.DiscoveredAt,
+			&f.Title, &f.Description, &f.Asset, &evJSON, &deepOnly, &f.ProofCommand, &f.DiscoveredAt,
 		); err != nil {
 			return nil, err
 		}
 		f.Severity = finding.ParseSeverity(sevStr)
-		_ = json.Unmarshal([]byte(evJSON), &f.Evidence)
+		if err := json.Unmarshal([]byte(evJSON), &f.Evidence); err != nil {
+			log.Printf("sqlite: failed to unmarshal evidence for finding %s: %v", f.CheckID, err)
+		}
 		f.DeepOnly = deepOnly == 1
 		out = append(out, f)
 	}
@@ -639,7 +698,10 @@ func (s *Store) GetEnrichedFindings(_ context.Context, scanRunID string) ([]enri
 		if err := rows.Scan(&fJSON, &ef.Explanation, &ef.Impact, &ef.Remediation); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(fJSON), &ef.Finding)
+		if err := json.Unmarshal([]byte(fJSON), &ef.Finding); err != nil {
+			log.Printf("sqlite: failed to unmarshal enriched finding JSON: %v", err)
+			continue
+		}
 		out = append(out, ef)
 	}
 	return out, rows.Err()
@@ -741,7 +803,7 @@ func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]stor
 	rows, err := s.db.Query(`
 		SELECT id, scan_run_id, asset, evidence_json, matched_playbooks,
 		       scanners_run, nuclei_tags_run, dirbust_paths_run, dirbust_paths_found,
-		       findings_count, created_at
+		       findings_count, classify_duration_ms, expanded_from, created_at
 		FROM asset_executions WHERE scan_run_id = ?
 		ORDER BY created_at`, scanRunID)
 	if err != nil {
@@ -756,16 +818,26 @@ func (s *Store) ListAssetExecutions(_ context.Context, scanRunID string) ([]stor
 		if err := rows.Scan(
 			&e.ID, &e.ScanRunID, &e.Asset, &evJSON,
 			&playbooks, &scanners, &tags, &dbRun, &dbFound,
-			&e.FindingsCount, &e.CreatedAt,
+			&e.FindingsCount, &e.ClassifyDurationMs, &e.ExpandedFrom, &e.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(evJSON), &e.Evidence)
-		_ = json.Unmarshal([]byte(playbooks), &e.MatchedPlaybooks)
-		_ = json.Unmarshal([]byte(scanners), &e.ScannersRun)
-		_ = json.Unmarshal([]byte(tags), &e.NucleiTagsRun)
-		_ = json.Unmarshal([]byte(dbRun), &e.DirbustPathsRun)
-		_ = json.Unmarshal([]byte(dbFound), &e.DirbustPathsFound)
+		for _, pair := range []struct {
+			data string
+			dest any
+			name string
+		}{
+			{evJSON, &e.Evidence, "evidence"},
+			{playbooks, &e.MatchedPlaybooks, "matched_playbooks"},
+			{scanners, &e.ScannersRun, "scanners_run"},
+			{tags, &e.NucleiTagsRun, "nuclei_tags_run"},
+			{dbRun, &e.DirbustPathsRun, "dirbust_paths_run"},
+			{dbFound, &e.DirbustPathsFound, "dirbust_paths_found"},
+		} {
+			if err := json.Unmarshal([]byte(pair.data), pair.dest); err != nil {
+				log.Printf("sqlite: failed to unmarshal asset_execution %s for %s: %v", pair.name, e.Asset, err)
+			}
+		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -811,7 +883,9 @@ func (s *Store) ListUnmatchedAssets(_ context.Context) ([]store.UnmatchedAsset, 
 		if err := rows.Scan(&u.ID, &u.ScanRunID, &u.Fingerprint, &u.Asset, &evJSON, &u.CreatedAt); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(evJSON), &u.Evidence)
+		if err := json.Unmarshal([]byte(evJSON), &u.Evidence); err != nil {
+			log.Printf("sqlite: failed to unmarshal unmatched_asset evidence for %s: %v", u.Asset, err)
+		}
 		out = append(out, u)
 	}
 	return out, rows.Err()
@@ -879,7 +953,9 @@ func (s *Store) ListPlaybookSuggestions(_ context.Context, status string) ([]sto
 		); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(affectedDomainsJSON), &sg.AffectedDomains)
+		if err := json.Unmarshal([]byte(affectedDomainsJSON), &sg.AffectedDomains); err != nil {
+			log.Printf("sqlite: failed to unmarshal playbook_suggestion affected_domains: %v", err)
+		}
 		out = append(out, sg)
 	}
 	return out, rows.Err()
@@ -982,8 +1058,12 @@ func (s *Store) ListCorrelationFindings(_ context.Context, domain string) ([]sto
 			return nil, err
 		}
 		f.Severity = finding.ParseSeverity(sevStr)
-		_ = json.Unmarshal([]byte(assetsJSON), &f.AffectedAssets)
-		_ = json.Unmarshal([]byte(checksJSON), &f.ContributingChecks)
+		if err := json.Unmarshal([]byte(assetsJSON), &f.AffectedAssets); err != nil {
+			log.Printf("sqlite: failed to unmarshal correlation affected_assets: %v", err)
+		}
+		if err := json.Unmarshal([]byte(checksJSON), &f.ContributingChecks); err != nil {
+			log.Printf("sqlite: failed to unmarshal correlation contributing_checks: %v", err)
+		}
 		out = append(out, f)
 	}
 	return out, rows.Err()
@@ -992,9 +1072,11 @@ func (s *Store) ListCorrelationFindings(_ context.Context, domain string) ([]sto
 func (s *Store) ListRecentScanRuns(_ context.Context, limit int) ([]store.ScanRun, error) {
 	rows, err := s.db.Query(`
 		SELECT id, target_id, domain, scan_type, modules, status,
-		       started_at, completed_at, finding_count, error
+		       started_at, completed_at, finding_count, error,
+		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs
-		ORDER BY started_at DESC LIMIT ?`, limit)
+		WHERE status = 'completed'
+		ORDER BY completed_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1145,8 +1227,9 @@ func (s *Store) GetScannerROI(_ context.Context, domain string) ([]store.Scanner
 		); err != nil {
 			return nil, err
 		}
-		if r.AvgDurationMs > 0 {
-			r.FindingsPerMin = float64(r.TotalFindings) / (float64(r.AvgDurationMs) / 60000.0)
+		if r.AvgDurationMs > 0 && r.RunCount > 0 {
+			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
+			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
 		}
 		out = append(out, r)
 	}
@@ -1325,8 +1408,9 @@ func (s *Store) GetCrossDomainScannerSummary(_ context.Context) ([]store.CrossDo
 		); err != nil {
 			return nil, err
 		}
-		if r.AvgDurationMs > 0 {
-			r.FindingsPerMin = float64(r.TotalFindings) / (float64(r.AvgDurationMs) / 60000.0)
+		if r.AvgDurationMs > 0 && r.RunCount > 0 {
+			totalDurationMs := float64(r.AvgDurationMs) * float64(r.RunCount)
+			r.FindingsPerMin = float64(r.TotalFindings) / (totalDurationMs / 60000.0)
 		}
 		out = append(out, r)
 	}
@@ -1365,9 +1449,16 @@ func (s *Store) UpsertFingerprintRule(ctx context.Context, r *store.FingerprintR
 		ON CONFLICT(signal_type, signal_key, signal_value, field) DO UPDATE SET
 			value = excluded.value,
 			source = CASE WHEN source = 'builtin' THEN source ELSE excluded.source END,
-			status = CASE WHEN status = 'rejected' THEN status ELSE excluded.status END,
 			confidence = MAX(confidence, excluded.confidence),
-			seen_count = seen_count + 1`,
+			seen_count = seen_count + 1,
+			status = CASE
+				WHEN status = 'rejected' THEN status
+				WHEN status = 'pending'
+				     AND (seen_count + 1) >= 3
+				     AND MAX(confidence, excluded.confidence) >= 0.85
+				     THEN 'active'
+				ELSE status
+			END`,
 		r.SignalType, r.SignalKey, r.SignalValue, r.Field, r.Value,
 		r.Source, r.Status, r.Confidence, r.SeenCount, time.Now())
 	return err
@@ -1381,6 +1472,26 @@ func (s *Store) DeleteFingerprintRule(ctx context.Context, id int64) error {
 func (s *Store) IncrementFingerprintRuleSeen(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE fingerprint_rules SET seen_count = seen_count + 1 WHERE id = ?`, id)
 	return err
+}
+
+// SaveAssetGraph stores the asset graph JSON for a scan run.
+func (s *Store) SaveAssetGraph(ctx context.Context, scanRunID string, graphJSON []byte) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO asset_graphs (scan_run_id, graph_json) VALUES (?, ?)
+		 ON CONFLICT(scan_run_id) DO UPDATE SET graph_json = excluded.graph_json`,
+		scanRunID, graphJSON)
+	return err
+}
+
+// GetAssetGraph retrieves the asset graph JSON for a scan run.
+func (s *Store) GetAssetGraph(ctx context.Context, scanRunID string) ([]byte, error) {
+	var data []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT graph_json FROM asset_graphs WHERE scan_run_id = ?`, scanRunID).Scan(&data)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return data, err
 }
 
 // ScanType needs to be stored as its string value.

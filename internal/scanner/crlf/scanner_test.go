@@ -118,3 +118,101 @@ func TestCRLF_NoRedirectParams(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Query-parameter CRLF injection — variant detection
+// ---------------------------------------------------------------------------
+
+func TestCRLF_QueryParamInjection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate a server that reflects query parameter values into a header
+		// without sanitizing CRLF characters.
+		testParam := r.URL.Query().Get("beacon_test")
+		if strings.Contains(testParam, injectedHeader) {
+			w.Header().Set(injectedHeader, injectedValue)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebCRLFInjection {
+			found = true
+			if ev, ok := f.Evidence["vector"]; ok && ev == "query_parameter" {
+				// Good — it's the query-param variant.
+			}
+		}
+	}
+	if !found {
+		t.Error("expected CRLF injection finding for query parameter reflection")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Unreachable server — no panic, no findings
+// ---------------------------------------------------------------------------
+
+func TestCRLF_UnreachableServer_NoPanic(t *testing.T) {
+	s := New()
+	findings, err := s.Run(context.Background(), "127.0.0.1:1", module.ScanDeep)
+	_ = err
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for unreachable server, got %d", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Context cancellation — no panic
+// ---------------------------------------------------------------------------
+
+func TestCRLF_ContextCancelled_NoPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(injectedHeader, injectedValue)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, _ := New().Run(ctx, asset, module.ScanDeep)
+	_ = findings // must not panic
+}
+
+// ---------------------------------------------------------------------------
+// Double-encoded CRLF variant — should be detected
+// ---------------------------------------------------------------------------
+
+func TestCRLF_DoubleEncoded_Detected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirect := r.URL.Query().Get("redirect")
+		if redirect == "" {
+			redirect = r.URL.Query().Get("url")
+		}
+		// Simulate a server that double-decodes percent-encoding and
+		// then reflects the decoded value into headers.
+		if strings.Contains(redirect, injectedHeader) {
+			w.Header().Set(injectedHeader, injectedValue)
+		}
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Fatal("expected at least one CRLF finding (including double-encoded variants)")
+	}
+}

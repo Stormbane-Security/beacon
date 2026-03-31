@@ -134,10 +134,10 @@ func TestNullOriginReflected_High(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
-		t.Error("expected CheckCORSMisconfiguration finding when null origin is reflected")
+	if !hasCheckID(findings, finding.CheckCORSNullOrigin) {
+		t.Error("expected CheckCORSNullOrigin finding when null origin is reflected")
 	}
-	if !hasSeverity(findings, finding.CheckCORSMisconfiguration, finding.SeverityHigh) {
+	if !hasSeverity(findings, finding.CheckCORSNullOrigin, finding.SeverityHigh) {
 		t.Error("expected SeverityHigh for null origin reflection")
 	}
 }
@@ -377,8 +377,8 @@ func TestPreflightOnly_CriticalFinding(t *testing.T) {
 	}
 	// GET probes return no CORS; canary OPTIONS returns 404 (no catch-all).
 	// Preflight on root should fire and produce a Critical finding.
-	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
-		t.Error("expected CheckCORSMisconfiguration via preflight probe when GET returns no CORS headers but OPTIONS does")
+	if !hasCheckID(findings, finding.CheckCORSPreflightMisconfig) {
+		t.Error("expected CheckCORSPreflightMisconfig via preflight probe when GET returns no CORS headers but OPTIONS does")
 	}
 }
 
@@ -404,5 +404,304 @@ func TestACACUppercase_StillDetected(t *testing.T) {
 	}
 	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
 		t.Error("expected CORS finding even when ACAC header is uppercase TRUE")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PUT preflight variant: server allows PUT + X-Custom without credentials → High
+// ---------------------------------------------------------------------------
+
+func TestPreflightPUT_WithoutCredentials_High(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions && r.URL.Path == "/" {
+			origin := r.Header.Get("Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST")
+			w.Header().Set("Access-Control-Allow-Headers", "X-Custom")
+			// No Access-Control-Allow-Credentials header
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// GET probes: no CORS headers — so GET probes produce no findings.
+		// Canary OPTIONS on random paths: 404 with no CORS — no catch-all.
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !hasCheckID(findings, finding.CheckCORSPreflightMisconfig) {
+		t.Error("expected CheckCORSPreflightMisconfig when OPTIONS allows PUT with custom headers")
+	}
+	if !hasSeverity(findings, finding.CheckCORSPreflightMisconfig, finding.SeverityHigh) {
+		t.Error("expected SeverityHigh for PUT preflight without credentials")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PUT preflight variant: server allows PUT + X-Custom WITH credentials → Critical
+// ---------------------------------------------------------------------------
+
+func TestPreflightPUT_WithCredentials_Critical(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions && r.URL.Path == "/" {
+			origin := r.Header.Get("Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "X-Custom, Authorization")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// GET probes: no CORS headers.
+		// Canary OPTIONS on random paths: 404 with no CORS.
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !hasCheckID(findings, finding.CheckCORSPreflightMisconfig) {
+		t.Error("expected CheckCORSPreflightMisconfig when OPTIONS allows PUT with credentials")
+	}
+	if !hasSeverity(findings, finding.CheckCORSPreflightMisconfig, finding.SeverityCritical) {
+		t.Error("expected SeverityCritical for PUT preflight with credentials enabled")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PUT preflight variant: wildcard Access-Control-Allow-Methods → detected
+// ---------------------------------------------------------------------------
+
+func TestPreflightPUT_WildcardMethods_Detected(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions && r.URL.Path == "/" {
+			origin := r.Header.Get("Origin")
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "*") // wildcard methods
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Wildcard methods with reflected origin should still be caught by PUT check.
+	if !hasCheckID(findings, finding.CheckCORSPreflightMisconfig) {
+		t.Error("expected CheckCORSPreflightMisconfig when Access-Control-Allow-Methods is wildcard")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Credentialed reflection compound check (Case 4): origin reflected with
+// credentials produces both CheckCORSMisconfiguration AND the dedicated
+// CheckCORSCredentialedReflection finding.
+// ---------------------------------------------------------------------------
+
+func TestCredentialedReflection_CompoundCheck_Emitted(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && origin != "null" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Case 1 should fire (CheckCORSMisconfiguration)
+	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("expected CheckCORSMisconfiguration for origin reflected with credentials")
+	}
+
+	// Case 4 compound check should ALSO fire (CheckCORSCredentialedReflection)
+	if !hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("expected CheckCORSCredentialedReflection compound finding when non-null origin is reflected with credentials")
+	}
+	if !hasSeverity(findings, finding.CheckCORSCredentialedReflection, finding.SeverityCritical) {
+		t.Error("expected SeverityCritical for credentialed reflection compound finding")
+	}
+
+	// Verify evidence includes the compound marker.
+	for _, f := range findings {
+		if f.CheckID == finding.CheckCORSCredentialedReflection {
+			compound, ok := f.Evidence["compound"]
+			if !ok {
+				t.Error("credentialed reflection finding must include 'compound' key in Evidence")
+			}
+			if v, _ := compound.(bool); !v {
+				t.Error("Evidence['compound'] must be true")
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Credentialed reflection compound check: null origin should NOT trigger
+// Case 4 (compound), even when credentials are enabled.
+// ---------------------------------------------------------------------------
+
+func TestCredentialedReflection_NullOrigin_NoCompound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "null" {
+			w.Header().Set("Access-Control-Allow-Origin", "null")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// null origin → Case 1 fires (reflected with creds) AND Case 3 fires (null origin).
+	// But Case 4 compound check explicitly excludes null origins.
+	if hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("Case 4 compound check must NOT fire for null origin (only non-null origins)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: non-null origin reflection emits both Case 1 AND Case 4
+// ---------------------------------------------------------------------------
+
+func TestReflectedOriginWithCredentials_EmitsBothChecks(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Case 1: generic CORS misconfiguration
+	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("expected CheckCORSMisconfiguration (Case 1) for reflected origin with credentials")
+	}
+	// Case 4: compound credentialed reflection (only for non-null origins)
+	if !hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("expected CheckCORSCredentialedReflection (Case 4) for reflected non-null origin with credentials")
+	}
+	// Both should be Critical severity.
+	if !hasSeverity(findings, finding.CheckCORSMisconfiguration, finding.SeverityCritical) {
+		t.Error("Case 1 should be Critical severity")
+	}
+	if !hasSeverity(findings, finding.CheckCORSCredentialedReflection, finding.SeverityCritical) {
+		t.Error("Case 4 should be Critical severity")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: wildcard with credentials (Case 2) should NOT also emit Case 4
+// ---------------------------------------------------------------------------
+
+func TestWildcardWithCredentials_DoesNotEmitCase4(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("expected CheckCORSMisconfiguration for wildcard+credentials")
+	}
+	// Case 2 uses 'continue' so Case 4 should NOT fire.
+	if hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("Case 4 should NOT fire for wildcard origin (Case 2 has 'continue')")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: origin reflected WITHOUT credentials — no findings
+// ---------------------------------------------------------------------------
+
+func TestReflectedOriginWithoutCredentials_NoFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			// No credentials header
+		}
+	}))
+	defer ts.Close()
+
+	findings, err := runOnServer(t, ts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Without credentials, the origin reflection is not exploitable for
+	// credentialed requests. Neither Case 1 nor Case 4 should fire.
+	if hasCheckID(findings, finding.CheckCORSMisconfiguration) {
+		t.Error("should not emit CheckCORSMisconfiguration without credentials")
+	}
+	if hasCheckID(findings, finding.CheckCORSCredentialedReflection) {
+		t.Error("should not emit CheckCORSCredentialedReflection without credentials")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge: scanner handles context cancellation
+// ---------------------------------------------------------------------------
+
+func TestCancelledContext_ReturnsNoError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := cors.New()
+	_, err := s.Run(ctx, asset, module.ScanDeep)
+	// Should not panic — either returns error or empty findings.
+	if err != nil && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

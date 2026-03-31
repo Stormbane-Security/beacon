@@ -1,0 +1,41 @@
+name: rabbitmq
+description: >
+  Asset is an exposed RabbitMQ management interface. The RabbitMQ management
+  plugin provides a web UI and HTTP API for full broker control. Default
+  credentials are guest/guest (only allowed from localhost in newer versions
+  but frequently misconfigured). Risks include: message queue enumeration
+  and content inspection, credential extraction for connected applications,
+  exchange/queue manipulation enabling message interception, and virtual
+  host enumeration revealing multi-tenant architecture.
+match:
+  any:
+    - body_contains: "rabbitmq management"
+    - body_contains: "rabbitmq_version"
+    - title_contains: "RabbitMQ"
+surface:
+  nuclei_tags:
+    - rabbitmq
+    - exposure
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "rabbitmq.{domain}"
+      - "mq.{domain}"
+      - "amqp.{domain}"
+      - "broker.{domain}"
+deep:
+  nuclei_tags:
+    - rabbitmq
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /api/overview
+    - /api/queues
+    - /api/exchanges
+    - /api/connections
+    - /api/channels
+    - /api/vhosts
+    - /api/users
+    - /api/nodes
+    - /api/definitions

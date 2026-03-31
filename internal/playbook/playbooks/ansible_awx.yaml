@@ -1,0 +1,46 @@
+name: ansible_awx
+description: >
+  Asset is an exposed Ansible AWX or Ansible Tower instance. AWX/Tower
+  provides web-based automation orchestration with stored credentials,
+  playbooks, and inventory. Risks include: unauthenticated API access to
+  job templates and inventories, stored credentials (SSH keys, cloud
+  provider tokens, vault passwords) accessible through the API, ability to
+  launch arbitrary playbooks against managed infrastructure, and default
+  admin credentials. A compromised AWX instance gives attackers the ability
+  to execute arbitrary commands across all managed hosts.
+match:
+  any:
+    - body_contains: "ansible tower"
+    - path_responds: "/api/v2/ping"
+    - title_contains: "Ansible"
+    - title_contains: "AWX"
+surface:
+  nuclei_tags:
+    - ansible
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "ansible.{domain}"
+      - "awx.{domain}"
+      - "tower.{domain}"
+      - "automation.{domain}"
+deep:
+  nuclei_tags:
+    - ansible
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /api/v2/ping
+    - /api/v2/me
+    - /api/v2/organizations
+    - /api/v2/users
+    - /api/v2/teams
+    - /api/v2/credentials
+    - /api/v2/inventories
+    - /api/v2/job_templates
+    - /api/v2/projects
+    - /api/v2/hosts
+    - /api/v2/settings/all

@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os/exec"
@@ -40,11 +41,13 @@ func (s *Scanner) Name() string { return scannerName }
 // dozens of identical CRIT findings for one root-cause problem. We run only
 // against root/apex domains (one dot) and explicit mail-related subdomains.
 func emailRelevant(asset string) bool {
-	// Strip port suffix if present (e.g. "example.com:8080").
-	host := asset
-	if i := strings.LastIndex(host, ":"); i > strings.LastIndex(host, "]") {
-		host = host[:i]
+	// Skip assets with a non-standard port — email DNS records (SPF/DMARC/DKIM)
+	// are domain-level, not port-specific. Running on "example.com:8080" would
+	// produce identical findings to "example.com" and look like duplicates.
+	if i := strings.LastIndex(asset, ":"); i > strings.LastIndex(asset, "]") {
+		return false
 	}
+	host := asset
 	parts := strings.Split(host, ".")
 	if len(parts) <= 2 {
 		return true // apex / root domain
@@ -295,8 +298,13 @@ func checkDKIM(ctx context.Context, domain string) []finding.Finding {
 		for _, r := range records {
 			if strings.Contains(r, "v=DKIM1") || strings.Contains(r, "k=rsa") || strings.Contains(r, "p=") {
 				found = true
-				// Check key length (weak if < 2048 bits based on key size in base64)
-				if keyLen := estimateDKIMKeyLength(r); keyLen > 0 && keyLen < 2048 {
+				// Check key length (weak if < 2048 bits based on key size in base64).
+				// A revoked key has an empty p= tag and estimateDKIMKeyLength returns 0 — skip it.
+				keyLen := estimateDKIMKeyLength(r)
+				if keyLen == 0 {
+					break // revoked or unparseable key — not weak
+				}
+				if keyLen < 2048 {
 					findings = append(findings, finding.Finding{
 						CheckID:      finding.CheckEmailDKIMWeakKey,
 						Module:       "surface",
@@ -390,9 +398,8 @@ func checkMTASTS(ctx context.Context, domain string) []finding.Finding {
 	}
 	defer resp.Body.Close()
 
-	buf := make([]byte, 512)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	body := string(bodyBytes)
 
 	if strings.Contains(body, "mode: testing") {
 		return []finding.Finding{{
@@ -554,6 +561,7 @@ func expandSPFIncludes(ctx context.Context, spf string, depth int, seen map[stri
 		case strings.HasPrefix(part, "redirect="):
 			target = strings.TrimPrefix(part, "redirect=")
 		}
+		target = strings.Trim(target, "\"")
 		if target == "" || seen[target] {
 			continue
 		}
@@ -697,7 +705,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 
 	// Open relay test: deep mode only — sending MAIL FROM is an active probe
 	// that appears in server logs and may trigger rate limiting on the target.
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		fmt.Fprintf(conn, "QUIT\r\n") //nolint:errcheck — best-effort cleanup
 		return findings
 	}

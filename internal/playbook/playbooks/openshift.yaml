@@ -1,0 +1,47 @@
+name: openshift
+description: >
+  Asset is an exposed Red Hat OpenShift cluster console or API. OpenShift
+  extends Kubernetes with additional enterprise features. Risks include:
+  unauthenticated API access to cluster resources, exposed OAuth server
+  allowing token enumeration, registry access to container images with
+  embedded secrets, route/ingress misconfiguration exposing internal services,
+  and cluster-admin role escalation through misconfigured RBAC. OpenShift
+  clusters frequently expose the console and OAuth endpoints publicly.
+match:
+  any:
+    - header_present: "x-openshift-token"
+    - body_contains: "openshift web console"
+    - path_responds: "/apis/apps.openshift.io/v1"
+surface:
+  nuclei_tags:
+    - openshift
+    - kubernetes
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "console.{domain}"
+      - "api.{domain}"
+      - "oauth-openshift.{domain}"
+      - "openshift.{domain}"
+      - "ocp.{domain}"
+deep:
+  nuclei_tags:
+    - openshift
+    - kubernetes
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /apis/apps.openshift.io/v1
+    - /apis/route.openshift.io/v1
+    - /apis/build.openshift.io/v1
+    - /apis/image.openshift.io/v1
+    - /api/v1/namespaces
+    - /api/v1/nodes
+    - /api/v1/pods
+    - /api/v1/secrets
+    - /api/v1/configmaps
+    - /.well-known/oauth-authorization-server
+    - /oauth/authorize

@@ -51,12 +51,16 @@ type ScanRun struct {
 }
 
 // SubmitScan submits a new scan job to the remote server.
-func (c *Client) SubmitScan(domain string, deep, permissionConfirmed bool) (*ScanResult, error) {
-	body, _ := json.Marshal(map[string]any{
+func (c *Client) SubmitScan(domain string, deep, permissionConfirmed, authorized bool) (*ScanResult, error) {
+	body, err := json.Marshal(map[string]any{
 		"domain":               domain,
 		"deep":                 deep,
 		"permission_confirmed": permissionConfirmed,
+		"authorized":           authorized,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 
 	resp, err := c.do("POST", "/v1/scans", bytes.NewReader(body))
 	if err != nil {

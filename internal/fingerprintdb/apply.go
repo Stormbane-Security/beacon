@@ -23,7 +23,9 @@ import (
 // fields. Rules only fill fields that are currently empty — they never
 // overwrite values already set by fingerprintTech() or higher-priority rules.
 // The backend_services field is additive: rules append to it.
-func Apply(rules []store.FingerprintRule, ev *playbook.Evidence) {
+// Returns the IDs of every rule that fired so callers can increment SeenCount.
+func Apply(rules []store.FingerprintRule, ev *playbook.Evidence) []int64 {
+	var matched []int64
 	for _, r := range rules {
 		if r.Status != "active" {
 			continue
@@ -32,7 +34,9 @@ func Apply(rules []store.FingerprintRule, ev *playbook.Evidence) {
 			continue
 		}
 		setField(r.Field, r.Value, ev)
+		matched = append(matched, r.ID)
 	}
+	return matched
 }
 
 // matchSignal returns true when the rule's signal matches the evidence.

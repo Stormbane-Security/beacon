@@ -264,6 +264,58 @@ func TestRandomSHA256Hex_NotAllZeros(t *testing.T) {
 	}
 }
 
+// --- checkBatchQuery — non-GraphQL JSON array ---
+
+func TestCheckBatchQuery_NonGraphQLJSONArray_NoFinding(t *testing.T) {
+	// Server returns a valid JSON array, but elements don't contain "data" or
+	// "errors" keys — this is a generic REST response, not a GraphQL batch.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[{"name":"foo"},{"name":"bar"}]`))
+	}))
+	defer ts.Close()
+
+	f := checkBatchQuery(context.Background(), ts.Client(), "example.com", ts.URL)
+	if f != nil {
+		t.Errorf("expected no finding for non-GraphQL JSON array, got %+v", f)
+	}
+}
+
+func TestCheckBatchQuery_EmptyJSONArray_NoFinding(t *testing.T) {
+	// Server returns an empty JSON array.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[]`))
+	}))
+	defer ts.Close()
+
+	f := checkBatchQuery(context.Background(), ts.Client(), "example.com", ts.URL)
+	if f != nil {
+		t.Errorf("expected no finding for empty JSON array, got %+v", f)
+	}
+}
+
+func TestCheckBatchQuery_ArrayWithErrorsKey_FindingEmitted(t *testing.T) {
+	// Server returns a JSON array where elements have "errors" — this is a
+	// valid GraphQL batch error response and should produce a finding.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[{"errors":[{"message":"not authorized"}]},{"errors":[{"message":"not authorized"}]}]`))
+	}))
+	defer ts.Close()
+
+	f := checkBatchQuery(context.Background(), ts.Client(), "example.com", ts.URL)
+	if f == nil {
+		t.Fatal("expected a batch query finding for array with 'errors' keys, got nil")
+	}
+	if f.CheckID != finding.CheckGraphQLBatchQuery {
+		t.Errorf("expected CheckGraphQLBatchQuery, got %s", f.CheckID)
+	}
+}
+
 // Note: Run() cannot be integration-tested at this layer because isHTTPReachable()
 // requires the target to accept TCP connections on port 80 or 443. Binding to those
 // ports requires privilege and is not feasible in unit tests. All detection logic is

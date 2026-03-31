@@ -1,9 +1,9 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +18,7 @@ type submitScanRequest struct {
 	Domain              string `json:"domain"`
 	Deep                bool   `json:"deep"`
 	PermissionConfirmed bool   `json:"permission_confirmed"`
+	Authorized          bool   `json:"authorized"`
 }
 
 type submitScanResponse struct {
@@ -27,17 +28,27 @@ type submitScanResponse struct {
 }
 
 func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
 	var req submitScanRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	req.Domain = strings.TrimSpace(req.Domain)
 	if req.Domain == "" {
 		jsonError(w, "domain is required", http.StatusBadRequest)
 		return
 	}
+	if strings.ContainsAny(req.Domain, " \t\r\n") {
+		jsonError(w, "invalid domain format", http.StatusBadRequest)
+		return
+	}
 	if req.Deep && !req.PermissionConfirmed {
 		jsonError(w, "deep scan requires permission_confirmed: true", http.StatusBadRequest)
+		return
+	}
+	if req.Authorized && !req.PermissionConfirmed {
+		jsonError(w, "authorized scan requires permission_confirmed: true", http.StatusBadRequest)
 		return
 	}
 
@@ -52,6 +63,9 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 	scanType := module.ScanSurface
 	if req.Deep {
 		scanType = module.ScanDeep
+	}
+	if req.Authorized {
+		scanType = module.ScanAuthorized
 	}
 
 	run := &store.ScanRun{
@@ -68,13 +82,16 @@ func (s *Server) handleSubmitScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.pool.Submit(worker.Job{
+	if err := s.pool.Submit(worker.Job{
 		ScanRunID:           run.ID,
 		Domain:              req.Domain,
 		ScanType:            scanType,
 		PermissionConfirmed: req.PermissionConfirmed,
 		SubmittedAt:         time.Now(),
-	})
+	}); err != nil {
+		jsonError(w, "worker pool stopped", http.StatusServiceUnavailable)
+		return
+	}
 
 	jsonOK(w, http.StatusAccepted, submitScanResponse{
 		ScanRunID: run.ID,
@@ -179,14 +196,16 @@ func (s *Server) handleStreamScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Replay existing log lines first
+	// Subscribe first, then replay — avoids TOCTOU gap where messages
+	// emitted between Logs() and Subscribe() are lost. The channel has
+	// capacity 64 so messages arriving during replay are buffered.
+	ch := s.pool.Subscribe(id)
+
+	// Replay existing log lines
 	for _, line := range s.pool.Logs(id) {
 		writeSSE(w, "log", line)
 		flusher.Flush()
 	}
-
-	// Subscribe for new lines
-	ch := s.pool.Subscribe(id)
 
 	ctx := r.Context()
 	for {
@@ -209,7 +228,11 @@ func writeSSE(w http.ResponseWriter, event, data string) {
 	if event != "" {
 		w.Write([]byte("event: " + event + "\n")) //nolint:errcheck
 	}
-	w.Write([]byte("data: " + data + "\n\n")) //nolint:errcheck
+	// Sanitize newlines to prevent SSE injection — replace all CR/LF
+	// characters with spaces so injected payloads cannot forge SSE framing.
+	data = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(data)
+	w.Write([]byte("data: " + data + "\n")) //nolint:errcheck
+	w.Write([]byte("\n"))                    //nolint:errcheck
 }
 
 // ── Get report ───────────────────────────────────────────────────────────────
@@ -229,8 +252,10 @@ func (s *Server) handleGetReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default: serve HTML
+	// Default: serve HTML with strict CSP to prevent stored XSS via finding evidence.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(rep.HTMLContent)) //nolint:errcheck
 }
@@ -272,7 +297,7 @@ func (s *Server) handleListPlaybookSuggestions(w http.ResponseWriter, r *http.Re
 // ── List targets ──────────────────────────────────────────────────────────────
 
 func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
-	targets, err := s.st.ListTargets(context.Background())
+	targets, err := s.st.ListTargets(r.Context())
 	if err != nil {
 		jsonError(w, "store error", http.StatusInternalServerError)
 		return
@@ -291,6 +316,7 @@ type upsertSuppressionRequest struct {
 }
 
 func (s *Server) handleUpsertSuppression(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
 	var req upsertSuppressionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)

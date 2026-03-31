@@ -132,20 +132,33 @@ var apiProbes = []string{
 	"/",
 }
 
-// bypassHeaders are common headers used to forge a client IP.
+// bypassHeaders are headers used to forge a client IP address.
+// All forged values use TEST-NET-2 (RFC 5737 §3, 198.51.100.0/24) or
+// TEST-NET-3 (203.0.113.0/24) — documentation ranges that never route on
+// the public internet, so there is no risk of accidentally implicating a
+// real host.
 var bypassHeaders = []struct {
 	name  string
 	value string
 }{
+	// De-facto standard IP forwarding headers
 	{"X-Forwarded-For", bypassForge},
 	{"X-Real-IP", bypassForge},
 	{"X-Originating-IP", bypassForge},
+	// CDN / platform-specific forwarding headers
 	{"CF-Connecting-IP", bypassForge},
 	{"True-Client-IP", bypassForge},
+	{"X-Client-IP", bypassForge},
+	{"X-Cluster-Client-IP", bypassForge},
+	// RFC 7239 standard forwarding header
+	{"Forwarded", "for=" + bypassForge},
+	// Some rate limiters key on the second IP in a comma-separated XFF chain
+	// (the "client" IP after a trusted proxy strips the first hop).
+	{"X-Forwarded-For", bypassForge + ", 203.0.113.1"},
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -167,11 +180,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var lastRun *probeRun
 	var triggeredPhase *probePhase
 	var sig throttleSignal
+	var totalSent int
 
 	for i := range burstPhases {
 		ph := &burstPhases[i]
 		run := burstProbe(ctx, client, probeURL, ph.count, ph.delay)
 		lastRun = run
+		totalSent += run.totalRequests
 		sig = detectSignal(run)
 		if sig != signalNone {
 			triggeredPhase = ph
@@ -183,14 +198,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if sig == signalNone {
 		run := burstProbe(ctx, client, probeURL, sustainedPhase.count, sustainedPhase.delay)
 		lastRun = run
+		totalSent += run.totalRequests
 		sig = detectSignal(run)
 		if sig != signalNone {
 			triggeredPhase = &sustainedPhase
 		}
 	}
-
-	// Count total requests sent across all phases.
-	totalSent := lastRun.totalRequests
 	_ = triggeredPhase
 
 	// Rate-limit headers seen: the server has rate limiting configured but the
@@ -338,6 +351,10 @@ func (s *Scanner) handle429(
 					"bypass_status":  code,
 					"blocked_status": http.StatusTooManyRequests,
 				},
+				ProofCommand: fmt.Sprintf(
+					"# First trigger the rate limit:\nfor i in $(seq 1 20); do curl -so /dev/null -w '%%{http_code}\\n' '%s'; done\n"+
+						"# Then bypass it with the forged header:\ncurl -si -H '%s: %s' '%s' | head -5",
+					probeURL, hdr.name, hdr.value, probeURL),
 				DiscoveredAt: now,
 			})
 		}

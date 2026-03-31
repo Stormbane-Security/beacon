@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,7 +70,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	req.Header.Set("hibp-api-key", s.apiKey)
 	req.Header.Set("user-agent", "Beacon Security Scanner")
 
-	resp, err := client.Do(req)
+	resp, err := retryGet(ctx, client, req)
 	if err != nil {
 		return nil, nil
 	}
@@ -178,6 +179,47 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			DiscoveredAt: time.Now(),
 		},
 	}, nil
+}
+
+// retryGet executes an HTTP GET with exponential back-off on 429 and 5xx responses.
+// It respects the Retry-After header when present and retries up to 3 times.
+func retryGet(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
+	const maxAttempts = 3
+	var lastResp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s
+			if lastResp != nil {
+				if ra := lastResp.Header.Get("Retry-After"); ra != "" {
+					if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs < 120 {
+						delay = time.Duration(secs) * time.Second
+					}
+				}
+				lastResp.Body.Close()
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+			req = req.Clone(ctx)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			lastResp = resp
+			continue
+		}
+		return resp, nil
+	}
+	if lastResp != nil {
+		return lastResp, nil
+	}
+	return nil, lastErr
 }
 
 // rootDomain strips subdomains, returning the registration-level domain.

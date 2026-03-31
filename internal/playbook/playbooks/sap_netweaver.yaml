@@ -6,7 +6,7 @@ description: >
   unauthenticated file upload in SAP NetWeaver Visual Composer
   Metadata Uploader — allows uploading malicious JSP shells to
   /developmentserver/metadatauploader without any authentication; actively
-  exploited in mass attacks starting April 2025); CVE-2020-6287 (CVSS 10.0,
+  exploited in mass attacks since April 2025); CVE-2020-6287 (CVSS 10.0,
   "RECON" — unauthenticated admin creation in SAP NetWeaver Application
   Server Java); and CVE-2025-42999 (SAP Visual Composer deserialization).
   SAP systems store the most sensitive business data in the enterprise —

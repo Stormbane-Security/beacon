@@ -630,10 +630,39 @@ func spfOriginIPs(ctx context.Context, domain string) []string {
 	return ips
 }
 
+// twoPartTLDs are common country-code TLDs that require three labels for a
+// registrable domain (e.g. example.co.uk, example.com.au).
+var twoPartTLDs = map[string]bool{
+	"co.uk": true, "org.uk": true, "ac.uk": true, "gov.uk": true,
+	"com.au": true, "net.au": true, "org.au": true, "com.br": true,
+	"co.nz": true, "net.nz": true, "org.nz": true,
+	"co.jp": true, "or.jp": true, "ne.jp": true,
+	"co.kr": true, "or.kr": true,
+	"co.in": true, "net.in": true, "org.in": true,
+	"co.za": true, "org.za": true, "web.za": true,
+	"com.cn": true, "net.cn": true, "org.cn": true,
+	"com.mx": true, "org.mx": true,
+	"com.tr": true, "org.tr": true,
+	"co.il": true, "org.il": true,
+	"com.sg": true, "org.sg": true,
+	"com.hk": true, "org.hk": true,
+	"com.tw": true, "org.tw": true,
+}
+
 func rootDomain(asset string) string {
 	parts := strings.Split(asset, ".")
 	if len(parts) <= 2 {
 		return asset
+	}
+	// Check for two-part TLD (e.g. co.uk → need 3 labels for the root domain).
+	if len(parts) >= 3 {
+		suffix := parts[len(parts)-2] + "." + parts[len(parts)-1]
+		if twoPartTLDs[suffix] {
+			if len(parts) <= 3 {
+				return asset
+			}
+			return strings.Join(parts[len(parts)-3:], ".")
+		}
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
 }
@@ -735,13 +764,12 @@ func certMatchesAsset(ctx context.Context, originIP, asset string) bool {
 		InsecureSkipVerify: true,
 		ServerName:         host,
 	})
+	defer tlsConn.Close() // also closes underlying netConn
 	tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
-		netConn.Close()
 		return false
 	}
 	state := tlsConn.ConnectionState()
-	tlsConn.Close()
 
 	if len(state.PeerCertificates) == 0 {
 		return false

@@ -19,6 +19,12 @@ type Input struct {
 	// Used by: Surface
 	ExtraCIDRs []string
 
+	// Peers are the other root domains in the same multi-asset scan session.
+	// Empty for single-asset scans. Used for cross-asset fingerprinting (shared
+	// TLS SANs, shared IPs, shared software stacks).
+	// Used by: Surface
+	Peers []string
+
 	// GitHub — used by: GitHub/CI module (Phase 2)
 	GitHubOrg   string
 	GitHubRepo  string
@@ -27,9 +33,13 @@ type Input struct {
 	// IaC — used by: IaC module (Phase 2)
 	IaCRepoPath string
 
-	// Cloud — used by: Cloud module (Phase 3)
-	AWSProfile         string
-	GCPCredentialsFile string
+	// Cloud — used by: Cloud module.
+	// Set CloudEnabled to true to run cloud posture checks using ambient
+	// credentials (ADC, AWS env vars, Azure DefaultAzureCredential).
+	// Override individual fields to use non-default credentials.
+	CloudEnabled        bool
+	AWSProfile          string
+	GCPCredentialsFile  string
 	AzureSubscriptionID string
 
 	// Kubernetes — used by: Kubernetes module (Phase 3)
@@ -69,10 +79,29 @@ type ProgressEvent struct {
 	FindingCount int               // running total of findings accumulated so far
 	FindingDelta int               // findings added by the last completed scanner
 	NewFindings  []finding.Finding // actual findings from the last completed scanner (scanner_done only)
-	AssetNames   []string          // full list of discovered assets (discovery_done only)
-	Evidence     playbook.Evidence // fingerprint evidence (fingerprint phase only)
+	AssetNames      []string          // full list of discovered assets (discovery_done only)
+	Evidence        playbook.Evidence // fingerprint evidence (fingerprint phase only)
+	// DiscoveredAssets is populated on the "unconfirmed_assets" phase.
+	// Each entry is an asset whose domain ownership could not be automatically
+	// confirmed. The TUI presents these in the Discovered Assets panel so the
+	// operator can review evidence and decide whether to authorise a deep scan.
+	DiscoveredAssets []DiscoveredAsset
 }
 
 // ProgressFunc is called at each scan milestone.
 // Implementations must be goroutine-safe.
 type ProgressFunc func(ProgressEvent)
+
+// DiscoveredAsset represents an IP or hostname found during scanning whose
+// ownership by the target domain has not yet been confirmed. Surface-mode
+// passive scans always run against these (unsolicited observation is safe).
+// Deep scans require explicit typed operator confirmation.
+type DiscoveredAsset struct {
+	Asset         string   // bare IP or hostname discovered
+	DiscoveredVia string   // "bgp", "bgp_ptr", "cdn_origin", "ghactions_deploy", etc.
+	Relationship  string   // human-readable: why this asset appeared in the scan
+	Confirmed     bool     // true = auto-confirmed as belonging to RootDomain
+	Evidence      []string // PTR record, TLS SAN, HTTP probe, CNAME — used to confirm/deny
+	RootDomain    string   // the scan target this was discovered under
+	BoundHostname string   // hostname to use as Host: header when probing (non-empty for CDN origins)
+}

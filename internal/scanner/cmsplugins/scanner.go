@@ -67,6 +67,7 @@ var wordpressPlugins = []pluginCheck{
 	{"classic-editor", "readme.txt", "Stable tag:", "", ""},
 	{"really-simple-ssl", "readme.txt", "Stable tag:", "7.0.2", "CVE-2023-4996"},
 	{"litespeed-cache", "readme.txt", "Stable tag:", "5.6", "CVE-2023-40000"},
+	{"sitepress-multilingual-cms", "readme.txt", "Stable tag:", "4.6.12", "CVE-2024-6061"}, // WPML SSTI via Twig shortcode — Contributor → RCE
 }
 
 // drupalModules is the curated list of Drupal core/contrib modules to probe.
@@ -210,7 +211,7 @@ func probePlugins(ctx context.Context, client *http.Client, asset, base, prefix 
 		}
 
 		// Check if the detected version is known-vulnerable.
-		if p.knownVulnVer != "" && version != "" && !isNewerOrEqual(version, p.knownVulnVer) {
+		if p.knownVulnVer != "" && version != "" && isNewerOrEqual(p.knownVulnVer, version) {
 			checkID = finding.CheckCMSPluginVulnerable
 			severity = finding.SeverityHigh
 			title = fmt.Sprintf("Vulnerable CMS plugin: %s v%s (vuln ≤ %s)", p.slug, version, p.knownVulnVer)

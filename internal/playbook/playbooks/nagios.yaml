@@ -1,0 +1,40 @@
+name: nagios
+description: >
+  Asset is an exposed Nagios monitoring instance (Core or XI). Nagios
+  reveals complete infrastructure topology including hostnames, IP addresses,
+  service status, and network dependencies. Risks include: default
+  nagiosadmin/nagiosadmin credentials, CGI interface command injection
+  (CVE-2016-9565/9566), unauthenticated status page access revealing
+  monitored hosts and services, and the XI REST API exposing system
+  configuration and check commands that may contain credentials.
+match:
+  any:
+    - body_contains: "nagios core"
+    - body_contains: "nagios xi"
+    - path_responds: "/nagios/"
+    - title_contains: "Nagios"
+surface:
+  nuclei_tags:
+    - nagios
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "nagios.{domain}"
+      - "monitor.{domain}"
+      - "nms.{domain}"
+deep:
+  nuclei_tags:
+    - nagios
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /nagios/
+    - /nagios/cgi-bin/status.cgi
+    - /nagios/cgi-bin/statusmap.cgi
+    - /nagios/cgi-bin/config.cgi
+    - /nagios/cgi-bin/extinfo.cgi
+    - /nagiosxi/login.php
+    - /nagiosxi/api/v1/system/status

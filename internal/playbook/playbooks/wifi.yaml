@@ -1,0 +1,23 @@
+name: wifi
+description: >
+  Local wireless network security assessment. Enumerates nearby WiFi networks
+  using OS-native tools (macOS airport, Linux nmcli/iwlist) and reports
+  insecure configurations: open networks (no encryption), WEP (broken since
+  2001), WPS (Pixie-Dust/PIN brute-force), and WPA2-TKIP (deprecated). Also
+  probes the default gateway for exposed management interfaces. Deep mode
+  attempts passive PMKID capture via bettercap or hcxdumptool, enabling
+  offline dictionary attacks against WPA2 passphrases without deauthentication.
+match:
+  any:
+    - check_id: "wifi.open_network"
+    - check_id: "wifi.wep_network"
+    - check_id: "wifi.wps_enabled"
+    - check_id: "wifi.wpa2_tkip"
+    - check_id: "wifi.gateway_exposed"
+    - check_id: "wifi.pmkid_capture"
+surface:
+  scanners:
+    - wifi
+deep:
+  scanners:
+    - wifi

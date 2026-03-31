@@ -1,0 +1,35 @@
+name: neo4j
+description: >
+  Asset is an exposed Neo4j graph database browser or API. Neo4j's HTTP API
+  allows executing arbitrary Cypher queries that can read, modify, or delete
+  all graph data. The Neo4j Browser at /browser/ provides a full query
+  interface. Risks include: unauthenticated query execution, sensitive
+  relationship data exfiltration (identity graphs, access control graphs,
+  fraud detection data), and server-side request forgery through LOAD CSV.
+match:
+  any:
+    - body_contains: "neo4j browser"
+    - body_contains: "neo4j_version"
+    - path_responds: "/db/neo4j/tx"
+    - title_contains: "Neo4j"
+surface:
+  nuclei_tags:
+    - neo4j
+    - exposure
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "neo4j.{domain}"
+      - "graph.{domain}"
+deep:
+  nuclei_tags:
+    - neo4j
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /db/neo4j/tx
+    - /db/neo4j/tx/commit
+    - /browser/
+    - /db/data/
+    - /user/neo4j

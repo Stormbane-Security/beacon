@@ -45,7 +45,7 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
@@ -59,8 +59,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	scheme := "https"
 	var sessionCookies []string
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
-	if resp, err := client.Do(req); err != nil {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
+	if err != nil {
+		scheme = "http"
+	} else if resp, err := client.Do(req); err != nil {
 		scheme = "http"
 	} else {
 		for _, c := range resp.Cookies() {
@@ -182,7 +184,7 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 
 	return &finding.Finding{
 		CheckID:     "websocket.cswsh",
-		Module:      "surface",
+		Module:      "deep",
 		Scanner:     scannerName,
 		Severity:    severity,
 		Title:       fmt.Sprintf("Cross-Site WebSocket Hijacking (CSWSH) at %s", wsURL),
@@ -203,5 +205,6 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 			"response_code":   resp.StatusCode,
 			"session_cookies": sessionCookies,
 		},
+		DiscoveredAt: time.Now(),
 	}
 }

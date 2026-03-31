@@ -21,7 +21,24 @@ func VerifyCmd(checkID finding.CheckID, asset string) string {
 	if !ok {
 		return ""
 	}
-	return strings.ReplaceAll(cmd, "{asset}", asset)
+	return strings.ReplaceAll(cmd, "{asset}", sanitizeShellArg(asset))
+}
+
+// sanitizeShellArg removes shell metacharacters from an asset string to
+// prevent command injection when the value is interpolated into proof commands.
+// Only alphanumeric, dots, hyphens, underscores, colons, slashes, and at-signs
+// are preserved — these cover hostnames, IPs, URLs, owner/repo, and email addrs.
+func sanitizeShellArg(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '-' ||
+			r == '_' || r == ':' || r == '/' || r == '@' || r == '[' || r == ']' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // verificationCmds maps each CheckID to a reproducible shell command.
@@ -34,7 +51,7 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckEmailDMARCPolicyNone: "dig TXT _dmarc.{asset} | grep -i 'p='",
 	finding.CheckEmailDKIMMissing:  "dig TXT default._domainkey.{asset}",
 	finding.CheckEmailMTASTSMissing: "dig TXT _mta-sts.{asset}",
-	finding.CheckEmailSpoofable:    "swaks --to test@{asset} --from spoofed@{asset} --server mail.{asset} --header 'Subject: SPF test'",
+	finding.CheckEmailSpoofable:    "dig TXT {asset} | grep -i spf ; echo '---DMARC---' ; dig TXT _dmarc.{asset} | grep -i dmarc\n# Empty output above confirms no SPF + no DMARC = spoofable.\n# To send a live spoofing test (requires swaks, replace YOUR_EMAIL):\n# swaks --to YOUR_EMAIL --from admin@{asset} --header 'Subject: SPF spoofing test'",
 
 	// ── TLS / SSL ────────────────────────────────────────────────────────────
 	finding.CheckTLSCertExpiry7d:        "echo | openssl s_client -connect {asset}:443 2>/dev/null | openssl x509 -noout -dates",
@@ -115,6 +132,7 @@ var verificationCmds = map[finding.CheckID]string{
 	finding.CheckJSSourceMapExposed: "curl -sI https://{asset}/static/main.js.map | grep 'HTTP/'",
 	finding.CheckCookieMissingSecure:   "curl -sI https://{asset} | grep -i 'set-cookie' | grep -iv 'secure'",
 	finding.CheckCookieMissingHTTPOnly: "curl -sI https://{asset} | grep -i 'set-cookie' | grep -iv 'httponly'",
+	finding.CheckCookieMissingSameSite: "curl -sI https://{asset} | grep -i 'set-cookie' | grep -iv 'samesite=strict\\|samesite=lax'",
 
 	// ── HTTP Methods ─────────────────────────────────────────────────────────
 	finding.CheckWebDangerousMethodEnabled: "curl -sI -X OPTIONS https://{asset} | grep -i allow",

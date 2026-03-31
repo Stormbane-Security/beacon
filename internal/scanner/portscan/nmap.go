@@ -112,7 +112,7 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 
 	// Deep mode: add NSE vulnerability scripts and OS detection.
 	// These probe for specific CVEs — only allowed with explicit permission.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		vulnScripts := []string{
 			"vuln",
 			"ms17-010",
@@ -120,6 +120,7 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 			"ssl-drown",
 			"ssl-poodle",
 			"smb-vuln-ms17-010",
+			"smb-vuln-ms08-067", // CVE-2008-4250 Windows Server Service RCE (Conficker)
 			"http-shellshock",
 		}
 		args = append(args, "--script", strings.Join(vulnScripts, ","))
@@ -158,7 +159,7 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	// Deep mode: run a separate UDP scan for SNMP on port 161.
 	// UDP requires -sU which in turn requires root/CAP_NET_RAW; tolerate
 	// permission errors gracefully.
-	if scanType == module.ScanDeep {
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		if _, hasSNMP := openPorts[161]; hasSNMP {
 			udpArgs := []string{
 				"-oX", "-",
@@ -190,15 +191,31 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 // ProofCommand field (the full command a user could paste into a terminal).
 func buildProofCommand(bin string, args []string, _ string) string {
 	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, bin)
+	parts = append(parts, shellQuote(bin))
 	for _, a := range args {
-		if strings.ContainsAny(a, " \t\n") {
-			parts = append(parts, "'"+a+"'")
-		} else {
-			parts = append(parts, a)
-		}
+		parts = append(parts, shellQuote(a))
 	}
 	return strings.Join(parts, " ")
+}
+
+// shellQuote returns a shell-safe representation of s. If s contains no
+// special characters it is returned as-is; otherwise it is single-quoted
+// with any embedded single quotes escaped as '\'' (end quote, escaped
+// quote, start quote).
+func shellQuote(s string) string {
+	safe := true
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' ||
+			c == '.' || c == '/' || c == ':' || c == ',' || c == '=') {
+			safe = false
+			break
+		}
+	}
+	if safe && len(s) > 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // parseNmapXML parses nmap XML output and emits findings.
@@ -213,7 +230,7 @@ func parseNmapXML(asset string, data []byte, scanType module.ScanType, proofCmd 
 
 	for _, host := range run.Hosts {
 		// OS detection finding (deep mode only, populated when -O was used)
-		if scanType == module.ScanDeep {
+		if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 			if osF := buildOSFinding(asset, host.OS, proofCmd, now); osF != nil {
 				findings = append(findings, *osF)
 			}
@@ -412,6 +429,22 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 				Title:        fmt.Sprintf("EternalBlue (MS17-010 / CVE-2017-0144) detected on port %d", port),
 				Description:  "The SMB service is vulnerable to EternalBlue (MS17-010), used by WannaCry and NotPetya. Remote code execution without credentials is possible.",
 				Evidence:     map[string]any{"port": port, "cve": "CVE-2017-0144", "script": script.ID, "output": truncate(output, 200)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "smb-vuln-ms08-067":
+		if strings.Contains(lower, "vulnerable") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapVulnScript,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityCritical,
+				Asset:        asset,
+				Title:        fmt.Sprintf("MS08-067 (CVE-2008-4250) detected on port %d", port),
+				Description:  "The SMB service is vulnerable to MS08-067 (Conficker worm, CVSS 10.0). This Windows Server Service flaw allows unauthenticated remote code execution and was exploited at massive scale by Conficker/Downadup. Patch immediately via KB958644.",
+				Evidence:     map[string]any{"port": port, "cve": "CVE-2008-4250", "script": script.ID, "output": truncate(output, 200)},
 				ProofCommand: proofCmd,
 				DiscoveredAt: now,
 			}}

@@ -69,6 +69,7 @@ func main() {
 	go func() {
 		<-quit
 		fmt.Fprintln(os.Stderr, "beacond: shutting down...")
+		pool.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {

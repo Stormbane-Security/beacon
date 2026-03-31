@@ -79,6 +79,120 @@ var knownChainPatterns = []chainPattern{
 			"against another. The exposed token introspection endpoint lets an attacker verify which tokens are still active.",
 		severity: finding.SeverityHigh,
 	},
+
+	// ── Kubernetes lateral movement chains ───────────────────────────────
+
+	{
+		ids:    []string{"cloud.gcp.gke_legacy_metadata", "cloud.gcp.gke_node_default_sa"},
+		impact: "GKE cluster takeover via metadata + default SA",
+		narrative: "Legacy metadata endpoints (v0.1/v1beta1) do not require the Metadata-Flavor header, " +
+			"so any pod with SSRF or code execution can reach 169.254.169.254. The nodes run the default " +
+			"Compute Engine service account (project-editor), so stolen credentials grant full project access " +
+			"including Compute, Storage, and IAM.",
+		severity: finding.SeverityCritical,
+	},
+	{
+		ids:    []string{"cloud.gcp.gke_no_network_policy", "cloud.gcp.gke_legacy_metadata"},
+		impact: "Unrestricted pod-to-pod + metadata lateral movement",
+		narrative: "Without network policy enforcement, any compromised pod can reach all other pods and " +
+			"services in the cluster. Combined with the legacy metadata endpoint, an attacker can move laterally " +
+			"between pods and escalate to node-level cloud credentials.",
+		severity: finding.SeverityCritical,
+	},
+	{
+		ids:    []string{"cloud.aws.eks_no_irsa", "cloud.aws.eks_no_secret_encryption"},
+		impact: "EKS credential theft via unencrypted secrets + node role",
+		narrative: "Without IRSA, all pods share the node's IAM role. Kubernetes secrets are stored unencrypted " +
+			"in etcd, so an attacker with etcd access or API server read permissions can extract all secrets " +
+			"and use the broad node IAM role for cloud API access.",
+		severity: finding.SeverityCritical,
+	},
+	{
+		ids:    []string{"cloud.aws.eks_no_network_policy", "cloud.aws.eks_no_irsa"},
+		impact: "EKS lateral movement with shared IAM credentials",
+		narrative: "No network policy enforcement allows unrestricted pod-to-pod communication. Without IRSA, " +
+			"all pods inherit the node's IAM role. An attacker can move between pods freely and use the shared " +
+			"IAM credentials for cloud access from any compromised workload.",
+		severity: finding.SeverityHigh,
+	},
+	{
+		ids:    []string{"cloud.aws.eks_no_private_endpoint", "cloud.aws.eks_no_secret_encryption"},
+		impact: "EKS API exposure with unprotected secrets",
+		narrative: "The public EKS API endpoint allows external access to the cluster control plane. " +
+			"Kubernetes secrets stored without KMS encryption can be read by anyone with API access, " +
+			"potentially exposing database credentials, API keys, and TLS certificates.",
+		severity: finding.SeverityHigh,
+	},
+	{
+		ids:    []string{"cloud.azure.aks_no_managed_identity", "cloud.azure.aks_no_aad_integration"},
+		impact: "AKS cluster with weak identity controls",
+		narrative: "Using a service principal instead of managed identity means long-lived credentials that " +
+			"can be leaked. Without Azure AD integration, Kubernetes RBAC is not tied to organizational " +
+			"identity, making access control and audit trails significantly weaker.",
+		severity: finding.SeverityHigh,
+	},
+	{
+		ids:    []string{"port.etcd_exposed", "port.k8s_api_exposed"},
+		impact: "Full Kubernetes cluster compromise via exposed control plane",
+		narrative: "The etcd database (containing all cluster state including secrets) and the Kubernetes " +
+			"API server are both externally accessible. An attacker can read all secrets from etcd or " +
+			"create privileged pods via the API server to take over the entire cluster and its workloads.",
+		severity: finding.SeverityCritical,
+	},
+	{
+		ids:    []string{"port.kubelet_readonly_exposed", "port.k8s_api_exposed"},
+		impact: "K8s reconnaissance + control plane access",
+		narrative: "The kubelet read-only port exposes pod listings, resource usage, and container specs " +
+			"without authentication. Combined with an exposed API server, an attacker can enumerate all " +
+			"workloads and then interact with the control plane to schedule malicious containers.",
+		severity: finding.SeverityCritical,
+	},
+
+	// ── CI/CD to cloud lateral movement ──────────────────────────────────
+
+	{
+		ids:    []string{"ghaction.oidc_trust_too_wide", "ghaction.unpinned_action"},
+		impact: "Cloud credential theft via supply chain + OIDC",
+		narrative: "A compromised or hijacked unpinned action runs in a workflow with overly broad OIDC " +
+			"federation trust. The attacker's code can request cloud credentials (AWS/GCP/Azure) scoped " +
+			"beyond the intended repository or environment, gaining persistent cloud access.",
+		severity: finding.SeverityCritical,
+	},
+	{
+		ids:    []string{"ghaction.pull_request_target_unsafe", "ghaction.secrets_echoed"},
+		impact: "Secret exfiltration via privileged PR workflow",
+		narrative: "A pull_request_target workflow with unsafe checkout runs attacker-controlled code with " +
+			"access to repository secrets. The workflow also echoes secrets to logs, providing a second " +
+			"exfiltration channel. Combined, this enables full secret theft from any fork PR.",
+		severity: finding.SeverityCritical,
+	},
+	{
+		ids:    []string{"ghaction.runner_metadata_access", "ghaction.self_hosted_on_public_repo"},
+		impact: "Cloud metadata theft from public repo runner",
+		narrative: "A self-hosted runner in a public repository can be targeted by any GitHub user via " +
+			"fork PRs. The runner can reach the cloud metadata service at 169.254.169.254, allowing " +
+			"an attacker to steal cloud credentials from the runner's host environment.",
+		severity: finding.SeverityCritical,
+	},
+
+	// ── Cross-cloud + SSRF chains ────────────────────────────────────────
+
+	{
+		ids:    []string{"web.ssrf", "port.kubelet_readonly_exposed"},
+		impact: "K8s workload enumeration via SSRF",
+		narrative: "An SSRF vulnerability allows reaching the kubelet read-only API (port 10255), " +
+			"which exposes pod specs, environment variables (potentially containing secrets), " +
+			"and container resource information without authentication.",
+		severity: finding.SeverityHigh,
+	},
+	{
+		ids:    []string{"web.ssrf", "port.etcd_exposed"},
+		impact: "Full cluster secret theft via SSRF to etcd",
+		narrative: "An SSRF vulnerability can reach the etcd API (port 2379), which stores all " +
+			"Kubernetes cluster state including secrets in plaintext. An attacker can extract " +
+			"every secret, token, and certificate in the cluster.",
+		severity: finding.SeverityCritical,
+	},
 }
 
 // DetectChains identifies attack chains in a set of findings for a single asset.

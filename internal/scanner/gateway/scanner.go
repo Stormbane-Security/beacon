@@ -169,9 +169,16 @@ func probeHAProxyStats(ctx context.Context, client *http.Client, base, asset str
 		}
 
 		bodyStr := string(body)
-		// HAProxy stats page includes these distinctive strings
-		if !strings.Contains(bodyStr, "Statistics Report") && !strings.Contains(bodyStr, "HAProxy") &&
-			!strings.Contains(bodyStr, "haproxy") {
+		// Require a marker that appears exclusively in real HAProxy stats output.
+		// "Statistics Report" appears in the HTML page title.
+		// "pxname" is the first column of the CSV stats dump (?stats;csv).
+		// "haproxy_process_nbthread" is the Prometheus endpoint metric name.
+		// Bare "haproxy" / "HAProxy" are intentionally excluded here — they match
+		// any page whose route or content merely mentions the word haproxy
+		// (e.g. a Next.js dynamic route at /haproxy?stats).
+		if !strings.Contains(bodyStr, "Statistics Report") &&
+			!strings.Contains(bodyStr, "pxname") &&
+			!strings.Contains(bodyStr, "haproxy_process_nbthread") {
 			continue
 		}
 

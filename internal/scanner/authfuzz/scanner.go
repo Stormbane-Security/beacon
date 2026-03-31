@@ -178,8 +178,9 @@ func checkRedirectURIAbuse(ctx context.Context, client *http.Client, asset, auth
 		resp.Body.Close()
 
 		// A 302 redirect to our mutated URI indicates redirect_uri is not validated.
+		mutatedHost := extractHost(m.uri)
 		if resp.StatusCode == http.StatusFound && loc != "" &&
-			strings.Contains(loc, extractHost(m.uri)) &&
+			mutatedHost != "" && strings.Contains(loc, mutatedHost) &&
 			!strings.Contains(loc, legitimateURI) {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckAuthFuzzRedirectAbuse,

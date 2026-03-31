@@ -113,3 +113,66 @@ func TestClickjacking_EmptyContentType(t *testing.T) {
 		t.Fatalf("expected 1 finding for empty content-type, got %d", len(findings))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CSP frame-ancestors variations
+// ---------------------------------------------------------------------------
+
+func TestClickjacking_FrameAncestorsSelf_NoFinding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings when frame-ancestors 'self' is set, got %d", len(findings))
+	}
+}
+
+func TestClickjacking_FrameAncestorsNone_NoFinding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings when frame-ancestors 'none' is set, got %d", len(findings))
+	}
+}
+
+func TestClickjacking_FrameAncestorsNoValue_DocumentBehavior(t *testing.T) {
+	// "frame-ancestors" directive with no value after it. The scanner checks
+	// strings.Contains(csp, "frame-ancestors") — a bare directive name still
+	// contains the substring, so the scanner considers it present.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Current behavior: the bare directive name matches the substring check,
+	// so no finding is produced. This documents the current behavior.
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for bare 'frame-ancestors' directive (current behavior), got %d", len(findings))
+	}
+}

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(/Users/patrick/stormbane.net/node_modules/.bin/tsc --noEmit --project /Users/patrick/stormbane.net/tsconfig.json)",
+      "Read(//Users/patrick/ethereum-explorer/**)",
+      "Bash(cat /Users/patrick/beacon/deploy/*.*)",
+      "Read(//private/tmp/golangci-lint/pkg/lint/lintersdb/**)",
+      "Read(//tmp/golangci-lint/pkg/lint/lintersdb/**)",
+      "Read(//private/tmp/golangci-lint/**)",
+      "Read(//tmp/golangci-lint/pkg/commands/internal/migrate/**)",
+      "Read(//private/tmp/golangci-lint/pkg/commands/internal/migrate/**)",
+      "Bash(grep -r \"\\\\.Deprecated\\\\|DeprecatedWarning\\\\|DeprecatedError\" /tmp/golangci-lint/pkg/lint/lintersdb/*.go)"
+    ],
+    "additionalDirectories": [
+      "/Users/patrick/stormbane.net/components/layout",
+      "/Users/patrick/stormbane.net/types",
+      "/Users/patrick/stormbane.net/components/blog",
+      "/Users/patrick/stormbane.net/content/blog"
+    ]
+  }
+}

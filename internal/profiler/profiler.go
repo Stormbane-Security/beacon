@@ -125,6 +125,8 @@ func ProfileToFinding(asset string, profile *TargetProfile) finding.Finding {
 	}
 	return finding.Finding{
 		CheckID:  finding.CheckAdaptiveReconProfile,
+		Module:   "profiler",
+		Scanner:  "profiler",
 		Severity: finding.SeverityInfo,
 		Asset:    asset,
 		Title:       "AI Target Profile",

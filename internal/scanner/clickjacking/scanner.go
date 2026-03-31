@@ -58,7 +58,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	// Only check pages that return an HTML response — non-HTML assets
 	// (APIs, images, fonts) are not framed and don't need these headers.
 	ct := resp.Header.Get("Content-Type")
-	if ct != "" && !strings.Contains(ct, "text/html") {
+	if ct != "" && !strings.Contains(ct, "text/html") && !strings.Contains(ct, "application/xhtml+xml") {
 		return nil, nil
 	}
 
@@ -88,5 +88,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			"x_frame_options":     xfo,
 			"csp_frame_ancestors": hasFrameAncestors,
 		},
+		DiscoveredAt: time.Now(),
 	}}, nil
 }

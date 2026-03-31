@@ -149,7 +149,7 @@ func analyzeImage(ctx context.Context, asset, dataURI, apiKey string) ([]finding
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
 		return nil, err
 	}

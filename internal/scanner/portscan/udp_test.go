@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane/beacon/internal/module"
 )
 
 // startUDPServer starts a UDP server on a random port and calls handler for each packet.
@@ -341,7 +342,7 @@ func TestRunUDP_NoFindings(t *testing.T) {
 	// 127.0.0.2 is a loopback address that typically has nothing listening on
 	// the relevant ports. We don't check the count — we just verify no panic.
 	ctx := t.Context()
-	findings := runUDP(ctx, "127.0.0.1")
+	findings := runUDP(ctx, "127.0.0.1", module.ScanDeep)
 	// We can't assert 0 findings because the test machine might have services.
 	// Assert only that we got a valid (non-nil) slice.
 	_ = findings
@@ -371,4 +372,160 @@ func TestCheckIDsExist(t *testing.T) {
 // fastDeadline returns a time.Time 3 seconds in the future for test connections.
 func fastDeadline() time.Time {
 	return time.Now().Add(3 * time.Second)
+}
+
+// ── itoa edge cases ─────────────────────────────────────────────────────────
+
+func TestItoa(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{0, "0"},
+		{1, "1"},
+		{123, "123"},
+		{1812, "1812"},
+		{65535, "65535"},
+		{-1, "-1"},
+	}
+	for _, tt := range tests {
+		got := itoa(tt.input)
+		if got != tt.want {
+			t.Errorf("itoa(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// ── DNS open resolver response parsing ───────────────────────────────────────
+
+func TestProbeDNSResolver_ValidResponseParsing(t *testing.T) {
+	// Simulate a DNS resolver response: matching transaction ID, QR bit set,
+	// RCODE=0 (NOERROR), with ANCOUNT=1.
+	dnsResponse := make([]byte, 32)
+	dnsResponse[0] = 0x12  // Transaction ID hi
+	dnsResponse[1] = 0x34  // Transaction ID lo
+	dnsResponse[2] = 0x80  // QR=1 (response), Opcode=0, AA=0, TC=0, RD=0
+	dnsResponse[3] = 0x00  // RA=0, Z=0, RCODE=0 (NOERROR)
+	dnsResponse[4] = 0x00  // QDCOUNT hi
+	dnsResponse[5] = 0x01  // QDCOUNT lo
+	dnsResponse[6] = 0x00  // ANCOUNT hi
+	dnsResponse[7] = 0x01  // ANCOUNT lo
+
+	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
+		conn.WriteToUDP(dnsResponse, addr) //nolint:errcheck
+	})
+	defer srv.Close()
+
+	conn, err := net.Dial("udp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(fastDeadline()) //nolint:errcheck
+
+	_, _ = conn.Write(dnsQueryExample)
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil || n < 12 {
+		t.Fatalf("no DNS response: %v", err)
+	}
+	// Verify transaction ID matches
+	if buf[0] != 0x12 || buf[1] != 0x34 {
+		t.Errorf("transaction ID mismatch: got 0x%02x%02x, want 0x1234", buf[0], buf[1])
+	}
+	// Verify QR bit is set
+	if buf[2]&0x80 == 0 {
+		t.Error("QR bit not set in response")
+	}
+}
+
+func TestProbeDNSResolver_WrongTransactionID(t *testing.T) {
+	// Response with wrong transaction ID should be rejected by the probe.
+	dnsResponse := make([]byte, 16)
+	dnsResponse[0] = 0xFF  // Wrong transaction ID
+	dnsResponse[1] = 0xFF
+	dnsResponse[2] = 0x80  // QR=1
+
+	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
+		conn.WriteToUDP(dnsResponse, addr) //nolint:errcheck
+	})
+	defer srv.Close()
+
+	conn, err := net.Dial("udp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(fastDeadline()) //nolint:errcheck
+
+	_, _ = conn.Write(dnsQueryExample)
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil || n < 4 {
+		t.Skip("no response")
+	}
+	// Probe logic checks buf[0]==0x12 && buf[1]==0x34 — this should fail.
+	if buf[0] == 0x12 && buf[1] == 0x34 {
+		t.Error("test setup error: response unexpectedly has correct transaction ID")
+	}
+}
+
+// ── runUDP scan type gating ─────────────────────────────────────────────────
+
+func TestRunUDP_SurfaceMode_SkipsExtendedProbes(t *testing.T) {
+	// Surface mode should run NTP, SNMP, and DNS probes but skip TFTP, SSDP,
+	// IKE, NetBIOS, STUN, mDNS, and RADIUS. Since we can't easily mock the
+	// port-hardcoded probes, verify the function handles surface mode without
+	// panic on a host with no services.
+	ctx := t.Context()
+	findings := runUDP(ctx, "127.0.0.1", module.ScanSurface)
+	_ = findings // no assertion on count — just no panic
+}
+
+func TestRunUDP_DeepMode_RunsAllProbes(t *testing.T) {
+	ctx := t.Context()
+	findings := runUDP(ctx, "127.0.0.1", module.ScanDeep)
+	_ = findings // no assertion on count — just no panic
+}
+
+// ── libupnp version parsing ─────────────────────────────────────────────────
+
+func TestParseLibupnpVersion(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Server: Linux/3.10 UPnP/1.0 Portable SDK for UPnP devices/1.6.17\r\n", "1.6.17"},
+		{"Server: Linux/3.10 UPnP/1.0 Portable SDK for UPnP devices/1.8.0\r\n", "1.8.0"},
+		{"Server: nginx\r\n", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := parseLibupnpVersion(tt.input)
+		if got != tt.want {
+			t.Errorf("parseLibupnpVersion(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestIsLibupnpVulnerable(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{"1.6.17", true},
+		{"1.6.16", true},
+		{"1.6.18", false},
+		{"1.5.0", true},
+		{"1.8.0", false},
+		{"2.0.0", false},
+		{"", false},
+		{"abc", false},
+	}
+	for _, tt := range tests {
+		got := isLibupnpVulnerable(tt.version)
+		if got != tt.want {
+			t.Errorf("isLibupnpVulnerable(%q) = %v, want %v", tt.version, got, tt.want)
+		}
+	}
 }

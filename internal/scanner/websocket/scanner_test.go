@@ -146,3 +146,15 @@ func TestWebSocket_MultiplePathsChecked(t *testing.T) {
 	}
 	_ = found
 }
+
+// TestWebSocket_InvalidAsset verifies that an asset string which causes
+// NewRequestWithContext to fail doesn't panic (previously ignored error).
+func TestWebSocket_InvalidAsset(t *testing.T) {
+	// Control characters in the asset make NewRequestWithContext return an error.
+	findings, err := New().Run(t.Context(), "host\x00with\x01nulls", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	// Should produce no findings (can't probe), not a panic.
+	_ = findings
+}

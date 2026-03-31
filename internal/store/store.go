@@ -264,6 +264,9 @@ type Store interface {
 	UpdateScanRun(ctx context.Context, run *ScanRun) error
 	GetScanRun(ctx context.Context, id string) (*ScanRun, error)
 	ListScanRuns(ctx context.Context, domain string) ([]ScanRun, error)
+	// ListAllScanRuns returns the most recent scan runs across all domains,
+	// ordered by started_at descending and limited to at most `limit` rows.
+	ListAllScanRuns(ctx context.Context, limit int) ([]ScanRun, error)
 	// DeleteScanRun removes a scan run and all associated data (findings, reports, asset
 	// executions, scanner metrics, discovery audit, correlation findings).
 	DeleteScanRun(ctx context.Context, id string) error
@@ -347,6 +350,11 @@ type Store interface {
 	UpsertFingerprintRule(ctx context.Context, r *FingerprintRule) error
 	DeleteFingerprintRule(ctx context.Context, id int64) error
 	IncrementFingerprintRuleSeen(ctx context.Context, id int64) error
+
+	// Asset graph — persisted graph of assets and relationships for a scan run.
+	// The graph is built after all modules complete and stored as a JSON blob.
+	SaveAssetGraph(ctx context.Context, scanRunID string, graphJSON []byte) error
+	GetAssetGraph(ctx context.Context, scanRunID string) ([]byte, error)
 
 	// Lifecycle
 	Close() error

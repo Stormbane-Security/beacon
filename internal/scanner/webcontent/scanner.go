@@ -22,7 +22,7 @@ const scannerName = "webcontent"
 // secretPatterns matches common hardcoded secrets in JavaScript source.
 // Keys are a human-readable label; values are the compiled regex.
 // cspWildcardRe matches a wildcard (*) in script-src or default-src directives.
-var cspWildcardRe = regexp.MustCompile(`(?i)(script-src|default-src)[^;]*\*`)
+var cspWildcardRe = regexp.MustCompile(`(?i)(script-src|default-src)[^;]*\s\*(?:\s|;|$)`)
 
 // genericPwdValueRe extracts the quoted value from a Generic Password match
 // so we can filter out non-secret values like HTML attribute values and i18n keys.
@@ -46,6 +46,8 @@ var genericPwdFalsePositives = map[string]bool{
 // genericPwdPlaceholderRe matches placeholder/template values that are not
 // real credentials: %word%, {word}, <word>, {{word}}, $VAR_NAME style tokens.
 var genericPwdPlaceholderRe = regexp.MustCompile(`^(%[^%]+%|\{[^}]+\}|<[^>]+>|\$[A-Z_]+|YOUR_|EXAMPLE|REPLACE|CHANGEME|TODO|FIXME|REDACTED|FILTERED)`)
+
+var jsScriptSrcRe = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
 
 var secretPatterns = map[string]*regexp.Regexp{
 	"AWS Access Key":           regexp.MustCompile(`(?i)AKIA[0-9A-Z]{16}`),
@@ -229,6 +231,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 				Description:  fmt.Sprintf("The cookie '%s' on %s does not have the Secure flag set. It can be transmitted over unencrypted HTTP connections, exposing session data.", cookie.Name, asset),
 				Asset:        asset,
 				Evidence:     map[string]any{"cookie_name": cookie.Name},
+				ProofCommand: fmt.Sprintf("curl -sI https://%s | grep -i 'set-cookie' | grep -i '%s' | grep -iv 'secure'", asset, cookie.Name),
 				DiscoveredAt: now,
 			})
 		}
@@ -243,6 +246,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 				Description:  fmt.Sprintf("The cookie '%s' on %s does not have the HttpOnly flag. JavaScript can read it, making session hijacking via XSS easier.", cookie.Name, asset),
 				Asset:        asset,
 				Evidence:     map[string]any{"cookie_name": cookie.Name},
+				ProofCommand: fmt.Sprintf("curl -sI https://%s | grep -i 'set-cookie' | grep -i '%s' | grep -iv 'httponly'", asset, cookie.Name),
 				DiscoveredAt: now,
 			})
 		}
@@ -257,6 +261,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 				Description:  fmt.Sprintf("The cookie '%s' on %s has no SameSite attribute or is set to None. This increases CSRF attack risk.", cookie.Name, asset),
 				Asset:        asset,
 				Evidence:     map[string]any{"cookie_name": cookie.Name, "samesite": cookie.SameSite},
+				ProofCommand: fmt.Sprintf("curl -sI https://%s | grep -i 'set-cookie' | grep -i '%s' | grep -iv 'samesite=strict\\|samesite=lax'", asset, cookie.Name),
 				DiscoveredAt: now,
 			})
 		}
@@ -651,11 +656,16 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 
 // extractJSURLs finds script src URLs in HTML.
 func extractJSURLs(baseURL, html string) []string {
-	pattern := regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
-	matches := pattern.FindAllStringSubmatch(html, 50) // cap at 50 JS files
+	matches := jsScriptSrcRe.FindAllStringSubmatch(html, 50) // cap at 50 JS files
 
 	seen := make(map[string]struct{})
 	var urls []string
+	// Compute scheme+host prefix for resolving relative paths.
+	baseOrigin := baseURL
+	if u, err := url.Parse(baseURL); err == nil {
+		baseOrigin = u.Scheme + "://" + u.Host
+	}
+
 	for _, m := range matches {
 		if len(m) < 2 {
 			continue
@@ -664,12 +674,7 @@ func extractJSURLs(baseURL, html string) []string {
 		if strings.HasPrefix(url, "//") {
 			url = "https:" + url
 		} else if strings.HasPrefix(url, "/") {
-			// relative path — prepend base
-			if idx := strings.Index(baseURL[8:], "/"); idx >= 0 {
-				url = baseURL[:8+idx] + url
-			} else {
-				url = baseURL + url
-			}
+			url = baseOrigin + url
 		}
 		if _, ok := seen[url]; !ok && strings.HasPrefix(url, "http") {
 			seen[url] = struct{}{}

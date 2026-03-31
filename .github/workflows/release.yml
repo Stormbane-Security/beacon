@@ -73,6 +73,12 @@ jobs:
           echo "tag=${NEXT}" >> "$GITHUB_OUTPUT"
           echo "previous=${LATEST}" >> "$GITHUB_OUTPUT"
 
+      # ── Install ARM64 cross-compiler for CGO ────────────────────────────────
+      - name: Install ARM64 cross-compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+
       # ── Build release binary to attach to the release ────────────────────────
       - name: Build release binaries
         env:
@@ -81,10 +87,10 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION}"
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
             go build -ldflags="$LDFLAGS" -o beacon-linux-amd64 ./cmd/beacon
-          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
-            go build -ldflags="$LDFLAGS" -o beacon-linux-arm64 ./cmd/beacon || true
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
+            go build -ldflags="$LDFLAGS" -o beacon-linux-arm64 ./cmd/beacon
           tar czf "beacon-linux-amd64-${VERSION}.tar.gz" beacon-linux-amd64
-          tar czf "beacon-linux-arm64-${VERSION}.tar.gz" beacon-linux-arm64 2>/dev/null || true
+          tar czf "beacon-linux-arm64-${VERSION}.tar.gz" beacon-linux-arm64
 
       # ── Build changelog from commits since last tag ───────────────────────────
       - name: Build changelog

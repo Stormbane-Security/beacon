@@ -81,21 +81,22 @@ func TestHTTPProbe_BodyLimitedTo4KB(t *testing.T) {
 
 // ── platform matching (CNAME suffix) ─────────────────────────────────────────
 
-func TestPlatformMatch_GitHubPages(t *testing.T) {
-	cname := "example.github.io"
-	var matched *platform
+// matchPlatform replicates the suffix-matching logic from the scanner's Run
+// method so tests exercise the same code path.
+func matchPlatform(cname string) *platform {
 	cnameLower := strings.ToLower(cname)
 	for i := range platforms {
 		for _, suffix := range platforms[i].cnameSuffixes {
-			if strings.Contains(cnameLower, suffix) {
-				matched = &platforms[i]
-				break
+			if strings.HasSuffix(cnameLower, suffix) || strings.HasSuffix(cnameLower, suffix+".") {
+				return &platforms[i]
 			}
 		}
-		if matched != nil {
-			break
-		}
 	}
+	return nil
+}
+
+func TestPlatformMatch_GitHubPages(t *testing.T) {
+	matched := matchPlatform("example.github.io")
 	if matched == nil {
 		t.Fatal("expected match for github.io CNAME, got nil")
 	}
@@ -105,20 +106,7 @@ func TestPlatformMatch_GitHubPages(t *testing.T) {
 }
 
 func TestPlatformMatch_S3(t *testing.T) {
-	cname := "mybucket.s3.amazonaws.com"
-	var matched *platform
-	cnameLower := strings.ToLower(cname)
-	for i := range platforms {
-		for _, suffix := range platforms[i].cnameSuffixes {
-			if strings.Contains(cnameLower, suffix) {
-				matched = &platforms[i]
-				break
-			}
-		}
-		if matched != nil {
-			break
-		}
-	}
+	matched := matchPlatform("mybucket.s3.amazonaws.com")
 	if matched == nil {
 		t.Fatal("expected match for s3.amazonaws.com CNAME, got nil")
 	}
@@ -128,20 +116,7 @@ func TestPlatformMatch_S3(t *testing.T) {
 }
 
 func TestPlatformMatch_Heroku(t *testing.T) {
-	cname := "app.herokudns.com"
-	var matched *platform
-	cnameLower := strings.ToLower(cname)
-	for i := range platforms {
-		for _, suffix := range platforms[i].cnameSuffixes {
-			if strings.Contains(cnameLower, suffix) {
-				matched = &platforms[i]
-				break
-			}
-		}
-		if matched != nil {
-			break
-		}
-	}
+	matched := matchPlatform("app.herokudns.com")
 	if matched == nil {
 		t.Fatal("expected match for herokudns.com CNAME, got nil")
 	}
@@ -151,14 +126,42 @@ func TestPlatformMatch_Heroku(t *testing.T) {
 }
 
 func TestPlatformMatch_UnknownCNAME_NoMatch(t *testing.T) {
-	cname := "backend.example-internal.com"
-	cnameLower := strings.ToLower(cname)
-	for i := range platforms {
-		for _, suffix := range platforms[i].cnameSuffixes {
-			if strings.Contains(cnameLower, suffix) {
-				t.Errorf("unexpected match for non-platform CNAME %q: matched %s (suffix %q)", cname, platforms[i].name, suffix)
-			}
-		}
+	if matched := matchPlatform("backend.example-internal.com"); matched != nil {
+		t.Errorf("unexpected match for non-platform CNAME: matched %s", matched.name)
+	}
+}
+
+// TestPlatformMatch_HasSuffix_NoFalsePositive verifies that a CNAME
+// containing a platform suffix in the middle (not at the end) does NOT
+// match. The old Contains-based logic would match
+// "not-github.io.example.com" against ".github.io".
+func TestPlatformMatch_HasSuffix_NoFalsePositive(t *testing.T) {
+	// This CNAME contains ".github.io" in the middle but does not end with it.
+	if matched := matchPlatform("not-github.io.example.com"); matched != nil {
+		t.Errorf("false positive: CNAME 'not-github.io.example.com' should not match %s (suffix in middle, not at end)", matched.name)
+	}
+}
+
+// TestPlatformMatch_TrailingDot verifies that a CNAME with a trailing dot
+// (as returned by DNS resolvers) still matches.
+func TestPlatformMatch_TrailingDot(t *testing.T) {
+	matched := matchPlatform("example.github.io.")
+	if matched == nil {
+		t.Fatal("expected match for 'example.github.io.' (trailing dot), got nil")
+	}
+	if matched.name != "GitHub Pages" {
+		t.Errorf("matched platform: got %q, want %q", matched.name, "GitHub Pages")
+	}
+}
+
+// TestPlatformMatch_VercelApp verifies newer platforms match correctly.
+func TestPlatformMatch_VercelApp(t *testing.T) {
+	matched := matchPlatform("myapp.vercel.app")
+	if matched == nil {
+		t.Fatal("expected match for vercel.app CNAME, got nil")
+	}
+	if matched.name != "Vercel" {
+		t.Errorf("matched platform: got %q, want %q", matched.name, "Vercel")
 	}
 }
 

@@ -6,16 +6,6 @@ import (
 	"github.com/stormbane/beacon/internal/finding"
 )
 
-// PricingTier controls which modules a user can run.
-type PricingTier int
-
-const (
-	TierFree    PricingTier = iota // Surface passive scan
-	TierBasic                      // + GitHub/CI
-	TierPro                        // + IaC
-	TierPremium                    // + Cloud + Kubernetes
-)
-
 // InputType declares what kind of input a module requires.
 type InputType string
 
@@ -39,13 +29,30 @@ const (
 	ScanAuthorized ScanType = "authorized"
 )
 
+// crawlFeedKeyType is an unexported type used as a context key to prevent
+// collisions with keys from other packages.
+type crawlFeedKeyType struct{}
+
+// CrawlFeedKey is the context key under which the surface module places a
+// per-asset chan string that the crawler sends discovered URLs into.
+// DLP and other scanners can read from this channel to process pages in
+// real time without waiting for the full crawl to complete.
+var CrawlFeedKey = crawlFeedKeyType{}
+
+// crawlFeedCloserKeyType is an unexported context key type for the closer.
+type crawlFeedCloserKeyType struct{}
+
+// CrawlFeedCloserKey is the context key under which the surface module places
+// the single authoritative closer for the crawlFeed channel. The crawler must
+// call this function (not close the channel directly) so that the module's
+// sync.Once is used — preventing a double-close panic when the module's
+// deferred safety-net closer also fires.
+var CrawlFeedCloserKey = crawlFeedCloserKeyType{}
+
 // Module is the interface every scan module must implement.
 type Module interface {
 	// Name returns the stable module identifier (e.g., "surface", "github").
 	Name() string
-
-	// Tier returns the minimum pricing tier required to run this module.
-	Tier() PricingTier
 
 	// RequiredInputs returns the input types this module needs populated.
 	RequiredInputs() []InputType

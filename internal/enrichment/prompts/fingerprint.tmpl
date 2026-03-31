@@ -1,0 +1,109 @@
+You are a senior security researcher analyzing raw technology fingerprint data from an attack surface scan.
+
+For each asset below you have: server headers, technology signatures, version strings, TLS information,
+DNS data, and other fingerprint evidence. Your job is to:
+
+1. STACK RELATIONSHIPS — Identify how technologies relate (e.g. "nginx reverse proxying to Django app",
+   "CloudFront CDN in front of Express.js on ECS", "Traefik ingress controller for Kubernetes pods").
+
+2. VERSION VULNERABILITIES — For any specific version strings, identify known CVEs or security issues.
+   Only cite real, well-known vulnerabilities — do not invent CVEs. Include the CVE ID when known.
+
+3. CONFIGURATION ANOMALIES — Flag configurations that suggest misconfigurations or security weaknesses
+   (e.g. debug headers exposed in production, default server tokens not stripped, version disclosure
+   in error pages, mixed TLS versions suggesting legacy backend).
+
+4. ATTACK SURFACE IMPLICATIONS — Based on the full technology picture, identify what attack vectors
+   are most promising and what additional scanning would be valuable.
+
+Respond ONLY with valid JSON — no prose before or after:
+{
+  "assets": [
+    {
+      "asset": "hostname",
+      "stack_analysis": "one paragraph describing the full technology stack and how components relate",
+      "version_issues": [
+        {
+          "component": "software name",
+          "version": "detected version",
+          "cve_id": "CVE-YYYY-NNNNN or empty",
+          "severity": "critical|high|medium|low",
+          "description": "what the vulnerability allows"
+        }
+      ],
+      "config_anomalies": [
+        {
+          "signal": "what was observed",
+          "risk": "why this is a concern",
+          "severity": "critical|high|medium|low"
+        }
+      ],
+      "attack_surface": "one paragraph on attack vectors implied by this stack",
+      "suggested_scanners": ["scanner names warranted by this stack"]
+    }
+  ],
+  "cross_asset_patterns": [
+    "observations that span multiple assets (shared infrastructure, common misconfig, etc.)"
+  ]
+}
+
+Rules:
+- Only include version_issues for REAL, well-known CVEs or security advisories. Do not fabricate.
+- suggested_scanners: choose only from: cors, jwt, webcontent, dlp, graphql, oauth, apiversions,
+  hostheader, websocket, nuclei, cms-plugins, aillm, jenkins, ratelimit, smuggling, cdnbypass, depconf.
+- If a component version is not specific enough to identify vulnerabilities, omit version_issues for it.
+- config_anomalies should only flag genuinely risky patterns, not cosmetic issues.
+
+Assets to analyze:
+{{range .}}
+---
+asset: {{safe .Asset}}
+{{- if .Headers}}
+headers:
+{{- range $k, $v := .Headers}}
+  {{$k}}: {{safe $v}}
+{{- end}}
+{{- end}}
+{{- if .ServerVersions}}
+versions:
+{{- range $k, $v := .ServerVersions}}
+  {{$k}}: {{safe $v}}
+{{- end}}
+{{- end}}
+{{- if .Framework}}
+framework: {{safe .Framework}}
+{{- end}}
+{{- if .ProxyType}}
+proxy: {{safe .ProxyType}}
+{{- end}}
+{{- if .CloudProvider}}
+cloud: {{safe .CloudProvider}}
+{{- end}}
+{{- if .AuthSystem}}
+auth: {{safe .AuthSystem}}
+{{- end}}
+{{- if .InfraLayer}}
+infra: {{safe .InfraLayer}}
+{{- end}}
+{{- if .CertIssuer}}
+tls_issuer: {{safe .CertIssuer}}
+{{- end}}
+{{- if .CertSANs}}
+tls_sans: {{range .CertSANs}}{{safe .}} {{end}}
+{{- end}}
+{{- if .BackendServices}}
+backend_services: {{range .BackendServices}}{{safe .}} {{end}}
+{{- end}}
+{{- if .CookieNames}}
+cookies: {{range .CookieNames}}{{safe .}} {{end}}
+{{- end}}
+{{- if .JARMFingerprint}}
+jarm: {{safe .JARMFingerprint}}
+{{- end}}
+{{- if .OSVersion}}
+os: {{safe .OSVersion}}
+{{- end}}
+{{- if .RuntimeVersion}}
+runtime: {{safe .RuntimeVersion}}
+{{- end}}
+{{end}}

@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -60,13 +61,16 @@ func (s *Scanner) Name() string { return scannerName }
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	// Surface mode: probe only — no deep fuzzing of discovered endpoints.
 	client := &http.Client{
-		Timeout: 8 * time.Second,
+		Timeout: 10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 
-	scheme := detectScheme(ctx, client, asset)
+	port := parsePort(asset)
+	nonStdPort := isNonStandardPort(port)
+
+	scheme := detectScheme(ctx, client, asset, port)
 	base := scheme + "://" + asset
 
 	// Gate: if the server returns 200 for a path that cannot exist, every probe
@@ -127,6 +131,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 				return
 			}
+			// Skip 400 — a generic GET probe without required parameters often gets
+			// 400 from valid API endpoints. 400 is too ambiguous to distinguish
+			// "endpoint exists, bad params" from a custom not-found handler; it
+			// produces false positives on APIs that return 400 instead of 404.
+			if resp.StatusCode == 400 {
+				return
+			}
 			// Skip HTML responses — almost certainly a catch-all redirect/landing page.
 			ct := resp.Header.Get("Content-Type")
 			if strings.Contains(ct, "text/html") {
@@ -170,10 +181,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if devKeywords[av.version] {
 			sev = finding.SeverityHigh
 		}
+		// Non-standard ports suggest internal/dev services unintentionally exposed.
+		// Elevate numbered versions to Medium; dev keywords stay High (already elevated).
+		if nonStdPort && !devKeywords[av.version] {
+			sev = finding.SeverityMedium
+		}
 
-		title := fmt.Sprintf("API version %s is accessible", av.version)
+		portSuffix := ""
+		if nonStdPort {
+			portSuffix = " on :" + port
+		}
+
+		title := fmt.Sprintf("API version %s accessible%s", av.version, portSuffix)
 		if devKeywords[av.version] {
-			title = fmt.Sprintf("Non-production API endpoint accessible (%s)", av.version)
+			title = fmt.Sprintf("Non-production API endpoint accessible (%s)%s", av.version, portSuffix)
+		}
+
+		authNote := ""
+		if (av.status == 401 || av.status == 403) && nonStdPort {
+			authNote = fmt.Sprintf(
+				" The auth-gated response (HTTP %d) on a non-standard port (%s) indicates an internal service "+
+					"that may be reachable from the internet without proper network controls.", av.status, port)
 		}
 
 		desc := fmt.Sprintf(
@@ -188,6 +216,23 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					"debug features enabled, or access to non-production data. This should not be reachable from the internet.",
 				av.version, av.status)
 		}
+		if nonStdPort {
+			desc += fmt.Sprintf(
+				" This endpoint is served on non-standard port %s, which suggests it may be an internal service "+
+					"not intended for public exposure.", port)
+		}
+		desc += authNote
+
+		ev := map[string]any{
+			"url":          base + av.path,
+			"path":         av.path,
+			"version":      av.version,
+			"status_code":  av.status,
+			"content_type": av.ct,
+		}
+		if nonStdPort {
+			ev["port"] = port
+		}
 
 		findings = append(findings, finding.Finding{
 			CheckID:      "exposure.api_version",
@@ -198,20 +243,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Description:  desc,
 			Asset:        asset,
 			ProofCommand: fmt.Sprintf("curl -si -H 'Accept: application/json' %s%s", base, av.path),
-			Evidence: map[string]any{
-				"url":          base + av.path,
-				"path":         av.path,
-				"version":      av.version,
-				"status_code":  av.status,
-				"content_type": av.ct,
-			},
+			Evidence:     ev,
 		})
 	}
 
 	return findings, nil
 }
 
-func detectScheme(ctx context.Context, client *http.Client, asset string) string {
+func detectScheme(ctx context.Context, client *http.Client, asset, port string) string {
+	// For well-known plain-HTTP ports prefer HTTP; for TLS-style non-standard ports
+	// (8443, 9443) still try HTTPS first. For standard ports use HTTPS first.
+	httpFirst := port == "8080" || port == "8000" || port == "3000" || port == "8888" || port == "9000"
+	if httpFirst {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+asset, nil)
+		if err == nil {
+			if resp, err := client.Do(req); err == nil {
+				resp.Body.Close()
+				return "http"
+			}
+		}
+		return "http" // non-TLS port — default to http even if unreachable
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
 	if err != nil {
 		return "http"
@@ -222,6 +274,20 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp.Body.Close()
 	return "https"
+}
+
+// parsePort returns the port from a host:port asset string, or "" if none.
+func parsePort(asset string) string {
+	_, port, err := net.SplitHostPort(asset)
+	if err != nil {
+		return ""
+	}
+	return port
+}
+
+// isNonStandardPort returns true when port indicates a non-standard HTTP/HTTPS port.
+func isNonStandardPort(port string) bool {
+	return port != "" && port != "80" && port != "443"
 }
 
 // isCatchAll returns true when two distinct nonsense paths return HTTP 200

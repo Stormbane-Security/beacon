@@ -17,13 +17,18 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestValidSSN_InvalidWoolworthWallet(t *testing.T) {
-	// 078-05-1120 is the infamous Woolworth wallet insert SSN.
-	// Our structural filter (area 000/666/9xx, group 00, serial 0000) doesn't
-	// special-case this number, so it passes as structurally valid.
-	// For a security scanner, a false positive is preferable to a false negative —
-	// we want to flag this if it appears in a response body.
-	if !validSSN("078-05-1120") {
-		t.Error("078-05-1120 passes all structural SSN rules; validSSN should return true")
+	// 078-05-1120 is the infamous Woolworth wallet SSN — documented by the SSA
+	// as never validly assigned. It must be filtered as a known false positive.
+	if validSSN("078-05-1120") {
+		t.Error("078-05-1120 is a known invalid SSN; validSSN should return false")
+	}
+}
+
+func TestValidSSN_InvalidKnownAdvertising(t *testing.T) {
+	for _, ssn := range []string{"219-09-9999", "457-55-5462"} {
+		if validSSN(ssn) {
+			t.Errorf("known advertising SSN %s should be rejected by validSSN", ssn)
+		}
 	}
 }
 
@@ -81,6 +86,91 @@ func TestValidSSN_WoolworthActualBehaviour(t *testing.T) {
 	if !result {
 		// Someone added the Woolworth block — great, update the earlier test too.
 		t.Log("078-05-1120 is now blocked by validSSN (Woolworth rule added)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// luhn unit tests
+// ---------------------------------------------------------------------------
+
+func TestLuhn_VisaTestNumber(t *testing.T) {
+	// 4111111111111111 is the canonical Visa test number — must pass Luhn.
+	if !luhn("4111111111111111") {
+		t.Error("4111111111111111 should pass Luhn check")
+	}
+}
+
+func TestLuhn_AmexTestNumber(t *testing.T) {
+	if !luhn("378282246310005") {
+		t.Error("378282246310005 should pass Luhn check")
+	}
+}
+
+func TestLuhn_InvalidNumber(t *testing.T) {
+	// One digit off from a valid Visa number — should fail Luhn.
+	if luhn("4111111111111112") {
+		t.Error("4111111111111112 should fail Luhn check")
+	}
+}
+
+func TestLuhn_AllZeros(t *testing.T) {
+	// 0000000000000000 passes the modulo check (sum=0) but is not a real card.
+	// The Luhn function alone doesn't filter this — the CC regex won't match it.
+	// Just confirm no panic.
+	_ = luhn("0000000000000000")
+}
+
+// ---------------------------------------------------------------------------
+// isPlaceholderAPIKey unit tests
+// ---------------------------------------------------------------------------
+
+func TestIsPlaceholderAPIKey_YourKey(t *testing.T) {
+	if !isPlaceholderAPIKey(`api_key = "your_api_key_here"`) {
+		t.Error("expected 'your_api_key_here' to be detected as placeholder")
+	}
+}
+
+func TestIsPlaceholderAPIKey_XXXs(t *testing.T) {
+	if !isPlaceholderAPIKey(`api_key = "xxxxxxxxxxxxxxxxxxxx"`) {
+		t.Error("expected uniform-char value to be detected as placeholder")
+	}
+}
+
+func TestIsPlaceholderAPIKey_RealKey(t *testing.T) {
+	// A realistic-looking key should NOT be filtered.
+	if isPlaceholderAPIKey(`api_key = "sk-Tr7mNk2vQpLqJ8zHbXwR5YcGdFsA9ePt"`) {
+		t.Error("realistic API key should not be treated as placeholder")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Crypto seed phrase — broad prose must NOT match after tightening
+// ---------------------------------------------------------------------------
+
+func TestSeedPhrase_NormalProseNoFinding(t *testing.T) {
+	// A 12-word lowercase English sentence — should no longer trigger a finding.
+	prose := "the quick brown fox jumps over the lazy dog and the cat"
+	findings := runScannerOnBody(t, prose)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckDLPAPIKey && strings.Contains(f.Title, "seed phrase") {
+			t.Errorf("normal English prose should not trigger seed phrase finding, got: %s", f.Title)
+		}
+	}
+}
+
+func TestSeedPhrase_LabelledPhraseFinds(t *testing.T) {
+	// A labelled mnemonic should still be detected.
+	body := `mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"`
+	findings := runScannerOnBody(t, body)
+	found := false
+	for _, f := range findings {
+		if strings.Contains(f.Title, "seed phrase") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected seed phrase finding for labelled mnemonic, got none")
 	}
 }
 

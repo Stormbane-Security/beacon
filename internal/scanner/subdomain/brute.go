@@ -128,10 +128,15 @@ func bruteForceSubdomains(ctx context.Context, domain string) []string {
 	sem := make(chan struct{}, concurrency)
 
 	var wg sync.WaitGroup
+loop:
 	for _, prefix := range commonPrefixes {
 		prefix := prefix
 		fqdn := prefix + "." + domain
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break loop
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

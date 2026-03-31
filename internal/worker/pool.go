@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stormbane/beacon/internal/config"
@@ -22,6 +23,7 @@ type Pool struct {
 	queue       chan Job
 	st          store.Store
 	cfg         *config.Config
+	stopped     atomic.Bool
 
 	// logMu guards logs map
 	logMu sync.RWMutex
@@ -49,9 +51,36 @@ func NewPool(concurrency int, st store.Store, cfg *config.Config) *Pool {
 	return p
 }
 
+// Stop closes the job queue and waits for in-flight workers to finish.
+// After Stop returns, no new jobs will be accepted.
+func (p *Pool) Stop() {
+	p.stopped.Store(true)
+	close(p.queue)
+}
+
+// PurgeLogs removes stored log lines for a completed scan, freeing memory.
+// Call this after the scan results have been persisted or consumed.
+func (p *Pool) PurgeLogs(scanRunID string) {
+	p.logMu.Lock()
+	delete(p.logs, scanRunID)
+	p.logMu.Unlock()
+}
+
 // Submit enqueues a job. Returns immediately; the job runs asynchronously.
-func (p *Pool) Submit(job Job) {
+// Returns an error if the pool has been stopped.
+func (p *Pool) Submit(job Job) (err error) {
+	if p.stopped.Load() {
+		return fmt.Errorf("worker pool is stopped")
+	}
+	// Recover from send-on-closed-channel if Stop() races between
+	// the atomic check above and the send below.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("worker pool is stopped")
+		}
+	}()
 	p.queue <- job
+	return nil
 }
 
 // Subscribe returns a channel that receives log lines for a scan in real time.
@@ -143,8 +172,8 @@ func (p *Pool) process(job Job) {
 	// Enrich
 	p.emit(job.ScanRunID, "enriching findings...")
 	var enricher enrichment.Enricher
-	if p.cfg.AnthropicAPIKey != "" {
-		ce, err := enrichment.NewClaudeDefault(p.cfg.AnthropicAPIKey)
+	if ai := p.cfg.ActiveAI(); ai != nil {
+		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err == nil {
 			enricher = ce.WithCache(p.st)
 		}
@@ -201,7 +230,7 @@ func (p *Pool) process(job Job) {
 	now := time.Now()
 	run.Status = store.StatusCompleted
 	run.CompletedAt = &now
-	run.FindingCount = len(findings)
+	run.FindingCount = len(enriched)
 	_ = p.st.UpdateScanRun(ctx, run)
 
 	rep, err := report.Build(report.Input{
@@ -220,6 +249,12 @@ func (p *Pool) process(job Job) {
 
 	p.emit(job.ScanRunID, "done")
 	p.closeSubscribers(job.ScanRunID)
+
+	// Purge logs after a delay so that late Logs() callers can still read them.
+	go func(id string) {
+		time.Sleep(5 * time.Minute)
+		p.PurgeLogs(id)
+	}(job.ScanRunID)
 }
 
 // emit records a log line and broadcasts it to all current subscribers.
@@ -250,9 +285,13 @@ func (p *Pool) emitError(scanRunID, msg string) {
 
 func (p *Pool) closeSubscribers(scanRunID string) {
 	p.subsMu.Lock()
-	for _, ch := range p.subs[scanRunID] {
-		close(ch)
-	}
+	chs := p.subs[scanRunID]
 	delete(p.subs, scanRunID)
 	p.subsMu.Unlock()
+
+	// Close channels outside the lock after they are no longer in the map,
+	// so emit() cannot send on them.
+	for _, ch := range chs {
+		close(ch)
+	}
 }

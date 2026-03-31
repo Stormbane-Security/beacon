@@ -1,0 +1,37 @@
+name: victoriametrics
+description: >
+  Asset is an exposed VictoriaMetrics time-series database. VictoriaMetrics
+  is Prometheus-compatible and has no authentication by default. Like
+  Prometheus, it exposes internal metric data, infrastructure topology, and
+  can accept arbitrary data writes. The /vmui endpoint provides a query
+  interface for exploring all stored metrics, and the /api/v1/export
+  endpoint can bulk-export time-series data.
+match:
+  any:
+    - body_contains: "victoriametrics"
+    - path_responds: "/vmui"
+    - title_contains: "VictoriaMetrics"
+surface:
+  nuclei_tags:
+    - victoriametrics
+    - exposure
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "vm.{domain}"
+      - "victoriametrics.{domain}"
+      - "metrics.{domain}"
+      - "tsdb.{domain}"
+deep:
+  nuclei_tags:
+    - victoriametrics
+    - exposure
+    - misconfiguration
+  dictionary:
+    - /vmui
+    - /api/v1/labels
+    - /api/v1/label/__name__/values
+    - /api/v1/query?query=up
+    - /api/v1/export
+    - /metrics
+    - /flags

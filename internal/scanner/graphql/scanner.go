@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -121,14 +122,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Deep-mode probes — batch queries and persisted query bypass.
-	// Only run against confirmed GraphQL endpoints found above.
-	if scanType == module.ScanDeep {
+	// Deep-mode probes — batch queries, persisted query bypass, CSRF via GET,
+	// and alias-based DoS. Only run against confirmed GraphQL endpoints.
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		for _, endpointURL := range confirmedEndpoints {
 			if f := checkBatchQuery(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)
 			}
 			if f := checkPersistedQueryBypass(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkGraphQLGET(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkAliasDos(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)
 			}
 		}
@@ -254,9 +261,28 @@ func checkBatchQuery(ctx context.Context, client *http.Client, asset, url string
 	if err != nil {
 		return nil
 	}
-	// A batched response is a JSON array starting with '['.
+	// A batched response is a JSON array where elements look like GraphQL responses.
 	trimmed := strings.TrimSpace(string(raw))
 	if !strings.HasPrefix(trimmed, "[") {
+		return nil
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal(raw, &arr); err != nil || len(arr) == 0 {
+		return nil
+	}
+	// Verify at least one element looks like a GraphQL response
+	hasGraphQL := false
+	for _, item := range arr {
+		if _, ok := item["data"]; ok {
+			hasGraphQL = true
+			break
+		}
+		if _, ok := item["errors"]; ok {
+			hasGraphQL = true
+			break
+		}
+	}
+	if !hasGraphQL {
 		return nil
 	}
 	return &finding.Finding{
@@ -364,13 +390,143 @@ func checkPersistedQueryBypass(ctx context.Context, client *http.Client, asset, 
 	}
 }
 
-// min returns the smaller of a and b.
-func min(a, b int) int {
-	if a < b {
-		return a
+// checkGraphQLGET tests whether the GraphQL endpoint accepts queries via HTTP GET.
+// GraphQL over GET enables CSRF attacks because browsers send GET requests with
+// cookies automatically — an attacker can craft a link that executes a mutation
+// on behalf of an authenticated user.
+func checkGraphQLGET(ctx context.Context, client *http.Client, asset, endpoint string) *finding.Finding {
+	// Strip any query string from the endpoint URL before appending ours.
+	base := endpoint
+	if idx := strings.Index(base, "?"); idx != -1 {
+		base = base[:idx]
 	}
-	return b
+	getURL := base + "?query=" + url.QueryEscape("{__typename}")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return nil
+	}
+	responseBody := string(raw)
+	if !strings.Contains(responseBody, `"data"`) || !strings.Contains(responseBody, `"__typename"`) {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckGraphQLGETEnabled,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("GraphQL queries accepted via GET at %s", endpoint),
+		Description: "The GraphQL endpoint executes queries submitted via HTTP GET with a " +
+			"?query= parameter. Because browsers automatically attach cookies to GET requests, " +
+			"an attacker can craft a URL that executes arbitrary GraphQL queries (including " +
+			"mutations on some implementations) on behalf of an authenticated user — a classic CSRF vector.",
+		Evidence: map[string]any{
+			"url":              getURL,
+			"response_snippet": compactSnippet(raw, 300),
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s'", getURL),
+		DiscoveredAt: time.Now(),
+	}
 }
+
+// checkAliasDos tests whether the GraphQL endpoint processes queries with many
+// aliases for the same field. Alias-based amplification lets an attacker
+// multiply server-side work within a single query document — unlike batch
+// queries, this bypasses per-request rate limits and query-count controls.
+func checkAliasDos(ctx context.Context, client *http.Client, asset, endpoint string) *finding.Finding {
+	// Build a query with 100 aliases: { a0: __typename, a1: __typename, ... }
+	const aliasCount = 100
+	var sb strings.Builder
+	sb.WriteString(`{"query":"{ `)
+	for i := range aliasCount {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "a%d: __typename", i)
+	}
+	sb.WriteString(` }"}`)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
+		bytes.NewBufferString(sb.String()))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	if err != nil {
+		return nil
+	}
+
+	// Parse the response and count how many alias keys appear in "data".
+	var gqlResp struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &gqlResp); err != nil || gqlResp.Data == nil {
+		return nil
+	}
+
+	// Count how many of our aliases were resolved.
+	resolved := 0
+	for i := range aliasCount {
+		if _, ok := gqlResp.Data[fmt.Sprintf("a%d", i)]; ok {
+			resolved++
+		}
+	}
+
+	// If the server resolved all (or nearly all) aliases, it's vulnerable.
+	if resolved < aliasCount-5 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckGraphQLAliasDos,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Asset:    asset,
+		Title:    fmt.Sprintf("GraphQL alias-based query amplification at %s", endpoint),
+		Description: fmt.Sprintf(
+			"The GraphQL endpoint at %s resolved %d aliased fields in a single query without "+
+				"depth or alias limits. An attacker can amplify server-side work by aliasing "+
+				"expensive fields (e.g. nested resolvers) hundreds of times in one request, "+
+				"causing denial of service while bypassing per-request rate limits.",
+			endpoint, resolved),
+		Evidence: map[string]any{
+			"url":             endpoint,
+			"aliases_sent":    aliasCount,
+			"aliases_resolved": resolved,
+		},
+		ProofCommand: fmt.Sprintf(
+			`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{"query":"{ a0: __typename a1: __typename a2: __typename }"}'`,
+			endpoint),
+		DiscoveredAt: time.Now(),
+	}
+}
+
 
 // compactSnippet re-encodes the JSON body compactly and truncates it to max bytes.
 func compactSnippet(raw []byte, max int) string {

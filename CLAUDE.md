@@ -8,8 +8,6 @@
 <type>(<scope>): <short summary>
 
 <body — what changed and why, not what the diff says>
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 ### Types

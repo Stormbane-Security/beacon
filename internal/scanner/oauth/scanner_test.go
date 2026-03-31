@@ -496,6 +496,96 @@ func TestOAuth_JWTNoVerification_200WithErrorBody_NoFinding(t *testing.T) {
 	}
 }
 
+// ── Token endpoint false positive / true positive edge cases ─────────────────
+
+func TestOAuth_TokenEndpoint_BlockchainAPI400NonOAuthBody_NoFinding(t *testing.T) {
+	// Regression: blockchain explorer /api/token returns 400 with a generic
+	// rate-limit/API-error body that has no OAuth keywords. Must not fire.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			// No grant_type, access_token, token_type, "error":, client_id, oauth — pure API error.
+			w.Write([]byte(`{"status":"0","message":"NOTOK","result":"Max rate limit reached, please use API Key for higher rate limit"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	f := checkTokenEndpointAuth(t.Context(), client, asset(srv), srv.URL, "")
+	if f != nil {
+		t.Errorf("blockchain /api/token with non-OAuth body must not fire; got: %s", f.Title)
+	}
+}
+
+func TestOAuth_TokenEndpoint_400WithGrantTypeButNoProperRejection_FindingEmitted(t *testing.T) {
+	// Server returns 400 and echoes back grant_type in the body, but without
+	// a proper RFC 6749 rejection code — indicates a misconfigured OAuth endpoint.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"message":"Unknown grant_type","code":400}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	f := checkTokenEndpointAuth(t.Context(), client, asset(srv), srv.URL, "")
+	if f == nil {
+		t.Fatal("expected finding for OAuth 400 with grant_type in body but no proper rejection code")
+	}
+}
+
+func TestOAuth_TokenEndpoint_400WithInvalidScope_FindingEmitted(t *testing.T) {
+	// Server returns 400 with "invalid_scope" — this means the server is
+	// processing the request (accepting the client identity) but objecting to
+	// the scope. It should NOT be excluded by isProperRejection (only
+	// invalid_client/invalid_request/unauthorized_client/invalid_grant are exclusions).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			// "invalid_scope" means server accepted the client but rejected the scope.
+			w.Write([]byte(`{"error":"invalid_scope","error_description":"requested scope is invalid","grant_type":"client_credentials"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	f := checkTokenEndpointAuth(t.Context(), client, asset(srv), srv.URL, "")
+	if f == nil {
+		t.Fatal("expected finding for OAuth 400 with invalid_scope (server processing request without auth check)")
+	}
+}
+
+func TestOAuth_TokenEndpoint_400WithInvalidToken_FindingEmitted(t *testing.T) {
+	// "invalid_token" in the body also means the server is processing the
+	// request — it should not be excluded. The scanner should fire.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid_token","error_description":"The access token is invalid","oauth":"2.0"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	f := checkTokenEndpointAuth(t.Context(), client, asset(srv), srv.URL, "")
+	if f == nil {
+		t.Fatal("expected finding for 400 with invalid_token (not a proper credential rejection)")
+	}
+}
+
 // ── matchClientID ─────────────────────────────────────────────────────────────
 
 func TestMatchClientID_ExtractsFromExplicitAssignment(t *testing.T) {
@@ -706,5 +796,76 @@ func TestOAuth_RefreshNotRotated_SecondUseRejected_NoFinding(t *testing.T) {
 	f := checkRefreshNotRotated(t.Context(), client, asset(srv), srv.URL, "")
 	if f != nil {
 		t.Errorf("expected no finding when second refresh use is rejected, got: %s", f.Title)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ScanAuthorized runs deep-mode checks (regression for the gating fix)
+// ---------------------------------------------------------------------------
+
+func TestOAuth_ScanAuthorized_RunsDeepChecks(t *testing.T) {
+	// Set up a server with an OIDC doc that has an authorization_endpoint.
+	// The deep-mode missing-state check should run under ScanAuthorized.
+	// Use a pointer to break the circular reference (handler needs srv.URL
+	// but srv is assigned after httptest.NewServer returns).
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			doc := oidcDocument{
+				Issuer:                           srvURL,
+				AuthorizationEndpoint:            srvURL + "/authorize",
+				TokenEndpoint:                    srvURL + "/token",
+				JWKSURI:                          srvURL + "/.well-known/jwks.json",
+				ResponseTypesSupported:           []string{"code"},
+				CodeChallengeMethodsSupported:     []string{"S256"},
+			}
+			b, _ := json.Marshal(doc)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(b)
+		case "/authorize":
+			// Accept the authorization request without checking state — vulnerable.
+			w.Header().Set("Location", "https://example.com/callback?code=abc123")
+			w.WriteHeader(http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	s := New()
+	findings, err := s.Run(t.Context(), asset(srv), module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// With ScanAuthorized, deep checks should run. The missing-state check
+	// should fire because the server redirects without requiring state.
+	var deepCheckRan bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckOAuthMissingState ||
+			f.CheckID == finding.CheckOAuthMissingPKCE ||
+			f.CheckID == finding.CheckOAuthOpenRedirect ||
+			f.CheckID == finding.CheckOAuthWeakState {
+			deepCheckRan = true
+			break
+		}
+	}
+	if !deepCheckRan {
+		t.Error("expected deep-mode OAuth checks to run under ScanAuthorized, but none fired")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Empty / unreachable server — no panic
+// ---------------------------------------------------------------------------
+
+func TestOAuth_UnreachableServer_NoPanic(t *testing.T) {
+	s := New()
+	findings, err := s.Run(t.Context(), "127.0.0.1:1", module.ScanSurface)
+	_ = err
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for unreachable server, got %d", len(findings))
 	}
 }

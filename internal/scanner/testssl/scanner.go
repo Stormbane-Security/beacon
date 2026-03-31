@@ -30,8 +30,8 @@ func New(bin string) *Scanner { return &Scanner{bin: bin} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep {
-		return nil, nil // testssl only runs in deep mode
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
+		return nil, nil // testssl only runs in deep/authorized mode
 	}
 
 	resolvedBin, err := toolinstall.EnsureTestssl(s.bin)
@@ -85,6 +85,7 @@ var idToCheckID = map[string]finding.CheckID{
 	"EXPORT":      finding.CheckTLSWeakCipher,
 	"LOW":         finding.CheckTLSWeakCipher,
 	"3DES_IDEA":   finding.CheckTLSWeakCipher,
+	"CCS":         finding.CheckTLSCCSInjection, // CVE-2014-0224 OpenSSL ChangeCipherSpec injection
 }
 
 func parseOutput(asset string, data []byte) ([]finding.Finding, error) {

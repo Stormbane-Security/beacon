@@ -246,10 +246,12 @@ func fetchNVD(ctx context.Context, client *http.Client, baseURL string, since ti
 	// If we know when analyze last ran, narrow the window to new CVEs only.
 	// Never go narrower than 7 days to avoid missing CVEs in short cadences.
 	minStart := now.AddDate(0, 0, -7)
-	if !since.IsZero() && since.After(minStart) {
-		start = since
-	} else if !since.IsZero() && since.After(start) {
-		start = since
+	if !since.IsZero() && since.After(start) {
+		if since.After(minStart) {
+			start = minStart // cap at 7-day minimum window
+		} else {
+			start = since
+		}
 	}
 
 	url := fmt.Sprintf("%s?pubStartDate=%s&pubEndDate=%s&resultsPerPage=%d",
@@ -299,9 +301,9 @@ func fetchNVD(ctx context.Context, client *http.Client, baseURL string, since ti
 				break
 			}
 		}
-		// Truncate long descriptions.
-		if len(desc) > 200 {
-			desc = desc[:197] + "..."
+		// Truncate long descriptions (rune-safe to avoid splitting multi-byte chars).
+		if r := []rune(desc); len(r) > 200 {
+			desc = string(r[:197]) + "..."
 		}
 
 		out = append(out, CVEEntry{
@@ -441,8 +443,8 @@ func fetchOSV(ctx context.Context, client *http.Client, baseURL string) ([]OSVEn
 		}
 
 		summary := v.Summary
-		if len(summary) > 200 {
-			summary = summary[:197] + "..."
+		if r := []rune(summary); len(r) > 200 {
+			summary = string(r[:197]) + "..."
 		}
 
 		out = append(out, OSVEntry{
@@ -501,8 +503,8 @@ func (ti ThreatIntel) AppendToPrompt(b *strings.Builder) {
 		b.WriteString("These affect open-source packages commonly deployed in web infrastructure.\n\n")
 		for _, e := range ti.OSVAdvisories {
 			pkgs := strings.Join(e.Packages, ", ")
-			if len(pkgs) > 80 {
-				pkgs = pkgs[:77] + "..."
+			if r := []rune(pkgs); len(r) > 80 {
+				pkgs = string(r[:77]) + "..."
 			}
 			b.WriteString(fmt.Sprintf("  %s  severity=%s  packages=[%s]  %s\n",
 				e.ID, e.Severity, pkgs, e.Summary))

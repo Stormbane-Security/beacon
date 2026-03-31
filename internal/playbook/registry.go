@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 )
 
@@ -83,4 +84,46 @@ func (r *Registry) All() []*Playbook {
 // Get returns a playbook by name, or nil if not found.
 func (r *Registry) Get(name string) *Playbook {
 	return r.byName[name]
+}
+
+// LoadUserDir reads YAML files from dir (typically ~/.config/beacon/playbooks/)
+// and merges them into the registry. User playbooks override embedded ones with
+// the same name. Missing directory is silently ignored; parse errors are returned.
+func (r *Registry) LoadUserDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read user playbook dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("read user playbook %s: %w", entry.Name(), err)
+		}
+		p, err := ParsePlaybook(data)
+		if err != nil {
+			return fmt.Errorf("parse user playbook %s: %w", entry.Name(), err)
+		}
+		if p.Name == "" {
+			return fmt.Errorf("user playbook %s has no name", entry.Name())
+		}
+		// Override existing or append new.
+		if existing, ok := r.byName[p.Name]; ok {
+			for i, pb := range r.playbooks {
+				if pb == existing {
+					r.playbooks[i] = p
+					break
+				}
+			}
+		} else {
+			r.playbooks = append(r.playbooks, p)
+		}
+		r.byName[p.Name] = p
+	}
+	return nil
 }

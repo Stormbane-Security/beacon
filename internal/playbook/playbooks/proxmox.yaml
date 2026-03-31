@@ -1,0 +1,42 @@
+name: proxmox
+description: >
+  Asset is an exposed Proxmox Virtual Environment management interface.
+  Proxmox VE provides full hypervisor control over VMs and containers. Risks
+  include: default root credentials, unauthenticated API access exposing
+  VM inventory and host configuration, ability to create/destroy VMs through
+  the API, access to VM console via VNC/SPICE proxying, and backup files
+  containing full disk images. Internet-exposed Proxmox instances give
+  attackers complete control over virtualized infrastructure.
+match:
+  any:
+    - body_contains: "proxmox virtual environment"
+    - body_contains: "pvemanagerversion"
+    - path_responds: "/api2/json"
+surface:
+  nuclei_tags:
+    - proxmox
+    - exposure
+    - misconfiguration
+discovery:
+  - type: probe_subdomains
+    patterns:
+      - "proxmox.{domain}"
+      - "pve.{domain}"
+      - "hypervisor.{domain}"
+      - "virt.{domain}"
+deep:
+  nuclei_tags:
+    - proxmox
+    - cves
+    - exposure
+    - default-logins
+  dictionary:
+    - /api2/json
+    - /api2/json/version
+    - /api2/json/cluster/status
+    - /api2/json/nodes
+    - /api2/json/access/users
+    - /api2/json/access/roles
+    - /api2/json/access/domains
+    - /api2/json/storage
+    - /api2/extjs/access/ticket

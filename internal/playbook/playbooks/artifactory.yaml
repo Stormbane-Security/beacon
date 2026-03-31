@@ -1,0 +1,38 @@
+name: artifactory
+description: >
+  JFrog Artifactory artifact repository manager is accessible. An exposed
+  Artifactory instance allows unauthenticated download of all hosted artifacts
+  — including internal builds, SDKs, and dependencies that may embed credentials.
+  Default admin:password or admin:admin123 credentials grant full repository
+  management access, enabling supply chain compromise via poisoned artifacts.
+  CVE-2019-17444 (path traversal) and CVE-2020-7931 (SSTI) affect older versions.
+match:
+  any:
+    - check_id: "port.artifactory_exposed"
+    - path_responds: "/artifactory/api/system/ping"
+    - path_responds: "/artifactory/api/storage"
+    - header_contains: "x-artifactory-id"
+    - title_contains: "Artifactory"
+surface:
+  scanners:
+    - portscan
+    - exposedfiles
+  dictionary:
+    - /artifactory/api/system/ping
+    - /artifactory/api/system/info
+    - /artifactory/api/repositories
+    - /artifactory/api/storageinfo
+    - /artifactory/api/security/users
+    - /artifactory/api/security/groups
+    - /artifactory/api/plugins
+  nuclei_tags:
+    - artifactory
+    - exposure
+    - misconfiguration
+deep:
+  scanners:
+    - exposedfiles
+  nuclei_tags:
+    - artifactory
+    - default-logins
+    - cves
