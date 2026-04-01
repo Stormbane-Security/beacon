@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/store"
-	"github.com/stormbane/beacon/internal/visibility"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/visibility"
 )
 
 // Input is everything the report builder needs to produce a Report.

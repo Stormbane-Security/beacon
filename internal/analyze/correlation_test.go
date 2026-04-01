@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/analyze"
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/store"
-	memstore "github.com/stormbane/beacon/internal/store/memory"
+	"github.com/stormbane-security/beacon/internal/analyze"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/store"
+	memstore "github.com/stormbane-security/beacon/internal/store/memory"
 )
 
 // fakeClaudeServerWithObject returns a test server that responds with the Anthropic JSON format.

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // ScanFiles analyses all .tf files in the provided paths (files or directories)

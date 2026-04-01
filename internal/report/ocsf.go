@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // ocsfVersion is the OCSF schema version this output conforms to.

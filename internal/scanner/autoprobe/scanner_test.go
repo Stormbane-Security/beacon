@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // loginHandler simulates a login endpoint that behaves identically for all requests.

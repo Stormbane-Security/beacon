@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/asset"
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func TestNewScanReport_Version(t *testing.T) {

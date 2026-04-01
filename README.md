@@ -42,7 +42,7 @@ Beacon is a modular, safe-by-default attack surface scanner built for security e
 
 ```sh
 # Install the beacon CLI
-go install github.com/stormbane/beacon/cmd/beacon@latest
+go install github.com/stormbane-security/beacon/cmd/beacon@latest
 
 # Install required external tools (nuclei, subfinder, testssl.sh, etc.)
 beacon install
@@ -99,7 +99,7 @@ docker build -f deploy/Dockerfile -t beacon .
 **Start the server:**
 
 ```sh
-go install github.com/stormbane/beacon/cmd/beacond@latest
+go install github.com/stormbane-security/beacon/cmd/beacond@latest
 
 BEACON_API_KEY="your-secret-key" \
 BEACON_ANTHROPIC_API_KEY="sk-ant-..." \

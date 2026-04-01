@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // allCheckIDs lists every CheckID constant defined in the package.

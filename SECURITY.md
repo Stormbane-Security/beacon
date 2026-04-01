@@ -18,7 +18,7 @@ Security fixes are applied to the latest release only. We do not backport patche
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Report vulnerabilities via **[GitHub Security Advisories](https://github.com/stormbane/beacon/security/advisories/new)** (private disclosure) or by email to **security@stormbane.com**.
+Report vulnerabilities via **[GitHub Security Advisories](https://github.com/stormbane-security/beacon/security/advisories/new)** (private disclosure) or by email to **security@stormbane.com**.
 
 Include in your report:
 

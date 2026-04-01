@@ -10,7 +10,7 @@ import (
 	containerapi "google.golang.org/api/container/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanGKE(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

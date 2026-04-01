@@ -3,7 +3,7 @@ package module
 import (
 	"context"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // InputType declares what kind of input a module requires.

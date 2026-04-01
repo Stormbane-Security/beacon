@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // TestPlaybookMatching auto-generates a test case for every playbook match

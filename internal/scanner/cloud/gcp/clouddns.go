@@ -9,7 +9,7 @@ import (
 	dns "google.golang.org/api/dns/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanCloudDNS(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

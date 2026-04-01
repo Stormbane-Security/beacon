@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // normalizeIP returns the canonical string representation of an IP address.

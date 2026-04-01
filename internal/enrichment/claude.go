@@ -15,7 +15,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // htmlTagRe matches HTML tags for sanitization of AI response fields.

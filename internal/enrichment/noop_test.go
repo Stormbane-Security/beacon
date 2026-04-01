@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func TestNoopEnricher_ComplianceTagsPopulatedForKnownCheck(t *testing.T) {
@@ -45,12 +45,12 @@ func TestNoopEnricher_ComplianceTagsPopulatedForKnownCheck(t *testing.T) {
 }
 
 func TestNoopEnricher_ComplianceTagsNilForUnmappedCheck(t *testing.T) {
-	// CheckHeadersMissingReferrerPolicy has no compliance mapping — tags must be nil/empty.
+	// CheckAIDataExfil has no compliance mapping — tags must be nil/empty.
 	findings := []finding.Finding{
 		{
-			CheckID:     finding.CheckHeadersMissingReferrerPolicy,
+			CheckID:     finding.CheckAIModelInfoExposed,
 			Asset:       "example.com",
-			Description: "Referrer-Policy header missing",
+			Description: "AI data exfiltration detected",
 		},
 	}
 
@@ -140,9 +140,9 @@ func TestNoopEnricher_MultipleFindingsPreservePerFindingTags(t *testing.T) {
 			Description: "Credit card number found in HTTP response",
 		},
 		{
-			CheckID:     finding.CheckHeadersMissingReferrerPolicy,
+			CheckID:     finding.CheckAIModelInfoExposed,
 			Asset:       "example.com",
-			Description: "Referrer-Policy missing",
+			Description: "AI data exfiltration detected",
 		},
 	}
 
@@ -178,8 +178,8 @@ func TestNoopEnricher_MultipleFindingsPreservePerFindingTags(t *testing.T) {
 		t.Errorf("finding[1] (DLP credit card): ComplianceTags = %v; want 'PCI-3.4'", dlpTags)
 	}
 
-	// Referrer-Policy: must have nil/empty tags
+	// AI data exfil: must have nil/empty tags (unmapped check)
 	if len(out[2].ComplianceTags) != 0 {
-		t.Errorf("finding[2] (Referrer-Policy): ComplianceTags = %v; want nil/empty", out[2].ComplianceTags)
+		t.Errorf("finding[2] (AI data exfil): ComplianceTags = %v; want nil/empty", out[2].ComplianceTags)
 	}
 }

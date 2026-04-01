@@ -11,7 +11,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 func makePlaybook(name string, surfScanners, surfTags, deepTags []string, discovery ...playbook.DiscoveryStep) *playbook.Playbook {

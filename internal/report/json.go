@@ -5,9 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/stormbane/beacon/internal/asset"
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // jsonReport is the JSON serialization envelope.

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/auth"
-	"github.com/stormbane/beacon/internal/config"
+	"github.com/stormbane-security/beacon/internal/auth"
+	"github.com/stormbane-security/beacon/internal/config"
 )
 
 func TestAuthenticate_Bearer(t *testing.T) {

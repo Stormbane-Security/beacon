@@ -8,7 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
 	docdb "github.com/aws/aws-sdk-go-v2/service/docdb"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanDocumentDB(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

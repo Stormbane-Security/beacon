@@ -3,8 +3,8 @@ package scanner
 import (
 	"context"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // Scanner is implemented by every individual scan module (nuclei, email, subdomain, testssl).

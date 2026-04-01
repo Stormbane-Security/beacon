@@ -13,13 +13,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/scanner/crlf"
-	"github.com/stormbane/beacon/internal/scanner/hpp"
-	"github.com/stormbane/beacon/internal/scanner/protopollution"
-	"github.com/stormbane/beacon/internal/scanner/ssrf"
-	"github.com/stormbane/beacon/internal/scanner/ssti"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/scanner/crlf"
+	"github.com/stormbane-security/beacon/internal/scanner/hpp"
+	"github.com/stormbane-security/beacon/internal/scanner/protopollution"
+	"github.com/stormbane-security/beacon/internal/scanner/ssrf"
+	"github.com/stormbane-security/beacon/internal/scanner/ssti"
 )
 
 // ── 1. Baseline coverage ─────────────────────────────────────────────────────

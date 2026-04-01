@@ -9,7 +9,7 @@ import (
 	"google.golang.org/api/option"
 	sqladmin "google.golang.org/api/sqladmin/v1beta4"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanCloudSQL(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

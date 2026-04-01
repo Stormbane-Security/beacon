@@ -11,8 +11,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // cveIDRe validates CVE identifiers per the standard format: CVE-YYYY-NNNNN+.

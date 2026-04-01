@@ -18,8 +18,8 @@ package forecast
 import (
 	"time"
 
-	"github.com/stormbane/beacon/internal/asset"
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // ScanReport is the complete payload Beacon sends to Forecast after a scan.

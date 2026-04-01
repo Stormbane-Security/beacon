@@ -5,7 +5,7 @@ import (
 
 	containerapi "google.golang.org/api/container/v1"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // ── checkCluster ─────────────────────────────────────────────────────────────

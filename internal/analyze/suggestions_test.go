@@ -27,8 +27,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/stormbane/beacon/internal/analyze"
-	memstore "github.com/stormbane/beacon/internal/store/memory"
+	"github.com/stormbane-security/beacon/internal/analyze"
+	memstore "github.com/stormbane-security/beacon/internal/store/memory"
 )
 
 // fakeEmptyIntelServer returns a server that responds with empty intel payloads.

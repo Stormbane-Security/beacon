@@ -4,8 +4,8 @@
 package visibility
 
 import (
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // ReportView is the filtered view of findings returned for report rendering.

@@ -8,7 +8,7 @@ import (
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanBuckets(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

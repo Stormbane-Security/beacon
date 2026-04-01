@@ -8,7 +8,7 @@ import (
 	computeapi "google.golang.org/api/compute/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanFirewallRules(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/scanner/classify"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/scanner/classify"
 )
 
 // dockerScenario defines a real product to test against.
