@@ -179,6 +179,103 @@ type Asset struct {
 
 	// DiscoveredAt is when this asset was first observed.
 	DiscoveredAt time.Time `json:"discovered_at"`
+
+	// --- Lifecycle fields (populated by Forecast across scans) ---
+
+	// FirstSeen is the earliest scan that discovered this asset.
+	// Within a single Beacon scan this equals DiscoveredAt. Forecast
+	// carries it forward across scans.
+	FirstSeen time.Time `json:"first_seen,omitempty"`
+
+	// LastSeen is the most recent scan that observed this asset.
+	LastSeen time.Time `json:"last_seen,omitempty"`
+
+	// Status tracks the asset's lifecycle state.
+	Status AssetStatus `json:"status,omitempty"`
+
+	// --- Criticality and ownership ---
+
+	// Criticality indicates the business impact tier of this asset.
+	// Set by Forecast from cloud tags, manual classification, or AI inference.
+	Criticality AssetCriticality `json:"criticality,omitempty"`
+
+	// Owners are the inferred owners of this asset.
+	// Sources: CODEOWNERS, cloud resource tags, commit history, IAM bindings.
+	Owners []OwnerRef `json:"owners,omitempty"`
+
+	// Services are the network services discovered running on this asset.
+	// Populated by port scanning and HTTP probing.
+	Services []Service `json:"services,omitempty"`
+}
+
+// AssetStatus tracks where an asset is in its lifecycle.
+type AssetStatus string
+
+const (
+	AssetStatusActive       AssetStatus = "active"        // seen in most recent scan
+	AssetStatusInactive     AssetStatus = "inactive"      // not seen in last scan, seen before
+	AssetStatusDecommission AssetStatus = "decommissioned" // confirmed removed (cloud API says deleted)
+	AssetStatusNew          AssetStatus = "new"            // first time seen in this scan
+)
+
+// AssetCriticality indicates the business impact tier.
+type AssetCriticality string
+
+const (
+	CriticalityP0 AssetCriticality = "p0" // production customer-facing, auth, payments
+	CriticalityP1 AssetCriticality = "p1" // production internal, CI/CD, data pipeline
+	CriticalityP2 AssetCriticality = "p2" // staging, development, non-critical
+	CriticalityP3 AssetCriticality = "p3" // sandbox, test, ephemeral
+)
+
+// OwnerRef identifies an owner of an asset.
+type OwnerRef struct {
+	// Type is the source of the ownership signal.
+	Type OwnerType `json:"type"`
+
+	// Identity is the owner identifier (email, team name, GitHub handle).
+	Identity string `json:"identity"`
+
+	// Source describes where this ownership was inferred from.
+	Source string `json:"source,omitempty"`
+
+	// Confidence is how certain we are about this ownership (0.0–1.0).
+	Confidence float64 `json:"confidence"`
+}
+
+// OwnerType categorizes how ownership was determined.
+type OwnerType string
+
+const (
+	OwnerCodeowners  OwnerType = "codeowners"   // from CODEOWNERS file
+	OwnerCloudTag    OwnerType = "cloud_tag"    // from cloud resource tags (owner, team, etc.)
+	OwnerCommitFreq  OwnerType = "commit_freq"  // most frequent committer to related repo
+	OwnerIAMBinding  OwnerType = "iam_binding"  // from cloud IAM role bindings
+	OwnerManual      OwnerType = "manual"       // explicitly set by user in Forecast
+)
+
+// Service represents a network service discovered on an asset.
+type Service struct {
+	// Port is the TCP/UDP port number.
+	Port int `json:"port"`
+
+	// Protocol is "tcp" or "udp".
+	Protocol string `json:"protocol"`
+
+	// ServiceName is the identified service (http, ssh, mysql, redis, etc.).
+	ServiceName string `json:"service_name"`
+
+	// Version is the detected version string (if available).
+	Version string `json:"version,omitempty"`
+
+	// Banner is the raw service banner (first N bytes).
+	Banner string `json:"banner,omitempty"`
+
+	// TLS indicates whether the service uses TLS.
+	TLS bool `json:"tls,omitempty"`
+
+	// State is whether the port is open, filtered, or closed.
+	State string `json:"state"` // "open", "filtered", "closed"
 }
 
 // AssetFingerprint captures confirmed technology signals for an asset,
