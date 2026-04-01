@@ -145,7 +145,15 @@ func checkCluster(cluster *containerapi.Cluster, projectID, asset string) []find
 	}
 
 	// Binary Authorization disabled.
-	if cluster.BinaryAuthorization == nil || !cluster.BinaryAuthorization.Enabled {
+	binaryAuthEnabled := false
+	if cluster.BinaryAuthorization != nil {
+		if cluster.BinaryAuthorization.EvaluationMode != "" {
+			binaryAuthEnabled = cluster.BinaryAuthorization.EvaluationMode != "DISABLED"
+		} else {
+			binaryAuthEnabled = cluster.BinaryAuthorization.Enabled
+		}
+	}
+	if !binaryAuthEnabled {
 		findings = append(findings, finding.Finding{
 			CheckID: finding.CheckCloudGCPGKENoBinaryAuth,
 			Title:   fmt.Sprintf("GKE cluster has Binary Authorization disabled: %s", cluster.Name),

@@ -481,8 +481,12 @@ func signalDetails(sig throttleSignal, r *probeRun) (label, detail string) {
 		return "connection resets mid-burst",
 			fmt.Sprintf("%d connection errors after %d successful responses", r.connErrors, len(r.latencies))
 	case signalLatency:
+		baseline := r.latencies
+		if len(baseline) > 3 {
+			baseline = baseline[:3]
+		}
 		return "response latency spike detected",
-			fmt.Sprintf("baseline: %v, spike observed", medianDuration(r.latencies[:3]))
+			fmt.Sprintf("baseline: %v, spike observed", medianDuration(baseline))
 	case signalChallenge:
 		return "challenge/CAPTCHA page detected", "challenge keywords found in response body"
 	case signalBodyChange:

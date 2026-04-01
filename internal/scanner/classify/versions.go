@@ -37,8 +37,6 @@ var eolSoftware = map[string][]eolEntry{
 		{prefix: "apache/1.", label: "Apache httpd 1.x", eolDate: "2010", cveNote: "numerous unpatched CVEs; no longer supported"},
 		{prefix: "apache/2.0.", label: "Apache httpd 2.0", eolDate: "2013", cveNote: "EOL; CVE-2011-3192, many others unpatched"},
 		{prefix: "apache/2.2.", label: "Apache httpd 2.2", eolDate: "2017", cveNote: "EOL; CVE-2017-9788, CVE-2017-7679, many others unpatched"},
-		{prefix: "apache/2.4.4", label: "Apache httpd 2.4.x (old)", eolDate: "2022", cveNote: "multiple patched CVEs; upgrade to 2.4.58+"},
-		{prefix: "apache/2.4.5", label: "Apache httpd 2.4.x (old)", eolDate: "2023", cveNote: "CVE-2023-25690 (mod_proxy smuggling); upgrade to 2.4.58+"},
 		// nginx EOL stable branches (odd minor = development, even = stable)
 		{prefix: "nginx/0.", label: "nginx 0.x", eolDate: "2012", cveNote: "EOL; many unpatched vulnerabilities"},
 		{prefix: "nginx/1.0.", label: "nginx 1.0", eolDate: "2012", cveNote: "EOL"},

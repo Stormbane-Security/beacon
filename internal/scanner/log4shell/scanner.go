@@ -213,8 +213,8 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 				Asset:       asset,
 				DeepOnly:    true,
 				ProofCommand: fmt.Sprintf(
-					`curl -s -H '%s: %s' https://%s/ | grep -i 'jndi\|log4j'`,
-					header, p.payload, asset),
+					`curl -s -H '%s: %s' %s | grep -i 'jndi\|log4j'`,
+					header, p.payload, targetURL),
 				Evidence:     ev,
 				DiscoveredAt: time.Now(),
 			})
@@ -265,7 +265,7 @@ func detectJavaSignals(ctx context.Context, client *http.Client, targetURL, _ st
 
 	// JSESSIONID in Set-Cookie is a strong Java signal.
 	for _, cookie := range resp.Cookies() {
-		if cookie.Name == "JSESSIONID" {
+		if strings.EqualFold(cookie.Name, "JSESSIONID") {
 			ev["java_detected"] = true
 			ev["jsessionid"] = true
 			break

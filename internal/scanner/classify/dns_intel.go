@@ -159,7 +159,7 @@ func extractDMARCPolicy(rec string) string {
 	for _, field := range strings.Fields(strings.ReplaceAll(rec, ";", " ")) {
 		field = strings.TrimSpace(field)
 		if strings.HasPrefix(strings.ToLower(field), "p=") {
-			return strings.ToLower(strings.TrimPrefix(field, "p="))
+			return strings.TrimPrefix(strings.ToLower(field), "p=")
 		}
 	}
 	return ""

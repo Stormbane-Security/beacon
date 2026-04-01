@@ -119,7 +119,11 @@ func (s *Scanner) SetDialFunc(fn func(string, string, time.Duration) (net.Conn, 
 func (s *Scanner) Name() string { return scannerTag }
 
 // Run implements scanner.Scanner.
-func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
+		return nil, nil
+	}
+
 	host := s.host()
 
 	var all []finding.Finding

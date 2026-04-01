@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	armpostgresqlflexibleservers "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-func scanPostgres(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanPostgres(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	serverClient, err := armpostgresqlflexibleservers.NewServersClient(subID, cred, nil)
 	if err != nil {
 		return nil, err

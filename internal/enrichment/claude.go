@@ -21,10 +21,17 @@ import (
 // htmlTagRe matches HTML tags for sanitization of AI response fields.
 var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 
+var htmlEntityRe = regexp.MustCompile(`&#x?[0-9a-fA-F]+;?`)
+
+var jsURIRe = regexp.MustCompile(`(?i)javascript:`)
+
 // sanitizeAIField strips HTML tags from an AI response field to prevent
 // stored XSS when the field is later rendered in HTML reports.
 func sanitizeAIField(s string) string {
-	return htmlTagRe.ReplaceAllString(s, "")
+	s = htmlTagRe.ReplaceAllString(s, "")
+	s = htmlEntityRe.ReplaceAllString(s, "")
+	s = jsURIRe.ReplaceAllString(s, "")
+	return s
 }
 
 //go:embed prompts/finding.tmpl
@@ -484,9 +491,18 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 		if omit && mitigatedBy == "" {
 			omit = false
 		}
+		var validTags []string
+		for _, tag := range f.ComplianceTags {
+			for _, prefix := range []string{"SOC2-", "PCI-", "NIST-", "HIPAA-", "ISO27001-", "CIS-", "GDPR-", "OWASP-"} {
+				if strings.HasPrefix(tag, prefix) {
+					validTags = append(validTags, tag)
+					break
+				}
+			}
+		}
 		index[key{strings.ToLower(f.CheckID), strings.ToLower(strings.TrimRight(f.Asset, "."))}] = update{
 			omit, mitigatedBy, sanitizeAIField(f.CrossAssetNote),
-			sanitizeAIField(f.TechSpecificRemediation), f.ComplianceTags,
+			sanitizeAIField(f.TechSpecificRemediation), validTags,
 		}
 	}
 

@@ -94,13 +94,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 
 			// Surface-mode checks.
-			findings = append(findings, s.checkUPnP(ctx, ip)...)
-			findings = append(findings, s.checkMDNS(ctx, ip)...)
-			findings = append(findings, s.checkTelnet(ctx, ip)...)
 			findings = append(findings, s.checkHTTPMgmt(ctx, ip)...)
 
 			// Deep-mode checks.
 			if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+				findings = append(findings, s.checkUPnP(ctx, ip)...)
+				findings = append(findings, s.checkMDNS(ctx, ip)...)
+				findings = append(findings, s.checkTelnet(ctx, ip)...)
 				findings = append(findings, s.checkSNMP(ctx, ip)...)
 			}
 		}

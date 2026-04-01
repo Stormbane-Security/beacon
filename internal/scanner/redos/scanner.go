@@ -144,7 +144,7 @@ func (s *Scanner) testPayload(ctx context.Context, client *http.Client, baseURL,
 	// Send evil payload.
 	evilURL := fmt.Sprintf("%s/?%s=%s", baseURL, param, url.QueryEscape(p.value))
 	evilMs, err := s.measureResponseTime(ctx, client, evilURL)
-	if err != nil {
+	if err != nil && evilMs <= 5000 {
 		return nil
 	}
 

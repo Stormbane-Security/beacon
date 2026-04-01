@@ -71,10 +71,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	var findings []finding.Finding
+	ethRPCBase := ""
 
 	// Ethereum JSON-RPC (port 8545)
 	if f := probeEthRPC(ctx, client, host, "8545"); len(f) > 0 {
 		findings = append(findings, f...)
+		ethRPCBase = fmt.Sprintf("http://%s:8545", host)
 	}
 
 	// Ethereum WebSocket RPC (port 8546) — verify with a real WebSocket upgrade
@@ -134,8 +136,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// Deep mode: enumerate sensitive RPC methods.
-	if (scanType == module.ScanDeep || scanType == module.ScanAuthorized) && len(findings) > 0 {
-		if f := probeEthSensitiveMethods(ctx, client, host, asset); len(f) > 0 {
+	if (scanType == module.ScanDeep || scanType == module.ScanAuthorized) && len(findings) > 0 && ethRPCBase != "" {
+		if f := probeEthSensitiveMethods(ctx, client, ethRPCBase, asset); len(f) > 0 {
 			findings = append(findings, f...)
 		}
 	}
@@ -253,8 +255,7 @@ func getEthPeerCount(ctx context.Context, client *http.Client, base string) int 
 }
 
 // probeEthSensitiveMethods checks for eth_mining, eth_coinbase, eth_accounts.
-func probeEthSensitiveMethods(ctx context.Context, client *http.Client, host, asset string) []finding.Finding {
-	base := fmt.Sprintf("http://%s:8545", host)
+func probeEthSensitiveMethods(ctx context.Context, client *http.Client, base, asset string) []finding.Finding {
 	var findings []finding.Finding
 
 	// eth_mining — reveals active PoW miner.
@@ -272,14 +273,14 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, host, as
 					Module:   "deep",
 					Scanner:  scannerName,
 					Severity: finding.SeverityHigh,
-					Title:    fmt.Sprintf("Active PoW miner detected via eth_mining on %s", host),
+					Title:    fmt.Sprintf("Active PoW miner detected via eth_mining on %s", asset),
 					Description: "eth_mining returned true, indicating this node is actively mining. " +
 						"The miner's coinbase address is discoverable via eth_coinbase, " +
 						"and unprotected miner_* RPC methods may allow an attacker to stop mining " +
 						"or redirect block rewards.",
 					Asset: asset,
-					Evidence: map[string]any{"host": host, "method": "eth_mining", "result": true},
-					ProofCommand: fmt.Sprintf(`curl -s -X POST http://%s:8545 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_coinbase","params":[],"id":1}'`, host),
+					Evidence: map[string]any{"host": asset, "method": "eth_mining", "result": true},
+					ProofCommand: fmt.Sprintf(`curl -s -X POST %s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_coinbase","params":[],"id":1}'`, base),
 					DiscoveredAt: time.Now(),
 				})
 			}
@@ -303,7 +304,7 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, host, as
 					Module:   "deep",
 					Scanner:  scannerName,
 					Severity: finding.SeverityCritical,
-					Title:    fmt.Sprintf("Ethereum node exposes %d unlocked account(s) via eth_accounts on %s", len(rpc.Result), host),
+					Title:    fmt.Sprintf("Ethereum node exposes %d unlocked account(s) via eth_accounts on %s", len(rpc.Result), asset),
 					Description: fmt.Sprintf(
 						"eth_accounts returned %d wallet address(es) from the keystore. "+
 							"If personal_unlockAccount is also available, an attacker may be able to "+
@@ -311,10 +312,10 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, host, as
 						len(rpc.Result)),
 					Asset: asset,
 					Evidence: map[string]any{
-						"host":     host,
+						"host":     asset,
 						"accounts": rpc.Result,
 					},
-					ProofCommand: fmt.Sprintf(`curl -s -X POST http://%s:8545 -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}'`, host),
+					ProofCommand: fmt.Sprintf(`curl -s -X POST %s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}'`, base),
 					DiscoveredAt: time.Now(),
 				})
 			}
