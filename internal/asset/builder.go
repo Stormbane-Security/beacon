@@ -69,6 +69,23 @@ func (b *Builder) AddAsset(a Asset) {
 			}
 			existing.Labels[k] = v
 		}
+		if a.Region != "" && existing.Region == "" {
+			existing.Region = a.Region
+		}
+		if a.Account != "" && existing.Account == "" {
+			existing.Account = a.Account
+		}
+		if len(a.Services) > 0 && len(existing.Services) == 0 {
+			existing.Services = a.Services
+		}
+		if len(a.Metadata) > 0 && existing.Metadata == nil {
+			existing.Metadata = make(map[string]any)
+		}
+		for k, v := range a.Metadata {
+			if _, ok := existing.Metadata[k]; !ok {
+				existing.Metadata[k] = v
+			}
+		}
 		if a.IAMContext != nil && existing.IAMContext == nil {
 			existing.IAMContext = a.IAMContext
 		}

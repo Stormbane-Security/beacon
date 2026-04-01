@@ -238,6 +238,9 @@ func analyseToken(asset, token string) []finding.Finding {
 
 	// --- Algorithm checks ---
 
+	headerB64 := parts[0]
+	proofCmd := fmt.Sprintf("echo '%s' | base64 -d", headerB64)
+
 	if strings.EqualFold(alg, "none") {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckJWTWeakAlg,
@@ -249,7 +252,8 @@ func analyseToken(asset, token string) []finding.Finding {
 				"claims by crafting a token and setting alg to 'none'. This completely bypasses " +
 				"authentication and authorization controls. Replace with RS256 or ES256 and reject " +
 				"any token whose header specifies alg:none on the server side.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: proofCmd,
 			Evidence: map[string]any{
 				"algorithm":    alg,
 				"jwt_header":   header,
@@ -270,7 +274,8 @@ func analyseToken(asset, token string) []finding.Finding {
 					"asymmetric algorithm such as RS256 or ES256 so that only the issuer can sign tokens.",
 				alg,
 			),
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: proofCmd,
 			Evidence: map[string]any{
 				"algorithm":    alg,
 				"jwt_header":   header,
@@ -285,6 +290,9 @@ func analyseToken(asset, token string) []finding.Finding {
 	exp, hasExp := extractIntField(payload, "exp")
 	_, hasIat := extractIntField(payload, "iat")
 
+	payloadB64 := parts[1]
+	payloadProof := fmt.Sprintf("echo '%s' | base64 -d", payloadB64)
+
 	if !hasExp {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckJWTLongExpiry,
@@ -295,7 +303,8 @@ func analyseToken(asset, token string) []finding.Finding {
 			Description: "The token does not contain an exp claim, meaning it never expires. " +
 				"Stolen or leaked tokens remain valid indefinitely. Add a short-lived exp claim " +
 				"(e.g. 15 minutes for access tokens) and implement token refresh.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"has_iat":      hasIat,
 				"jwt_fragment": truncate(token, 80),
@@ -316,7 +325,8 @@ func analyseToken(asset, token string) []finding.Finding {
 					"Reduce token lifetime to 15–60 minutes for access tokens and implement refresh token rotation.",
 				daysValid,
 			),
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"exp":          exp,
 				"days_valid":   daysValid,
@@ -353,7 +363,8 @@ func analyseToken(asset, token string) []finding.Finding {
 				"token – through network eavesdropping, browser storage access, or log files – can decode " +
 				"and read the PII contained within. Move sensitive personal data out of the token payload " +
 				"or use JWE (JSON Web Encryption) to protect the claims.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"sensitive_fields": foundPII,
 				"jwt_fragment":     truncate(token, 80),
@@ -384,7 +395,8 @@ func analyseToken(asset, token string) []finding.Finding {
 				"an attacker to enumerate privilege levels and craft targeted privilege-escalation attacks. " +
 				"Ensure server-side authorization never relies solely on client-supplied token claims without " +
 				"re-validating them against an authoritative store.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"role_fields":  foundRole,
 				"jwt_fragment": truncate(token, 80),
@@ -519,6 +531,7 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 			"with access to the token (via logs, browser storage, or network interception) can decode " +
 			"and read these claims. Consider using JWE to encrypt the token payload, or move sensitive " +
 			"data out of the token entirely.",
+		ProofCommand: fmt.Sprintf("echo '%s' | base64 -d", parts[1]),
 		Evidence: map[string]any{
 			"sensitive_fields": found,
 			"parts":            len(parts),
@@ -546,6 +559,7 @@ func checkJTIMissing(asset string, claims map[string]any) *finding.Finding {
 			"identifier the server cannot maintain a token deny-list or detect replay attacks. " +
 			"An attacker who obtains a valid token can reuse it repeatedly until it expires. " +
 			"Add a cryptographically random jti to every issued token and check it server-side.",
+		ProofCommand: fmt.Sprintf("curl -sI https://%s/ | grep -i set-cookie", asset),
 		Evidence:     map[string]any{},
 		DiscoveredAt: time.Now(),
 	}

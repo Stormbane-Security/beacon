@@ -50,8 +50,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	// Only run on the root domain itself.
 	// "example.co.uk" has 2 dots and is a valid ccTLD+SLD root domain.
 	// Anything with more than 2 dots is guaranteed to be a subdomain.
-	if strings.Count(asset, ".") > 2 {
+	dots := strings.Count(asset, ".")
+	if dots > 2 {
 		return nil, nil
+	}
+	if dots == 2 {
+		parts := strings.Split(asset, ".")
+		mid := parts[len(parts)-2]
+		ccTLDSuffixes := map[string]bool{"co": true, "com": true, "org": true, "net": true, "gov": true, "ac": true, "edu": true}
+		if !ccTLDSuffixes[mid] {
+			return nil, nil
+		}
 	}
 
 	domain := rootDomain(asset)

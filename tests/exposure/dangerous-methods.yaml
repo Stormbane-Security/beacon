@@ -1,0 +1,25 @@
+name: dangerous-http-methods
+description: "nginx with PUT and DELETE methods enabled"
+tags: [http-methods, web, nginx]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9153:80"]
+    volumes:
+      - ./dangerous-methods/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9153/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-dangerous-methods
+    type: beacon
+    target: localhost:9153
+    args: ["--scanners", "httpmethods"]
+    expect:
+      check_id: web.dangerous_method_enabled
+
+timeout: 5m

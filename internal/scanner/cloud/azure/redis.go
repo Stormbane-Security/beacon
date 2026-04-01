@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	armredis "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-func scanRedis(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanRedis(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armredis.NewClient(subID, cred, nil)
 	if err != nil {
 		return nil, err

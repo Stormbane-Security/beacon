@@ -42,7 +42,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		r, err := client.Do(req)
 		if err != nil {
 			if r != nil {
-				r.Body.Close()
+				_ = r.Body.Close()
 			}
 			continue
 		}

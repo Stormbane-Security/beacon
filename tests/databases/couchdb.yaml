@@ -1,0 +1,32 @@
+name: couchdb-no-auth
+description: "CouchDB 3 with no authentication allows unauthenticated access to all databases"
+tags: [couchdb, database, nosql]
+
+services:
+  couchdb:
+    image: couchdb:3
+    ports: ["9120:5984"]
+    environment:
+      COUCHDB_USER: ""
+      COUCHDB_PASSWORD: ""
+
+ready:
+  cmd: "curl -sf http://localhost:9120/ | grep -q couchdb"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: classifies-as-couchdb
+    type: classify
+    target: localhost:9120
+    expect:
+      backend_service: CouchDB
+
+  - name: detects-unauthenticated-couchdb
+    type: beacon
+    target: localhost:9120
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.couchdb_unauthenticated
+
+timeout: 5m

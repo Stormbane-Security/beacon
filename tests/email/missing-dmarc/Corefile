@@ -1,0 +1,11 @@
+testdomain.local:53 {
+    file /etc/coredns/zones/testdomain.local.zone
+    log
+    errors
+}
+
+.:53 {
+    forward . 8.8.8.8
+    log
+    errors
+}

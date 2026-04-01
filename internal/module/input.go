@@ -96,6 +96,13 @@ type Input struct {
 	// user it blocks until Resume is called. If ctx is cancelled while paused
 	// it returns immediately. A nil PauseCheck is valid and does nothing.
 	PauseCheck func(ctx context.Context)
+
+	// Scanners is an optional list of scanner names to run instead of the
+	// playbook-driven scan plan. When non-empty, evidence collection and
+	// playbook matching are skipped and only the named scanners execute.
+	// Scanner names must match keys in the surface module's scannerMap
+	// (e.g. "cors", "jwt", "tls", "portscan").
+	Scanners []string
 }
 
 // ProgressEvent carries a snapshot of scan progress at a pipeline milestone.

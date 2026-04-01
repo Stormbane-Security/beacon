@@ -1,5 +1,7 @@
 package asset
 
+import "strings"
+
 // Traverser provides graph traversal and blast radius computation for
 // an AssetGraph. It pre-indexes adjacency lists on construction so
 // repeated queries are O(E) in the worst case but fast in practice.
@@ -131,7 +133,7 @@ func (t *Traverser) BlastRadius(assetID string) BlastRadiusResult {
 	allIDs := append([]string{assetID}, reachable...)
 	for _, id := range allIDs {
 		for _, f := range t.findings[id] {
-			result.SeverityCounts[f.Severity]++
+			result.SeverityCounts[strings.ToLower(f.Severity)]++
 			result.AffectedFindings = append(result.AffectedFindings, f)
 		}
 	}

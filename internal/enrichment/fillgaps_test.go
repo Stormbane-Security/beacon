@@ -161,8 +161,8 @@ func TestParseFillGapsResponse_ConfidenceClampedZero(t *testing.T) {
 	if len(result.ProposedRules) != 1 {
 		t.Fatalf("expected 1 proposed rule, got %d", len(result.ProposedRules))
 	}
-	if result.ProposedRules[0].Confidence != 0.7 {
-		t.Errorf("confidence = %f, want 0.7 (clamped from 0)", result.ProposedRules[0].Confidence)
+	if result.ProposedRules[0].Confidence != 0.3 {
+		t.Errorf("confidence = %f, want 0.3 (clamped from 0)", result.ProposedRules[0].Confidence)
 	}
 }
 
@@ -187,8 +187,8 @@ func TestParseFillGapsResponse_ConfidenceClampedNegative(t *testing.T) {
 	if len(result.ProposedRules) != 1 {
 		t.Fatalf("expected 1 proposed rule, got %d", len(result.ProposedRules))
 	}
-	if result.ProposedRules[0].Confidence != 0.7 {
-		t.Errorf("confidence = %f, want 0.7 (clamped from -0.5)", result.ProposedRules[0].Confidence)
+	if result.ProposedRules[0].Confidence != 0.3 {
+		t.Errorf("confidence = %f, want 0.3 (clamped from -0.5)", result.ProposedRules[0].Confidence)
 	}
 }
 
@@ -213,8 +213,8 @@ func TestParseFillGapsResponse_ConfidenceClampedAboveOne(t *testing.T) {
 	if len(result.ProposedRules) != 1 {
 		t.Fatalf("expected 1 proposed rule, got %d", len(result.ProposedRules))
 	}
-	if result.ProposedRules[0].Confidence != 0.7 {
-		t.Errorf("confidence = %f, want 0.7 (clamped from 1.5)", result.ProposedRules[0].Confidence)
+	if result.ProposedRules[0].Confidence != 0.3 {
+		t.Errorf("confidence = %f, want 0.3 (clamped from 1.5)", result.ProposedRules[0].Confidence)
 	}
 }
 

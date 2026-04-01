@@ -245,7 +245,7 @@ func TestUPnP_Detected(t *testing.T) {
 	cfg := network.Config{Targets: []string{ip}}
 	s := network.NewWithDialer(cfg, dialer, failHTTPClient())
 
-	findings, err := s.Run(context.Background(), ip, module.ScanSurface)
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestMDNS_Detected(t *testing.T) {
 	cfg := network.Config{Targets: []string{ip}}
 	s := network.NewWithDialer(cfg, dialer, failHTTPClient())
 
-	findings, err := s.Run(context.Background(), ip, module.ScanSurface)
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestTelnet_Detected(t *testing.T) {
 	cfg := network.Config{Targets: []string{ip}}
 	s := network.NewWithDialer(cfg, dialer, failHTTPClient())
 
-	findings, err := s.Run(context.Background(), ip, module.ScanSurface)
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

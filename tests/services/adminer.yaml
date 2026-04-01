@@ -1,0 +1,22 @@
+name: adminer-exposed
+description: "Adminer database management tool exposed publicly"
+tags: [adminer, database, admin-panel]
+
+services:
+  adminer:
+    image: adminer:latest
+    ports: ["9159:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9159/ | grep -qi adminer"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: classifies-as-adminer
+    type: classify
+    target: localhost:9159
+    expect:
+      backend_service: Adminer
+
+timeout: 5m

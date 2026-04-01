@@ -1,0 +1,25 @@
+name: swagger-exposed
+description: "API with Swagger UI and OpenAPI spec exposed publicly"
+tags: [swagger, openapi, exposure]
+
+services:
+  swagger:
+    image: swaggerapi/swagger-ui:latest
+    ports: ["9157:8080"]
+    environment:
+      URL: "https://petstore.swagger.io/v2/swagger.json"
+
+ready:
+  cmd: "curl -sf http://localhost:9157/ | grep -qi swagger"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-api-docs-exposed
+    type: beacon
+    target: localhost:9157
+    args: ["--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.api_docs
+
+timeout: 5m

@@ -1,0 +1,28 @@
+name: apache-default
+description: "Default Apache httpd 2.4 installation for proxy type classification"
+tags: [apache, infrastructure, proxy]
+
+services:
+  apache:
+    image: httpd:2.4-alpine
+    ports: ["9209:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9209/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: classifies-as-apache
+    type: classify
+    target: localhost:9209
+    expect:
+      proxy_type: apache
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:9209
+    expect:
+      check_id: headers.server_info_leak
+
+timeout: 5m

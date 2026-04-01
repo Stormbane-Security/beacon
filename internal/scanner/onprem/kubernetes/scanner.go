@@ -179,12 +179,10 @@ func New(cfg Config) *Scanner {
 func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the Kubernetes security scan. It requires deep or authorized
-// scan mode because it actively queries the cluster API.
+// scan mode because it actively queries the cluster API. The scan-type gate
+// is enforced by the on-prem module dispatcher; this method assumes deep or
+// authorized mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
-		return nil, nil
-	}
-
 	apiServer := s.cfg.APIServer
 	if apiServer == "" {
 		return nil, fmt.Errorf("kubernetes scanner: APIServer URL is required")

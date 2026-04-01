@@ -350,7 +350,7 @@ func isJenkinsStaplerRCEVulnerable(ver string) bool {
 	}
 	// LTS three-component: ≤ 2.138.3
 	patch := 0
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if minor < 138 {
 		return true
 	}
@@ -370,19 +370,19 @@ func isJenkinsCLIVulnerable(ver string) bool {
 		return false
 	}
 	maj := 0
-	fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
 	if maj != 2 {
 		return false // unexpected major version
 	}
 	minor := 0
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	if len(parts) == 2 {
 		// Mainline: 2.441 < 2.442
 		return minor < 442
 	}
 	// LTS: 2.426.2 < 2.426.3; 2.440.x is mainline-only so LTS check is minor <= 426
 	patch := 0
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if minor < 426 {
 		return true
 	}

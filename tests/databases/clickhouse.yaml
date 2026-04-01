@@ -1,0 +1,29 @@
+name: clickhouse-exposed
+description: "ClickHouse analytics DB with HTTP interface exposed without authentication"
+tags: [clickhouse, database, analytics]
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports: ["9122:8123"]
+
+ready:
+  cmd: "curl -sf http://localhost:9122/ | grep -q Ok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: classifies-as-clickhouse
+    type: classify
+    target: localhost:9122
+    expect:
+      backend_service: ClickHouse
+
+  - name: detects-clickhouse-exposed
+    type: beacon
+    target: localhost:9122
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+timeout: 5m

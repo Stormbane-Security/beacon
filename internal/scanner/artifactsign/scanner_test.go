@@ -1065,7 +1065,7 @@ func TestNPM_UnscopedSigned_ScopedUnsigned(t *testing.T) {
 	if f == nil {
 		t.Fatal("expected finding")
 	}
-	pkg, _ := f.Evidence["package"]
+	pkg := f.Evidence["package"]
 	if pkg != "@acme/acme" {
 		t.Errorf("expected package '@acme/acme', got %v", pkg)
 	}

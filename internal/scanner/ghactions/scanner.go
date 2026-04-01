@@ -280,6 +280,10 @@ func checkScriptInjection(workflowYAML, repo string) []finding.Finding {
 	for _, line := range strings.Split(workflowYAML, "\n") {
 		trimmed := strings.TrimSpace(line)
 
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
 		// Detect start of a run: step (single-line or block scalar).
 		if isRunKey(trimmed) {
 			inRun = true

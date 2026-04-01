@@ -509,7 +509,17 @@ func baseDomain(hostname string) string {
 	if len(parts) < 2 {
 		return ""
 	}
-	return strings.Join(parts[len(parts)-2:], ".")
+	result := strings.Join(parts[len(parts)-2:], ".")
+	if len(parts) >= 3 {
+		sld := parts[len(parts)-2]
+		if len(sld) <= 3 {
+			switch sld {
+			case "co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go":
+				result = strings.Join(parts[len(parts)-3:], ".")
+			}
+		}
+	}
+	return result
 }
 
 // fingerprintPaths is the curated list of technology-specific paths probed on

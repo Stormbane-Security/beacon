@@ -442,68 +442,96 @@ func checkAPIGatewayNoAuth(ctx context.Context, cfg awscfg.Config, accountID, re
 	svc := apigateway.NewFromConfig(cfg)
 	var findings []finding.Finding
 
-	apisResp, err := svc.GetRestApis(ctx, &apigateway.GetRestApisInput{})
-	if err != nil {
-		return nil, fmt.Errorf("apigateway get rest apis: %w", err)
-	}
-
-	for _, api := range apisResp.Items {
-		select {
-		case <-ctx.Done():
-			return findings, ctx.Err()
-		default:
-		}
-
-		apiID := awscfg.ToString(api.Id)
-		apiName := awscfg.ToString(api.Name)
-
-		resourcesResp, err := svc.GetResources(ctx, &apigateway.GetResourcesInput{
-			RestApiId: api.Id,
+	var allApis []apigateway.GetRestApisOutput
+	var apisPosition *string
+	for {
+		apisResp, err := svc.GetRestApis(ctx, &apigateway.GetRestApisInput{
+			Position: apisPosition,
 		})
 		if err != nil {
-			continue
+			if len(allApis) == 0 {
+				return nil, fmt.Errorf("apigateway get rest apis: %w", err)
+			}
+			break
 		}
+		allApis = append(allApis, *apisResp)
+		if apisResp.Position == nil || *apisResp.Position == "" {
+			break
+		}
+		apisPosition = apisResp.Position
+	}
 
-		for _, resource := range resourcesResp.Items {
-			resourcePath := awscfg.ToString(resource.Path)
+	for _, apisResp := range allApis {
+		for _, api := range apisResp.Items {
+			select {
+			case <-ctx.Done():
+				return findings, ctx.Err()
+			default:
+			}
 
-			for httpMethod := range resource.ResourceMethods {
-				methodResp, err := svc.GetMethod(ctx, &apigateway.GetMethodInput{
-					RestApiId:  api.Id,
-					ResourceId: resource.Id,
-					HttpMethod: awscfg.String(httpMethod),
+			apiID := awscfg.ToString(api.Id)
+			apiName := awscfg.ToString(api.Name)
+
+			var allResources []apigateway.GetResourcesOutput
+			var resPosition *string
+			for {
+				resourcesResp, err := svc.GetResources(ctx, &apigateway.GetResourcesInput{
+					RestApiId: api.Id,
+					Position:  resPosition,
 				})
 				if err != nil {
-					continue
+					break
 				}
+				allResources = append(allResources, *resourcesResp)
+				if resourcesResp.Position == nil || *resourcesResp.Position == "" {
+					break
+				}
+				resPosition = resourcesResp.Position
+			}
 
-				authType := awscfg.ToString(methodResp.AuthorizationType)
-				if authType == "NONE" {
-					findings = append(findings, finding.Finding{
-						CheckID: finding.CheckCloudAWSAPIGatewayNoAuth,
-						Title:   fmt.Sprintf("API Gateway method has no authorization: %s %s %s", apiName, httpMethod, resourcePath),
-						Description: fmt.Sprintf(
-							"API Gateway REST API %s has method %s %s with authorizationType NONE. "+
-								"Unauthenticated callers can invoke this endpoint. Add an authorizer "+
-								"(IAM, Cognito, Lambda, or API key) to restrict access.",
-							apiName, httpMethod, resourcePath,
-						),
-						Severity:     finding.SeverityHigh,
-						Asset:        asset,
-						Scanner:      "cloud/aws",
-						ProofCommand: fmt.Sprintf("aws apigateway get-method --rest-api-id %s --resource-id %s --http-method %s --region %s", apiID, awscfg.ToString(resource.Id), httpMethod, region),
-						Evidence: map[string]any{
-							"account_id":    accountID,
-							"api_id":        apiID,
-							"api_name":      apiName,
-							"resource_path": resourcePath,
-							"http_method":   httpMethod,
-							"auth_type":     authType,
-							"region":        region,
-							"resource_type": "apigateway_method",
-						},
-						DiscoveredAt: time.Now(),
-					})
+				for _, resPage := range allResources {
+				for _, resource := range resPage.Items {
+					resourcePath := awscfg.ToString(resource.Path)
+
+					for httpMethod := range resource.ResourceMethods {
+						methodResp, err := svc.GetMethod(ctx, &apigateway.GetMethodInput{
+							RestApiId:  api.Id,
+							ResourceId: resource.Id,
+							HttpMethod: awscfg.String(httpMethod),
+						})
+						if err != nil {
+							continue
+						}
+
+						authType := awscfg.ToString(methodResp.AuthorizationType)
+						if authType == "NONE" {
+							findings = append(findings, finding.Finding{
+								CheckID: finding.CheckCloudAWSAPIGatewayNoAuth,
+								Title:   fmt.Sprintf("API Gateway method has no authorization: %s %s %s", apiName, httpMethod, resourcePath),
+								Description: fmt.Sprintf(
+									"API Gateway REST API %s has method %s %s with authorizationType NONE. "+
+										"Unauthenticated callers can invoke this endpoint. Add an authorizer "+
+										"(IAM, Cognito, Lambda, or API key) to restrict access.",
+									apiName, httpMethod, resourcePath,
+								),
+								Severity:     finding.SeverityHigh,
+								Asset:        asset,
+								Scanner:      "cloud/aws",
+								ProofCommand: fmt.Sprintf("aws apigateway get-method --rest-api-id %s --resource-id %s --http-method %s --region %s", apiID, awscfg.ToString(resource.Id), httpMethod, region),
+								Evidence: map[string]any{
+									"account_id":    accountID,
+									"api_id":        apiID,
+									"api_name":      apiName,
+									"resource_path": resourcePath,
+									"http_method":   httpMethod,
+									"auth_type":     authType,
+									"region":        region,
+									"resource_type": "apigateway_method",
+								},
+								DiscoveredAt: time.Now(),
+							})
+						}
+					}
 				}
 			}
 		}

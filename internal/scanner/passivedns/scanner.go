@@ -136,8 +136,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// dot-separated labels: "example.com" has 1 dot, "example.co.uk" has 2
 	// dots (a valid ccTLD root domain). Anything with more than 2 dots is
 	// guaranteed to be a subdomain (e.g. "api.example.co.uk") and is skipped.
-	if strings.Count(asset, ".") > 2 {
+	dots := strings.Count(asset, ".")
+	if dots > 2 {
 		return nil, nil
+	}
+	if dots == 2 {
+		parts := strings.Split(asset, ".")
+		mid := parts[len(parts)-2]
+		ccTLDSuffixes := map[string]bool{"co": true, "com": true, "org": true, "net": true, "gov": true, "ac": true, "edu": true}
+		if !ccTLDSuffixes[mid] {
+			return nil, nil
+		}
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}

@@ -6,6 +6,7 @@ package containerimage
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,7 +90,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				return
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				return
@@ -174,39 +175,21 @@ func (s *Scanner) probeCatalog(ctx context.Context, client *http.Client, catalog
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	bodyStr := string(body)
 
-	// Parse simple JSON: {"repositories":["repo1","repo2"]}
-	// Use basic string parsing to avoid encoding/json import for a simple list.
-	var repos []string
-	idx := strings.Index(bodyStr, `"repositories"`)
-	if idx < 0 {
+	var catalog struct {
+		Repositories []string `json:"repositories"`
+	}
+	if err := json.Unmarshal(body, &catalog); err != nil {
 		return nil
 	}
-	start := strings.Index(bodyStr[idx:], "[")
-	if start < 0 {
-		return nil
-	}
-	end := strings.Index(bodyStr[idx+start:], "]")
-	if end < 0 {
-		return nil
-	}
-	arrayStr := bodyStr[idx+start+1 : idx+start+end]
-	for _, item := range strings.Split(arrayStr, ",") {
-		item = strings.TrimSpace(item)
-		item = strings.Trim(item, `"`)
-		if item != "" {
-			repos = append(repos, item)
-		}
-	}
-	return repos
+	return catalog.Repositories
 }
 
 // checkRepo checks a single repository for :latest tag usage and missing cosign signatures.
@@ -224,7 +207,7 @@ func (s *Scanner) checkRepo(ctx context.Context, client *http.Client, baseURL, a
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		mu.Lock()

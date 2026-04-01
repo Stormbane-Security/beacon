@@ -266,7 +266,7 @@ func confirmMethod(ctx context.Context, client *http.Client, baseURL, method str
 			delReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
 			delResp, err := client.Do(delReq)
 			if err == nil {
-				delResp.Body.Close()
+				_ = delResp.Body.Close()
 			}
 		}
 	}

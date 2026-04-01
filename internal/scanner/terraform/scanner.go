@@ -62,6 +62,13 @@ func ScanFiles(paths []string) ([]finding.Finding, error) {
 }
 
 func collectTFFiles(dir string) ([]string, error) {
+	return collectTFFilesDepth(dir, 20)
+}
+
+func collectTFFilesDepth(dir string, depth int) ([]string, error) {
+	if depth <= 0 {
+		return nil, nil
+	}
 	var files []string
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -70,8 +77,7 @@ func collectTFFiles(dir string) ([]string, error) {
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
 		if e.IsDir() {
-			// Recurse into subdirectories (modules).
-			sub, err := collectTFFiles(path)
+			sub, err := collectTFFilesDepth(path, depth-1)
 			if err != nil {
 				return nil, err
 			}

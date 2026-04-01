@@ -760,7 +760,7 @@ func looksLikeNonce(body []byte) bool {
 	if len(trimmed) >= 8 && len(trimmed) <= 64 {
 		allAlnum := true
 		for _, c := range trimmed {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 				allAlnum = false
 				break
 			}

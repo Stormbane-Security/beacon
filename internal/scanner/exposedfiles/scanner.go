@@ -232,7 +232,7 @@ var targets = []sensitiveFile{
 		title:        "CVE-2025-68613/2026-21858: n8n workflow automation server exposed",
 		severity:     finding.SeverityCritical,
 		checkID:      finding.CheckCVEN8nRCE,
-		bodyContains: "\"status\"",
+		bodyContains: "n8n",
 		description: "An n8n workflow automation server is internet-accessible (/healthz confirms the instance). " +
 			"CVE-2025-68613 and CVE-2026-21858 cover pre-authentication SSTI and RCE vulnerabilities " +
 			"in n8n's expression evaluation engine. An exposed n8n instance allows an unauthenticated " +
@@ -248,7 +248,7 @@ var targets = []sensitiveFile{
 		title:        "CVE-2026-33017: Langflow AI platform exposed (pre-auth RCE)",
 		severity:     finding.SeverityCritical,
 		checkID:      finding.CheckCVELangflowRCE,
-		bodyContains: "\"status\"",
+		bodyContains: "langflow",
 		description: "A Langflow AI pipeline platform is internet-accessible (/api/v1/health confirms the instance). " +
 			"CVE-2026-33017 (CVSS 10.0, KEV) allows pre-authentication arbitrary Python code execution via " +
 			"the /api/v1/validate/code endpoint, which evaluates Python without requiring credentials. " +
@@ -865,7 +865,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Title:        t.title,
 			Description:  desc,
 			Asset:        asset,
-			ProofCommand: fmt.Sprintf("curl -s %s | head -50", u),
+			ProofCommand: fmt.Sprintf("curl -s '%s' | head -50", u),
 			Evidence: map[string]any{
 				"url":     u,
 				"path":    t.path,

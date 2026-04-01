@@ -823,8 +823,12 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 	loc := resp.Header.Get("Location")
 	bodyStr := string(body)
 
-	if strings.Contains(strings.ToLower(loc), "evil.com") ||
-		strings.Contains(bodyStr, "evil.com") {
+	isRedirect := resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308
+	isRejection := resp.StatusCode == 400 || resp.StatusCode == 401 || resp.StatusCode == 403
+	locMatch := strings.Contains(strings.ToLower(loc), "evil.com")
+	bodyMatch := strings.Contains(bodyStr, "evil.com")
+
+	if (isRedirect && locMatch) || (resp.StatusCode == 200 && bodyMatch) || (!isRejection && locMatch) {
 		ev, note := confidenceNote(pc)
 		ev["endpoint"] = authEndpoint
 		ev["injected_redirect"] = "https://evil.com/steal-tokens"
@@ -883,8 +887,12 @@ func checkSubdomainBypass(ctx context.Context, client *http.Client, asset, authE
 	// subdomain in the Location header or response body. The server may redirect
 	// directly or render a consent page that includes the redirect_uri.
 	evilHost := "evil." + asset
-	if strings.Contains(strings.ToLower(loc), evilHost) ||
-		strings.Contains(bodyStr, evilHost) {
+	isRedirect := resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308
+	isRejection := resp.StatusCode == 400 || resp.StatusCode == 401 || resp.StatusCode == 403
+	locMatch := strings.Contains(strings.ToLower(loc), evilHost)
+	bodyMatch := strings.Contains(bodyStr, evilHost)
+
+	if (isRedirect && locMatch) || (resp.StatusCode == 200 && bodyMatch) || (!isRejection && locMatch) {
 		ev, note := confidenceNote(pc)
 		ev["endpoint"] = authEndpoint
 		ev["injected_redirect"] = evilRedirect

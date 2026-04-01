@@ -247,12 +247,14 @@ func (s *Scanner) buildFindings(asset string, results []Result) []finding.Findin
 
 	var findings []finding.Finding
 	for _, r := range deduped {
+		baseURL := "https://" + asset
 		f := finding.Finding{
-			CheckID:     finding.CheckDirbustFound,
-			Asset:       asset,
-			Title:       fmt.Sprintf("Path found: %s (%d)", r.Path, r.StatusCode),
-			Description: fmt.Sprintf("The path %s responded with HTTP %d during deep scan path enumeration.", r.Path, r.StatusCode),
-			Severity:    finding.SeverityHigh,
+			CheckID:      finding.CheckDirbustFound,
+			Asset:        asset,
+			Title:        fmt.Sprintf("Path found: %s (%d)", r.Path, r.StatusCode),
+			Description:  fmt.Sprintf("The path %s responded with HTTP %d during deep scan path enumeration.", r.Path, r.StatusCode),
+			Severity:     finding.SeverityHigh,
+			ProofCommand: fmt.Sprintf("curl -sI '%s%s'", baseURL, r.Path),
 		}
 		// Downgrade 401/403 to Medium — they confirm existence but don't expose content
 		if r.StatusCode == http.StatusUnauthorized || r.StatusCode == http.StatusForbidden {

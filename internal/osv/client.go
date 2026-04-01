@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -282,25 +284,38 @@ func convertVuln(v osvVuln) Vulnerability {
 // extractSeverity normalizes CVSS severity to critical/high/medium/low.
 func extractSeverity(scores []osvCVSS) string {
 	for _, s := range scores {
-		// Parse CVSS v3 vector for base score.
 		if s.Type == "CVSS_V3" || s.Type == "CVSS_V4" {
-			return severityFromCVSSVector(s.Score)
+			score := extractScoreFromVector(s.Score)
+			if score >= 0 {
+				return severityFromScore(score)
+			}
 		}
 	}
 	return ""
 }
 
-// severityFromCVSSVector extracts severity from a CVSS vector string.
-// Example: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" → "critical"
-func severityFromCVSSVector(vector string) string {
-	// CVSS v3 vectors don't contain the numeric score directly.
-	// OSV sometimes provides the score in a separate field, but when
-	// embedded in the vector, we approximate from attack complexity.
-	// For simplicity, default to the severity if we can't parse.
-	//
-	// Common pattern: GHSA entries include severity in the ID prefix.
-	// We fall back to empty and let the caller decide.
-	return ""
+func extractScoreFromVector(vector string) float64 {
+	for _, part := range strings.Split(vector, "/") {
+		if score, err := strconv.ParseFloat(part, 64); err == nil && score >= 0 && score <= 10.0 {
+			return score
+		}
+	}
+	return -1
+}
+
+func severityFromScore(score float64) string {
+	switch {
+	case score >= 9.0:
+		return "critical"
+	case score >= 7.0:
+		return "high"
+	case score >= 4.0:
+		return "medium"
+	case score >= 0.1:
+		return "low"
+	default:
+		return "info"
+	}
 }
 
 // CVEIDs returns the CVE identifiers from a vulnerability's aliases.

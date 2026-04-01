@@ -86,7 +86,7 @@ func TestSSTI_EchoesInputNotEvaluated(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		// Echo the input back literally — no evaluation.
-		fmt.Fprintf(w, "You searched for: %s\n", q)
+		_, _ = fmt.Fprintf(w, "You searched for: %s\n", q)
 	}))
 	defer srv.Close()
 

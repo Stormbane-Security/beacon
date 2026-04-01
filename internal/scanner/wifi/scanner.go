@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -536,7 +537,14 @@ func probeHCXDumpTool(ctx context.Context, hcxPath, asset string) []finding.Find
 
 	// hcxdumptool requires the interface to be in monitor mode.
 	// Run for 30 seconds and check for PMKID output.
-	outFile := "/tmp/beacon-pmkid.pcapng"
+	tmpFile, err := os.CreateTemp("", "beacon-pmkid-*.pcapng")
+	if err != nil {
+		return nil
+	}
+	outFile := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(outFile)
+
 	cmd := exec.CommandContext(ctx, hcxPath,
 		"-i", ifaces[0],
 		"-o", outFile,

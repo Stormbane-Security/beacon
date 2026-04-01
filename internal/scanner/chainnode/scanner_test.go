@@ -28,9 +28,9 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 }
 
 func findByCheckID(findings []finding.Finding, id finding.CheckID) *finding.Finding {
-	for _, f := range findings {
-		if f.CheckID == id {
-			return &f
+	for i := range findings {
+		if findings[i].CheckID == id {
+			return &findings[i]
 		}
 	}
 	return nil
@@ -54,17 +54,17 @@ func TestScanner_Name(t *testing.T) {
 func TestProbeEthRPC_ValidResponse_EmitsFindings(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 
 		var rpc struct {
 			Method string `json:"method"`
 		}
-		json.Unmarshal(body, &rpc)
+		_ = json.Unmarshal(body, &rpc)
 
 		switch rpc.Method {
 		case "eth_chainId":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  "0x1",
@@ -550,23 +550,23 @@ func TestProbeMetrics_404_ReturnsNil(t *testing.T) {
 func TestProbeEthSensitiveMethods_MinerAndAccounts(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 
 		var rpc struct {
 			Method string `json:"method"`
 		}
-		json.Unmarshal(body, &rpc)
+		_ = json.Unmarshal(body, &rpc)
 
 		w.Header().Set("Content-Type", "application/json")
 		switch rpc.Method {
 		case "eth_mining":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  true,
 			})
 		case "eth_accounts":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  []string{"0xdeadbeef", "0xcafebabe"},
@@ -596,8 +596,8 @@ func TestProbeEthSensitiveMethods_MinerAndAccounts(t *testing.T) {
 	var miningResp struct {
 		Result bool `json:"result"`
 	}
-	json.NewDecoder(resp.Body).Decode(&miningResp)
-	resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&miningResp)
+	_ = resp.Body.Close()
 	if !miningResp.Result {
 		t.Error("expected eth_mining result=true")
 	}
@@ -613,8 +613,8 @@ func TestProbeEthSensitiveMethods_MinerAndAccounts(t *testing.T) {
 	var accountsResp struct {
 		Result []string `json:"result"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&accountsResp)
-	resp2.Body.Close()
+	_ = json.NewDecoder(resp2.Body).Decode(&accountsResp)
+	_ = resp2.Body.Close()
 	if len(accountsResp.Result) != 2 {
 		t.Errorf("expected 2 accounts, got %d", len(accountsResp.Result))
 	}
@@ -644,17 +644,17 @@ func TestProbeEthSensitiveMethods_MinerAndAccounts(t *testing.T) {
 func TestProbeEthSensitiveMethods_NotMining_NoAccounts(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 
 		var rpc struct {
 			Method string `json:"method"`
 		}
-		json.Unmarshal(body, &rpc)
+		_ = json.Unmarshal(body, &rpc)
 
 		w.Header().Set("Content-Type", "application/json")
 		switch rpc.Method {
 		case "eth_mining":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  false,
@@ -682,8 +682,8 @@ func TestProbeEthSensitiveMethods_NotMining_NoAccounts(t *testing.T) {
 	var miningResp struct {
 		Result bool `json:"result"`
 	}
-	json.NewDecoder(resp.Body).Decode(&miningResp)
-	resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(&miningResp)
+	_ = resp.Body.Close()
 	if miningResp.Result {
 		t.Error("expected eth_mining result=false")
 	}

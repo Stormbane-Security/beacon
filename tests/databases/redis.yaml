@@ -1,0 +1,24 @@
+name: redis-no-auth
+description: "Redis 7 with no authentication requirement exposes unauthenticated access"
+tags: [redis, database, portscan]
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["9106:6379"]
+    command: ["redis-server", "--protected-mode", "no"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 9106 PING | grep -q PONG"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-unauthenticated-redis
+    type: beacon
+    target: localhost:9106
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+timeout: 5m

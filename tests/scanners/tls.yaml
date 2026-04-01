@@ -1,0 +1,32 @@
+name: tls-weak-protocol
+description: "Nginx with TLS 1.0 enabled and weak ciphers triggers tls.protocol_tls10"
+tags: [tls, scanner, crypto]
+
+services:
+  nginx-tls:
+    build:
+      context: ./tls
+      dockerfile: Dockerfile
+    ports: ["8094:443"]
+
+ready:
+  cmd: "openssl s_client -connect localhost:8094 </dev/null 2>/dev/null | grep -q 'CONNECTED'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-tls10-protocol
+    type: beacon
+    target: localhost:8094
+    args: ["--scanners", "tls"]
+    expect:
+      check_id: tls.protocol_tls10
+
+  - name: detects-self-signed-cert
+    type: beacon
+    target: localhost:8094
+    args: ["--scanners", "tls"]
+    expect:
+      check_id: tls.cert_self_signed
+
+timeout: 5m

@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	armcompute "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
 	armnetwork "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-func scanVMs(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanVMs(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	computeClient, err := armcompute.NewVirtualMachinesClient(subID, cred, nil)
 	if err != nil {
 		return nil, err

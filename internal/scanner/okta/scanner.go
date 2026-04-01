@@ -120,6 +120,7 @@ func makeFinding(asset string, checkID finding.CheckID, title, desc string, evid
 		Scanner:      "okta",
 		Module:       "surface",
 		Evidence:     evidence,
+		ProofCommand: fmt.Sprintf("curl -sH 'Authorization: SSWS $OKTA_API_TOKEN' '%s/api/v1/logs?since=2024-01-01T00:00:00Z&limit=5'", asset),
 		DiscoveredAt: time.Now(),
 	}
 }

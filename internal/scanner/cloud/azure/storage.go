@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -142,7 +142,7 @@ func evaluateStorageAccount(name string, props *armstorage.AccountProperties, su
 	return findings
 }
 
-func scanStorage(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanStorage(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armstorage.NewAccountsClient(subID, cred, nil)
 	if err != nil {
 		return nil, err

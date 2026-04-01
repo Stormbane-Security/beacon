@@ -1,0 +1,29 @@
+name: nexus-exposed
+description: "Sonatype Nexus Repository Manager with default admin:admin123 credentials"
+tags: [nexus, artifact-registry, cicd]
+
+services:
+  nexus:
+    image: sonatype/nexus3:latest
+    ports: ["9155:8081"]
+
+ready:
+  cmd: "curl -sf http://localhost:9155/service/rest/v1/status | grep -q true"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: classifies-as-nexus
+    type: classify
+    target: localhost:9155
+    expect:
+      backend_service: Nexus
+
+  - name: detects-nexus-exposed
+    type: beacon
+    target: localhost:9155
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.nexus_exposed
+
+timeout: 10m

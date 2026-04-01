@@ -43,10 +43,10 @@ func loginHandlerEnumerable(w http.ResponseWriter, r *http.Request) {
 	// initial discovery probe (probe@example.invalid) → 200 (endpoint is found)
 	if strings.Contains(decoded, "-b@") {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintln(w, `{"error":"user not found"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"user not found"}`)
 	} else {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"error":"wrong password"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"wrong password"}`)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestAutoprobe_LockoutPresent_NoFinding(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintln(w, `{"error":"invalid credentials"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"invalid credentials"}`)
 	}))
 	defer srv.Close()
 

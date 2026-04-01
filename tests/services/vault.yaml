@@ -1,0 +1,33 @@
+name: vault-dev-mode
+description: "HashiCorp Vault 1.15 in dev mode with root token exposed"
+tags: [vault, service, secrets]
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    ports: ["9105:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+
+ready:
+  cmd: "curl -sf http://localhost:9105/v1/sys/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: classifies-as-vault
+    type: classify
+    target: localhost:9105
+    expect:
+      technology: Vault
+
+  - name: detects-exposed-vault
+    type: beacon
+    target: localhost:9105
+    expect:
+      check_id: web.default_credentials
+
+timeout: 5m

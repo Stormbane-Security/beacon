@@ -1,0 +1,27 @@
+name: nginx-alias-traversal
+description: "nginx misconfigured alias directive allowing path traversal"
+tags: [nginx, traversal, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9151:80"]
+    volumes:
+      - ./nginx-alias/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-alias/html:/var/www/html:ro
+      - ./nginx-alias/secret:/var/secret:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9151/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-nginx-alias-traversal
+    type: beacon
+    target: localhost:9151
+    args: ["--scanners", "dirbust", "--permission-confirmed"]
+    expect:
+      check_id: web.nginx_alias_traversal
+
+timeout: 5m

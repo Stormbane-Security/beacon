@@ -105,10 +105,12 @@ func runScanner(t *testing.T, ts *httptest.Server) ([]finding.Finding, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Surface mode — scanner must be a no-op
+// Surface mode gating is handled by the on-prem module dispatcher, not by
+// the scanner itself. The scanner runs regardless of scan type when called
+// directly. See internal/modules/onprem/module.go for the dispatcher gate.
 // ---------------------------------------------------------------------------
 
-func TestSurfaceMode_ReturnsNil(t *testing.T) {
+func TestSurfaceMode_RunsWhenCalledDirectly(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"major": "1", "minor": "29"})
 	}))
@@ -124,8 +126,10 @@ func TestSurfaceMode_ReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings in surface mode, got %d", len(findings))
+	// Scanner no longer self-gates; it produces findings regardless of scan
+	// type. The on-prem module dispatcher prevents surface-mode invocations.
+	if len(findings) == 0 {
+		t.Error("expected findings when scanner is called directly in surface mode")
 	}
 }
 

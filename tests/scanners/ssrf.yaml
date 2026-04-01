@@ -1,0 +1,25 @@
+name: ssrf-url-fetch
+description: "Python app with unvalidated URL fetch proxy triggers web.ssrf"
+tags: [ssrf, scanner, web]
+
+services:
+  ssrf-app:
+    build:
+      context: ./ssrf
+      dockerfile: Dockerfile
+    ports: ["8099:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8099/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-ssrf
+    type: beacon
+    target: localhost:8099
+    args: ["--scanners", "ssrf", "--permission-confirmed"]
+    expect:
+      check_id: web.ssrf
+
+timeout: 5m

@@ -603,8 +603,6 @@ func parseComposerPackages(data []byte) []depVersion {
 }
 
 // checkGoProxy returns true if the Go module exists on the public Go module proxy.
-// A 404 from proxy.golang.org means the module name is claimable.
-// We return true (exists = claimable) when the proxy returns 404.
 func checkGoProxy(ctx context.Context, client *http.Client, modulePath string) bool {
 	u := "https://proxy.golang.org/" + modulePath + "/@v/list"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -616,12 +614,10 @@ func checkGoProxy(ctx context.Context, client *http.Client, modulePath string) b
 		return false
 	}
 	resp.Body.Close()
-	// 404 means the module does not exist on the public proxy — claimable.
-	return resp.StatusCode == http.StatusNotFound
+	return resp.StatusCode == http.StatusOK
 }
 
-// checkRubyGems returns true if the gem name is claimable on rubygems.org.
-// A 404 means the gem does not exist and could be registered by an attacker.
+// checkRubyGems returns true if the gem exists on rubygems.org.
 func checkRubyGems(ctx context.Context, client *http.Client, name string) bool {
 	u := "https://rubygems.org/api/v1/gems/" + name + ".json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
@@ -633,12 +629,10 @@ func checkRubyGems(ctx context.Context, client *http.Client, name string) bool {
 		return false
 	}
 	resp.Body.Close()
-	// 404 means the gem does not exist — claimable.
-	return resp.StatusCode == http.StatusNotFound
+	return resp.StatusCode == http.StatusOK
 }
 
-// checkPackagist returns true if the Composer package is claimable on packagist.org.
-// A 404 means the package does not exist and could be registered by an attacker.
+// checkPackagist returns true if the Composer package exists on packagist.org.
 func checkPackagist(ctx context.Context, client *http.Client, name string) bool {
 	u := "https://packagist.org/packages/" + name + ".json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
@@ -650,8 +644,7 @@ func checkPackagist(ctx context.Context, client *http.Client, name string) bool 
 		return false
 	}
 	resp.Body.Close()
-	// 404 means the package does not exist — claimable.
-	return resp.StatusCode == http.StatusNotFound
+	return resp.StatusCode == http.StatusOK
 }
 
 // baseName returns the first label of a domain, e.g. "acme" from "app.acme.com".

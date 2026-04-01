@@ -140,7 +140,7 @@ func parseFillGapsResponse(text string) (*FillGapsResult, error) {
 			continue
 		}
 		if proposed.Confidence <= 0 || proposed.Confidence > 1.0 {
-			proposed.Confidence = 0.7
+			proposed.Confidence = 0.3
 		}
 
 		result.ProposedRules = append(result.ProposedRules, ProposedRule{

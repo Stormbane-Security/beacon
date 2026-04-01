@@ -1,0 +1,51 @@
+name: missing-security-headers
+description: "Default nginx configuration missing all security headers"
+tags: [headers, security, nginx]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9144:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9144/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:9144
+    args: ["--scanners", "classify"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:9144
+    args: ["--scanners", "classify"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:9144
+    args: ["--scanners", "classify"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  - name: detects-missing-x-content-type
+    type: beacon
+    target: localhost:9144
+    args: ["--scanners", "classify"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:9144
+    args: ["--scanners", "classify"]
+    expect:
+      check_id: headers.server_info_leak
+
+timeout: 5m

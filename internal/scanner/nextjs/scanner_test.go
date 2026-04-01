@@ -29,9 +29,9 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 }
 
 func findByCheckID(findings []finding.Finding, id finding.CheckID) *finding.Finding {
-	for _, f := range findings {
-		if f.CheckID == id {
-			return &f
+	for i := range findings {
+		if findings[i].CheckID == id {
+			return &findings[i]
 		}
 	}
 	return nil

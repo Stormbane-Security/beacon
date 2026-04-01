@@ -1,0 +1,25 @@
+name: mqtt-exposed
+description: "Eclipse Mosquitto MQTT broker with no authentication allows anonymous message publishing"
+tags: [mqtt, messaging, iot]
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["9123:1883"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+ready:
+  cmd: "nc -z localhost 9123"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-mqtt-exposed
+    type: beacon
+    target: localhost:9123
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.mqtt_exposed
+
+timeout: 5m

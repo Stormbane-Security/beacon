@@ -33,6 +33,17 @@ type scannerFunc func(ctx context.Context, inp module.Input, scanType module.Sca
 var (
 	scannersMu sync.RWMutex
 	scanners   = map[string]scannerFunc{}
+
+	// deepOnlyScanners lists scanners that require deep or authorized mode.
+	// Scanners with mixed-mode behavior (e.g., network, docker) handle
+	// their own internal gating and are NOT listed here.
+	deepOnlyScanners = map[string]bool{
+		"kubernetes": true,
+		"vmware":     true,
+		"nas":        true,
+		"proxmox":    true,
+		"libvirt":    true,
+	}
 )
 
 // registerScanner is called by scanner_*.go init() functions.
@@ -107,6 +118,12 @@ func (m *Module) Run(ctx context.Context, inp module.Input, scanType module.Scan
 		wg.Add(1)
 		go func(idx int, scanName string, fn scannerFunc) {
 			defer wg.Done()
+			// Deep-only scanners are skipped in surface mode. Scanners
+			// with mixed-mode behavior (docker, network) handle their
+			// own internal gating.
+			if deepOnlyScanners[scanName] && module.RequiresDeepMode(scanType) {
+				return
+			}
 			findings, err := fn(ctx, inp, scanType)
 			results[idx] = result{name: scanName, findings: findings, err: err}
 		}(i, name, active[name])

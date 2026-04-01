@@ -36,9 +36,9 @@ func countByCheckID(findings []finding.Finding, id finding.CheckID) int {
 }
 
 func findByCheckID(findings []finding.Finding, id finding.CheckID) *finding.Finding {
-	for _, f := range findings {
-		if f.CheckID == id {
-			return &f
+	for i := range findings {
+		if findings[i].CheckID == id {
+			return &findings[i]
 		}
 	}
 	return nil
@@ -89,7 +89,7 @@ func mockGitHubAPI(t *testing.T, owner, repo, configYAML string, statusCode int)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(statusCode)
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

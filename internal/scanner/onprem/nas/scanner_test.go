@@ -185,10 +185,11 @@ func runScanner(t *testing.T, ts *httptest.Server, nasType string) ([]finding.Fi
 }
 
 // --------------------------------------------------------------------------
-// Surface mode: scanner is deep-only
+// Surface mode gating is handled by the on-prem module dispatcher, not by
+// the scanner itself. See internal/modules/onprem/module.go.
 // --------------------------------------------------------------------------
 
-func TestSurfaceMode_ReturnsNil(t *testing.T) {
+func TestSurfaceMode_RunsWhenCalledDirectly(t *testing.T) {
 	mock := defaultSynologyMock()
 	ts := httptest.NewServer(mock.handler())
 	defer ts.Close()
@@ -202,8 +203,10 @@ func TestSurfaceMode_ReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings in surface mode, got %d", len(findings))
+	// Scanner no longer self-gates; it produces findings regardless of scan
+	// type. The on-prem module dispatcher prevents surface-mode invocations.
+	if len(findings) == 0 {
+		t.Error("expected findings when scanner is called directly in surface mode")
 	}
 }
 

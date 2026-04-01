@@ -173,7 +173,7 @@ func TestTCPNoAuth_PortOpen_Finding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create TCP listener: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	api := &libvirtAPI{handlers: healthyBaseHandlers()}
 	ts := httptest.NewServer(api)
@@ -247,7 +247,7 @@ func TestTLSDisabled_TCPOpenTLSClosed_Finding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create TCP listener: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	api := &libvirtAPI{handlers: healthyBaseHandlers()}
 	ts := httptest.NewServer(api)
@@ -296,13 +296,13 @@ func TestTLSDisabled_BothOpen_NoFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create TCP listener: %v", err)
 	}
-	defer lnTCP.Close()
+	defer func() { _ = lnTCP.Close() }()
 
 	lnTLS, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to create TLS listener: %v", err)
 	}
-	defer lnTLS.Close()
+	defer func() { _ = lnTLS.Close() }()
 
 	api := &libvirtAPI{handlers: healthyBaseHandlers()}
 	ts := httptest.NewServer(api)
@@ -851,7 +851,7 @@ func TestHostDerivedFromEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create TCP listener: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	api := &libvirtAPI{handlers: healthyBaseHandlers()}
 	ts := httptest.NewServer(api)

@@ -1,0 +1,28 @@
+name: nginx-default
+description: "Default nginx 1.25 installation for proxy type classification"
+tags: [nginx, infrastructure, proxy]
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["9208:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9208/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: classifies-as-nginx
+    type: classify
+    target: localhost:9208
+    expect:
+      proxy_type: nginx
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:9208
+    expect:
+      check_id: headers.server_info_leak
+
+timeout: 5m

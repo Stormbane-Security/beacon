@@ -73,9 +73,15 @@ func scanSSM(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 // suggesting it holds sensitive data.
 func looksLikeSecret(name string) bool {
 	lower := strings.ToLower(name)
-	keywords := []string{"password", "secret", "key", "token", "credential"}
+	keywords := []string{"password", "secret", "token", "credential"}
 	for _, kw := range keywords {
 		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	keyPrefixes := []string{"api", "secret", "access", "auth", "private", "signing", "encryption", "master"}
+	for _, prefix := range keyPrefixes {
+		if strings.Contains(lower, prefix+"key") || strings.Contains(lower, prefix+"_key") || strings.Contains(lower, prefix+"-key") {
 			return true
 		}
 	}

@@ -158,10 +158,15 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 			// Check bucket policy for SSL-only enforcement.
 			pol, polErr := svc.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: bucket.Name})
 			hasSSLOnly := false
-			if polErr == nil && pol.Policy != nil {
-				// Parse the policy JSON and look for a Deny statement with
-				// Condition.Bool["aws:SecureTransport"] == "false", which is the
-				// standard pattern for enforcing SSL-only access.
+			skipSSLCheck := false
+			if polErr != nil {
+				polErrMsg := polErr.Error()
+				if strings.Contains(polErrMsg, "NoSuchBucketPolicy") {
+					hasSSLOnly = false
+				} else {
+					skipSSLCheck = true
+				}
+			} else if pol.Policy != nil {
 				type policyStatement struct {
 					Effect    string                            `json:"Effect"`
 					Condition map[string]map[string]interface{} `json:"Condition"`
@@ -184,7 +189,7 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 					}
 				}
 			}
-			if !hasSSLOnly {
+			if !skipSSLCheck && !hasSSLOnly {
 				findings = append(findings, finding.Finding{
 					CheckID:     finding.CheckCloudAWSS3NoSSLOnly,
 					Title:       fmt.Sprintf("S3 bucket policy does not enforce SSL-only access: %s", name),
@@ -199,10 +204,9 @@ func scanS3(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([]
 
 			// Check lifecycle configuration.
 			lc, lcErr := svc.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: bucket.Name})
-			if lcErr != nil || len(lc.Rules) == 0 {
-				// Only flag if the error is "no lifecycle" (not permission denied).
+			if lcErr != nil || (lc != nil && len(lc.Rules) == 0) {
 				isNoLifecycle := lcErr != nil && (strings.Contains(lcErr.Error(), "NoSuchLifecycleConfiguration") || strings.Contains(lcErr.Error(), "NoSuchLifecycle"))
-				if isNoLifecycle || (lcErr == nil && len(lc.Rules) == 0) {
+				if isNoLifecycle || (lcErr == nil && lc != nil && len(lc.Rules) == 0) {
 					findings = append(findings, finding.Finding{
 						CheckID:     finding.CheckCloudAWSS3NoLifecycle,
 						Title:       fmt.Sprintf("S3 bucket has no lifecycle configuration: %s", name),
