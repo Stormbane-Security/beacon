@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // ---------------------------------------------------------------------------
@@ -354,5 +355,84 @@ func TestBuildFindings_ExImCaseInsensitive(t *testing.T) {
 	}
 	if findings[0].CheckID != finding.CheckPortExImVulnerable {
 		t.Errorf("CheckID = %q; want CheckPortExImVulnerable for uppercase 'EXIM'", findings[0].CheckID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseAssetPort unit tests
+// ---------------------------------------------------------------------------
+
+func TestParseAssetPort_HostAndPort(t *testing.T) {
+	host, port := parseAssetPort("localhost:9122")
+	if host != "localhost" || port != 9122 {
+		t.Errorf("got (%q, %d); want (localhost, 9122)", host, port)
+	}
+}
+
+func TestParseAssetPort_IPAndPort(t *testing.T) {
+	host, port := parseAssetPort("10.0.0.1:8123")
+	if host != "10.0.0.1" || port != 8123 {
+		t.Errorf("got (%q, %d); want (10.0.0.1, 8123)", host, port)
+	}
+}
+
+func TestParseAssetPort_BareHost(t *testing.T) {
+	host, port := parseAssetPort("example.com")
+	if host != "" || port != 0 {
+		t.Errorf("bare host should return empty; got (%q, %d)", host, port)
+	}
+}
+
+func TestParseAssetPort_BareDomain(t *testing.T) {
+	host, port := parseAssetPort("sub.example.com")
+	if host != "" || port != 0 {
+		t.Errorf("bare domain should return empty; got (%q, %d)", host, port)
+	}
+}
+
+func TestParseAssetPort_IPv6WithPort(t *testing.T) {
+	host, port := parseAssetPort("[::1]:8080")
+	if host != "::1" || port != 8080 {
+		t.Errorf("got (%q, %d); want (::1, 8080)", host, port)
+	}
+}
+
+func TestParseAssetPort_InvalidPort(t *testing.T) {
+	host, port := parseAssetPort("host:abc")
+	if host != "" || port != 0 {
+		t.Errorf("invalid port should return empty; got (%q, %d)", host, port)
+	}
+}
+
+func TestParseAssetPort_PortZero(t *testing.T) {
+	host, port := parseAssetPort("host:0")
+	if host != "" || port != 0 {
+		t.Errorf("port 0 should return empty; got (%q, %d)", host, port)
+	}
+}
+
+func TestParseAssetPort_PortTooHigh(t *testing.T) {
+	host, port := parseAssetPort("host:99999")
+	if host != "" || port != 0 {
+		t.Errorf("port >65535 should return empty; got (%q, %d)", host, port)
+	}
+}
+
+func TestParseAssetPort_PortAlreadyInList(t *testing.T) {
+	// Port 6379 (Redis) is already in criticalPorts — verify buildPortList
+	// doesn't duplicate it when the target specifies it.
+	host, port := parseAssetPort("myhost:6379")
+	if host != "myhost" || port != 6379 {
+		t.Errorf("got (%q, %d); want (myhost, 6379)", host, port)
+	}
+	ports := buildPortList(module.ScanSurface)
+	count := 0
+	for _, e := range ports {
+		if e.port == 6379 {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("port 6379 appears %d times in port list; want exactly 1", count)
 	}
 }

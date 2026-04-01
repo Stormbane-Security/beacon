@@ -236,7 +236,29 @@ const maxPortFindings = 50
 // Surface mode scans the top 30 most impactful ports (critical + high).
 // Deep mode scans all 50+ ports including the extended list.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// If the asset includes a port (e.g. "host:9122"), extract it so we
+	// scan that specific port in addition to the standard list.
+	host, targetPort := parseAssetPort(asset)
+	if host != "" {
+		asset = host
+	}
+
 	ports := buildPortList(scanType)
+
+	// Inject the user-specified port if it isn't already in the list.
+	if targetPort > 0 {
+		found := false
+		for _, e := range ports {
+			if e.port == targetPort {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Prepend so it's scanned first — it's what the user asked for.
+			ports = append([]portEntry{{targetPort, "unknown", false}}, ports...)
+		}
+	}
 
 	type result struct {
 		entry portEntry
@@ -315,6 +337,20 @@ collectResults:
 	}
 
 	return findings, nil
+}
+
+// parseAssetPort splits an asset string into host and port. If the asset
+// contains no port or the port is invalid, it returns ("", 0).
+func parseAssetPort(asset string) (host string, port int) {
+	h, pStr, err := net.SplitHostPort(asset)
+	if err != nil {
+		return "", 0
+	}
+	p, err := strconv.Atoi(pStr)
+	if err != nil || p <= 0 || p > 65535 {
+		return "", 0
+	}
+	return h, p
 }
 
 // buildPortList assembles the ordered port list for the given scan type.
