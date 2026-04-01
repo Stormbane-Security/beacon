@@ -20,6 +20,15 @@ type Finding struct {
 	// ScannedBy identifies the scanner or module that produced this finding.
 	// Format: "module.scanner", e.g. "surface.wafdetect", "github.actions", "web3.contract"
 	ScannedBy string `json:"scanned_by,omitempty"`
+
+	// DuplicateOf references another finding's key (check_id|asset|title) that
+	// this finding likely duplicates. Set by the dedup pass after all scanners
+	// complete. Beacon flags but does not merge — Forecast resolves with full context.
+	DuplicateOf string `json:"duplicate_of,omitempty"`
+
+	// DuplicateConfidence is how certain we are this is a duplicate (0.0–1.0).
+	// Only meaningful when DuplicateOf is non-empty.
+	DuplicateConfidence float64 `json:"duplicate_confidence,omitempty"`
 }
 
 // Meta returns the CheckMeta for this finding's CheckID.

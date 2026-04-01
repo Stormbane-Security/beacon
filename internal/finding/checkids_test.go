@@ -1,6 +1,7 @@
 package finding_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stormbane/beacon/internal/finding"
@@ -661,6 +662,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 
 	for id, meta := range finding.Registry {
 		if meta.Mode == finding.ModeDeep && !knownDeep[id] {
+			// All onprem.* checks are intentionally deep — they require
+			// local network access (Proxmox API, Docker socket, etc.).
+			if strings.HasPrefix(string(id), "onprem.") {
+				continue
+			}
 			t.Errorf("CheckID %q is tagged ModeDeep but is not in the known-deep allowlist — review and add it if intentional", id)
 		}
 		if meta.Mode == finding.ModeSurface && knownDeep[id] {

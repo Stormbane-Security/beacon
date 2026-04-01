@@ -1304,6 +1304,9 @@ const (
 	CheckDockerfileCurlPipe  CheckID = "supply_chain.dockerfile_curl_pipe"   // Dockerfile runs curl|sh or wget|sh — arbitrary code execution in build
 	CheckDockerfileRootUser  CheckID = "supply_chain.dockerfile_root_user"   // Dockerfile has no USER directive — container runs as root
 
+	// ── Dependency vulnerability (OSV) ────────────────────────────────────
+	CheckVulnerableDependency CheckID = "supply_chain.vulnerable_dependency" // dependency has known CVE per OSV database
+
 	// ── Okta Identity Provider ────────────────────────────────────────────
 	CheckOktaMFANotEnforced         CheckID = "iam.okta_mfa_not_enforced"          // Okta sign-on policy does not require MFA
 	CheckOktaWeakPasswordPolicy     CheckID = "iam.okta_weak_password_policy"      // password policy allows short or simple passwords
@@ -2704,6 +2707,9 @@ var Registry = map[CheckID]CheckMeta{
 	// Dockerfile supply chain
 	CheckDockerfileCurlPipe:  {CheckDockerfileCurlPipe, SeverityHigh, ModeSurface},
 	CheckDockerfileRootUser:  {CheckDockerfileRootUser, SeverityMedium, ModeSurface},
+
+	// Dependency vulnerability (OSV)
+	CheckVulnerableDependency: {CheckVulnerableDependency, SeverityHigh, ModeSurface},
 
 	// Okta Identity Provider
 	CheckOktaMFANotEnforced:        {CheckOktaMFANotEnforced, SeverityCritical, ModeSurface},

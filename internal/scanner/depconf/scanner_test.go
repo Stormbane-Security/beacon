@@ -17,53 +17,62 @@ import (
 
 func TestParseNPMPackages_Dependencies(t *testing.T) {
 	data := []byte(`{"dependencies":{"express":"^4.18.0","lodash":"4.17.21"}}`)
-	names := parseNPMPackages(data)
-	if len(names) != 2 {
-		t.Fatalf("expected 2 packages, got %d: %v", len(names), names)
+	deps := parseNPMPackages(data)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 packages, got %d", len(deps))
+	}
+	// Verify versions are captured.
+	versions := make(map[string]string)
+	for _, d := range deps {
+		versions[d.name] = d.version
+	}
+	if versions["express"] != "^4.18.0" {
+		t.Errorf("express version = %q, want ^4.18.0", versions["express"])
+	}
+	if versions["lodash"] != "4.17.21" {
+		t.Errorf("lodash version = %q, want 4.17.21", versions["lodash"])
 	}
 }
 
 func TestParseNPMPackages_DevDependencies(t *testing.T) {
 	data := []byte(`{"devDependencies":{"jest":"^29.0.0","ts-node":"10.9.1"}}`)
-	names := parseNPMPackages(data)
-	if len(names) != 2 {
-		t.Fatalf("expected 2 packages from devDependencies, got %d", len(names))
+	deps := parseNPMPackages(data)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 packages from devDependencies, got %d", len(deps))
 	}
 }
 
 func TestParseNPMPackages_BothSections_Deduped(t *testing.T) {
-	// "shared" appears in both deps and devDeps — should not be counted twice.
 	data := []byte(`{
 		"dependencies": {"shared":"1.0.0","a":"1.0.0"},
 		"devDependencies": {"shared":"1.0.0","b":"2.0.0"}
 	}`)
-	names := parseNPMPackages(data)
-	// a, b, shared = 3 unique
-	if len(names) != 3 {
-		t.Errorf("expected 3 unique packages (shared deduped), got %d: %v", len(names), names)
+	deps := parseNPMPackages(data)
+	if len(deps) != 3 {
+		t.Errorf("expected 3 unique packages (shared deduped), got %d", len(deps))
 	}
 }
 
 func TestParseNPMPackages_InvalidJSON(t *testing.T) {
-	names := parseNPMPackages([]byte(`not-json`))
-	if names != nil {
-		t.Errorf("expected nil for invalid JSON, got %v", names)
+	deps := parseNPMPackages([]byte(`not-json`))
+	if deps != nil {
+		t.Errorf("expected nil for invalid JSON, got %v", deps)
 	}
 }
 
 func TestParseNPMPackages_EmptyDeps(t *testing.T) {
 	data := []byte(`{"dependencies":{}}`)
-	names := parseNPMPackages(data)
-	if len(names) != 0 {
-		t.Errorf("expected 0 packages for empty dependencies, got %d", len(names))
+	deps := parseNPMPackages(data)
+	if len(deps) != 0 {
+		t.Errorf("expected 0 packages for empty dependencies, got %d", len(deps))
 	}
 }
 
 func TestParseNPMPackages_NoDepsKey(t *testing.T) {
 	data := []byte(`{"name":"myapp","version":"1.0.0"}`)
-	names := parseNPMPackages(data)
-	if len(names) != 0 {
-		t.Errorf("expected 0 packages when no dependencies key, got %d", len(names))
+	deps := parseNPMPackages(data)
+	if len(deps) != 0 {
+		t.Errorf("expected 0 packages when no dependencies key, got %d", len(deps))
 	}
 }
 
@@ -73,56 +82,61 @@ func TestParseNPMPackages_NoDepsKey(t *testing.T) {
 
 func TestParsePyPIPackages_PlainNames(t *testing.T) {
 	data := []byte("requests\nflask\ndjango\n")
-	names := parsePyPIPackages(data)
-	if len(names) != 3 {
-		t.Fatalf("expected 3 packages, got %d: %v", len(names), names)
+	deps := parsePyPIPackages(data)
+	if len(deps) != 3 {
+		t.Fatalf("expected 3 packages, got %d", len(deps))
 	}
 }
 
 func TestParsePyPIPackages_VersionSpecifiers(t *testing.T) {
 	data := []byte("requests>=2.0\nflask==2.3.1\ndjango!=4.0\npillow~=9.0\n")
-	names := parsePyPIPackages(data)
-	for _, n := range names {
-		if strings.ContainsAny(n, "><=!~") {
-			t.Errorf("version specifier not stripped from %q", n)
+	deps := parsePyPIPackages(data)
+	for _, d := range deps {
+		if strings.ContainsAny(d.name, "><=!~") {
+			t.Errorf("version specifier not stripped from name %q", d.name)
 		}
 	}
-	if len(names) != 4 {
-		t.Errorf("expected 4 packages after stripping specifiers, got %d: %v", len(names), names)
+	if len(deps) != 4 {
+		t.Errorf("expected 4 packages after stripping specifiers, got %d", len(deps))
+	}
+	// Pinned version (==) should be extracted.
+	for _, d := range deps {
+		if d.name == "flask" && d.version != "2.3.1" {
+			t.Errorf("flask pinned version = %q, want 2.3.1", d.version)
+		}
 	}
 }
 
 func TestParsePyPIPackages_SkipsComments(t *testing.T) {
 	data := []byte("# this is a comment\nrequests\n# another comment\nflask\n")
-	names := parsePyPIPackages(data)
-	if len(names) != 2 {
-		t.Errorf("expected 2 packages (comments skipped), got %d: %v", len(names), names)
+	deps := parsePyPIPackages(data)
+	if len(deps) != 2 {
+		t.Errorf("expected 2 packages (comments skipped), got %d", len(deps))
 	}
 }
 
 func TestParsePyPIPackages_SkipsDashFlags(t *testing.T) {
-	// Lines starting with "-" (e.g. "-r other.txt", "-i https://...") must be skipped.
 	data := []byte("-r base.txt\n-i https://pypi.org/simple\nrequests\n")
-	names := parsePyPIPackages(data)
-	if len(names) != 1 {
-		t.Errorf("expected 1 package (dash-flag lines skipped), got %d: %v", len(names), names)
+	deps := parsePyPIPackages(data)
+	if len(deps) != 1 {
+		t.Errorf("expected 1 package (dash-flag lines skipped), got %d", len(deps))
 	}
 }
 
 func TestParsePyPIPackages_EmptyLines(t *testing.T) {
 	data := []byte("\n\nrequests\n\n")
-	names := parsePyPIPackages(data)
-	if len(names) != 1 {
-		t.Errorf("expected 1 package (empty lines skipped), got %d: %v", len(names), names)
+	deps := parsePyPIPackages(data)
+	if len(deps) != 1 {
+		t.Errorf("expected 1 package (empty lines skipped), got %d", len(deps))
 	}
 }
 
 func TestParsePyPIPackages_LowercasesNames(t *testing.T) {
 	data := []byte("Django\nFlask\n")
-	names := parsePyPIPackages(data)
-	for _, n := range names {
-		if n != strings.ToLower(n) {
-			t.Errorf("expected lowercase package name, got %q", n)
+	deps := parsePyPIPackages(data)
+	for _, d := range deps {
+		if d.name != strings.ToLower(d.name) {
+			t.Errorf("expected lowercase package name, got %q", d.name)
 		}
 	}
 }
@@ -214,7 +228,7 @@ func runWithServers(t *testing.T, assetHandler http.HandlerFunc, registryHandler
 	t.Cleanup(registryServer.Close)
 
 	asset := strings.TrimPrefix(assetServer.URL, "http://")
-	s := New()
+	s := NewWithoutOSV()
 	return s.Run(context.Background(), asset, module.ScanSurface)
 }
 
@@ -233,7 +247,7 @@ func TestRun_NoManifestNoFindings(t *testing.T) {
 	defer ts.Close()
 
 	asset := strings.TrimPrefix(ts.URL, "http://")
-	s := New()
+	s := NewWithoutOSV()
 	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -259,7 +273,7 @@ func TestRun_PackageJSONWithNoInternalPackages(t *testing.T) {
 	defer ts.Close()
 
 	asset := strings.TrimPrefix(ts.URL, "http://")
-	s := New()
+	s := NewWithoutOSV()
 	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -279,7 +293,7 @@ func TestRun_ContextCancelled_NoFindingsNoPanic(t *testing.T) {
 	cancel() // cancel before Run
 
 	asset := strings.TrimPrefix(ts.URL, "http://")
-	s := New()
+	s := NewWithoutOSV()
 	findings, _ := s.Run(ctx, asset, module.ScanSurface)
 	_ = findings // must not panic
 }
@@ -289,8 +303,140 @@ func TestRun_ContextCancelled_NoFindingsNoPanic(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckDependencyConfusion_Defined(t *testing.T) {
-	// Ensure the CheckID is non-empty — guards against accidental removal.
 	if finding.CheckDependencyConfusion == "" {
 		t.Error("finding.CheckDependencyConfusion is empty")
+	}
+}
+
+func TestCheckVulnerableDependency_Defined(t *testing.T) {
+	if finding.CheckVulnerableDependency == "" {
+		t.Error("finding.CheckVulnerableDependency is empty")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Version extraction tests
+// ---------------------------------------------------------------------------
+
+func TestParseNPMPackages_ExtractsVersions(t *testing.T) {
+	data := []byte(`{"dependencies":{"express":"^4.17.1","lodash":"4.17.21","react":"~18.2.0"}}`)
+	deps := parseNPMPackages(data)
+	versions := make(map[string]string)
+	for _, d := range deps {
+		versions[d.name] = d.version
+	}
+	if versions["express"] != "^4.17.1" {
+		t.Errorf("express = %q", versions["express"])
+	}
+	if versions["lodash"] != "4.17.21" {
+		t.Errorf("lodash = %q", versions["lodash"])
+	}
+	if versions["react"] != "~18.2.0" {
+		t.Errorf("react = %q", versions["react"])
+	}
+}
+
+func TestParsePyPIPackages_ExtractsPinnedVersion(t *testing.T) {
+	data := []byte("flask==2.3.1\nrequests>=2.28\ndjango\n")
+	deps := parsePyPIPackages(data)
+	versions := make(map[string]string)
+	for _, d := range deps {
+		versions[d.name] = d.version
+	}
+	if versions["flask"] != "2.3.1" {
+		t.Errorf("flask version = %q, want 2.3.1", versions["flask"])
+	}
+	// Non-pinned should have empty version.
+	if versions["requests"] != "" {
+		t.Errorf("requests version = %q, want empty (not pinned with ==)", versions["requests"])
+	}
+	if versions["django"] != "" {
+		t.Errorf("django version = %q, want empty", versions["django"])
+	}
+}
+
+func TestParseGoModules_ExtractsVersions(t *testing.T) {
+	data := []byte(`module internal.corp/myapp
+
+go 1.21
+
+require (
+	internal.corp/utils v1.2.3
+	internal.corp/auth v0.5.0
+)
+`)
+	deps := parseGoModules(data)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 modules, got %d", len(deps))
+	}
+	versions := make(map[string]string)
+	for _, d := range deps {
+		versions[d.name] = d.version
+	}
+	if versions["internal.corp/utils"] != "1.2.3" {
+		t.Errorf("utils version = %q, want 1.2.3", versions["internal.corp/utils"])
+	}
+	if versions["internal.corp/auth"] != "0.5.0" {
+		t.Errorf("auth version = %q, want 0.5.0", versions["internal.corp/auth"])
+	}
+}
+
+func TestParseGemfilePackages_ExtractsVersions(t *testing.T) {
+	data := []byte(`gem 'rails', '~> 7.0'
+gem 'puma', '5.6.5'
+gem 'nokogiri'
+`)
+	deps := parseGemfilePackages(data)
+	versions := make(map[string]string)
+	for _, d := range deps {
+		versions[d.name] = d.version
+	}
+	if versions["rails"] != "7.0" {
+		t.Errorf("rails version = %q, want 7.0", versions["rails"])
+	}
+	if versions["puma"] != "5.6.5" {
+		t.Errorf("puma version = %q, want 5.6.5", versions["puma"])
+	}
+}
+
+func TestParseComposerPackages_ExtractsVersions(t *testing.T) {
+	data := []byte(`{"require":{"laravel/framework":"^10.0","guzzlehttp/guzzle":"7.5.0"},"require-dev":{"phpunit/phpunit":"^10.0"}}`)
+	deps := parseComposerPackages(data)
+	versions := make(map[string]string)
+	for _, d := range deps {
+		versions[d.name] = d.version
+	}
+	if versions["laravel/framework"] != "^10.0" {
+		t.Errorf("laravel version = %q", versions["laravel/framework"])
+	}
+	if versions["guzzlehttp/guzzle"] != "7.5.0" {
+		t.Errorf("guzzle version = %q", versions["guzzlehttp/guzzle"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// cleanVersion
+// ---------------------------------------------------------------------------
+
+func TestCleanVersion(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"^4.17.1", "4.17.1"},
+		{"~18.2.0", "18.2.0"},
+		{">=2.0", "2.0"},
+		{"==3.0.1", "3.0.1"},
+		{"~> 1.2.3", "1.2.3"},
+		{"4.17.21", "4.17.21"},
+		{"", ""},
+		{"*", ""},
+		{"latest", ""},
+		{">= 1.0, < 2.0", "1.0"},
+	}
+	for _, tc := range cases {
+		got := cleanVersion(tc.in)
+		if got != tc.want {
+			t.Errorf("cleanVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
