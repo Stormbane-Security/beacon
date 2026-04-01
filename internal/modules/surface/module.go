@@ -175,6 +175,12 @@ type Module struct {
 	// claudeModel is the model used for profiling (defaults to claude-sonnet-4-6).
 	claudeModel string
 
+	// scannerFilter, when non-empty, restricts execution to only the named
+	// scanners. Set from module.Input.Scanners at the start of Run. When
+	// active, asset discovery, evidence classification, and playbook matching
+	// are all skipped.
+	scannerFilter []string
+
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
 
@@ -486,6 +492,34 @@ func isDeepOrAuthorized(t module.ScanType) bool {
 // Run executes the full surface scan pipeline driven by playbooks.
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	rootDomain := input.Domain
+
+	// Store scanner filter for use in runAsset.
+	m.scannerFilter = input.Scanners
+
+	// ── Fast path: --scanners mode ──────────────────────────────────────────
+	// When a scanner filter is active, skip discovery, evidence collection,
+	// and playbook matching. Just run the requested scanners against the
+	// root domain directly. This is the mode used by Drydock for targeted
+	// scanner testing.
+	if len(m.scannerFilter) > 0 {
+		// Validate that all requested scanners exist in the registry.
+		for _, name := range m.scannerFilter {
+			if _, ok := m.scanners[name]; !ok {
+				return nil, fmt.Errorf("unknown scanner %q (available: use --help to list)", name)
+			}
+		}
+
+		if input.Progress != nil {
+			input.Progress(module.ProgressEvent{
+				Phase:       "discovery_done",
+				AssetsTotal: 1,
+				AssetNames:  []string{rootDomain},
+			})
+		}
+
+		fs := m.runAsset(ctx, rootDomain, rootDomain, scanType, input.ScanRunID, 0, input.Progress, map[string]bool{rootDomain: true}, &sync.Mutex{})
+		return fs, ctx.Err()
+	}
 
 	// Load active fingerprint rules once per scan run and cache on the module.
 	if m.st != nil {
@@ -1203,6 +1237,55 @@ assetLoop:
 	return allFindings, nil
 }
 
+// runFilteredScanners executes only the scanners named in m.scannerFilter
+// against a single asset. No evidence collection, playbook matching, or
+// convergence loops — just the bare scanner runs. Used by --scanners mode
+// for targeted testing (e.g. Drydock).
+func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) []finding.Finding {
+	var findings []finding.Finding
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, name := range m.scannerFilter {
+		scanner, ok := m.scanners[name]
+		if !ok {
+			continue
+		}
+		name, scanner := name, scanner
+		if progressFn != nil {
+			progressFn(module.ProgressEvent{
+				Phase:       "scanner_start",
+				ActiveAsset: asset,
+				ScannerName: name,
+				ScannerCmd:  name + " → " + asset,
+			})
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			start := time.Now()
+			fs, scanErr := scanner.Run(ctx, asset, scanType)
+			mu.Lock()
+			findings = append(findings, fs...)
+			mu.Unlock()
+			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, time.Since(start), fs, scanErr)
+			if progressFn != nil {
+				fsCopy := make([]finding.Finding, len(fs))
+				copy(fsCopy, fs)
+				progressFn(module.ProgressEvent{
+					Phase:        "scanner_done",
+					ActiveAsset:  asset,
+					ScannerName:  name,
+					FindingDelta: len(fs),
+					NewFindings:  fsCopy,
+				})
+			}
+		}()
+	}
+	wg.Wait()
+	return findings
+}
+
 // runAsset classifies a single asset, matches playbooks, executes the RunPlan,
 // and writes an AssetExecution audit record.
 // depth tracks playbook-driven discovery recursion depth; expanded assets are
@@ -1211,6 +1294,14 @@ assetLoop:
 // concurrent runAsset goroutines from independently discovering and scanning
 // the same cert-SAN / port-service / body-subdomain child asset.
 func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanType module.ScanType, scanRunID string, depth int, progressFn module.ProgressFunc, expandSeen map[string]bool, expandSeenMu *sync.Mutex) []finding.Finding {
+	// ── Fast path: --scanners filter ────────────────────────────────────────
+	// When a scanner filter is active, skip evidence collection, playbook
+	// matching, Phase A intelligence, and convergence loops. Just run the
+	// requested scanners and return their findings.
+	if len(m.scannerFilter) > 0 {
+		return m.runFilteredScanners(ctx, asset, scanType, scanRunID, progressFn)
+	}
+
 	// Collect evidence — emit fingerprint event when interesting signals are found
 	if progressFn != nil {
 		progressFn(module.ProgressEvent{
