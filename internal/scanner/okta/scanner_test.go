@@ -38,7 +38,7 @@ func TestOkta_MFANotEnforced(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/policies":
 			if r.URL.Query().Get("type") == "OKTA_SIGN_ON" {
-				json.NewEncoder(w).Encode([]map[string]any{
+				_ = json.NewEncoder(w).Encode([]map[string]any{
 					{
 						"id":     "pol1",
 						"name":   "Default Policy",
@@ -48,9 +48,9 @@ func TestOkta_MFANotEnforced(t *testing.T) {
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		case "/api/v1/policies/pol1/rules":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":     "rule1",
 					"name":   "Allow No MFA",

@@ -484,15 +484,15 @@ func TestContainerHub_UnsignedImage_EmitsFinding(t *testing.T) {
 	if eco != "container" {
 		t.Errorf("expected ecosystem 'container', got %v", eco)
 	}
-	digest, _ := f.Evidence["digest"]
+	digest := f.Evidence["digest"]
 	if digest != "sha256:abc123def456" {
 		t.Errorf("expected digest 'sha256:abc123def456', got %v", digest)
 	}
-	sigTag, _ := f.Evidence["sig_tag"]
+	sigTag := f.Evidence["sig_tag"]
 	if sigTag != "sha256-abc123def456.sig" {
 		t.Errorf("expected sig_tag 'sha256-abc123def456.sig', got %v", sigTag)
 	}
-	reg, _ := f.Evidence["registry"]
+	reg := f.Evidence["registry"]
 	if reg != "docker.io" {
 		t.Errorf("expected registry 'docker.io', got %v", reg)
 	}

@@ -196,7 +196,7 @@ func retryGet(ctx context.Context, client *http.Client, req *http.Request) (*htt
 						delay = time.Duration(secs) * time.Second
 					}
 				}
-				lastResp.Body.Close()
+				_ = lastResp.Body.Close()
 			}
 			select {
 			case <-ctx.Done():

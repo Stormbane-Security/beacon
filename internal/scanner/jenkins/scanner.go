@@ -339,8 +339,8 @@ func isJenkinsStaplerRCEVulnerable(ver string) bool {
 		return false
 	}
 	maj, minor := 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	if maj != 2 {
 		return false
 	}

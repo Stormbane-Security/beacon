@@ -26,16 +26,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	return false
 }
 
-func countCheckID(findings []finding.Finding, id finding.CheckID) int {
-	n := 0
-	for _, f := range findings {
-		if f.CheckID == id {
-			n++
-		}
-	}
-	return n
-}
-
 // vCenterMock builds a mock vCenter REST API server.
 type vCenterMock struct {
 	Hosts      []map[string]any

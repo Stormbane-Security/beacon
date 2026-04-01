@@ -1724,9 +1724,9 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 		out = report.RenderMarkdown(syntheticRun, enriched, "", nil)
 	default: // "text" or empty
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60)))
+		fmt.Fprintf(&sb, "GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60))
 		for _, f := range filtered {
-			sb.WriteString(fmt.Sprintf("[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset))
+			fmt.Fprintf(&sb, "[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset)
 		}
 		out = sb.String()
 	}
@@ -3864,7 +3864,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	// Build the full markdown report from all analysis sections.
 	var md strings.Builder
 	md.WriteString("# Beacon Analysis Report\n\n")
-	md.WriteString(fmt.Sprintf("Generated: %s\n\n", time.Now().Format(time.RFC3339)))
+	fmt.Fprintf(&md, "Generated: %s\n\n", time.Now().Format(time.RFC3339))
 
 	// Section: Finding Accuracy Review
 	if len(result.AccuracyReview) > 0 {

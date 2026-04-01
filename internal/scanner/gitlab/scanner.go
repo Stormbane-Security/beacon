@@ -267,7 +267,7 @@ func (s *Scanner) checkOutdatedVersion(ctx context.Context, target string) []fin
 		return nil
 	}
 	var major int
-	fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
 	if major >= 17 {
 		return nil // reasonably current
 	}

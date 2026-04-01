@@ -1319,7 +1319,7 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 		if err != nil {
 			return nil
 		}
-		mResp.Body.Close()
+		_ = mResp.Body.Close()
 		// Tomcat returns 401 Unauthorized with WWW-Authenticate on /manager/html.
 		wwwAuth := strings.ToLower(mResp.Header.Get("WWW-Authenticate"))
 		isTomcat = mResp.StatusCode == http.StatusUnauthorized &&
@@ -1343,7 +1343,7 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 	if err != nil {
 		return nil
 	}
-	putResp.Body.Close()
+	_ = putResp.Body.Close()
 	if putResp.StatusCode != http.StatusCreated {
 		return nil
 	}
@@ -1395,7 +1395,7 @@ func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, ass
 		return nil
 	}
 	loginBody, _ := io.ReadAll(io.LimitReader(loginResp.Body, 4096))
-	loginResp.Body.Close()
+	_ = loginResp.Body.Close()
 	if !strings.Contains(strings.ToLower(string(loginBody)), "teamcity") {
 		return nil
 	}
@@ -1743,7 +1743,7 @@ func probeConfluenceSetup(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	bodyStr := strings.ToLower(string(body))
 	isConfluence := strings.Contains(bodyStr, "confluence") ||
 		fingerResp.Header.Get("X-Confluence-Request-Time") != "" ||
@@ -1854,7 +1854,7 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	fbStr := strings.ToLower(string(fb))
 	if !strings.Contains(fbStr, "cisco") && !strings.Contains(fbStr, "ios xe") {
 		return nil
@@ -1883,7 +1883,7 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 	}
 	isHex := true
 	for _, c := range body {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			isHex = false
 			break
 		}
@@ -1936,7 +1936,7 @@ func probeIvantiConnectSecure(ctx context.Context, client *http.Client, base, as
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	fbStr := strings.ToLower(string(fb))
 	if !strings.Contains(fbStr, "ivanti") && !strings.Contains(fbStr, "pulse") {
 		return nil
@@ -2591,7 +2591,7 @@ func probeWebLogicConsole(ctx context.Context, client *http.Client, base, asset 
 		bresp, err := client.Do(breq)
 		if err == nil {
 			bb, _ := io.ReadAll(io.LimitReader(bresp.Body, 8192))
-			bresp.Body.Close()
+			_ = bresp.Body.Close()
 			bLower := strings.ToLower(string(bb))
 			if bresp.StatusCode == http.StatusOK && (strings.Contains(bLower, "welcome") ||
 				strings.Contains(bLower, "dashboard") || strings.Contains(bLower, "weblogic")) {
@@ -3779,8 +3779,8 @@ func probeIISHTTPSysRange(ctx context.Context, client *http.Client, base, asset 
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
 
 		server := strings.ToLower(resp.Header.Get("Server"))
 		if !strings.Contains(server, "microsoft-iis") {

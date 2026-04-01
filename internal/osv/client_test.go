@@ -121,7 +121,7 @@ func TestQueryBatch_NoVulns(t *testing.T) {
 func TestQueryBatch_MultiplePackages(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req batchRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		resp := batchResponse{
 			Results: make([]batchResultEntry, len(req.Queries)),

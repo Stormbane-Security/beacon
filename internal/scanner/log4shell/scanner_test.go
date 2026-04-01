@@ -19,7 +19,7 @@ func TestLog4Shell_JavaSignalDetected_SurfaceOnly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "ABCDEF1234567890"})
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintln(w, "<html><body>App</body></html>")
+		_, _ = fmt.Fprintln(w, "<html><body>App</body></html>")
 	}))
 	defer srv.Close()
 
@@ -46,7 +46,7 @@ func TestLog4Shell_ReflectionInBody_DeepMode(t *testing.T) {
 		for name, vals := range r.Header {
 			sb.WriteString(name + ": " + strings.Join(vals, ", ") + "\n")
 		}
-		fmt.Fprintln(w, sb.String())
+		_, _ = fmt.Fprintln(w, sb.String())
 	}))
 	defer srv.Close()
 
@@ -75,7 +75,7 @@ func TestLog4Shell_ReflectionInBody_DeepMode(t *testing.T) {
 func TestLog4Shell_NoReflection_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Server completely ignores injected headers.
-		fmt.Fprintln(w, "<html><body>Welcome</body></html>")
+		_, _ = fmt.Fprintln(w, "<html><body>Welcome</body></html>")
 	}))
 	defer srv.Close()
 
@@ -103,7 +103,7 @@ func TestLog4Shell_SkippedInSurfaceMode_ActiveProbes(t *testing.T) {
 				}
 			}
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 

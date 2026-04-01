@@ -232,7 +232,7 @@ func TestCheckMTASTS_LargePolicyModeTestingAfter512Bytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(200)
-		w.Write([]byte(policy))
+		_, _ = w.Write([]byte(policy))
 	}))
 	defer srv.Close()
 
@@ -292,7 +292,7 @@ func TestCheckMTASTS_DetectsTestingModeLargeBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(200)
-		w.Write([]byte(policyBody))
+		_, _ = w.Write([]byte(policyBody))
 	}))
 	defer srv.Close()
 
@@ -308,7 +308,7 @@ func TestCheckMTASTS_DetectsTestingModeLargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTP GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read with the same limit the scanner uses.
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))

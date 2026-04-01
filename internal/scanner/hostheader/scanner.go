@@ -166,7 +166,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		absResp, absErr := client.Do(absReq)
 		if absErr == nil {
 			absBody, _ := io.ReadAll(io.LimitReader(absResp.Body, 4096))
-			absResp.Body.Close()
+			_ = absResp.Body.Close()
 
 			absLocation := absResp.Header.Get("Location")
 			absSetCookie := absResp.Header.Get("Set-Cookie")

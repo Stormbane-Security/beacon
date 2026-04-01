@@ -382,7 +382,7 @@ func checkMTASTS(ctx context.Context, domain string) []finding.Finding {
 		statusCode := 0
 		if resp != nil {
 			statusCode = resp.StatusCode
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return []finding.Finding{{
 			CheckID:      finding.CheckEmailMTASTSPolicyFetchFail,
@@ -396,7 +396,7 @@ func checkMTASTS(ctx context.Context, domain string) []finding.Finding {
 			DiscoveredAt: time.Now(),
 		}}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	body := string(bodyBytes)
@@ -663,7 +663,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
@@ -706,7 +706,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	// Open relay test: deep mode only — sending MAIL FROM is an active probe
 	// that appears in server logs and may trigger rate limiting on the target.
 	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
-		fmt.Fprintf(conn, "QUIT\r\n") //nolint:errcheck — best-effort cleanup
+		_, _ = fmt.Fprintf(conn, "QUIT\r\n")
 		return findings
 	}
 
