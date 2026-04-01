@@ -275,9 +275,7 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 		if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
 			cert := resp.TLS.PeerCertificates[0]
 			e.CertIssuer = cert.Issuer.CommonName
-			for _, san := range cert.DNSNames {
-				e.CertSANs = append(e.CertSANs, san)
-			}
+			e.CertSANs = append(e.CertSANs, cert.DNSNames...)
 		}
 
 		// Redirect-target hostname — if the HTTP client followed redirects to a

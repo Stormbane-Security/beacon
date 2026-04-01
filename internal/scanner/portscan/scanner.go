@@ -530,9 +530,7 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			// Also try HTTPS — etcd may be configured with TLS.
 			if !probed {
 				if body, ok := probeHTTPBody(ctx, asset, port, true, "/version"); ok {
-					if strings.Contains(strings.ToLower(body), "etcd") {
-						probed = true
-					}
+					_ = strings.Contains(strings.ToLower(body), "etcd")
 				}
 			}
 		}
@@ -3519,8 +3517,8 @@ func isOpenSSHUsernameEnumVulnerable(sv string) bool {
 		endIdx = pIdx
 	}
 	maj, min := 0, 0
-	fmt.Sscanf(verStr[:dotIdx], "%d", &maj)
-	fmt.Sscanf(verStr[dotIdx+1:endIdx], "%d", &min)
+	_, _ = fmt.Sscanf(verStr[:dotIdx], "%d", &maj)
+	_, _ = fmt.Sscanf(verStr[dotIdx+1:endIdx], "%d", &min)
 	// Vulnerable: any version < 7.7
 	if maj < 7 {
 		return true
@@ -3559,8 +3557,8 @@ func isOpenSSHRegreSSHionVulnerable(sv, banner string) bool {
 	minor := verStr[dotIdx+1 : endIdx]
 	maj := 0
 	min := 0
-	fmt.Sscanf(major, "%d", &maj)
-	fmt.Sscanf(minor, "%d", &min)
+	_, _ = fmt.Sscanf(major, "%d", &maj)
+	_, _ = fmt.Sscanf(minor, "%d", &min)
 	// Vulnerable: 8.5 ≤ version ≤ 9.7
 	if maj == 8 && min >= 5 {
 		return true

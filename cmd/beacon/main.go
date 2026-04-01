@@ -2002,9 +2002,6 @@ type browseState struct {
 	execFindCursor  int
 	execFindOff     int
 
-	// Set when user presses 'r' to export a report after the TUI exits.
-	exportRunID string
-
 	// Animation frame for spinner (incremented by the ticker goroutine).
 	spinFrame int
 
@@ -2779,43 +2776,6 @@ func browseRender(bs *browseState) {
 // ── Browse helpers ────────────────────────────────────────────────────────────
 
 // browseLoadScan loads findings and asset executions for a scan run into bs.
-func browseLoadScan(ctx context.Context, st interface {
-	GetEnrichedFindings(context.Context, string) ([]enrichment.EnrichedFinding, error)
-	GetFindings(context.Context, string) ([]finding.Finding, error)
-	ListAssetExecutions(context.Context, string) ([]store.AssetExecution, error)
-}, bs *browseState, run store.ScanRun) {
-	run2 := run
-	bs.selectedRun = &run2
-
-	ef, err := st.GetEnrichedFindings(ctx, run.ID)
-	if err != nil || len(ef) == 0 {
-		raw, _ := st.GetFindings(ctx, run.ID)
-		ef = make([]enrichment.EnrichedFinding, len(raw))
-		for i, f := range raw {
-			ef[i] = enrichment.EnrichedFinding{Finding: f}
-		}
-	}
-	sort.Slice(ef, func(i, j int) bool {
-		return ef[i].Finding.Severity > ef[j].Finding.Severity
-	})
-	bs.findings = ef
-	bs.findCursor = 0
-	bs.findOff = 0
-	bs.findMinSev = finding.SeverityInfo
-
-	exec, _ := st.ListAssetExecutions(ctx, run.ID)
-	// Sort assets by finding count descending, then name.
-	sort.Slice(exec, func(i, j int) bool {
-		if exec[i].FindingsCount != exec[j].FindingsCount {
-			return exec[i].FindingsCount > exec[j].FindingsCount
-		}
-		return exec[i].Asset < exec[j].Asset
-	})
-	bs.executions = exec
-	bs.execCursor = 0
-	bs.execOff = 0
-}
-
 // browseAssetFindings returns the findings for bs.selectedExec, sorted by severity.
 func browseAssetFindings(bs *browseState) []enrichment.EnrichedFinding {
 	if bs.selectedExec == nil {
@@ -3198,41 +3158,31 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 	lines = append(lines, "")
 
 	if f.Description != "" {
-		for _, l := range wordWrapLines(f.Description, termW-4) {
-			lines = append(lines, l)
-		}
+		lines = append(lines, wordWrapLines(f.Description, termW-4)...)
 		lines = append(lines, "")
 	}
 
 	if ef.Explanation != "" {
 		lines = append(lines, "\x1b[1;33mExplanation\x1b[0m")
-		for _, l := range wordWrapLines(ef.Explanation, termW-4) {
-			lines = append(lines, l)
-		}
+		lines = append(lines, wordWrapLines(ef.Explanation, termW-4)...)
 		lines = append(lines, "")
 	}
 
 	if ef.Impact != "" {
 		lines = append(lines, "\x1b[1;31mImpact\x1b[0m")
-		for _, l := range wordWrapLines(ef.Impact, termW-4) {
-			lines = append(lines, l)
-		}
+		lines = append(lines, wordWrapLines(ef.Impact, termW-4)...)
 		lines = append(lines, "")
 	}
 
 	if ef.Remediation != "" {
 		lines = append(lines, "\x1b[1;32mRemediation\x1b[0m")
-		for _, l := range wordWrapLines(ef.Remediation, termW-4) {
-			lines = append(lines, l)
-		}
+		lines = append(lines, wordWrapLines(ef.Remediation, termW-4)...)
 		lines = append(lines, "")
 	}
 
 	if ef.TechSpecificRemediation != "" {
 		lines = append(lines, "\x1b[1;32mTech-Specific Fix\x1b[0m")
-		for _, l := range wordWrapLines(ef.TechSpecificRemediation, termW-4) {
-			lines = append(lines, l)
-		}
+		lines = append(lines, wordWrapLines(ef.TechSpecificRemediation, termW-4)...)
 		lines = append(lines, "")
 	}
 
@@ -3928,9 +3878,10 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 		md.WriteString(fmt.Sprintf("%d findings reviewed · %d likely false positives\n\n", len(result.AccuracyReview), fps))
 		for _, r := range result.AccuracyReview {
 			icon := "✓"
-			if r.Verdict == "likely_false_positive" {
+			switch r.Verdict {
+			case "likely_false_positive":
 				icon = "🚫"
-			} else if r.Verdict == "needs_verification" {
+			case "needs_verification":
 				icon = "⚠️"
 			}
 			proofStatus := ""
@@ -7415,15 +7366,6 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 		status int
 		cname  string
 	}
-	type ipSlot struct {
-		ip    string
-		hosts []hostEntry
-	}
-	type provSlot struct {
-		name string
-		ips  []ipSlot
-	}
-
 	provMap := map[string]map[string][]hostEntry{}
 	var provOrder []string
 	for asset, ev := range r.topoEvidence {

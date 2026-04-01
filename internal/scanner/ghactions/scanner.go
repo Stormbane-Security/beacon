@@ -325,7 +325,7 @@ func checkScriptInjection(workflowYAML, repo string) []finding.Finding {
 					"shell metacharacters to execute arbitrary commands in the workflow runner. "+
 					"Use an intermediate environment variable instead: "+
 					"env:\\n  VALUE: ${{ %s }}\\nrun: echo \"$VALUE\"",
-				m, strings.Trim(strings.TrimSpace(m), "${{ }}")),
+				m, strings.Trim(strings.TrimSpace(m), "${ }")),
 			Evidence:     map[string]any{"injection_sink": m},
 			DiscoveredAt: time.Now(),
 		})

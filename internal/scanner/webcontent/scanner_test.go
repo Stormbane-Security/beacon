@@ -898,7 +898,7 @@ func TestGenericPwdValueRe(t *testing.T) {
 			}
 			continue
 		}
-		if sub == nil || len(sub) < 2 || sub[1] != tt.want {
+		if len(sub) < 2 || sub[1] != tt.want {
 			got := ""
 			if sub != nil && len(sub) >= 2 {
 				got = sub[1]

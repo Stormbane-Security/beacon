@@ -195,8 +195,8 @@ func isExposedAPI(ctx context.Context, client *http.Client, endpoint string) boo
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode == http.StatusOK
 }
 

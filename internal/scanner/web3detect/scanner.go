@@ -57,9 +57,6 @@ var evmAddressRe = regexp.MustCompile(`\b0x[0-9a-fA-F]{40}\b`)
 var rpcEndpointRe = regexp.MustCompile(
 	`https://[a-z0-9.\-]+(\.infura\.io|\.alchemyapi\.io|\.ankr\.com|\.quicknode\.io|\.alchemy\.com)[^\s"'<>]*`)
 
-// wssEthRe matches WebSocket RPC endpoints that appear near Ethereum context.
-var wssEthRe = regexp.MustCompile(`wss://[a-z0-9.\-]+\.[a-z]{2,}[^\s"'<>]*`)
-
 // scriptSrcRe extracts JS file URLs from <script src="..."> tags.
 var scriptSrcRe = regexp.MustCompile(`<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
 

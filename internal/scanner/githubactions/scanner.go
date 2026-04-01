@@ -602,10 +602,7 @@ var contextInjectionRe = regexp.MustCompile(
 		`github\.head_ref|inputs\.[^}\s]+)\s*\}\}`)
 
 func findContextInjection(run string) []string {
-	var matches []string
-	for _, m := range contextInjectionRe.FindAllString(run, -1) {
-		matches = append(matches, m)
-	}
+	matches := contextInjectionRe.FindAllString(run, -1)
 	return matches
 }
 

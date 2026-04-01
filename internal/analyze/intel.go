@@ -344,16 +344,6 @@ func extractCVSS(m struct {
 
 // ─── OSV ──────────────────────────────────────────────────────────────────────
 
-// osvQueryRequest is the minimal OSV batch query payload.
-// We query for recently-modified advisories across all ecosystems.
-type osvQueryRequest struct {
-	Query struct {
-		Package struct {
-			Ecosystem string `json:"ecosystem"`
-		} `json:"package"`
-	} `json:"query"`
-}
-
 type osvResponse struct {
 	Vulns []struct {
 		ID       string `json:"id"`
@@ -370,11 +360,6 @@ type osvResponse struct {
 		} `json:"affected"`
 		Modified string `json:"modified"`
 	} `json:"vulns"`
-}
-
-// osvHighImpactEcosystems are ecosystems most likely to affect web infrastructure.
-var osvHighImpactEcosystems = []string{
-	"npm", "PyPI", "Go", "Maven", "RubyGems", "Packagist",
 }
 
 // fetchOSV queries the OSV API for recent high-severity advisories across

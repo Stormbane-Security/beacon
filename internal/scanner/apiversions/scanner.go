@@ -159,13 +159,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	var active []activeVersion
 	for r := range resultCh {
-		active = append(active, activeVersion{
-			path:    r.path,
-			version: r.version,
-			status:  r.status,
-			ct:      r.ct,
-			bodyLen: r.bodyLen,
-		})
+		active = append(active, activeVersion(r))
 	}
 
 	if len(active) == 0 {

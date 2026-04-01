@@ -15,15 +15,6 @@ import (
 // helpers
 // -------------------------------------------------------------------------
 
-// newTestScanner creates a Scanner whose HTTP client routes all requests to
-// the supplied test server instead of api.github.com.
-func newTestScanner(ts *httptest.Server, token string) *Scanner {
-	return &Scanner{
-		token:      token,
-		httpClient: ts.Client(),
-	}
-}
-
 func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	for _, f := range findings {
 		if f.CheckID == id {

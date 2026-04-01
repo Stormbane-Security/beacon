@@ -10,7 +10,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/pem"
 	"math/big"
 	"net"
 	"net/http"
@@ -33,16 +32,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 		}
 	}
 	return false
-}
-
-// findByCheckID returns the first finding with the given check ID, or nil.
-func findByCheckID(findings []finding.Finding, id finding.CheckID) *finding.Finding {
-	for i := range findings {
-		if findings[i].CheckID == id {
-			return &findings[i]
-		}
-	}
-	return nil
 }
 
 // generateSelfSignedCert creates a self-signed certificate with the given
@@ -147,41 +136,6 @@ func tlsServerWithConfig(t *testing.T, tlsCfg *tls.Config) (*httptest.Server, st
 }
 
 // generateTLSCertPEM creates a self-signed TLS certificate and private key in
-// PEM form, suitable for tls.X509KeyPair. The certificate uses the given RSA
-// key size.
-func generateTLSCertPEM(t *testing.T, rsaBits int, dnsNames []string) (certPEM, keyPEM []byte) {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, rsaBits)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "localhost"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     dnsNames,
-		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return certPEM, keyPEM
-}
-
 // ── splitHostPort ────────────────────────────────────────────────────────────
 
 func TestSplitHostPort_WithPort(t *testing.T) {

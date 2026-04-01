@@ -325,7 +325,7 @@ func TestPyPI_UnsignedPackage_EmitsFinding(t *testing.T) {
 		t.Error("ProofCommand must not be empty")
 	}
 
-	eco, _ := f.Evidence["ecosystem"]
+	eco := f.Evidence["ecosystem"]
 	if eco != "pypi" {
 		t.Errorf("expected ecosystem 'pypi', got %v", eco)
 	}
@@ -480,7 +480,7 @@ func TestContainerHub_UnsignedImage_EmitsFinding(t *testing.T) {
 		t.Error("ProofCommand must not be empty")
 	}
 
-	eco, _ := f.Evidence["ecosystem"]
+	eco := f.Evidence["ecosystem"]
 	if eco != "container" {
 		t.Errorf("expected ecosystem 'container', got %v", eco)
 	}

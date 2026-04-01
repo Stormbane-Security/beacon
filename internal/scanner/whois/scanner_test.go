@@ -38,10 +38,7 @@ func findByCheckID(findings []finding.Finding, id finding.CheckID) *finding.Find
 // rdapJSON builds a complete RDAP response JSON string with the given events,
 // entities, nameservers, and status.
 func rdapJSON(domain string, events []map[string]string, registrar string, nameservers []string, status []string) string {
-	var evArr []map[string]string
-	for _, ev := range events {
-		evArr = append(evArr, ev)
-	}
+	evArr := append([]map[string]string{}, events...)
 
 	// Build nameserver array
 	nsArr := []map[string]string{}

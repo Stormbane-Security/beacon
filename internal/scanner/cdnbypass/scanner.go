@@ -148,11 +148,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	// Step 3: discover origin IP candidates from DNS/MX/SPF/CT logs.
 	domain := rootDomain(asset)
 
-	type candidate struct {
-		ip     string
-		method string
-	}
-
 	// Gather all unique candidates first (fast DNS/HTTP lookups, no scoring).
 	seenIPs := make(map[string]string) // ip → first method seen
 

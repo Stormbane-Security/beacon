@@ -1018,7 +1018,8 @@ func TestEnrichmentCache_Roundtrip(t *testing.T) {
 
 	checkID := finding.CheckID("tls.cert_expiry_7d")
 
-	exp, imp, rem, found := s.GetEnrichmentCache(ctx, checkID)
+	var exp, imp, rem string
+	_, _, _, found := s.GetEnrichmentCache(ctx, checkID)
 	if found {
 		t.Fatal("expected not found for empty cache")
 	}

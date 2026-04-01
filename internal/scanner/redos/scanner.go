@@ -118,8 +118,8 @@ func (s *Scanner) isReachable(ctx context.Context, client *http.Client, baseURL 
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
 	return true
 }
 
@@ -199,8 +199,8 @@ func (s *Scanner) measureResponseTime(ctx context.Context, client *http.Client, 
 	if err != nil {
 		return elapsed, err
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
 
 	return elapsed, nil
 }

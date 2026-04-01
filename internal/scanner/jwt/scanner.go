@@ -107,21 +107,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Set-Cookie headers.
 	for _, cookie := range resp.Header["Set-Cookie"] {
-		for _, m := range jwtPattern.FindAllString(cookie, -1) {
-			candidates = append(candidates, m)
-		}
+		candidates = append(candidates, jwtPattern.FindAllString(cookie, -1)...)
 	}
 
 	// Response body.
-	for _, m := range jwtPattern.FindAllString(bodyStr, -1) {
-		candidates = append(candidates, m)
-	}
+	candidates = append(candidates, jwtPattern.FindAllString(bodyStr, -1)...)
 
 	// Authorization header in response (non-standard but seen in some APIs).
 	if auth := resp.Header.Get("Authorization"); auth != "" {
-		for _, m := range jwtPattern.FindAllString(auth, -1) {
-			candidates = append(candidates, m)
-		}
+		candidates = append(candidates, jwtPattern.FindAllString(auth, -1)...)
 	}
 
 	// Deduplicate by header.payload (ignore signature).

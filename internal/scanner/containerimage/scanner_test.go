@@ -93,7 +93,7 @@ func TestDeepMode_ExposedRegistry_WithCatalog(t *testing.T) {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{}`)
+			_, _ = fmt.Fprint(w, `{}`)
 			return
 		}
 		// Fall through for sub-paths handled by other routes.
@@ -203,7 +203,7 @@ func TestDeepMode_AnonymousPush_Accepted(t *testing.T) {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{}`)
+			_, _ = fmt.Fprint(w, `{}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -270,7 +270,7 @@ func TestDeepMode_SignedImage_NoUnsignedFinding(t *testing.T) {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{}`)
+			_, _ = fmt.Fprint(w, `{}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -371,7 +371,7 @@ func TestDeepMode_CatalogManyRepos_LimitsChecks(t *testing.T) {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{}`)
+			_, _ = fmt.Fprint(w, `{}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -577,7 +577,7 @@ func TestDeepMode_EmptyCatalog_NoCatalogFinding(t *testing.T) {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{}`)
+			_, _ = fmt.Fprint(w, `{}`)
 			return
 		}
 		http.NotFound(w, r)

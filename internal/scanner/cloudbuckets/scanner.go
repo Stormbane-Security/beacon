@@ -170,11 +170,14 @@ func consolidateUnconfirmed(findings []finding.Finding, asset string, now time.T
 		}
 		// Use the first finding as the template for severity, module, etc.
 		base := group[0]
-		listingDesc := "publicly listable"
-		if k.listing == "disabled" {
+		var listingDesc string
+		switch k.listing {
+		case "disabled":
 			listingDesc = "publicly accessible (listing disabled)"
-		} else if k.listing == "" {
+		case "":
 			listingDesc = "private"
+		default:
+			listingDesc = "publicly listable"
 		}
 		nameSummary := strings.Join(names, ", ")
 		title := fmt.Sprintf("Possible %s buckets (%s): %d candidates — ownership unconfirmed",

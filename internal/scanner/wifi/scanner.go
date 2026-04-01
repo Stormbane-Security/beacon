@@ -441,7 +441,7 @@ func probeGateway(ctx context.Context, gateway, asset string) []finding.Finding 
 		addr := fmt.Sprintf("%s:%d", gateway, p.port)
 		conn, err := (&net.Dialer{Timeout: gatewayProbeTimeout}).DialContext(ctx, "tcp", addr)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			open = append(open, fmt.Sprintf("%d/%s", p.port, p.service))
 		}
 	}

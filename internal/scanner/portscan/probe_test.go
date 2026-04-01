@@ -42,7 +42,7 @@ func serveLDAP(t *testing.T, handler func(net.Conn)) (port int, cleanup func()) 
 			p = p*10 + int(b-'0')
 		}
 	}
-	return p, func() { l.Close() }
+	return p, func() { _ = l.Close() }
 }
 
 // bindSuccessResp is a BindResponse with resultCode 0 (success).
@@ -70,13 +70,13 @@ var searchDoneResp = []byte{
 // is_active_directory=false.
 func TestProbeLDAP_NullBindSuccess(t *testing.T) {
 	port, cleanup := serveLDAP(t, func(c net.Conn) {
-		defer c.Close()
-		c.SetDeadline(time.Now().Add(2 * time.Second))
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, 256)
-		c.Read(buf) // drain null bind request
-		c.Write(bindSuccessResp)
-		c.Read(buf) // drain rootDSE request
-		c.Write(searchDoneResp)
+		_, _ = c.Read(buf) // drain null bind request
+		_, _ = c.Write(bindSuccessResp)
+		_, _ = c.Read(buf) // drain rootDSE request
+		_, _ = c.Write(searchDoneResp)
 	})
 	defer cleanup()
 
@@ -97,17 +97,17 @@ func TestProbeLDAP_NullBindSuccess(t *testing.T) {
 // response sets is_active_directory=true and captures the domain.
 func TestProbeLDAP_ActiveDirectoryDetection(t *testing.T) {
 	port, cleanup := serveLDAP(t, func(c net.Conn) {
-		defer c.Close()
-		c.SetDeadline(time.Now().Add(2 * time.Second))
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, 256)
-		c.Read(buf) // drain null bind
-		c.Write(bindSuccessResp)
-		c.Read(buf) // drain rootDSE request
+		_, _ = c.Read(buf) // drain null bind
+		_, _ = c.Write(bindSuccessResp)
+		_, _ = c.Read(buf) // drain rootDSE request
 
 		// Inject "DC=corp,DC=example,DC=com" in the rootDSE response body.
 		adText := []byte("DC=corp,DC=example,DC=com")
 		body := append(bindSuccessResp, adText...) // reuse bytes as payload carrier
-		c.Write(body)
+		_, _ = c.Write(body)
 	})
 	defer cleanup()
 
@@ -128,12 +128,12 @@ func TestProbeLDAP_ActiveDirectoryDetection(t *testing.T) {
 // (invalidCredentials) causes probeLDAP to return nil.
 func TestProbeLDAP_NullBindRefused(t *testing.T) {
 	port, cleanup := serveLDAP(t, func(c net.Conn) {
-		defer c.Close()
-		c.SetDeadline(time.Now().Add(2 * time.Second))
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, 256)
-		c.Read(buf) // drain null bind
+		_, _ = c.Read(buf) // drain null bind
 		// BindResponse: resultCode 49 (invalidCredentials)
-		c.Write([]byte{
+		_, _ = c.Write([]byte{
 			0x30, 0x0c,
 			0x02, 0x01, 0x01,
 			0x61, 0x07,
@@ -160,7 +160,7 @@ func TestProbeLDAP_ClosedPort(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	_, portStr, _ := net.SplitHostPort(l.Addr().String())
-	l.Close()
+	_ = l.Close()
 
 	var port int
 	for _, b := range portStr {
@@ -203,20 +203,20 @@ func serveEPMD(t *testing.T, handler func(net.Conn)) (port int, cleanup func()) 
 			p = p*10 + int(b-'0')
 		}
 	}
-	return p, func() { l.Close() }
+	return p, func() { _ = l.Close() }
 }
 
 // TestProbeEPMD_NodesListed verifies that a proper EPMD NAMES response returns
 // the node names and nothing is missed.
 func TestProbeEPMD_NodesListed(t *testing.T) {
 	port, cleanup := serveEPMD(t, func(c net.Conn) {
-		defer c.Close()
-		c.SetDeadline(time.Now().Add(2 * time.Second))
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, 16)
-		c.Read(buf) // drain NAMES request
+		_, _ = c.Read(buf) // drain NAMES request
 		response := "name rabbit at port 25672\nname myapp at port 12345\n"
 		resp := append([]byte{0x00, 0x00, 0x11, 0x11}, []byte(response)...)
-		c.Write(resp)
+		_, _ = c.Write(resp)
 	})
 	defer cleanup()
 

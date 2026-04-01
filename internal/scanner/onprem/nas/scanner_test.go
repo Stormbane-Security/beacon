@@ -26,16 +26,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	return false
 }
 
-func countCheckID(findings []finding.Finding, id finding.CheckID) int {
-	n := 0
-	for _, f := range findings {
-		if f.CheckID == id {
-			n++
-		}
-	}
-	return n
-}
-
 // --------------------------------------------------------------------------
 // Mock NAS server builders
 // --------------------------------------------------------------------------
@@ -159,20 +149,20 @@ func (m *truenasMock) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		switch {
-		case path == "/api/v2.0/system/info":
+		switch path {
+		case "/api/v2.0/system/info":
 			json.NewEncoder(w).Encode(m.SystemInfo)
-		case path == "/api/v2.0/sharing/smb":
+		case "/api/v2.0/sharing/smb":
 			json.NewEncoder(w).Encode(m.SMBShares)
-		case path == "/api/v2.0/sharing/nfs":
+		case "/api/v2.0/sharing/nfs":
 			json.NewEncoder(w).Encode(m.NFSShares)
-		case path == "/api/v2.0/smb":
+		case "/api/v2.0/smb":
 			json.NewEncoder(w).Encode(m.SMBConfig)
-		case path == "/api/v2.0/ssh":
+		case "/api/v2.0/ssh":
 			json.NewEncoder(w).Encode(m.SSHConfig)
-		case path == "/api/v2.0/iscsi/target":
+		case "/api/v2.0/iscsi/target":
 			json.NewEncoder(w).Encode(m.ISCSITargets)
-		case path == "/api/v2.0/pool/snapshottask":
+		case "/api/v2.0/pool/snapshottask":
 			json.NewEncoder(w).Encode(m.SnapshotTasks)
 		default:
 			http.NotFound(w, r)

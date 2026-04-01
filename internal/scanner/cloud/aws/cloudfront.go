@@ -128,17 +128,8 @@ func scanCloudFront(ctx context.Context, cfg awscfg.Config, accountID, asset str
 			}
 
 			// Check 4: Access logging not enabled.
-			if dist.DefaultCacheBehavior != nil {
-				// Logging is at the distribution config level, exposed as a Logging field.
-				// In the ListDistributions summary, we don't get Logging details, so we
-				// check via the distribution's top-level fields available in the summary.
-				// The SDK DistributionSummary does not include Logging — we need to call
-				// GetDistribution for a definitive check. However, to avoid N+1 API calls,
-				// we check the summary-level indicator: if the distribution has no logging
-				// bucket, logging is not configured.
-				// Actually, the ListDistributions DistributionSummary does not include
-				// Logging config. We need to describe each distribution for this check.
-			}
+			// The ListDistributions DistributionSummary does not include
+			// Logging config. We need to describe each distribution for this check.
 			getResp, getErr := svc.GetDistribution(ctx, &cloudfront.GetDistributionInput{
 				Id: dist.Id,
 			})

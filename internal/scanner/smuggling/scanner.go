@@ -333,7 +333,7 @@ func resolveTarget(ctx context.Context, asset string) (string, string, bool) {
 		if err != nil {
 			continue
 		}
-		conn.Close()
+		_ = conn.Close()
 		return asset, entry.port, entry.useTLS
 	}
 	return "", "", false
@@ -437,7 +437,7 @@ func sendRaw(ctx context.Context, host, port string, useTLS bool, raw string, ti
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	deadline := time.Now().Add(timeout)
 	if err := conn.SetDeadline(deadline); err != nil {
@@ -483,7 +483,7 @@ func dialConn(ctx context.Context, host, port string, useTLS bool) (net.Conn, er
 	tlsConn := tls.Client(rawConn, tlsCfg)
 	tlsConn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 	if err := tlsConn.Handshake(); err != nil {
-		rawConn.Close()
+		_ = rawConn.Close()
 		return nil, err
 	}
 	return tlsConn, nil

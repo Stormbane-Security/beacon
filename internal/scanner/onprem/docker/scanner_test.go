@@ -37,10 +37,6 @@ func countCheckID(findings []finding.Finding, id finding.CheckID) int {
 	return n
 }
 
-// containerJSON builds a minimal inspect response for testing. The caller can
-// override fields via the opts function.
-type inspectOpts func(*inspectBody)
-
 type inspectBody struct {
 	ID         string     `json:"Id"`
 	Name       string     `json:"Name"`
@@ -789,7 +785,7 @@ func TestAllFindings_HaveProofAndEvidence(t *testing.T) {
 		if f.ProofCommand == "" {
 			t.Errorf("finding %s has empty ProofCommand", f.CheckID)
 		}
-		if f.Evidence == nil || len(f.Evidence) == 0 {
+		if len(f.Evidence) == 0 {
 			t.Errorf("finding %s has empty Evidence", f.CheckID)
 		}
 	}

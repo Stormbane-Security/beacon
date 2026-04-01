@@ -49,26 +49,6 @@ const scannerName = "chainnode"
 const dialTimeout = 3 * time.Second
 const httpTimeout = 8 * time.Second
 
-// nodePort describes a port to probe and how to interpret a response.
-type nodePort struct {
-	port     string
-	scheme   string // "http" | "ws" | "tcp"
-	chain    string
-	nodeType string // "full_node", "validator", "miner", "rpc"
-	probe    func(ctx context.Context, client *http.Client, base string) *probeResult
-}
-
-type probeResult struct {
-	open        bool
-	chainID     string
-	nodeVersion string
-	syncing     bool
-	peerCount   int
-	isMining    bool
-	isValidator bool
-	extraInfo   map[string]any
-}
-
 // Scanner detects blockchain nodes and validators.
 type Scanner struct{}
 
@@ -580,17 +560,6 @@ func probeMetrics(ctx context.Context, client *http.Client, host, port, nodeDesc
 		ProofCommand: fmt.Sprintf("curl -s http://%s:%s/metrics | grep -E '^# HELP|^beacon|^eth|^p2p' | head -20", host, port),
 		DiscoveredAt: time.Now(),
 	}
-}
-
-// isPortOpen checks TCP reachability within dialTimeout.
-func isPortOpen(ctx context.Context, host, port string) bool {
-	dialer := &net.Dialer{Timeout: dialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 // wsUpgradeConfirmed dials host:port and sends an HTTP/1.1 WebSocket upgrade

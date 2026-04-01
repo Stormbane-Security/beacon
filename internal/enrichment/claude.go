@@ -613,7 +613,7 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if readErr != nil {
 		return "", fmt.Errorf("reading OpenAI-compat response body: %w", readErr)

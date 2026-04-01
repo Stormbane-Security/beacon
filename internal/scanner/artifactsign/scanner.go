@@ -283,7 +283,7 @@ func (s *Scanner) checkContainerRegistry(ctx context.Context, client *http.Clien
 	if err != nil {
 		return nil
 	}
-	sigResp.Body.Close()
+	_ = sigResp.Body.Close()
 
 	// If the signature tag exists, the image is signed.
 	if sigResp.StatusCode == http.StatusOK {
