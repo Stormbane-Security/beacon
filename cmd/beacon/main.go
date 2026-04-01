@@ -3875,7 +3875,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 				fps++
 			}
 		}
-		md.WriteString(fmt.Sprintf("%d findings reviewed · %d likely false positives\n\n", len(result.AccuracyReview), fps))
+		_, _ = fmt.Fprintf(&md, "%d findings reviewed · %d likely false positives\n\n", len(result.AccuracyReview), fps)
 		for _, r := range result.AccuracyReview {
 			icon := "✓"
 			switch r.Verdict {
@@ -3888,9 +3888,9 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 			if !r.ProofCmdOK {
 				proofStatus = fmt.Sprintf(" · proof broken: %s", r.ProofCmdIssue)
 			}
-			md.WriteString(fmt.Sprintf("- %s [%d%%] **%s** on `%s`%s\n", icon, r.Confidence, r.Title, r.Asset, proofStatus))
+			_, _ = fmt.Fprintf(&md, "- %s [%d%%] **%s** on `%s`%s\n", icon, r.Confidence, r.Title, r.Asset, proofStatus)
 			if r.Reasoning != "" {
-				md.WriteString(fmt.Sprintf("  > %s\n", r.Reasoning))
+				_, _ = fmt.Fprintf(&md, "  > %s\n", r.Reasoning)
 			}
 		}
 		md.WriteString("\n")

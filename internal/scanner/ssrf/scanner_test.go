@@ -830,7 +830,7 @@ func TestSSRF_LargeResponseBody_NoOOM(t *testing.T) {
 	// the body read at maxBodySize and not consume unbounded memory.
 	bigBody := strings.Repeat("x", 256*1024) // 256 KB
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, bigBody)
+		_, _ = fmt.Fprint(w, bigBody)
 	}))
 	defer srv.Close()
 
@@ -884,7 +884,7 @@ func TestSSRF_URLReflectedNotMetadata_NoFinding(t *testing.T) {
 		urlParam := r.URL.Query().Get("url")
 		if urlParam != "" {
 			// Echo the URL back, not the fetched content.
-			fmt.Fprintf(w, "You requested: %s\n", urlParam)
+			_, _ = fmt.Fprintf(w, "You requested: %s\n", urlParam)
 			return
 		}
 		fmt.Fprintln(w, "ok")

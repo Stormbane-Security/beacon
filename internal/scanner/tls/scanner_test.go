@@ -776,7 +776,7 @@ func TestNoCRLAndNoOCSP_BothMissing(t *testing.T) {
 	noCRL := len(cert.CRLDistributionPoints) == 0
 	noOCSP := len(cert.OCSPServer) == 0
 
-	if !(noCRL && noOCSP) {
+	if !noCRL || !noOCSP {
 		t.Error("expected both CRL and OCSP to be absent")
 	}
 }

@@ -234,7 +234,7 @@ func (s *Scanner) checkOutdatedVersion(ctx context.Context, target string) []fin
 		return nil
 	}
 	var year int
-	fmt.Sscanf(parts[0], "%d", &year)
+	_, _ = fmt.Sscanf(parts[0], "%d", &year)
 	if year >= 2024 {
 		return nil
 	}

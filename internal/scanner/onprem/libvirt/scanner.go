@@ -220,7 +220,7 @@ func (s *Scanner) checkTCPNoAuth(asset, host string) (bool, []finding.Finding) {
 	if err != nil {
 		return false, nil
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	return true, []finding.Finding{{
 		CheckID: finding.CheckOnpremLibvirtTCPNoAuth,
@@ -252,7 +252,7 @@ func (s *Scanner) checkTLSDisabled(asset, host string) []finding.Finding {
 	addr := net.JoinHostPort(host, portTLS)
 	conn, err := s.dial("tcp", addr, dialTimeout)
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil // TLS port is open, good
 	}
 

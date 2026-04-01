@@ -89,7 +89,7 @@ func mockGitHubAPI(t *testing.T, owner, repo, configYAML string, statusCode int)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(statusCode)
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

@@ -89,7 +89,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				return
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				return
@@ -174,7 +174,7 @@ func (s *Scanner) probeCatalog(ctx context.Context, client *http.Client, catalog
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -224,7 +224,7 @@ func (s *Scanner) checkRepo(ctx context.Context, client *http.Client, baseURL, a
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		mu.Lock()

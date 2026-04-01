@@ -710,7 +710,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("gemini API error: %s", out.Error.Message)
 	}
 	if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("Gemini returned no content")
+		return "", fmt.Errorf("gemini returned no content")
 	}
 	return out.Candidates[0].Content.Parts[0].Text, nil
 }
@@ -736,7 +736,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama request failed (is Ollama running?): %w", err)
+		return "", fmt.Errorf("ollama request failed (is Ollama running?): %w", err)
 	}
 	defer resp.Body.Close()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
@@ -748,7 +748,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 		if c.apiKey != "" {
 			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
 		}
-		return "", fmt.Errorf("Ollama API HTTP %d: %s", resp.StatusCode, safeBody)
+		return "", fmt.Errorf("ollama API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {

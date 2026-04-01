@@ -242,7 +242,7 @@ func TestCDNBypassFromHistory_FindingContainsStatusCode(t *testing.T) {
 func mockHackerTargetServer(lines []string) *httptest.Server {
 	body := strings.Join(lines, "\n")
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 }
 
@@ -316,7 +316,7 @@ func TestRun_DeepMode_CDNBypassProbesExecuted(t *testing.T) {
 func TestRun_RootDomainFilter_ccTLD(t *testing.T) {
 	// A server that returns a valid HackerTarget response for example.co.uk.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "sub.example.co.uk,1.2.3.4")
+		_, _ = fmt.Fprint(w, "sub.example.co.uk,1.2.3.4")
 	}))
 	defer ts.Close()
 

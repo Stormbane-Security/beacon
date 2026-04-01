@@ -415,7 +415,7 @@ func (s *Scanner) checkTelnet(ctx context.Context, ip string) []finding.Finding 
 	defer conn.Close()
 
 	// Read the banner (if any) with a short timeout.
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	buf := make([]byte, 1024)
 	n, _ := conn.Read(buf)
 

@@ -15,7 +15,7 @@ func TestCheckGuestAccess_Enabled(t *testing.T) {
 		if r.URL.Path == "/guestAuth/app/rest/server" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(200)
-			w.Write([]byte(`{"version":"2023.11.4","buildNumber":"147571"}`))
+			_, _ = w.Write([]byte(`{"version":"2023.11.4","buildNumber":"147571"}`))
 			return
 		}
 		w.WriteHeader(404)
@@ -53,7 +53,7 @@ func TestCheckBuildConfigsExposed(t *testing.T) {
 		if r.URL.Path == "/guestAuth/app/rest/buildTypes" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(200)
-			w.Write([]byte(`{"count":2,"buildType":[{"id":"MyProject_Build","name":"Build"}]}`))
+			_, _ = w.Write([]byte(`{"count":2,"buildType":[{"id":"MyProject_Build","name":"Build"}]}`))
 			return
 		}
 		w.WriteHeader(404)
@@ -75,7 +75,7 @@ func TestCheckDebugEndpoint_Exposed(t *testing.T) {
 		if r.URL.Path == "/app/rest/debug/jvm/systemProperties" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(200)
-			w.Write([]byte(`{"property":[{"name":"java.version","value":"17.0.8"},{"name":"db.password","value":"s3cret"}]}`))
+			_, _ = w.Write([]byte(`{"property":[{"name":"java.version","value":"17.0.8"},{"name":"db.password","value":"s3cret"}]}`))
 			return
 		}
 		w.WriteHeader(404)

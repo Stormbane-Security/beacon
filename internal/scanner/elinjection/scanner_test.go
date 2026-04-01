@@ -468,7 +468,7 @@ func TestELInjection_EchoesPayloadLiterally_NoFinding(t *testing.T) {
 		q := r.URL.Query().Get("q")
 		if q != "" {
 			// Echo the input back literally without evaluation.
-			fmt.Fprintf(w, "You searched for: %s\n", q)
+			_, _ = fmt.Fprintf(w, "You searched for: %s\n", q)
 			return
 		}
 		fmt.Fprintln(w, "Welcome")
