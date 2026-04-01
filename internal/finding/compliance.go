@@ -416,7 +416,8 @@ var complianceMap = map[CheckID][]string{
 	CheckCICDBroadPermissions:  {"SOC2-CC6.3", "PCI-7.2"},
 	CheckSecretsAPIKey:         {"SOC2-CC6.1", "PCI-6.3.1"},
 	CheckCICDAttackPath:        {"SOC2-CC8.1", "PCI-6.4"},
-	CheckDependencyConfusion:   {"SOC2-CC8.1", "PCI-6.3", "NIST-PR.IP"},
+	CheckDependencyConfusion:    {"SOC2-CC8.1", "PCI-6.3", "NIST-PR.IP"},
+	CheckVulnerableDependency:  {"SOC2-CC7.1", "PCI-6.3.3", "NIST-PR.IP", "HIPAA-164.312(a)(1)"},
 	CheckJenkinsGroovyRCE:      {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.AC"},
 
 	// ── AI / LLM Security ───────────────────────────────────────────────────

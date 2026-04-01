@@ -1,4 +1,4 @@
-// Package depconf detects dependency confusion vulnerabilities.
+// Package depconf detects dependency confusion and known vulnerable dependencies.
 //
 // Dependency confusion (also called namespace confusion) occurs when an
 // attacker registers a public package with the same name as an internal
@@ -6,12 +6,15 @@
 // private ones (default behaviour for npm, pip, RubyGems) will pull the
 // attacker-controlled public version instead of the legitimate internal one.
 //
+// This scanner also queries the OSV.dev database to check if any dependency
+// with a pinned version has known vulnerabilities.
+//
 // This scanner:
 //  1. Fetches well-known manifest files from the target (package.json,
 //     requirements.txt, Gemfile, go.mod, composer.json).
-//  2. Extracts dependency names from each manifest.
-//  3. Checks whether each internal-looking name exists on the public registry
-//     (npm, PyPI). A public hit on an internal name = dependency confusion risk.
+//  2. Extracts dependency names and version constraints.
+//  3. Checks whether each internal-looking name exists on the public registry.
+//  4. Queries OSV for known vulnerabilities in pinned dependencies.
 //
 // Surface mode only — all checks are passive HTTP GETs.
 package depconf
@@ -28,14 +31,26 @@ import (
 
 	"github.com/stormbane/beacon/internal/finding"
 	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane/beacon/internal/osv"
 )
 
 const scannerName = "depconf"
 
-// Scanner probes for dependency confusion vulnerabilities.
-type Scanner struct{}
+// Scanner probes for dependency confusion and vulnerable dependency issues.
+type Scanner struct {
+	// osvClient is the OSV client for vulnerability lookups.
+	// If nil, OSV checking is skipped.
+	osvClient *osv.Client
+}
 
-func New() *Scanner { return &Scanner{} }
+// New creates a Scanner with OSV checking enabled.
+func New() *Scanner { return &Scanner{osvClient: osv.New()} }
+
+// NewWithoutOSV creates a Scanner with OSV checking disabled (for testing).
+func NewWithoutOSV() *Scanner { return &Scanner{} }
+
+// NewWithOSV creates a Scanner with a custom OSV client (for testing).
+func NewWithOSV(client *osv.Client) *Scanner { return &Scanner{osvClient: client} }
 
 func (s *Scanner) Name() string { return scannerName }
 
@@ -50,36 +65,36 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 		// package.json — npm/Node
 		if data := fetchManifest(ctx, client, base, "/package.json"); data != nil {
-			for _, name := range parseNPMPackages(data) {
-				allPackages = append(allPackages, packageRef{name: name, ecosystem: "npm", manifest: "/package.json"})
+			for _, dep := range parseNPMPackages(data) {
+				allPackages = append(allPackages, packageRef{name: dep.name, version: dep.version, ecosystem: "npm", manifest: "/package.json"})
 			}
 		}
 
 		// requirements.txt — Python/PyPI
 		if data := fetchManifest(ctx, client, base, "/requirements.txt"); data != nil {
-			for _, name := range parsePyPIPackages(data) {
-				allPackages = append(allPackages, packageRef{name: name, ecosystem: "pypi", manifest: "/requirements.txt"})
+			for _, dep := range parsePyPIPackages(data) {
+				allPackages = append(allPackages, packageRef{name: dep.name, version: dep.version, ecosystem: "pypi", manifest: "/requirements.txt"})
 			}
 		}
 
 		// go.mod — Go modules
 		if data := fetchManifest(ctx, client, base, "/go.mod"); data != nil {
-			for _, name := range parseGoModules(data) {
-				allPackages = append(allPackages, packageRef{name: name, ecosystem: "go", manifest: "/go.mod"})
+			for _, dep := range parseGoModules(data) {
+				allPackages = append(allPackages, packageRef{name: dep.name, version: dep.version, ecosystem: "go", manifest: "/go.mod"})
 			}
 		}
 
 		// Gemfile — Ruby gems
 		if data := fetchManifest(ctx, client, base, "/Gemfile"); data != nil {
-			for _, name := range parseGemfilePackages(data) {
-				allPackages = append(allPackages, packageRef{name: name, ecosystem: "ruby", manifest: "/Gemfile"})
+			for _, dep := range parseGemfilePackages(data) {
+				allPackages = append(allPackages, packageRef{name: dep.name, version: dep.version, ecosystem: "ruby", manifest: "/Gemfile"})
 			}
 		}
 
 		// composer.json — PHP Composer
 		if data := fetchManifest(ctx, client, base, "/composer.json"); data != nil {
-			for _, name := range parseComposerPackages(data) {
-				allPackages = append(allPackages, packageRef{name: name, ecosystem: "composer", manifest: "/composer.json"})
+			for _, dep := range parseComposerPackages(data) {
+				allPackages = append(allPackages, packageRef{name: dep.name, version: dep.version, ecosystem: "composer", manifest: "/composer.json"})
 			}
 		}
 
@@ -186,12 +201,112 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		})
 	}
 
+	// ── OSV vulnerability check ─────────────────────────────────────────
+	// Query OSV for all packages with pinned versions (not just internal-looking).
+	var osvQueries []osv.PackageQuery
+	var osvPackages []packageRef // parallel index for mapping results back
+	for _, p := range allPackages {
+		ver := cleanVersion(p.version)
+		if ver == "" {
+			continue
+		}
+		osvQueries = append(osvQueries, osv.PackageQuery{
+			Name:      p.name,
+			Version:   ver,
+			Ecosystem: p.ecosystem,
+		})
+		osvPackages = append(osvPackages, p)
+	}
+
+	if len(osvQueries) > 0 && s.osvClient != nil {
+		results, err := s.osvClient.QueryBatch(ctx, osvQueries)
+		if err == nil {
+			for i, result := range results {
+				if result.Error != "" || len(result.Vulnerabilities) == 0 {
+					continue
+				}
+				p := osvPackages[i]
+				for _, vuln := range result.Vulnerabilities {
+					sev := finding.SeverityHigh
+					if vuln.Severity == "critical" {
+						sev = finding.SeverityCritical
+					} else if vuln.Severity == "medium" {
+						sev = finding.SeverityMedium
+					} else if vuln.Severity == "low" {
+						sev = finding.SeverityLow
+					}
+
+					cveIDs := vuln.CVEIDs()
+					cveStr := vuln.ID
+					if len(cveIDs) > 0 {
+						cveStr = cveIDs[0]
+					}
+
+					evidence := map[string]any{
+						"package":   p.name,
+						"version":   cleanVersion(p.version),
+						"ecosystem": p.ecosystem,
+						"manifest":  p.manifest,
+						"osv_id":    vuln.ID,
+						"summary":   vuln.Summary,
+					}
+					if len(cveIDs) > 0 {
+						evidence["cve_id"] = cveIDs[0]
+					}
+					if vuln.FixedVersion != "" {
+						evidence["fixed_version"] = vuln.FixedVersion
+					}
+
+					findings = append(findings, finding.Finding{
+						CheckID:  finding.CheckVulnerableDependency,
+						Module:   "surface",
+						Scanner:  scannerName,
+						Severity: sev,
+						Asset:    asset,
+						Title:    fmt.Sprintf("Vulnerable dependency: %s@%s (%s)", p.name, cleanVersion(p.version), cveStr),
+						Description: fmt.Sprintf(
+							"The dependency %s version %s (from %s) has a known vulnerability: %s. %s",
+							p.name, cleanVersion(p.version), p.manifest, cveStr, vuln.Summary,
+						),
+						Evidence:     evidence,
+						ProofCommand: fmt.Sprintf("curl -s -X POST https://api.osv.dev/v1/query -d '{\"package\":{\"name\":\"%s\",\"ecosystem\":\"%s\"},\"version\":\"%s\"}' | jq .", p.name, osv.EcosystemName(p.ecosystem), cleanVersion(p.version)),
+						DiscoveredAt: time.Now(),
+					})
+				}
+			}
+		}
+	}
+
 	return findings, nil
 }
 
-// packageRef is a dependency name + its ecosystem.
+// cleanVersion extracts a usable version string from a constraint.
+// "^4.17.1" → "4.17.1", "~> 1.2.3" → "1.2.3", "==3.0.0" → "3.0.0", "" → "".
+func cleanVersion(v string) string {
+	v = strings.TrimSpace(v)
+	// Strip common constraint prefixes.
+	for _, prefix := range []string{"^", "~", ">=", "<=", "==", "!=", "~>", "=", ">", "<"} {
+		v = strings.TrimPrefix(v, prefix)
+	}
+	v = strings.TrimSpace(v)
+	// Strip anything after a space or comma (range specifiers like ">= 1.0, < 2.0").
+	if idx := strings.IndexAny(v, " ,"); idx > 0 {
+		v = v[:idx]
+	}
+	// Must look like a version (starts with digit).
+	if v == "" || v == "*" || v == "latest" {
+		return ""
+	}
+	if v[0] < '0' || v[0] > '9' {
+		return ""
+	}
+	return v
+}
+
+// packageRef is a dependency name + version + its ecosystem.
 type packageRef struct {
 	name      string
+	version   string // semver constraint or pinned version (e.g., "^4.17.1", "4.17.1")
 	ecosystem string
 	manifest  string
 }
@@ -218,8 +333,14 @@ func fetchManifest(ctx context.Context, client *http.Client, baseURL, path strin
 	return data
 }
 
-// parseNPMPackages extracts dependency names from a package.json.
-func parseNPMPackages(data []byte) []string {
+// depVersion is a package name + version constraint pair.
+type depVersion struct {
+	name    string
+	version string
+}
+
+// parseNPMPackages extracts dependency names and version constraints from a package.json.
+func parseNPMPackages(data []byte) []depVersion {
 	var pkg struct {
 		Dependencies    map[string]string `json:"dependencies"`
 		DevDependencies map[string]string `json:"devDependencies"`
@@ -228,20 +349,20 @@ func parseNPMPackages(data []byte) []string {
 		return nil
 	}
 	seen := make(map[string]struct{})
-	var names []string
-	for name := range pkg.Dependencies {
+	var deps []depVersion
+	for name, ver := range pkg.Dependencies {
 		if _, ok := seen[name]; !ok {
 			seen[name] = struct{}{}
-			names = append(names, name)
+			deps = append(deps, depVersion{name: name, version: ver})
 		}
 	}
-	for name := range pkg.DevDependencies {
+	for name, ver := range pkg.DevDependencies {
 		if _, ok := seen[name]; !ok {
 			seen[name] = struct{}{}
-			names = append(names, name)
+			deps = append(deps, depVersion{name: name, version: ver})
 		}
 	}
-	return names
+	return deps
 }
 
 // validPackageName returns true when s looks like a valid PyPI package name.
@@ -260,34 +381,42 @@ func validPackageName(s string) bool {
 	return true
 }
 
-// parsePyPIPackages extracts package names from a requirements.txt.
-func parsePyPIPackages(data []byte) []string {
-	var names []string
+// parsePyPIPackages extracts package names and version constraints from a requirements.txt.
+func parsePyPIPackages(data []byte) []depVersion {
+	var deps []depVersion
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		// Skip blank lines, comments, and pip option flags (e.g. --index-url).
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "-") {
 			continue
 		}
-		// Strip inline comment: "requests  # HTTP library" → "requests"
 		if idx := strings.Index(line, " #"); idx > 0 {
 			line = strings.TrimSpace(line[:idx])
 		}
-		// Strip version specifiers: "requests>=2.0" → "requests"
-		for _, sep := range []string{">=", "<=", "==", "!=", "~=", ">", "<", ";"} {
-			if idx := strings.Index(line, sep); idx > 0 {
-				line = strings.TrimSpace(line[:idx])
+		// Extract version constraint before stripping it.
+		name := line
+		version := ""
+		for _, sep := range []string{">=", "<=", "==", "!=", "~=", ">", "<"} {
+			if idx := strings.Index(name, sep); idx > 0 {
+				version = strings.TrimSpace(name[idx:])
+				name = strings.TrimSpace(name[:idx])
+				break
 			}
 		}
-		// Validate: a real package name contains only [A-Za-z0-9._-].
-		// Lines like `echo "# add nexus cli to path"` contain spaces/quotes
-		// and must be rejected — they are shell commands, not package names.
-		if !validPackageName(line) {
+		// Strip environment markers.
+		if idx := strings.Index(name, ";"); idx > 0 {
+			name = strings.TrimSpace(name[:idx])
+		}
+		if !validPackageName(name) {
 			continue
 		}
-		names = append(names, strings.ToLower(line))
+		// For ==pinned versions, extract the exact version for OSV lookup.
+		cleanVersion := ""
+		if strings.HasPrefix(version, "==") {
+			cleanVersion = strings.TrimSpace(version[2:])
+		}
+		deps = append(deps, depVersion{name: strings.ToLower(name), version: cleanVersion})
 	}
-	return names
+	return deps
 }
 
 // isInternalLooking returns true when a package name looks like it could be
@@ -353,18 +482,18 @@ var knownGoHosts = []string{
 	"go.etcd.io/", "gonum.org/",
 }
 
-// parseGoModules extracts private-looking module paths from a go.mod file.
+// parseGoModules extracts module paths and versions from a go.mod file.
 // Only require directives whose module path does not start with a known public
 // host are returned — these are candidates for dependency confusion.
-func parseGoModules(data []byte) []string {
-	var names []string
+// All modules (including public) are stored in goModAllDeps for OSV checking.
+func parseGoModules(data []byte) []depVersion {
+	var deps []depVersion
 	inRequire := false
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "//") {
 			continue
 		}
-		// Block require ( ... )
 		if strings.HasPrefix(line, "require (") || line == "require (" {
 			inRequire = true
 			continue
@@ -373,23 +502,27 @@ func parseGoModules(data []byte) []string {
 			inRequire = false
 			continue
 		}
-		// Single-line require directive
-		var modulePath string
+		var modulePath, moduleVersion string
 		if inRequire {
 			parts := strings.Fields(line)
 			if len(parts) >= 1 {
 				modulePath = parts[0]
+			}
+			if len(parts) >= 2 {
+				moduleVersion = strings.TrimPrefix(parts[1], "v")
 			}
 		} else if strings.HasPrefix(line, "require ") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				modulePath = parts[1]
 			}
+			if len(parts) >= 3 {
+				moduleVersion = strings.TrimPrefix(parts[2], "v")
+			}
 		}
 		if modulePath == "" {
 			continue
 		}
-		// Skip well-known public hosts.
 		isPublic := false
 		for _, host := range knownGoHosts {
 			if strings.HasPrefix(modulePath, host) {
@@ -398,29 +531,47 @@ func parseGoModules(data []byte) []string {
 			}
 		}
 		if !isPublic {
-			names = append(names, modulePath)
+			deps = append(deps, depVersion{name: modulePath, version: moduleVersion})
 		}
 	}
-	return names
+	return deps
 }
 
 // gemRe matches gem declarations in a Gemfile: gem 'name' or gem "name"
 var gemRe = regexp.MustCompile(`(?m)^\s*gem\s+['"]([a-zA-Z0-9._-]+)['"]`)
 
-// parseGemfilePackages extracts gem names from a Gemfile.
-func parseGemfilePackages(data []byte) []string {
-	matches := gemRe.FindAllStringSubmatch(string(data), -1)
-	var names []string
+// gemVersionRe matches gem declarations with optional version: gem 'name', '~> 1.2'
+var gemVersionRe = regexp.MustCompile(`(?m)^\s*gem\s+['"]([a-zA-Z0-9._-]+)['"]\s*(?:,\s*['"]([^'"]*)['"]\s*)?`)
+
+// parseGemfilePackages extracts gem names and version constraints from a Gemfile.
+func parseGemfilePackages(data []byte) []depVersion {
+	matches := gemVersionRe.FindAllStringSubmatch(string(data), -1)
+	var deps []depVersion
 	for _, m := range matches {
 		if len(m) >= 2 && m[1] != "" {
-			names = append(names, m[1])
+			ver := ""
+			if len(m) >= 3 {
+				ver = m[2]
+			}
+			deps = append(deps, depVersion{name: m[1], version: cleanGemVersion(ver)})
 		}
 	}
-	return names
+	return deps
 }
 
-// parseComposerPackages extracts package names from a composer.json require block.
-func parseComposerPackages(data []byte) []string {
+// cleanGemVersion extracts the version number from a gem constraint like "~> 1.2" or "= 3.0.1".
+func cleanGemVersion(constraint string) string {
+	constraint = strings.TrimSpace(constraint)
+	for _, prefix := range []string{"~>", ">=", "<=", "!=", "=", ">", "<"} {
+		if strings.HasPrefix(constraint, prefix) {
+			return strings.TrimSpace(constraint[len(prefix):])
+		}
+	}
+	return constraint
+}
+
+// parseComposerPackages extracts package names and version constraints from a composer.json.
+func parseComposerPackages(data []byte) []depVersion {
 	var pkg struct {
 		Require    map[string]string `json:"require"`
 		RequireDev map[string]string `json:"require-dev"`
@@ -429,27 +580,26 @@ func parseComposerPackages(data []byte) []string {
 		return nil
 	}
 	seen := make(map[string]struct{})
-	var names []string
-	for name := range pkg.Require {
-		// Skip PHP platform requirements (php, ext-*)
+	var deps []depVersion
+	for name, ver := range pkg.Require {
 		if name == "php" || strings.HasPrefix(name, "ext-") {
 			continue
 		}
 		if _, ok := seen[name]; !ok {
 			seen[name] = struct{}{}
-			names = append(names, name)
+			deps = append(deps, depVersion{name: name, version: ver})
 		}
 	}
-	for name := range pkg.RequireDev {
+	for name, ver := range pkg.RequireDev {
 		if name == "php" || strings.HasPrefix(name, "ext-") {
 			continue
 		}
 		if _, ok := seen[name]; !ok {
 			seen[name] = struct{}{}
-			names = append(names, name)
+			deps = append(deps, depVersion{name: name, version: ver})
 		}
 	}
-	return names
+	return deps
 }
 
 // checkGoProxy returns true if the Go module exists on the public Go module proxy.
