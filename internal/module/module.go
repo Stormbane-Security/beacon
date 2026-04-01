@@ -50,6 +50,13 @@ type crawlFeedCloserKeyType struct{}
 // deferred safety-net closer also fires.
 var CrawlFeedCloserKey = crawlFeedCloserKeyType{}
 
+// RequiresDeepMode returns true if the given scan type is below deep mode.
+// Scanners that only run in deep or authorized mode should use this at the
+// top of their Run method instead of duplicating the comparison inline.
+func RequiresDeepMode(scanType ScanType) bool {
+	return scanType != ScanDeep && scanType != ScanAuthorized
+}
+
 // Module is the interface every scan module must implement.
 type Module interface {
 	// Name returns the stable module identifier (e.g., "surface", "github").

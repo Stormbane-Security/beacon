@@ -82,12 +82,9 @@ func (n nasType) String() string {
 // --------------------------------------------------------------------------
 
 // Run executes the NAS appliance scanner. Requires Deep mode because it
-// authenticates and queries vendor APIs.
+// authenticates and queries vendor APIs. The scan-type gate is enforced by
+// the on-prem module dispatcher; this method assumes deep or authorized mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
-		return nil, nil
-	}
-
 	endpoint := s.cfg.Endpoint
 	if endpoint == "" {
 		endpoint = "https://" + asset
