@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   build-and-test:
@@ -38,15 +39,88 @@ jobs:
 
       - name: Build
         run: go build ./...
-        env:
-          GOPRIVATE: github.com/stormbane-security/*
 
       - name: Vet
         run: go vet ./...
-        env:
-          GOPRIVATE: github.com/stormbane-security/*
 
       - name: Test
         run: go test -race -timeout 5m ./...
+
+  govulncheck:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure private Go modules
+        run: |
+          git config --global url."https://${{ secrets.GOPRIVATE_TOKEN }}@github.com/".insteadOf "https://github.com/"
         env:
           GOPRIVATE: github.com/stormbane-security/*
+
+      - name: Download dependencies
+        run: go mod download
+        env:
+          GOPRIVATE: github.com/stormbane-security/*
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  gosec:
+    name: Go Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure private Go modules
+        run: |
+          git config --global url."https://${{ secrets.GOPRIVATE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GOPRIVATE: github.com/stormbane-security/*
+
+      - name: Download dependencies
+        run: go mod download
+        env:
+          GOPRIVATE: github.com/stormbane-security/*
+
+      # G304 (file path from variable) and G107 (url from variable) are
+      # expected in a security scanner that intentionally probes URLs and
+      # reads config files. G101 (hardcoded credentials) false-positives
+      # on check ID constants like "iam.client_secret_in_js".
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
+
+      - name: Run gosec
+        run: gosec -exclude=G304,G107,G101 -fmt sarif -out gosec.sarif ./...
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
