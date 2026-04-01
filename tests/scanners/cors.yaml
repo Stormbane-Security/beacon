@@ -1,0 +1,25 @@
+name: cors-misconfiguration
+description: "Nginx with permissive CORS headers (Access-Control-Allow-Origin: * with credentials) triggers web.cors_misconfiguration"
+tags: [cors, scanner, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["8091:80"]
+    volumes:
+      - ./cors/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:8091/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-cors-misconfiguration
+    type: beacon
+    target: localhost:8091
+    args: ["--scanners", "cors"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+timeout: 5m

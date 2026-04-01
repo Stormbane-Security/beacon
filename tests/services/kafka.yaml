@@ -1,0 +1,44 @@
+name: kafka-exposed
+description: "Apache Kafka broker with ZooKeeper exposed without authentication"
+tags: [kafka, messaging, zookeeper]
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports: ["9124:2181"]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    ports: ["9125:9092"]
+    environment:
+      KAFKA_BROKER_ID: "1"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9125
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+    depends_on:
+      - zookeeper
+
+ready:
+  cmd: "nc -z localhost 9125"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: detects-zookeeper-exposed
+    type: beacon
+    target: localhost:9124
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.zookeeper_exposed
+
+  - name: detects-kafka-exposed
+    type: beacon
+    target: localhost:9125
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.kafka_exposed
+
+timeout: 5m

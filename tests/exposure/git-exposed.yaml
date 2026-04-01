@@ -1,0 +1,25 @@
+name: git-exposed
+description: "Web server with .git directory accessible via HTTP"
+tags: [exposure, git, sensitive-file]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9146:80"]
+    volumes:
+      - ./git-exposed/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9146/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-git-exposed
+    type: beacon
+    target: localhost:9146
+    args: ["--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.git_exposed
+
+timeout: 5m

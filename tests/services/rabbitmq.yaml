@@ -1,0 +1,41 @@
+name: rabbitmq-default-creds
+description: "RabbitMQ 3 with management plugin and default guest/guest credentials"
+tags: [rabbitmq, service, messaging]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "9110:5672"
+      - "9111:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+ready:
+  cmd: "curl -sf http://localhost:9111/api/overview -u guest:guest >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: classifies-as-rabbitmq
+    type: classify
+    target: localhost:9111
+    expect:
+      technology: RabbitMQ
+
+  - name: detects-default-credentials
+    type: beacon
+    target: localhost:9111
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  - name: detects-management-exposed
+    type: beacon
+    target: localhost:9111
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.rabbitmq_mgmt_exposed
+
+timeout: 5m

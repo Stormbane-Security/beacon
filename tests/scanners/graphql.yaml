@@ -1,0 +1,25 @@
+name: graphql-introspection
+description: "Python GraphQL server with introspection enabled triggers graphql.introspection_enabled"
+tags: [graphql, scanner, api]
+
+services:
+  graphql-app:
+    build:
+      context: ./graphql
+      dockerfile: Dockerfile
+    ports: ["8097:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8097/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-graphql-introspection
+    type: beacon
+    target: localhost:8097
+    args: ["--scanners", "graphql"]
+    expect:
+      check_id: graphql.introspection_enabled
+
+timeout: 5m

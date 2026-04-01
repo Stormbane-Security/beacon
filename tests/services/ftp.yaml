@@ -1,0 +1,31 @@
+name: ftp-anonymous
+description: "vsftpd FTP server allowing anonymous login"
+tags: [ftp, file-sharing, anonymous]
+
+services:
+  ftp:
+    image: fauria/vsftpd
+    ports:
+      - "9132:21"
+      - "21100-21110:21100-21110"
+    environment:
+      FTP_USER: testuser
+      FTP_PASS: testpass
+      PASV_MIN_PORT: "21100"
+      PASV_MAX_PORT: "21110"
+      ANONYMOUS_ENABLE: "YES"
+
+ready:
+  cmd: "nc -z localhost 9132"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-ftp-anonymous
+    type: beacon
+    target: localhost:9132
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.ftp_anonymous
+
+timeout: 5m

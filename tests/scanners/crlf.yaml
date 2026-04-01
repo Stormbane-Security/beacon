@@ -1,0 +1,25 @@
+name: crlf-injection
+description: "Python app that reflects user input in HTTP headers without sanitization triggers web.crlf_injection"
+tags: [crlf, scanner, web]
+
+services:
+  crlf-app:
+    build:
+      context: ./crlf
+      dockerfile: Dockerfile
+    ports: ["8096:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8096/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-crlf-injection
+    type: beacon
+    target: localhost:8096
+    args: ["--scanners", "crlf", "--permission-confirmed"]
+    expect:
+      check_id: web.crlf_injection
+
+timeout: 5m

@@ -1,0 +1,27 @@
+name: postgres-trust-auth
+description: "PostgreSQL 16 with trust authentication allows passwordless connections"
+tags: [postgres, database, portscan]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports: ["9107:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: postgres
+      POSTGRES_DB: testdb
+
+ready:
+  cmd: "pg_isready -h localhost -p 9107 -U postgres"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-exposed-postgresql
+    type: beacon
+    target: localhost:9107
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.postgresql_trust
+
+timeout: 5m

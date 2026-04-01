@@ -1,0 +1,26 @@
+name: mysql-empty-root-password
+description: "MySQL 8.0 with empty root password allows unauthenticated database access"
+tags: [mysql, database, portscan]
+
+services:
+  mysql:
+    image: mysql:8.0
+    ports: ["9109:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: "%"
+
+ready:
+  cmd: "mysqladmin -h localhost -P 9109 -u root ping 2>/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-mysql-no-auth
+    type: beacon
+    target: localhost:9109
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.mysql_no_auth
+
+timeout: 5m

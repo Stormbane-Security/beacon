@@ -1,0 +1,45 @@
+name: wordpress-exposed
+description: "WordPress 6.4 with MySQL backend for CMS detection and plugin enumeration"
+tags: [wordpress, service, cms]
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: wppassword
+    ports: ["13306:3306"]
+
+  wordpress:
+    image: wordpress:6.4-apache
+    ports: ["9102:80"]
+    environment:
+      WORDPRESS_DB_HOST: mysql:3306
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: wppassword
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - mysql
+
+ready:
+  cmd: "curl -sf http://localhost:9102/ >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: classifies-as-wordpress
+    type: classify
+    target: localhost:9102
+    expect:
+      technology: WordPress
+
+  - name: detects-cms-plugins
+    type: beacon
+    target: localhost:9102
+    args: ["--scanners", "webcontent"]
+    expect:
+      check_id: web.tech_detected
+
+timeout: 5m

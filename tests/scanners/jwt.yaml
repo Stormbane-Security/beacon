@@ -1,0 +1,25 @@
+name: jwt-weak-algorithm
+description: "Python app issuing JWTs with alg:none triggers jwt.weak_algorithm"
+tags: [jwt, scanner, auth]
+
+services:
+  jwt-app:
+    build:
+      context: ./jwt
+      dockerfile: Dockerfile
+    ports: ["8098:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8098/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-weak-jwt-algorithm
+    type: beacon
+    target: localhost:8098
+    args: ["--scanners", "jwt"]
+    expect:
+      check_id: jwt.weak_algorithm
+
+timeout: 5m

@@ -1,0 +1,32 @@
+name: prometheus-no-auth
+description: "Prometheus v2.51.0 with no authentication exposes metrics and targets"
+tags: [prometheus, service, monitoring]
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports: ["9113:9090"]
+    command:
+      - "--web.enable-lifecycle"
+      - "--config.file=/etc/prometheus/prometheus.yml"
+
+ready:
+  cmd: "curl -sf http://localhost:9113/-/healthy >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: classifies-as-prometheus
+    type: classify
+    target: localhost:9113
+    expect:
+      technology: Prometheus
+
+  - name: detects-unauthenticated-prometheus
+    type: beacon
+    target: localhost:9113
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.prometheus_unauthenticated
+
+timeout: 5m

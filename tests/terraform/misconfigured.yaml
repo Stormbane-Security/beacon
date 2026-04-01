@@ -1,0 +1,72 @@
+name: terraform-misconfigured
+description: "Terraform files with public S3 bucket, open security group, unencrypted RDS, HTTP CloudFront, and IAM wildcard policy"
+tags: [terraform, iac, scanner]
+
+services:
+  terraform-files:
+    image: alpine:3.19
+    volumes:
+      - ./misconfigured:/terraform:ro
+    command: ["sleep", "infinity"]
+
+ready:
+  cmd: "test -f /Users/patrick/beacon/tests/terraform/misconfigured/main.tf"
+  timeout: 10s
+  interval: 1s
+
+assertions:
+  - name: detects-public-s3-bucket
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.s3_bucket_public
+
+  - name: detects-open-security-group
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.sg_open_ingress
+
+  - name: detects-unencrypted-rds
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.rds_unencrypted
+
+  - name: detects-public-rds
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.rds_publicly_accessible
+
+  - name: detects-cloudfront-http
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.cloudfront_http_allowed
+
+  - name: detects-iam-wildcard
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.iam_wildcard_policy
+
+  - name: detects-imdsv1
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.imdsv1_enabled
+
+  - name: detects-unencrypted-ebs
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.ebs_unencrypted
+
+  - name: detects-secrets-in-code
+    type: command
+    cmd: "beacon terraform /terraform"
+    expect:
+      check_id: terraform.secrets_in_code
+
+timeout: 5m

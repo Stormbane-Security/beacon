@@ -1,0 +1,23 @@
+name: memcached-no-auth
+description: "Memcached 1 with no authentication exposes unauthenticated cache access"
+tags: [memcached, database, portscan]
+
+services:
+  memcached:
+    image: memcached:1-alpine
+    ports: ["9214:11211"]
+
+ready:
+  cmd: "echo stats | nc -w 1 localhost 9214 | grep -q pid"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-unauthenticated-memcached
+    type: beacon
+    target: localhost:9214
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+timeout: 5m

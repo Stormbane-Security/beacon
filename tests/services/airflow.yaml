@@ -1,0 +1,38 @@
+name: airflow-exposed
+description: "Apache Airflow web server exposed with default credentials"
+tags: [airflow, workflow, data-pipeline]
+
+services:
+  airflow:
+    image: apache/airflow:2.8.1
+    ports: ["9156:8080"]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "true"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    command: ["standalone"]
+
+ready:
+  cmd: "curl -sf http://localhost:9156/health | grep -q healthy"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: classifies-as-airflow
+    type: classify
+    target: localhost:9156
+    expect:
+      backend_service: Airflow
+
+  - name: detects-airflow-exposed
+    type: beacon
+    target: localhost:9156
+    args: ["--scanners", "portscan"]
+    expect:
+      check_id: port.airflow_exposed
+
+timeout: 10m

@@ -1,0 +1,34 @@
+name: email-missing-dmarc
+description: "CoreDNS serving a zone with weak SPF (+all) and no DMARC record triggers email security findings"
+tags: [email, scanner, dns]
+
+services:
+  coredns:
+    image: coredns/coredns:1.11.1
+    ports: ["9114:53/udp", "9114:53/tcp"]
+    volumes:
+      - ./missing-dmarc/Corefile:/etc/coredns/Corefile:ro
+      - ./missing-dmarc/zones:/etc/coredns/zones:ro
+    command: ["-conf", "/etc/coredns/Corefile"]
+
+ready:
+  cmd: "dig @localhost -p 9114 testdomain.local A +short | grep -q 127.0.0.1"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-missing-dmarc
+    type: beacon
+    target: testdomain.local
+    args: ["--scanners", "email", "--dns-server", "127.0.0.1:9114"]
+    expect:
+      check_id: email.dmarc_missing
+
+  - name: detects-weak-spf
+    type: beacon
+    target: testdomain.local
+    args: ["--scanners", "email", "--dns-server", "127.0.0.1:9114"]
+    expect:
+      check_id: email.spoofable
+
+timeout: 5m

@@ -1,0 +1,25 @@
+name: env-file-exposed
+description: "Web server with .env file accessible at the document root"
+tags: [exposure, env, sensitive-file]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9145:80"]
+    volumes:
+      - ./env-file/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9145/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-env-file-exposed
+    type: beacon
+    target: localhost:9145
+    args: ["--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+timeout: 5m

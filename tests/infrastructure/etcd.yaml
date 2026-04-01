@@ -1,0 +1,26 @@
+name: etcd-no-auth
+description: "etcd 3.5 with no authentication exposes key-value store"
+tags: [etcd, infrastructure, kv-store]
+
+services:
+  etcd:
+    image: bitnami/etcd:3.5
+    ports: ["9215:2379"]
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: "http://0.0.0.0:2379"
+      ETCD_LISTEN_CLIENT_URLS: "http://0.0.0.0:2379"
+
+ready:
+  cmd: "curl -sf http://localhost:9215/version >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: detects-exposed-etcd
+    type: beacon
+    target: localhost:9215
+    expect:
+      check_id: web.tech_detected
+
+timeout: 5m
