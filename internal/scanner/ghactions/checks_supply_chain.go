@@ -26,9 +26,6 @@ var reIDTokenWrite = regexp.MustCompile(`(?m)id-token\s*:\s*write`)
 // reEnvironmentKey detects the presence of an environment: constraint on a job.
 var reEnvironmentKey = regexp.MustCompile(`(?m)^\s+environment\s*:`)
 
-// reIfCondition detects an if: condition at the job or step level.
-var reIfCondition = regexp.MustCompile(`(?m)^\s+if\s*:`)
-
 // checkOIDCTrustTooWide detects workflows using OIDC federation actions
 // (aws-actions/configure-aws-credentials, google-github-actions/auth, azure/login)
 // with id-token: write permission but without scoping the trust policy via an

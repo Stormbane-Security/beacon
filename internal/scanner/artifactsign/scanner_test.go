@@ -325,7 +325,7 @@ func TestPyPI_UnsignedPackage_EmitsFinding(t *testing.T) {
 		t.Error("ProofCommand must not be empty")
 	}
 
-	eco, _ := f.Evidence["ecosystem"]
+	eco := f.Evidence["ecosystem"]
 	if eco != "pypi" {
 		t.Errorf("expected ecosystem 'pypi', got %v", eco)
 	}
@@ -480,19 +480,19 @@ func TestContainerHub_UnsignedImage_EmitsFinding(t *testing.T) {
 		t.Error("ProofCommand must not be empty")
 	}
 
-	eco, _ := f.Evidence["ecosystem"]
+	eco := f.Evidence["ecosystem"]
 	if eco != "container" {
 		t.Errorf("expected ecosystem 'container', got %v", eco)
 	}
-	digest, _ := f.Evidence["digest"]
+	digest := f.Evidence["digest"]
 	if digest != "sha256:abc123def456" {
 		t.Errorf("expected digest 'sha256:abc123def456', got %v", digest)
 	}
-	sigTag, _ := f.Evidence["sig_tag"]
+	sigTag := f.Evidence["sig_tag"]
 	if sigTag != "sha256-abc123def456.sig" {
 		t.Errorf("expected sig_tag 'sha256-abc123def456.sig', got %v", sigTag)
 	}
-	reg, _ := f.Evidence["registry"]
+	reg := f.Evidence["registry"]
 	if reg != "docker.io" {
 		t.Errorf("expected registry 'docker.io', got %v", reg)
 	}

@@ -326,7 +326,7 @@ func TestDotNodeID_OnlyAlphanumericAndUnderscore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			out := dotNodeID(tt.input)
 			for _, c := range out {
-				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 					t.Errorf("dotNodeID(%q) = %q; contains invalid character %q", tt.input, out, string(c))
 				}
 			}

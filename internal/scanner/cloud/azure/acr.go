@@ -43,10 +43,7 @@ func evaluateACR(name string, props *armcontainerregistry.RegistryProperties, su
 	var findings []finding.Finding
 
 	// Check for public network access.
-	publicAccess := true
-	if props.PublicNetworkAccess != nil && *props.PublicNetworkAccess == armcontainerregistry.PublicNetworkAccessDisabled {
-		publicAccess = false
-	}
+	publicAccess := props.PublicNetworkAccess == nil || *props.PublicNetworkAccess != armcontainerregistry.PublicNetworkAccessDisabled
 	if publicAccess {
 		findings = append(findings, finding.Finding{
 			CheckID: finding.CheckCloudAzureACRPublic,

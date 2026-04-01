@@ -347,18 +347,6 @@ func (s *Scanner) fetchFirewallOptions(ctx context.Context) (map[string]any, err
 	return opts, nil
 }
 
-func (s *Scanner) fetchHAStatus(ctx context.Context) ([]map[string]any, error) {
-	var resp pveResponse
-	if err := s.doRequest(ctx, "/api2/json/cluster/ha/status/current", &resp); err != nil {
-		return nil, err
-	}
-	var status []map[string]any
-	if err := json.Unmarshal(resp.Data, &status); err != nil {
-		return nil, fmt.Errorf("decode ha status: %w", err)
-	}
-	return status, nil
-}
-
 // fetchBackedUpVMIDs returns a set of VMID strings that have at least one
 // backup schedule configured.
 func (s *Scanner) fetchBackedUpVMIDs(ctx context.Context) map[string]bool {

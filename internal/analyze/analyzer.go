@@ -810,19 +810,6 @@ type ScanGap struct {
 // parseAnalysisResponse parses Claude's JSON response.
 // Handles the new comprehensive format (with accuracy_review, scan_optimizations,
 // scan_gaps, fix_prompt) and falls back to the legacy format for backward compat.
-func parseAnalysisResponse(text string, domainRunIDs map[string]string) ([]*store.PlaybookSuggestion, map[string][]store.CorrelationFinding, error) {
-	result, err := parseFullAnalysisResponse(text, domainRunIDs)
-	if err != nil {
-		// Fall back to bare array format (backward compat with existing tests).
-		suggestions, err2 := parseSuggestions(text)
-		if err2 != nil {
-			return nil, nil, err2
-		}
-		return suggestions, nil, nil
-	}
-	return result.Suggestions, result.CorrelationsByDomain, nil
-}
-
 // parseFullAnalysisResponse parses the comprehensive analysis JSON and returns
 // all sections including accuracy review, optimizations, gaps, and fix prompt.
 func parseFullAnalysisResponse(text string, domainRunIDs map[string]string) (*AnalysisResult, error) {
@@ -1075,7 +1062,7 @@ func (a *Analyzer) callClaude(ctx context.Context, prompt string, tokenBudget in
 			// fall through to parse
 
 		default:
-			return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+			return "", fmt.Errorf("claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 		}
 
 		var cr claudeResponse

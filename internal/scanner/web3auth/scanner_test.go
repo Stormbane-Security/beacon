@@ -63,7 +63,7 @@ func mockSIWEServer(t *testing.T, rejectNonceReuse bool, rejectWrongDomain bool)
 		if rejectWrongDomain {
 			firstLine := strings.SplitN(payload.Message, "\n", 2)[0]
 			if strings.Contains(firstLine, "attacker.beacon-scanner.invalid") {
-				http.Error(w, "domain mismatch", 401)
+				http.Error(w, "domain mismatch", http.StatusUnauthorized)
 				return
 			}
 		}
@@ -553,7 +553,7 @@ func TestSIWE_ChainMismatchNotFlaggedWhenEnforced(t *testing.T) {
 		}
 		// Reject any message with chain ID other than 1.
 		if strings.Contains(payload.Message, "Chain ID: 137") {
-			http.Error(w, "wrong chain", 401)
+			http.Error(w, "wrong chain", http.StatusUnauthorized)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{Name: "session", Value: "sess"})
@@ -602,7 +602,7 @@ func TestSIWE_URIMismatchNotFlaggedWhenEnforced(t *testing.T) {
 		for _, line := range strings.Split(payload.Message, "\n") {
 			if strings.HasPrefix(line, "URI: ") {
 				if strings.Contains(line, "attacker.beacon-scanner.invalid") {
-					http.Error(w, "invalid uri", 401)
+					http.Error(w, "invalid uri", http.StatusUnauthorized)
 					return
 				}
 			}

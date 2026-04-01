@@ -2,7 +2,6 @@ package profiler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,21 +9,6 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/playbook"
 )
-
-// mockAnthropicServer returns a test server that responds with a valid Claude API
-// message response containing the given text.
-func mockAnthropicServer(t *testing.T, responseText string) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": responseText},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}))
-}
 
 // TestParseProfile_ValidJSON verifies that a well-formed JSON profile is parsed correctly.
 func TestParseProfile_ValidJSON(t *testing.T) {

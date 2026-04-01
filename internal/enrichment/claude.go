@@ -613,7 +613,7 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if readErr != nil {
 		return "", fmt.Errorf("reading OpenAI-compat response body: %w", readErr)
@@ -690,7 +690,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		if c.apiKey != "" {
 			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
 		}
-		return "", fmt.Errorf("Gemini API HTTP %d: %s", resp.StatusCode, safeBody)
+		return "", fmt.Errorf("gemini API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {
@@ -707,7 +707,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("parsing Gemini response: %w", err)
 	}
 	if out.Error != nil {
-		return "", fmt.Errorf("Gemini API error: %s", out.Error.Message)
+		return "", fmt.Errorf("gemini API error: %s", out.Error.Message)
 	}
 	if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
 		return "", fmt.Errorf("Gemini returned no content")

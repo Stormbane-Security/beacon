@@ -216,15 +216,6 @@ var reEchoSecret = regexp.MustCompile(
 		`)\s*\}?`,
 )
 
-// rePipeExpose matches pipe invocations that could leak secrets via arguments.
-// Bitbucket pipes are invoked with "pipe: atlassian/..." and variables are
-// passed as string arguments. This catches explicit echo-like patterns.
-var rePipeExpose = regexp.MustCompile(
-	`(?im)(echo|printf|print|cat|curl)\s+[^#\n]*\$\{?\s*(` +
-		`[A-Z_]*(?:SECRET|TOKEN|PASSWORD|KEY|CREDENTIAL|AUTH|PRIVATE)[A-Z_]*` +
-		`)\s*\}?`,
-)
-
 // checkSecretEchoed flags pipeline scripts that appear to echo or print
 // secret/secured variable values. Bitbucket masks secured variables in logs,
 // but this masking can be circumvented (e.g., base64 encoding, character splitting).
@@ -402,13 +393,6 @@ func checkPublicPipeline(pipelineYAML, repo string) []finding.Finding {
 // -------------------------------------------------------------------------
 
 // bbFileResponse represents the Bitbucket API response when fetching raw file
-// content via the source endpoint. The 2.0 API returns the file content directly
-// as the response body when using the src endpoint.
-type bbFileResponse struct {
-	Type    string `json:"type"`
-	Message string `json:"error>message"` // present on errors
-}
-
 // fetchPipelineConfig retrieves the bitbucket-pipelines.yml from the Bitbucket
 // REST API. Returns the YAML content, whether the repo appears to be public
 // (fetchable without auth), and any error.

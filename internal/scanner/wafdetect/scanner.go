@@ -116,11 +116,6 @@ var bypassHeaders = []string{
 	"CF-Connecting-IP",
 }
 
-// cloudflareFlexibleIndicators: when these are present together it suggests
-// Flexible SSL mode (Cloudflare terminates TLS but connects to origin over HTTP).
-// Flexible mode means the origin→Cloudflare leg is unencrypted.
-var cloudflareFlexibleIndicators = []string{"cf-ray", "cf-cache-status"}
-
 // Scanner fingerprints WAF/IDS and checks for bypass misconfigurations.
 type Scanner struct{}
 

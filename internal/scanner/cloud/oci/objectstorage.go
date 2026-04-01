@@ -8,9 +8,6 @@ import (
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-// namespaceResponse is the API response for getting the Object Storage namespace.
-type namespaceResponse string
-
 // bucketListResponse is the API response for listing buckets.
 type bucketSummary struct {
 	Name          string `json:"name"`

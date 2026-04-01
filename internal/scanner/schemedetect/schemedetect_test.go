@@ -151,7 +151,7 @@ func TestScheme_ConnectionRefused_ReturnsHTTP(t *testing.T) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	addr := ln.Addr().String()
-	ln.Close() // port is now closed → connection refused
+	_ = ln.Close() // port is now closed → connection refused
 
 	client := shortTimeoutClient()
 	scheme := Scheme(context.Background(), client, addr)

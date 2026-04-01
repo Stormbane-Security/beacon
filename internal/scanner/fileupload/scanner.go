@@ -166,8 +166,8 @@ func discoverUploadEndpoints(ctx context.Context, client *http.Client, base stri
 		if err != nil {
 			continue
 		}
-		fw.Write([]byte("beacon_probe"))
-		mw.Close()
+		_, _ = fw.Write([]byte("beacon_probe"))
+		_ = mw.Close()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 		if err != nil {
@@ -233,8 +233,8 @@ func probeUpload(ctx context.Context, client *http.Client, asset, endpoint strin
 	if err != nil {
 		return nil
 	}
-	fw.Write(m.body)
-	mw.Close()
+	_, _ = fw.Write(m.body)
+	_ = mw.Close()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
 	if err != nil {

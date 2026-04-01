@@ -42,7 +42,7 @@ func (s *Strategy) HTTPClient(base *http.Client) *http.Client {
 
 	// Copy the base client so we can swap the transport without mutating it.
 	clone := *base
-	var baseTransport http.RoundTripper = base.Transport
+	baseTransport := base.Transport
 	if baseTransport == nil {
 		baseTransport = http.DefaultTransport
 	}

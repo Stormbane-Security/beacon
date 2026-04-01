@@ -102,14 +102,6 @@ func TestExtractVersion_VersionWithNewline(t *testing.T) {
 // CMS detection — WordPress
 // ---------------------------------------------------------------------------
 
-// newTestScanner builds an httptest server and returns the asset string for it.
-// handler is called for every inbound request.
-func newTestServer(t *testing.T, handler http.HandlerFunc) (asset string, close func()) {
-	t.Helper()
-	ts := httptest.NewServer(handler)
-	return strings.TrimPrefix(ts.URL, "http://"), ts.Close
-}
-
 func TestWordPressDetection_PluginFound(t *testing.T) {
 	// Serve wp-login.php (triggers WP detection) + a plugin readme.
 	readmeBody := "Contributors: author\nStable tag: 4.0.0\nDescription: A plugin.\n"

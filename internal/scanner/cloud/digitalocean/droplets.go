@@ -40,11 +40,6 @@ type doNetwork struct {
 	Type      string `json:"type"` // "public" or "private"
 }
 
-// firewallsForDropletResponse is the response for listing firewalls assigned to a droplet.
-type firewallsForDropletResponse struct {
-	Firewalls []doFirewall `json:"firewalls"`
-}
-
 // scanDroplets checks droplets for public IP without firewall and related issues.
 func scanDroplets(ctx context.Context, s *Scanner, asset string) ([]finding.Finding, error) {
 	// First, collect all firewalls to build a map of droplet-to-firewall coverage.

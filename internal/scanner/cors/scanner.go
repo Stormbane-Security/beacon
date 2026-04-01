@@ -265,7 +265,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				break
 			}
-			cResp.Body.Close()
+			_ = cResp.Body.Close()
 			cacao := cResp.Header.Get("Access-Control-Allow-Origin")
 			cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
 			if strings.EqualFold(cacao, preflightOrigin) && cacac == "true" {
@@ -285,7 +285,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq.Header.Set("Access-Control-Request-Headers", "Authorization")
 
 				if preResp, err := client.Do(preReq); err == nil {
-					preResp.Body.Close()
+					_ = preResp.Body.Close()
 
 					preACAO := preResp.Header.Get("Access-Control-Allow-Origin")
 					preACAC := strings.ToLower(preResp.Header.Get("Access-Control-Allow-Credentials"))
@@ -335,7 +335,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq2.Header.Set("Access-Control-Request-Headers", "X-Custom")
 
 				if preResp2, err := client.Do(preReq2); err == nil {
-					preResp2.Body.Close()
+					_ = preResp2.Body.Close()
 
 					preACAO2 := preResp2.Header.Get("Access-Control-Allow-Origin")
 					preACAC2 := strings.ToLower(preResp2.Header.Get("Access-Control-Allow-Credentials"))
@@ -397,7 +397,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq3.Header.Set("Access-Control-Request-Headers", canaryHeader)
 
 				if preResp3, err := client.Do(preReq3); err == nil {
-					preResp3.Body.Close()
+					_ = preResp3.Body.Close()
 
 					preACAO3 := preResp3.Header.Get("Access-Control-Allow-Origin")
 					preACAH3 := preResp3.Header.Get("Access-Control-Allow-Headers")

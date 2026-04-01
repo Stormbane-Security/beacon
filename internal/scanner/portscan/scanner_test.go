@@ -21,49 +21,6 @@ import (
 )
 
 // listenTCP binds a listener on an OS-assigned loopback port and returns
-// the port number and a cleanup function. The listener accepts connections
-// but reads nothing — enough to make the port appear "open".
-func listenTCP(t *testing.T) (port string, cleanup func()) {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listenTCP: %v", err)
-	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return // listener closed
-			}
-			conn.Close()
-		}
-	}()
-	addr := l.Addr().String()
-	_, p, _ := net.SplitHostPort(addr)
-	return p, func() { l.Close() }
-}
-
-// listenTCPWithBanner binds a listener that writes a banner on connect.
-func listenTCPWithBanner(t *testing.T, banner string) (port string, cleanup func()) {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listenTCPWithBanner: %v", err)
-	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return
-			}
-			conn.Write([]byte(banner))
-			conn.Close()
-		}
-	}()
-	_, p, _ := net.SplitHostPort(l.Addr().String())
-	return p, func() { l.Close() }
-}
-
 // hostPort builds a "host:port" string for use with the scanner's internal
 // probePort function. Because Run() accepts a hostname (not host:port), we
 // need to test through the public API.

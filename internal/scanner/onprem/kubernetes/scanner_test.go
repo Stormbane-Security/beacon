@@ -1394,7 +1394,7 @@ func TestAllFindings_HaveProofCommandAndEvidence(t *testing.T) {
 		if f.ProofCommand == "" {
 			t.Errorf("finding %s has empty ProofCommand", f.CheckID)
 		}
-		if f.Evidence == nil || len(f.Evidence) == 0 {
+		if len(f.Evidence) == 0 {
 			t.Errorf("finding %s has empty Evidence", f.CheckID)
 		}
 	}

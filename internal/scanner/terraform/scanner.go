@@ -108,7 +108,7 @@ func analyseFile(path string) ([]finding.Finding, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	hf := &hclFile{path: path, globals: map[string]string{}}
 	if err := parseHCLFromScanner(bufio.NewScanner(f), hf); err != nil {
@@ -265,11 +265,11 @@ func tokenise(s string) []string {
 	inQuote := false
 	var cur strings.Builder
 	for _, r := range s {
-		switch {
-		case r == '"':
+		switch r {
+		case '"':
 			inQuote = !inQuote
 			cur.WriteRune(r)
-		case r == ' ' || r == '\t':
+		case ' ', '\t':
 			if inQuote {
 				cur.WriteRune(r)
 			} else if cur.Len() > 0 {
@@ -600,9 +600,7 @@ func checkIAMAdminAttachment(path string, res hclResource) []finding.Finding {
 
 func checkECRRepo(path string, res hclResource) []finding.Finding {
 	var ff []finding.Finding
-	if v := res.attrs["image_tag_mutability"]; v == "" {
-		// Missing — default is MUTABLE (allows tag overwrite attacks).
-	}
+	// Note: if image_tag_mutability is missing, default is MUTABLE (allows tag overwrite attacks).
 	// Check if encryptionConfiguration is absent or uses default AES256.
 	// Primary check: mutability.
 	// Also check if the repo is accidentally public via force_delete or
@@ -896,7 +894,7 @@ data "aws_secretsmanager_secret_version" "creds" {
 // ---- Terraform state backend check ------------------------------------
 
 func checkTFState(hf *hclFile) []finding.Finding {
-	backendType, _ := hf.globals["backend.type"]
+	backendType := hf.globals["backend.type"]
 	if backendType == "s3" {
 		// Check if encrypt = false.
 		if v := hf.globals["backend.encrypt"]; v == "false" {

@@ -96,7 +96,7 @@ func TestCheckIDConstants_AST(t *testing.T) {
 
 			// Prefix should be lowercase and contain only [a-z0-9_]
 			for _, r := range prefix {
-				if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+				if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
 					t.Errorf("constant %s = %q has invalid char %q in prefix %q", constName, constValue, string(r), prefix)
 					break
 				}

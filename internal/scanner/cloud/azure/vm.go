@@ -52,12 +52,9 @@ func evaluateVM(ctx context.Context, nicClient *armnetwork.InterfacesClient, nam
 	if props.SecurityProfile != nil && props.SecurityProfile.EncryptionAtHost != nil {
 		encryptionAtHost = *props.SecurityProfile.EncryptionAtHost
 	}
-	hasDiskEncryptionSet := false
-	if props.StorageProfile != nil && props.StorageProfile.OSDisk != nil &&
+	hasDiskEncryptionSet := props.StorageProfile != nil && props.StorageProfile.OSDisk != nil &&
 		props.StorageProfile.OSDisk.ManagedDisk != nil &&
-		props.StorageProfile.OSDisk.ManagedDisk.DiskEncryptionSet != nil {
-		hasDiskEncryptionSet = true
-	}
+		props.StorageProfile.OSDisk.ManagedDisk.DiskEncryptionSet != nil
 	if !encryptionAtHost && !hasDiskEncryptionSet {
 		findings = append(findings, finding.Finding{
 			CheckID: finding.CheckCloudAzureVMNoDiskEncryption,

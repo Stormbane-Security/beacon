@@ -483,12 +483,6 @@ func isDeepOrAuthorized(t module.ScanType) bool {
 	return t == module.ScanDeep || t == module.ScanAuthorized
 }
 
-// isAuthorized returns true only for ScanAuthorized.
-// Use this to gate exploitation-class checks.
-func isAuthorized(t module.ScanType) bool {
-	return t == module.ScanAuthorized
-}
-
 // Run executes the full surface scan pipeline driven by playbooks.
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	rootDomain := input.Domain
@@ -1177,8 +1171,8 @@ assetLoop:
 						for _, name := range scannerNames {
 							var fs []finding.Finding
 							var scanErr error
-							switch {
-							case name == "aillm":
+							switch name {
+							case "aillm":
 								// Pass per-asset AI endpoints so the scanner targets
 								// confirmed paths rather than the generic default list.
 								ev := &playbook.Evidence{
@@ -1471,9 +1465,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 						plan.NucleiTagsDeep = append(plan.NucleiTagsDeep, t)
 					}
 				}
-				for _, p := range extra.DirbustPaths {
-					plan.DirbustPaths = append(plan.DirbustPaths, p)
-				}
+				plan.DirbustPaths = append(plan.DirbustPaths, extra.DirbustPaths...)
 			}
 		}
 	}
@@ -2425,7 +2417,7 @@ func sanitizeNucleiTags(tags []string) []string {
 	for _, tag := range tags {
 		ok := true
 		for _, ch := range tag {
-			if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.') {
+			if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' && ch != '.' {
 				ok = false
 				break
 			}

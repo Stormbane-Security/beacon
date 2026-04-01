@@ -51,7 +51,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	if err != nil {
 		return nil, nil
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	target := "https://" + asset
 	outFile := filepath.Join(tmpDir, "screenshot.png")

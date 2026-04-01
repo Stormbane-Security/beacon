@@ -16,34 +16,6 @@ import (
 
 var timeNow = time.Now
 
-// sensitiveHeaders lists HTTP header names whose values must never be sent to
-// the Claude API — they may contain credentials, session tokens, or API keys.
-var sensitiveHeaders = map[string]bool{
-	"authorization":       true,
-	"cookie":              true,
-	"set-cookie":          true,
-	"x-api-key":           true,
-	"proxy-authorization": true,
-	"x-auth-token":        true,
-	"x-access-token":      true,
-}
-
-// safeSummaryHeaders returns a sanitized subset of headers safe to include in
-// the analysis prompt. Auth/credential headers are stripped.
-func safeSummaryHeaders(headers map[string]string) map[string]string {
-	if len(headers) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(headers))
-	for k, v := range headers {
-		if sensitiveHeaders[strings.ToLower(k)] {
-			continue
-		}
-		out[k] = v
-	}
-	return out
-}
-
 // domainSummary is the compact per-domain prompt section produced by
 // buildDomainSummaries. RunID is the most-recent scan run ID for the domain;
 // Text is the ready-to-embed prompt fragment.
@@ -109,8 +81,8 @@ func isHTMLOrBase64(s string) bool {
 		if spaces == 0 {
 			nonB64 := 0
 			for _, c := range s {
-				if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-					(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=') {
+				if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') &&
+					(c < '0' || c > '9') && c != '+' && c != '/' && c != '=' {
 					nonB64++
 				}
 			}
