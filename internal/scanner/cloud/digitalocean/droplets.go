@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // dropletsListResponse is the API response for listing droplets.

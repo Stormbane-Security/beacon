@@ -1,4 +1,4 @@
-module github.com/stormbane/beacon
+module github.com/stormbane-security/beacon
 
 go 1.25.8
 

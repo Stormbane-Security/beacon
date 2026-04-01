@@ -25,7 +25,7 @@ Thank you for your interest in contributing. This guide covers the mechanics of 
 
 ```sh
 # Clone the repository
-git clone https://github.com/stormbane/beacon.git
+git clone https://github.com/stormbane-security/beacon.git
 cd beacon
 
 # Install the CLI from source
@@ -117,8 +117,8 @@ package mycheck
 import (
     "context"
 
-    "github.com/stormbane/beacon/internal/finding"
-    "github.com/stormbane/beacon/internal/module"
+    "github.com/stormbane-security/beacon/internal/finding"
+    "github.com/stormbane-security/beacon/internal/module"
 )
 
 const scannerName = "mycheck"
@@ -184,7 +184,7 @@ findings = append(findings, finding.Finding{
 Open `internal/modules/surface/module.go` and add your scanner to the `scanners` map that is constructed in `New()`:
 
 ```go
-import "github.com/stormbane/beacon/internal/scanner/mycheck"
+import "github.com/stormbane-security/beacon/internal/scanner/mycheck"
 
 // inside New(), in the scanners map:
 scanners["mycheck"] = mycheck.New()

@@ -3,7 +3,7 @@ package report
 import (
 	"strings"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // verifyCmd returns a shell command a security engineer can run to independently

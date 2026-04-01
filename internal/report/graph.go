@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/stormbane/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/asset"
 )
 
 // assetStats tracks finding counts and severity for a single asset node.

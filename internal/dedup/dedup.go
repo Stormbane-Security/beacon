@@ -14,7 +14,7 @@ package dedup
 import (
 	"strings"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // findingKey uniquely identifies a finding for dedup references.

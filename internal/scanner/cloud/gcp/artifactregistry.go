@@ -9,7 +9,7 @@ import (
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanArtifactRegistry(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

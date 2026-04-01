@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // startUDPServer starts a UDP server on a random port and calls handler for each packet.

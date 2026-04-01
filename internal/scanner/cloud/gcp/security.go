@@ -12,7 +12,7 @@ import (
 	computeapi "google.golang.org/api/compute/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // scanSecurity runs project-level and account-level security checks that don't

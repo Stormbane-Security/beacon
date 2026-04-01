@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // chatServer returns a test server that responds to POST /v1/chat/completions

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // redirectTransport rewrites all request host to a mock server so internal

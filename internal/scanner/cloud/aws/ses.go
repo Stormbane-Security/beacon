@@ -8,7 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
 	ses "github.com/aws/aws-sdk-go-v2/service/sesv2"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanSES(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // altPorts are common non-standard ports to probe when the asset is a bare

@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // sanitizeShellArg wraps s in single quotes, escaping embedded single quotes.

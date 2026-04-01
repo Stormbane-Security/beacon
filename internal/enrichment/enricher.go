@@ -3,7 +3,7 @@ package enrichment
 import (
 	"context"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // FollowUpProbe is a targeted follow-up check suggested by attack-path analysis.

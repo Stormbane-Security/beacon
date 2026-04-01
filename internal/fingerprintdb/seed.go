@@ -1,8 +1,7 @@
 package fingerprintdb
 
 import (
-	"github.com/stormbane/beacon/internal/store"
-	"github.com/stormbane-security/infra"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // BuiltinRules returns a copy of all builtin fingerprint rules for use in

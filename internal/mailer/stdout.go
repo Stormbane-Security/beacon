@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // StdoutMailer prints the report HTML to stdout.

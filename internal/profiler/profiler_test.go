@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // mockAnthropicServer returns a test server that responds with a valid Claude API

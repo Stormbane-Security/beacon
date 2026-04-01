@@ -10,8 +10,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // Config holds Azure authentication configuration.

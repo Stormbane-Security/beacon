@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	oauthscanner "github.com/stormbane/beacon/internal/scanner/oauth"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	oauthscanner "github.com/stormbane-security/beacon/internal/scanner/oauth"
 )
 
 // makeToken builds a JWT with the given header and payload maps.

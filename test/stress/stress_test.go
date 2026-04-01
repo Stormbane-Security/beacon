@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stormbane/beacon/internal/asset"
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
-	sqlitestore "github.com/stormbane/beacon/internal/store/sqlite"
+	"github.com/stormbane-security/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
+	sqlitestore "github.com/stormbane-security/beacon/internal/store/sqlite"
 )
 
 // TestConcurrentStoreWrites verifies that 100 goroutines writing findings

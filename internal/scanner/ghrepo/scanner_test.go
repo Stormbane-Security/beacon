@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // -------------------------------------------------------------------------

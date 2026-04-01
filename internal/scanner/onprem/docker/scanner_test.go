@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	dockerscanner "github.com/stormbane/beacon/internal/scanner/onprem/docker"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	dockerscanner "github.com/stormbane-security/beacon/internal/scanner/onprem/docker"
 )
 
 // --------------------------------------------------------------------------

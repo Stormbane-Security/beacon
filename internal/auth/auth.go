@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/config"
+	"github.com/stormbane-security/beacon/internal/config"
 )
 
 // Session holds the result of a pre-scan login.

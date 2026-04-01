@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // sanitizeShellArg wraps a value in single quotes with proper escaping to

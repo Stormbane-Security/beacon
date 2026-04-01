@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/asset"
 )
 
 // testGraph returns a small but representative asset graph for testing.

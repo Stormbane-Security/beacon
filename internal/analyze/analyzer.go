@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 const (

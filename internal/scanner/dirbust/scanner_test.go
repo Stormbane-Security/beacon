@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/scanner/dirbust"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/scanner/dirbust"
 )
 
 // assetFrom strips the scheme from an httptest URL so it can be passed as the

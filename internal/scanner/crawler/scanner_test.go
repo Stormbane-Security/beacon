@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 func TestNew_DefaultBin(t *testing.T) {

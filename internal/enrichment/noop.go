@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // NoopEnricher passes raw findings through unchanged.

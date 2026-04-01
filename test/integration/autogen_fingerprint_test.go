@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/fingerprintdb"
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/fingerprintdb"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // TestFingerprintRules auto-generates a test case for every builtin

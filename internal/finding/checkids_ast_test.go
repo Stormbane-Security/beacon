@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // TestCheckIDConstants_AST parses checkids.go and verifies every exported

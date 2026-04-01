@@ -8,7 +8,7 @@ import (
 	"google.golang.org/api/option"
 	runapi "google.golang.org/api/run/v2"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanCloudRun(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

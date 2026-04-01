@@ -3,7 +3,7 @@ package forecast
 import (
 	"time"
 
-	"github.com/stormbane/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/asset"
 )
 
 // ── Drift Detection ──────────────────────────────────────────────────────

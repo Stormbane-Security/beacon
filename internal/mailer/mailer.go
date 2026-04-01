@@ -2,7 +2,7 @@
 // Currently only stdout delivery is implemented. SMTP will be added later.
 package mailer
 
-import "github.com/stormbane/beacon/internal/store"
+import "github.com/stormbane-security/beacon/internal/store"
 
 // Mailer delivers a completed report.
 type Mailer interface {

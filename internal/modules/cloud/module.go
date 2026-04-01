@@ -23,8 +23,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // providerFunc runs a cloud provider's scanner and returns findings.

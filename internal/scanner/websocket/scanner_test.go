@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // upgradeHandler returns 101 Switching Protocols to simulate a vulnerable WebSocket endpoint.

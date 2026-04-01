@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // BuildSanitizedMetrics converts raw ScannerMetrics and AssetExecutions for a

@@ -9,7 +9,7 @@ import (
 	kinesis "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanKinesis(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

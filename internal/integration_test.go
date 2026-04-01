@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/asset"
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/report"
-	"github.com/stormbane/beacon/internal/scanner/cors"
-	"github.com/stormbane/beacon/internal/scanner/hostheader"
-	"github.com/stormbane/beacon/internal/scanner/tls"
-	"github.com/stormbane/beacon/internal/store"
-	"github.com/stormbane/beacon/internal/store/memory"
+	"github.com/stormbane-security/beacon/internal/asset"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/report"
+	"github.com/stormbane-security/beacon/internal/scanner/cors"
+	"github.com/stormbane-security/beacon/internal/scanner/hostheader"
+	"github.com/stormbane-security/beacon/internal/scanner/tls"
+	"github.com/stormbane-security/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/store/memory"
 )
 
 // ---------------------------------------------------------------------------
