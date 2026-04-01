@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // ChatFn is the function signature for a single-shot AI prompt/response call.

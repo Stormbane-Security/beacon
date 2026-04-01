@@ -8,7 +8,7 @@ import (
 	"google.golang.org/api/option"
 	redis "google.golang.org/api/redis/v1"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanMemorystore(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

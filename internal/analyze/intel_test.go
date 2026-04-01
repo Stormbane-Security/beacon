@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/analyze"
+	"github.com/stormbane-security/beacon/internal/analyze"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

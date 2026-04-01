@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // serviceEntry is one discovered TCP service (non-HTTP) on a host.

@@ -9,7 +9,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanELB(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

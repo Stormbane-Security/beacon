@@ -10,7 +10,7 @@ import (
 	iamapi "google.golang.org/api/iam/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // primitiveRoles are overpermissive legacy roles that grant broad access.

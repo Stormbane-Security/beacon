@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // forecastScanResult mirrors the Forecast API's scan ingestion format.

@@ -7,10 +7,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/stormbane/beacon/internal/enrichment"
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // ScanStatus tracks the lifecycle of a scan run.

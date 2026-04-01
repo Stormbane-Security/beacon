@@ -9,7 +9,7 @@ import (
 	cognitoidp "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	cognitotypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanCognito(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // stubModule is a minimal Module implementation for registry tests.

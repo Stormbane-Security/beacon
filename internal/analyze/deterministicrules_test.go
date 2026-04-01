@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/analyze"
-	"github.com/stormbane/beacon/internal/finding"
-	memstore "github.com/stormbane/beacon/internal/store/memory"
+	"github.com/stormbane-security/beacon/internal/analyze"
+	"github.com/stormbane-security/beacon/internal/finding"
+	memstore "github.com/stormbane-security/beacon/internal/store/memory"
 )
 
 // TestDeterministicRulesSameAssetFires verifies that a sameAsset rule fires

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // TestNginx_AliasTraversal verifies that a server returning /etc/passwd content

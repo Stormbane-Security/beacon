@@ -10,7 +10,7 @@ package playbook_test
 import (
 	"testing"
 
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // mustParse builds a Playbook from inline YAML. Fails the test if YAML is invalid.

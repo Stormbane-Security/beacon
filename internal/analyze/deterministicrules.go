@@ -16,8 +16,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // compoundRule describes one deterministic correlation pattern.

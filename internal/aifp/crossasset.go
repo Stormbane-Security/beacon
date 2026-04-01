@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // CrossAnalyzer performs AI-driven cross-asset vulnerability analysis after

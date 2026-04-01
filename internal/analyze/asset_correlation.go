@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // CorrelateAssets examines surface findings and cloud findings to discover

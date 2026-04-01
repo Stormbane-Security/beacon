@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // contractAddrRe matches a 0x-prefixed 40-hex-char EVM address that is

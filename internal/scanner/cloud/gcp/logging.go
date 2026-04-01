@@ -8,7 +8,7 @@ import (
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
 	"google.golang.org/api/option"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanAuditLogging(ctx context.Context, projectID, asset string, opts []option.ClientOption) ([]finding.Finding, error) {

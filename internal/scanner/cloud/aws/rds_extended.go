@@ -8,7 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanRDSExtended(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

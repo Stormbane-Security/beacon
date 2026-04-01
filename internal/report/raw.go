@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // RawScanOutput is the serialization envelope for unenriched scan findings.

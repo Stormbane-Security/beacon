@@ -15,8 +15,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // Apply evaluates all active rules against ev and fills any empty Evidence

@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/scanner/ghactions"
-	"github.com/stormbane/beacon/internal/scanner/ghorg"
-	"github.com/stormbane/beacon/internal/scanner/ghrepo"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanner/ghactions"
+	"github.com/stormbane-security/beacon/internal/scanner/ghorg"
+	"github.com/stormbane-security/beacon/internal/scanner/ghrepo"
 )
 
 // Module implements module.Module for GitHub/CI scanning.

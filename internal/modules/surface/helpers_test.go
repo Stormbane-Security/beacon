@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	sc "github.com/stormbane/beacon/internal/scanner"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	sc "github.com/stormbane-security/beacon/internal/scanner"
 )
 
 // ── planContains ─────────────────────────────────────────────────────────────

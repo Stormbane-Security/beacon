@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // ── detectVendor ──────────────────────────────────────────────────────────────

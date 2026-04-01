@@ -26,7 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func scanSecurity(ctx context.Context, cfg awscfg.Config, accountID, region, asset string) ([]finding.Finding, error) {

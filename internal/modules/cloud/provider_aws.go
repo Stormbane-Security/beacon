@@ -5,9 +5,9 @@ package cloud
 import (
 	"context"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/scanner/cloud/aws"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanner/cloud/aws"
 )
 
 func init() {

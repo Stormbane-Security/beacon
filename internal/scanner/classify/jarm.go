@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // jarmCiphers12 is the forward cipher list for TLS 1.2 probes.

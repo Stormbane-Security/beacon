@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/stormbane/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
 // makePlaybookWithDirbust creates a Playbook whose Deep.DirbustPaths is set.

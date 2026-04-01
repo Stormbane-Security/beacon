@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 // TestProbeWrite_Writable_CriticalFinding verifies that a bucket accepting

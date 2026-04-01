@@ -7,11 +7,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stormbane/beacon/internal/finding"
-	"github.com/stormbane/beacon/internal/module"
-	"github.com/stormbane/beacon/internal/scanner/gitlab"
-	"github.com/stormbane/beacon/internal/scanner/jenkins"
-	"github.com/stormbane/beacon/internal/scanner/teamcity"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanner/gitlab"
+	"github.com/stormbane-security/beacon/internal/scanner/jenkins"
+	"github.com/stormbane-security/beacon/internal/scanner/teamcity"
 )
 
 // Module implements module.Module for CI/CD platform scanning.

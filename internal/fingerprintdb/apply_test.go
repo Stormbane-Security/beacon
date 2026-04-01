@@ -3,8 +3,8 @@ package fingerprintdb
 import (
 	"testing"
 
-	"github.com/stormbane/beacon/internal/playbook"
-	"github.com/stormbane/beacon/internal/store"
+	"github.com/stormbane-security/beacon/internal/playbook"
+	"github.com/stormbane-security/beacon/internal/store"
 )
 
 // activeRule returns a minimal active FingerprintRule for the given signal/field.
