@@ -36,9 +36,9 @@ func countByCheckID(findings []finding.Finding, id finding.CheckID) int {
 }
 
 func findByCheckID(findings []finding.Finding, id finding.CheckID) *finding.Finding {
-	for _, f := range findings {
-		if f.CheckID == id {
-			return &f
+	for i := range findings {
+		if findings[i].CheckID == id {
+			return &findings[i]
 		}
 	}
 	return nil

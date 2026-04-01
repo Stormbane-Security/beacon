@@ -100,13 +100,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	dataURI := "data:image/png;base64," + b64
 
 	return []finding.Finding{{
-		CheckID:     finding.CheckAssetScreenshot,
-		Module:      "surface",
-		Scanner:     scannerName,
-		Severity:    finding.SeverityInfo,
-		Title:       fmt.Sprintf("Screenshot captured for %s", asset),
-		Description: fmt.Sprintf("A screenshot of %s was captured during the scan. This provides visual evidence of what is accessible.", asset),
-		Asset:       asset,
+		CheckID:      finding.CheckAssetScreenshot,
+		Module:       "surface",
+		Scanner:      scannerName,
+		Severity:     finding.SeverityInfo,
+		Title:        fmt.Sprintf("Screenshot captured for %s", asset),
+		Description:  fmt.Sprintf("A screenshot of %s was captured during the scan. This provides visual evidence of what is accessible.", asset),
+		Asset:        asset,
+		ProofCommand: fmt.Sprintf("gowitness single --url '%s'", target),
 		Evidence: map[string]any{
 			"url":       target,
 			"image_b64": dataURI,

@@ -112,6 +112,7 @@ func (s *Scanner) runWithIP(ctx context.Context, asset, ip string, _ module.Scan
 					"or admin interface not visible from public DNS.",
 				ip, candidate, resp.status, resp.bodyLen),
 			Evidence:     map[string]any{"ip": ip, "vhost": candidate, "status": resp.status, "body_length": resp.bodyLen, "title": resp.title},
+			ProofCommand: fmt.Sprintf("curl -sI -H 'Host: %s' 'http://%s/'", candidate, ip),
 			DiscoveredAt: now,
 		})
 	}
