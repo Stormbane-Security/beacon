@@ -34,6 +34,7 @@ func TestCheckPrefix(t *testing.T) {
 		{"web.cors_misconfiguration", "web"},
 		{"nuclei.s3_bucket_exposed", "nuclei"},
 		{"email.spf_missing", "email"},
+		{"port.redis_unauthenticated", "port"},
 		{"nodot", "nodot"},
 		{"", ""},
 	}
@@ -56,6 +57,13 @@ func TestBaseDomain(t *testing.T) {
 		{"*.example.com", "example.com"},
 		{"com", "com"},
 		{"", ""},
+		// IP address — baseDomain uses a simple last-two-labels heuristic,
+		// so IPs with 4 octets return the last two joined. This is a known
+		// limitation; the function is designed for domain names.
+		{"192.168.1.1", "1.1"},
+		// ccTLD — baseDomain is a simple last-two-labels heuristic, so
+		// "example.co.uk" returns "co.uk" (known limitation).
+		{"example.co.uk", "co.uk"},
 	}
 	for _, tt := range tests {
 		got := baseDomain(tt.input)

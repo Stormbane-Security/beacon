@@ -383,10 +383,16 @@ func (s *Store) CreateScanRun(ctx context.Context, run *store.ScanRun) error {
 		run.ID = uuid.NewString()
 	}
 
-	mods, _ := json.Marshal(run.Modules)
-	discSources, _ := json.Marshal(run.DiscoverySources)
+	mods, err := json.Marshal(run.Modules)
+	if err != nil {
+		return fmt.Errorf("marshal modules: %w", err)
+	}
+	discSources, err := json.Marshal(run.DiscoverySources)
+	if err != nil {
+		return fmt.Errorf("marshal discovery sources: %w", err)
+	}
 
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO scan_runs (id, target_id, domain, scan_type, modules, status, started_at, finding_count, error,
 		                       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -397,10 +403,16 @@ func (s *Store) CreateScanRun(ctx context.Context, run *store.ScanRun) error {
 }
 
 func (s *Store) UpdateScanRun(ctx context.Context, run *store.ScanRun) error {
-	mods, _ := json.Marshal(run.Modules)
-	discSources, _ := json.Marshal(run.DiscoverySources)
+	mods, err := json.Marshal(run.Modules)
+	if err != nil {
+		return fmt.Errorf("marshal modules: %w", err)
+	}
+	discSources, err := json.Marshal(run.DiscoverySources)
+	if err != nil {
+		return fmt.Errorf("marshal discovery sources: %w", err)
+	}
 
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 		UPDATE scan_runs
 		SET status=?, completed_at=?, finding_count=?, modules=?, error=?,
 		    discovery_duration_ms=?, scan_duration_ms=?, asset_count=?, discovery_sources=?
@@ -476,7 +488,8 @@ func (s *Store) DeleteScanRun(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	tables := []string{
+	// Hardcoded table list — never accept external input here.
+	for _, tbl := range [...]string{
 		"findings",
 		"enriched_findings",
 		"reports",
@@ -486,9 +499,10 @@ func (s *Store) DeleteScanRun(ctx context.Context, id string) error {
 		"discovery_audit",
 		"correlation_findings",
 		"asset_graphs",
-	}
-	for _, tbl := range tables {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+tbl+` WHERE scan_run_id = ?`, id); err != nil {
+	} {
+		// Use quoted identifier to prevent SQL injection if this list is ever
+		// modified to include untrusted input (defense-in-depth).
+		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+tbl+`" WHERE scan_run_id = ?`, id); err != nil {
 			return err
 		}
 	}

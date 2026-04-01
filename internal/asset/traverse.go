@@ -241,7 +241,7 @@ func (t *Traverser) ShortestPath(srcID, dstID string) []string {
 // reconstructPath traces parent pointers back from dst to src.
 func reconstructPath(parent map[string]string, src, dst string) []string {
 	var path []string
-	for cur := dst; cur != src; cur = parent[cur] {
+	for cur := dst; cur != src; {
 		path = append(path, cur)
 		next, ok := parent[cur]
 		if !ok {
@@ -250,6 +250,7 @@ func reconstructPath(parent map[string]string, src, dst string) []string {
 		if next == cur {
 			return nil // self-loop — prevent infinite loop
 		}
+		cur = next
 	}
 	path = append(path, src)
 	// Reverse.

@@ -263,6 +263,46 @@ func TestForInputs_ModuleWithNoRequirements(t *testing.T) {
 	}
 }
 
+// ---------- RequiresDeepMode tests ----------
+
+func TestRequiresDeepMode_Surface(t *testing.T) {
+	// Surface mode requires upgrade to deep for deep-only scanners.
+	if !RequiresDeepMode(ScanSurface) {
+		t.Error("RequiresDeepMode(ScanSurface) = false, want true")
+	}
+}
+
+func TestRequiresDeepMode_Deep(t *testing.T) {
+	// Deep mode is already sufficient.
+	if RequiresDeepMode(ScanDeep) {
+		t.Error("RequiresDeepMode(ScanDeep) = true, want false")
+	}
+}
+
+func TestRequiresDeepMode_Authorized(t *testing.T) {
+	// Authorized mode is a superset of deep.
+	if RequiresDeepMode(ScanAuthorized) {
+		t.Error("RequiresDeepMode(ScanAuthorized) = true, want false")
+	}
+}
+
+func TestRequiresDeepMode_AllTypes(t *testing.T) {
+	tests := []struct {
+		scanType ScanType
+		want     bool
+	}{
+		{ScanSurface, true},
+		{ScanDeep, false},
+		{ScanAuthorized, false},
+	}
+	for _, tt := range tests {
+		got := RequiresDeepMode(tt.scanType)
+		if got != tt.want {
+			t.Errorf("RequiresDeepMode(%q) = %v, want %v", tt.scanType, got, tt.want)
+		}
+	}
+}
+
 func moduleNames(mods []Module) []string {
 	names := make([]string, len(mods))
 	for i, m := range mods {
