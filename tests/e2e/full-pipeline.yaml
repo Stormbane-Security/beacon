@@ -3,8 +3,9 @@ description: >
   End-to-end pipeline test: asset classify, playbook matching, multi-scanner
   execution, and dedup all run without --scanners. Validates that the full
   scan pipeline discovers findings from multiple independent scanners against
-  a single composite target.
-tags: [e2e, pipeline, surface, dlp, portscan]
+  a single composite target. The test app exposes: DLP secrets, missing
+  security headers, open redirect, CORS misconfig, and server info leak.
+tags: [e2e, pipeline, surface, dlp, portscan, secheaders, openredir, cors]
 
 services:
   app:
@@ -19,18 +20,17 @@ ready:
   interval: 2s
 
 assertions:
-  # Full pipeline — no --scanners flag. Beacon must discover the HTTP service,
-  # classify it, match the baseline playbook, and run all applicable scanners.
-  # Targets use compose service name since beacon runs in-network via Docker.
+  # ── Full pipeline (no --scanners) ──────────────────────────────────────
+  # Beacon must discover the HTTP service, classify it, match baseline,
+  # and run all applicable scanners. Expect many findings from multiple scanners.
   - name: pipeline-finds-multiple-issues
     type: beacon
     target: "app:8080"
     args: ["--no-enrich", "--ports", "8080"]
     expect:
-      min_findings: 2
+      min_findings: 5
 
-  # DLP scanner should detect the exposed .env with API keys.
-  # This only fires if classify detected HTTP → playbook matched → DLP ran.
+  # ── DLP: exposed .env with API keys ────────────────────────────────────
   - name: pipeline-detects-api-keys
     type: beacon
     target: "app:8080"
@@ -38,12 +38,52 @@ assertions:
     expect:
       check_id: dlp.api_key
 
-  # Port scanner should identify the HTTP service.
+  # ── Port scanner: HTTP service identification ──────────────────────────
   - name: pipeline-detects-service
     type: beacon
     target: "app:8080"
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
     expect:
       check_id: port.service_identified
+
+  # ── Security headers: missing CSP ──────────────────────────────────────
+  - name: pipeline-detects-missing-csp
+    type: beacon
+    target: "app:8080"
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8080"]
+    expect:
+      check_id: headers.missing_csp
+
+  # ── Security headers: missing HSTS ─────────────────────────────────────
+  - name: pipeline-detects-missing-hsts
+    type: beacon
+    target: "app:8080"
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8080"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ── Security headers: X-Powered-By info leak ───────────────────────────
+  - name: pipeline-detects-powered-by
+    type: beacon
+    target: "app:8080"
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8080"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # ── Open redirect: ?url= parameter ────────────────────────────────────
+  - name: pipeline-detects-open-redirect
+    type: beacon
+    target: "app:8080"
+    args: ["--no-enrich", "--scanners", "openredir", "--ports", "8080", "--permission-confirmed"]
+    expect:
+      check_id: web.open_redirect
+
+  # ── CORS: arbitrary origin reflected with credentials ──────────────────
+  - name: pipeline-detects-cors-misconfig
+    type: beacon
+    target: "app:8080"
+    args: ["--no-enrich", "--scanners", "cors", "--ports", "8080", "--permission-confirmed"]
+    expect:
+      check_id: cors.arbitrary_origin
 
 timeout: 10m

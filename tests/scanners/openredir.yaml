@@ -1,0 +1,24 @@
+name: openredir-basic
+description: "App with unvalidated redirect parameters — scanner should detect open redirect"
+tags: [openredir, scanner, web]
+
+services:
+  app:
+    build:
+      context: ./openredir
+    ports: ["9290:8080"]
+
+ready:
+  cmd: "curl -sfo /dev/null http://localhost:9290/"
+  timeout: 120s
+  interval: 3s
+
+assertions:
+  - name: detects-open-redirect-url
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "openredir", "--ports", "8080", "--permission-confirmed"]
+    expect:
+      check_id: web.open_redirect
+
+timeout: 5m

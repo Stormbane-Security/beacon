@@ -61,6 +61,7 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"nginx",          // surface: Nginx alias traversal path probes
 		"hpp",            // deep:    HTTP parameter pollution probes
 		"secheaders",     // surface: missing security response headers
+		"openredir",      // deep:    open redirect via redirect parameters
 	}
 
 	for _, name := range mustHave {

@@ -74,6 +74,11 @@ type Evidence struct {
 	// Returns "" when the asset has no TLS or the connection consistently fails.
 	JARMFingerprint string
 
+	// WAF / IDS — populated from wafdetect Phase A findings.
+	// Gives playbooks and the AI enricher concrete WAF context.
+	WAFVendor string // detected WAF vendor: "Cloudflare", "AWS WAF", "Imperva Incapsula", ""
+	IDSVendor string // detected IDS/NGFW vendor: "Palo Alto NGFW", "Check Point", ""
+
 	// AI / LLM signals — populated by the aidetect scanner.
 	// Used to trigger the ai_llm playbook and to guide the aillm active scanner.
 	AIEndpoints []string // paths confirmed to accept LLM/chat requests

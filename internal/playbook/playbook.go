@@ -87,6 +87,11 @@ type MatchRule struct {
 	// trigger on SSH-banner detections (e.g. "netdev.mikrotik_detected") that
 	// the classify scanner cannot detect from HTTP headers alone.
 	CheckIDPresent string `yaml:"check_id"`
+	// WAFVendorContains matches when Evidence.WAFVendor (populated from
+	// wafdetect Phase A findings) contains the substring. Enables playbooks
+	// to match on WAF vendor detected via deep body/header fingerprinting
+	// beyond what classify can see from a single response.
+	WAFVendorContains string `yaml:"waf_vendor_contains"`
 }
 
 // HeaderValueMatch checks that a named header contains a substring.
@@ -350,6 +355,12 @@ func ruleMatches(r MatchRule, e Evidence) bool {
 			}
 		}
 		if !found {
+			return false
+		}
+	}
+	if r.WAFVendorContains != "" {
+		checked++
+		if !strings.Contains(strings.ToLower(e.WAFVendor), strings.ToLower(r.WAFVendorContains)) {
 			return false
 		}
 	}

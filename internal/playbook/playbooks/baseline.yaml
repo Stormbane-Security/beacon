@@ -80,6 +80,7 @@ deep:
     - xxe            # XML external entity injection in XML-accepting endpoints
     - deserial       # insecure deserialization fingerprinting (Java/PHP magic bytes + exception probing)
     - fileupload     # file upload bypass: double extension, MIME confusion, null byte
+    - openredir      # open redirect via common redirect parameters (?url=, ?redirect=, ?next=)
     - swagger        # OpenAPI endpoint fuzzing: missing-param 500s, type confusion, SQL canaries
   nuclei_tags:
     - cves

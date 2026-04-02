@@ -109,6 +109,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/bitbucket"
 	"github.com/stormbane-security/beacon/internal/scanner/circleci"
 	oktascanner "github.com/stormbane-security/beacon/internal/scanner/okta"
+	"github.com/stormbane-security/beacon/internal/scanner/openredir"
 	"github.com/stormbane-security/beacon/internal/scanner/secheaders"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
@@ -412,6 +413,7 @@ func New(cfg Config) (*Module, error) {
 		"circleci":        circleci.New(cfg.GitHubToken),
 		"okta":            oktascanner.New(cfg.OktaDomain, cfg.OktaToken),
 		"secheaders":      secheaders.New(),
+		"openredir":       openredir.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.
@@ -1478,6 +1480,13 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	behindWAF, wafVendor := extractWAFInfo(phaseAFindings)
 	originIP := extractOriginIP(phaseAFindings)
 	openPorts := extractOpenPorts(phaseAFindings)
+	// Feed WAF/IDS vendor back into evidence for playbook matching and AI enrichment.
+	if wafVendor != "" {
+		ev.WAFVendor = wafVendor
+	}
+	if idsVendor := extractIDSVendor(phaseAFindings); idsVendor != "" {
+		ev.IDSVendor = idsVendor
+	}
 	// Populate ev.AIEndpoints from aidetect findings so aillm targets confirmed
 	// endpoints instead of falling back to a generic default path list.
 	if eps := extractAIEndpoints(phaseAFindings); len(eps) > 0 {
@@ -2561,6 +2570,17 @@ func extractWAFInfo(findings []finding.Finding) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+// extractIDSVendor inspects Phase A findings for IDS/NGFW detection.
+func extractIDSVendor(findings []finding.Finding) string {
+	for _, f := range findings {
+		if f.CheckID == finding.CheckIDSDetected {
+			vendor, _ := f.Evidence["vendor"].(string)
+			return vendor
+		}
+	}
+	return ""
 }
 
 // extractOpenPorts inspects Phase A findings for open TCP ports.

@@ -4,9 +4,15 @@ Exposes multiple issues that different scanners detect independently:
   - DLP: .env file with API keys, page with email addresses
   - Port identification: HTTP service on port 8080
   - Clickjacking: no X-Frame-Options or CSP frame-ancestors
+  - Security headers: no CSP, HSTS, X-Frame-Options, etc.
+  - Open redirect: ?url= parameter redirects to arbitrary URLs
+  - CORS: reflects arbitrary Origin with credentials
+  - CRLF: header injection via query parameter
+  - Server info leak: X-Powered-By header
 """
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
 # Fake .env contents — triggers dlp.api_key
 DOTENV = """# Application configuration
@@ -32,19 +38,39 @@ EMAIL_PAGE = """<html><head><title>Team Directory</title></head><body>
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/health":
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        # --- Open redirect: ?url= redirects to arbitrary URL ---
+        if "url" in params:
+            target = params["url"][0]
+            self.send_response(302)
+            self.send_header("Location", target)
+            self._common_headers()
+            self.end_headers()
+            return
+
+        if "redirect" in params:
+            target = params["redirect"][0]
+            self.send_response(302)
+            self.send_header("Location", target)
+            self._common_headers()
+            self.end_headers()
+            return
+
+        if parsed.path == "/health":
             self._respond(200, "text/plain", "ok")
             return
 
-        if self.path == "/.env":
+        if parsed.path == "/.env":
             self._respond(200, "text/plain", DOTENV)
             return
 
-        if self.path == "/directory":
+        if parsed.path == "/directory":
             self._respond(200, "text/html", EMAIL_PAGE)
             return
 
-        if self.path == "/robots.txt":
+        if parsed.path == "/robots.txt":
             self._respond(200, "text/plain",
                           "User-agent: *\nDisallow: /admin\nDisallow: /api/internal\n")
             return
@@ -61,16 +87,47 @@ class Handler(BaseHTTPRequestHandler):
 </ul>
 </body></html>""")
 
+    def do_OPTIONS(self):
+        """Handle CORS preflight requests."""
+        origin = self.headers.get("Origin", "")
+        self.send_response(200)
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self._common_headers()
+        self.end_headers()
+
     def do_HEAD(self):
         """Respond to HEAD requests (used by classify/fingerprinting)."""
         self.do_GET()
+
+    def _common_headers(self):
+        """Add headers that expose vulnerabilities."""
+        # CORS: reflect any Origin with credentials — triggers cors.arbitrary_origin
+        origin = self.headers.get("Origin", "")
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+
+        # Server info leak — triggers headers.server_info_leak
+        self.send_header("X-Powered-By", "Express 4.18.2")
+
+        # Intentionally NO security headers:
+        # - No Content-Security-Policy
+        # - No Strict-Transport-Security
+        # - No X-Frame-Options
+        # - No X-Content-Type-Options
+        # - No Referrer-Policy
+        # - No Permissions-Policy
 
     def _respond(self, code, content_type, body):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        # No X-Frame-Options or CSP — clickjacking-vulnerable
+        self._common_headers()
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
