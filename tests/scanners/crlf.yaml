@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-crlf-injection
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
+    target: crlf-app
+    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: web.crlf_injection
 

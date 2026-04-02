@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-ssti
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized"]
+    target: ssti-app
+    args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: web.ssti
 

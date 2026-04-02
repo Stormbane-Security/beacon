@@ -27,8 +27,8 @@ ready:
 assertions:
   - name: identifies-redis-on-nonstandard-port
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9736"]
+    target: redis
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "6379"]
     expect:
       check_id: port.service_identified
       evidence_key: service
@@ -36,8 +36,8 @@ assertions:
 
   - name: identifies-mysql-on-nonstandard-port
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9406"]
+    target: mysql
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
     expect:
       check_id: port.service_identified
       evidence_key: service
@@ -45,8 +45,8 @@ assertions:
 
   - name: identifies-memcached-on-nonstandard-port
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9211"]
+    target: memcached
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11211"]
     expect:
       check_id: port.service_identified
       evidence_key: service

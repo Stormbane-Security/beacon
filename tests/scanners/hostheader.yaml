@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-host-header-injection
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--permission-confirmed"]
+    target: hostheader-app
+    args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: web.host_header_injection
 

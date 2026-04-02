@@ -9,25 +9,27 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
     command: ["start-dev"]
 
 ready:
   cmd: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration >/dev/null"
-  timeout: 90s
-  interval: 3s
+  timeout: 180s
+  interval: 5s
 
 assertions:
   - name: detects-implicit-flow
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "oauth"]
+    target: keycloak
+    args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
     expect:
       check_id: oauth.implicit_flow
 
   - name: detects-jwks-exposed
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "oauth"]
+    target: keycloak
+    args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
     expect:
       check_id: oauth.jwks_exposed
 

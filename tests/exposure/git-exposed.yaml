@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-git-exposed
     type: beacon
-    target: localhost:80
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    target: nginx
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--ports", "80"]
     expect:
       check_id: exposure.git_exposed
 

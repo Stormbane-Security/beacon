@@ -15,8 +15,8 @@ ready:
 assertions:
   - name: detects-swagger-spec-exposed
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "swagger"]
+    target: petstore
+    args: ["--no-enrich", "--scanners", "swagger", "--ports", "8080"]
     expect:
       check_id: web.swagger_exposed
 

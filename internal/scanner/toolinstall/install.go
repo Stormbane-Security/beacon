@@ -50,6 +50,11 @@ func Ensure(bin string) (string, error) {
 		return "", fmt.Errorf("unknown tool %q — add it to toolinstall.goTools or install manually", bin)
 	}
 
+	// Fail fast if Go is not available (e.g. inside a minimal container).
+	if _, err := exec.LookPath("go"); err != nil {
+		return "", fmt.Errorf("%s not found and go compiler is not available for auto-install", bin)
+	}
+
 	fmt.Fprintf(os.Stderr, "beacon: installing %s via go install...\n", bin)
 	cmd := exec.Command("go", "install", "-v", pkg)
 	cmd.Stdout = os.Stderr // show progress

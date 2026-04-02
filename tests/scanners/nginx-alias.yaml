@@ -19,8 +19,8 @@ ready:
 assertions:
   - name: detects-nginx-alias-traversal
     type: beacon
-    target: localhost:80
-    args: ["--no-enrich", "--scanners", "nginx", "--deep", "--permission-confirmed"]
+    target: nginx
+    args: ["--no-enrich", "--scanners", "nginx", "--deep", "--permission-confirmed", "--ports", "80"]
     expect:
       check_id: web.nginx_alias_traversal
 

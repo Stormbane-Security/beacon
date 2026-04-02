@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-dangerous-methods
     type: beacon
-    target: localhost:80
-    args: ["--no-enrich", "--scanners", "httpmethods"]
+    target: nginx
+    args: ["--no-enrich", "--scanners", "httpmethods", "--ports", "80"]
     expect:
       check_id: web.dangerous_method_enabled
 

@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-weak-jwt-algorithm
     type: beacon
-    target: localhost:8080
-    args: ["--no-enrich", "--scanners", "jwt"]
+    target: jwt-app
+    args: ["--no-enrich", "--scanners", "jwt", "--ports", "8080"]
     expect:
       check_id: jwt.weak_algorithm
 

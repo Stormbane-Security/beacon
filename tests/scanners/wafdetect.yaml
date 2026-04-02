@@ -17,8 +17,8 @@ ready:
 assertions:
   - name: detects-waf-present
     type: beacon
-    target: localhost:80
-    args: ["--no-enrich", "--scanners", "wafdetect"]
+    target: nginx
+    args: ["--no-enrich", "--scanners", "wafdetect", "--ports", "80"]
     expect:
       check_id: waf.detected
 
