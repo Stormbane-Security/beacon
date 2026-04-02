@@ -15,6 +15,24 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-ssn-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qE '[0-9]{3}-[0-9]{2}-[0-9]{4}'"
+      exit_code: 0
+
+  - name: exploit-credit-card-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qE '[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}'"
+      exit_code: 0
+
+  - name: exploit-private-key-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -q 'BEGIN RSA PRIVATE KEY\\|BEGIN PRIVATE KEY'"
+      exit_code: 0
+
   - name: detects-ssn-pattern
     type: beacon
     target: localhost:80

@@ -15,6 +15,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-csp-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9281/ | grep -qi 'Content-Security-Policy'"
+      exit_code: 0
+
+  - name: exploit-hsts-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9281/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
   - name: no-missing-header-findings
     type: beacon
     target: app:80

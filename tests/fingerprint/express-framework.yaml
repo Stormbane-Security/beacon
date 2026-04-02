@@ -14,6 +14,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-express-powered-by
+    type: command
+    expect:
+      command: "curl -sI http://localhost:3000/ | grep -qi 'X-Powered-By: Express'"
+      exit_code: 0
+
   - name: identifies-express-framework
     type: classify
     target: localhost:3000

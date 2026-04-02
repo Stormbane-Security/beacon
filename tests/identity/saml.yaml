@@ -17,6 +17,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-saml-metadata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9260/realms/master/protocol/saml/descriptor | grep -qi 'entitydescriptor\\|saml'"
+      exit_code: 0
+
   - name: detects-saml-metadata
     type: beacon
     target: keycloak:8080

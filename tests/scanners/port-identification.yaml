@@ -22,6 +22,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-redis-ping-unauthenticated
+    type: command
+    expect:
+      command: "echo 'PING' | nc -w 2 localhost 9736 | grep -q PONG"
+      exit_code: 0
+
+  - name: exploit-mysql-banner-readable
+    type: command
+    expect:
+      command: "nc -w 2 localhost 9406 </dev/null | strings | grep -qi mysql"
+      exit_code: 0
+
   - name: identifies-redis-on-nonstandard-port
     type: beacon
     target: redis:6379

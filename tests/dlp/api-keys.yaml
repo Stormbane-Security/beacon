@@ -16,6 +16,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-github-token-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qE 'ghp_|github_pat_'"
+      exit_code: 0
+
+  - name: exploit-env-file-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/.env | grep -qiE 'AWS_ACCESS_KEY|DATABASE_URL|JWT_SECRET'"
+      exit_code: 0
+
   # Main page patterns (dlpPatterns)
   - name: detects-github-token-on-page
     type: beacon

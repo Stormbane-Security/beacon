@@ -17,6 +17,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-etcd-version-unauthenticated
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2379/version | grep -q etcdcluster"
+      exit_code: 0
+
+  - name: exploit-etcd-keys-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2379/v3/kv/range -X POST -d '{\"key\":\"AA==\"}'"
+      exit_code: 0
+
   - name: detects-exposed-etcd
     type: beacon
     target: localhost:2379

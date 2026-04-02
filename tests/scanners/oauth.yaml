@@ -27,6 +27,12 @@ commands:
       update realms/master -s sslRequired=NONE
 
 assertions:
+  - name: exploit-oidc-implicit-flow-enabled
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8180/realms/master/.well-known/openid-configuration | grep -q 'token'"
+      exit_code: 0
+
   # Keycloak 22 default config returns access tokens in URL fragments
   # (response_types_supported includes "token"), which is a known risk.
   - name: detects-token-in-fragment

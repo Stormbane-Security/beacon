@@ -29,6 +29,18 @@ commands:
     timeout: 60s
 
 assertions:
+  - name: exploit-ganache-jsonrpc-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9218 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_accounts\",\"params\":[],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  - name: exploit-dapp-has-ethers-js
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9219/ | grep -qi 'ethers\\|web3\\|ethereum'"
+      exit_code: 0
+
   # Test 1: Web3 frontend fingerprinting
   - name: detects-web3-signals
     type: beacon

@@ -23,6 +23,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-grafana-health-through-nginx
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/api/health | grep -q ok"
+      exit_code: 0
+
+  - name: exploit-nginx-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: nginx'"
+      exit_code: 0
+
   - name: detects-nginx-proxy-layer
     type: classify
     target: localhost:80

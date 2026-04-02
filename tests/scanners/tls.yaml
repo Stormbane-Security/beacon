@@ -15,6 +15,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-tls10-accepted
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:9207 -tls1 </dev/null 2>&1 | grep -q 'CONNECTED\\|Protocol.*TLSv1'"
+      exit_code: 0
+
+  - name: exploit-self-signed-cert
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:9207 </dev/null 2>&1 | grep -qi 'self.signed\\|verify error'"
+      exit_code: 0
+
   - name: detects-tls10-protocol
     type: beacon
     target: nginx-tls:443

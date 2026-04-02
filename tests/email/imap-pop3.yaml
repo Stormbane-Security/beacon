@@ -25,6 +25,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-imap-banner-readable
+    type: command
+    expect:
+      command: "echo '* LOGOUT' | nc -w 3 localhost 143 | grep -qi 'IMAP\\|OK\\|Dovecot'"
+      exit_code: 0
+
   - name: detects-imap-exposed
     type: beacon
     target: mailserver:143

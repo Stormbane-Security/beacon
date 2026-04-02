@@ -20,6 +20,12 @@ ready:
   interval: 10s
 
 assertions:
+  - name: exploit-gitlab-signup-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9240/users/sign_up | grep -qi 'sign.up\\|register\\|gitlab'"
+      exit_code: 0
+
   - name: detects-gitlab-public-registration
     type: beacon
     target: gitlab:80

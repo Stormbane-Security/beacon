@@ -16,6 +16,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-innerhtml-sink-present
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9213/ | grep -q 'innerHTML\\|document\\.write'"
+      exit_code: 0
+
   - name: detects-dom-xss
     type: beacon
     target: domxss-app:80

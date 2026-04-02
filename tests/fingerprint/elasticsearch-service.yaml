@@ -17,6 +17,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-elasticsearch-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9200/ | grep -q 'You Know, for Search'"
+      exit_code: 0
+
   - name: identifies-elasticsearch-service
     type: classify
     target: localhost:9200

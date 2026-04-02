@@ -17,6 +17,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-no-dmarc-record
+    type: command
+    expect:
+      command: "test -z \"$(dig @127.0.0.1 -p 53 _dmarc.testdomain.local TXT +short 2>/dev/null)\""
+      exit_code: 0
+
+  - name: exploit-weak-spf-all
+    type: command
+    expect:
+      command: "dig @127.0.0.1 -p 53 testdomain.local TXT +short | grep -q '+all'"
+      exit_code: 0
+
   - name: detects-missing-dmarc
     type: beacon
     target: testdomain.local

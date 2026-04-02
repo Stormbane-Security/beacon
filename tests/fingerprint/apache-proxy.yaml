@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-apache-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: Apache'"
+      exit_code: 0
+
   - name: identifies-apache-proxy
     type: classify
     target: localhost:80

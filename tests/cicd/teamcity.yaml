@@ -15,6 +15,12 @@ ready:
   interval: 10s
 
 assertions:
+  - name: exploit-teamcity-login-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9242/login.html | grep -qi 'teamcity\\|login'"
+      exit_code: 0
+
   - name: detects-teamcity-exposed
     type: beacon
     target: teamcity:8111

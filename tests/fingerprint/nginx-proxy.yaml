@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-nginx-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: nginx'"
+      exit_code: 0
+
   - name: identifies-nginx-proxy
     type: classify
     target: localhost:80

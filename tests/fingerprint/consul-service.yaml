@@ -14,6 +14,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-consul-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8500/v1/catalog/services | grep -q consul"
+      exit_code: 0
+
   - name: identifies-consul-proxy
     type: classify
     target: localhost:8500

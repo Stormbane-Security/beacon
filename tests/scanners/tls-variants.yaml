@@ -14,6 +14,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-tls10-negotiates
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:9208 -tls1 </dev/null 2>&1 | grep -q 'CONNECTED\\|Protocol.*TLSv1'"
+      exit_code: 0
+
+  - name: exploit-tls11-negotiates
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:9208 -tls1_1 </dev/null 2>&1 | grep -q 'CONNECTED\\|Protocol.*TLSv1.1'"
+      exit_code: 0
+
   - name: detects-tls10
     type: beacon
     target: nginx:443

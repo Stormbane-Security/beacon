@@ -18,6 +18,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-actuator-health-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9216/actuator/health | grep -q status"
+      exit_code: 0
+
+  - name: exploit-actuator-env-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9216/actuator/env | grep -qE 'propertySources\\|activeProfiles'"
+      exit_code: 0
+
   - name: detects-spring-actuator
     type: beacon
     target: spring-app:8080

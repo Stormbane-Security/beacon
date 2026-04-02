@@ -16,6 +16,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-smtp-banner-readable
+    type: command
+    expect:
+      command: "echo 'QUIT' | nc -w 3 localhost 25 | grep -qi '220.*SMTP\\|220.*Postfix'"
+      exit_code: 0
+
   - name: detects-smtp-exposed
     type: beacon
     target: smtp:25

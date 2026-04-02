@@ -28,6 +28,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-wordpress-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9215/wp-login.php | grep -qi 'wordpress\\|wp-login'"
+      exit_code: 0
+
   - name: detects-wordpress-framework
     type: beacon
     target: wordpress:80

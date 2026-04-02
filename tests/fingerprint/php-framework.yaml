@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-php-powered-by
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'X-Powered-By: PHP'"
+      exit_code: 0
+
   - name: identifies-php-framework
     type: classify
     target: localhost:80

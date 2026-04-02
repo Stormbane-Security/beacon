@@ -17,6 +17,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-keycloak-oidc-metadata
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration | grep -q issuer"
+      exit_code: 0
+
   - name: identifies-keycloak-auth-path
     type: classify
     target: localhost:8080

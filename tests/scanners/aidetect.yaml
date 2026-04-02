@@ -20,6 +20,12 @@ commands:
     timeout: 300s
 
 assertions:
+  - name: exploit-ollama-api-tags
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9217/api/tags | grep -q models"
+      exit_code: 0
+
   - name: detects-llm-endpoint
     type: beacon
     target: ollama:11434

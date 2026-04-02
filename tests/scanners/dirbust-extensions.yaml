@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-admin-php-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9214/admin.php | grep -qi 'admin\\|dashboard\\|php'"
+      exit_code: 0
+
   - name: detects-php-admin-paths
     type: beacon
     target: php-app:80

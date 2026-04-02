@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-waf-headers-visible
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'X-WAF\\|ModSecurity\\|Server'"
+      exit_code: 0
+
   - name: detects-waf-present
     type: beacon
     target: nginx
