@@ -7,17 +7,17 @@ services:
     build:
       context: ./ssti
       dockerfile: Dockerfile
-    ports: ["8080:8080"]
+    ports: ["9204:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:8080/health >/dev/null"
+  cmd: "curl -sf http://localhost:9204/health >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-ssti
     type: beacon
-    target: ssti-app
+    target: ssti-app:8080
     args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: web.ssti

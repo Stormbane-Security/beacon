@@ -7,17 +7,17 @@ services:
     build:
       context: ./graphql
       dockerfile: Dockerfile
-    ports: ["8080:8080"]
+    ports: ["9201:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:8080/health >/dev/null"
+  cmd: "curl -sf http://localhost:9201/health >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-graphql-introspection
     type: beacon
-    target: graphql-app
+    target: graphql-app:8080
     args: ["--no-enrich", "--scanners", "graphql", "--ports", "8080"]
     expect:
       check_id: graphql.introspection_enabled

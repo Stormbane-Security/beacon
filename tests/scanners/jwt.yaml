@@ -7,17 +7,17 @@ services:
     build:
       context: ./jwt
       dockerfile: Dockerfile
-    ports: ["8080:8080"]
+    ports: ["9205:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:8080/health >/dev/null"
+  cmd: "curl -sf http://localhost:9205/health >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-weak-jwt-algorithm
     type: beacon
-    target: jwt-app
+    target: jwt-app:8080
     args: ["--no-enrich", "--scanners", "jwt", "--ports", "8080"]
     expect:
       check_id: jwt.weak_algorithm

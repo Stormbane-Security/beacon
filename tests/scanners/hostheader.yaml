@@ -7,17 +7,17 @@ services:
     build:
       context: ./hostheader
       dockerfile: Dockerfile
-    ports: ["8080:8080"]
+    ports: ["9203:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:8080/health >/dev/null"
+  cmd: "curl -sf http://localhost:9203/health >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-host-header-injection
     type: beacon
-    target: hostheader-app
+    target: hostheader-app:8080
     args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: web.host_header_injection

@@ -74,7 +74,7 @@ assertions:
   - name: pipeline-detects-open-redirect
     type: beacon
     target: "app:8080"
-    args: ["--no-enrich", "--scanners", "openredir", "--ports", "8080", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "openredir", "--ports", "8080", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.open_redirect
 
@@ -82,8 +82,8 @@ assertions:
   - name: pipeline-detects-cors-misconfig
     type: beacon
     target: "app:8080"
-    args: ["--no-enrich", "--scanners", "cors", "--ports", "8080", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "cors", "--ports", "8080", "--deep", "--permission-confirmed"]
     expect:
-      check_id: cors.arbitrary_origin
+      check_id: web.cors_misconfiguration
 
 timeout: 10m

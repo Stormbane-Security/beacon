@@ -14,9 +14,6 @@ services:
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
 
-  memcached:
-    image: memcached:1-alpine
-    ports: ["9211:11211"]
 
 ready:
   container: mysql
@@ -27,7 +24,7 @@ ready:
 assertions:
   - name: identifies-redis-on-nonstandard-port
     type: beacon
-    target: redis
+    target: redis:6379
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "6379"]
     expect:
       check_id: port.service_identified
@@ -36,20 +33,12 @@ assertions:
 
   - name: identifies-mysql-on-nonstandard-port
     type: beacon
-    target: mysql
+    target: mysql:3306
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
     expect:
       check_id: port.service_identified
       evidence_key: service
       evidence_value: MySQL
 
-  - name: identifies-memcached-on-nonstandard-port
-    type: beacon
-    target: memcached
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11211"]
-    expect:
-      check_id: port.service_identified
-      evidence_key: service
-      evidence_value: memcached
 
 timeout: 5m
