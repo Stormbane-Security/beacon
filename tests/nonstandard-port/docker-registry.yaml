@@ -1,0 +1,25 @@
+name: docker-registry-nonstandard-port
+description: "Docker Registry on non-standard port — probe must detect by V2 API response, not port number"
+tags: [docker, registry, nonstandard-port]
+
+services:
+  registry:
+    image: registry:2
+    ports: ["5050:5000"]
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+
+ready:
+  cmd: "curl -sf http://localhost:5050/v2/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-registry-on-nonstandard-port
+    type: beacon
+    target: registry:5050
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5050"]
+    expect:
+      check_id: container.registry_exposed
+
+timeout: 5m

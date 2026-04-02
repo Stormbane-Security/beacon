@@ -1,0 +1,25 @@
+name: csp-unsafe-directives
+description: "Web app with CSP containing unsafe-inline, unsafe-eval, and wildcard sources"
+tags: [csp, security-headers, web]
+
+services:
+  app:
+    build:
+      context: ./csp-unsafe
+      dockerfile: Dockerfile
+    ports: ["9301:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9301/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-csp-unsafe-inline
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: csp.unsafe_inline
+
+timeout: 5m

@@ -1,0 +1,27 @@
+name: keycloak-saml-bypass
+description: "Keycloak < 26.0.6 with CVE-2026-3047 SAML signature validation bypass"
+tags: [cve, keycloak, saml, auth-bypass]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.0
+    ports: ["9278:8080"]
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:9278/realms/master/.well-known/openid-configuration >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: detects-keycloak-saml-bypass
+    type: beacon
+    target: keycloak:8080
+    args: ["--no-enrich", "--scanners", "saml,portscan", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: cve.keycloak_saml_bypass
+
+timeout: 10m

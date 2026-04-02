@@ -1,0 +1,23 @@
+name: ollama-exposed
+description: "Ollama LLM server exposed without auth — beacon detects unauthenticated LLM API"
+tags: [ollama, ai, llm, portscan]
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["9285:11434"]
+
+ready:
+  cmd: "curl -sf http://localhost:9285/api/tags >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-ollama-exposed
+    type: beacon
+    target: ollama:11434
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11434"]
+    expect:
+      check_id: port.ollama_exposed
+
+timeout: 5m

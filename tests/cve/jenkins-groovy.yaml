@@ -1,0 +1,25 @@
+name: jenkins-groovy-rce
+description: "Jenkins with exposed Groovy script console — beacon detects unauthenticated RCE surface"
+tags: [cve, jenkins, rce, authorized]
+
+services:
+  jenkins:
+    image: jenkins/jenkins:2.346.3-lts
+    ports: ["9271:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+ready:
+  cmd: "curl -sf http://localhost:9271/login >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: detects-jenkins-groovy-rce
+    type: beacon
+    target: jenkins:8080
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: jenkins.groovy_rce
+
+timeout: 10m

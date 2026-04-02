@@ -187,9 +187,7 @@ func probeURL(ctx context.Context, targetURL string) ([]xssTrace, error) {
 	var traces []xssTrace
 	err := chromedp.Run(browserCtx,
 		// Add script to execute on every new document (before page JS runs)
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(setupScript, nil).Do(ctx)
-		}),
+		chromedp.Evaluate(setupScript, nil),
 		chromedp.Navigate(targetURL),
 		// Wait for page load + JS execution
 		chromedp.Sleep(2*time.Second),

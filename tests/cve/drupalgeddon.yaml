@@ -1,0 +1,23 @@
+name: drupalgeddon
+description: "Drupal 7.31 with CVE-2014-3704 SQL injection — unauthenticated admin via form API"
+tags: [cve, drupal, sqli, authorized]
+
+services:
+  drupal:
+    image: drupal:7.31
+    ports: ["9276:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9276/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-drupalgeddon
+    type: beacon
+    target: drupal:80
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
+    expect:
+      check_id: cve.drupal_drupalgeddon1
+
+timeout: 10m

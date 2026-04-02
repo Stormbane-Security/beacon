@@ -1,0 +1,23 @@
+name: modbus-tcp-exposed
+description: "Modbus TCP simulator — beacon detects SCADA/OT protocol on port 502"
+tags: [modbus, scada, ot, ics, portscan]
+
+services:
+  modbus:
+    image: oitc/modbus-server
+    ports: ["9284:502"]
+
+ready:
+  cmd: "nc -z localhost 9284"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-modbus-exposed
+    type: beacon
+    target: modbus:502
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "502"]
+    expect:
+      check_id: port.modbus_exposed
+
+timeout: 5m

@@ -1,0 +1,33 @@
+name: grafana-nonstandard-port
+description: "Grafana on non-standard port — probe must detect by API response, not port number"
+tags: [grafana, nonstandard-port]
+
+services:
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["3333:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:3333/api/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: classifies-grafana-on-nonstandard-port
+    type: classify
+    target: localhost:3333
+    expect:
+      backend_service: Grafana
+
+  - name: detects-monitoring-panel-on-nonstandard-port
+    type: beacon
+    target: localhost:3333
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.monitoring_panel
+
+timeout: 5m

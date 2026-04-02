@@ -1,0 +1,23 @@
+name: proftpd-mod-copy
+description: "ProFTPD 1.3.5 with mod_copy enabled — CVE-2015-3306 unauthenticated file read/write"
+tags: [cve, ftp, file-access, authorized]
+
+services:
+  proftpd:
+    image: hauptmedia/proftpd
+    ports: ["9275:21"]
+
+ready:
+  cmd: "nc -z localhost 9275"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-proftpd-mod-copy
+    type: beacon
+    target: proftpd:21
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "21"]
+    expect:
+      check_id: cve.proftpd_mod_copy
+
+timeout: 5m

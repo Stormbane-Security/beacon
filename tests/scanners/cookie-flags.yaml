@@ -1,0 +1,25 @@
+name: cookie-missing-flags
+description: "Web app setting cookies without Secure, HttpOnly, or SameSite flags"
+tags: [cookie, security-headers, web]
+
+services:
+  app:
+    build:
+      context: ./cookie-flags
+      dockerfile: Dockerfile
+    ports: ["9300:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9300/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-cookie-missing-secure
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: cookie.missing_secure
+
+timeout: 5m

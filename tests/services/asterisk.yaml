@@ -1,0 +1,23 @@
+name: asterisk-sip-exposed
+description: "Asterisk PBX with SIP exposed — beacon detects SIP service on port 5060"
+tags: [asterisk, sip, voip, portscan]
+
+services:
+  asterisk:
+    image: andrius/asterisk:20
+    ports: ["9280:5060/udp", "9281:5060"]
+
+ready:
+  cmd: "nc -z localhost 9281"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-sip-exposed
+    type: beacon
+    target: asterisk:5060
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5060"]
+    expect:
+      check_id: port.sip_exposed
+
+timeout: 5m

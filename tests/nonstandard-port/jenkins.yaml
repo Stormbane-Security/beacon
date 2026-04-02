@@ -1,0 +1,24 @@
+name: jenkins-nonstandard-port
+description: "Jenkins on non-standard port — probe must detect by response headers, not port number"
+tags: [jenkins, nonstandard-port]
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-alpine
+    ports: ["9191:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+ready:
+  cmd: "curl -sf http://localhost:9191/login >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: classifies-jenkins-on-nonstandard-port
+    type: classify
+    target: localhost:9191
+    expect:
+      service_version: platform
+
+timeout: 5m

@@ -1,0 +1,25 @@
+name: rate-limit-missing
+description: "API endpoint with no rate limiting — beacon detects missing rate limits"
+tags: [rate-limiting, api, web]
+
+services:
+  app:
+    build:
+      context: ./rate-limiting
+      dockerfile: Dockerfile
+    ports: ["9303:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9303/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-rate-limit-missing
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: api.rate_limit_missing
+
+timeout: 5m

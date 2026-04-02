@@ -1,0 +1,24 @@
+name: smb-nonstandard-port
+description: "SMB on non-standard port — probe must detect by protocol response, not port number"
+tags: [smb, nonstandard-port]
+
+services:
+  smb:
+    image: dperson/samba
+    ports: ["4445:445"]
+    command: ["-s", "public;/share;yes;no;yes;all;none;;public share", "-p"]
+
+ready:
+  cmd: "nc -z localhost 4445"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-smb-on-nonstandard-port
+    type: beacon
+    target: localhost:4445
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "4445"]
+    expect:
+      check_id: port.smb_exposed
+
+timeout: 5m
