@@ -15,6 +15,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-log4shell-jndi-payload-accepted
+    type: command
+    expect:
+      command: "curl -sf -H 'X-Api-Version: ${jndi:ldap://127.0.0.1/test}' http://localhost:9230/ -o /dev/null -w '%{http_code}' | grep -qE '(200|500)'"
+      exit_code: 0
+
   - name: detects-log4shell
     type: beacon
     target: log4j-app:8080

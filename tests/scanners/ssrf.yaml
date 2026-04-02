@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-ssrf-localhost-fetch
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9220/fetch?url=http://127.0.0.1:8080/health' | grep -qE '(ok|healthy|200)'"
+      exit_code: 0
+
   - name: detects-ssrf
     type: beacon
     target: ssrf-app:8080

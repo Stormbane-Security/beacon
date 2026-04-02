@@ -17,6 +17,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-neo4j-cypher-query
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:7474/db/neo4j/tx/commit -H 'Content-Type: application/json' -d '{\"statements\":[{\"statement\":\"RETURN 1 AS pwned\"}]}' | grep -q pwned"
+      exit_code: 0
+
   - name: detects-neo4j-exposed
     type: beacon
     target: neo4j:7474

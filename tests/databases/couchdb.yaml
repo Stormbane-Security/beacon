@@ -16,6 +16,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-couchdb-list-dbs
+    type: command
+    expect:
+      command: "curl -sf http://admin:admin@localhost:5984/_all_dbs | grep -q '_users'"
+      exit_code: 0
+
+  - name: exploit-couchdb-server-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5984/ | grep -q couchdb"
+      exit_code: 0
+
   - name: classifies-as-couchdb
     type: classify
     target: localhost:5984

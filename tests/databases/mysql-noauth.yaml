@@ -17,6 +17,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-mysql-noauth-query
+    type: command
+    expect:
+      command: "mysql -h 127.0.0.1 -P 3307 -u root --skip-password -e 'SELECT current_user();' 2>/dev/null | grep -q root"
+      exit_code: 0
+
   - name: detects-mysql-no-auth
     type: beacon
     target: mysql:3306

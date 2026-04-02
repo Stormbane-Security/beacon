@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-websocket-upgrade-accepted
+    type: command
+    expect:
+      command: "curl -sI -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' -H 'Origin: https://evil.com' http://localhost:9302/ws | grep -qi '101\\|Switching'"
+      exit_code: 0
+
   - name: detects-websocket-cswsh
     type: beacon
     target: app:8080

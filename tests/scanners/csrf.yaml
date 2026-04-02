@@ -15,6 +15,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-csrf-form-no-token
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9212/ | grep -q '<form' && ! curl -sf http://localhost:9212/ | grep -qi 'csrf'"
+      exit_code: 0
+
+  - name: exploit-csrf-post-accepted
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9212/login -d 'user=admin&pass=admin' -o /dev/null -w '%{http_code}' | grep -qE '(200|302)'"
+      exit_code: 0
+
   - name: detects-csrf-missing-token
     type: beacon
     target: csrf-app:8080

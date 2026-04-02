@@ -24,6 +24,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-phpmyadmin-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9254/ | grep -qi phpmyadmin"
+      exit_code: 0
+
   - name: detects-default-creds
     type: beacon
     target: phpmyadmin:80

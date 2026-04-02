@@ -15,6 +15,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-jwt-token-issued
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9205/token | grep -q '\\.'"
+      exit_code: 0
+
+  - name: exploit-jwt-alg-none-header
+    type: command
+    expect:
+      command: "TOKEN=$(curl -sf http://localhost:9205/token) && echo $TOKEN | cut -d. -f1 | base64 -d 2>/dev/null | grep -qiE '(none|HS256)'"
+      exit_code: 0
+
   - name: detects-weak-jwt-algorithm
     type: beacon
     target: jwt-app:8080

@@ -13,6 +13,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-memcached-stats
+    type: command
+    expect:
+      command: "echo 'stats' | nc -w 2 localhost 11211 | grep -q 'STAT pid'"
+      exit_code: 0
+
+  - name: exploit-memcached-set-get
+    type: command
+    expect:
+      command: "printf 'set drydock 0 60 6\\r\\npwned!\\r\\nget drydock\\r\\nquit\\r\\n' | nc -w 2 localhost 11211 | grep -q pwned"
+      exit_code: 0
+
   - name: detects-unauthenticated-memcached
     type: beacon
     target: localhost:11211

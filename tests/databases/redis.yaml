@@ -14,6 +14,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-redis-info
+    type: command
+    expect:
+      command: "echo 'INFO server' | nc -w 2 localhost 6379 | grep -q redis_version"
+      exit_code: 0
+
+  - name: exploit-redis-set-get
+    type: command
+    expect:
+      command: "echo -e 'SET drydock_proof hacked\\r\\nGET drydock_proof\\r\\n' | nc -w 2 localhost 6379 | grep -q hacked"
+      exit_code: 0
+
   - name: detects-unauthenticated-redis
     type: beacon
     target: localhost:6379

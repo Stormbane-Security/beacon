@@ -15,6 +15,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-csp-contains-unsafe-inline
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9301/ | grep -i 'Content-Security-Policy' | grep -q 'unsafe-inline'"
+      exit_code: 0
+
+  - name: exploit-csp-contains-unsafe-eval
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9301/ | grep -i 'Content-Security-Policy' | grep -q 'unsafe-eval'"
+      exit_code: 0
+
   - name: detects-csp-unsafe-inline
     type: beacon
     target: app:8080

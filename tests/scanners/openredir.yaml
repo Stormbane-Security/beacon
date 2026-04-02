@@ -14,6 +14,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-open-redirect-to-evil
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:9290/redirect?url=https://evil.com' | grep -qi 'location.*evil.com'"
+      exit_code: 0
+
   - name: detects-open-redirect-url
     type: beacon
     target: app:8080

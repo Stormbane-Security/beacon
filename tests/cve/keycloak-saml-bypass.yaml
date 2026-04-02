@@ -17,6 +17,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-keycloak-saml-descriptor-exposed
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9278/realms/master/protocol/saml/descriptor' | grep -q 'EntityDescriptor'"
+      exit_code: 0
+
+  - name: exploit-keycloak-oidc-exposed
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9278/realms/master/.well-known/openid-configuration' | grep -q 'issuer'"
+      exit_code: 0
+
   - name: detects-keycloak-saml-bypass
     type: beacon
     target: keycloak:8080

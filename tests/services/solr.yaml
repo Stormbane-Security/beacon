@@ -14,6 +14,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-solr-admin-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8983/solr/admin/cores | grep -q 'responseHeader'"
+      exit_code: 0
+
+  - name: exploit-solr-system-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8983/solr/admin/info/system | grep -q 'solr_home'"
+      exit_code: 0
+
   - name: detects-solr-admin
     type: beacon
     target: solr:8983

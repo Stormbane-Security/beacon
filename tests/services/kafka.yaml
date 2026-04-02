@@ -27,6 +27,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-zookeeper-srvr
+    type: command
+    expect:
+      command: "echo 'srvr' | nc -w 3 localhost 2181 | grep -qiE '(Zookeeper|version|Latency)'"
+      exit_code: 0
+
+  - name: exploit-kafka-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 9092"
+      exit_code: 0
+
   - name: detects-zookeeper-exposed
     type: beacon
     target: localhost:2181

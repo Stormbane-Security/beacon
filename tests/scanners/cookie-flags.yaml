@@ -15,6 +15,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-cookie-no-secure-flag
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9300/ | grep -i 'Set-Cookie' | grep -qiv 'Secure'"
+      exit_code: 0
+
+  - name: exploit-cookie-no-httponly-flag
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9300/ | grep -i 'Set-Cookie' | grep -qiv 'HttpOnly'"
+      exit_code: 0
+
   - name: detects-cookie-missing-secure
     type: beacon
     target: app:8080

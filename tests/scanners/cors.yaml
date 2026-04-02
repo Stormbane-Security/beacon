@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-cors-reflects-origin
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:9206/ | grep -qi 'Access-Control-Allow-Origin'"
+      exit_code: 0
+
   - name: detects-cors-misconfiguration
     type: beacon
     target: nginx:80

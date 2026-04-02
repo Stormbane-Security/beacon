@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-graphql-introspection-query
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9201/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{__schema{types{name}}}\"}' | grep -q '__schema'"
+      exit_code: 0
+
   - name: detects-graphql-introspection
     type: beacon
     target: graphql-app:8080

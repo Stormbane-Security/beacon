@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-upload-endpoint-exists
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9252/ | grep -qiE '(upload|form)'"
+      exit_code: 0
+
   - name: detects-file-upload-bypass
     type: beacon
     target: app:80

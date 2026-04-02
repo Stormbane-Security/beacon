@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-clte-probe
+    type: command
+    expect:
+      command: "printf 'POST / HTTP/1.1\\r\\nHost: localhost\\r\\nContent-Length: 6\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n0\\r\\n\\r\\n' | nc -w 3 localhost 9256 | grep -q 'HTTP/1'"
+      exit_code: 0
+
   - name: detects-smuggling
     type: beacon
     target: app:80

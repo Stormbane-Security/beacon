@@ -19,6 +19,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-kong-admin-routes
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8001/routes | grep -q data"
+      exit_code: 0
+
+  - name: exploit-kong-admin-services
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8001/services | grep -q data"
+      exit_code: 0
+
   - name: detects-kong-admin-exposed
     type: beacon
     target: kong:8001

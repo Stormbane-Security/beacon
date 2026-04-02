@@ -16,6 +16,24 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-docker-list-containers
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2375/containers/json | grep -q '\\['"
+      exit_code: 0
+
+  - name: exploit-docker-list-images
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2375/images/json | grep -q '\\['"
+      exit_code: 0
+
+  - name: exploit-docker-version-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2375/version | grep -q ApiVersion"
+      exit_code: 0
+
   - name: detects-docker-api-exposed
     type: beacon
     target: socat

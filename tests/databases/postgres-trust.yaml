@@ -16,6 +16,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-postgres-trust-query
+    type: command
+    expect:
+      command: "PGPASSWORD='' psql -h localhost -p 5433 -U postgres -c 'SELECT 1 AS pwned;' 2>/dev/null | grep -q pwned"
+      exit_code: 0
+
   - name: detects-postgresql-trust
     type: beacon
     target: postgres:5432

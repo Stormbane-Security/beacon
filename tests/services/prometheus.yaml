@@ -16,6 +16,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-prometheus-targets
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9090/api/v1/targets | grep -q activeTargets"
+      exit_code: 0
+
+  - name: exploit-prometheus-config
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9090/api/v1/status/config | grep -q 'scrape_configs'"
+      exit_code: 0
+
   - name: classifies-as-prometheus
     type: classify
     target: localhost:9090

@@ -18,6 +18,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-vault-root-token
+    type: command
+    expect:
+      command: "curl -sf -H 'X-Vault-Token: root' http://localhost:8200/v1/sys/mounts | grep -q secret"
+      exit_code: 0
+
+  - name: exploit-vault-health-unsealed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8200/v1/sys/health | grep -q '\"sealed\":false'"
+      exit_code: 0
+
   - name: classifies-as-vault
     type: classify
     target: localhost:8200

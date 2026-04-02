@@ -15,6 +15,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-harbor-default-login
+    type: command
+    expect:
+      command: "curl -sf -u admin:Harbor12345 'http://localhost:9273/api/v2.0/users/current' | grep -q admin || curl -sf 'http://localhost:9273/api/v2.0/systeminfo' | grep -q harbor"
+      exit_code: 0
+
   - name: detects-harbor-default-creds
     type: beacon
     target: harbor:8080

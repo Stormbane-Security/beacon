@@ -15,6 +15,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-rabbitmq-default-login
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:15673/api/whoami | grep -q guest"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-list-queues
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:15673/api/overview | grep -q rabbitmq_version"
+      exit_code: 0
+
   - name: detects-rabbitmq-default-creds
     type: beacon
     target: rabbitmq:15672

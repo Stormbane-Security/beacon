@@ -14,6 +14,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-consul-list-nodes
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8501/v1/catalog/nodes | grep -q 'Node'"
+      exit_code: 0
+
+  - name: exploit-consul-list-services
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8501/v1/catalog/services | grep -q '{'"
+      exit_code: 0
+
   - name: detects-consul-no-acl
     type: beacon
     target: consul:8500

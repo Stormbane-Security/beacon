@@ -13,6 +13,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-drupal-version-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9276/CHANGELOG.txt | head -5 | grep -q 'Drupal 7'"
+      exit_code: 0
+
+  - name: exploit-drupal-form-api-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' 'http://localhost:9276/?q=user/password' | grep -q 200"
+      exit_code: 0
+
   - name: detects-drupalgeddon
     type: beacon
     target: drupal:80

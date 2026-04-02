@@ -13,6 +13,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-openapi-spec-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/openapi.json | grep -q paths"
+      exit_code: 0
+
+  - name: exploit-swagger-ui-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/docs | grep -qi swagger"
+      exit_code: 0
+
   - name: detects-openapi-spec-exposed
     type: beacon
     target: api

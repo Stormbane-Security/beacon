@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-sqli-error-based
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9210/search?id=1%27' 2>/dev/null | grep -qiE '(error|syntax|sqlite|unrecognized)'"
+      exit_code: 0
+
   - name: detects-time-blind-sqli
     type: beacon
     target: sqli-app:8080

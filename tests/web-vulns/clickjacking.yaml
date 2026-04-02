@@ -14,6 +14,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-no-xframe-options
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9253/ | grep -ciE 'x-frame-options|frame-ancestors' | grep -q '^0$'"
+      exit_code: 0
+
+  - name: exploit-page-has-login-form
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9253/ | grep -q 'Login'"
+      exit_code: 0
+
   - name: detects-clickjacking
     type: beacon
     target: app:80

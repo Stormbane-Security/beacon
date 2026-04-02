@@ -13,6 +13,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-proftpd-banner
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 9275 | grep -qi 'ProFTPD\\|220'"
+      exit_code: 0
+
+  - name: exploit-proftpd-site-cpfr
+    type: command
+    expect:
+      command: "printf 'SITE CPFR /etc/passwd\\r\\n' | nc -w 3 localhost 9275 | grep -qE '(350|500)'"
+      exit_code: 0
+
   - name: detects-proftpd-mod-copy
     type: beacon
     target: proftpd:21

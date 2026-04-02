@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-stack-trace-leaked
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9251/nonexistent 2>/dev/null | grep -qiE '(Traceback|stack.trace|File \"|Exception)'"
+      exit_code: 0
+
   - name: detects-error-info-leak
     type: beacon
     target: app:8080

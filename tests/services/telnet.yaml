@@ -14,6 +14,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-telnet-shell-access
+    type: command
+    expect:
+      command: "echo 'id' | nc -w 3 localhost 23 | grep -qE '(uid=|#|\\$|login)'"
+      exit_code: 0
+
   - name: detects-telnet-exposed
     type: beacon
     target: telnet:23

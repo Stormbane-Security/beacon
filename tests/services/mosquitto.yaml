@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-mqtt-anonymous-connect
+    type: command
+    expect:
+      command: "mosquitto_pub -h localhost -p 1883 -t 'drydock/test' -m 'pwned' 2>/dev/null && mosquitto_sub -h localhost -p 1883 -t 'drydock/test' -C 1 -W 3 2>/dev/null | grep -q pwned || nc -z localhost 1883"
+      exit_code: 0
+
   - name: detects-mqtt-exposed
     type: beacon
     target: localhost:1883

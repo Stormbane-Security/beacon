@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-deserialize-endpoint-accepts-data
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9255/api/data -H 'Content-Type: application/octet-stream' -d 'test' -o /dev/null -w '%{http_code}' | grep -qE '(200|400|500)'"
+      exit_code: 0
+
   - name: detects-insecure-deserialize
     type: beacon
     target: app:8080

@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-ssti-math-eval
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9204/search?q={{7*7}}' | grep -q 49"
+      exit_code: 0
+
   - name: detects-ssti
     type: beacon
     target: ssti-app:8080

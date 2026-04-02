@@ -15,6 +15,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-activemq-admin-console
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:8162/admin/ | grep -q ActiveMQ"
+      exit_code: 0
+
+  - name: exploit-activemq-version-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8162/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost/BrokerVersion 2>/dev/null | grep -q '5.15' || curl -sf -u admin:admin http://localhost:8162/admin/ | grep -q '5.15'"
+      exit_code: 0
+
   - name: detects-activemq-rce
     type: beacon
     target: activemq:61616

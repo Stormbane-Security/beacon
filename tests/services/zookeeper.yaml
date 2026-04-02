@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-zookeeper-four-letter
+    type: command
+    expect:
+      command: "echo 'srvr' | nc -w 3 localhost 2181 | grep -q 'Zookeeper version'"
+      exit_code: 0
+
   - name: detects-zookeeper-exposed
     type: beacon
     target: zookeeper:2181
