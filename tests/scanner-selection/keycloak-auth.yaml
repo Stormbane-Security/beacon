@@ -1,0 +1,49 @@
+name: scanner-selection-keycloak
+description: "Verify beacon selects Keycloak/SAML/OAuth playbooks and related scanners"
+tags: [scanner-selection, dry-run, keycloak, auth]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    ports: ["9304:8080"]
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:9304/realms/master/.well-known/openid-configuration >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Dry-run plan verification ---
+  # Keycloak playbook should match (backend_service: Keycloak).
+  - name: dryrun-matches-keycloak-playbook
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9304 --dry-run --format json --no-enrich --ports 8080 2>/dev/null | grep -q keycloak"
+      exit_code: 0
+
+  # SAML scanner should be planned (baseline includes it).
+  - name: dryrun-plans-saml
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9304 --dry-run --format json --no-enrich --ports 8080 2>/dev/null | grep -q saml"
+      exit_code: 0
+
+  # IAM scanner should be planned (baseline includes it).
+  - name: dryrun-plans-iam
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9304 --dry-run --format json --no-enrich --ports 8080 2>/dev/null | grep -q iam"
+      exit_code: 0
+
+  # --- Verbose execution verification ---
+  - name: verbose-runs-saml
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9304 --verbose --no-tui --format json --no-enrich --scanners saml --ports 8080 2>&1 | grep -q saml"
+      exit_code: 0
+
+timeout: 10m

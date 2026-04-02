@@ -1,0 +1,39 @@
+name: scanner-selection-redis
+description: "Verify beacon selects portscan for a non-HTTP service (Redis) — web-only scanners should not be planned"
+tags: [scanner-selection, dry-run, redis]
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["9303:6379"]
+    command: ["redis-server", "--save", ""]
+
+ready:
+  cmd: "echo PING | nc -w 2 localhost 9303 | grep -q PONG"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Dry-run plan verification ---
+  # Redis on a non-standard port: portscan must be planned.
+  - name: dryrun-plans-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9303 --dry-run --format json --no-enrich --ports 6379 2>/dev/null | grep -q portscan"
+      exit_code: 0
+
+  # --- Verbose execution verification ---
+  - name: verbose-runs-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9303 --verbose --no-tui --format json --no-enrich --scanners portscan --ports 6379 2>&1 | grep -q portscan"
+      exit_code: 0
+
+  # Exploit proof: Redis PING works unauthenticated.
+  - name: exploit-redis-unauthenticated
+    type: command
+    expect:
+      command: "echo PING | nc -w 2 localhost 9303 | grep -q PONG"
+      exit_code: 0
+
+timeout: 5m

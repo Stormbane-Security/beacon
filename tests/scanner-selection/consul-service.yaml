@@ -1,0 +1,45 @@
+name: scanner-selection-consul
+description: "Verify beacon selects Consul-specific playbook scanners for a Consul dev instance"
+tags: [scanner-selection, dry-run, consul]
+
+services:
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["9301:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:9301/v1/status/leader >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  # --- Dry-run plan verification ---
+  # Consul playbook should match (x-consul-index header) and add consul-specific scanners.
+  - name: dryrun-plans-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9301 --dry-run --format json --no-enrich --ports 8500 2>/dev/null | grep -q portscan"
+      exit_code: 0
+
+  - name: dryrun-matches-consul-playbook
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9301 --dry-run --format json --no-enrich --ports 8500 2>/dev/null | grep -q consul"
+      exit_code: 0
+
+  # Baseline scanners should also be present.
+  - name: dryrun-plans-secheaders
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9301 --dry-run --format json --no-enrich --ports 8500 2>/dev/null | grep -q secheaders"
+      exit_code: 0
+
+  # --- Verbose execution verification ---
+  - name: verbose-runs-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9301 --verbose --no-tui --format json --no-enrich --scanners portscan --ports 8500 2>&1 | grep -q portscan"
+      exit_code: 0
+
+timeout: 5m
