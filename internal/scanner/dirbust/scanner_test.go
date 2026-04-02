@@ -324,3 +324,137 @@ func TestDirBustConnectionReset(t *testing.T) {
 		t.Errorf("expected no CheckDirbustFound findings on connection reset, got %d", len(pathFindings))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Tech-aware extension fuzzing
+// ---------------------------------------------------------------------------
+
+func TestExtensionsForFramework_PHP(t *testing.T) {
+	exts := dirbust.ExtensionsForFramework("php")
+	if len(exts) == 0 {
+		t.Fatal("expected extensions for PHP framework")
+	}
+	found := false
+	for _, e := range exts {
+		if e == ".php" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected .php in PHP extensions")
+	}
+}
+
+func TestExtensionsForFramework_Unknown(t *testing.T) {
+	exts := dirbust.ExtensionsForFramework("cobol")
+	if len(exts) != 0 {
+		t.Errorf("expected no extensions for unknown framework, got %v", exts)
+	}
+}
+
+func TestExpandWithExtensions(t *testing.T) {
+	paths := []string{"/admin", "/config.yml"}
+	expanded := dirbust.ExpandWithExtensions(paths, "php")
+
+	// /admin should get .php variants, /config.yml should not (already has extension)
+	hasAdminPHP := false
+	hasConfigPHP := false
+	for _, p := range expanded {
+		if p == "/admin.php" {
+			hasAdminPHP = true
+		}
+		if p == "/config.yml.php" {
+			hasConfigPHP = true
+		}
+	}
+	if !hasAdminPHP {
+		t.Error("expected /admin.php in expanded paths")
+	}
+	if hasConfigPHP {
+		t.Error("/config.yml should not get .php extension (already has extension)")
+	}
+}
+
+func TestExpandWithExtensions_NoFramework(t *testing.T) {
+	paths := []string{"/admin", "/secret"}
+	expanded := dirbust.ExpandWithExtensions(paths, "")
+	if len(expanded) != len(paths) {
+		t.Errorf("expected same paths back for empty framework, got %d vs %d", len(expanded), len(paths))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Recursive directory probing
+// ---------------------------------------------------------------------------
+
+func TestRecurse_FindsSubPaths(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin", "/admin/backup", "/admin/config":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("found"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	s := newTLSScanner(ts)
+	s.SetRecurse(true)
+	findings := s.Run(context.Background(), tlsAsset(ts), []string{"/admin"})
+
+	pathFindings := findingsByCheckID(findings, finding.CheckDirbustFound)
+	// Should find /admin plus /admin/backup and /admin/config from recursion
+	if len(pathFindings) < 2 {
+		t.Errorf("expected at least 2 findings with recursion (parent + sub-paths), got %d", len(pathFindings))
+		for _, f := range pathFindings {
+			t.Logf("  found: %s", f.Title)
+		}
+	}
+}
+
+func TestRecurse_Disabled_NoSubPaths(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin", "/admin/backup":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("found"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	s := newTLSScanner(ts)
+	// recurse not set
+	findings := s.Run(context.Background(), tlsAsset(ts), []string{"/admin"})
+
+	pathFindings := findingsByCheckID(findings, finding.CheckDirbustFound)
+	if len(pathFindings) != 1 {
+		t.Errorf("expected exactly 1 finding without recursion, got %d", len(pathFindings))
+	}
+}
+
+func TestFrameworkExtension_FindsPHPPaths(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/admin.php" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("PHP admin"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s := newTLSScanner(ts)
+	s.SetFramework("php")
+	findings := s.Run(context.Background(), tlsAsset(ts), []string{"/admin"})
+
+	pathFindings := findingsByCheckID(findings, finding.CheckDirbustFound)
+	if len(pathFindings) != 1 {
+		t.Fatalf("expected 1 finding for /admin.php, got %d", len(pathFindings))
+	}
+	if !strings.Contains(pathFindings[0].Title, "/admin.php") {
+		t.Errorf("expected finding for /admin.php, got: %s", pathFindings[0].Title)
+	}
+}

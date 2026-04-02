@@ -70,6 +70,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/crawler"
 	"github.com/stormbane-security/beacon/internal/scanner/dirbust"
 	"github.com/stormbane-security/beacon/internal/scanner/dlp"
+	"github.com/stormbane-security/beacon/internal/scanner/domxss"
 	"github.com/stormbane-security/beacon/internal/scanner/dorks"
 	"github.com/stormbane-security/beacon/internal/scanner/email"
 	"github.com/stormbane-security/beacon/internal/scanner/graphql"
@@ -109,7 +110,11 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/bitbucket"
 	"github.com/stormbane-security/beacon/internal/scanner/circleci"
 	oktascanner "github.com/stormbane-security/beacon/internal/scanner/okta"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/cmdinj"
+	csrfscanner "github.com/stormbane-security/beacon/internal/scanner/csrf"
 	"github.com/stormbane-security/beacon/internal/scanner/openredir"
+	"github.com/stormbane-security/beacon/internal/scanner/sqli"
 	"github.com/stormbane-security/beacon/internal/scanner/secheaders"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
@@ -361,6 +366,10 @@ func New(cfg Config) (*Module, error) {
 		"hostheader":     hostheader.New(),
 		"jwt":            jwt.New(),
 		"cors":           cors.New(),
+		"csrf":           csrfscanner.New(),
+		"sqli":           sqli.New(),
+		"cmdinj":         cmdinj.New(),
+		"domxss":         domxss.New(),
 		"hibp":           hibp.New(cfg.HIBPAPIKey),
 		"dorks":       dorks.New(cfg.BingAPIKey),
 		"cms-plugins": cmsplugins.New(),
@@ -1363,7 +1372,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			_ = session // session.Label available for logging if verbose
 		}
 	}
-	_ = httpClient // available for scanners that accept an http.Client in future
+	ctx = authctx.WithHTTPClient(ctx, httpClient)
 
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
 		parts := []string{}
@@ -1803,11 +1812,28 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		go func() {
 			defer wg.Done()
 			db := dirbust.NewWithFfuf(m.ffufBin)
+			db.SetFramework(ev.Framework)
+			db.SetRecurse(true)
 			dbFindings := db.Run(ctx, asset, dirbustPaths)
 			mu.Lock()
 			findings = append(findings, dbFindings...)
 			mu.Unlock()
 		}()
+	}
+
+	// IPv6 portscan: if classify found an AAAA record, run a portscan against
+	// the IPv6 address concurrently with Phase B scanners.
+	if ev.IPv6 != "" {
+		if ps, ok := m.scanners["portscan"]; ok {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ipv6Findings, _ := ps.Run(ctx, ev.IPv6, scanType)
+				mu.Lock()
+				findings = append(findings, ipv6Findings...)
+				mu.Unlock()
+			}()
+		}
 	}
 
 	// DLP Vision — waits only for the screenshot scanner, then runs concurrently

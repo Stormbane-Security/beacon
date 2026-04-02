@@ -82,6 +82,8 @@ type Scanner struct {
 	concurrency int
 	client      *http.Client
 	ffufBin     string
+	framework   string // detected framework for tech-aware extension fuzzing
+	recurse     bool   // enable one-level recursive probing on discovered dirs
 }
 
 // New creates a Scanner with default settings.
@@ -122,6 +124,79 @@ func NewWithClient(client *http.Client) *Scanner {
 	}
 }
 
+// SetFramework configures the detected framework for tech-aware extension
+// fuzzing. When set, the scanner appends framework-specific extensions
+// (e.g. .php, .jsp) to base paths during probing.
+func (s *Scanner) SetFramework(fw string) { s.framework = strings.ToLower(fw) }
+
+// SetRecurse enables one-level recursive directory probing. When a path
+// returns 200/301/302 and appears to be a directory, the scanner probes
+// common sub-paths within it (admin/, config/, backup/, etc.).
+func (s *Scanner) SetRecurse(on bool) { s.recurse = on }
+
+// extensionsForFramework returns file extensions worth probing for the
+// detected framework. Returns nil if no framework is set or unknown.
+func ExtensionsForFramework(fw string) []string {
+	switch fw {
+	case "php", "laravel", "wordpress", "drupal", "joomla":
+		return []string{".php", ".php.bak", ".php.old", ".phtml", ".inc"}
+	case "rails", "ruby":
+		return []string{".rb", ".erb", ".yml"}
+	case "django", "flask", "python":
+		return []string{".py", ".pyc"}
+	case "spring", "java", "tomcat":
+		return []string{".jsp", ".jspa", ".do", ".action", ".java.bak"}
+	case "express", "nextjs", "nuxt", "node":
+		return []string{".js", ".json", ".ts"}
+	case "asp", "aspnet", "dotnet", "iis":
+		return []string{".aspx", ".asp", ".ashx", ".asmx", ".config"}
+	case "go", "gin", "echo":
+		return []string{".go"}
+	default:
+		return nil
+	}
+}
+
+// recursePaths are common sub-paths probed inside discovered directories.
+var recursePaths = []string{
+	"admin", "config", "backup", "db", "data", "logs", "tmp",
+	"uploads", "static", "assets", "images", "css", "js",
+	"api", "v1", "v2", "internal", "private", "debug",
+}
+
+// expandWithExtensions takes a set of base paths and returns them plus
+// variants with framework-specific extensions appended.
+func ExpandWithExtensions(paths []string, fw string) []string {
+	exts := ExtensionsForFramework(fw)
+	if len(exts) == 0 {
+		return paths
+	}
+
+	seen := make(map[string]bool, len(paths)*2)
+	var expanded []string
+	for _, p := range paths {
+		norm := strings.TrimRight(p, "/")
+		if norm == "" {
+			norm = "/"
+		}
+		if !seen[norm] {
+			seen[norm] = true
+			expanded = append(expanded, p)
+		}
+		// Only add extensions to paths without an existing extension
+		if !strings.Contains(norm[strings.LastIndex(norm, "/")+1:], ".") {
+			for _, ext := range exts {
+				variant := norm + ext
+				if !seen[variant] {
+					seen[variant] = true
+					expanded = append(expanded, variant)
+				}
+			}
+		}
+	}
+	return expanded
+}
+
 // Run probes the given paths against the asset and returns findings.
 // asset should be a hostname (e.g. "admin.example.com").
 // paths should be relative URL paths starting with "/" (e.g. "/admin", "/api/v1").
@@ -133,6 +208,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 	// Deduplicate input paths: normalize trailing slashes and case so that
 	// "/admin" and "/admin/" are not probed (and reported) twice.
 	paths = deduplicatePaths(paths)
+
+	// Expand paths with framework-specific extensions when a tech stack is known.
+	if s.framework != "" {
+		paths = ExpandWithExtensions(paths, s.framework)
+	}
 
 	// Try ffuf first — it's faster and handles WAF evasion better.
 	if s.ffufBin != "" {
@@ -207,6 +287,77 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 		}()
 	}
 	wg.Wait()
+
+	// ── One-level recursive probing ─────────────────────────────────────────
+	// For discovered directories (paths ending without an extension that
+	// returned 200/301/302), probe common sub-paths one level deeper.
+	if s.recurse && ctx.Err() == nil {
+		mu.Lock()
+		dirResults := make([]Result, len(results))
+		copy(dirResults, results)
+		mu.Unlock()
+
+		var recurseProbePaths []string
+		for _, r := range dirResults {
+			// Only recurse into directory-like paths (no file extension)
+			base := r.Path[strings.LastIndex(r.Path, "/")+1:]
+			if strings.Contains(base, ".") {
+				continue
+			}
+			dir := strings.TrimRight(r.Path, "/")
+			for _, sub := range recursePaths {
+				recurseProbePaths = append(recurseProbePaths, dir+"/"+sub)
+			}
+		}
+
+		if len(recurseProbePaths) > 0 {
+			// Expand recursive paths with extensions too
+			if s.framework != "" {
+				recurseProbePaths = ExpandWithExtensions(recurseProbePaths, s.framework)
+			}
+			recurseProbePaths = deduplicatePaths(recurseProbePaths)
+
+			var rwg sync.WaitGroup
+			for _, rp := range recurseProbePaths {
+				if ctx.Err() != nil {
+					break
+				}
+				mu.Lock()
+				stopped := wafStop
+				mu.Unlock()
+				if stopped {
+					break
+				}
+
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+				}
+				if ctx.Err() != nil {
+					break
+				}
+				rp := rp
+				rwg.Add(1)
+				go func() {
+					defer rwg.Done()
+					defer func() { <-sem }()
+					result, waf := s.probe(ctx, baseURL, rp, canaryHash)
+					if waf {
+						mu.Lock()
+						wafStop = true
+						mu.Unlock()
+						return
+					}
+					if result != nil {
+						mu.Lock()
+						results = append(results, *result)
+						mu.Unlock()
+					}
+				}()
+			}
+			rwg.Wait()
+		}
+	}
 
 	findings := s.buildFindings(asset, results)
 

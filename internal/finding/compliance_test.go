@@ -428,6 +428,7 @@ func TestComplianceTags_ValidFrameworks(t *testing.T) {
 		"NIST-",
 		"HIPAA-",
 		"ISO27001-",
+		"CIS-",
 	}
 
 	_, thisFile, _, ok := runtime.Caller(0)

@@ -76,12 +76,16 @@ deep:
     - ssrf           # SSRF via cloud metadata injection in URL params — active payloads
     - hpp            # HTTP parameter pollution — duplicate param probes
     - protopollution # Node.js prototype pollution in JSON API endpoints
+    - csrf           # POST form CSRF token absence + SameSite cookie check
     - authfuzz       # dynamic auth flow mutation: redirect_uri abuse, alg:none JWT, code re-use
     - xxe            # XML external entity injection in XML-accepting endpoints
     - deserial       # insecure deserialization fingerprinting (Java/PHP magic bytes + exception probing)
     - fileupload     # file upload bypass: double extension, MIME confusion, null byte
     - openredir      # open redirect via common redirect parameters (?url=, ?redirect=, ?next=)
     - swagger        # OpenAPI endpoint fuzzing: missing-param 500s, type confusion, SQL canaries
+    - sqli           # time-blind SQL injection with calibration-based dual-sleep confirmation
+    - cmdinj         # OS command injection via timing analysis + OOB nslookup confirmation
+    - domxss         # DOM-based XSS detection via headless Chrome source-to-sink tracing
   nuclei_tags:
     - cves
     - network

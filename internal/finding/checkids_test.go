@@ -75,6 +75,8 @@ var allCheckIDs = []finding.CheckID{
 	finding.CheckWebPathTraversal,
 	finding.CheckWebDefaultCredentials,
 	finding.CheckWebHTTPRequestSmuggling,
+	finding.CheckWebCmdInjection,
+	finding.CheckWebCSRFMissing,
 	finding.CheckAssetReverseIP,
 	finding.CheckAssetOrgDomains,
 	finding.CheckAssetASNRanges,
@@ -325,6 +327,8 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckLDAPInjection:       true,
 		finding.CheckCloudMetadataSSRF:   true,
 		// Web injection / exploitation scanners
+		finding.CheckWebCmdInjection:        true,
+		finding.CheckWebCSRFMissing:         true,
 		finding.CheckWebSSTI:                true,
 		finding.CheckWebCRLFInjection:       true,
 		finding.CheckWebPrototypePollution:  true,

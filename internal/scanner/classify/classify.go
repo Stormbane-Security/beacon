@@ -205,10 +205,16 @@ func resolveInto(ctx context.Context, hostname string, e *playbook.Evidence) {
 		}
 	}
 
-	// Resolve to IP
+	// Resolve to IP (A record)
 	addrs, err := net.DefaultResolver.LookupHost(ctx, hostname)
 	if err == nil && len(addrs) > 0 {
 		e.IP = addrs[0]
+	}
+
+	// Resolve AAAA record for IPv6
+	ipv6Addrs, err := net.DefaultResolver.LookupIP(ctx, "ip6", hostname)
+	if err == nil && len(ipv6Addrs) > 0 {
+		e.IPv6 = ipv6Addrs[0].String()
 	}
 }
 

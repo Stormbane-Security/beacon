@@ -21,6 +21,7 @@ type CloudContext struct {
 type Evidence struct {
 	// Network
 	IP     string
+	IPv6   string // AAAA record address (e.g. "2606:4700::6810:84e5"), empty if no AAAA
 	ASNOrg string // e.g. "CLOUDFLARENET", "AMAZON-02"
 	ASNNum string // e.g. "AS13335"
 
