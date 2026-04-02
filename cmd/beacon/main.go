@@ -468,8 +468,11 @@ By passing --permission-confirmed you confirm that:
 		fatalf("--authorized requires --deep and --permission-confirmed")
 	}
 	if authorized {
-		// Interactive legal acknowledgment — cannot be bypassed with a flag.
-		fmt.Fprintf(os.Stderr, `
+		// BEACON_AUTHORIZED_ACK=1 bypasses the interactive prompt for CI/automation.
+		// The operator is still responsible for ensuring authorization exists.
+		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
+			// Interactive legal acknowledgment — cannot be bypassed with a flag.
+			fmt.Fprintf(os.Stderr, `
 AUTHORIZED / EXPLOITATION SCAN MODE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This mode enables active exploitation probes against %s, including:
@@ -487,16 +490,19 @@ and equivalent laws in all other jurisdictions.
 
 Type exactly: I have written authorization for %s
 > `, domain, domain)
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			fatalf("failed to read input: %v", err)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				fatalf("failed to read input: %v", err)
+			}
+			expected := fmt.Sprintf("I have written authorization for %s", domain)
+			if strings.TrimSpace(line) != expected {
+				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+			}
+			fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
+		} else {
+			fmt.Fprintln(os.Stderr, "beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)")
 		}
-		expected := fmt.Sprintf("I have written authorization for %s", domain)
-		if strings.TrimSpace(line) != expected {
-			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
-		}
-		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
 	}
 
 	scanType := module.ScanSurface
@@ -1022,8 +1028,9 @@ responsibility for your use of --deep mode.`)
 		fatalf("--authorized requires --deep and --permission-confirmed")
 	}
 	if authorized {
-		targetList := "  • " + strings.Join(targets, "\n  • ")
-		fmt.Fprintf(os.Stderr, `
+		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
+			targetList := "  • " + strings.Join(targets, "\n  • ")
+			fmt.Fprintf(os.Stderr, `
 AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This mode enables active exploitation probes against %d targets:
@@ -1034,15 +1041,18 @@ unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
 
 Type exactly: I have written authorization for all listed targets
 > `, len(targets), targetList)
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			fatalf("failed to read input: %v", err)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				fatalf("failed to read input: %v", err)
+			}
+			if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
+				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+			}
+			fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
+		} else {
+			fmt.Fprintln(os.Stderr, "beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)")
 		}
-		if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
-			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
-		}
-		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -1,0 +1,46 @@
+name: dlp-sensitive-data
+description: "Web server exposing page with SSNs, credit cards, PEM keys, and bulk email list"
+tags: [dlp, ssn, credit-card, private-key, email]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./sensitive-data/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-ssn-pattern
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.ssn_pattern
+
+  - name: detects-credit-card
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.credit_card
+
+  - name: detects-private-key
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.private_key
+
+  - name: detects-email-list
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.email_list
+
+timeout: 5m

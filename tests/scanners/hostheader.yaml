@@ -1,0 +1,25 @@
+name: hostheader-injection
+description: "Python app that reflects Host header in redirects and body triggers web.host_header_injection"
+tags: [hostheader, scanner, web]
+
+services:
+  hostheader-app:
+    build:
+      context: ./hostheader
+      dockerfile: Dockerfile
+    ports: ["8080:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-host-header-injection
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.host_header_injection
+
+timeout: 5m
