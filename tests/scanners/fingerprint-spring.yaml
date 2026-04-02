@@ -1,0 +1,25 @@
+name: fingerprint-spring-actuator
+description: "Go server mimicking Spring Boot with exposed actuator endpoints — beacon classify should detect Framework=spring and swagger scanner should find actuator paths"
+tags: [fingerprint, classify, discovery, spring]
+
+services:
+  spring-app:
+    build:
+      context: ./fingerprint-spring
+      dockerfile: Dockerfile
+    ports: ["9216:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9216/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-spring-actuator
+    type: beacon
+    target: spring-app:8080
+    args: ["--no-enrich", "--scanners", "swagger", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      min_findings: 1
+
+timeout: 5m

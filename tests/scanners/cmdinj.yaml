@@ -1,0 +1,25 @@
+name: cmdinj-timing
+description: "Go server with OS command injection in ?host= — beacon detects via calibration-based dual-sleep timing and shell metacharacter injection"
+tags: [cmdinj, scanner, web, authorized]
+
+services:
+  cmdinj-app:
+    build:
+      context: ./cmdinj
+      dockerfile: Dockerfile
+    ports: ["9211:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9211/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-command-injection
+    type: beacon
+    target: cmdinj-app:8080
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: web.command_injection
+
+timeout: 5m

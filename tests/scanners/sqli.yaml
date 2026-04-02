@@ -1,0 +1,25 @@
+name: sqli-time-blind
+description: "Flask+SQLite app with SQL injection in ?id= parameter — beacon detects via calibration-based dual-sleep timing"
+tags: [sqli, scanner, web, authorized]
+
+services:
+  sqli-app:
+    build:
+      context: ./sqli
+      dockerfile: Dockerfile
+    ports: ["9210:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9210/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-time-blind-sqli
+    type: beacon
+    target: sqli-app:8080
+    args: ["--no-enrich", "--scanners", "sqli", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: web.sqli
+
+timeout: 5m

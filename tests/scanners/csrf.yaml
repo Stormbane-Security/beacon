@@ -1,0 +1,25 @@
+name: csrf-missing-token
+description: "Go server with POST login/register forms missing CSRF tokens and SameSite cookies — beacon detects web.csrf_token_missing"
+tags: [csrf, scanner, web]
+
+services:
+  csrf-app:
+    build:
+      context: ./csrf
+      dockerfile: Dockerfile
+    ports: ["9212:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9212/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-csrf-missing-token
+    type: beacon
+    target: csrf-app:8080
+    args: ["--no-enrich", "--scanners", "csrf", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: web.csrf_token_missing
+
+timeout: 5m
