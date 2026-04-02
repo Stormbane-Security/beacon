@@ -1,0 +1,24 @@
+name: consul-no-acl
+description: "HashiCorp Consul with no ACL — full cluster topology exposed"
+tags: [consul, service-discovery, port]
+
+services:
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["8501:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:8501/v1/catalog/nodes >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-consul-no-acl
+    type: beacon
+    target: consul:8500
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8500"]
+    expect:
+      check_id: port.consul_no_acl
+
+timeout: 5m

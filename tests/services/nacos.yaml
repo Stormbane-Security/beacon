@@ -1,0 +1,26 @@
+name: nacos-exposed
+description: "Nacos service discovery and configuration server exposed without authentication"
+tags: [nacos, service-discovery, port]
+
+services:
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    ports: ["8848:8848"]
+    environment:
+      MODE: "standalone"
+      NACOS_AUTH_ENABLE: "false"
+
+ready:
+  cmd: "curl -sf http://localhost:8848/nacos/ >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: detects-nacos-exposed
+    type: beacon
+    target: nacos:8848
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8848"]
+    expect:
+      check_id: port.nacos_exposed
+
+timeout: 10m

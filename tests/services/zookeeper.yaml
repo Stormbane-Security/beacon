@@ -1,0 +1,25 @@
+name: zookeeper-exposed
+description: "Apache ZooKeeper exposed without authentication — beacon detects coordination service"
+tags: [zookeeper, port, coordination]
+
+services:
+  zookeeper:
+    image: zookeeper:3.9
+    ports: ["2181:2181"]
+    environment:
+      ZOO_4LW_COMMANDS_WHITELIST: "*"
+
+ready:
+  cmd: "nc -z localhost 2181"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-zookeeper-exposed
+    type: beacon
+    target: zookeeper:2181
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2181"]
+    expect:
+      check_id: port.zookeeper_exposed
+
+timeout: 5m

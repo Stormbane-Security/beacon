@@ -1,0 +1,26 @@
+name: pulsar-admin-exposed
+description: "Apache Pulsar admin API exposed without authentication"
+tags: [pulsar, messaging, port]
+
+services:
+  pulsar:
+    image: apachepulsar/pulsar:3.2.0
+    ports:
+      - "6650:6650"
+      - "8080:8080"
+    command: ["bin/pulsar", "standalone"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/admin/v2/clusters >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-pulsar-admin
+    type: beacon
+    target: pulsar:8080
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
+    expect:
+      check_id: port.pulsar_admin_exposed
+
+timeout: 10m

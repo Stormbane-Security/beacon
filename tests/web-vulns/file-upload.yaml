@@ -1,0 +1,25 @@
+name: file-upload-bypass
+description: "PHP file upload with insufficient MIME/extension validation — beacon detects upload bypass"
+tags: [file-upload, web, authorized]
+
+services:
+  app:
+    build:
+      context: ./file-upload
+      dockerfile: Dockerfile
+    ports: ["9252:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9252/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-file-upload-bypass
+    type: beacon
+    target: app:80
+    args: ["--no-enrich", "--scanners", "fileupload", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
+    expect:
+      check_id: web.file_upload_bypass
+
+timeout: 5m

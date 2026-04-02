@@ -1,0 +1,28 @@
+name: step-ca-exposed
+description: "step-ca certificate authority SCEP endpoint exposed"
+tags: [stepca, pki, certificate, port]
+
+services:
+  stepca:
+    image: smallstep/step-ca:latest
+    ports: ["9000:9000"]
+    environment:
+      DOCKER_STEPCA_INIT_NAME: "Test CA"
+      DOCKER_STEPCA_INIT_DNS_NAMES: "localhost"
+      DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT: "true"
+      DOCKER_STEPCA_INIT_ACME: "true"
+
+ready:
+  cmd: "curl -sfk https://localhost:9000/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-step-ca-exposed
+    type: beacon
+    target: stepca:9000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9000"]
+    expect:
+      check_id: port.step_ca_exposed
+
+timeout: 5m

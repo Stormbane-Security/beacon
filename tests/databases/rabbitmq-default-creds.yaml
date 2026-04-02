@@ -1,0 +1,25 @@
+name: rabbitmq-default-creds
+description: "RabbitMQ management API accepts default guest:guest credentials"
+tags: [rabbitmq, messaging, credentials, port]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+
+ready:
+  cmd: "curl -sf -u guest:guest http://localhost:15673/api/overview >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: detects-rabbitmq-default-creds
+    type: beacon
+    target: rabbitmq:15672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+timeout: 5m

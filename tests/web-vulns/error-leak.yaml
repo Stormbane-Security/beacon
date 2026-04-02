@@ -1,0 +1,25 @@
+name: error-info-leak
+description: "Flask app in debug mode leaking stack traces and internal paths"
+tags: [error-leak, web, debug]
+
+services:
+  app:
+    build:
+      context: ./error-leak
+      dockerfile: Dockerfile
+    ports: ["9251:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9251/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-error-info-leak
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: web.error_info_leak
+
+timeout: 5m

@@ -1,0 +1,25 @@
+name: http-request-smuggling
+description: "Nginx + gunicorn CL/TE mismatch — beacon detects HTTP request smuggling surface"
+tags: [smuggling, web, authorized]
+
+services:
+  app:
+    build:
+      context: ./smuggling
+      dockerfile: Dockerfile
+    ports: ["9256:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9256/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-smuggling
+    type: beacon
+    target: app:80
+    args: ["--no-enrich", "--scanners", "smuggling", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
+    expect:
+      check_id: web.http_request_smuggling
+
+timeout: 5m

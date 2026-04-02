@@ -1,0 +1,25 @@
+name: teamcity-self-hosted
+description: "JetBrains TeamCity server — beacon detects exposed management and guest access"
+tags: [teamcity, cicd, self-hosted]
+
+services:
+  teamcity:
+    image: jetbrains/teamcity-server:2023.11.4
+    ports: ["9242:8111"]
+    environment:
+      TEAMCITY_SERVER_MEM_OPTS: "-Xmx512m"
+
+ready:
+  cmd: "curl -sf http://localhost:9242/login.html >/dev/null"
+  timeout: 300s
+  interval: 10s
+
+assertions:
+  - name: detects-teamcity-exposed
+    type: beacon
+    target: teamcity:8111
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8111"]
+    expect:
+      check_id: teamcity.guest_access
+
+timeout: 15m

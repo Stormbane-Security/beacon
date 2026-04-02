@@ -1,0 +1,27 @@
+name: nifi-exposed
+description: "Apache NiFi data pipeline UI exposed without authentication"
+tags: [nifi, data-pipeline, port]
+
+services:
+  nifi:
+    image: apache/nifi:1.25.0
+    ports: ["8443:8443"]
+    environment:
+      NIFI_WEB_HTTPS_PORT: "8443"
+      SINGLE_USER_CREDENTIALS_USERNAME: "admin"
+      SINGLE_USER_CREDENTIALS_PASSWORD: "admin1234567890"
+
+ready:
+  cmd: "curl -sfk https://localhost:8443/nifi/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-nifi-exposed
+    type: beacon
+    target: nifi:8443
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8443"]
+    expect:
+      check_id: port.nifi_exposed
+
+timeout: 10m

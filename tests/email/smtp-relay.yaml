@@ -1,0 +1,26 @@
+name: smtp-open-relay
+description: "Postfix SMTP server configured as open relay — beacon detects mail relay exposure"
+tags: [smtp, email, port]
+
+services:
+  smtp:
+    image: catatnight/postfix
+    ports: ["25:25"]
+    environment:
+      maildomain: "example.com"
+      smtp_user: "test:testpass"
+
+ready:
+  cmd: "nc -z localhost 25"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-smtp-exposed
+    type: beacon
+    target: smtp:25
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "25"]
+    expect:
+      check_id: port.smtp_exposed
+
+timeout: 5m

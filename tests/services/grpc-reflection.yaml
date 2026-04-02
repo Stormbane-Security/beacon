@@ -1,0 +1,25 @@
+name: grpc-reflection-enabled
+description: "gRPC server with reflection enabled — lists all services without authentication"
+tags: [grpc, port, api]
+
+services:
+  grpc:
+    build:
+      context: ./grpc-reflection
+      dockerfile: Dockerfile
+    ports: ["50051:50051"]
+
+ready:
+  cmd: "nc -z localhost 50051"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-grpc-reflection
+    type: beacon
+    target: grpc:50051
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "50051"]
+    expect:
+      check_id: port.grpc_reflection_enabled
+
+timeout: 5m

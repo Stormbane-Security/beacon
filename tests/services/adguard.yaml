@@ -1,0 +1,25 @@
+name: adguard-exposed
+description: "AdGuard Home admin UI exposed — DNS hijack risk"
+tags: [adguard, dns, port]
+
+services:
+  adguard:
+    image: adguard/adguardhome:latest
+    ports:
+      - "3000:3000"
+      - "8053:53/udp"
+
+ready:
+  cmd: "curl -sf http://localhost:3000 >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-adguard-exposed
+    type: beacon
+    target: adguard:3000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3000"]
+    expect:
+      check_id: port.adguard_exposed
+
+timeout: 5m

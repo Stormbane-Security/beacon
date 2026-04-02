@@ -1,0 +1,26 @@
+name: superset-exposed
+description: "Apache Superset BI dashboard exposed without authentication"
+tags: [superset, analytics, port]
+
+services:
+  superset:
+    image: apache/superset:3.1.0
+    ports: ["8088:8088"]
+    command: ["sh", "-c", "superset db upgrade && superset init && superset run -h 0.0.0.0 -p 8088 --with-threads --reload"]
+    environment:
+      SUPERSET_SECRET_KEY: "thisISaSECRET_1234"
+
+ready:
+  cmd: "curl -sf http://localhost:8088/health >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-superset-exposed
+    type: beacon
+    target: superset:8088
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8088"]
+    expect:
+      check_id: port.superset_exposed
+
+timeout: 10m

@@ -1,0 +1,26 @@
+name: vnc-exposed
+description: "VNC server exposed without authentication — beacon detects remote desktop access"
+tags: [vnc, port, remote-access]
+
+services:
+  vnc:
+    image: theasp/novnc:latest
+    ports: ["5900:5900"]
+    environment:
+      DISPLAY_WIDTH: "800"
+      DISPLAY_HEIGHT: "600"
+
+ready:
+  cmd: "nc -z localhost 5900"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-vnc-exposed
+    type: beacon
+    target: vnc:5900
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5900"]
+    expect:
+      check_id: port.vnc_exposed
+
+timeout: 5m

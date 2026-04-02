@@ -1,0 +1,26 @@
+name: dns-open-resolver
+description: "CoreDNS configured as open recursive resolver — beacon detects DNS amplification risk"
+tags: [dns, port, amplification]
+
+services:
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["5353:53/udp", "5353:53/tcp"]
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./dns/Corefile:/etc/coredns/Corefile:ro
+
+ready:
+  cmd: "dig @localhost -p 5353 example.com +short +time=2 +tries=1 >/dev/null 2>&1 || nc -z localhost 5353"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-dns-open-resolver
+    type: beacon
+    target: dns:53
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "53"]
+    expect:
+      check_id: port.dns_open_resolver
+
+timeout: 5m

@@ -1,0 +1,25 @@
+name: grafana-path-traversal
+description: "Grafana 8.2.0 with CVE-2021-43798 plugin path traversal — beacon detects arbitrary file read"
+tags: [grafana, cve, path-traversal]
+
+services:
+  grafana:
+    image: grafana/grafana:8.2.0
+    ports: ["9232:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+
+ready:
+  cmd: "curl -sf http://localhost:9232/api/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-grafana-traversal
+    type: beacon
+    target: grafana:3000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3000"]
+    expect:
+      check_id: cve.grafana_path_traversal
+
+timeout: 5m

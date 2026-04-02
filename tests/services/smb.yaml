@@ -1,0 +1,26 @@
+name: smb-exposed
+description: "Samba file server with guest access — beacon detects SMB exposure and null session"
+tags: [smb, file-sharing, port]
+
+services:
+  smb:
+    image: dperson/samba
+    ports:
+      - "445:445"
+      - "139:139"
+    command: ["-s", "public;/share;yes;no;yes;all;none;;public share", "-p"]
+
+ready:
+  cmd: "nc -z localhost 445"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-smb-exposed
+    type: beacon
+    target: smb:445
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "445"]
+    expect:
+      check_id: port.smb_exposed
+
+timeout: 5m

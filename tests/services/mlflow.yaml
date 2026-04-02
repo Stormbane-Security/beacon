@@ -1,0 +1,24 @@
+name: mlflow-exposed
+description: "MLflow experiment tracking server exposed without authentication"
+tags: [mlflow, ml, port]
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.0
+    ports: ["5000:5000"]
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000"]
+
+ready:
+  cmd: "curl -sf http://localhost:5000/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-mlflow-exposed
+    type: beacon
+    target: mlflow:5000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5000"]
+    expect:
+      check_id: port.mlflow_exposed
+
+timeout: 5m

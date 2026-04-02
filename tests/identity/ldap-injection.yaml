@@ -1,0 +1,35 @@
+name: ldap-injection
+description: "OpenLDAP with web login form vulnerable to LDAP injection"
+tags: [ldap, injection, identity, authorized]
+
+services:
+  ldap:
+    image: osixia/openldap:1.5.0
+    environment:
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_ORGANISATION: "Test Corp"
+      LDAP_DOMAIN: "test.local"
+
+  app:
+    build:
+      context: ./ldap-injection
+      dockerfile: Dockerfile
+    ports: ["9261:8080"]
+    environment:
+      LDAP_HOST: "ldap"
+    depends_on: [ldap]
+
+ready:
+  cmd: "curl -sf http://localhost:9261/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-ldap-injection
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: iam.ldap_injection
+
+timeout: 5m

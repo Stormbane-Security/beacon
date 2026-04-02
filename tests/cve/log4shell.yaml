@@ -1,0 +1,25 @@
+name: log4shell-vulnerable
+description: "Java application with vulnerable Log4j 2.14.1 — beacon detects CVE-2021-44228 JNDI injection"
+tags: [log4shell, cve, java, authorized]
+
+services:
+  log4j-app:
+    build:
+      context: ./log4shell
+      dockerfile: Dockerfile
+    ports: ["9230:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9230/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-log4shell
+    type: beacon
+    target: log4j-app:8080
+    args: ["--no-enrich", "--scanners", "log4shell", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: cve.log4shell
+
+timeout: 10m

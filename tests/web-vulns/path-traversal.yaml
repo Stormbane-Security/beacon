@@ -1,0 +1,25 @@
+name: path-traversal
+description: "Go HTTP server with path traversal vulnerability — beacon detects directory traversal via ../ sequences"
+tags: [path-traversal, web, authorized]
+
+services:
+  app:
+    build:
+      context: ./path-traversal
+      dockerfile: Dockerfile
+    ports: ["9250:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9250/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-path-traversal
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: web.path_traversal
+
+timeout: 5m

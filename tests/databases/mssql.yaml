@@ -1,0 +1,26 @@
+name: mssql-default-creds
+description: "Microsoft SQL Server sa login with default password"
+tags: [mssql, database, credentials, port]
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    ports: ["1433:1433"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong@Passw0rd"
+
+ready:
+  cmd: "nc -z localhost 1433"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: detects-mssql-exposed
+    type: beacon
+    target: mssql:1433
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "1433"]
+    expect:
+      check_id: port.database_exposed
+
+timeout: 5m

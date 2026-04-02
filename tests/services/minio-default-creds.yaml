@@ -1,0 +1,26 @@
+name: minio-default-creds
+description: "MinIO console accepts default minioadmin:minioadmin credentials"
+tags: [minio, storage, credentials, port]
+
+services:
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9001:9001"
+      - "9002:9000"
+    command: ["server", "/data", "--console-address", ":9001"]
+
+ready:
+  cmd: "curl -sf http://localhost:9001 >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-minio-default-creds
+    type: beacon
+    target: minio:9001
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9001"]
+    expect:
+      check_id: port.minio_default_credentials
+
+timeout: 5m

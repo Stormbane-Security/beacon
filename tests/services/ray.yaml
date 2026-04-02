@@ -1,0 +1,24 @@
+name: ray-dashboard-exposed
+description: "Ray distributed ML dashboard exposed without authentication"
+tags: [ray, ml, port]
+
+services:
+  ray:
+    image: rayproject/ray:2.9.0
+    ports: ["8265:8265"]
+    command: ["ray", "start", "--head", "--dashboard-host=0.0.0.0", "--block"]
+
+ready:
+  cmd: "curl -sf http://localhost:8265 >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: detects-ray-dashboard
+    type: beacon
+    target: ray:8265
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8265"]
+    expect:
+      check_id: port.ray_dashboard_exposed
+
+timeout: 5m

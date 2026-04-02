@@ -1,0 +1,25 @@
+name: docker-registry-exposed
+description: "Docker Registry V2 API exposed without authentication — beacon detects unauthenticated registry"
+tags: [docker, registry, container, port]
+
+services:
+  registry:
+    image: registry:2
+    ports: ["5000:5000"]
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+
+ready:
+  cmd: "curl -sf http://localhost:5000/v2/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-registry-exposed
+    type: beacon
+    target: registry:5000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5000"]
+    expect:
+      check_id: container.registry_exposed
+
+timeout: 5m

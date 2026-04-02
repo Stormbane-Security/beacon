@@ -1,0 +1,25 @@
+name: insecure-deserialization
+description: "Python Flask app with insecure pickle deserialization — beacon detects unsafe deserialization"
+tags: [deserialization, web, authorized]
+
+services:
+  app:
+    build:
+      context: ./deserialize
+      dockerfile: Dockerfile
+    ports: ["9255:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9255/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-insecure-deserialize
+    type: beacon
+    target: app:8080
+    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: web.insecure_deserialize
+
+timeout: 5m
