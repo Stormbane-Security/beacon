@@ -188,6 +188,11 @@ type Module struct {
 	// are all skipped.
 	scannerFilter []string
 
+	// dryRun, when true, runs evidence collection and playbook matching but
+	// stops before executing scanners. The planned scanner list is returned
+	// as a single finding with the plan details in Evidence.
+	dryRun bool
+
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
 
@@ -506,8 +511,9 @@ func isDeepOrAuthorized(t module.ScanType) bool {
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	rootDomain := input.Domain
 
-	// Store scanner filter for use in runAsset.
+	// Store scanner filter and dry-run flag for use in runAsset.
 	m.scannerFilter = input.Scanners
+	m.dryRun = input.DryRun
 
 	// Pass port restriction to the portscan scanner if set.
 	if len(input.Ports) > 0 {
@@ -1445,6 +1451,41 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				}
 			}
 		}
+	}
+
+	// Merge AIFP-suggested scanners into the plan.
+	for _, s := range aifpSuggestedScanners {
+		if !planContains(plan.Scanners, s) {
+			plan.Scanners = append(plan.Scanners, s)
+		}
+	}
+
+	// ── Dry-run: output the planned scanner list and stop ────────────────────
+	if m.dryRun {
+		matchedNames := make([]string, len(matched))
+		for i, pb := range matched {
+			matchedNames[i] = pb.Name
+		}
+		return []finding.Finding{{
+			CheckID:     "meta.dry_run_plan",
+			Module:      "surface",
+			Scanner:     "planner",
+			Severity:    finding.SeverityInfo,
+			Title:       "Dry-run scan plan for " + asset,
+			Description: "Planned scanners and matched playbooks (no scanners were executed)",
+			Asset:       asset,
+			Evidence: map[string]any{
+				"scanners":  plan.Scanners,
+				"playbooks": matchedNames,
+				"evidence": map[string]any{
+					"status_code":      ev.StatusCode,
+					"title":            ev.Title,
+					"service_versions": ev.ServiceVersions,
+					"framework":        ev.Framework,
+					"waf_vendor":       ev.WAFVendor,
+				},
+			},
+		}}
 	}
 
 	noHTTP := ev.StatusCode == 0

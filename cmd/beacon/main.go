@@ -72,6 +72,7 @@ SCAN FLAGS:
   --ports <list>             Comma-separated port numbers for portscan (e.g. 8123,6379); default: scan all known ports
   --no-enrich                Skip AI enrichment (output raw findings only)
   --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
+  --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
 
 ENRICH FLAGS:
@@ -250,6 +251,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		noTUI               bool
 		noEnrich            bool
 		anonymize           bool
+		dryRun              bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -317,6 +319,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			noEnrich = true
 		case "--anonymize":
 			anonymize = true
+		case "--dry-run":
+			dryRun = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -452,7 +456,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun)
 		return
 	}
 
@@ -633,6 +637,7 @@ Type exactly: I have written authorization for %s
 		ExtraCIDRs:          extraCIDRs,
 		Scanners:            scannersList,
 		Ports:               portsList,
+		DryRun:              dryRun,
 	}
 
 	// Run the scan in a goroutine so we can respond to a detach signal.
@@ -869,6 +874,13 @@ Type exactly: I have written authorization for %s
 		return
 	}
 
+	// Dry-run: output the plan as JSON and exit — no enrichment or report.
+	if dryRun {
+		out, _ := json.MarshalIndent(findings, "", "  ")
+		fmt.Println(string(out))
+		return
+	}
+
 	// Enrich findings — skip AI enrichment when --no-enrich is set.
 	var enricher enrichment.Enricher
 	if noEnrich {
@@ -1032,6 +1044,7 @@ func cmdScanMultiAsset(
 	githubOrg string,
 	scannersList []string,
 	portsList []int,
+	dryRun bool,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -1196,7 +1209,8 @@ Type exactly: I have written authorization for all listed targets
 			Progress:            pr.Handle,
 			ExtraCIDRs:          extraCIDRs,
 			Scanners:            scannersList,
-		Ports:               portsList,
+			Ports:               portsList,
+			DryRun:              dryRun,
 		}
 
 		findings, scanErr := mod.Run(ctx, input, scanType)
@@ -1244,6 +1258,13 @@ Type exactly: I have written authorization for all listed targets
 		info("beacon: %s — %d finding(s) [run ID: %s]\n", domain, len(findings), run.ID)
 		allResults = append(allResults, assetScanResult{domain, run, findings})
 		allFindings = append(allFindings, findings...)
+	}
+
+	// Dry-run: output all plans as JSON and exit.
+	if dryRun {
+		out, _ := json.MarshalIndent(allFindings, "", "  ")
+		fmt.Println(string(out))
+		return
 	}
 
 	// ── Cloud module (once per session) ───────────────────────────────────────
