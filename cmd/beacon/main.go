@@ -71,6 +71,7 @@ SCAN FLAGS:
   --scanners <list>          Comma-separated scanner names to run (skips playbook matching; e.g. cors,jwt,tls)
   --ports <list>             Comma-separated port numbers for portscan (e.g. 8123,6379); default: scan all known ports
   --no-enrich                Skip AI enrichment (output raw findings only)
+  --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
 
 ENRICH FLAGS:
@@ -248,6 +249,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		verbose             bool
 		noTUI               bool
 		noEnrich            bool
+		anonymize           bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -313,6 +315,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			noTUI = true
 		case "--no-enrich":
 			noEnrich = true
+		case "--anonymize":
+			anonymize = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -876,6 +880,10 @@ Type exactly: I have written authorization for %s
 			fatalf("init enricher: %v", err)
 		}
 		enricher = ce.WithCache(st)
+		if anonymize || cfg.AnonymizeAI {
+			enricher = enrichment.NewAnonymizingEnricher(enricher)
+			info("beacon: anonymize mode — IPs and hostnames will be stripped before AI analysis\n")
+		}
 		info("beacon: %d findings — enriching with AI (%s)...\n", len(findings), ai.Provider)
 	} else {
 		enricher = enrichment.NewNoop()

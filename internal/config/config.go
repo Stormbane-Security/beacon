@@ -188,6 +188,14 @@ type Config struct {
 	// at the end of each scan (requires AnthropicAPIKey). Set via BEACON_ATTACK_PATH=true.
 	AttackPathAnalysis bool `yaml:"attack_path_analysis"`
 
+	// AnonymizeAI strips IPs, hostnames, and domain names from findings before
+	// sending them to the AI provider for enrichment, replacing them with opaque
+	// tokens like [HOST-1] and [IP-2]. The AI produces generic security
+	// recommendations without seeing real infrastructure identifiers. Original
+	// values are restored in the final report. Set via BEACON_ANONYMIZE=true or
+	// --anonymize CLI flag.
+	AnonymizeAI bool `yaml:"anonymize_ai"`
+
 	// Auth holds optional per-asset credentials for authenticated scanning.
 	// BEACON_AUTH_TOKEN sets a global bearer token applied to all assets when
 	// no specific AuthConfig entry is matched.
@@ -534,6 +542,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("BEACON_ATTACK_PATH"); v != "" {
 		cfg.AttackPathAnalysis = v == "true" || v == "1" || v == "yes"
+	}
+	if v := os.Getenv("BEACON_ANONYMIZE"); v != "" {
+		cfg.AnonymizeAI = v == "true" || v == "1" || v == "yes"
 	}
 	if v := os.Getenv("BEACON_STORE_PATH"); v != "" {
 		cfg.Store.Path = v
