@@ -1,23 +1,36 @@
 name: fingerprint-wordpress
-description: "Nginx mimicking WordPress site with PHP headers, PHPSESSID cookie, wp-content paths — beacon classify should detect Framework=wordpress and CookieNames=[PHPSESSID]"
-tags: [fingerprint, classify, discovery]
+description: "Real WordPress 6.4 instance — beacon classify should detect Framework=wordpress, PHPSESSID cookie, PHP headers, wp-content paths"
+tags: [fingerprint, classify, discovery, wordpress]
 
 services:
-  wp-app:
-    image: nginx:alpine
+  wordpress:
+    image: wordpress:6.4-apache
     ports: ["9215:80"]
-    volumes:
-      - ./fingerprint-php/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    environment:
+      WORDPRESS_DB_HOST: mysql
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wp
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wp
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
 
 ready:
-  cmd: "curl -sf http://localhost:9215/health >/dev/null"
-  timeout: 30s
-  interval: 2s
+  cmd: "curl -sf http://localhost:9215/ >/dev/null"
+  timeout: 120s
+  interval: 5s
 
 assertions:
   - name: detects-wordpress-framework
     type: beacon
-    target: wp-app:80
+    target: wordpress:80
     args: ["--no-enrich", "--scanners", "classify", "--ports", "80"]
     expect:
       min_findings: 1

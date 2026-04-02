@@ -1,0 +1,40 @@
+name: web3-ganache-dapp
+description: "Real Ganache EVM chain with deployed vulnerable smart contract + DApp frontend with ethers.js — beacon web3detect identifies Web3 signals, contractscan detects contract patterns"
+tags: [web3, blockchain, scanner, ganache]
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["9218:8545"]
+    command: ["--host", "0.0.0.0", "--accounts", "10", "--deterministic"]
+
+  # DApp frontend served by nginx
+  dapp:
+    image: nginx:alpine
+    ports: ["9219:80"]
+    volumes:
+      - ./web3/index.html:/usr/share/nginx/html/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9218 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+commands:
+  # Deploy vulnerable contract to the local chain
+  - name: deploy-contract
+    build:
+      context: ./web3
+      dockerfile: Dockerfile
+    timeout: 60s
+
+assertions:
+  # Test 1: Web3 frontend fingerprinting
+  - name: detects-web3-signals
+    type: beacon
+    target: dapp:80
+    args: ["--no-enrich", "--scanners", "web3detect", "--ports", "80"]
+    expect:
+      min_findings: 1
+
+timeout: 10m

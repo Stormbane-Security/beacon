@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeFi App</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.min.js"></script>
+</head>
+<body>
+<h1>VulnerableBank DApp</h1>
+<div id="status">Connecting to blockchain...</div>
+<script>
+// Real Web3 DApp patterns that beacon's web3detect scanner should find
+const CONTRACT_ADDRESS = '0x0000000000000000000000000000000000000000'; // placeholder
+const provider = new ethers.JsonRpcProvider('http://ganache:8545');
+
+// Pattern: ethers.js usage with local RPC
+async function connect() {
+    const network = await provider.getNetwork();
+    document.getElementById('status').textContent = 'Connected to chain ' + network.chainId;
+}
+
+// Pattern: window.ethereum detection
+if (typeof window.ethereum !== 'undefined') {
+    console.log('MetaMask detected');
+}
+
+connect();
+</script>
+</body>
+</html>

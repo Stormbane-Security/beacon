@@ -1,5 +1,6 @@
 FROM python:3.12-alpine
+RUN pip install --no-cache-dir flask requests
+COPY app.py /app/app.py
 WORKDIR /app
-COPY server.py .
 EXPOSE 8080
-CMD ["python", "server.py"]
+CMD ["python", "app.py"]

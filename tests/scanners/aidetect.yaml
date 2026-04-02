@@ -1,0 +1,30 @@
+name: aidetect-ollama
+description: "Real Ollama instance running tinyllama model — beacon aidetect should identify LLM endpoint, detect model serving, SSE streaming patterns"
+tags: [aidetect, scanner, llm, ai]
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["9217:11434"]
+
+ready:
+  cmd: "curl -sf http://localhost:9217/api/tags >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+commands:
+  # Pull a tiny model for testing (tinyllama is ~637MB)
+  - name: pull-model
+    container: ollama
+    cmd: "ollama pull tinyllama"
+    timeout: 300s
+
+assertions:
+  - name: detects-llm-endpoint
+    type: beacon
+    target: ollama:11434
+    args: ["--no-enrich", "--scanners", "aidetect", "--ports", "11434"]
+    expect:
+      min_findings: 1
+
+timeout: 10m

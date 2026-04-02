@@ -1,0 +1,25 @@
+name: ssrf-url-fetch
+description: "Real Flask app with SSRF in ?url= parameter — beacon ssrf scanner detects cloud metadata URL injection"
+tags: [ssrf, scanner, web, authorized]
+
+services:
+  ssrf-app:
+    build:
+      context: ./ssrf
+      dockerfile: Dockerfile
+    ports: ["9220:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9220/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-ssrf
+    type: beacon
+    target: ssrf-app:8080
+    args: ["--no-enrich", "--scanners", "ssrf", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: web.ssrf
+
+timeout: 5m

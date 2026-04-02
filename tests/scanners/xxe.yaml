@@ -1,0 +1,25 @@
+name: xxe-java-parser
+description: "Real Java XML parser with XXE enabled (DocumentBuilderFactory without entity disabling) — beacon xxe scanner detects external entity injection"
+tags: [xxe, scanner, web, authorized, java]
+
+services:
+  xxe-app:
+    build:
+      context: ./xxe
+      dockerfile: Dockerfile
+    ports: ["9221:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9221/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-xxe
+    type: beacon
+    target: xxe-app:8080
+    args: ["--no-enrich", "--scanners", "xxe", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    expect:
+      check_id: web.xxe
+
+timeout: 5m

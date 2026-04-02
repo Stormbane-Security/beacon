@@ -1,23 +1,23 @@
 name: dirbust-php-extensions
-description: "Nginx mimicking PHP app with /admin.php discoverable via tech-aware extension fuzzing — beacon detects via dirbust with framework=php extension expansion"
-tags: [dirbust, scanner, web]
+description: "Real PHP 8.2 + Apache with /admin.php and /admin/config.php — beacon dirbust discovers PHP files via tech-aware extension fuzzing"
+tags: [dirbust, scanner, web, php]
 
 services:
-  dirbust-app:
-    image: nginx:alpine
+  php-app:
+    build:
+      context: ./dirbust-extensions
+      dockerfile: Dockerfile
     ports: ["9214:80"]
-    volumes:
-      - ./dirbust-extensions/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
-  cmd: "curl -sf http://localhost:9214/health >/dev/null"
+  cmd: "curl -sf http://localhost:9214/health.php >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
-  - name: detects-admin-php
+  - name: detects-php-admin-paths
     type: beacon
-    target: dirbust-app:80
+    target: php-app:80
     args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed", "--ports", "80"]
     expect:
       check_id: dirbust.found
