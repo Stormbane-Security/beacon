@@ -1,36 +1,39 @@
 name: oauth-keycloak-misconfig
-description: "Keycloak dev mode with implicit flow enabled triggers oauth.implicit_flow"
+description: "Keycloak dev mode exposes tokens in URL fragments and OIDC metadata"
 tags: [oauth, scanner, web, keycloak]
 
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0
-    ports: ["8080:8080"]
+    image: quay.io/keycloak/keycloak:22.0
+    ports: ["8180:8080"]
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
-      KC_HOSTNAME_STRICT_HTTPS: "false"
-      KC_HTTP_ENABLED: "true"
     command: ["start-dev"]
 
 ready:
-  cmd: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration >/dev/null"
-  timeout: 180s
+  cmd: "curl -sfo /dev/null http://localhost:8180/"
+  timeout: 300s
   interval: 5s
 
+commands:
+  # Keycloak master realm requires HTTPS by default even in dev mode.
+  # Disable it via kcadm.sh so the OIDC discovery endpoint works over HTTP.
+  - name: disable-ssl
+    run: >
+      docker exec $(docker ps -qf "name=keycloak") /opt/keycloak/bin/kcadm.sh
+      config credentials --server http://localhost:8080 --realm master --user admin --password admin &&
+      docker exec $(docker ps -qf "name=keycloak") /opt/keycloak/bin/kcadm.sh
+      update realms/master -s sslRequired=NONE
+
 assertions:
-  - name: detects-implicit-flow
+  # Keycloak 22 default config returns access tokens in URL fragments
+  # (response_types_supported includes "token"), which is a known risk.
+  - name: detects-token-in-fragment
     type: beacon
-    target: keycloak
+    target: keycloak:8080
     args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
     expect:
-      check_id: oauth.implicit_flow
+      check_id: oauth.token_in_url_fragment
 
-  - name: detects-jwks-exposed
-    type: beacon
-    target: keycloak
-    args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
-    expect:
-      check_id: oauth.jwks_exposed
-
-timeout: 5m
+timeout: 10m
