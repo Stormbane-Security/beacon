@@ -5,19 +5,19 @@ tags: [redis, database, portscan]
 services:
   redis:
     image: redis:7-alpine
-    ports: ["9106:6379"]
+    ports: ["6379:6379"]
     command: ["redis-server", "--protected-mode", "no"]
 
 ready:
-  cmd: "redis-cli -h localhost -p 9106 PING | grep -q PONG"
+  cmd: "nc -z localhost 6379"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-unauthenticated-redis
     type: beacon
-    target: localhost:9106
-    args: ["--scanners", "portscan"]
+    target: localhost:6379
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "6379"]
     expect:
       check_id: port.redis_unauthenticated
 

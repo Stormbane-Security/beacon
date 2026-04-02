@@ -5,26 +5,26 @@ tags: [haproxy, gateway, proxy]
 services:
   haproxy:
     image: haproxy:2.9-alpine
-    ports: ["9140:8080"]
+    ports: ["8080:8080"]
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
 
 ready:
-  cmd: "curl -sf http://localhost:9140/haproxy?stats >/dev/null"
+  cmd: "curl -sf http://localhost:8080/haproxy?stats >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: classifies-as-haproxy
     type: classify
-    target: localhost:9140
+    target: localhost:8080
     expect:
-      backend_service: HAProxy
+      proxy_type: haproxy
 
   - name: detects-haproxy-stats-exposed
     type: beacon
-    target: localhost:9140
-    args: ["--scanners", "gateway"]
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "gateway"]
     expect:
       check_id: gateway.haproxy_stats_exposed
 

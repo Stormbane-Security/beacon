@@ -7,18 +7,18 @@ services:
     build:
       context: ./crlf
       dockerfile: Dockerfile
-    ports: ["8096:8080"]
+    ports: ["8080:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:8096/health >/dev/null"
+  cmd: "curl -sf http://localhost:8080/health >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-crlf-injection
     type: beacon
-    target: localhost:8096
-    args: ["--scanners", "crlf", "--permission-confirmed"]
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.crlf_injection
 

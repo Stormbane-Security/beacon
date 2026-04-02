@@ -5,21 +5,21 @@ tags: [spring, java, actuator, exposure]
 services:
   spring:
     image: springio/gs-spring-boot-docker:latest
-    ports: ["9152:8080"]
+    ports: ["8080:8080"]
     environment:
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "*"
       MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
 
 ready:
-  cmd: "curl -sf http://localhost:9152/actuator/health >/dev/null"
+  cmd: "curl -sf http://localhost:8080/actuator/health >/dev/null"
   timeout: 90s
   interval: 3s
 
 assertions:
   - name: detects-spring-actuator-exposed
     type: beacon
-    target: localhost:9152
-    args: ["--scanners", "exposedfiles"]
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.spring_actuator
 

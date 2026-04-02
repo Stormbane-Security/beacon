@@ -1,0 +1,23 @@
+name: swagger-petstore
+description: "Swagger Petstore API exposes OpenAPI spec at /api/v3/openapi.json by default"
+tags: [swagger, openapi, exposure, java, spring]
+
+services:
+  petstore:
+    image: swaggerapi/petstore3:latest
+    ports: ["8080:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/api/v3/openapi.json | grep -q paths"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-swagger-spec-exposed
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "swagger"]
+    expect:
+      check_id: web.swagger_exposed
+
+timeout: 5m

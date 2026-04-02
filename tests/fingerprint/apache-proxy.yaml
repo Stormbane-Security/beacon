@@ -1,0 +1,22 @@
+name: fingerprint-apache-proxy
+description: "Apache httpd is correctly identified as proxy_type=apache"
+tags: [fingerprint, apache, proxy]
+
+services:
+  apache:
+    image: httpd:alpine
+    ports: ["80:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: identifies-apache-proxy
+    type: classify
+    target: localhost:80
+    expect:
+      proxy_type: apache
+
+timeout: 2m

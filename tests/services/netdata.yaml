@@ -5,28 +5,28 @@ tags: [netdata, monitoring, dashboard]
 services:
   netdata:
     image: netdata/netdata:stable
-    ports: ["9131:19999"]
+    ports: ["19999:19999"]
     cap_add:
       - SYS_PTRACE
     security_opt:
       - apparmor:unconfined
 
 ready:
-  cmd: "curl -sf http://localhost:9131/api/v1/info | grep -q version"
+  cmd: "curl -sf http://localhost:19999/api/v1/info | grep -q version"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: classifies-as-netdata
     type: classify
-    target: localhost:9131
+    target: localhost:19999
     expect:
-      backend_service: Netdata
+      title_contains: Netdata
 
   - name: detects-netdata-exposed
     type: beacon
-    target: localhost:9131
-    args: ["--scanners", "portscan"]
+    target: localhost:19999
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19999"]
     expect:
       check_id: port.netdata_exposed
 

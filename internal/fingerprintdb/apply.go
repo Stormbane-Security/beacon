@@ -128,10 +128,28 @@ func setField(field, value string, ev *playbook.Evidence) {
 
 // Seed inserts the builtin rules into the database if they don't already exist.
 // Should be called once at startup. Uses upsert so running multiple times is safe.
+// Stale builtin rules (removed from the code but still in the DB) are pruned.
 func Seed(ctx context.Context, st store.Store) error {
+	// Upsert current builtin rules.
 	for i := range builtinRules {
 		if err := st.UpsertFingerprintRule(ctx, &builtinRules[i]); err != nil {
 			return err
+		}
+	}
+
+	// Prune stale builtin rules that are no longer in the current set.
+	type ruleKey struct{ st, sk, sv, f string }
+	current := make(map[ruleKey]bool, len(builtinRules))
+	for _, r := range builtinRules {
+		current[ruleKey{r.SignalType, r.SignalKey, r.SignalValue, r.Field}] = true
+	}
+	all, err := st.GetFingerprintRules(ctx, "")
+	if err != nil {
+		return nil // non-fatal: pruning is best-effort
+	}
+	for _, r := range all {
+		if r.Source == "builtin" && !current[ruleKey{r.SignalType, r.SignalKey, r.SignalValue, r.Field}] {
+			_ = st.DeleteFingerprintRule(ctx, r.ID)
 		}
 	}
 	return nil

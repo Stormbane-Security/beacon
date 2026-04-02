@@ -1,25 +1,23 @@
 name: swagger-exposed
-description: "API with Swagger UI and OpenAPI spec exposed publicly"
-tags: [swagger, openapi, exposure]
+description: "FastAPI app exposes OpenAPI spec at /openapi.json by default"
+tags: [swagger, openapi, exposure, fastapi]
 
 services:
-  swagger:
-    image: swaggerapi/swagger-ui:latest
-    ports: ["9157:8080"]
-    environment:
-      URL: "https://petstore.swagger.io/v2/swagger.json"
+  api:
+    image: tiangolo/uvicorn-gunicorn-fastapi:python3.11-slim
+    ports: ["8080:80"]
 
 ready:
-  cmd: "curl -sf http://localhost:9157/ | grep -qi swagger"
-  timeout: 30s
-  interval: 2s
+  cmd: "curl -sf http://localhost:8080/openapi.json | grep -q paths"
+  timeout: 60s
+  interval: 3s
 
 assertions:
-  - name: detects-api-docs-exposed
+  - name: detects-openapi-spec-exposed
     type: beacon
-    target: localhost:9157
-    args: ["--scanners", "exposedfiles"]
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "swagger"]
     expect:
-      check_id: exposure.api_docs
+      check_id: web.swagger_exposed
 
 timeout: 5m

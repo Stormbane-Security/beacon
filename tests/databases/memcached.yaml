@@ -5,18 +5,18 @@ tags: [memcached, database, portscan]
 services:
   memcached:
     image: memcached:1-alpine
-    ports: ["9214:11211"]
+    ports: ["11211:11211"]
 
 ready:
-  cmd: "echo stats | nc -w 1 localhost 9214 | grep -q pid"
+  cmd: "echo stats | nc -w 1 localhost 11211 | grep -q pid"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-unauthenticated-memcached
     type: beacon
-    target: localhost:9214
-    args: ["--scanners", "portscan"]
+    target: localhost:11211
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11211"]
     expect:
       check_id: port.memcached_unauthenticated
 

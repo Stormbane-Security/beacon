@@ -1,0 +1,23 @@
+name: memcached-nonstandard-port
+description: "Memcached on non-standard port — probe must detect by protocol response, not port number"
+tags: [memcached, nonstandard-port]
+
+services:
+  memcached:
+    image: memcached:latest
+    ports: ["12345:11211"]
+
+ready:
+  cmd: "echo stats | nc -w1 localhost 12345 | grep -q STAT"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-memcached-on-nonstandard-port
+    type: beacon
+    target: localhost:12345
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "12345"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+timeout: 5m

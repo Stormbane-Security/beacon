@@ -5,23 +5,24 @@ tags: [nginx, infrastructure, proxy]
 services:
   nginx:
     image: nginx:1.25-alpine
-    ports: ["9208:80"]
+    ports: ["80:80"]
 
 ready:
-  cmd: "curl -sf http://localhost:9208/ >/dev/null"
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: classifies-as-nginx
     type: classify
-    target: localhost:9208
+    target: localhost:80
     expect:
       proxy_type: nginx
 
   - name: detects-server-info-leak
     type: beacon
-    target: localhost:9208
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "webcontent"]
     expect:
       check_id: headers.server_info_leak
 

@@ -5,7 +5,7 @@ tags: [elasticsearch, service, database]
 services:
   elasticsearch:
     image: elasticsearch:8.13.0
-    ports: ["9104:9200"]
+    ports: ["9200:9200"]
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -13,21 +13,21 @@ services:
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
 
 ready:
-  cmd: "curl -sf http://localhost:9104/_cluster/health >/dev/null"
+  cmd: "curl -sf http://localhost:9200/_cluster/health >/dev/null"
   timeout: 90s
   interval: 3s
 
 assertions:
   - name: classifies-as-elasticsearch
     type: classify
-    target: localhost:9104
+    target: localhost:9200
     expect:
-      technology: Elasticsearch
+      backend_service: Elasticsearch
 
   - name: detects-unauthenticated-elasticsearch
     type: beacon
-    target: localhost:9104
-    args: ["--scanners", "portscan"]
+    target: localhost:9200
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9200"]
     expect:
       check_id: port.elasticsearch_unauthenticated
 

@@ -5,27 +5,27 @@ tags: [couchdb, database, nosql]
 services:
   couchdb:
     image: couchdb:3
-    ports: ["9120:5984"]
+    ports: ["5984:5984"]
     environment:
-      COUCHDB_USER: ""
-      COUCHDB_PASSWORD: ""
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: admin
 
 ready:
-  cmd: "curl -sf http://localhost:9120/ | grep -q couchdb"
+  cmd: "curl -sf http://localhost:5984/ | grep -q couchdb"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: classifies-as-couchdb
     type: classify
-    target: localhost:9120
+    target: localhost:5984
     expect:
       backend_service: CouchDB
 
   - name: detects-unauthenticated-couchdb
     type: beacon
-    target: localhost:9120
-    args: ["--scanners", "portscan"]
+    target: localhost:5984
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5984"]
     expect:
       check_id: port.couchdb_unauthenticated
 

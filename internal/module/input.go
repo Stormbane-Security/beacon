@@ -103,6 +103,11 @@ type Input struct {
 	// Scanner names must match keys in the surface module's scannerMap
 	// (e.g. "cors", "jwt", "tls", "portscan").
 	Scanners []string
+
+	// Ports, when non-empty, restricts the portscan scanner to only these
+	// ports instead of the full default list. Useful for targeted scans and
+	// drydock e2e tests.
+	Ports []int
 }
 
 // ProgressEvent carries a snapshot of scan progress at a pipeline milestone.

@@ -5,43 +5,43 @@ tags: [tls, crypto, nginx]
 services:
   nginx:
     image: nginx:alpine
-    ports: ["9150:443"]
+    ports: ["443:443"]
     volumes:
       - ./tls-variants/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./tls-variants/entrypoint.sh:/docker-entrypoint.d/99-gen-cert.sh:ro
     entrypoint: ["/bin/sh", "-c", "chmod +x /docker-entrypoint.d/99-gen-cert.sh && /docker-entrypoint.d/99-gen-cert.sh && nginx -g 'daemon off;'"]
 
 ready:
-  cmd: "curl -ksf https://localhost:9150/ >/dev/null"
+  cmd: "curl -ksf https://localhost:443/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-tls10
     type: beacon
-    target: localhost:9150
-    args: ["--scanners", "tls"]
+    target: localhost:443
+    args: ["--no-enrich", "--scanners", "tls"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-tls11
     type: beacon
-    target: localhost:9150
-    args: ["--scanners", "tls"]
+    target: localhost:443
+    args: ["--no-enrich", "--scanners", "tls"]
     expect:
       check_id: tls.protocol_tls11
 
   - name: detects-weak-cipher
     type: beacon
-    target: localhost:9150
-    args: ["--scanners", "tls"]
+    target: localhost:443
+    args: ["--no-enrich", "--scanners", "tls"]
     expect:
       check_id: tls.weak_cipher
 
   - name: detects-self-signed
     type: beacon
-    target: localhost:9150
-    args: ["--scanners", "tls"]
+    target: localhost:443
+    args: ["--no-enrich", "--scanners", "tls"]
     expect:
       check_id: tls.cert_self_signed
 

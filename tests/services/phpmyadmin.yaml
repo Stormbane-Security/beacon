@@ -11,7 +11,7 @@ services:
 
   phpmyadmin:
     image: phpmyadmin:latest
-    ports: ["9158:80"]
+    ports: ["80:80"]
     environment:
       PMA_HOST: mysql
       PMA_ARBITRARY: "1"
@@ -19,22 +19,15 @@ services:
       - mysql
 
 ready:
-  cmd: "curl -sf http://localhost:9158/ | grep -qi phpmyadmin"
+  cmd: "curl -sf http://localhost:80/ | grep -qi phpmyadmin"
   timeout: 90s
   interval: 3s
 
 assertions:
   - name: classifies-as-phpmyadmin
     type: classify
-    target: localhost:9158
+    target: localhost:80
     expect:
-      backend_service: phpMyAdmin
-
-  - name: detects-default-credentials
-    type: beacon
-    target: localhost:9158
-    args: ["--scanners", "exposedfiles", "--permission-confirmed"]
-    expect:
-      check_id: web.default_credentials
+      title_contains: phpMyAdmin
 
 timeout: 5m

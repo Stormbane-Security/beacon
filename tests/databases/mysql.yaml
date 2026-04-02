@@ -5,21 +5,21 @@ tags: [mysql, database, portscan]
 services:
   mysql:
     image: mysql:8.0
-    ports: ["9109:3306"]
+    ports: ["3306:3306"]
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
       MYSQL_ROOT_HOST: "%"
 
 ready:
-  cmd: "mysqladmin -h localhost -P 9109 -u root ping 2>/dev/null"
+  cmd: "nc -z localhost 3306"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: detects-mysql-no-auth
     type: beacon
-    target: localhost:9109
-    args: ["--scanners", "portscan"]
+    target: localhost:3306
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
     expect:
       check_id: port.mysql_no_auth
 

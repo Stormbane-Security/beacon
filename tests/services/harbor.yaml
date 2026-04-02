@@ -5,21 +5,21 @@ tags: [harbor, container-registry, cicd]
 services:
   registry:
     image: registry:2
-    ports: ["9160:5000"]
+    ports: ["5000:5000"]
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
 
 ready:
-  cmd: "curl -sf http://localhost:9160/v2/ >/dev/null"
+  cmd: "curl -sf http://localhost:5000/v2/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-container-registry
     type: beacon
-    target: localhost:9160
-    args: ["--scanners", "containerimage"]
+    target: localhost:5000
+    args: ["--no-enrich", "--scanners", "containerimage", "--permission-confirmed"]
     expect:
-      check_id: port.docker_unauthenticated
+      check_id: container.registry_exposed
 
 timeout: 5m

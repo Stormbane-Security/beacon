@@ -543,6 +543,8 @@ var fingerprintPaths = []string{
 	"/auth/realms", "/realms", "/auth/admin",
 	"/.well-known/openid-configuration",
 	"/.well-known/oauth-authorization-server",
+	// ── ClickHouse ────────────────────────────────────────────────────────
+	"/play",
 	// ── Elasticsearch / OpenSearch ─────────────────────────────────────────
 	"/_cat/indices", "/_cluster/health", "/_nodes",
 	// ── GitLab ────────────────────────────────────────────────────────────
@@ -561,6 +563,10 @@ var fingerprintPaths = []string{
 	"/api/rawdata", "/api/overview", "/api/entrypoints",
 	// ── Cassandra Reaper ──────────────────────────────────────────────────
 	"/api/v0/ops/node/status",
+	// ── HashiCorp Consul ──────────────────────────────────────────────────
+	"/v1/catalog/nodes", "/v1/status/leader",
+	// ── Sonatype Nexus ────────────────────────────────────────────────────
+	"/service/rest/v1/status",
 	// ── Kafka REST / Confluent ─────────────────────────────────────────────
 	"/topics", "/v3/clusters",
 	// ── Splunk ────────────────────────────────────────────────────────────
@@ -806,9 +812,16 @@ var pathBodySignatures = map[string]string{
 	"/auth/realms":                    `"realm"`,
 	"/.well-known/openid-configuration": `"issuer"`,
 	"/.well-known/oauth-authorization-server": `"issuer"`,
+	// ClickHouse
+	"/play": `clickhouse`,
 	// Elasticsearch / OpenSearch
 	"/_cluster/health": `"cluster_name"`,
 	"/_cat/indices":    `index`,
+	// HashiCorp Consul
+	"/v1/catalog/nodes":  `"Node"`,
+	"/v1/status/leader":  `":"`,
+	// Sonatype Nexus
+	"/service/rest/v1/status": `"edition"`,
 	// Grafana
 	"/api/health": `"database"`,
 	// Prometheus
@@ -1592,6 +1605,10 @@ func fingerprintTech(e *playbook.Evidence) {
 	// and topology renderer for richer service context. Each path prefix maps to
 	// a canonical service name; the first match per service wins.
 	e.BackendServices = inferBackendServices(e.RespondingPaths)
+
+	// Supplement from root response body/title when path probing was skipped
+	// (e.g. SoftNotFound sites like ClickHouse that return 200 for all paths).
+	e.BackendServices = inferBackendFromRoot(e.BackendServices, body, strings.ToLower(e.Title), serverLower)
 }
 
 // pathServiceMap maps a responding path prefix/exact to a canonical service name.
@@ -1604,6 +1621,7 @@ var pathServiceMap = []struct {
 	{"/actuator", "Spring Boot"},
 	{"/v1/sys/health", "HashiCorp Vault"},
 	{"/v1/sys/seal-status", "HashiCorp Vault"},
+	{"/play", "ClickHouse"},
 	{"/_cat/indices", "Elasticsearch"},
 	{"/_cluster/health", "Elasticsearch"},
 	{"/_nodes", "Elasticsearch"},
@@ -1619,6 +1637,9 @@ var pathServiceMap = []struct {
 	{"/api/rawdata", "Traefik"},
 	{"/api/overview", "Traefik"},
 	{"/api/entrypoints", "Traefik"},
+	{"/v1/catalog/nodes", "HashiCorp Consul"},
+	{"/v1/status/leader", "HashiCorp Consul"},
+	{"/service/rest/v1/status", "Sonatype Nexus"},
 	{"/topics", "Kafka"},
 	{"/v3/clusters", "Kafka"},
 	{"/services/server/info", "Splunk"},
@@ -1716,6 +1737,57 @@ func inferBackendServices(paths []string) []string {
 		}
 	}
 	return services
+}
+
+// rootServiceSignature maps a body/title/server substring to a backend service name.
+// Used when path probing is skipped (SoftNotFound) but the root response still
+// identifies the product.
+var rootServiceSignatures = []struct {
+	field   string // "body", "title", or "server"
+	substr  string
+	service string
+}{
+	{"title", "clickhouse", "ClickHouse"},
+	{"title", "kibana", "Kibana"},
+	{"title", "grafana", "Grafana"},
+	{"title", "prometheus", "Prometheus"},
+	{"title", "jenkins", "Jenkins"},
+	{"title", "sonarqube", "SonarQube"},
+	{"title", "gitlab", "GitLab"},
+	{"title", "portainer", "Portainer"},
+	{"title", "rabbitmq", "RabbitMQ"},
+	{"server", "couchdb", "CouchDB"},
+	{"server", "minio", "MinIO"},
+	// API servers with soft-404 (return 200 for all paths, skipping path probing)
+	{"body", "lucene_version", "Elasticsearch"},
+	{"title", "consul", "HashiCorp Consul"},
+}
+
+// inferBackendFromRoot supplements backend services detected from path probing
+// with signals from the root response body, title, and Server header. This
+// catches products like ClickHouse that return 200 for all paths (SoftNotFound)
+// so path probing is skipped.
+func inferBackendFromRoot(existing []string, body, title, server string) []string {
+	seen := make(map[string]bool, len(existing))
+	for _, s := range existing {
+		seen[s] = true
+	}
+	for _, sig := range rootServiceSignatures {
+		var haystack string
+		switch sig.field {
+		case "body":
+			haystack = body
+		case "title":
+			haystack = title
+		case "server":
+			haystack = server
+		}
+		if strings.Contains(haystack, sig.substr) && !seen[sig.service] {
+			seen[sig.service] = true
+			existing = append(existing, sig.service)
+		}
+	}
+	return existing
 }
 
 // haproxyHeader returns true when any header key starts with "x-haproxy-".

@@ -1,0 +1,26 @@
+name: mysql-nonstandard-port
+description: "MySQL on non-standard port — probe must detect by wire protocol, not port number"
+tags: [mysql, nonstandard-port]
+
+services:
+  mysql:
+    image: mysql:8.0
+    ports: ["4444:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: "%"
+
+ready:
+  cmd: "nc -z localhost 4444"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-mysql-on-nonstandard-port
+    type: beacon
+    target: localhost:4444
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "4444"]
+    expect:
+      check_id: port.mysql_no_auth
+
+timeout: 5m

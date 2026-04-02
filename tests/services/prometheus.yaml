@@ -5,27 +5,27 @@ tags: [prometheus, service, monitoring]
 services:
   prometheus:
     image: prom/prometheus:v2.51.0
-    ports: ["9113:9090"]
+    ports: ["9090:9090"]
     command:
       - "--web.enable-lifecycle"
       - "--config.file=/etc/prometheus/prometheus.yml"
 
 ready:
-  cmd: "curl -sf http://localhost:9113/-/healthy >/dev/null"
+  cmd: "curl -sf http://localhost:9090/-/healthy >/dev/null"
   timeout: 60s
   interval: 2s
 
 assertions:
   - name: classifies-as-prometheus
     type: classify
-    target: localhost:9113
+    target: localhost:9090
     expect:
-      technology: Prometheus
+      backend_service: Prometheus
 
   - name: detects-unauthenticated-prometheus
     type: beacon
-    target: localhost:9113
-    args: ["--scanners", "portscan"]
+    target: localhost:9090
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9090"]
     expect:
       check_id: port.prometheus_unauthenticated
 

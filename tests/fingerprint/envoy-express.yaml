@@ -1,0 +1,37 @@
+name: fingerprint-envoy-express-layered
+description: "Express.js app behind Envoy service mesh — both proxy_type and framework detected"
+tags: [fingerprint, layered, envoy, express]
+
+services:
+  express:
+    image: node:20-alpine
+    command: ["sh", "-c", "echo 'const http=require(\"http\");http.createServer((q,s)=>{s.setHeader(\"X-Powered-By\",\"Express\");s.end(\"ok\")}).listen(3000)' | node"]
+
+  envoy:
+    image: envoyproxy/envoy:v1.29-latest
+    ports: ["8080:8080"]
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
+    volumes:
+      - ./envoy-express/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on:
+      - express
+
+ready:
+  cmd: "curl -sf http://localhost:8080/ >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: detects-envoy-proxy-layer
+    type: classify
+    target: localhost:8080
+    expect:
+      proxy_type: envoy
+
+  - name: detects-express-behind-proxy
+    type: classify
+    target: localhost:8080
+    expect:
+      framework: express
+
+timeout: 3m

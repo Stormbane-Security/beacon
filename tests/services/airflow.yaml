@@ -5,7 +5,7 @@ tags: [airflow, workflow, data-pipeline]
 services:
   airflow:
     image: apache/airflow:2.8.1
-    ports: ["9156:8080"]
+    ports: ["8080:8080"]
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
@@ -17,21 +17,21 @@ services:
     command: ["standalone"]
 
 ready:
-  cmd: "curl -sf http://localhost:9156/health | grep -q healthy"
+  cmd: "curl -sf http://localhost:8080/health | grep -q healthy"
   timeout: 120s
   interval: 5s
 
 assertions:
   - name: classifies-as-airflow
     type: classify
-    target: localhost:9156
+    target: localhost:8080
     expect:
-      backend_service: Airflow
+      backend_service: Apache Airflow
 
   - name: detects-airflow-exposed
     type: beacon
-    target: localhost:9156
-    args: ["--scanners", "portscan"]
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
       check_id: port.airflow_exposed
 

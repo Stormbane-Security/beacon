@@ -5,25 +5,26 @@ tags: [sonarqube, service, cicd]
 services:
   sonarqube:
     image: sonarqube:10-community
-    ports: ["9204:9000"]
+    ports: ["9000:9000"]
     environment:
       SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
 
 ready:
-  cmd: "curl -sf http://localhost:9204/api/system/status | grep -q UP"
+  cmd: "curl -sf http://localhost:9000/api/system/status | grep -q UP"
   timeout: 120s
   interval: 5s
 
 assertions:
   - name: classifies-as-sonarqube
     type: classify
-    target: localhost:9204
+    target: localhost:9000
     expect:
-      technology: SonarQube
+      backend_service: SonarQube
 
   - name: detects-cicd-panel
     type: beacon
-    target: localhost:9204
+    target: localhost:9000
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.cicd_panel
 

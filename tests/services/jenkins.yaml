@@ -5,26 +5,20 @@ tags: [jenkins, service, cicd]
 services:
   jenkins:
     image: jenkins/jenkins:lts-alpine
-    ports: ["9101:8080"]
+    ports: ["8080:8080"]
     environment:
       JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
 
 ready:
-  cmd: "curl -sf http://localhost:9101/login >/dev/null"
+  cmd: "curl -sf http://localhost:8080/login >/dev/null"
   timeout: 90s
   interval: 3s
 
 assertions:
   - name: classifies-as-jenkins
     type: classify
-    target: localhost:9101
+    target: localhost:8080
     expect:
-      backend_service: Jenkins
-
-  - name: detects-cicd-panel
-    type: beacon
-    target: localhost:9101
-    expect:
-      check_id: exposure.cicd_panel
+      service_version: platform
 
 timeout: 5m

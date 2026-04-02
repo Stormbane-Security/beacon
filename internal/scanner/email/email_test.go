@@ -253,6 +253,32 @@ func TestCheckMTASTS_LargePolicyModeTestingAfter512Bytes(t *testing.T) {
 	}
 }
 
+// ── checkDMARC — NXDOMAIN produces finding ───────────────────────────────
+
+func TestCheckDMARC_NXDOMAIN_EmitsMissingFinding(t *testing.T) {
+	// .invalid is guaranteed by RFC 6761 to never exist — DNS returns NXDOMAIN.
+	_, findings := checkDMARC(context.Background(), "this-domain-does-not-exist.invalid")
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckEmailDMARCMissing {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected dmarc_missing finding for NXDOMAIN domain, got %d findings: %v", len(findings), findings)
+	}
+}
+
+func TestCheckDMARC_ValidRecord_NoMissingFinding(t *testing.T) {
+	// gmail.com has a DMARC record — should not emit missing finding.
+	_, findings := checkDMARC(context.Background(), "gmail.com")
+	for _, f := range findings {
+		if f.CheckID == finding.CheckEmailDMARCMissing {
+			t.Errorf("gmail.com has DMARC, should not emit dmarc_missing, got: %v", f)
+		}
+	}
+}
+
 // ── expandSPFIncludes — redirect with quoted value ────────────────────────
 
 // TestExpandSPFIncludes_RedirectQuotedValue verifies that the redirect= target

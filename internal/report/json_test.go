@@ -357,6 +357,77 @@ func TestJSONReportNilFindings(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// JSON: field mapping correctness (CheckID, Severity, Asset, Title, Scanner, ProofCommand)
+// ---------------------------------------------------------------------------
+
+func TestRenderJSON_FieldMappingCorrectness(t *testing.T) {
+	f := finding.Finding{
+		CheckID:      "web.cors_misconfiguration",
+		Severity:     finding.SeverityHigh,
+		Title:        "CORS Misconfiguration",
+		Asset:        "api.example.com",
+		Scanner:      "cors",
+		ProofCommand: "curl -H 'Origin: https://evil.com' https://api.example.com",
+		Module:       "surface",
+		Description:  "Origin reflection allows credentialed CORS requests",
+	}
+	ef := enrichment.EnrichedFinding{
+		Finding:     f,
+		Explanation: "The server reflects the Origin header in ACAO.",
+		Impact:      "Credential theft via cross-origin requests.",
+		Remediation: "Restrict ACAO to trusted origins.",
+	}
+	out, err := RenderJSON(testRun(), []enrichment.EnrichedFinding{ef}, "", nil)
+	if err != nil {
+		t.Fatalf("RenderJSON error: %v", err)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	arr := m["findings"].([]any)
+	if len(arr) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(arr))
+	}
+	entry := arr[0].(map[string]any)
+	findingMap := entry["finding"].(map[string]any)
+
+	// Check each field is correctly mapped.
+	if findingMap["check_id"] != "web.cors_misconfiguration" {
+		t.Errorf("check_id = %v, want %q", findingMap["check_id"], "web.cors_misconfiguration")
+	}
+	// Severity is an int enum, so it appears as a number.
+	if findingMap["severity"] == nil {
+		t.Error("severity should be present")
+	}
+	if findingMap["asset"] != "api.example.com" {
+		t.Errorf("asset = %v, want %q", findingMap["asset"], "api.example.com")
+	}
+	if findingMap["title"] != "CORS Misconfiguration" {
+		t.Errorf("title = %v, want %q", findingMap["title"], "CORS Misconfiguration")
+	}
+	if findingMap["scanner"] != "cors" {
+		t.Errorf("scanner = %v, want %q", findingMap["scanner"], "cors")
+	}
+	if findingMap["proof_command"] != "curl -H 'Origin: https://evil.com' https://api.example.com" {
+		t.Errorf("proof_command = %v, want curl command", findingMap["proof_command"])
+	}
+
+	// Enrichment fields.
+	if entry["explanation"] != "The server reflects the Origin header in ACAO." {
+		t.Errorf("explanation = %v, want ACAO explanation", entry["explanation"])
+	}
+	if entry["impact"] != "Credential theft via cross-origin requests." {
+		t.Errorf("impact = %v, want credential theft", entry["impact"])
+	}
+	if entry["remediation"] != "Restrict ACAO to trusted origins." {
+		t.Errorf("remediation = %v, want restrict ACAO", entry["remediation"])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // JSON: finding titles with unicode, null bytes, and control characters
 // ---------------------------------------------------------------------------
 

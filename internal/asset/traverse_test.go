@@ -443,3 +443,150 @@ func TestReachableWithCycles(t *testing.T) {
 		t.Error("start node a should not appear in reachable results")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// reconstructPath: valid path src→a→b→dst
+// ---------------------------------------------------------------------------
+
+func TestReconstructPath_ValidChain(t *testing.T) {
+	parent := map[string]string{
+		"b":   "a",
+		"c":   "b",
+		"dst": "c",
+	}
+	path := reconstructPath(parent, "a", "dst")
+	if path == nil {
+		t.Fatal("expected non-nil path for valid parent chain")
+	}
+	expected := []string{"a", "b", "c", "dst"}
+	if len(path) != len(expected) {
+		t.Fatalf("path length = %d, want %d: %v", len(path), len(expected), path)
+	}
+	for i, want := range expected {
+		if path[i] != want {
+			t.Errorf("path[%d] = %q, want %q", i, path[i], want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// reconstructPath: src == dst returns just [src]
+// ---------------------------------------------------------------------------
+
+func TestReconstructPath_SrcEqualsDst(t *testing.T) {
+	// When src == dst, the for loop body never executes (cur == src immediately),
+	// so only src is appended. ShortestPath handles this case before calling
+	// reconstructPath, but verify the function itself handles it correctly too.
+	// Note: ShortestPath returns []string{srcID} before calling reconstructPath,
+	// so we test the ShortestPath behavior via the existing TestShortestPathSameNode.
+	// Here we test reconstructPath directly with an empty parent map.
+	parent := map[string]string{}
+	path := reconstructPath(parent, "x", "x")
+	if path == nil {
+		t.Fatal("expected non-nil path when src == dst")
+	}
+	if len(path) != 1 || path[0] != "x" {
+		t.Errorf("path = %v, want [x]", path)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FindingsFor: missing asset ID returns nil/empty
+// ---------------------------------------------------------------------------
+
+func TestFindingsFor_MissingAsset(t *testing.T) {
+	g := testGraph()
+	tr := NewTraverser(g)
+
+	findings := tr.FindingsFor("nonexistent-asset")
+	if len(findings) != 0 {
+		t.Errorf("FindingsFor(nonexistent) = %d findings, want 0", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FindingsFor: asset with multiple findings
+// ---------------------------------------------------------------------------
+
+func TestFindingsFor_MultipleFindings(t *testing.T) {
+	g := &AssetGraph{
+		ScanRunID: "test-multi-finding",
+		Assets: []Asset{
+			{ID: "host:x", Type: AssetTypeDomain, Provider: "web", Name: "x"},
+		},
+		Findings: []FindingRef{
+			{FindingID: "f1", AssetID: "host:x", CheckID: "web.xss", Severity: "high", Title: "XSS"},
+			{FindingID: "f2", AssetID: "host:x", CheckID: "web.sqli", Severity: "critical", Title: "SQLi"},
+			{FindingID: "f3", AssetID: "host:x", CheckID: "tls.expired", Severity: "medium", Title: "TLS Expired"},
+		},
+	}
+	tr := NewTraverser(g)
+
+	findings := tr.FindingsFor("host:x")
+	if len(findings) != 3 {
+		t.Fatalf("FindingsFor(host:x) = %d findings, want 3", len(findings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Neighbors: deduplicates when same neighbor via multiple edges
+// ---------------------------------------------------------------------------
+
+func TestNeighbors_Deduplicates(t *testing.T) {
+	g := &AssetGraph{
+		ScanRunID: "test-dedup-neighbors",
+		Assets: []Asset{
+			{ID: "a", Type: AssetTypeDomain, Provider: "web", Name: "a"},
+			{ID: "b", Type: AssetTypeDomain, Provider: "web", Name: "b"},
+		},
+		Relationships: []Relationship{
+			// Two different edge types from a to b
+			{FromID: "a", ToID: "b", Type: RelPointsTo, Confidence: 1.0},
+			{FromID: "a", ToID: "b", Type: RelManages, Confidence: 0.9},
+			// Also an edge from b to a
+			{FromID: "b", ToID: "a", Type: RelUses, Confidence: 0.8},
+		},
+	}
+	tr := NewTraverser(g)
+
+	neighbors := tr.Neighbors("a")
+	if len(neighbors) != 1 {
+		t.Errorf("Neighbors(a) = %v, want exactly 1 unique neighbor [b]", neighbors)
+	}
+	if len(neighbors) == 1 && neighbors[0] != "b" {
+		t.Errorf("Neighbors(a)[0] = %q, want %q", neighbors[0], "b")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Neighbors: returns both incoming and outgoing edges
+// ---------------------------------------------------------------------------
+
+func TestNeighbors_BothDirections(t *testing.T) {
+	g := &AssetGraph{
+		ScanRunID: "test-neighbor-dirs",
+		Assets: []Asset{
+			{ID: "center", Type: AssetTypeDomain, Provider: "web", Name: "center"},
+			{ID: "upstream", Type: AssetTypeDomain, Provider: "web", Name: "upstream"},
+			{ID: "downstream", Type: AssetTypeDomain, Provider: "web", Name: "downstream"},
+		},
+		Relationships: []Relationship{
+			{FromID: "upstream", ToID: "center", Type: RelPointsTo, Confidence: 1.0},
+			{FromID: "center", ToID: "downstream", Type: RelManages, Confidence: 1.0},
+		},
+	}
+	tr := NewTraverser(g)
+
+	neighbors := tr.Neighbors("center")
+	sort.Strings(neighbors)
+
+	expected := []string{"downstream", "upstream"}
+	if len(neighbors) != 2 {
+		t.Fatalf("Neighbors(center) = %v, want %v", neighbors, expected)
+	}
+	for i, want := range expected {
+		if neighbors[i] != want {
+			t.Errorf("Neighbors(center)[%d] = %q, want %q", i, neighbors[i], want)
+		}
+	}
+}

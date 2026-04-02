@@ -1,0 +1,22 @@
+name: fingerprint-php-framework
+description: "PHP application is correctly identified via X-Powered-By header"
+tags: [fingerprint, php, framework]
+
+services:
+  php:
+    image: php:8.2-apache
+    ports: ["80:80"]
+
+ready:
+  cmd: "curl -so /dev/null -w '%{http_code}' http://localhost:80/ | grep -qE '200|403'"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: identifies-php-framework
+    type: classify
+    target: localhost:80
+    expect:
+      framework: php
+
+timeout: 2m

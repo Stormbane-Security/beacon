@@ -49,6 +49,7 @@ var specPaths = []string{
 	"/v3/openapi.json",
 	"/api/swagger.json",
 	"/api/openapi.json",
+	"/api/v3/openapi.json",
 	"/docs/swagger.json",
 	"/swagger-ui/swagger.json",
 }

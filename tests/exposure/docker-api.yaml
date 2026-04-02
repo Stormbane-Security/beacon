@@ -5,21 +5,21 @@ tags: [docker, container, api]
 services:
   socat:
     image: alpine/socat:latest
-    ports: ["9154:2375"]
+    ports: ["2375:2375"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command: ["TCP-LISTEN:2375,fork,reuseaddr", "UNIX-CONNECT:/var/run/docker.sock"]
 
 ready:
-  cmd: "curl -sf http://localhost:9154/version | grep -q ApiVersion"
+  cmd: "curl -sf http://localhost:2375/version | grep -q ApiVersion"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-docker-api-exposed
     type: beacon
-    target: localhost:9154
-    args: ["--scanners", "portscan"]
+    target: localhost:2375
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2375"]
     expect:
       check_id: port.docker_unauthenticated
 
