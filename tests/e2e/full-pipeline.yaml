@@ -1,0 +1,47 @@
+name: full-pipeline-surface
+description: >
+  End-to-end pipeline test: asset classify, playbook matching, multi-scanner
+  execution, and dedup all run without --scanners. Validates that the full
+  scan pipeline discovers findings from multiple independent scanners against
+  a single composite target.
+tags: [e2e, pipeline, surface, dlp, portscan]
+
+services:
+  app:
+    build:
+      context: ./full-pipeline
+      dockerfile: Dockerfile
+    ports: ["8080:8080"]
+
+ready:
+  url: "http://localhost:8080/health"
+  status: 200
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Full pipeline — no --scanners flag. Beacon must discover the HTTP service,
+  # classify it, match the baseline playbook, and run all applicable scanners.
+  # We only constrain --ports to avoid scanning unrelated host ports.
+  - name: pipeline-finds-multiple-issues
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--ports", "8080"]
+    expect:
+      min_findings: 2
+
+  - name: pipeline-detects-api-keys
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--ports", "8080"]
+    expect:
+      check_id: dlp.api_key
+
+  - name: pipeline-detects-open-port
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--ports", "8080"]
+    expect:
+      check_id: port.open
+
+timeout: 10m
