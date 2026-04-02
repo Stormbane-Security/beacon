@@ -15,8 +15,7 @@ ready:
 commands:
   # Pull a tiny model for testing (tinyllama is ~637MB)
   - name: pull-model
-    container: ollama
-    cmd: "ollama pull tinyllama"
+    run: "docker exec $(docker ps -qf 'name=ollama') ollama pull tinyllama"
     timeout: 300s
 
 assertions:

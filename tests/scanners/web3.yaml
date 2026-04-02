@@ -21,12 +21,11 @@ ready:
   interval: 3s
 
 commands:
-  # Deploy vulnerable contract to the local chain
+  # Deploy vulnerable contract to the local chain.
+  # Build a one-shot container, attach to the same network, and run deploy.js.
   - name: deploy-contract
-    build:
-      context: ./web3
-      dockerfile: Dockerfile
-    timeout: 60s
+    run: "docker build -t drydock-web3-deploy ./web3 && docker run --rm --network host drydock-web3-deploy"
+    timeout: 120s
 
 assertions:
   - name: exploit-ganache-jsonrpc-accessible

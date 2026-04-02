@@ -1467,7 +1467,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			matchedNames[i] = pb.Name
 		}
 		return []finding.Finding{{
-			CheckID:     "meta.dry_run_plan",
+			CheckID:     finding.CheckMetaDryRunPlan,
 			Module:      "surface",
 			Scanner:     "planner",
 			Severity:    finding.SeverityInfo,

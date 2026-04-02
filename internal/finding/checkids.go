@@ -1423,6 +1423,9 @@ const (
 	CheckOnpremLibvirtVMRawDisk          CheckID = "onprem.libvirt.vm_raw_disk"             // VM using raw disk format (no snapshot support)
 	CheckOnpremLibvirtNetNoIsolation     CheckID = "onprem.libvirt.net_no_isolation"         // virtual network in default NAT mode without isolation
 	CheckOnpremLibvirtVMNoMemBalloon     CheckID = "onprem.libvirt.vm_no_memballoon"        // VM without memory balloon driver (can't reclaim memory)
+
+	// Meta — internal beacon operational findings
+	CheckMetaDryRunPlan CheckID = "meta.dry_run_plan" // Dry-run scan plan (no scanners executed)
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -2834,6 +2837,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOnpremLibvirtVMRawDisk:      {CheckOnpremLibvirtVMRawDisk, SeverityLow, ModeDeep},
 	CheckOnpremLibvirtNetNoIsolation: {CheckOnpremLibvirtNetNoIsolation, SeverityMedium, ModeDeep},
 	CheckOnpremLibvirtVMNoMemBalloon: {CheckOnpremLibvirtVMNoMemBalloon, SeverityLow, ModeDeep},
+
+	// Meta — internal operational findings (always surface-safe)
+	CheckMetaDryRunPlan: {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

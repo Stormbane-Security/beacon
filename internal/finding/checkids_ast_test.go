@@ -143,6 +143,7 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"teamcity": true, "oidc": true, "http": true, "websocket": true,
 		"bitbucket": true, "container": true, "circleci": true,
 		"onprem": true,
+		"meta":   true,
 	}
 
 	for _, decl := range f.Decls {
