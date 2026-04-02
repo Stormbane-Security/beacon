@@ -24,13 +24,13 @@ assertions:
   - name: exploit-jwt-alg-none-header
     type: command
     expect:
-      command: "TOKEN=$(curl -sf http://localhost:9205/token) && echo $TOKEN | cut -d. -f1 | base64 -d 2>/dev/null | grep -qiE '(none|HS256)'"
+      command: "TOKEN=$(curl -sf http://localhost:9205/token) && HEADER=$(echo $TOKEN | cut -d. -f1) && (echo $HEADER | base64 -d 2>/dev/null || echo $HEADER | base64 -D 2>/dev/null || echo $HEADER= | base64 -d 2>/dev/null) | grep -qiE '(none|HS256)'"
       exit_code: 0
 
   - name: detects-weak-jwt-algorithm
     type: beacon
     target: localhost:9205
-    args: ["--no-enrich", "--scanners", "jwt", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "jwt"]
     expect:
       check_id: jwt.weak_algorithm
 

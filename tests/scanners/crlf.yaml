@@ -18,13 +18,13 @@ assertions:
   - name: exploit-crlf-header-injection
     type: command
     expect:
-      command: "curl -sI 'http://localhost:9202/redirect?url=http://example.com%0d%0aX-Injected:%20true' | grep -qi 'X-Injected'"
+      command: "curl -sD- -o/dev/null 'http://localhost:9202/?redirect=https://example.com%0d%0aX-CRLF-Injected:beacon' | grep -qi 'X-CRLF-Injected'"
       exit_code: 0
 
   - name: detects-crlf-injection
     type: beacon
     target: localhost:9202
-    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.crlf_injection
 

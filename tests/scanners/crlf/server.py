@@ -1,70 +1,92 @@
-"""Minimal server vulnerable to CRLF injection in headers."""
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+"""Minimal server vulnerable to CRLF injection in headers.
+
+Uses raw socket writes to bypass Python 3.12+ send_header() sanitization,
+simulating a real application that writes headers without sanitization
+(e.g., Java servlets, Go net/http, PHP header(), Node.js).
+"""
+import socket
+import threading
+from urllib.parse import parse_qs, urlparse, unquote
 
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/health":
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"ok")
+def handle_client(conn):
+    try:
+        data = conn.recv(4096).decode("utf-8", errors="replace")
+        if not data:
             return
 
-        parsed = urlparse(self.path)
+        # Parse request line.
+        lines = data.split("\r\n")
+        method, path_full, _ = lines[0].split(" ", 2)
+
+        parsed = urlparse(path_full)
+        path = parsed.path
         params = parse_qs(parsed.query)
 
-        # Vulnerable: reflects user input directly in Location header
-        redirect = params.get("redirect", [""])[0]
-        if redirect:
-            self.send_response(302)
-            # Intentionally vulnerable: no sanitization of CRLF characters
-            self.send_header("Location", redirect)
-            self.end_headers()
+        if path == "/health":
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
             return
 
-        lang = params.get("lang", ["en"])[0]
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        # Intentionally vulnerable: reflects parameter in Set-Cookie header
-        self.send_header("Set-Cookie", f"lang={lang}; Path=/")
-        self.end_headers()
-        self.wfile.write(
-            b"<html><body>"
-            b"<a href='/?lang=en'>English</a> | "
-            b"<a href='/?lang=fr'>French</a>"
-            b"</body></html>"
+        # Vulnerable: reflects redirect parameter in Location header
+        # without sanitizing CRLF characters.
+        redirect = params.get("redirect", [""])[0]
+        if not redirect:
+            redirect = params.get("url", [""])[0]
+        if not redirect:
+            redirect = params.get("next", [""])[0]
+
+        if redirect:
+            # Raw header write — no sanitization of \r\n in value.
+            response = (
+                f"HTTP/1.1 302 Found\r\n"
+                f"Location: {redirect}\r\n"
+                f"Content-Length: 0\r\n"
+                f"\r\n"
+            )
+            conn.sendall(response.encode("utf-8", errors="replace"))
+            return
+
+        # Vulnerable: reflects lang parameter in Set-Cookie header.
+        lang = params.get("lang", [""])[0]
+        if lang:
+            response = (
+                f"HTTP/1.1 200 OK\r\n"
+                f"Content-Type: text/html\r\n"
+                f"Set-Cookie: lang={lang}; Path=/\r\n"
+                f"Content-Length: 4\r\n"
+                f"\r\n"
+                f"ok\r\n"
+            )
+            conn.sendall(response.encode("utf-8", errors="replace"))
+            return
+
+        # Default response.
+        body = b"<html><body>CRLF test server</body></html>"
+        response = (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: text/html\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"\r\n"
         )
+        conn.sendall(response.encode() + body)
 
-    def do_POST(self):
-        content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length).decode("utf-8", errors="replace")
-        params = parse_qs(body)
-
-        # Vulnerable: reflects POST body params in Set-Cookie header
-        redirect = params.get("redirect", [""])[0]
-        if redirect:
-            self.send_response(302)
-            self.send_header("Location", redirect)
-            self.end_headers()
-            return
-
-        username = params.get("username", [""])[0]
-        if username:
-            self.send_response(200)
-            # Intentionally vulnerable: reflects username in header
-            self.send_header("X-User", username)
-            self.end_headers()
-            self.wfile.write(b"ok")
-            return
-
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"ok")
-
-    def log_message(self, fmt, *args):
+    except Exception:
         pass
+    finally:
+        conn.close()
+
+
+def main():
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", 8080))
+    srv.listen(64)
+
+    while True:
+        conn, _ = srv.accept()
+        t = threading.Thread(target=handle_client, args=(conn,), daemon=True)
+        t.start()
 
 
 if __name__ == "__main__":
-    HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+    main()

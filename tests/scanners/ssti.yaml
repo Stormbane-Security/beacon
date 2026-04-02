@@ -18,13 +18,13 @@ assertions:
   - name: exploit-ssti-math-eval
     type: command
     expect:
-      command: "curl -sf 'http://localhost:9204/search?q={{7*7}}' | grep -q 49"
+      command: "curl -sf 'http://localhost:9204/search?q=%7B%7B7*7%7D%7D' | grep -q 49"
       exit_code: 0
 
   - name: detects-ssti
     type: beacon
     target: localhost:9204
-    args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized"]
     expect:
       check_id: web.ssti
 
