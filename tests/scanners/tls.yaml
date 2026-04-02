@@ -18,14 +18,14 @@ assertions:
   - name: detects-tls10-protocol
     type: beacon
     target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-self-signed-cert
     type: beacon
     target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
       check_id: tls.cert_self_signed
 

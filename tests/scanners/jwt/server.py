@@ -37,10 +37,24 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"token": token}).encode())
             return
 
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
+        if self.path == "/":
+            token = make_none_jwt({
+                "sub": "guest",
+                "role": "viewer",
+                "iat": 1700000000,
+                "exp": 9999999999,
+            })
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Set-Cookie", f"session={token}; Path=/; HttpOnly")
+            self.end_headers()
+            self.wfile.write(b"<html><body>Welcome</body></html>")
+            return
+
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"<html><body><a href='/login'>Login</a></body></html>")
+        self.wfile.write(b"not found")
 
     def log_message(self, fmt, *args):
         pass

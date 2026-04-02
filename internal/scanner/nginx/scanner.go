@@ -29,12 +29,21 @@ var commonPaths = []string{
 	"/assets",
 	"/uploads",
 	"/files",
+	"/images",
+	"/media",
+	"/docs",
 }
 
-// traversalSuffixes are appended to each common path to attempt traversal.
+// traversalSuffixes are appended directly to each common path (no separator)
+// to exploit the nginx alias traversal pattern where location /foo (without
+// trailing slash) plus alias /path/ allows /foo../etc/passwd to resolve to
+// /path/../etc/passwd. Multiple depths are tried because alias paths vary
+// (e.g. /var/www/html/ requires ../../../etc/passwd to reach /etc/passwd).
 var traversalSuffixes = []string{
 	"../etc/passwd",
-	"./etc/passwd",
+	"../../etc/passwd",
+	"../../../etc/passwd",
+	"../../../../etc/passwd",
 }
 
 // passwdSignals indicate a successful /etc/passwd read.
@@ -77,7 +86,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
 		for _, path := range commonPaths {
 			for _, suffix := range traversalSuffixes {
-				probePath := path + "/" + suffix
+				probePath := path + suffix
 				u := base + probePath
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 				if err != nil {

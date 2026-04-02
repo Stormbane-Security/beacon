@@ -966,7 +966,7 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 			if needsBody && sc == http.StatusOK {
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 				resp.Body.Close()
-				if !strings.Contains(string(body), requiredBody) {
+				if !strings.Contains(strings.ToLower(string(body)), requiredBody) {
 					return
 				}
 			} else {

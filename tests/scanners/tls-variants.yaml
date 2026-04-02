@@ -20,28 +20,28 @@ assertions:
   - name: detects-tls10
     type: beacon
     target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-tls11
     type: beacon
     target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
       check_id: tls.protocol_tls11
 
   - name: detects-weak-cipher
     type: beacon
     target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
       check_id: tls.weak_cipher
 
   - name: detects-self-signed
     type: beacon
     target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
       check_id: tls.cert_self_signed
 

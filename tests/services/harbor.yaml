@@ -18,7 +18,7 @@ assertions:
   - name: detects-container-registry
     type: beacon
     target: localhost:5000
-    args: ["--no-enrich", "--scanners", "containerimage", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "containerimage", "--deep", "--permission-confirmed"]
     expect:
       check_id: container.registry_exposed
 
