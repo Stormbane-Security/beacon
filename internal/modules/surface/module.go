@@ -109,6 +109,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/bitbucket"
 	"github.com/stormbane-security/beacon/internal/scanner/circleci"
 	oktascanner "github.com/stormbane-security/beacon/internal/scanner/okta"
+	"github.com/stormbane-security/beacon/internal/scanner/secheaders"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
 	"github.com/stormbane-security/beacon/internal/profiler"
@@ -410,6 +411,7 @@ func New(cfg Config) (*Module, error) {
 		"bitbucket":       bitbucket.New(),
 		"circleci":        circleci.New(cfg.GitHubToken),
 		"okta":            oktascanner.New(cfg.OktaDomain, cfg.OktaToken),
+		"secheaders":      secheaders.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

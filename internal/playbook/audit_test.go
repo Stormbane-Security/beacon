@@ -60,6 +60,7 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"ssrf",           // deep:    SSRF cloud-metadata injection
 		"nginx",          // surface: Nginx alias traversal path probes
 		"hpp",            // deep:    HTTP parameter pollution probes
+		"secheaders",     // surface: missing security response headers
 	}
 
 	for _, name := range mustHave {

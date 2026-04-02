@@ -1,0 +1,25 @@
+name: secheaders-secure
+description: "Nginx with all security headers configured — scanner should emit zero missing-header findings"
+tags: [secheaders, scanner, web, nginx, negative-test]
+
+services:
+  app:
+    image: nginx:1.27-alpine
+    ports: ["9281:80"]
+    volumes:
+      - ./secheaders/nginx-secure.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sfo /dev/null http://localhost:9281/"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: no-missing-header-findings
+    type: beacon
+    target: app:80
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      max_findings: 0
+
+timeout: 5m

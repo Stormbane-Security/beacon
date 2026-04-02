@@ -37,6 +37,7 @@ surface:
     - nginx          # Nginx alias traversal + IIS short-name probes — safe GET-only path probes
     - gateway        # CDN/LB/API-gateway/mesh admin interface exposure — vendor-specific GET probes
     - tlscheck       # native Go TLS: key strength, OCSP, CT logs, PFS, HSTS policy
+    - secheaders     # missing CSP, HSTS, X-Frame-Options, X-Content-Type, Referrer-Policy, Permissions-Policy
     - swagger        # OpenAPI/Swagger spec exposure — safe GET probes to common spec paths
     - chainnode      # blockchain node/validator/miner detection — port probes + JSON-RPC fingerprinting
     - githubactions  # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
