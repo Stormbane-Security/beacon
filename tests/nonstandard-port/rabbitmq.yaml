@@ -18,6 +18,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-rabbitmq-mgmt-api
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:16672/api/overview | grep -q rabbitmq_version"
+      exit_code: 0
+
   - name: detects-rabbitmq-amqp-on-nonstandard-port
     type: beacon
     target: localhost:6672

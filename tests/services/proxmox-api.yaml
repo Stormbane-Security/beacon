@@ -17,6 +17,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-proxmox-api-header
+    type: command
+    expect:
+      command: "curl -sfk -I https://localhost:8006/ | grep -qi 'pve-api-daemon'"
+      exit_code: 0
+
   - name: detects-proxmox-exposed
     type: beacon
     target: proxmox:8006

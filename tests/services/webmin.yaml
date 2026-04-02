@@ -15,6 +15,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-webmin-login-page
+    type: command
+    expect:
+      command: "curl -sfk https://localhost:10000/ -L | grep -qiE '(webmin|login)' || curl -sf http://localhost:10000/ -L | grep -qiE '(webmin|login)'"
+      exit_code: 0
+
   - name: detects-webmin-exposed
     type: beacon
     target: webmin:10000

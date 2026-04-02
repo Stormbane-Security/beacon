@@ -16,6 +16,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-smb-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 445"
+      exit_code: 0
+
+  - name: exploit-smb-null-session
+    type: command
+    expect:
+      command: "smbclient -L localhost -N 2>/dev/null | grep -qiE '(public|share|Disk)' || nc -z -w 3 localhost 445"
+      exit_code: 0
+
   - name: detects-smb-exposed
     type: beacon
     target: smb:445

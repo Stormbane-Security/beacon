@@ -16,6 +16,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-minio-health-check
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9002/minio/health/live"
+      exit_code: 0
+
+  - name: exploit-minio-console-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:9001 | grep -qE '(200|307)'"
+      exit_code: 0
+
   - name: detects-minio-default-creds
     type: beacon
     target: minio:9001

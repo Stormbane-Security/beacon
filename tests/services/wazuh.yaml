@@ -15,6 +15,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-wazuh-api-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 9289"
+      exit_code: 0
+
   - name: detects-wazuh-api-exposed
     type: beacon
     target: wazuh:55000

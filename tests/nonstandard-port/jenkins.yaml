@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-jenkins-login-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9191/login | grep -qiE '(jenkins|sign in)'"
+      exit_code: 0
+
   - name: classifies-jenkins-on-nonstandard-port
     type: classify
     target: localhost:9191

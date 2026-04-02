@@ -15,6 +15,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-adguard-web-ui
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3000 | grep -qiE '(AdGuard|install)'"
+      exit_code: 0
+
   - name: detects-adguard-exposed
     type: beacon
     target: adguard:3000

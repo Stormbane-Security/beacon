@@ -17,6 +17,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-keycloak-oidc-config
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8888/realms/master/.well-known/openid-configuration | grep -q issuer"
+      exit_code: 0
+
+  - name: exploit-keycloak-admin-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:8888/realms/master/protocol/openid-connect/token -d 'client_id=admin-cli&username=admin&password=admin&grant_type=password' | grep -q access_token"
+      exit_code: 0
+
   - name: classifies-keycloak-on-nonstandard-port
     type: classify
     target: localhost:8888

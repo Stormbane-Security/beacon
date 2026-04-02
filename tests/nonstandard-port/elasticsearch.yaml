@@ -17,6 +17,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-elasticsearch-cluster-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9999/ | grep -q cluster_name"
+      exit_code: 0
+
   - name: detects-elasticsearch-on-nonstandard-port
     type: beacon
     target: localhost:9999

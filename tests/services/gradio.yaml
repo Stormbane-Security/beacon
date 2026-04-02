@@ -14,6 +14,12 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-gradio-web-ui
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9288/ | grep -qiE '(gradio|script)'"
+      exit_code: 0
+
   - name: detects-gradio-exposed
     type: beacon
     target: gradio:7860

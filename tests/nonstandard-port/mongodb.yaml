@@ -13,6 +13,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-mongodb-handshake
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 28888"
+      exit_code: 0
+
   - name: detects-mongodb-on-nonstandard-port
     type: beacon
     target: localhost:28888

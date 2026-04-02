@@ -16,6 +16,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-vnc-handshake
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 5900 | grep -qiE '(RFB|VNC)'"
+      exit_code: 0
+
   - name: detects-vnc-exposed
     type: beacon
     target: vnc:5900

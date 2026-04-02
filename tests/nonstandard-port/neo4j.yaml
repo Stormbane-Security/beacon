@@ -17,6 +17,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-neo4j-browser
+    type: command
+    expect:
+      command: "curl -sf http://localhost:7575 | grep -qiE '(neo4j|browser)'"
+      exit_code: 0
+
   - name: detects-neo4j-on-nonstandard-port
     type: beacon
     target: neo4j:7575

@@ -16,6 +16,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-argocd-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8443/api/version | grep -q Version"
+      exit_code: 0
+
   - name: detects-argocd-exposed
     type: beacon
     target: argocd:8080

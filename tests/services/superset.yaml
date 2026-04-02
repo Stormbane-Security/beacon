@@ -16,6 +16,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-superset-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8088/health | grep -q OK"
+      exit_code: 0
+
+  - name: exploit-superset-login-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8088/login/ | grep -qiE '(superset|sign in|login)'"
+      exit_code: 0
+
   - name: detects-superset-exposed
     type: beacon
     target: superset:8088

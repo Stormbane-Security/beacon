@@ -19,6 +19,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-k8s-version
+    type: command
+    expect:
+      command: "curl -sfk https://localhost:9283/version | grep -q gitVersion"
+      exit_code: 0
+
+  - name: exploit-k8s-api-accessible
+    type: command
+    expect:
+      command: "curl -sfk -o /dev/null -w '%{http_code}' https://localhost:9283/api | grep -qE '(200|401|403)'"
+      exit_code: 0
+
   - name: detects-k8s-api-exposed
     type: beacon
     target: k3s:6443

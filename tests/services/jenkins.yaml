@@ -15,6 +15,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-jenkins-login-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/login | grep -qiE '(jenkins|sign in)'"
+      exit_code: 0
+
+  - name: exploit-jenkins-api-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8080/api/json | grep -qE '(200|403)'"
+      exit_code: 0
+
   - name: classifies-as-jenkins
     type: classify
     target: localhost:8080

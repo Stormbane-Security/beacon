@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-modbus-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 9284"
+      exit_code: 0
+
   - name: detects-modbus-exposed
     type: beacon
     target: modbus:502

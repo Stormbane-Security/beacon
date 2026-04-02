@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-registry-catalog
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5050/v2/_catalog | grep -q repositories"
+      exit_code: 0
+
   - name: detects-registry-on-nonstandard-port
     type: beacon
     target: registry:5050

@@ -29,6 +29,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-wordpress-xmlrpc
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:80/xmlrpc.php -d '<?xml version=\"1.0\"?><methodCall><methodName>system.listMethods</methodName></methodCall>' | grep -q methodResponse"
+      exit_code: 0
+
+  - name: exploit-wordpress-wp-json
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/wp-json/ | grep -qE '(name|description|routes)'"
+      exit_code: 0
+
   - name: classifies-as-wordpress
     type: classify
     target: localhost:80

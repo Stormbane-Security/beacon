@@ -22,6 +22,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-airflow-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9090/health | grep -q healthy"
+      exit_code: 0
+
+  - name: exploit-airflow-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:9090/api/v1/dags | grep -q dags || curl -sf http://localhost:9090/login | grep -qi airflow"
+      exit_code: 0
+
   - name: classifies-airflow-on-nonstandard-port
     type: classify
     target: localhost:9090

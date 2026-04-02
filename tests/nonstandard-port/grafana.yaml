@@ -17,6 +17,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-grafana-anonymous-admin
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3333/api/org | grep -q name"
+      exit_code: 0
+
   - name: classifies-grafana-on-nonstandard-port
     type: classify
     target: localhost:3333

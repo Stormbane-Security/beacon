@@ -14,6 +14,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-mlflow-experiments
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5000/api/2.0/mlflow/experiments/search | grep -q experiments"
+      exit_code: 0
+
+  - name: exploit-mlflow-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5000/health"
+      exit_code: 0
+
   - name: detects-mlflow-exposed
     type: beacon
     target: mlflow:5000

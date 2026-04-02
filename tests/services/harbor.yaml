@@ -15,6 +15,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-harbor-catalog
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5000/v2/_catalog | grep -q repositories"
+      exit_code: 0
+
+  - name: exploit-harbor-api
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:5000/v2/ | grep -q 200"
+      exit_code: 0
+
   - name: detects-container-registry
     type: beacon
     target: localhost:5000

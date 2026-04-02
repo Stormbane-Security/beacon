@@ -15,6 +15,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-sonarqube-system-status
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9000/api/system/status | grep -q UP"
+      exit_code: 0
+
+  - name: exploit-sonarqube-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:9000/api/authentication/validate | grep -q true"
+      exit_code: 0
+
   - name: classifies-as-sonarqube
     type: classify
     target: localhost:9000

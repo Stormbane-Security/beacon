@@ -13,6 +13,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-cups-web-ui
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9282/ | grep -qiE '(CUPS|printer)'"
+      exit_code: 0
+
   - name: detects-ipp-exposed
     type: beacon
     target: cups:631

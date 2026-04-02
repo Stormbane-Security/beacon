@@ -13,6 +13,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-ollama-list-models
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9285/api/tags | grep -q models"
+      exit_code: 0
+
+  - name: exploit-ollama-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9285/api/version | grep -q version"
+      exit_code: 0
+
   - name: detects-ollama-exposed
     type: beacon
     target: ollama:11434

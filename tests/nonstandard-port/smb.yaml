@@ -14,6 +14,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-smb-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 4445"
+      exit_code: 0
+
   - name: detects-smb-on-nonstandard-port
     type: beacon
     target: localhost:4445

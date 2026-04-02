@@ -18,6 +18,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-stepca-health
+    type: command
+    expect:
+      command: "curl -sfk https://localhost:9000/health | grep -q ok"
+      exit_code: 0
+
+  - name: exploit-stepca-root-ca
+    type: command
+    expect:
+      command: "curl -sfk https://localhost:9000/roots | grep -q BEGIN"
+      exit_code: 0
+
   - name: detects-step-ca-exposed
     type: beacon
     target: stepca:9000

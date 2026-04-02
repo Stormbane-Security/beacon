@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-rtsp-options
+    type: command
+    expect:
+      command: "printf 'OPTIONS rtsp://localhost:9286 RTSP/1.0\\r\\nCSeq: 1\\r\\n\\r\\n' | nc -w 3 localhost 9286 | grep -qiE '(RTSP/1.0|Public)'"
+      exit_code: 0
+
   - name: detects-rtsp-exposed
     type: beacon
     target: rtsp:554

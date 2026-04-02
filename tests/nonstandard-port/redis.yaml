@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-redis-info
+    type: command
+    expect:
+      command: "echo 'INFO server' | nc -w 2 localhost 7777 | grep -q redis_version"
+      exit_code: 0
+
   - name: detects-redis-on-nonstandard-port
     type: beacon
     target: localhost:7777

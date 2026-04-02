@@ -21,6 +21,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-ftp-banner
+    type: command
+    expect:
+      command: "echo 'QUIT' | nc -w 3 localhost 2121 | grep -qiE '(220|FTP|vsFTPd)'"
+      exit_code: 0
+
   - name: detects-ftp-on-nonstandard-port
     type: beacon
     target: localhost:2121
