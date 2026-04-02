@@ -1,0 +1,24 @@
+name: consul-nonstandard-port
+description: "Consul on non-standard port — probe must detect by HTTP API response, not port number"
+tags: [consul, nonstandard-port]
+
+services:
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["7500:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:7500/v1/status/leader >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: detects-consul-on-nonstandard-port
+    type: beacon
+    target: localhost:7500
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7500"]
+    expect:
+      check_id: port.consul_no_acl
+
+timeout: 5m

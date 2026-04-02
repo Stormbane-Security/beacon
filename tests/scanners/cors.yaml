@@ -5,20 +5,20 @@ tags: [cors, scanner, web]
 services:
   nginx:
     image: nginx:alpine
-    ports: ["8091:80"]
+    ports: ["80:80"]
     volumes:
       - ./cors/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
-  cmd: "curl -sf http://localhost:8091/ >/dev/null"
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-cors-misconfiguration
     type: beacon
-    target: localhost:8091
-    args: ["--scanners", "cors"]
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.cors_misconfiguration
 

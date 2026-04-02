@@ -1,0 +1,23 @@
+name: fingerprint-express-framework
+description: "Express.js app is correctly identified via X-Powered-By header"
+tags: [fingerprint, express, node, framework]
+
+services:
+  app:
+    image: node:20-alpine
+    ports: ["3000:3000"]
+    command: ["sh", "-c", "echo 'const http=require(\"http\");http.createServer((q,s)=>{s.setHeader(\"X-Powered-By\",\"Express\");s.end(\"ok\")}).listen(3000)' | node"]
+
+ready:
+  cmd: "curl -sf http://localhost:3000/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: identifies-express-framework
+    type: classify
+    target: localhost:3000
+    expect:
+      framework: express
+
+timeout: 2m

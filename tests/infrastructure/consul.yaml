@@ -5,25 +5,25 @@ tags: [consul, infrastructure, service-discovery]
 services:
   consul:
     image: hashicorp/consul:1.18
-    ports: ["9216:8500"]
+    ports: ["8500:8500"]
     command: ["agent", "-dev", "-client=0.0.0.0"]
 
 ready:
-  cmd: "curl -sf http://localhost:9216/v1/status/leader >/dev/null"
+  cmd: "curl -sf http://localhost:8500/v1/status/leader >/dev/null"
   timeout: 60s
   interval: 2s
 
 assertions:
   - name: classifies-as-consul
     type: classify
-    target: localhost:9216
+    target: localhost:8500
     expect:
-      technology: Consul
+      backend_service: HashiCorp Consul
 
   - name: detects-consul-no-acl
     type: beacon
-    target: localhost:9216
-    args: ["--scanners", "portscan"]
+    target: localhost:8500
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8500"]
     expect:
       check_id: port.consul_no_acl
 

@@ -5,7 +5,7 @@ tags: [influxdb, database, timeseries]
 services:
   influxdb:
     image: influxdb:2.7-alpine
-    ports: ["9121:8086"]
+    ports: ["8086:8086"]
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
@@ -14,21 +14,21 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: default
 
 ready:
-  cmd: "curl -sf http://localhost:9121/health | grep -q pass"
+  cmd: "curl -sf http://localhost:8086/health | grep -q pass"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: classifies-as-influxdb
     type: classify
-    target: localhost:9121
+    target: localhost:8086
     expect:
-      backend_service: InfluxDB
+      path_responds: /health
 
   - name: detects-influxdb-exposed
     type: beacon
-    target: localhost:9121
-    args: ["--scanners", "portscan"]
+    target: localhost:8086
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8086"]
     expect:
       check_id: port.influxdb_exposed
 

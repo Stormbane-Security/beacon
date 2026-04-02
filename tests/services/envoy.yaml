@@ -5,27 +5,27 @@ tags: [envoy, gateway, proxy]
 services:
   envoy:
     image: envoyproxy/envoy:v1.29-latest
-    ports: ["9142:9901"]
+    ports: ["9901:9901"]
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
     volumes:
       - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
 
 ready:
-  cmd: "curl -sf http://localhost:9142/server_info >/dev/null"
+  cmd: "curl -sf http://localhost:9901/server_info >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: classifies-as-envoy
     type: classify
-    target: localhost:9142
+    target: localhost:9901
     expect:
-      backend_service: Envoy
+      proxy_type: envoy
 
   - name: detects-envoy-admin-exposed
     type: beacon
-    target: localhost:9142
-    args: ["--scanners", "gateway"]
+    target: localhost:9901
+    args: ["--no-enrich", "--scanners", "gateway"]
     expect:
       check_id: gateway.envoy_admin_exposed
 

@@ -6,29 +6,29 @@ services:
   minio:
     image: minio/minio
     ports:
-      - "9202:9000"
-      - "9203:9001"
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     command: ["server", "/data", "--console-address", ":9001"]
 
 ready:
-  cmd: "curl -sf http://localhost:9202/minio/health/live >/dev/null"
+  cmd: "curl -sf http://localhost:9000/minio/health/live >/dev/null"
   timeout: 60s
   interval: 2s
 
 assertions:
   - name: classifies-as-minio
     type: classify
-    target: localhost:9203
+    target: localhost:9001
     expect:
-      technology: MinIO
+      backend_service: MinIO
 
   - name: detects-default-credentials
     type: beacon
-    target: localhost:9202
-    args: ["--scanners", "portscan"]
+    target: localhost:9000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9000"]
     expect:
       check_id: port.minio_default_credentials
 

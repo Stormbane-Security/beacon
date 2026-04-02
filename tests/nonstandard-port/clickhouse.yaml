@@ -1,0 +1,23 @@
+name: clickhouse-nonstandard-port
+description: "ClickHouse on non-standard port — probe must detect by HTTP response, not port number"
+tags: [clickhouse, nonstandard-port]
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports: ["9999:8123"]
+
+ready:
+  cmd: "curl -sf http://localhost:9999/ | grep -q Ok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-clickhouse-on-nonstandard-port
+    type: beacon
+    target: localhost:9999
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9999"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+timeout: 5m

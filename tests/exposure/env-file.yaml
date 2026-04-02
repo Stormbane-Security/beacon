@@ -5,20 +5,20 @@ tags: [exposure, env, sensitive-file]
 services:
   nginx:
     image: nginx:alpine
-    ports: ["9145:80"]
+    ports: ["80:80"]
     volumes:
       - ./env-file/html:/usr/share/nginx/html:ro
 
 ready:
-  cmd: "curl -sf http://localhost:9145/ >/dev/null"
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-env-file-exposed
     type: beacon
-    target: localhost:9145
-    args: ["--scanners", "exposedfiles"]
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.env_file_exposed
 

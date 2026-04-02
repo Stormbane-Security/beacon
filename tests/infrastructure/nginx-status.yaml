@@ -5,20 +5,20 @@ tags: [nginx, gateway, proxy]
 services:
   nginx:
     image: nginx:alpine
-    ports: ["9143:80"]
+    ports: ["80:80"]
     volumes:
       - ./nginx-status/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
-  cmd: "curl -sf http://localhost:9143/ >/dev/null"
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-nginx-status-exposed
     type: beacon
-    target: localhost:9143
-    args: ["--scanners", "gateway"]
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "gateway"]
     expect:
       check_id: gateway.nginx_status_exposed
 

@@ -1,0 +1,26 @@
+name: couchdb-nonstandard-port
+description: "CouchDB on non-standard port — probe must detect by HTTP response, not port number"
+tags: [couchdb, nonstandard-port]
+
+services:
+  couchdb:
+    image: couchdb:3
+    ports: ["6666:5984"]
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:6666/ | grep -q couchdb"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-couchdb-on-nonstandard-port
+    type: beacon
+    target: localhost:6666
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "6666"]
+    expect:
+      check_id: port.couchdb_unauthenticated
+
+timeout: 5m

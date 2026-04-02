@@ -1,0 +1,39 @@
+name: fingerprint-haproxy-elasticsearch-layered
+description: "Elasticsearch behind HAProxy load balancer — both proxy_type and backend_service detected"
+tags: [fingerprint, layered, haproxy, elasticsearch]
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    ports: ["8080:8080"]
+    volumes:
+      - ./haproxy-elasticsearch/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - elasticsearch
+
+ready:
+  cmd: "curl -sf http://localhost:8080/ | grep -q tagline"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-haproxy-proxy-layer
+    type: classify
+    target: localhost:8080
+    expect:
+      proxy_type: haproxy
+
+  - name: detects-elasticsearch-behind-proxy
+    type: classify
+    target: localhost:8080
+    expect:
+      backend_service: Elasticsearch
+
+timeout: 5m

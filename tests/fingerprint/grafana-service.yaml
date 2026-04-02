@@ -1,0 +1,25 @@
+name: fingerprint-grafana-service
+description: "Grafana is correctly identified as a backend service via /api/health path"
+tags: [fingerprint, grafana, monitoring]
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+
+ready:
+  cmd: "curl -sf http://localhost:3000/api/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: identifies-grafana-service
+    type: classify
+    target: localhost:3000
+    expect:
+      backend_service: Grafana
+
+timeout: 3m

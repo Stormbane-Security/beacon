@@ -36,10 +36,10 @@ type sensitiveFile struct {
 
 var targets = []sensitiveFile{
 	// Critical — credential / secret files
-	{path: "/.env", title: "Exposed .env file", severity: finding.SeverityCritical, bodyContains: "="},
-	{path: "/.env.local", title: "Exposed .env.local file", severity: finding.SeverityCritical, bodyContains: "="},
-	{path: "/.env.production", title: "Exposed .env.production file", severity: finding.SeverityCritical, bodyContains: "="},
-	{path: "/.env.backup", title: "Exposed .env.backup file", severity: finding.SeverityCritical, bodyContains: "="},
+	{path: "/.env", title: "Exposed .env file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
+	{path: "/.env.local", title: "Exposed .env.local file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
+	{path: "/.env.production", title: "Exposed .env.production file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
+	{path: "/.env.backup", title: "Exposed .env.backup file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
 	{path: "/config/database.yml", title: "Exposed database config (Rails)", severity: finding.SeverityCritical, bodyContains: "password"},
 	{path: "/config/secrets.yml", title: "Exposed secrets file (Rails)", severity: finding.SeverityCritical, bodyContains: "secret"},
 	{path: "/app/config/parameters.yml", title: "Exposed Symfony parameters", severity: finding.SeverityCritical, bodyContains: "database"},
@@ -49,8 +49,8 @@ var targets = []sensitiveFile{
 	{path: "/.docker/config.json", title: "Exposed Docker registry credentials", severity: finding.SeverityCritical, bodyContains: "auth"},
 
 	// High — source control exposure
-	{path: "/.git/config", title: "Exposed .git/config (repo metadata)", severity: finding.SeverityHigh, bodyContains: "[core]"},
-	{path: "/.git/HEAD", title: "Exposed .git/HEAD (Git repository)", severity: finding.SeverityHigh, bodyContains: "ref:"},
+	{path: "/.git/config", title: "Exposed .git/config (repo metadata)", severity: finding.SeverityHigh, bodyContains: "[core]", checkID: finding.CheckExposureGitExposed},
+	{path: "/.git/HEAD", title: "Exposed .git/HEAD (Git repository)", severity: finding.SeverityHigh, bodyContains: "ref:", checkID: finding.CheckExposureGitExposed},
 	{path: "/.svn/entries", title: "Exposed Subversion repository", severity: finding.SeverityHigh},
 	{path: "/.hg/hgrc", title: "Exposed Mercurial repository", severity: finding.SeverityHigh},
 
@@ -83,6 +83,48 @@ var targets = []sensitiveFile{
 	{path: "/laravel.log", title: "Exposed Laravel log", severity: finding.SeverityMedium, deepOnly: true, bodyContains: "local.ERROR"},
 	{path: "/storage/logs/laravel.log", title: "Exposed Laravel log", severity: finding.SeverityMedium, deepOnly: true},
 	{path: "/var/log/app.log", title: "Exposed application log", severity: finding.SeverityMedium, deepOnly: true},
+
+	// High — CI/CD and code hosting panels exposed
+	{path: "/api/v1/version", title: "Gitea code hosting panel exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureCICDPanel, bodyContains: "version",
+		description: "A Gitea instance is publicly accessible. Gitea exposes source code repositories, " +
+			"CI/CD pipelines, and user accounts. Public access to a code hosting platform enables " +
+			"reconnaissance of internal code, secrets in commit history, and potential supply chain attacks."},
+	{path: "/api/system/status", title: "SonarQube code quality panel exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureCICDPanel, bodyContains: "UP",
+		description: "A SonarQube instance is publicly accessible. SonarQube exposes code quality analysis " +
+			"results, security vulnerability findings, and project structure for all analyzed repositories. " +
+			"An attacker can use this to identify known vulnerabilities in your codebase."},
+
+	// High — Monitoring panels exposed without authentication
+	{path: "/api/health", title: "Grafana monitoring panel exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureMonitoringPanel, bodyContains: "database",
+		description: "A Grafana monitoring dashboard is publicly accessible without authentication. " +
+			"Monitoring panels expose internal infrastructure topology, service names, database queries, " +
+			"metric data, and alert configurations that map out the entire environment for an attacker."},
+	{path: "/api/dashboards/home", title: "Grafana dashboard API exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureMonitoringPanel, bodyContains: "dashboard",
+		description: "The Grafana dashboard API is accessible without authentication. " +
+			"An attacker can enumerate all dashboards, data sources (often containing database credentials), " +
+			"and alert rules — providing a complete map of the monitored infrastructure."},
+
+	// High — Spring Boot Actuator endpoints
+	{path: "/actuator", title: "Spring Boot Actuator exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSpringActuator, bodyContains: "_links",
+		description: "Spring Boot Actuator endpoints are publicly accessible. Endpoints like /actuator/env expose " +
+			"environment variables (including database passwords and API keys), /actuator/heapdump leaks a full " +
+			"JVM heap dump containing in-memory secrets, and /actuator/mappings reveals all URL routes. " +
+			"Restrict actuator endpoints to management networks or disable them in production."},
+	{path: "/actuator/env", title: "Spring Boot Actuator /env exposed", severity: finding.SeverityCritical,
+		checkID: finding.CheckExposureSpringActuator, bodyContains: "propertySources",
+		description: "The Spring Boot /actuator/env endpoint is publicly accessible and leaks all environment " +
+			"variables, system properties, and application configuration — including database credentials, " +
+			"API keys, and secrets that Spring tries to mask in the UI."},
+	{path: "/actuator/heapdump", title: "Spring Boot Actuator /heapdump exposed", severity: finding.SeverityCritical,
+		checkID: finding.CheckExposureSpringActuator,
+		description: "The Spring Boot /actuator/heapdump endpoint is publicly accessible. This endpoint serves " +
+			"a full JVM heap dump containing all in-memory objects — passwords, session tokens, encryption keys, " +
+			"and sensitive business data can be extracted from the dump with standard Java tools."},
 
 	// Info — fingerprinting / metadata
 	{path: "/server-status", title: "Apache server-status exposed", severity: finding.SeverityMedium, bodyContains: "Apache"},
@@ -1191,6 +1233,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// CVE-2024-21591 (Juniper J-Web < 23.4R1 type confusion → pre-auth RCE as root, CVSS 9.8, KEV):
 	// Re-probe /webauth_operation.php to emit companion finding alongside CVE-2023-36844.
 	if f := probeJuniperJWeb2024(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// HashiCorp Vault default dev token:
+	// /v1/sys/health with X-Vault-Token: root checks for default dev mode credentials.
+	if f := probeVaultDefaultToken(ctx, client, base, asset); f != nil {
 		findings = append(findings, *f)
 	}
 
@@ -4895,6 +4943,51 @@ func probeJuniperJWeb2024(ctx context.Context, client *http.Client, base, asset 
 		ProofCommand: fmt.Sprintf(
 			"curl -s '%s' | grep -i juniper\n"+
 				"# Exposed J-Web — verify Junos version is >= 23.4R1 to confirm patch", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeVaultDefaultToken checks whether a HashiCorp Vault instance accepts the
+// default dev-mode root token ("root"). Vault in dev mode starts with this token,
+// and if it reaches production it grants full admin access to all secrets.
+func probeVaultDefaultToken(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/v1/sys/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("X-Vault-Token", "root")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// Vault health response contains "initialized" and "sealed" keys.
+	if !strings.Contains(bodyStr, "initialized") || !strings.Contains(bodyStr, "sealed") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckWebDefaultCredentials,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("HashiCorp Vault accepts default dev-mode root token on %s", asset),
+		Description: "HashiCorp Vault at " + u + " accepted the default dev-mode root token (\"root\"). " +
+			"This grants unrestricted access to all secrets, auth backends, and Vault configuration. " +
+			"Dev mode should never be used in production. Rotate the root token and redeploy with " +
+			"proper storage backend and auto-unseal configuration.",
+		Evidence: map[string]any{
+			"url":           u,
+			"default_token": "root",
+			"response":      bodyStr[:min(len(bodyStr), 300)],
+		},
+		ProofCommand: fmt.Sprintf("curl -s -H 'X-Vault-Token: root' '%s' | python3 -m json.tool", u),
 		DiscoveredAt: time.Now(),
 	}
 }

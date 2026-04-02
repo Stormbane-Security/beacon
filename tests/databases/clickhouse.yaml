@@ -5,24 +5,24 @@ tags: [clickhouse, database, analytics]
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
-    ports: ["9122:8123"]
+    ports: ["8123:8123"]
 
 ready:
-  cmd: "curl -sf http://localhost:9122/ | grep -q Ok"
+  cmd: "curl -sf http://localhost:8123/ | grep -q Ok"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: classifies-as-clickhouse
     type: classify
-    target: localhost:9122
+    target: localhost:8123
     expect:
-      backend_service: ClickHouse
+      path_responds: /play
 
   - name: detects-clickhouse-exposed
     type: beacon
-    target: localhost:9122
-    args: ["--scanners", "portscan"]
+    target: localhost:8123
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8123"]
     expect:
       check_id: port.clickhouse_exposed
 

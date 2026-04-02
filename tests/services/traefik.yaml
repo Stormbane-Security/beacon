@@ -6,28 +6,29 @@ services:
   traefik:
     image: traefik:v3.0
     ports:
-      - "9210:80"
-      - "9211:8080"
+      - "80:80"
+      - "8080:8080"
     command:
       - "--api.insecure=true"
       - "--api.dashboard=true"
       - "--entrypoints.web.address=:80"
 
 ready:
-  cmd: "curl -sf http://localhost:9211/api/rawdata >/dev/null"
+  cmd: "curl -sf http://localhost:8080/api/rawdata >/dev/null"
   timeout: 60s
   interval: 2s
 
 assertions:
   - name: classifies-as-traefik
     type: classify
-    target: localhost:9211
+    target: localhost:8080
     expect:
       proxy_type: traefik
 
   - name: detects-traefik-api-exposed
     type: beacon
-    target: localhost:9211
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "gateway"]
     expect:
       check_id: gateway.traefik_api_exposed
 

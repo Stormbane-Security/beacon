@@ -1,0 +1,23 @@
+name: fingerprint-consul-service
+description: "HashiCorp Consul is correctly identified via x-consul-index header"
+tags: [fingerprint, consul, infrastructure]
+
+services:
+  consul:
+    image: hashicorp/consul:1.17
+    ports: ["8500:8500"]
+    command: ["agent", "-dev", "-client", "0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:8500/v1/status/leader >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: identifies-consul-proxy
+    type: classify
+    target: localhost:8500
+    expect:
+      backend_service: HashiCorp Consul
+
+timeout: 3m

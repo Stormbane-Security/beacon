@@ -5,22 +5,22 @@ tags: [ldap, directory, identity]
 services:
   ldap:
     image: osixia/openldap:1.5.0
-    ports: ["9133:389"]
+    ports: ["389:389"]
     environment:
       LDAP_ORGANISATION: "Test Corp"
       LDAP_DOMAIN: "test.local"
       LDAP_ADMIN_PASSWORD: "admin"
 
 ready:
-  cmd: "nc -z localhost 9133"
+  cmd: "nc -z localhost 389"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: detects-ldap-exposed
     type: beacon
-    target: localhost:9133
-    args: ["--scanners", "portscan"]
+    target: localhost:389
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "389"]
     expect:
       check_id: port.ldap_exposed
 

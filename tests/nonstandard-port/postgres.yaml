@@ -1,0 +1,27 @@
+name: postgres-nonstandard-port
+description: "PostgreSQL on non-standard port — probe must detect by wire protocol, not port number"
+tags: [postgres, nonstandard-port]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports: ["5555:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: postgres
+      POSTGRES_DB: testdb
+
+ready:
+  cmd: "pg_isready -h localhost -p 5555 -U postgres"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-postgres-on-nonstandard-port
+    type: beacon
+    target: localhost:5555
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5555"]
+    expect:
+      check_id: port.postgresql_trust
+
+timeout: 5m

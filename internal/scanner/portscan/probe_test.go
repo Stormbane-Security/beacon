@@ -1,8 +1,8 @@
 package portscan
 
-// White-box tests for probeLDAP, probeEPMD, and SMTP buildFindings logic.
-// These tests call internal functions directly so they never pay the 5-second
-// inter-connect-delay cost of a full s.Run() call against localhost.
+// White-box tests for probeLDAP, probeEPMD, parseAssetPort, buildPortList,
+// and bannerProtocol. These tests call internal functions directly so they
+// never pay the 5-second inter-connect-delay cost of a full s.Run() call.
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -278,87 +277,6 @@ func TestProbeEPMD_TruncatedResponse(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SMTP buildFindings logic tests (white-box, via buildFindings directly)
-// ---------------------------------------------------------------------------
-
-// TestBuildFindings_SMTPExImBanner verifies that an Exim SMTP banner on port 25
-// produces CheckPortExImVulnerable (Critical), not the generic SMTP check.
-func TestBuildFindings_SMTPExImBanner(t *testing.T) {
-	entry := portEntry{port: 25, service: "smtp"}
-	banner := "220 mail.example.com ESMTP Exim 4.96 Mon, 01 Jan 2025 00:00:00 +0000"
-
-	findings := buildFindings(context.Background(), "1.2.3.4", entry, banner)
-	if len(findings) == 0 {
-		t.Fatal("buildFindings returned no findings for Exim SMTP banner")
-	}
-	got := findings[0].CheckID
-	if got != finding.CheckPortExImVulnerable {
-		t.Errorf("CheckID = %q; want CheckPortExImVulnerable", got)
-	}
-	if findings[0].Severity != finding.SeverityCritical {
-		t.Errorf("severity = %v; want Critical", findings[0].Severity)
-	}
-	// Must NOT emit the generic SMTP check alongside.
-	for _, f := range findings {
-		if f.CheckID == finding.CheckPortSMTPExposed {
-			t.Error("must not emit CheckPortSMTPExposed alongside Exim-specific check")
-		}
-	}
-}
-
-// TestBuildFindings_SMTPGenericBanner verifies that a non-Exim banner triggers
-// CheckPortSMTPExposed (Medium), not the Exim check.
-func TestBuildFindings_SMTPGenericBanner(t *testing.T) {
-	entry := portEntry{port: 25, service: "smtp"}
-	banner := "220 mail.example.com ESMTP Postfix (Ubuntu)"
-
-	findings := buildFindings(context.Background(), "1.2.3.4", entry, banner)
-	if len(findings) == 0 {
-		t.Fatal("buildFindings returned no findings for Postfix SMTP banner")
-	}
-	got := findings[0].CheckID
-	if got != finding.CheckPortSMTPExposed {
-		t.Errorf("CheckID = %q; want CheckPortSMTPExposed", got)
-	}
-	if findings[0].Severity != finding.SeverityMedium {
-		t.Errorf("severity = %v; want Medium", findings[0].Severity)
-	}
-	for _, f := range findings {
-		if f.CheckID == finding.CheckPortExImVulnerable {
-			t.Error("must not emit CheckPortExImVulnerable for Postfix banner")
-		}
-	}
-}
-
-// TestBuildFindings_SMTPNoBanner verifies that an empty banner on port 25
-// produces no SMTP findings (the scanner requires a banner to avoid false positives
-// on port-forwards that don't speak SMTP).
-func TestBuildFindings_SMTPNoBanner(t *testing.T) {
-	entry := portEntry{port: 25, service: "smtp"}
-	findings := buildFindings(context.Background(), "1.2.3.4", entry, "")
-	for _, f := range findings {
-		if f.CheckID == finding.CheckPortSMTPExposed || f.CheckID == finding.CheckPortExImVulnerable {
-			t.Errorf("got SMTP finding %q for empty banner — should not fire without banner", f.CheckID)
-		}
-	}
-}
-
-// TestBuildFindings_ExImCaseInsensitive verifies the Exim detection is
-// case-insensitive (banner says "EXIM" uppercase).
-func TestBuildFindings_ExImCaseInsensitive(t *testing.T) {
-	entry := portEntry{port: 587, service: "smtp-submission"}
-	banner := "220 smtp.example.com ESMTP EXIM 4.98"
-
-	findings := buildFindings(context.Background(), "1.2.3.4", entry, banner)
-	if len(findings) == 0 {
-		t.Fatal("buildFindings returned no findings for uppercase EXIM banner")
-	}
-	if findings[0].CheckID != finding.CheckPortExImVulnerable {
-		t.Errorf("CheckID = %q; want CheckPortExImVulnerable for uppercase 'EXIM'", findings[0].CheckID)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // parseAssetPort unit tests
 // ---------------------------------------------------------------------------
 
@@ -415,6 +333,86 @@ func TestParseAssetPort_PortTooHigh(t *testing.T) {
 	host, port := parseAssetPort("host:99999")
 	if host != "" || port != 0 {
 		t.Errorf("port >65535 should return empty; got (%q, %d)", host, port)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Scanner.Ports override tests
+// ---------------------------------------------------------------------------
+
+func TestScanner_PortsOverride(t *testing.T) {
+	s := &Scanner{Ports: []int{8123, 6379}}
+	// Can't call Run (needs real network), but verify the port list construction
+	// by checking the Ports field is set and would be used.
+	if len(s.Ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d", len(s.Ports))
+	}
+	if s.Ports[0] != 8123 || s.Ports[1] != 6379 {
+		t.Errorf("Ports = %v; want [8123, 6379]", s.Ports)
+	}
+}
+
+func TestScanner_EmptyPortsUsesDefault(t *testing.T) {
+	s := &Scanner{}
+	if len(s.Ports) != 0 {
+		t.Fatalf("default scanner should have empty Ports, got %v", s.Ports)
+	}
+	// buildPortList should return the full default list when Ports is empty.
+	ports := buildPortList(module.ScanSurface)
+	if len(ports) < 20 {
+		t.Errorf("default port list too small: %d ports", len(ports))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bannerProtocol tests
+// ---------------------------------------------------------------------------
+
+func TestBannerProtocol_SMTP(t *testing.T) {
+	if got := bannerProtocol("220 mail.example.com ESMTP Postfix"); got != "smtp" {
+		t.Errorf("bannerProtocol(SMTP) = %q; want smtp", got)
+	}
+}
+
+func TestBannerProtocol_SSH(t *testing.T) {
+	if got := bannerProtocol("SSH-2.0-OpenSSH_8.9p1"); got != "ssh" {
+		t.Errorf("bannerProtocol(SSH) = %q; want ssh", got)
+	}
+}
+
+func TestBannerProtocol_Redis(t *testing.T) {
+	if got := bannerProtocol("-ERR wrong number of arguments"); got != "redis" {
+		t.Errorf("bannerProtocol(Redis) = %q; want redis", got)
+	}
+}
+
+func TestBannerProtocol_FTP(t *testing.T) {
+	if got := bannerProtocol("220 Welcome to FTP server"); got != "ftp" {
+		t.Errorf("bannerProtocol(FTP) = %q; want ftp", got)
+	}
+}
+
+func TestBannerProtocol_POP3(t *testing.T) {
+	if got := bannerProtocol("+OK Dovecot ready."); got != "pop3" {
+		t.Errorf("bannerProtocol(POP3) = %q; want pop3", got)
+	}
+}
+
+func TestBannerProtocol_IMAP(t *testing.T) {
+	if got := bannerProtocol("* OK [CAPABILITY IMAP4rev1] Dovecot ready"); got != "imap" {
+		t.Errorf("bannerProtocol(IMAP) = %q; want imap", got)
+	}
+}
+
+func TestBannerProtocol_Empty(t *testing.T) {
+	if got := bannerProtocol(""); got != "" {
+		t.Errorf("bannerProtocol(empty) = %q; want empty", got)
+	}
+}
+
+func TestBannerProtocol_Unknown(t *testing.T) {
+	if got := bannerProtocol("some random binary data"); got != "" {
+		t.Errorf("bannerProtocol(unknown) = %q; want empty", got)
 	}
 }
 

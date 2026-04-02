@@ -496,6 +496,13 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// Store scanner filter for use in runAsset.
 	m.scannerFilter = input.Scanners
 
+	// Pass port restriction to the portscan scanner if set.
+	if len(input.Ports) > 0 {
+		if ps, ok := m.scanners["portscan"].(*portscan.Scanner); ok {
+			ps.Ports = input.Ports
+		}
+	}
+
 	// ── Fast path: --scanners mode ──────────────────────────────────────────
 	// When a scanner filter is active, skip discovery, evidence collection,
 	// and playbook matching. Just run the requested scanners against the

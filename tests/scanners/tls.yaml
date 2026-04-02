@@ -7,25 +7,25 @@ services:
     build:
       context: ./tls
       dockerfile: Dockerfile
-    ports: ["8094:443"]
+    ports: ["443:443"]
 
 ready:
-  cmd: "openssl s_client -connect localhost:8094 </dev/null 2>/dev/null | grep -q 'CONNECTED'"
+  cmd: "openssl s_client -connect localhost:443 </dev/null 2>/dev/null | grep -q 'CONNECTED'"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-tls10-protocol
     type: beacon
-    target: localhost:8094
-    args: ["--scanners", "tls"]
+    target: localhost:443
+    args: ["--no-enrich", "--scanners", "tls"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-self-signed-cert
     type: beacon
-    target: localhost:8094
-    args: ["--scanners", "tls"]
+    target: localhost:443
+    args: ["--no-enrich", "--scanners", "tls"]
     expect:
       check_id: tls.cert_self_signed
 

@@ -1,0 +1,23 @@
+name: prometheus-nonstandard-port
+description: "Prometheus on non-standard port — probe must detect by HTTP response, not port number"
+tags: [prometheus, nonstandard-port]
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["8888:9090"]
+
+ready:
+  cmd: "curl -sf http://localhost:8888/-/healthy | grep -q OK"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-prometheus-on-nonstandard-port
+    type: beacon
+    target: localhost:8888
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8888"]
+    expect:
+      check_id: port.prometheus_unauthenticated
+
+timeout: 5m

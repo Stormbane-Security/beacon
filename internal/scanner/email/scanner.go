@@ -5,6 +5,7 @@ package email
 import (
 	"bufio"
 	"context"
+	"errors"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -191,6 +192,22 @@ func checkDMARC(ctx context.Context, domain string) (string, []finding.Finding) 
 	dmarcDomain := "_dmarc." + domain
 	records, err := net.DefaultResolver.LookupTXT(ctx, dmarcDomain)
 	if err != nil {
+		// NXDOMAIN means the record definitively does not exist — DMARC is missing.
+		// Other errors (timeout, SERVFAIL) are inconclusive so we skip.
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			return "", []finding.Finding{{
+				CheckID:      finding.CheckEmailDMARCMissing,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Title:        "Missing DMARC record",
+				Description:  fmt.Sprintf("No DMARC record found at _dmarc.%s. Without DMARC, there is no policy for how mail receivers should handle unauthenticated email from this domain.", domain),
+				Asset:        domain,
+				Evidence:     map[string]any{"dmarc_domain": dmarcDomain},
+				DiscoveredAt: time.Now(),
+			}}
+		}
 		return "", nil
 	}
 

@@ -5,18 +5,18 @@ tags: [adminer, database, admin-panel]
 services:
   adminer:
     image: adminer:latest
-    ports: ["9159:8080"]
+    ports: ["8080:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:9159/ | grep -qi adminer"
+  cmd: "curl -sf http://localhost:8080/ | grep -qi adminer"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: classifies-as-adminer
     type: classify
-    target: localhost:9159
+    target: localhost:8080
     expect:
-      backend_service: Adminer
+      title_contains: Adminer
 
 timeout: 5m

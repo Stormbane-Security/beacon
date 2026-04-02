@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -66,6 +68,9 @@ SCAN FLAGS:
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
   --scanners <list>          Comma-separated scanner names to run (skips playbook matching; e.g. cors,jwt,tls)
+  --ports <list>             Comma-separated port numbers for portscan (e.g. 8123,6379); default: scan all known ports
+  --no-enrich                Skip AI enrichment (output raw findings only)
+  --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
 
 ENRICH FLAGS:
   --input <file>             Raw findings JSON from --output-raw (required)
@@ -229,6 +234,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		severityFlag        string
 		verbose             bool
 		noTUI               bool
+		noEnrich            bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -239,6 +245,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		oktaDomain          string
 		oktaToken           string
 		scannersFlag        string
+		portsFlag           string
+		dnsServer           string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -283,6 +291,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			verbose = true
 		case "--no-tui":
 			noTUI = true
+		case "--no-enrich":
+			noEnrich = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -335,10 +345,20 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				oktaToken = args[i]
 			}
+		case "--dns-server":
+			i++
+			if i < len(args) {
+				dnsServer = args[i]
+			}
 		case "--scanners":
 			i++
 			if i < len(args) {
 				scannersFlag = args[i]
+			}
+		case "--ports":
+			i++
+			if i < len(args) {
+				portsFlag = args[i]
 			}
 		}
 	}
@@ -351,6 +371,33 @@ func cmdScan(cfg *config.Config, args []string) {
 			if s != "" {
 				scannersList = append(scannersList, s)
 			}
+		}
+	}
+
+	// Parse --ports into a slice of port numbers.
+	var portsList []int
+	if portsFlag != "" {
+		for _, p := range strings.Split(portsFlag, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			n, err := strconv.Atoi(p)
+			if err != nil || n <= 0 || n > 65535 {
+				fatalf("invalid port %q in --ports", p)
+			}
+			portsList = append(portsList, n)
+		}
+	}
+
+	// Override the default DNS resolver if --dns-server is set.
+	if dnsServer != "" {
+		net.DefaultResolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, network, dnsServer)
+			},
 		}
 	}
 
@@ -381,7 +428,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList)
 		return
 	}
 
@@ -555,6 +602,7 @@ Type exactly: I have written authorization for %s
 		Progress:            pr.Handle,
 		ExtraCIDRs:          extraCIDRs,
 		Scanners:            scannersList,
+		Ports:               portsList,
 	}
 
 	// Run the scan in a goroutine so we can respond to a detach signal.
@@ -700,7 +748,7 @@ Type exactly: I have written authorization for %s
 
 	// AI fingerprint enrichment: analyse collected evidence to find
 	// version-specific vulnerabilities and configuration anomalies.
-	if ai := cfg.ActiveAI(); ai != nil {
+	if ai := cfg.ActiveAI(); ai != nil && !noEnrich {
 		if execs, execErr := st.ListAssetExecutions(ctx, run.ID); execErr == nil && len(execs) > 0 {
 			var fpInputs []enrichment.FingerprintInput
 			for _, ex := range execs {
@@ -791,9 +839,12 @@ Type exactly: I have written authorization for %s
 		return
 	}
 
-	// Enrich findings
+	// Enrich findings — skip AI enrichment when --no-enrich is set.
 	var enricher enrichment.Enricher
-	if ai := cfg.ActiveAI(); ai != nil {
+	if noEnrich {
+		enricher = enrichment.NewNoop()
+		fmt.Fprintf(os.Stderr, "beacon: %d findings — building report (enrichment disabled)...\n", len(findings))
+	} else if ai := cfg.ActiveAI(); ai != nil {
 		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err != nil {
 			fatalf("init enricher: %v", err)
@@ -807,15 +858,21 @@ Type exactly: I have written authorization for %s
 
 	enriched, err := enricher.Enrich(ctx, findings)
 	if err != nil {
-		fatalf("enrich: %v", err)
+		fmt.Fprintf(os.Stderr, "beacon: enrich: %v\n", err)
+		// Fall back to unenriched findings so scanning results are not lost.
+		enriched = make([]enrichment.EnrichedFinding, len(findings))
+		for i, f := range findings {
+			enriched[i] = enrichment.EnrichedFinding{Finding: f}
+		}
 	}
 
-	if cfg.ActiveAI() != nil {
+	var summary string
+	if !noEnrich && cfg.ActiveAI() != nil && err == nil {
 		fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
-	}
-	enriched, summary, err := enricher.ContextualizeAndSummarize(ctx, enriched, domain)
-	if err != nil {
-		fatalf("contextualize: %v", err)
+		enriched, summary, err = enricher.ContextualizeAndSummarize(ctx, enriched, domain)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", err)
+		}
 	}
 
 	// Drop findings Claude marked as having no actionable value given other controls.
@@ -932,7 +989,7 @@ func cmdScanMultiAsset(
 	targets []string,
 	deep, permissionConfirmed, authorized bool,
 	outPath, outputRawPath, format, severityFlag string,
-	verbose, noTUI bool,
+	verbose, noTUI, noEnrich bool,
 	extraCIDRs []string,
 	cloudEnabled bool,
 	awsProfile, gcpCredentials, azureSubscription string,
@@ -940,6 +997,7 @@ func cmdScanMultiAsset(
 	oktaDomain, oktaToken string,
 	githubOrg string,
 	scannersList []string,
+	portsList []int,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -1100,6 +1158,7 @@ Type exactly: I have written authorization for all listed targets
 			Progress:            pr.Handle,
 			ExtraCIDRs:          extraCIDRs,
 			Scanners:            scannersList,
+		Ports:               portsList,
 		}
 
 		findings, scanErr := mod.Run(ctx, input, scanType)
@@ -1268,7 +1327,7 @@ Type exactly: I have written authorization for all listed targets
 	// ── AI fingerprint enrichment (multi-asset) ─────────────────────────────
 	// Analyse collected fingerprint evidence across all assets to find
 	// version-specific vulnerabilities and configuration anomalies.
-	if ai := cfg.ActiveAI(); ai != nil {
+	if ai := cfg.ActiveAI(); ai != nil && !noEnrich {
 		var fpInputs []enrichment.FingerprintInput
 		for _, res := range allResults {
 			if res.run == nil {
@@ -1327,7 +1386,7 @@ Type exactly: I have written authorization for all listed targets
 	// the full picture: an exposed port on a GKE node with cluster-admin, a
 	// leaked secret in GitHub Actions, and a misconfigured CORS on the same
 	// domain are all enriched with cross-module context in a single pass.
-	if ai := cfg.ActiveAI(); ai != nil && len(allFindings) > 0 {
+	if ai := cfg.ActiveAI(); ai != nil && len(allFindings) > 0 && !noEnrich {
 		enricher, enrichErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if enrichErr == nil {
 			enricher = enricher.WithCache(st)

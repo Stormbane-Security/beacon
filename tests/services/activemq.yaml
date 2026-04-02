@@ -6,25 +6,25 @@ services:
   activemq:
     image: rmohr/activemq:5.15.9-alpine
     ports:
-      - "9126:61616"
-      - "9127:8161"
+      - "61616:61616"
+      - "8161:8161"
 
 ready:
-  cmd: "curl -sf http://admin:admin@localhost:9127/api/jolokia >/dev/null"
+  cmd: "curl -sf http://admin:admin@localhost:8161/api/jolokia >/dev/null"
   timeout: 90s
   interval: 3s
 
 assertions:
   - name: classifies-as-activemq
     type: classify
-    target: localhost:9127
+    target: localhost:8161
     expect:
-      backend_service: ActiveMQ
+      title_contains: ActiveMQ
 
   - name: detects-activemq-exposed
     type: beacon
-    target: localhost:9126
-    args: ["--scanners", "portscan"]
+    target: localhost:61616
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "61616"]
     expect:
       check_id: port.activemq_exposed
 

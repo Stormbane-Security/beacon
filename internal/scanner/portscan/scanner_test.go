@@ -364,12 +364,20 @@ func TestPortScan_DefaultConcurrency_IsFive(t *testing.T) {
 	}()
 
 	// Run against 127.0.0.1 with a short context — we only care about concurrency,
-	// not the actual findings. The scanner will try its port list; most ports will
-	// be refused quickly; only our listener port will park connections.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// not the actual findings. Scope to a set of ports around the listener port
+	// so the scan completes quickly (probes on open ports make HTTP requests that
+	// add up when scanning the full port list on a dev machine).
+	listenerPort := l.Addr().(*net.TCPAddr).Port
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	s := portscan.New()
+	// Use 15 ports: the listener port + 14 likely-closed ports to test concurrency.
+	testPorts := make([]int, 0, 15)
+	for p := listenerPort; p < listenerPort+15; p++ {
+		testPorts = append(testPorts, p)
+	}
+	s.Ports = testPorts
 	_, _ = s.Run(ctx, "127.0.0.1", module.ScanSurface)
 
 	mu.Lock()

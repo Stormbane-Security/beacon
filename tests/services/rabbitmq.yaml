@@ -6,35 +6,35 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     ports:
-      - "9110:5672"
-      - "9111:15672"
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
 
 ready:
-  cmd: "curl -sf http://localhost:9111/api/overview -u guest:guest >/dev/null"
+  cmd: "curl -sf http://localhost:15672/api/overview -u guest:guest >/dev/null"
   timeout: 60s
   interval: 3s
 
 assertions:
   - name: classifies-as-rabbitmq
     type: classify
-    target: localhost:9111
+    target: localhost:15672
     expect:
-      technology: RabbitMQ
+      backend_service: RabbitMQ
 
   - name: detects-default-credentials
     type: beacon
-    target: localhost:9111
-    args: ["--scanners", "portscan"]
+    target: localhost:15672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
     expect:
       check_id: port.rabbitmq_default_creds
 
   - name: detects-management-exposed
     type: beacon
-    target: localhost:9111
-    args: ["--scanners", "portscan"]
+    target: localhost:15672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
     expect:
       check_id: port.rabbitmq_mgmt_exposed
 
