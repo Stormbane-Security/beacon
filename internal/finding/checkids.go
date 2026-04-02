@@ -236,6 +236,11 @@ const (
 	// warrants its own fingerprint and playbook matching pass.
 	CheckPortServiceDiscovered CheckID = "asset.port_service_discovered"
 
+	// Service identification — probe confirmed a specific service/protocol on a port,
+	// regardless of whether a vulnerability was found. Feeds into the asset graph and
+	// classify evidence so downstream scanners know what's running.
+	CheckPortServiceIdentified CheckID = "port.service_identified"
+
 	// Host header injection — active probe with malicious Host: values → Deep
 	CheckHostHeaderInjection CheckID = "web.host_header_injection"
 
@@ -1696,7 +1701,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPTRRecord:    {CheckPTRRecord, SeverityInfo, ModeSurface},
 
 	// Multi-service per-port → Surface
-	CheckPortServiceDiscovered: {CheckPortServiceDiscovered, SeverityInfo, ModeSurface},
+	CheckPortServiceDiscovered:  {CheckPortServiceDiscovered, SeverityInfo, ModeSurface},
+	CheckPortServiceIdentified: {CheckPortServiceIdentified, SeverityInfo, ModeSurface},
 
 	// Host header injection → Deep
 	CheckHostHeaderInjection: {CheckHostHeaderInjection, SeverityHigh, ModeDeep},

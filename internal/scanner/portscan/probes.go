@@ -2,6 +2,7 @@ package portscan
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -115,6 +116,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	bannerProto := bannerProtocol(banner)
 
 	var findings []finding.Finding
+	identified := false
 	for _, probe := range probeRegistry {
 		if hasBanner {
 			// Skip HTTP probes when the banner is clearly non-HTTP.
@@ -136,6 +138,47 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 
 		if fs := probe.Detect(ctx, host, port, banner, makeF); len(fs) > 0 {
 			findings = append(findings, fs...)
+			// Emit a service identification finding so the asset graph and
+			// classify pipeline know what's running on this port, even when
+			// the probe finds no vulnerability. Only emit once per port.
+			if !identified {
+				identified = true
+				// Extract service name from the first finding's evidence if
+				// available, otherwise fall back to the probe name.
+				service := probe.Name
+				version := ""
+				if ev := fs[0].Evidence; ev != nil {
+					if s, ok := ev["service"].(string); ok && s != "" {
+						service = s
+					}
+					if v, ok := ev["version"].(string); ok && v != "" {
+						version = v
+					}
+				}
+				ev := map[string]any{
+					"port":    port,
+					"service": service,
+					"probe":   probe.Name,
+				}
+				if version != "" {
+					ev["version"] = version
+				}
+				if banner != "" {
+					ev["banner"] = banner
+				}
+				title := fmt.Sprintf("%s identified on port %d", service, port)
+				if version != "" {
+					title = fmt.Sprintf("%s %s identified on port %d", service, version, port)
+				}
+				findings = append(findings, makeF(
+					finding.CheckPortServiceIdentified,
+					finding.SeverityInfo,
+					title,
+					fmt.Sprintf("Wire-protocol probe confirmed %s is running on port %d. "+
+						"This identification is based on active protocol handshake, not port number assumption.", service, port),
+					ev,
+				))
+			}
 		}
 	}
 	return findings

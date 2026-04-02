@@ -791,6 +791,76 @@ func TestRunProbes_MySQLBannerRunsMySQLProbe(t *testing.T) {
 	}
 }
 
+func TestRunProbes_EmitsServiceIdentified(t *testing.T) {
+	// When a probe matches, runProbes should emit a port.service_identified
+	// finding alongside the probe's own findings.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			conn.SetDeadline(time.Now().Add(3 * time.Second))
+			// MySQL greeting
+			greeting := make([]byte, 80)
+			greeting[0] = 0x0a
+			copy(greeting[1:], []byte("8.0.36\x00"))
+			hdr := []byte{byte(len(greeting)), 0x00, 0x00, 0x00}
+			conn.Write(hdr)
+			conn.Write(greeting)
+			buf := make([]byte, 512)
+			conn.Read(buf)
+			okPayload := []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00}
+			okHdr := []byte{byte(len(okPayload)), 0x00, 0x00, 0x02}
+			conn.Write(okHdr)
+			conn.Write(okPayload)
+			conn.Close()
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	banner := make([]byte, 80)
+	banner[0] = 0x4a
+	banner[3] = 0x00
+	banner[4] = 0x0a
+	copy(banner[5:], []byte("8.0.36\x00"))
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID, Title: title, Evidence: ev}
+	}
+
+	findings := runProbes(context.Background(), "127.0.0.1", port, string(banner), makeF)
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortServiceIdentified {
+			found = true
+			if f.Evidence["service"] == nil {
+				t.Error("service_identified finding missing 'service' in evidence")
+			}
+			if f.Evidence["port"] == nil {
+				t.Error("service_identified finding missing 'port' in evidence")
+			}
+			if f.Evidence["probe"] == nil {
+				t.Error("service_identified finding missing 'probe' in evidence")
+			}
+		}
+	}
+	if !found {
+		ids := make([]string, len(findings))
+		for i, f := range findings {
+			ids[i] = string(f.CheckID)
+		}
+		t.Errorf("expected port.service_identified finding; got %v", ids)
+	}
+}
+
 func TestProbeSMBOnPort_ClosedPort(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
