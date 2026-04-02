@@ -87,11 +87,24 @@ func bannerProtocol(banner string) string {
 		return "redis"
 	case strings.HasPrefix(upper, "220 ") && strings.Contains(upper, "FTP"):
 		return "ftp"
-	case strings.Contains(upper, "MYSQL") || (len(banner) > 4 && banner[0] < 32):
-		// MySQL protocol greeting starts with a length-encoded packet
+	case strings.Contains(upper, "MYSQL") || isMySQLGreeting(banner):
 		return "mysql"
 	}
 	return ""
+}
+
+// isMySQLGreeting checks if the banner looks like a MySQL protocol greeting.
+// MySQL wire protocol: 3-byte length + 1-byte sequence (0x00) + 1-byte
+// protocol version (0x0a). The version string follows as a NUL-terminated
+// ASCII string. The old heuristic (banner[0] < 32) missed MySQL 8.0+ where
+// the greeting packet is typically 70-120 bytes long (first byte 0x46-0x78).
+func isMySQLGreeting(banner string) bool {
+	if len(banner) < 6 {
+		return false
+	}
+	b := []byte(banner)
+	// Sequence number 0 + protocol version 10 (0x0a) is the MySQL handshake.
+	return b[3] == 0x00 && b[4] == 0x0a
 }
 
 // runProbes iterates all registered probes against an open port and returns
@@ -114,7 +127,9 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			}
 			// Skip protocol probes when the banner identifies a different
 			// protocol (e.g. don't try Redis probe on an SMTP port).
-			if probe.Category == ProbeCatProtocol && bannerProto != "" && bannerProto != probe.Name {
+			// Use Contains so compound probe names like "mysql-postgres-mssql-oracle"
+			// match when bannerProto is "mysql".
+			if probe.Category == ProbeCatProtocol && bannerProto != "" && !strings.Contains(probe.Name, bannerProto) {
 				continue
 			}
 		}

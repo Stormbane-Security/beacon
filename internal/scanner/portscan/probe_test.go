@@ -7,9 +7,11 @@ package portscan
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -434,3 +436,433 @@ func TestParseAssetPort_PortAlreadyInList(t *testing.T) {
 		t.Errorf("port 6379 appears %d times in port list; want exactly 1", count)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// isMySQLGreeting tests
+// ---------------------------------------------------------------------------
+
+func TestIsMySQLGreeting_Valid8x(t *testing.T) {
+	// Simulate MySQL 8.0 greeting: 74-byte payload, seq=0, protocol=10.
+	banner := make([]byte, 80)
+	banner[0] = 0x4a // payload length low byte (74)
+	banner[1] = 0x00
+	banner[2] = 0x00
+	banner[3] = 0x00 // sequence number
+	banner[4] = 0x0a // protocol version 10
+	copy(banner[5:], []byte("8.0.36"))
+	if !isMySQLGreeting(string(banner)) {
+		t.Error("expected isMySQLGreeting to return true for MySQL 8.0 greeting")
+	}
+}
+
+func TestIsMySQLGreeting_Valid5x(t *testing.T) {
+	// MySQL 5.7: shorter greeting, same protocol structure.
+	banner := make([]byte, 60)
+	banner[0] = 0x38 // 56 bytes payload
+	banner[1] = 0x00
+	banner[2] = 0x00
+	banner[3] = 0x00 // sequence number
+	banner[4] = 0x0a // protocol version 10
+	copy(banner[5:], []byte("5.7.44"))
+	if !isMySQLGreeting(string(banner)) {
+		t.Error("expected isMySQLGreeting to return true for MySQL 5.7 greeting")
+	}
+}
+
+func TestIsMySQLGreeting_TooShort(t *testing.T) {
+	if isMySQLGreeting("abc") {
+		t.Error("expected isMySQLGreeting to return false for short input")
+	}
+}
+
+func TestIsMySQLGreeting_NonMySQLBinary(t *testing.T) {
+	// Random binary data that doesn't match the pattern.
+	banner := "\x10\x20\x30\x01\x0b" // seq=1 (not 0)
+	if isMySQLGreeting(banner) {
+		t.Error("expected isMySQLGreeting to return false for non-MySQL binary")
+	}
+}
+
+func TestIsMySQLGreeting_SMBNegotiate(t *testing.T) {
+	// SMB negotiate starts with NetBIOS header — should not match.
+	banner := "\x00\x00\x00\x54\xff\x53\x4d\x42"
+	if isMySQLGreeting(banner) {
+		t.Error("expected isMySQLGreeting to return false for SMB negotiate")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bannerProtocol MySQL detection tests
+// ---------------------------------------------------------------------------
+
+func TestBannerProtocol_MySQL8(t *testing.T) {
+	// MySQL 8.0 greeting: the word "mysql" doesn't appear in the version
+	// string, so detection must rely on isMySQLGreeting wire format.
+	banner := make([]byte, 80)
+	banner[0] = 0x4a
+	banner[1] = 0x00
+	banner[2] = 0x00
+	banner[3] = 0x00
+	banner[4] = 0x0a
+	copy(banner[5:], []byte("8.0.36"))
+	if got := bannerProtocol(string(banner)); got != "mysql" {
+		t.Errorf("bannerProtocol(MySQL 8.0 greeting) = %q; want mysql", got)
+	}
+}
+
+func TestBannerProtocol_MySQLKeyword(t *testing.T) {
+	// Banner that contains the literal word MYSQL (older builds).
+	if got := bannerProtocol("5.5.62-0ubuntu0.14.04.1-MySQL Community Server"); got != "mysql" {
+		t.Errorf("bannerProtocol(MySQL keyword) = %q; want mysql", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// detectTelnet false-positive tests
+// ---------------------------------------------------------------------------
+
+func TestDetectTelnet_NoFalsePositiveOnMySQL(t *testing.T) {
+	// MySQL 8.0 greeting contains 0xFF bytes in capability flags.
+	// detectTelnet must NOT match on bare 0xFF without IAC command bytes.
+	banner := make([]byte, 80)
+	banner[0] = 0x4a
+	banner[1] = 0x00
+	banner[2] = 0x00
+	banner[3] = 0x00
+	banner[4] = 0x0a
+	copy(banner[5:], []byte("8.0.36\x00"))
+	// Inject 0xFF at capability flag positions (like a real MySQL greeting).
+	banner[20] = 0xFF
+	banner[21] = 0xF7 // Not a telnet command byte (0xFB-0xFE)
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID}
+	}
+
+	findings := detectTelnet(context.Background(), "127.0.0.1", 3306, string(banner), makeF)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortTelnetExposed {
+			t.Error("detectTelnet produced CheckPortTelnetExposed for MySQL banner — false positive")
+		}
+	}
+}
+
+func TestDetectTelnet_RealIACSequence(t *testing.T) {
+	// Real telnet IAC: \xFF\xFB\x01 (WILL ECHO)
+	banner := "\xFF\xFB\x01\xFF\xFB\x03"
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID}
+	}
+	findings := detectTelnet(context.Background(), "127.0.0.1", 2323, banner, makeF)
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortTelnetExposed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("detectTelnet should detect real IAC WILL sequences as telnet")
+	}
+}
+
+func TestDetectTelnet_LoginPrompt(t *testing.T) {
+	banner := "Welcome to MyRouter\r\nlogin: "
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID}
+	}
+	findings := detectTelnet(context.Background(), "127.0.0.1", 2323, banner, makeF)
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortTelnetExposed {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("detectTelnet should detect 'login:' prompt as telnet")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// detectSMB validation tests
+// ---------------------------------------------------------------------------
+
+func TestDetectSMB_NoFalsePositiveOnNonSMBPort(t *testing.T) {
+	// Start a TCP server that speaks MySQL (not SMB).
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			// Send MySQL greeting, not SMB.
+			greeting := make([]byte, 80)
+			greeting[0] = 0x4a
+			greeting[3] = 0x00
+			greeting[4] = 0x0a
+			copy(greeting[5:], []byte("8.0.36\x00"))
+			conn.Write(greeting)
+			conn.Close()
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID}
+	}
+	findings := detectSMB(context.Background(), "127.0.0.1", port, "", makeF)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortSMBExposed {
+			t.Error("detectSMB emitted smb_exposed for a non-SMB server — false positive")
+		}
+	}
+}
+
+func TestDetectSMB_ClosedPort(t *testing.T) {
+	// Get a port that nothing is listening on.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	l.Close()
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID}
+	}
+	findings := detectSMB(context.Background(), "127.0.0.1", port, "", makeF)
+	if len(findings) > 0 {
+		t.Errorf("detectSMB emitted %d findings for a closed port; want 0", len(findings))
+	}
+}
+
+func TestDetectSMB_RealSMBServer(t *testing.T) {
+	// Simulate a minimal SMB server that responds to negotiate with \xfeSMB (SMBv2).
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 256)
+			conn.SetDeadline(time.Now().Add(2 * time.Second))
+			conn.Read(buf)
+			// Reply with SMBv2 negotiate response header.
+			resp := make([]byte, 68)
+			resp[0] = 0x00 // NetBIOS
+			resp[1] = 0x00
+			resp[2] = 0x00
+			resp[3] = 0x40 // length
+			resp[4] = 0xfe // \xfeSMB
+			resp[5] = 0x53
+			resp[6] = 0x4d
+			resp[7] = 0x42
+			conn.Write(resp)
+			conn.Close()
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID, Title: title, Evidence: ev}
+	}
+	findings := detectSMB(context.Background(), "127.0.0.1", port, "", makeF)
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortSMBExposed {
+			found = true
+			// Verify the finding reports the correct port.
+			if p, ok := f.Evidence["port"].(int); ok && p != port {
+				t.Errorf("SMB finding port = %d; want %d", p, port)
+			}
+		}
+	}
+	if !found {
+		t.Error("detectSMB should emit smb_exposed for a real SMB server")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// runProbes protocol filtering tests
+// ---------------------------------------------------------------------------
+
+func TestRunProbes_MySQLBannerSkipsProtocolProbes(t *testing.T) {
+	// When the banner identifies as MySQL, protocol-category probes (SMB,
+	// telnet, etc.) should be skipped entirely.
+	banner := make([]byte, 80)
+	banner[0] = 0x4a
+	banner[3] = 0x00
+	banner[4] = 0x0a
+	copy(banner[5:], []byte("8.0.36\x00"))
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID, Scanner: "portscan"}
+	}
+
+	// Use a port that nothing is listening on so protocol probes that
+	// attempt new connections will fail anyway. The point is verifying
+	// that bannerProtocol("mysql") causes the skip.
+	findings := runProbes(context.Background(), "127.0.0.1", 3306, string(banner), makeF)
+	for _, f := range findings {
+		switch f.CheckID {
+		case finding.CheckPortSMBExposed, finding.CheckPortTelnetExposed, finding.CheckPortWinboxExposed:
+			t.Errorf("runProbes emitted %s for MySQL banner — protocol probe should have been skipped", f.CheckID)
+		}
+	}
+}
+
+func TestRunProbes_MySQLBannerRunsMySQLProbe(t *testing.T) {
+	// Verify that the probe filter allows the relational DB probe (which
+	// contains "mysql" in its name) to run when the banner identifies MySQL.
+	// Start a fake MySQL server that sends a greeting and accepts auth.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			conn.SetDeadline(time.Now().Add(3 * time.Second))
+			// Send MySQL greeting: 4-byte header + payload starting with 0x0a
+			greeting := make([]byte, 80)
+			greeting[0] = 0x0a // protocol version 10
+			copy(greeting[1:], []byte("8.0.36\x00"))
+			// Write packet header: length(3) + seq(1)
+			hdr := []byte{byte(len(greeting)), 0x00, 0x00, 0x00}
+			conn.Write(hdr)
+			conn.Write(greeting)
+			// Read client auth (just consume it)
+			buf := make([]byte, 512)
+			conn.Read(buf)
+			// Send OK response
+			okPayload := []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00}
+			okHdr := []byte{byte(len(okPayload)), 0x00, 0x00, 0x02}
+			conn.Write(okHdr)
+			conn.Write(okPayload)
+			conn.Close()
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	// Build a MySQL banner matching isMySQLGreeting.
+	banner := make([]byte, 80)
+	banner[0] = 0x4a
+	banner[3] = 0x00
+	banner[4] = 0x0a
+	copy(banner[5:], []byte("8.0.36\x00"))
+
+	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+		return finding.Finding{CheckID: checkID}
+	}
+
+	findings := runProbes(context.Background(), "127.0.0.1", port, string(banner), makeF)
+	var foundMySQL bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortMySQLNoAuth || f.CheckID == finding.CheckPortDatabaseExposed {
+			foundMySQL = true
+		}
+	}
+	if !foundMySQL {
+		ids := make([]string, len(findings))
+		for i, f := range findings {
+			ids[i] = string(f.CheckID)
+		}
+		t.Errorf("runProbes with MySQL banner did not produce MySQL finding; got %v", ids)
+	}
+}
+
+func TestProbeSMBOnPort_ClosedPort(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	l.Close()
+
+	if probeSMBOnPort(context.Background(), "127.0.0.1", port) {
+		t.Error("probeSMBOnPort should return false for a closed port")
+	}
+}
+
+func TestProbeSMBOnPort_NonSMBServer(t *testing.T) {
+	// TCP server that sends "hello" instead of SMB.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 256)
+			conn.Read(buf)
+			conn.Write([]byte("hello world"))
+			conn.Close()
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	if probeSMBOnPort(context.Background(), "127.0.0.1", port) {
+		t.Error("probeSMBOnPort should return false for a non-SMB server")
+	}
+}
+
+func TestProbeSMBOnPort_SMBv2Server(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 256)
+			conn.SetDeadline(time.Now().Add(2 * time.Second))
+			conn.Read(buf)
+			resp := make([]byte, 68)
+			resp[4] = 0xfe // \xfeSMB (SMBv2)
+			resp[5] = 0x53
+			resp[6] = 0x4d
+			resp[7] = 0x42
+			conn.Write(resp)
+			conn.Close()
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(l.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	if !probeSMBOnPort(context.Background(), "127.0.0.1", port) {
+		t.Error("probeSMBOnPort should return true for an SMBv2 server")
+	}
+}
+

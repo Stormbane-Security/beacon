@@ -358,19 +358,26 @@ func detectTelnet(ctx context.Context, host string, port int, banner string, mak
 	if banner == "" {
 		return nil
 	}
-	hasTelnetSignal := strings.Contains(banner, "\xFF") ||
-		strings.Contains(strings.ToLower(banner), "login:") ||
-		strings.Contains(strings.ToLower(banner), "username:") ||
-		strings.Contains(strings.ToLower(banner), "user access verification") ||
-		strings.Contains(strings.ToLower(banner), "mikrotik") ||
-		strings.Contains(strings.ToLower(banner), "cisco") ||
+	lb := strings.ToLower(banner)
+	// Telnet IAC sequences: \xFF followed by WILL(0xFB), WONT(0xFC),
+	// DO(0xFD), DONT(0xFE). A bare \xFF alone is too loose — many binary
+	// protocols (MySQL, etc.) contain 0xFF bytes.
+	hasIAC := strings.Contains(banner, "\xFF\xFB") ||
+		strings.Contains(banner, "\xFF\xFC") ||
+		strings.Contains(banner, "\xFF\xFD") ||
+		strings.Contains(banner, "\xFF\xFE")
+	hasTelnetSignal := hasIAC ||
+		strings.Contains(lb, "login:") ||
+		strings.Contains(lb, "username:") ||
+		strings.Contains(lb, "user access verification") ||
+		strings.Contains(lb, "mikrotik") ||
+		strings.Contains(lb, "cisco") ||
 		port == 23 // Fallback: standard telnet port with any banner
 	if !hasTelnetSignal {
 		return nil
 	}
 	ev := map[string]any{"port": port, "service": "telnet", "banner": banner}
 	// Vendor identification from Telnet banner.
-	lb := strings.ToLower(banner)
 	if strings.Contains(lb, "user access verification") || strings.Contains(lb, "cisco ios") || strings.Contains(lb, "cisco nexus") {
 		return []finding.Finding{
 			makeF(finding.CheckNetDeviceCiscoDetected, finding.SeverityInfo,
@@ -615,10 +622,16 @@ func detectDNS(ctx context.Context, host string, port int, banner string, makeF 
 }
 
 func detectSMB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// First verify SMB is actually running on this port by sending a negotiate
+	// request to the scanned port (not hardcoded 445).
+	if !probeSMBOnPort(ctx, host, port) {
+		return nil
+	}
+
 	var findings []finding.Finding
 
-	// Check 1: SMBv1 protocol enabled.
-	if probeSMBv1Enabled(ctx, host) {
+	// Check 1: SMBv1 protocol enabled (probes the actual port).
+	if probeSMBv1OnPort(ctx, host, port) {
 		findings = append(findings, makeF(
 			finding.CheckPortSMBv1Enabled,
 			finding.SeverityCritical,
@@ -634,8 +647,8 @@ func detectSMB(ctx context.Context, host string, port int, banner string, makeF 
 		))
 	}
 
-	// Check 2: SMB null session.
-	if probeSMBNullSession(ctx, host) {
+	// Check 2: SMB null session (probes the actual port).
+	if probeSMBNullSessionOnPort(ctx, host, port) {
 		findings = append(findings,
 			makeF(
 				finding.CheckPortSMBNullSession,
@@ -651,7 +664,7 @@ func detectSMB(ctx context.Context, host string, port int, banner string, makeF 
 		)
 	}
 
-	// Always emit the base SMB-exposed finding.
+	// Emit the base SMB-exposed finding.
 	findings = append(findings, makeF(
 		finding.CheckPortSMBExposed,
 		finding.SeverityHigh,
