@@ -29,7 +29,7 @@ assertions:
 
   - name: detects-activemq-rce
     type: beacon
-    target: activemq:61616
+    target: localhost:8162
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "61616"]
     expect:
       check_id: cve.activemq_rce

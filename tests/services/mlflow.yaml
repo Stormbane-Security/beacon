@@ -28,7 +28,7 @@ assertions:
 
   - name: detects-mlflow-exposed
     type: beacon
-    target: mlflow:5000
+    target: localhost:5000
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "5000"]
     expect:
       check_id: port.mlflow_exposed

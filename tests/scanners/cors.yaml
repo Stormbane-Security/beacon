@@ -23,8 +23,8 @@ assertions:
 
   - name: detects-cors-misconfiguration
     type: beacon
-    target: nginx:80
-    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed", "--ports", "80"]
+    target: localhost:9206
+    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.cors_misconfiguration
 

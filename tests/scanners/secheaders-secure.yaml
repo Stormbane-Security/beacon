@@ -29,7 +29,7 @@ assertions:
 
   - name: no-missing-header-findings
     type: beacon
-    target: app:80
+    target: localhost:9281
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
     expect:
       max_findings: 0

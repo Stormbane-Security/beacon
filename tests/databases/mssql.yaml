@@ -24,7 +24,7 @@ assertions:
 
   - name: detects-mssql-exposed
     type: beacon
-    target: mssql:1433
+    target: localhost:1433
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "1433"]
     expect:
       check_id: port.database_exposed

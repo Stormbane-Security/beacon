@@ -27,7 +27,7 @@ assertions:
 
   - name: detects-llm-endpoint
     type: beacon
-    target: ollama:11434
+    target: localhost:9217
     args: ["--no-enrich", "--scanners", "aidetect", "--ports", "11434"]
     expect:
       min_findings: 1

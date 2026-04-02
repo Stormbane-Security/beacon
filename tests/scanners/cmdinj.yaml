@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-command-injection
     type: beacon
-    target: cmdinj-app:8080
+    target: localhost:9211
     args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: web.command_injection

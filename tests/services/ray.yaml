@@ -28,7 +28,7 @@ assertions:
 
   - name: detects-ray-dashboard
     type: beacon
-    target: ray:8265
+    target: localhost:8265
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8265"]
     expect:
       check_id: port.ray_dashboard_exposed

@@ -28,21 +28,21 @@ assertions:
 
   - name: detects-tls10
     type: beacon
-    target: nginx:443
+    target: localhost:9208
     args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-tls11
     type: beacon
-    target: nginx:443
+    target: localhost:9208
     args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.protocol_tls11
 
   - name: detects-self-signed
     type: beacon
-    target: nginx:443
+    target: localhost:9208
     args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.cert_self_signed

@@ -21,7 +21,7 @@ assertions:
 
   - name: detects-apache-traversal
     type: beacon
-    target: apache:80
+    target: localhost:9231
     args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
     expect:
       check_id: cve.apache_http_path_traversal

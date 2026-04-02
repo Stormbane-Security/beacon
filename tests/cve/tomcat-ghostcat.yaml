@@ -29,7 +29,7 @@ assertions:
 
   - name: detects-ghostcat-ajp
     type: beacon
-    target: tomcat:8009
+    target: localhost:8009
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8009"]
     expect:
       check_id: cve.tomcat_ghostcat

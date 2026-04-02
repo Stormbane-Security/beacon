@@ -43,7 +43,7 @@ assertions:
   # Test 1: Web3 frontend fingerprinting
   - name: detects-web3-signals
     type: beacon
-    target: dapp:80
+    target: localhost:9219
     args: ["--no-enrich", "--scanners", "web3detect", "--ports", "80"]
     expect:
       min_findings: 1

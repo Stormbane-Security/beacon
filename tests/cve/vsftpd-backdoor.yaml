@@ -21,7 +21,7 @@ assertions:
 
   - name: detects-vsftpd-backdoor
     type: beacon
-    target: vsftpd:21
+    target: localhost:9270
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "21"]
     expect:
       check_id: cve.vsftpd_backdoor_2011

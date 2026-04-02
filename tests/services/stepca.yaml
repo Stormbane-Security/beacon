@@ -32,7 +32,7 @@ assertions:
 
   - name: detects-step-ca-exposed
     type: beacon
-    target: stepca:9000
+    target: localhost:9000
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "9000"]
     expect:
       check_id: port.step_ca_exposed

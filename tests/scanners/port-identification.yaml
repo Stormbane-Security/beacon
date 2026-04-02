@@ -36,7 +36,7 @@ assertions:
 
   - name: identifies-redis-on-nonstandard-port
     type: beacon
-    target: redis:6379
+    target: localhost:9736
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "6379"]
     expect:
       check_id: port.service_identified
@@ -45,7 +45,7 @@ assertions:
 
   - name: identifies-mysql-on-nonstandard-port
     type: beacon
-    target: mysql:3306
+    target: localhost:9406
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
     expect:
       check_id: port.service_identified

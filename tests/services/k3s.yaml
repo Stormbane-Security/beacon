@@ -33,7 +33,7 @@ assertions:
 
   - name: detects-k8s-api-exposed
     type: beacon
-    target: k3s:6443
+    target: localhost:9283
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "6443"]
     expect:
       check_id: port.k8s_api_exposed

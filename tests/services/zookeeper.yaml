@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-zookeeper-exposed
     type: beacon
-    target: zookeeper:2181
+    target: localhost:2181
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "2181"]
     expect:
       check_id: port.zookeeper_exposed

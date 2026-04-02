@@ -27,7 +27,7 @@ assertions:
 
   - name: detects-openapi-spec-exposed
     type: beacon
-    target: api
+    target: localhost:8080
     args: ["--no-enrich", "--scanners", "swagger", "--ports", "80"]
     expect:
       check_id: web.swagger_exposed

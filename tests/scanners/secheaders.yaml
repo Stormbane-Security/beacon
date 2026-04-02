@@ -27,28 +27,28 @@ assertions:
 
   - name: detects-missing-csp
     type: beacon
-    target: app:80
+    target: localhost:9280
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.missing_csp
 
   - name: detects-missing-hsts
     type: beacon
-    target: app:80
+    target: localhost:9280
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.missing_hsts
 
   - name: detects-missing-x-frame-options
     type: beacon
-    target: app:80
+    target: localhost:9280
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.missing_x_frame_options
 
   - name: detects-server-version-leak
     type: beacon
-    target: app:80
+    target: localhost:9280
     args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.server_info_leak

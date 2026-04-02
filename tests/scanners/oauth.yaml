@@ -37,7 +37,7 @@ assertions:
   # (response_types_supported includes "token"), which is a known risk.
   - name: detects-token-in-fragment
     type: beacon
-    target: keycloak:8080
+    target: localhost:8180
     args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
     expect:
       check_id: oauth.token_in_url_fragment

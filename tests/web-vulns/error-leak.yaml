@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-error-info-leak
     type: beacon
-    target: app:8080
+    target: localhost:9251
     args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: web.error_info_leak

@@ -29,7 +29,7 @@ assertions:
 
   - name: detects-registry-exposed
     type: beacon
-    target: registry:5000
+    target: localhost:5000
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "5000"]
     expect:
       check_id: container.registry_exposed

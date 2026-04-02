@@ -25,7 +25,7 @@ assertions:
 
   - name: detects-saml-metadata
     type: beacon
-    target: keycloak:8080
+    target: localhost:9260
     args: ["--no-enrich", "--scanners", "saml", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: saml.endpoint_exposed

@@ -21,7 +21,7 @@ assertions:
 
   - name: detects-modbus-exposed
     type: beacon
-    target: modbus:502
+    target: localhost:9284
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "502"]
     expect:
       check_id: port.modbus_exposed

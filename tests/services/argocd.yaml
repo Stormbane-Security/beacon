@@ -24,7 +24,7 @@ assertions:
 
   - name: detects-argocd-exposed
     type: beacon
-    target: argocd:8080
+    target: localhost:8443
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
     expect:
       check_id: port.argocd_exposed

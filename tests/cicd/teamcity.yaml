@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-teamcity-exposed
     type: beacon
-    target: teamcity:8111
+    target: localhost:9242
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8111"]
     expect:
       check_id: teamcity.guest_access

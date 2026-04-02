@@ -30,7 +30,7 @@ assertions:
 
   - name: detects-superset-exposed
     type: beacon
-    target: superset:8088
+    target: localhost:8088
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8088"]
     expect:
       check_id: port.superset_exposed

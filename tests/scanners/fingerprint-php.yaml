@@ -36,7 +36,7 @@ assertions:
 
   - name: detects-wordpress-framework
     type: beacon
-    target: wordpress:80
+    target: localhost:9215
     args: ["--no-enrich", "--scanners", "classify", "--ports", "80"]
     expect:
       min_findings: 1

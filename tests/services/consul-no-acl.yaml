@@ -28,7 +28,7 @@ assertions:
 
   - name: detects-consul-no-acl
     type: beacon
-    target: consul:8500
+    target: localhost:8501
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "8500"]
     expect:
       check_id: port.consul_no_acl

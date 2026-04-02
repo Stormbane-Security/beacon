@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-path-traversal
     type: beacon
-    target: app:8080
+    target: localhost:9250
     args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: web.path_traversal

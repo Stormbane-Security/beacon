@@ -31,7 +31,7 @@ assertions:
 
   - name: detects-keycloak-saml-bypass
     type: beacon
-    target: keycloak:8080
+    target: localhost:9278
     args: ["--no-enrich", "--scanners", "saml,portscan", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: cve.keycloak_saml_bypass

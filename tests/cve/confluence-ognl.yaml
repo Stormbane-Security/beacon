@@ -24,7 +24,7 @@ assertions:
 
   - name: detects-confluence-ognl
     type: beacon
-    target: confluence:8090
+    target: localhost:9277
     args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8090"]
     expect:
       check_id: web.tech_detected

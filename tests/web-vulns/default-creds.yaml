@@ -32,7 +32,7 @@ assertions:
 
   - name: detects-default-creds
     type: beacon
-    target: phpmyadmin:80
+    target: localhost:9254
     args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
     expect:
       check_id: web.default_credentials

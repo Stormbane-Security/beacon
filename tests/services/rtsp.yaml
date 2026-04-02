@@ -21,7 +21,7 @@ assertions:
 
   - name: detects-rtsp-exposed
     type: beacon
-    target: rtsp:554
+    target: localhost:9287
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "554"]
     expect:
       check_id: port.rtsp_exposed

@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-smuggling
     type: beacon
-    target: app:80
+    target: localhost:9256
     args: ["--no-enrich", "--scanners", "smuggling", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
     expect:
       check_id: web.http_request_smuggling

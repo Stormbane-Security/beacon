@@ -27,7 +27,7 @@ assertions:
 
   - name: detects-proftpd-mod-copy
     type: beacon
-    target: proftpd:21
+    target: localhost:9275
     args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "21"]
     expect:
       check_id: cve.proftpd_mod_copy

@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-xxe
     type: beacon
-    target: xxe-app:8080
+    target: localhost:9221
     args: ["--no-enrich", "--scanners", "xxe", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: web.xxe

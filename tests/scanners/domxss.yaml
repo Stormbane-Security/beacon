@@ -24,7 +24,7 @@ assertions:
 
   - name: detects-dom-xss
     type: beacon
-    target: domxss-app:80
+    target: localhost:9213
     args: ["--no-enrich", "--scanners", "domxss", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
     expect:
       check_id: web.xss

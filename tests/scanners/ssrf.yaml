@@ -23,7 +23,7 @@ assertions:
 
   - name: detects-ssrf
     type: beacon
-    target: ssrf-app:8080
+    target: localhost:9220
     args: ["--no-enrich", "--scanners", "ssrf", "--deep", "--permission-confirmed", "--ports", "8080"]
     expect:
       check_id: web.ssrf

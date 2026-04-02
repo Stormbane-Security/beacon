@@ -30,7 +30,7 @@ assertions:
 
   - name: detects-spring-actuator-exposed
     type: beacon
-    target: spring
+    target: localhost:8080
     args: ["--no-enrich", "--scanners", "exposedfiles", "--ports", "8080"]
     expect:
       check_id: exposure.spring_actuator
