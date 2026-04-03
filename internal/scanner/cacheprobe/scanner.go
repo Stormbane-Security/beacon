@@ -466,10 +466,12 @@ func testCacheDeception(ctx context.Context, client *http.Client, scheme, asset 
 	resp.Body.Close()
 	baseCC := resp.Header.Get("Cache-Control")
 
-	// If base response is already no-store/private, try with extension appended
+	// If the base response is already publicly cacheable (no no-store/private),
+	// cache deception isn't interesting — the content is cached regardless.
+	// We only care when the base is NOT cacheable but adding an extension makes it so.
 	if !strings.Contains(strings.ToLower(baseCC), "no-store") &&
 		!strings.Contains(strings.ToLower(baseCC), "private") {
-		return nil // already cacheable, not interesting
+		return nil
 	}
 
 	for _, ext := range cacheDeceptionExtensions {
