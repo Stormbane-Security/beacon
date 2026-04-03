@@ -1,0 +1,61 @@
+name: authfuzz-redirect-abuse
+description: >
+  Nginx simulating a broken OAuth server: /oauth/authorize redirects to any
+  redirect_uri without validation (redirect abuse), /api/me accepts any Bearer
+  token including alg:none JWTs (token substitution), and /oauth/token accepts
+  repeated code exchanges (code reuse). Beacon authfuzz scanner should detect
+  redirect_uri abuse and token substitution.
+tags: [authfuzz, scanner, auth, oauth, redirect]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9287:80"]
+    volumes:
+      - ./authfuzz-oauth/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9287/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-oidc-discovery
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9287/.well-known/openid-configuration | grep -q 'authorization_endpoint'"
+      exit_code: 0
+
+  - name: exploit-redirect-uri-not-validated
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:9287/oauth/authorize?response_type=code&client_id=test&redirect_uri=https://evil.com/callback&state=x' | grep -i 'location.*evil.com'"
+      exit_code: 0
+
+  - name: exploit-api-me-returns-401-without-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9287/api/me | grep -q '401'"
+      exit_code: 0
+
+  - name: exploit-api-me-accepts-any-bearer
+    type: command
+    expect:
+      command: "curl -sf -H 'Authorization: Bearer fake_token' http://localhost:9287/api/me | grep -q 'admin'"
+      exit_code: 0
+
+  - name: detects-redirect-uri-abuse
+    type: beacon
+    target: localhost:9287
+    args: ["--no-enrich", "--scanners", "authfuzz", "--authorized"]
+    expect:
+      check_id: web.auth_fuzz_redirect_abuse
+
+  - name: detects-token-substitution
+    type: beacon
+    target: localhost:9287
+    args: ["--no-enrich", "--scanners", "authfuzz", "--authorized"]
+    expect:
+      check_id: web.auth_fuzz_token_substitution
+
+timeout: 5m

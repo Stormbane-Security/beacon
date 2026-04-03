@@ -1,0 +1,60 @@
+name: apiversions-auth-bypass
+description: >
+  Nginx serving versioned API endpoints: /api/v1/ returns 200 JSON (open),
+  /api/v2/ returns 401 (auth required), /api/dev/ and /api/staging/ return
+  200 (non-production exposed). Beacon apiversions scanner should detect
+  API version discovery and auth bypass between v1 (open) and v2 (gated).
+tags: [apiversions, scanner, web, api, authbypass]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9284:80"]
+    volumes:
+      - ./apiversions-api/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9284/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-v1-open
+    type: command
+    expect:
+      command: "curl -sf -H 'Accept: application/json' http://localhost:9284/api/v1/ | grep -q 'active'"
+      exit_code: 0
+
+  - name: exploit-v2-requires-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -H 'Accept: application/json' http://localhost:9284/api/v2/ | grep -q '401'"
+      exit_code: 0
+
+  - name: exploit-dev-endpoint-exposed
+    type: command
+    expect:
+      command: "curl -sf -H 'Accept: application/json' http://localhost:9284/api/dev/ | grep -q 'development'"
+      exit_code: 0
+
+  - name: exploit-catchall-returns-404
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9284/beacon-probe-doesnotexist | grep -q '404'"
+      exit_code: 0
+
+  - name: detects-api-version
+    type: beacon
+    target: localhost:9284
+    args: ["--no-enrich", "--scanners", "apiversions"]
+    expect:
+      check_id: exposure.api_version
+
+  - name: detects-api-version-auth-bypass
+    type: beacon
+    target: localhost:9284
+    args: ["--no-enrich", "--scanners", "apiversions", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.api_version_auth_bypass
+
+timeout: 5m

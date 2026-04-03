@@ -1,0 +1,55 @@
+name: portscan-unauthenticated-services
+description: >
+  Redis without auth and FTP with anonymous login exposed on their standard
+  ports. Beacon portscan scanner should detect open ports, identify services
+  via banner grabbing, and flag unauthenticated access.
+tags: [portscan, scanner, network, redis, ftp]
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["6379:6379"]
+
+  ftp:
+    image: fauria/vsftpd
+    environment:
+      ANONYMOUS_ENABLE: "YES"
+      LOCAL_ENABLE: "NO"
+      PASV_MIN_PORT: "21100"
+      PASV_MAX_PORT: "21110"
+    ports: ["21:21"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 6379 PING 2>/dev/null | grep -q PONG"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-redis-no-auth
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 6379 PING | grep -q PONG"
+      exit_code: 0
+
+  - name: exploit-redis-info
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 6379 INFO server | grep -q 'redis_version'"
+      exit_code: 0
+
+  - name: detects-redis-unauthenticated
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: detects-port-service
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

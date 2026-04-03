@@ -1,0 +1,68 @@
+name: cacheprobe-cdn-poisoning
+description: >
+  Nginx proxy_cache simulating a CDN layer: returns X-Cache, X-Cache-Hits,
+  risky Vary headers (User-Agent), accepts unauthenticated PURGE requests,
+  and echoes X-Forwarded-Host in response. Beacon cacheprobe scanner should
+  detect cache behavior, risky Vary, and unauthenticated PURGE.
+tags: [cacheprobe, scanner, cache, cdn, poisoning]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  cdn:
+    image: nginx:alpine
+    ports: ["9291:80"]
+    volumes:
+      - ./cacheprobe-cdn/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+ready:
+  cmd: "curl -sf http://localhost:9291/get >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-cache-headers-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9291/get | grep -qi 'X-Cache'"
+      exit_code: 0
+
+  - name: exploit-purge-accepted
+    type: command
+    expect:
+      command: "curl -s -X PURGE http://localhost:9291/get | grep -qi 'purge'"
+      exit_code: 0
+
+  - name: exploit-vary-includes-user-agent
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9291/get | grep -qi 'Vary.*User-Agent'"
+      exit_code: 0
+
+  - name: detects-cache-behavior
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    expect:
+      check_id: cache.behavior_detected
+
+  - name: detects-purge-unauthenticated
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    expect:
+      check_id: cache.purge_unauthenticated
+
+  - name: detects-vary-risky
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    expect:
+      check_id: cache.vary_risky
+
+timeout: 5m

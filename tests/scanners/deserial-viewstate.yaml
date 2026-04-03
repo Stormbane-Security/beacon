@@ -1,0 +1,54 @@
+name: deserial-magic-bytes-viewstate
+description: >
+  Nginx serving Java serialized object magic bytes (rO0AB base64) in /api
+  response, .NET ViewState with unencrypted /wE prefix in /login.aspx, and
+  POST /api/v1 returning Java StreamCorruptedException. Beacon deserial
+  scanner should detect insecure deserialization markers.
+tags: [deserial, scanner, web, java, dotnet, viewstate]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9285:80"]
+    volumes:
+      - ./deserial-viewstate/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9285/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-java-magic-bytes-in-response
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9285/api | grep -q 'rO0AB'"
+      exit_code: 0
+
+  - name: exploit-viewstate-unencrypted
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9285/login.aspx | grep -q '__VIEWSTATE.*value=\"/wE'"
+      exit_code: 0
+
+  - name: exploit-java-error-on-post
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9285/api/v1 | grep -q 'StreamCorruptedException'"
+      exit_code: 0
+
+  - name: detects-insecure-deserialize
+    type: beacon
+    target: localhost:9285
+    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.insecure_deserialize
+
+  - name: detects-dotnet-deserialize
+    type: beacon
+    target: localhost:9285
+    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.dotnet_deserialize
+
+timeout: 5m
