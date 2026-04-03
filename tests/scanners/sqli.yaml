@@ -1,31 +1,35 @@
 name: sqli-time-blind
-description: "Flask+SQLite app with SQL injection in ?id= parameter — beacon detects via calibration-based dual-sleep timing"
+description: "sqli-labs (PHP+MySQL) with real SQL injection — beacon detects via calibration-based dual-sleep timing"
 tags: [sqli, scanner, web, authorized]
 
 services:
   sqli-app:
-    build:
-      context: ./sqli
-      dockerfile: Dockerfile
-    ports: ["9210:8080"]
+    image: acgpiano/sqli-labs
+
+  proxy:
+    image: nginx:alpine
+    ports: ["9210:80"]
+    volumes:
+      - ./sqli/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
-  cmd: "curl -sf http://localhost:9210/health >/dev/null"
-  timeout: 30s
-  interval: 2s
+  # Hit setup-db.php to initialize the database, then verify Lesson 1 responds.
+  cmd: "curl -sf http://localhost:9210/sql-connections/setup-db.php >/dev/null 2>&1; curl -sf 'http://localhost:9210/?id=1' 2>/dev/null | grep -qiE '(Dumb|Login|Your)'"
+  timeout: 120s
+  interval: 5s
 
 assertions:
   - name: exploit-sqli-error-based
     type: command
     expect:
-      command: "curl -sf 'http://localhost:9210/search?id=1%27' 2>/dev/null | grep -qiE '(error|syntax|sqlite|unrecognized)'"
+      command: "curl -sf 'http://localhost:9210/?id=1%27' 2>/dev/null | grep -qiE '(error|syntax|mysql|You have)'"
       exit_code: 0
 
   - name: detects-time-blind-sqli
     type: beacon
     target: localhost:9210
-    args: ["--no-enrich", "--scanners", "sqli", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "sqli", "--deep", "--permission-confirmed", "--authorized"]
     expect:
       check_id: web.sqli
 
-timeout: 5m
+timeout: 8m

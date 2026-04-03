@@ -1,13 +1,13 @@
 name: dirbust-php-extensions
-description: "Real PHP 8.2 + Apache with /admin.php and /admin/config.php — beacon dirbust discovers PHP files via tech-aware extension fuzzing"
+description: "PHP 8.2 + Apache with /admin.php and /admin/config.php — beacon dirbust discovers PHP files via tech-aware extension fuzzing"
 tags: [dirbust, scanner, web, php]
 
 services:
   php-app:
-    build:
-      context: ./dirbust-extensions
-      dockerfile: Dockerfile
+    image: php:8.2-apache
     ports: ["9214:80"]
+    volumes:
+      - ./dirbust-extensions/html:/var/www/html:ro
 
 ready:
   cmd: "curl -sf http://localhost:9214/health.php >/dev/null"

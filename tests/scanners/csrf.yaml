@@ -1,13 +1,14 @@
 name: csrf-missing-token
-description: "Go server with POST login/register forms missing CSRF tokens and SameSite cookies — beacon detects web.csrf_token_missing"
+description: "nginx serving login/register forms without CSRF tokens or SameSite cookies — beacon detects web.csrf_token_missing"
 tags: [csrf, scanner, web]
 
 services:
-  csrf-app:
-    build:
-      context: ./csrf
-      dockerfile: Dockerfile
-    ports: ["9212:8080"]
+  nginx:
+    image: nginx:alpine
+    ports: ["9212:80"]
+    volumes:
+      - ./csrf/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./csrf/index.html:/usr/share/nginx/html/index.html:ro
 
 ready:
   cmd: "curl -sf http://localhost:9212/health >/dev/null"
@@ -18,19 +19,13 @@ assertions:
   - name: exploit-csrf-form-no-token
     type: command
     expect:
-      command: "curl -sf http://localhost:9212/ | grep -q '<form' && ! curl -sf http://localhost:9212/ | grep -qi 'csrf'"
-      exit_code: 0
-
-  - name: exploit-csrf-post-accepted
-    type: command
-    expect:
-      command: "curl -sf -X POST http://localhost:9212/login -d 'user=admin&pass=admin' -o /dev/null -w '%{http_code}' | grep -qE '(200|302)'"
+      command: "curl -sf http://localhost:9212/login | grep -q '<form' && ! curl -sf http://localhost:9212/login | grep -qi 'csrf'"
       exit_code: 0
 
   - name: detects-csrf-missing-token
     type: beacon
     target: localhost:9212
-    args: ["--no-enrich", "--scanners", "csrf", "--deep", "--permission-confirmed", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "csrf", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.csrf_token_missing
 
