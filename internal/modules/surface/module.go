@@ -116,6 +116,8 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/openredir"
 	"github.com/stormbane-security/beacon/internal/scanner/sqli"
 	"github.com/stormbane-security/beacon/internal/scanner/secheaders"
+	"github.com/stormbane-security/beacon/internal/scanner/proxychain"
+	"github.com/stormbane-security/beacon/internal/scanner/cacheprobe"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
 	"github.com/stormbane-security/beacon/internal/profiler"
@@ -428,6 +430,8 @@ func New(cfg Config) (*Module, error) {
 		"okta":            oktascanner.New(cfg.OktaDomain, cfg.OktaToken),
 		"secheaders":      secheaders.New(),
 		"openredir":       openredir.New(),
+		"proxychain":      proxychain.New(),
+		"cacheprobe":      cacheprobe.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.
@@ -1717,6 +1721,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		"depconf": true, "cdnbypass": true, "jenkins": true,
 		"clickjacking": true, "autoprobe": true, "websocket": true,
 		"exposedfiles": true, "apiversions": true,
+		"proxychain": true, "cacheprobe": true,
 	}
 
 	var findings []finding.Finding
@@ -2964,6 +2969,10 @@ func scannerCmd(name, asset string, scanType module.ScanType) string {
 		return fmt.Sprintf("cloud bucket enumeration → %s", asset)
 	case "cdnbypass":
 		return fmt.Sprintf("CDN origin IP discovery → %s", asset)
+	case "proxychain":
+		return fmt.Sprintf("proxy chain detection → %s", asset)
+	case "cacheprobe":
+		return fmt.Sprintf("CDN cache intelligence → %s", asset)
 	default:
 		return fmt.Sprintf("%s → %s", name, asset)
 	}

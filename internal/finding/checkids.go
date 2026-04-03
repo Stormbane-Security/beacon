@@ -144,12 +144,29 @@ const (
 	CheckCSPUnsafeInline     CheckID = "csp.unsafe_inline"
 	CheckCSPUnsafeEval       CheckID = "csp.unsafe_eval"
 	CheckCSPWildcardSource   CheckID = "csp.wildcard_source"
-	CheckWAFNotDetected      CheckID = "waf.not_detected"
-	CheckWAFDetected         CheckID = "waf.detected"           // WAF vendor fingerprinted from headers
-	CheckWAFOriginExposed    CheckID = "waf.origin_exposed"     // origin IP directly accessible, bypassing WAF
-	CheckWAFBypassHeader     CheckID = "waf.bypass_via_header"  // WAF bypassable via spoofed IP header (deep)
-	CheckWAFInsecureMode     CheckID = "waf.insecure_ssl_mode"  // Cloudflare flexible SSL: origin served over plain HTTP
-	CheckIDSDetected         CheckID = "ids.detected"           // IDS/NGFW vendor identified from response patterns
+	CheckWAFNotDetected        CheckID = "waf.not_detected"
+	CheckWAFDetected           CheckID = "waf.detected"              // WAF vendor fingerprinted from headers
+	CheckWAFOriginExposed      CheckID = "waf.origin_exposed"        // origin IP directly accessible, bypassing WAF
+	CheckWAFBypassHeader       CheckID = "waf.bypass_via_header"     // WAF bypassable via spoofed IP header (deep)
+	CheckWAFInsecureMode       CheckID = "waf.insecure_ssl_mode"     // Cloudflare flexible SSL: origin served over plain HTTP
+	CheckWAFBypassPath         CheckID = "waf.bypass_via_path"       // WAF bypassable via path normalization tricks (authorized)
+	CheckWAFBypassMethod       CheckID = "waf.bypass_via_method"     // WAF bypassable via HTTP method override headers (authorized)
+	CheckWAFBypassContentType  CheckID = "waf.bypass_via_ctype"      // WAF body inspection bypassable via Content-Type confusion (authorized)
+	CheckIDSDetected           CheckID = "ids.detected"              // IDS/NGFW vendor identified from response patterns
+
+	// Proxy chain / multi-layer infrastructure detection
+	CheckProxyChainDetected CheckID = "proxy.chain_detected"      // multi-layer proxy/CDN/LB chain detected
+	CheckProxyHopDetected   CheckID = "proxy.hop_detected"        // individual infrastructure hop identified
+	CheckProxyXFFLeak       CheckID = "proxy.xff_leak"            // proxy echoes X-Forwarded-For in response
+	CheckProxyTraceEnabled  CheckID = "proxy.trace_enabled"       // HTTP TRACE method enabled (XST risk)
+
+	// CDN cache intelligence
+	CheckCacheBehaviorDetected CheckID = "cache.behavior_detected"  // CDN/cache layer fingerprinted from headers
+	CheckCachePurgeEnabled     CheckID = "cache.purge_unauthenticated" // cache accepts unauthenticated PURGE requests
+	CheckCacheVaryRisky        CheckID = "cache.vary_risky"         // Vary header includes attacker-controllable headers
+	CheckCachePoisonUnkeyed    CheckID = "cache.poison_unkeyed"     // cache poisoning via unkeyed header reflection (deep)
+	CheckCacheDeception        CheckID = "cache.deception"          // cache deception: dynamic content cached with static extension (deep)
+	CheckCacheHostRouting      CheckID = "cache.host_routing"       // Host header routes to different backend (deep)
 
 	// DLP — data-loss detection in HTTP responses and screenshots
 	// Regex patterns run against the raw page body (complement to webcontent's JS scanning).
@@ -1623,10 +1640,27 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCSPWildcardSource:     {CheckCSPWildcardSource, SeverityHigh, ModeSurface},
 	CheckWAFNotDetected:     {CheckWAFNotDetected, SeverityMedium, ModeSurface},
 	CheckWAFDetected:        {CheckWAFDetected, SeverityInfo, ModeSurface},
-	CheckWAFOriginExposed:   {CheckWAFOriginExposed, SeverityCritical, ModeSurface},
-	CheckWAFBypassHeader:    {CheckWAFBypassHeader, SeverityHigh, ModeDeep},
-	CheckWAFInsecureMode:    {CheckWAFInsecureMode, SeverityHigh, ModeSurface},
-	CheckIDSDetected:        {CheckIDSDetected, SeverityInfo, ModeSurface},
+	CheckWAFOriginExposed:      {CheckWAFOriginExposed, SeverityCritical, ModeSurface},
+	CheckWAFBypassHeader:       {CheckWAFBypassHeader, SeverityHigh, ModeDeep},
+	CheckWAFInsecureMode:       {CheckWAFInsecureMode, SeverityHigh, ModeSurface},
+	CheckWAFBypassPath:         {CheckWAFBypassPath, SeverityHigh, ModeDeep},
+	CheckWAFBypassMethod:       {CheckWAFBypassMethod, SeverityMedium, ModeDeep},
+	CheckWAFBypassContentType:  {CheckWAFBypassContentType, SeverityHigh, ModeDeep},
+	CheckIDSDetected:           {CheckIDSDetected, SeverityInfo, ModeSurface},
+
+	// Proxy chain detection — passive header analysis → Surface
+	CheckProxyChainDetected: {CheckProxyChainDetected, SeverityInfo, ModeSurface},
+	CheckProxyHopDetected:   {CheckProxyHopDetected, SeverityInfo, ModeSurface},
+	CheckProxyXFFLeak:       {CheckProxyXFFLeak, SeverityMedium, ModeSurface},
+	CheckProxyTraceEnabled:  {CheckProxyTraceEnabled, SeverityMedium, ModeDeep},
+
+	// CDN cache intelligence — passive fingerprinting → Surface, active probes → Deep
+	CheckCacheBehaviorDetected: {CheckCacheBehaviorDetected, SeverityInfo, ModeSurface},
+	CheckCachePurgeEnabled:     {CheckCachePurgeEnabled, SeverityMedium, ModeSurface},
+	CheckCacheVaryRisky:        {CheckCacheVaryRisky, SeverityLow, ModeSurface},
+	CheckCachePoisonUnkeyed:    {CheckCachePoisonUnkeyed, SeverityHigh, ModeDeep},
+	CheckCacheDeception:        {CheckCacheDeception, SeverityHigh, ModeDeep},
+	CheckCacheHostRouting:      {CheckCacheHostRouting, SeverityMedium, ModeDeep},
 
 	// DLP — scanning public HTTP responses and screenshots → Surface
 	// All checks observe only what is already publicly accessible.

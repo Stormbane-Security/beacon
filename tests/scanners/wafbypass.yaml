@@ -1,0 +1,48 @@
+name: waf-modsecurity-bypass
+description: "ModSecurity OWASP CRS WAF blocking /admin and SQLi payloads — beacon detects waf.detected and tests bypass techniques"
+tags: [wafdetect, scanner, web, authorized]
+
+services:
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["9231:8080"]
+    environment:
+      # Enable paranoia level 1 (default rules)
+      PARANOIA: "1"
+      # Block /admin and /wp-admin paths
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://app:8080"
+      PORT: "8080"
+
+  app:
+    image: mccutchen/go-httpbin:latest
+    expose: ["8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:9231/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-waf-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9231/?q=%27%20OR%201%3D1--%20-' | grep -q '403'"
+      exit_code: 0
+
+  - name: exploit-waf-allows-normal
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9231/ >/dev/null"
+      exit_code: 0
+
+  - name: detects-waf-vendor
+    type: beacon
+    target: localhost:9231
+    args: ["--no-enrich", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+timeout: 8m

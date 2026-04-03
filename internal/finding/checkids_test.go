@@ -662,6 +662,16 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudOCISecurityListSSHOpen: true,
 		finding.CheckCloudOCINSGAllOpen:          true,
 		finding.CheckSupplyChainRegistryToCluster: true,
+		// WAF bypass (authorized mode uses ModeDeep)
+		finding.CheckWAFBypassPath:        true,
+		finding.CheckWAFBypassMethod:      true,
+		finding.CheckWAFBypassContentType: true,
+		// Proxy chain
+		finding.CheckProxyTraceEnabled: true,
+		// Cache probe
+		finding.CheckCachePoisonUnkeyed: true,
+		finding.CheckCacheDeception:     true,
+		finding.CheckCacheHostRouting:   true,
 	}
 
 	for id, meta := range finding.Registry {

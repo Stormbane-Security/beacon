@@ -144,6 +144,8 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"bitbucket": true, "container": true, "circleci": true,
 		"onprem": true,
 		"meta":   true,
+		"proxy":  true,
+		"cache":  true,
 	}
 
 	for _, decl := range f.Decls {
