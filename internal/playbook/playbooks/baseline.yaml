@@ -40,7 +40,7 @@ surface:
     - secheaders     # missing CSP, HSTS, X-Frame-Options, X-Content-Type, Referrer-Policy, Permissions-Policy
     - swagger        # OpenAPI/Swagger spec exposure — safe GET probes to common spec paths
     - chainnode      # blockchain node/validator/miner detection — port probes + JSON-RPC fingerprinting
-    - githubactions  # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
+    - github.actions # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
     - containerimage # Docker/OCI registry exposure — anonymous catalog, unsigned images
     - jenkins        # Jenkins dashboard and API exposure — passive fingerprinting
     - cms-plugins    # CMS detection and admin panel discovery (WordPress, Ghost, Drupal, etc.)

@@ -99,7 +99,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/swagger"
 	_ "github.com/stormbane-security/beacon/internal/scanner/contractscan"
 	_ "github.com/stormbane-security/beacon/internal/scanner/chainnode"
-	_ "github.com/stormbane-security/beacon/internal/scanner/githubactions"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ghactions"
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
@@ -315,7 +315,7 @@ type Config struct {
 	Auth []config.AuthConfig
 
 	// GitHubToken is an optional GitHub personal access token used by the
-	// githubactions scanner to fetch workflow files via the GitHub API.
+	// ghactions scanner to fetch workflow files via the GitHub API.
 	// Without it the scanner is limited to 60 unauthenticated requests/hour.
 	GitHubToken string
 
