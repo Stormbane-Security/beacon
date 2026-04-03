@@ -29,9 +29,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckAuthFuzzCodeInterception, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAuthFuzzRedirectAbuse, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckAuthFuzzTokenSubstitution, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const (
 	scannerName = "authfuzz"

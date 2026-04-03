@@ -28,9 +28,23 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckJWKSMissingKID, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWKSWeakKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJWTAlgNoneVariant, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTAlgorithmConfusion, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTAudienceMissing, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckJWTEmptySecret, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTEncryptionMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWTIssuerNotValidated, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckJWTKidInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTLongExpiry, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWTReplayMissing, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckJWTSensitivePayload, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJWTWeakAlg, finding.SeverityCritical, finding.ModeSurface),
+	)
 }
 const scannerName = "jwt"
 

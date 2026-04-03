@@ -45,9 +45,16 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCacheBehaviorDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckCacheDeception, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckCacheHostRouting, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckCachePoisonUnkeyed, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckCachePurgeEnabled, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCacheVaryRisky, finding.SeverityLow, finding.ModeSurface),
+	)
 }
 const scannerName = "cacheprobe"
 

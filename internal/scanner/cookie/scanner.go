@@ -16,9 +16,15 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCookieExcessiveScope, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingHTTPOnly, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingSameSite, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingSecure, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCookieNoPrefix, finding.SeverityLow, finding.ModeSurface),
+	)
 }
 
 const scannerName = "cookie"

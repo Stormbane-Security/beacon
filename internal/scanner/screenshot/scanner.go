@@ -21,9 +21,11 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("gowitness.bin"))
-	})
+	},
+		scan.Check(finding.CheckAssetScreenshot, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 
 const scannerName = "screenshot"

@@ -16,9 +16,21 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckWellKnownAppleAppSite, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownAssetLinks, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownChangePwd, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownHostMeta, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownMTA, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownMatrix, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownNodeInfo, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownOIDC, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownResourceMissing, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownSecurityTxt, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownWebfinger, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 
 const scannerName = "wellknown"

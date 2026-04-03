@@ -30,9 +30,12 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckSwaggerExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckWebAPIFuzz, finding.SeverityHigh, finding.ModeDeep),
+	)
 }
 // sanitizeShellArg wraps a value in single quotes with proper escaping to
 // prevent shell metacharacter injection in ProofCommand strings.

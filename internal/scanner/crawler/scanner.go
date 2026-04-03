@@ -22,9 +22,11 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("katana.bin"))
-	})
+	},
+		scan.Check(finding.CheckAssetCrawlEndpoints, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 
 const scannerName = "crawler"

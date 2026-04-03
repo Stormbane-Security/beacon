@@ -23,9 +23,12 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckBOLAHorizontalAccess, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckIDORSequentialID, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const (
 	scannerName = "idor"

@@ -18,9 +18,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckSupplyChainUnsignedContainer, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSupplyChainUnsignedNPM, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSupplyChainUnsignedPyPI, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 const scannerName = "artifactsign"
 

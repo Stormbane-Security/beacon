@@ -20,9 +20,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCloudBucketExists, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckCloudBucketPublic, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCloudBucketWritable, finding.SeverityCritical, finding.ModeSurface),
+	)
 }
 const scannerName = "cloudbuckets"
 

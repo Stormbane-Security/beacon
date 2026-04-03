@@ -35,9 +35,15 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckAIDataExfil, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAIPromptInjection, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckAISSRFViaPLLM, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAISystemLeak, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckAIToolAbuse, finding.SeverityHigh, finding.ModeDeep),
+	)
 }
 const scannerName = "aillm"
 

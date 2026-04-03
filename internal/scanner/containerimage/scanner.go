@@ -21,9 +21,14 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckContainerImageLatestTag, finding.SeverityLow, finding.ModeDeep),
+		scan.Check(finding.CheckContainerImageUnsigned, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckContainerRegistryAnonymousPush, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContainerRegistryExposed, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const scannerName = "containerimage"
 

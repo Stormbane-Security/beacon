@@ -18,9 +18,11 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckLDAPInjection, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 
 const scannerName = "ldapi"

@@ -41,9 +41,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckRateLimitBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckRateLimitMissing, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckRateLimitNoRetryAfter, finding.SeverityInfo, finding.ModeDeep),
+	)
 }
 const (
 	scannerName = "ratelimit"

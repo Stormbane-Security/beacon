@@ -30,9 +30,19 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckIDSDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWAFBypassContentType, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassHeader, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassMethod, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassPath, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWAFInsecureMode, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWAFOriginExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckWAFProductVersion, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 const scannerName = "wafdetect"
 

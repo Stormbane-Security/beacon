@@ -36,9 +36,15 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckContractProxyAdmin, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckContractReentrancy, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContractSelfDestruct, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContractSourceExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckContractUncheckedCall, finding.SeverityHigh, finding.ModeDeep),
+	)
 }
 const scannerName = "contractscan"
 

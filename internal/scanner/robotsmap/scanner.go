@@ -18,9 +18,13 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckRobotsCrawlDelay, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckRobotsSensitivePath, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSitemapSensitiveURL, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 
 const scannerName = "robotsmap"

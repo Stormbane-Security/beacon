@@ -53,9 +53,19 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckWeb3HorizontalEscalation, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEChainMismatch, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEDomainBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEEndpoint, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3SIWENonceReuse, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEOverHTTP, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3SIWEReplay, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEURIMismatch, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWSDEndpoint, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 const scannerName = "web3auth"
 

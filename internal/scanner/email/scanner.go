@@ -24,9 +24,29 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckEmailBIMIMissing, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDANEMissing, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDKIMMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDKIMWeakKey, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCMissing, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCNoReporting, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCPolicyNone, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCSubdomainNone, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailMTASTSMissing, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailMTASTSNotEnforced, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailMTASTSPolicyFetchFail, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSMTPBannerLeak, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSMTPOpenRelay, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFIncludes, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFLookupLimit, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFMissing, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFSoftfail, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSpoofable, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckEmailTLSRPTMissing, finding.SeverityLow, finding.ModeSurface),
+	)
 }
 const scannerName = "email"
 

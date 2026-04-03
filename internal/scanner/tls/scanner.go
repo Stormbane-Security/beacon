@@ -37,9 +37,28 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckTLSCRLNoURL, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertLongValidity, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertNoOCSP, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertNoSCT, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertRevoked, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertSANMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertSelfSigned, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertWeakKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertWeakSignature, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertWildcard, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckTLSHSTSNoPreload, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckTLSHSTSNoSubdomains, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSHSTSShortMaxAge, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckTLSNoPFS, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSNoTLS13, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSProtocolTLS10, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckTLSProtocolTLS11, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckTLSWeakCipher, finding.SeverityHigh, finding.ModeDeep),
+	)
 }
 const scannerName = "tlscheck"
 

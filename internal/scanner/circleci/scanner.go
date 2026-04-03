@@ -25,9 +25,16 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("github.token"))
-	})
+	},
+		scan.Check(finding.CheckCircleCIUnpinnedImage, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCircleCISecretEchoed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCircleCIInsecureStep, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCircleCIPublicConfig, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckCircleCIUnconstrained, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCircleCIMachineExecutor, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 
 const scannerName = "circleci"

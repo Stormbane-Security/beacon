@@ -20,9 +20,20 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("testssl.bin"))
-	})
+	},
+		scan.Check(finding.CheckTLSProtocolSSLv2, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckTLSProtocolSSLv3, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckTLSProtocolTLS10, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckTLSProtocolTLS11, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckTLSHeartbleed, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckTLSPOODLE, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckTLSROBOT, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckTLSBEAST, finding.SeverityLow, finding.ModeDeep),
+		scan.Check(finding.CheckTLSWeakCipher, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckTLSCCSInjection, finding.SeverityHigh, finding.ModeDeep),
+	)
 }
 
 const scannerName = "testssl"

@@ -37,9 +37,23 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCVEKeycloakSAMLBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCloudMetadataSSRF, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckIdentityProviderExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckIdentityRoleEscalation, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckLDAPAuthBypass, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckLDAPBlindInjection, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckLDAPInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthDeviceFlowExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthDynClientReg, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthIntrospectExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCUserinfoLeak, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckSCIMExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckSCIMUnauthenticated, finding.SeverityCritical, finding.ModeSurface),
+	)
 }
 const scannerName = "iam"
 

@@ -27,9 +27,14 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckDNSAXFRAllowed, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckDNSDNSSECMissing, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckDNSMissingCAA, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckDNSWildcard, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 const scannerName = "dns"
 

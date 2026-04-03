@@ -25,9 +25,14 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckBitbucketPipelineInsecureStep, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckBitbucketPipelineSecretEchoed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckBitbucketPipelineUnpinned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckBitbucketPublicPipeline, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 const scannerName = "bitbucket"
 

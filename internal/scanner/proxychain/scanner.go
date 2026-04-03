@@ -34,9 +34,14 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckProxyChainDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckProxyHopDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckProxyTraceEnabled, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckProxyXFFLeak, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 const scannerName = "proxychain"
 

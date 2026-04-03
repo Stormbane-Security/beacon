@@ -28,9 +28,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckAIEndpointExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckAIKeyExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckAIStreamingOpen, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 const scannerName = "aidetect"
 

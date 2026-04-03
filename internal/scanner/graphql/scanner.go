@@ -24,9 +24,17 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckGraphQLAliasDos, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLBatchQuery, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLDeepNesting, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLFragmentDos, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLGETEnabled, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLIntrospection, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGraphQLPersistedQueryBypass, finding.SeverityMedium, finding.ModeDeep),
+	)
 }
 const scannerName = "graphql"
 

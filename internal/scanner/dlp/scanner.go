@@ -33,9 +33,21 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckAssetScreenshot, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckDLPAPIKey, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDLPCreditCard, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDLPDatabaseURL, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDLPEmailList, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckDLPPrivateKey, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDLPSSN, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDLPVision, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckDLPWifiCredential, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckVisionServiceID, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3ContractFound, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 const (
 	scannerName       = "dlp"

@@ -18,9 +18,18 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCSPBaseURIMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPDataURI, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCSPFrameAncestors, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPObjectSrc, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPReportOnly, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPUnsafeEval, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPUnsafeInline, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPWildcardSource, finding.SeverityHigh, finding.ModeSurface),
+	)
 }
 
 const scannerName = "cspaudit"

@@ -20,9 +20,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckWeb3ContractFound, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3RPCEndpointExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3WalletLibDetected, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 const (
 	scannerName  = "web3detect"

@@ -46,9 +46,18 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckChainNodeGrafanaExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeMinerExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodePeerCountLeak, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeRPCExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeUnauthorized, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeValidatorExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeWSExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckRPCMethodDangerous, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const scannerName = "chainnode"
 

@@ -35,9 +35,16 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckWiFiGatewayExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiOpenNetwork, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiPMKID, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWiFiWEPNetwork, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiWPA2TKIP, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiWPSEnabled, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 const scannerName = "wifi"
 

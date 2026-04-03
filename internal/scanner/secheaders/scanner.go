@@ -20,9 +20,17 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckHeadersMissingCSP, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersMissingHSTS, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersMissingPermissionsPolicy, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersMissingReferrerPolicy, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersMissingXContentType, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersMissingXFrameOptions, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersServerInfoLeak, finding.SeverityLow, finding.ModeSurface),
+	)
 }
 const scannerName = "secheaders"
 

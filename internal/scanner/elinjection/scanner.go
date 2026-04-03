@@ -30,9 +30,13 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckWebELInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebOGNLInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebSpELInjection, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const (
 	scannerName = "elinjection"

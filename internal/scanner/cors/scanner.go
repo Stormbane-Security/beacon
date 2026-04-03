@@ -20,9 +20,14 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCORSCredentialedReflection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckCORSMisconfiguration, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckCORSNullOrigin, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckCORSPreflightMisconfig, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 // altPorts are common non-standard ports to probe when the asset is a bare
 // hostname. CORS misconfigurations frequently appear on development/staging

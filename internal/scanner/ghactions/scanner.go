@@ -25,9 +25,39 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("github.token"))
-	})
+	},
+		scan.Check(finding.CheckGHActionRepoDiscovered, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionDeployTargets, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionUnpinned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionPRTargetUnsafe, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionScriptInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionOverpermissioned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionSecretsEchoed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionSelfHostedPublic, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionWorkflowRunUnsafe, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionGitHubEnvInjection, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionSecretsInherit, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionInsecureCommands, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionBotConditionSpoofable, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionArtiPacked, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionCachePoisoning, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionAWSLongLivedKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionGCPServiceAccountKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionAzureCredentials, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionNPMTokenNotOIDC, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionPyPITokenNotTrusted, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionDockerPasswordSecret, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionVercelToken, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionTerraformCloudToken, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionFlyToken, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionPATUsedInWorkflow, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionUnsignedRelease, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionReusableWorkflowUnpinned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionWorkflowDispatchInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionKnownCompromised, finding.SeverityCritical, finding.ModeSurface),
+	)
 }
 
 const scannerName = "github.actions"

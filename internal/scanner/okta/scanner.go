@@ -20,9 +20,21 @@ import (
 )
 
 func init() {
-	scan.Register("okta", func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls("okta", func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("okta.domain"), cfg.Get("okta.token"))
-	})
+	},
+		scan.Check(finding.CheckOktaMFANotEnforced, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckOktaWeakPasswordPolicy, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaNoSessionTimeout, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOktaInactiveAdmin, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOktaAPITokenNoExpiry, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaAPITokenLongLived, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOktaGroupNoMembers, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckOktaNoGroupRules, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckOktaAppPermissiveAccess, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaUserNoMFA, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaThreatInsightDisabled, finding.SeverityMedium, finding.ModeSurface),
+	)
 }
 
 // Scanner checks Okta org configuration for security misconfigurations.

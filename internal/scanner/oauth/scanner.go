@@ -36,9 +36,26 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckJWKSExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckJWTNoVerification, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthImplicitAccepted, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthMissingPKCE, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthMissingState, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthOpenRedirect, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthRefreshNotRotated, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthSubdomainBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthTokenInFragment, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthTokenLeakReferer, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthTokenLongExpiry, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthWeakState, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckOIDCBackchannelMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCImplicitFlow, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCMissingJWKSURI, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCWeakSigningAlg, finding.SeverityHigh, finding.ModeSurface),
+	)
 }
 // sanitizeShellArg wraps s in single quotes, escaping embedded single quotes.
 func sanitizeShellArg(s string) string {

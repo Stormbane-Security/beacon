@@ -29,9 +29,13 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("harvester.bin"))
-	})
+	},
+		scan.Check(finding.CheckHarvesterUnavailable, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckHarvesterEmails, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckHarvesterSubdomains, finding.SeverityInfo, finding.ModeSurface),
+	)
 }
 
 const scannerName = "harvester"

@@ -36,9 +36,17 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckSAMLEndpointExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckSAMLIssuerNotValidated, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLMetadataExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckSAMLOpenRedirect, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLSignatureNotValidated, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLXMLWrapping, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLXXEInjection, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const scannerName = "saml"
 

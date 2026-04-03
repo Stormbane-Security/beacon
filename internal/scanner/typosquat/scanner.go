@@ -19,9 +19,11 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckDomainTyposquat, finding.SeverityHigh, finding.ModeSurface),
+	)
 }
 const scannerName = "typosquat"
 

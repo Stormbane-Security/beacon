@@ -23,9 +23,12 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckWebSSRF, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebSSRFRedirectMetadata, finding.SeverityCritical, finding.ModeDeep),
+	)
 }
 const (
 	scannerName = "ssrf"

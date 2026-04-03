@@ -19,9 +19,11 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return New(cfg.Get("bing.api_key"))
-	})
+	},
+		scan.Check(finding.CheckBingDorkExposure, finding.SeverityHigh, finding.ModeSurface),
+	)
 }
 
 const scannerName = "dorks"

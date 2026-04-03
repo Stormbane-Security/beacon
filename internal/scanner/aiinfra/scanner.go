@@ -24,9 +24,14 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckAIInfraGradio, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckAIInfraJupyter, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckAIInfraMLflow, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckAIInfraRay, finding.SeverityCritical, finding.ModeSurface),
+	)
 }
 const scannerName = "aiinfra"
 

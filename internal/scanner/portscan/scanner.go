@@ -24,9 +24,15 @@ import (
 )
 
 func init() {
-	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
 		return NewWithNmap(cfg.Get("nmap.bin"))
-	})
+	},
+		scan.Check(finding.CheckPortServiceDiscovered, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckNetDeviceUniFiExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEUniFiLog4Shell, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckNetDeviceTPLinkOmada, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVETPLinkOmadaRCE, finding.SeverityCritical, finding.ModeSurface),
+	)
 }
 
 const scannerName = "portscan"

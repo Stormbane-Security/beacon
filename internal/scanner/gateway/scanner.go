@@ -21,9 +21,20 @@ import (
 
 
 func init() {
-	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
-	})
+	},
+		scan.Check(finding.CheckCDNAkamaiPragmaInfo, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckCDNVarnishPurgeEnabled, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayEnvoyAdminExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayHAProxyStatsExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayKongAdminExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayLinkerdVizExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayNginxStatusExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayTraefikAPIExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayTykDashExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGatewayVarnishDebugExposed, finding.SeverityLow, finding.ModeSurface),
+	)
 }
 const (
 	scannerName = "gateway"
