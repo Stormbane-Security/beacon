@@ -3,8 +3,7 @@
 //
 // It discovers upload endpoints by looking for multipart/form-data forms in crawled
 // HTML and by probing known upload paths, then attempts to upload files with:
-//   - Double extensions (.php.jpg, .php.png)
-//   - MIME type confusion (image/jpeg content with .php extension)
+//   - Double extensions (.php.jpg, .php.png)//   - MIME type confusion (image/jpeg content with .php extension)
 //   - Null byte injection (file.php%00.jpg)
 //   - Content-type spoofing (claim image/gif, upload PHP)
 //
@@ -23,11 +22,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const (
 	scannerName = "fileupload"
 	maxBodySize = 32 * 1024

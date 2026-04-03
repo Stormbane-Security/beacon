@@ -3,8 +3,7 @@
 //
 // IIS administrators often strip the version from the Server header, but
 // detailed version information leaks through:
-//   - Custom error pages (e.g., /a.aspx returns IIS-branded 404 with version)
-//   - ASP.NET trace endpoint (/trace.axd)
+//   - Custom error pages (e.g., /a.aspx returns IIS-branded 404 with version)//   - ASP.NET trace endpoint (/trace.axd)
 //   - IIS management paths (/iisstart.htm, /iishelp)
 //   - X-AspNet-Version / X-AspNetMvc-Version headers on .aspx routes
 //   - Custom 404 error page content containing IIS version strings
@@ -21,12 +20,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "iisversion"
 
 // probePaths that reveal IIS version information.

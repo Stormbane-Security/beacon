@@ -29,10 +29,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "saml"
 
 // Scanner detects SAML endpoints and tests for SAML security vulnerabilities.

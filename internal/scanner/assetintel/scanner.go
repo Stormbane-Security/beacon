@@ -14,9 +14,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return NewWithKeys(
+			cfg.Get("shodan.api_key"),
+			cfg.Get("virustotal.api_key"),
+			cfg.Get("securitytrails.api_key"),
+			cfg.Get("censys.api_id"),
+			cfg.Get("censys.api_secret"),
+			cfg.Get("greynoise.api_key"),
+		)
+	})
+}
 
 const scannerName = "assetintel"
 

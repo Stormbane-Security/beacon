@@ -1,5 +1,4 @@
-// Package xxe probes XML-accepting endpoints for XML External Entity (XXE)
-// injection vulnerabilities.
+// Package xxe probes XML-accepting endpoints for XML External Entity (XXE)// injection vulnerabilities.
 //
 // It discovers XML endpoints by probing common API paths with a Content-Type
 // of application/xml or text/xml, then injects XXE payloads and checks whether
@@ -18,11 +17,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const (
 	scannerName = "xxe"
 	maxBodySize = 64 * 1024

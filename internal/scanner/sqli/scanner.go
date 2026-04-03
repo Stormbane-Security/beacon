@@ -1,8 +1,7 @@
 // Package sqli implements a time-blind SQL injection scanner with calibration-based
 // timing analysis. Unlike sqlmap's simple threshold, this scanner:
 //
-//  1. Measures baseline latency (5 requests, takes median)
-//  2. Injects SLEEP(3) — verifies delta > 2.5s over baseline
+//  1. Measures baseline latency (5 requests, takes median)//  2. Injects SLEEP(3) — verifies delta > 2.5s over baseline
 //  3. Confirms with SLEEP(5) — verifies delta tracks proportionally
 //
 // This dual-sleep confirmation eliminates false positives from slow servers,
@@ -20,12 +19,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "sqli"
 
 // Payloads organized by database type. Each contains a SLEEP/WAITFOR/pg_sleep

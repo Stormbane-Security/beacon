@@ -5,20 +5,16 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 // Scanner is implemented by every individual scan module (nuclei, email, subdomain, testssl).
 // Scanners are pure functions: they receive a target and return findings.
 // They never touch the database or know about visibility/pricing.
-type Scanner interface {
-	// Name returns a stable identifier for this scanner (e.g. "nuclei", "email").
-	Name() string
-
-	// Run executes the scanner against the given asset (usually a domain or subdomain).
-	// asset is the specific host being scanned (may differ from the root domain).
-	// scanType controls whether active/deep checks are enabled.
-	Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error)
-}
+//
+// This is a type alias for scan.Scanner — the canonical definition lives in
+// internal/scan to avoid import cycles between scanner packages and the registry.
+type Scanner = scan.Scanner
 
 // OriginScanner is an optional extension of Scanner for scanners that can
 // target a specific IP directly rather than resolving the asset via DNS.

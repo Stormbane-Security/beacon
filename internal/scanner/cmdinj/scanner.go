@@ -3,8 +3,7 @@
 // commands across different OS families (Unix, Windows).
 //
 // Detection flow:
-//  1. Baseline latency measurement (median of 5 requests)
-//  2. Inject `; sleep 3` — verify delta > 2.5s over baseline
+//  1. Baseline latency measurement (median of 5 requests)//  2. Inject `; sleep 3` — verify delta > 2.5s over baseline
 //  3. Confirm with `; sleep 5` — verify delta tracks proportionally
 //  4. Optional: OOB confirmation via `nslookup TOKEN.oob.domain`
 //
@@ -22,12 +21,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "cmdinj"
 
 type payload struct {

@@ -5,8 +5,7 @@
 // Checks performed (ScanAuthorized mode only):
 // Active exploitation probes require ScanAuthorized mode (--authorized flag).
 //   - redirect_uri abuse: tries arbitrary domains, subdomain confusion, encoding bypass
-//   - Authorization code re-use: exchanges the same code twice (no invalidation check)
-//   - Token substitution: submits JWTs with modified claims or alg:none
+//   - Authorization code re-use: exchanges the same code twice (no invalidation check)//   - Token substitution: submits JWTs with modified claims or alg:none
 //   - State parameter bypass: submits flow without state or with a static value
 //
 // This scanner discovers the authorization endpoint from OIDC discovery or by
@@ -22,11 +21,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const (
 	scannerName = "authfuzz"
 	maxBodySize = 32 * 1024

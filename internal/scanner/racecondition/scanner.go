@@ -3,8 +3,7 @@
 // inconsistent responses that indicate non-atomic state operations.
 //
 // Common vulnerable operations:
-//   - Coupon/discount redemption (apply same code twice concurrently)
-//   - Account balance transfers (debit same amount concurrently)
+//   - Coupon/discount redemption (apply same code twice concurrently)//   - Account balance transfers (debit same amount concurrently)
 //   - Vote/like counting (increment same counter concurrently)
 //   - Registration (create same username concurrently)
 //   - File upload (overwrite same file concurrently)
@@ -24,12 +23,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "racecondition"
 
 // concurrency is the number of simultaneous requests.

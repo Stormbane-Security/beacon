@@ -1,7 +1,6 @@
 // Package autoprobe probes authentication endpoints for security weaknesses
 // without requiring credentials. It detects:
-//   - Username enumeration via differential responses (timing, body, status)
-//   - Missing account lockout (no 429/lockout after repeated bad attempts)
+//   - Username enumeration via differential responses (timing, body, status)//   - Missing account lockout (no 429/lockout after repeated bad attempts)
 //   - Missing rate limiting on auth endpoints specifically
 //
 // Surface mode (safe, no auth requests):
@@ -30,10 +29,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "autoprobe"
 
 // candidatePaths are common login endpoint paths to probe.

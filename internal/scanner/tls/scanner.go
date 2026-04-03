@@ -30,11 +30,18 @@ import (
 
 	"golang.org/x/crypto/ocsp"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
-const scannerName = "tls"
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
+const scannerName = "tlscheck"
 
 // oidSCT is the OID for the Certificate Transparency signed certificate
 // timestamp (SCT) extension: 1.3.6.1.4.1.11129.2.4.2

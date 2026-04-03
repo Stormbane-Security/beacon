@@ -2,8 +2,7 @@
 //
 // Surface mode (no root, no monitor mode required):
 //   - Enumerates nearby SSIDs using OS-native tools (airport on macOS,
-//     nmcli/iwlist on Linux)
-//   - Reports insecure configurations: open networks, WEP, WPS-enabled APs,
+//     nmcli/iwlist on Linux)//   - Reports insecure configurations: open networks, WEP, WPS-enabled APs,
 //     WPA2-TKIP-only networks
 //   - Discovers the connected network's default gateway and probes it for
 //     exposed management interfaces using TCP connect probes
@@ -29,10 +28,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "wifi"
 
 // gatewayProbeTimeout is the per-port TCP connect timeout when probing the

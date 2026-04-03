@@ -4,8 +4,7 @@
 //   - JWKS endpoint exposure — /.well-known/jwks.json or /oauth/discovery
 //   - OIDC discovery document — checks for implicit flow enabled, missing PKCE support
 //   - Token endpoint unauthenticated access — POST /oauth/token without credentials
-//   - OAuth authorization endpoint — missing state parameter → CSRF risk (deep)
-//   - OAuth authorization endpoint — missing PKCE (code_challenge) → auth code interception (deep)
+//   - OAuth authorization endpoint — missing state parameter → CSRF risk (deep)//   - OAuth authorization endpoint — missing PKCE (code_challenge) → auth code interception (deep)
 //   - Open redirect in redirect_uri — accepts arbitrary domains (deep)
 //   - JWT no-verification — sends a token with an invalid signature (deep)
 //
@@ -30,10 +29,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 // sanitizeShellArg wraps s in single quotes, escaping embedded single quotes.
 func sanitizeShellArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"

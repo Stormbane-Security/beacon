@@ -8,8 +8,7 @@
 //     parameter causes a 500 (unhandled validation error) vs. a proper 400/422
 //   - Whether type-confusion inputs (string where integer expected) cause 500s
 //   - Whether a simple SQL injection canary in string fields causes a 500
-//     (indicating the value reaches a query without sanitisation)
-//
+//     (indicating the value reaches a query without sanitisation)//
 // Surface mode only emits an informational finding for spec exposure.
 // Deep mode also runs the per-endpoint fuzzing.
 package swagger
@@ -24,10 +23,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 // sanitizeShellArg wraps a value in single quotes with proper escaping to
 // prevent shell metacharacter injection in ProofCommand strings.
 func sanitizeShellArg(s string) string {

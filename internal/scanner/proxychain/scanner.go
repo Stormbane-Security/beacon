@@ -5,8 +5,7 @@
 // Techniques:
 //  1. Via header parsing (RFC 7230 S5.7.1) — each proxy appends its version+alias
 //  2. X-Cache / X-Cache-Hits / Age — CDN cache layer detection
-//  3. X-Served-By — multi-POP CDN path (Fastly, Varnish, etc.)
-//  4. Server header inconsistency — different Server values on different paths
+//  3. X-Served-By — multi-POP CDN path (Fastly, Varnish, etc.)//  4. Server header inconsistency — different Server values on different paths
 //     reveals multiple backend servers behind a reverse proxy
 //  5. TRACE method reflection — Max-Forwards countdown reveals proxy depth
 //  6. X-Forwarded-For echo — proxy leaks the chain by echoing back XFF
@@ -28,10 +27,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "proxychain"
 
 // hopInfo represents a detected intermediary in the request path.

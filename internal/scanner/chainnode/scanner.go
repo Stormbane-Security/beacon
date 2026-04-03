@@ -4,8 +4,7 @@
 // infrastructure (Bitcoin, Solana).
 //
 // Exposed blockchain nodes are high-severity findings because they:
-//   - Reveal peer topology (net_peerCount, admin_peers)
-//   - Leak wallet addresses and transaction history (eth_accounts, eth_coinbase)
+//   - Reveal peer topology (net_peerCount, admin_peers)//   - Leak wallet addresses and transaction history (eth_accounts, eth_coinbase)
 //   - Allow state-changing calls if auth is absent (eth_sendTransaction,
 //     personal_unlockAccount, miner_start)
 //   - Expose validator keys and withdrawal credentials if beacon APIs are open
@@ -40,10 +39,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "chainnode"
 
 const dialTimeout = 3 * time.Second

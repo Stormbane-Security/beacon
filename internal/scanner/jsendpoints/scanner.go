@@ -6,8 +6,7 @@
 //   - Internal/staging API endpoints not in robots.txt or sitemap
 //   - Admin/debug paths hardcoded in frontend code
 //   - Internal hostnames and IP addresses
-//   - API keys and tokens (already covered by webcontent, but paths are not)
-//
+//   - API keys and tokens (already covered by webcontent, but paths are not)//
 // Surface mode only — reads JavaScript files already served by the web server.
 package jsendpoints
 
@@ -21,12 +20,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "jsendpoints"
 
 // jsPaths — common JavaScript bundle locations.

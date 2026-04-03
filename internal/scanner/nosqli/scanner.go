@@ -4,8 +4,7 @@
 // Unlike SQL injection, NoSQL injection targets JSON bodies rather than string
 // parameters. The scanner:
 //
-//  1. Discovers JSON API endpoints (crawled + hardcoded paths)
-//  2. Sends baseline requests to establish normal behavior
+//  1. Discovers JSON API endpoints (crawled + hardcoded paths)//  2. Sends baseline requests to establish normal behavior
 //  3. Injects MongoDB operators as parameter values
 //  4. Compares responses: auth bypass ($ne:null → 200 vs baseline 401),
 //     data leak ($gt:"" returns more data), or error ($where → JS error)
@@ -23,12 +22,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const (
 	scannerName = "nosqli"
 	maxBodySize = 64 * 1024

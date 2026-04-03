@@ -18,9 +18,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.Register(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return NewWithNmap(cfg.Get("nmap.bin"))
+	})
+}
 
 const scannerName = "portscan"
 

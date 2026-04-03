@@ -3,8 +3,7 @@
 // application servers.
 //
 // Different frameworks normalize paths differently:
-//   - Spring Boot: ..;/ (path parameter bypass)
-//   - Tomcat: /%2e%2e/ (double-encoded dot)
+//   - Spring Boot: ..;/ (path parameter bypass)//   - Tomcat: /%2e%2e/ (double-encoded dot)
 //   - Express/Node: %2F..%2F (encoded slash)
 //   - Rails: ..%00/ (null byte truncation in older versions)
 //   - IIS: ..%5C (backslash traversal)
@@ -21,12 +20,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "pathtraversal"
 
 // traversal holds a framework-specific path traversal payload.

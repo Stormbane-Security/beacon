@@ -14,9 +14,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.Register("okta", func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("okta.domain"), cfg.Get("okta.token"))
+	})
+}
 
 // Scanner checks Okta org configuration for security misconfigurations.
 type Scanner struct {

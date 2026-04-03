@@ -1,5 +1,4 @@
-// Package log4shell detects potential Log4j JNDI injection (CVE-2021-44228)
-// in HTTP headers. It operates in two modes:
+// Package log4shell detects potential Log4j JNDI injection (CVE-2021-44228)// in HTTP headers. It operates in two modes:
 //
 // Surface mode: passively checks response headers and cookies for Java/Log4j
 // stack signals (Tomcat, JSESSIONID, X-Powered-By: Spring, etc.). Signals are
@@ -22,10 +21,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const (
 	scannerName     = "log4shell"
 	maxBodySize     = 32 * 1024 // 32 KB

@@ -12,10 +12,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 // altPorts are common non-standard ports to probe when the asset is a bare
 // hostname. CORS misconfigurations frequently appear on development/staging
 // servers that run on these ports rather than standard 80/443.

@@ -24,8 +24,7 @@
 // Surface mode:
 //   - Auto-detect EVM (SIWE) and Solana (SIWS) signals in page content
 //   - Probe well-known nonce/verify endpoints for both protocols
-//   - Check if auth is accessible over plain HTTP (CheckWeb3SIWEOverHTTP)
-//   - Emit CheckWeb3SIWEEndpoint / CheckWeb3SIWSDEndpoint (Info)
+//   - Check if auth is accessible over plain HTTP (CheckWeb3SIWEOverHTTP)//   - Emit CheckWeb3SIWEEndpoint / CheckWeb3SIWSDEndpoint (Info)
 //
 // Deep mode (requires --permission-confirmed):
 //   - Ephemeral wallet login flow (SIWE and/or SIWS)
@@ -47,10 +46,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "web3auth"
 
 // Scanner implements SIWE + SIWS authentication security testing.

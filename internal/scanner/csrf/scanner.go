@@ -2,8 +2,7 @@
 //
 // A POST form is vulnerable to CSRF when:
 //  1. It has no hidden CSRF token field (common names: _token, csrf_token,
-//     authenticity_token, __RequestVerificationToken, etc.)
-//  2. AND the response has no SameSite cookie attribute set to Strict or Lax
+//     authenticity_token, __RequestVerificationToken, etc.)//  2. AND the response has no SameSite cookie attribute set to Strict or Lax
 //
 // This is a heuristic analysis — it does not attempt to submit forms. Deep mode only.
 package csrf
@@ -17,12 +16,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"golang.org/x/net/html"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "csrf"
 
 // Known CSRF token field names used by popular frameworks.
