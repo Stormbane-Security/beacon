@@ -74,6 +74,11 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"redos",          // deep:    ReDoS timing detection
 		"nosqli",         // deep:    NoSQL/MongoDB operator injection
 		"errordisclosure", // surface: stack traces, debug endpoints, verbose errors
+		"bigip",           // surface: F5 BIG-IP cookie internal IP leak
+		"aiinfra",         // surface: AI/ML infrastructure exposure
+		"mcpscan",         // surface: MCP server endpoint discovery
+		"hopbyhop",        // deep:    hop-by-hop Connection header abuse
+		"h2c",             // deep:    HTTP/2 Cleartext upgrade smuggling
 	}
 
 	for _, name := range mustHave {

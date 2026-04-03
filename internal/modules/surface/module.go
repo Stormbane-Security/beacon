@@ -117,6 +117,11 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/sqli"
 	"github.com/stormbane-security/beacon/internal/scanner/nosqli"
 	"github.com/stormbane-security/beacon/internal/scanner/errordisclosure"
+	"github.com/stormbane-security/beacon/internal/scanner/hopbyhop"
+	"github.com/stormbane-security/beacon/internal/scanner/bigip"
+	"github.com/stormbane-security/beacon/internal/scanner/aiinfra"
+	"github.com/stormbane-security/beacon/internal/scanner/mcpscan"
+	"github.com/stormbane-security/beacon/internal/scanner/h2c"
 	"github.com/stormbane-security/beacon/internal/scanner/secheaders"
 	"github.com/stormbane-security/beacon/internal/scanner/proxychain"
 	"github.com/stormbane-security/beacon/internal/scanner/cacheprobe"
@@ -379,6 +384,11 @@ func New(cfg Config) (*Module, error) {
 		"sqli":           sqli.New(),
 		"nosqli":         nosqli.New(),
 		"errordisclosure": errordisclosure.New(),
+		"hopbyhop":        hopbyhop.New(),
+		"bigip":           bigip.New(),
+		"aiinfra":         aiinfra.New(),
+		"mcpscan":         mcpscan.New(),
+		"h2c":             h2c.New(),
 		"cmdinj":         cmdinj.New(),
 		"domxss":         domxss.New(),
 		"hibp":           hibp.New(cfg.HIBPAPIKey),

@@ -668,7 +668,16 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckWAFBypassMethod:      true,
 		finding.CheckWAFBypassContentType: true,
 		// Proxy chain
-		finding.CheckProxyTraceEnabled: true,
+		finding.CheckProxyTraceEnabled:   true,
+		finding.CheckProxyHopByHopAbuse: true,
+		// Load balancer
+		// H2C smuggling
+		finding.CheckWebH2CSmuggling: true,
+		// MCP
+		finding.CheckMCPToolPoisoning:    true,
+		finding.CheckMCPCommandInjection: true,
+		// RPC
+		finding.CheckRPCMethodDangerous: true,
 		// Cache probe
 		finding.CheckCachePoisonUnkeyed: true,
 		finding.CheckCacheDeception:     true,

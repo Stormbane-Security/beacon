@@ -50,6 +50,9 @@ surface:
     - passivedns     # passive DNS aggregation from public sources (no active queries)
     - bgp            # BGP prefix origin validation and AS ownership
     - errordisclosure # stack traces, debug endpoints, verbose error info leak
+    - bigip          # F5 BIG-IP persistence cookie decoding — internal IP leak
+    - aiinfra        # AI/ML infrastructure exposure (Jupyter, Ray, MLflow, Gradio)
+    - mcpscan        # MCP server endpoint discovery — unauthenticated tool access
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:
@@ -100,6 +103,8 @@ deep:
     - idor           # IDOR/BOLA: sequential numeric ID manipulation on REST API endpoints
     - accesscontrol  # broken access control: admin path bypass, method override, path traversal
     - redos          # Regular Expression DoS via catastrophic backtracking timing detection
+    - hopbyhop       # hop-by-hop Connection header abuse — proxy strips security headers
+    - h2c            # HTTP/2 Cleartext upgrade smuggling — bypasses proxy controls
   nuclei_tags:
     - cves
     - network

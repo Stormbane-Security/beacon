@@ -1,0 +1,53 @@
+name: chainnode-dangerous-rpc-methods
+description: >
+  Real Ganache Ethereum development node with all RPC methods enabled.
+  Ganache exposes dangerous methods like personal_unlockAccount, eth_sendTransaction,
+  and debug_traceTransaction without authentication. Beacon chainnode scanner
+  should detect the exposed node and flag dangerous RPC methods in deep mode.
+tags: [chainnode, scanner, blockchain, ethereum, rpc, dangerous-methods, deep]
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["9305:8545"]
+    command: ["--host", "0.0.0.0", "--accounts", "5", "--deterministic"]
+
+ready:
+  cmd: "curl -sf http://localhost:9305 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-eth-accounts-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9305 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_accounts\",\"params\":[],\"id\":1}' | grep -q '0x'"
+      exit_code: 0
+
+  - name: exploit-personal-unlock-available
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9305 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"personal_unlockAccount\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"pass\",300],\"id\":1}' | grep -qv 'method not found'"
+      exit_code: 0
+
+  - name: exploit-eth-send-transaction-available
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9305 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendTransaction\",\"params\":[{}],\"id\":1}' | grep -qv 'method not found'"
+      exit_code: 0
+
+  - name: detects-chainnode-exposed
+    type: beacon
+    target: localhost:9305
+    args: ["--no-enrich", "--scanners", "chainnode", "--ports", "8545"]
+    expect:
+      check_id: chain.node_exposed
+
+  - name: detects-dangerous-rpc-methods
+    type: beacon
+    target: localhost:9305
+    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed", "--ports", "8545"]
+    expect:
+      check_id: chain.rpc_dangerous_method
+
+timeout: 10m

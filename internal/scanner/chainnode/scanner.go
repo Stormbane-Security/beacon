@@ -322,6 +322,76 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, base, as
 		}
 	}
 
+	// Probe for dangerous state-changing methods that should never be exposed.
+	dangerousMethods := []struct {
+		method string
+		desc   string
+	}{
+		{"personal_unlockAccount", "unlock wallet accounts without passphrase enforcement"},
+		{"miner_start", "start/stop mining and redirect block rewards"},
+		{"eth_sendTransaction", "broadcast arbitrary transactions from unlocked accounts"},
+		{"debug_traceTransaction", "access internal EVM execution traces"},
+		{"admin_addPeer", "manipulate the node's peer connections"},
+	}
+
+	for _, dm := range dangerousMethods {
+		if ctx.Err() != nil {
+			break
+		}
+		// Send the method with empty/dummy params — we only check if the method
+		// is recognized (no "method not found" error), not if it succeeds.
+		payload := fmt.Sprintf(`{"jsonrpc":"2.0","method":"%s","params":[],"id":99}`, dm.method)
+		reqD, err := http.NewRequestWithContext(ctx, http.MethodPost, base, bytes.NewBufferString(payload))
+		if err != nil {
+			continue
+		}
+		reqD.Header.Set("Content-Type", "application/json")
+		respD, err := client.Do(reqD)
+		if err != nil {
+			continue
+		}
+		bodyD, _ := io.ReadAll(io.LimitReader(respD.Body, 2048))
+		respD.Body.Close()
+
+		// "Method not found" means it's disabled — safe.
+		// Any other response (including parameter errors) means it's available.
+		bodyLower := strings.ToLower(string(bodyD))
+		if strings.Contains(bodyLower, "method not found") ||
+			strings.Contains(bodyLower, "method not supported") ||
+			strings.Contains(bodyLower, "the method") {
+			continue
+		}
+		// Must be a valid JSON-RPC response (not just random HTTP)
+		var rpcCheck struct {
+			JSONRPC string `json:"jsonrpc"`
+		}
+		if json.Unmarshal(bodyD, &rpcCheck) != nil || rpcCheck.JSONRPC == "" {
+			continue
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckRPCMethodDangerous,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("Dangerous RPC method %s exposed on %s", dm.method, asset),
+			Description: fmt.Sprintf(
+				"The Ethereum JSON-RPC method %s is available without authentication on %s. "+
+					"This method can %s. State-changing and administrative RPC methods must be "+
+					"disabled or protected by JWT authentication on production nodes.",
+				dm.method, asset, dm.desc),
+			Asset: asset,
+			Evidence: map[string]any{
+				"host":   asset,
+				"method": dm.method,
+			},
+			ProofCommand: fmt.Sprintf(
+				`curl -s -X POST %s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"%s","params":[],"id":1}'`,
+				base, dm.method),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings
 }
 

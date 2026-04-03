@@ -159,7 +159,18 @@ const (
 	CheckProxyChainDetected CheckID = "proxy.chain_detected"      // multi-layer proxy/CDN/LB chain detected
 	CheckProxyHopDetected   CheckID = "proxy.hop_detected"        // individual infrastructure hop identified
 	CheckProxyXFFLeak       CheckID = "proxy.xff_leak"            // proxy echoes X-Forwarded-For in response
-	CheckProxyTraceEnabled  CheckID = "proxy.trace_enabled"       // HTTP TRACE method enabled (XST risk)
+	CheckProxyTraceEnabled      CheckID = "proxy.trace_enabled"          // HTTP TRACE method enabled (XST risk)
+	CheckProxyHopByHopAbuse    CheckID = "proxy.hop_by_hop_abuse"      // proxy strips security headers via Connection header injection
+	CheckLBBigIPCookieLeak     CheckID = "lb.bigip_cookie_leak"        // F5 BIG-IP persistence cookie leaks internal IP:port
+	CheckWebH2CSmuggling       CheckID = "web.h2c_smuggling"           // HTTP/2 Cleartext upgrade accepted — bypasses proxy rules
+	CheckMCPToolPoisoning      CheckID = "mcp.tool_poisoning"          // MCP tool schema contains hidden instructions
+	CheckMCPUnauthenticated    CheckID = "mcp.unauthenticated"         // MCP server accepts requests without authentication
+	CheckMCPCommandInjection   CheckID = "mcp.command_injection"       // MCP tool parameter allows OS command injection
+	CheckAIInfraJupyter        CheckID = "ai.jupyter_unauthenticated"  // Jupyter Notebook kernel API accessible without auth
+	CheckAIInfraRay            CheckID = "ai.ray_dashboard_unauthenticated" // Ray dashboard job submission API accessible without auth
+	CheckAIInfraMLflow         CheckID = "ai.mlflow_unauthenticated"   // MLflow tracking server accessible without auth
+	CheckAIInfraGradio         CheckID = "ai.gradio_unauthenticated"   // Gradio ML demo server accessible without auth
+	CheckRPCMethodDangerous    CheckID = "chain.rpc_dangerous_method"  // JSON-RPC endpoint exposes state-changing methods without auth
 
 	// CDN cache intelligence
 	CheckCacheBehaviorDetected CheckID = "cache.behavior_detected"  // CDN/cache layer fingerprinted from headers
@@ -1655,7 +1666,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckProxyChainDetected: {CheckProxyChainDetected, SeverityInfo, ModeSurface},
 	CheckProxyHopDetected:   {CheckProxyHopDetected, SeverityInfo, ModeSurface},
 	CheckProxyXFFLeak:       {CheckProxyXFFLeak, SeverityMedium, ModeSurface},
-	CheckProxyTraceEnabled:  {CheckProxyTraceEnabled, SeverityMedium, ModeDeep},
+	CheckProxyTraceEnabled:      {CheckProxyTraceEnabled, SeverityMedium, ModeDeep},
+	CheckProxyHopByHopAbuse:    {CheckProxyHopByHopAbuse, SeverityHigh, ModeDeep},
+	CheckLBBigIPCookieLeak:     {CheckLBBigIPCookieLeak, SeverityMedium, ModeSurface},
+	CheckWebH2CSmuggling:       {CheckWebH2CSmuggling, SeverityHigh, ModeDeep},
+	CheckMCPToolPoisoning:      {CheckMCPToolPoisoning, SeverityHigh, ModeDeep},
+	CheckMCPUnauthenticated:    {CheckMCPUnauthenticated, SeverityCritical, ModeSurface},
+	CheckMCPCommandInjection:   {CheckMCPCommandInjection, SeverityCritical, ModeDeep},
+	CheckAIInfraJupyter:        {CheckAIInfraJupyter, SeverityCritical, ModeSurface},
+	CheckAIInfraRay:            {CheckAIInfraRay, SeverityCritical, ModeSurface},
+	CheckAIInfraMLflow:         {CheckAIInfraMLflow, SeverityHigh, ModeSurface},
+	CheckAIInfraGradio:         {CheckAIInfraGradio, SeverityHigh, ModeSurface},
+	CheckRPCMethodDangerous:    {CheckRPCMethodDangerous, SeverityCritical, ModeDeep},
 
 	// CDN cache intelligence — passive fingerprinting → Surface, active probes → Deep
 	CheckCacheBehaviorDetected: {CheckCacheBehaviorDetected, SeverityInfo, ModeSurface},
