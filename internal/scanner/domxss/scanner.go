@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -181,13 +182,19 @@ func probeURL(ctx context.Context, targetURL string) ([]xssTrace, error) {
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 	defer browserCancel()
 
-	// Inject the canary constant and tracer script before page load
+	// Inject the canary constant and tracer script before page load.
+	// AddScriptToEvaluateOnNewDocument ensures the tracer runs in the
+	// new page context BEFORE any page scripts execute — unlike
+	// chromedp.Evaluate which only runs in the current (about:blank) context
+	// and is lost on navigation.
 	setupScript := fmt.Sprintf("window.__beacon_canary = %q;\n%s", canary, tracerJS)
 
 	var traces []xssTrace
 	err := chromedp.Run(browserCtx,
-		// Add script to execute on every new document (before page JS runs)
-		chromedp.Evaluate(setupScript, nil),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(setupScript).Do(ctx)
+			return err
+		}),
 		chromedp.Navigate(targetURL),
 		// Wait for page load + JS execution
 		chromedp.Sleep(2*time.Second),

