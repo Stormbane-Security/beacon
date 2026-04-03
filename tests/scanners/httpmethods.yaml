@@ -1,0 +1,39 @@
+name: httpmethods-dangerous
+description: >
+  Nginx allowing dangerous HTTP methods (TRACE, PUT, DELETE).
+  Beacon should detect web.dangerous_method_enabled.
+tags: [httpmethods, scanner, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9251:80"]
+    volumes:
+      - ./httpmethods/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9251/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-trace-allowed
+    type: command
+    expect:
+      command: "curl -s -X TRACE http://localhost:9251/ | grep -q 'TRACE'"
+      exit_code: 0
+
+  - name: exploit-put-allowed
+    type: command
+    expect:
+      command: "curl -s -X PUT http://localhost:9251/ | grep -q 'PUT accepted'"
+      exit_code: 0
+
+  - name: detects-dangerous-methods
+    type: beacon
+    target: localhost:9251
+    args: ["--no-enrich", "--scanners", "httpmethods", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.dangerous_method_enabled
+
+timeout: 5m

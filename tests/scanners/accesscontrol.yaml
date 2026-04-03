@@ -1,0 +1,32 @@
+name: accesscontrol-juice-shop
+description: >
+  OWASP Juice Shop with exposed admin panel at /administration and
+  unprotected API endpoints. Beacon accesscontrol scanner probes for
+  vertical privilege escalation and method/path bypass.
+tags: [accesscontrol, scanner, web, authz]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["9266:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9266/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-app-responds
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9266/ | grep -q '200'"
+      exit_code: 0
+
+  - name: accesscontrol-scan-completes
+    type: beacon
+    target: localhost:9266
+    args: ["--no-enrich", "--scanners", "accesscontrol", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

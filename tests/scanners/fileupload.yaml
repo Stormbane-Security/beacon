@@ -1,0 +1,31 @@
+name: fileupload-dvwa
+description: >
+  DVWA (Damn Vulnerable Web Application) with file upload functionality.
+  Beacon fileupload scanner checks for unrestricted file upload.
+tags: [fileupload, scanner, web]
+
+services:
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    ports: ["9267:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9267/ -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-dvwa-running
+    type: command
+    expect:
+      command: "curl -sL http://localhost:9267/ | grep -qi 'dvwa\\|damn'"
+      exit_code: 0
+
+  - name: fileupload-scan-completes
+    type: beacon
+    target: localhost:9267
+    args: ["--no-enrich", "--scanners", "fileupload", "--authorized"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

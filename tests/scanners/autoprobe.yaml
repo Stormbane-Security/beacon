@@ -1,0 +1,36 @@
+name: autoprobe-keycloak
+description: >
+  Keycloak identity provider with login endpoints. Beacon autoprobe
+  scanner checks for username enumeration, missing lockout, and
+  brute-force protection signals.
+tags: [autoprobe, scanner, auth]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    ports: ["9269:8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: ["start-dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:9269/ -o /dev/null -w '%{http_code}' | grep -qE '200|302|303'"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: exploit-login-page-exists
+    type: command
+    expect:
+      command: "curl -sL http://localhost:9269/realms/master/account/ | grep -qiE 'login|sign.in|keycloak'"
+      exit_code: 0
+
+  - name: autoprobe-scan-completes
+    type: beacon
+    target: localhost:9269
+    args: ["--no-enrich", "--scanners", "autoprobe", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

@@ -1,0 +1,31 @@
+name: elinjection-spring
+description: >
+  Spring Boot PetClinic — EL injection scanner probes for SpEL, OGNL,
+  and Java EL expression evaluation in request parameters.
+tags: [elinjection, scanner, web, java]
+
+services:
+  petclinic:
+    image: arey/springboot-petclinic:latest
+    ports: ["9272:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9272/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-spring-app-running
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9272/ | grep -q '200'"
+      exit_code: 0
+
+  - name: elinjection-scan-completes
+    type: beacon
+    target: localhost:9272
+    args: ["--no-enrich", "--scanners", "elinjection", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

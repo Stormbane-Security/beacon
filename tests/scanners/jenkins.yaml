@@ -1,0 +1,33 @@
+name: jenkins-exposed
+description: >
+  Jenkins CI server with default configuration and no authentication.
+  Beacon jenkins scanner should detect exposed Jenkins dashboard.
+tags: [jenkins, scanner, cicd]
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    ports: ["9274:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+ready:
+  cmd: "curl -sf http://localhost:9274/ -o /dev/null -w '%{http_code}' | grep -qE '200|403'"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: exploit-jenkins-accessible
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9274/ | grep -qi 'Jenkins'"
+      exit_code: 0
+
+  - name: detects-jenkins
+    type: beacon
+    target: localhost:9274
+    args: ["--no-enrich", "--scanners", "jenkins"]
+    expect:
+      min_findings: 1
+
+timeout: 10m

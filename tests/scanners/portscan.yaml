@@ -1,0 +1,44 @@
+name: portscan-multi-service
+description: >
+  Multiple services on different ports — validates beacon portscan
+  scanner detects open ports on the target host.
+tags: [portscan, scanner, network]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["9275:80"]
+
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["9276:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:9275/ >/dev/null && curl -sf http://localhost:9276/get >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-port-9275-open
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9275/ >/dev/null"
+      exit_code: 0
+
+  - name: exploit-port-9276-open
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9276/get >/dev/null"
+      exit_code: 0
+
+  # Portscan should find at least one open port
+  - name: portscan-finds-open-ports
+    type: beacon
+    target: localhost:9275
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

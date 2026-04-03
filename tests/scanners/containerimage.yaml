@@ -1,0 +1,39 @@
+name: containerimage-registry
+description: >
+  Docker registry:2 with anonymous access. Beacon should detect
+  container.registry_exposed and container.registry_anonymous_push.
+tags: [containerimage, scanner, container]
+
+services:
+  registry:
+    image: registry:2
+    ports: ["9257:5000"]
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+
+ready:
+  cmd: "curl -sf http://localhost:9257/v2/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-registry-catalog-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9257/v2/_catalog | grep -q 'repositories'"
+      exit_code: 0
+
+  - name: exploit-registry-no-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9257/v2/ | grep -q '200'"
+      exit_code: 0
+
+  - name: detects-registry-exposed
+    type: beacon
+    target: localhost:9257
+    args: ["--no-enrich", "--scanners", "containerimage"]
+    expect:
+      check_id: container.registry_exposed
+
+timeout: 5m

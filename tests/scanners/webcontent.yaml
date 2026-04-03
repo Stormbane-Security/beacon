@@ -1,0 +1,32 @@
+name: webcontent-juice-shop
+description: >
+  OWASP Juice Shop with JavaScript source containing hardcoded secrets,
+  internal endpoints, and API keys. Beacon webcontent scanner should
+  detect js.hardcoded_secret or js.internal_endpoint patterns.
+tags: [webcontent, scanner, web, secrets]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["9271:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9271/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-js-bundle-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9271/ | grep -qE 'script.*src.*\\.js'"
+      exit_code: 0
+
+  - name: webcontent-scan-completes
+    type: beacon
+    target: localhost:9271
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

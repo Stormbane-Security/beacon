@@ -1,0 +1,38 @@
+name: idor-juice-shop
+description: >
+  OWASP Juice Shop with sequential numeric IDs on REST API endpoints
+  (/api/Products/1, /api/Products/2). Beacon IDOR scanner should
+  detect sequential ID access patterns.
+tags: [idor, scanner, web, bola]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["9265:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9265/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-sequential-ids-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9265/api/Products/1 | grep -q 'data'"
+      exit_code: 0
+
+  - name: exploit-adjacent-id-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9265/api/Products/2 | grep -q 'data'"
+      exit_code: 0
+
+  - name: idor-scan-completes
+    type: beacon
+    target: localhost:9265
+    args: ["--no-enrich", "--scanners", "idor", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

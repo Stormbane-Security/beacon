@@ -1,0 +1,32 @@
+name: nextjs-cve-2025-29927
+description: >
+  Next.js application vulnerable to CVE-2025-29927 middleware bypass.
+  Beacon nextjs scanner should detect the authentication bypass via
+  X-Middleware-Subrequest header injection.
+tags: [nextjs, scanner, cve, web]
+
+services:
+  nextjs-vuln:
+    image: enochgitgamefied/nextjs-cve-2025-29927-docker-lab:latest
+    ports: ["9264:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9264/ -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-nextjs-detected
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9264/ | grep -qi 'next'"
+      exit_code: 0
+
+  - name: detects-nextjs-middleware-bypass
+    type: beacon
+    target: localhost:9264
+    args: ["--no-enrich", "--scanners", "nextjs"]
+    expect:
+      check_id: cve.nextjs_middleware_bypass
+
+timeout: 10m

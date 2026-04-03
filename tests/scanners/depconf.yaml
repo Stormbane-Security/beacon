@@ -1,0 +1,39 @@
+name: depconf-dependency-confusion
+description: >
+  Nginx serving exposed package.json and composer.json with internal
+  scoped packages, enabling dependency confusion attacks.
+tags: [depconf, scanner, supply-chain]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9254:80"]
+    volumes:
+      - ./depconf/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9254/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-package-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9254/package.json | grep -q '@internal/auth-lib'"
+      exit_code: 0
+
+  - name: exploit-composer-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9254/composer.json | grep -q 'internal/sso-client'"
+      exit_code: 0
+
+  - name: detects-dependency-confusion
+    type: beacon
+    target: localhost:9254
+    args: ["--no-enrich", "--scanners", "depconf"]
+    expect:
+      check_id: supply_chain.dependency_confusion
+
+timeout: 5m
