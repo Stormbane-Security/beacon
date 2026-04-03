@@ -12,6 +12,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
+	"github.com/stormbane-security/beacon/internal/postexploit"
 )
 
 func TestCmdInj_SkipsSurface(t *testing.T) {
@@ -292,7 +293,7 @@ func TestCmdInj_ShellshockNoFalsePositive(t *testing.T) {
 
 func TestParseRedisKeys(t *testing.T) {
 	output := "*3\r\n$10\r\napp:db_url\r\n$14\r\napp:api_secret\r\n$8\r\nsessions\r\n"
-	keys := parseRedisKeys(output)
+	keys := postexploit.ParseRedisKeys(output)
 	if len(keys) != 3 {
 		t.Errorf("expected 3 keys, got %d: %v", len(keys), keys)
 	}
@@ -303,7 +304,7 @@ func TestParseEtcHosts(t *testing.T) {
 172.18.0.3 cache
 172.18.0.4 search db-primary`
 	hosts := make(map[string][]string)
-	parseEtcHosts(data, hosts)
+	postexploit.ParseEtcHosts(data, hosts)
 
 	if _, ok := hosts["172.18.0.3"]; !ok {
 		t.Error("expected 172.18.0.3 in hosts")
@@ -334,7 +335,7 @@ REDIS_AUTH_TOKEN=abc123
 API_KEY=sk-12345
 NORMAL_VAR=hello`
 
-	creds := extractEnvSecrets(envOutput)
+	creds := postexploit.ExtractEnvSecrets(envOutput)
 	if len(creds) < 2 {
 		t.Errorf("expected at least 2 env secrets, got %d", len(creds))
 	}
