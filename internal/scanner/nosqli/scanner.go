@@ -314,7 +314,9 @@ func checkDataExfiltration(ctx context.Context, client *http.Client, asset, base
 func checkWhereInjection(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
 	var findings []finding.Finding
 
-	allPaths := append(loginPaths, dataPaths...)
+	allPaths := make([]string, 0, len(loginPaths)+len(dataPaths))
+	allPaths = append(allPaths, loginPaths...)
+	allPaths = append(allPaths, dataPaths...)
 	for _, path := range allPaths {
 		if ctx.Err() != nil {
 			break

@@ -240,7 +240,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		findings = append(findings, finding.Finding{
-			CheckID:      "exposure.api_version",
+			CheckID:      finding.CheckExposureAPIVersion,
 			Module:       "surface",
 			Scanner:      scannerName,
 			Severity:     sev,

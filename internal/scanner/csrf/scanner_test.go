@@ -49,6 +49,9 @@ func TestCSRF_DetectsMissingToken(t *testing.T) {
 	if f.CheckID != "web.csrf_token_missing" {
 		t.Errorf("expected check ID web.csrf_token_missing, got %s", f.CheckID)
 	}
+	if f.Module != "deep" {
+		t.Errorf("expected Module=deep for deep-only scanner, got %q", f.Module)
+	}
 }
 
 func TestCSRF_SkipsFormWithToken(t *testing.T) {

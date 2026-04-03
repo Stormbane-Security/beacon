@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -30,7 +31,7 @@ func TestAPIVersions_ActiveVersionDetected(t *testing.T) {
 		t.Fatal("expected finding for active /api/v1/")
 	}
 	f := findings[0]
-	if f.CheckID != "exposure.api_version" {
+	if f.CheckID != finding.CheckExposureAPIVersion {
 		t.Errorf("unexpected check ID: %s", f.CheckID)
 	}
 	if f.ProofCommand == "" {

@@ -77,7 +77,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	awsScanError := func(name string, err error) finding.Finding {
 		return finding.Finding{
-			CheckID:      "cloud.aws.scan_error",
+			CheckID:      finding.CheckCloudAWSScanError,
 			Title:        fmt.Sprintf("AWS scan partial failure: %s", name),
 			Description:  fmt.Sprintf("AWS %s scan failed: %v", name, err),
 			Severity:     finding.SeverityInfo,

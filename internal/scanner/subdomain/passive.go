@@ -212,7 +212,7 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 	}
 
 	findings = append(findings, finding.Finding{
-		CheckID:      "asset.subdomains_discovered",
+		CheckID:      finding.CheckSubdomainsDiscovered,
 		Module:       "surface",
 		Scanner:      scannerName,
 		Severity:     finding.SeverityInfo,
@@ -244,7 +244,7 @@ func detectWildcardDNS(ctx context.Context, domain string) map[string]struct{} {
 
 // Subdomains extracts the list of discovered subdomains from a subdomain discovery finding.
 func Subdomains(f finding.Finding) []string {
-	if f.CheckID != "asset.subdomains_discovered" {
+	if f.CheckID != finding.CheckSubdomainsDiscovered {
 		return nil
 	}
 	raw, ok := f.Evidence["subdomains"]

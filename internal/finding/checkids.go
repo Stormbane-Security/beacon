@@ -77,6 +77,7 @@ const (
 	CheckHeadersServerInfoLeak          CheckID = "headers.server_info_leak"
 
 	// Exposure / Misconfiguration
+	CheckExposureAPIVersion       CheckID = "exposure.api_version"
 	CheckExposureHTTPNoRedirect   CheckID = "exposure.http_no_redirect"
 	CheckExposureStagingSubdomain CheckID = "exposure.staging_subdomain"
 	CheckExposureAdminPath        CheckID = "exposure.admin_path"
@@ -98,8 +99,9 @@ const (
 	CheckNucleiStaleTemplates    CheckID = "nuclei.stale_templates" // templates >30 days old
 
 	// Subdomain / Asset Discovery
-	CheckSubdomainTakeover  CheckID = "subdomain.takeover"
-	CheckDomainTyposquat    CheckID = "domain.typosquat" // registered lookalike domain
+	CheckSubdomainTakeover      CheckID = "subdomain.takeover"
+	CheckSubdomainsDiscovered   CheckID = "asset.subdomains_discovered"
+	CheckDomainTyposquat        CheckID = "domain.typosquat" // registered lookalike domain
 
 	// Web Application Security (deep only)
 	CheckWebTechDetected      CheckID = "web.tech_detected"
@@ -1011,6 +1013,7 @@ const (
 
 	// AWS authenticated cloud scanning
 	CheckCloudAWSIAMRootAccessKey CheckID = "cloud.aws.iam_root_access_key"  // root account has active access keys
+	CheckCloudAWSScanError         CheckID = "cloud.aws.scan_error"           // AWS account scan failed
 	CheckCloudAWSIAMRootNoMFA     CheckID = "cloud.aws.iam_root_no_mfa"      // root account MFA not enabled
 	CheckCloudAWSIAMUserNoMFA     CheckID = "cloud.aws.iam_user_no_mfa"      // IAM user with console access has no MFA
 	CheckCloudAWSIAMAccessKeyOld  CheckID = "cloud.aws.iam_access_key_old"   // IAM access key older than 90 days
@@ -1714,6 +1717,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckHeadersServerInfoLeak:           {CheckHeadersServerInfoLeak, SeverityLow, ModeSurface},
 
 	// Exposure — GET requests to well-known paths (same as any crawler) → Surface
+	CheckExposureAPIVersion:       {CheckExposureAPIVersion, SeverityLow, ModeSurface},
 	CheckExposureHTTPNoRedirect:   {CheckExposureHTTPNoRedirect, SeverityMedium, ModeSurface},
 	CheckExposureStagingSubdomain: {CheckExposureStagingSubdomain, SeverityHigh, ModeSurface},
 	CheckExposureAdminPath:        {CheckExposureAdminPath, SeverityHigh, ModeSurface},
@@ -1733,9 +1737,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNucleiStaleTemplates:     {CheckNucleiStaleTemplates, SeverityMedium, ModeSurface},
 
 	// Subdomain takeover — DNS observation only → Surface
-	CheckSubdomainTakeover: {CheckSubdomainTakeover, SeverityCritical, ModeSurface},
+	CheckSubdomainTakeover:    {CheckSubdomainTakeover, SeverityCritical, ModeSurface},
+	CheckSubdomainsDiscovered: {CheckSubdomainsDiscovered, SeverityInfo, ModeSurface},
 	// Typosquat — DNS lookups only → Surface
-	CheckDomainTyposquat:   {CheckDomainTyposquat, SeverityHigh, ModeSurface},
+	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityHigh, ModeSurface},
 
 	// Web — passive fingerprinting from normal responses → Surface
 	// Active payload injection (XSS/SQLi/SSRF/traversal) and credential
@@ -2521,6 +2526,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudGCPNoAuditLogging:           {CheckCloudGCPNoAuditLogging, SeverityHigh, ModeDeep},
 
 	// AWS authenticated cloud scanning — requires valid AWS credentials
+	CheckCloudAWSScanError:         {CheckCloudAWSScanError, SeverityInfo, ModeDeep},
 	CheckCloudAWSIAMRootAccessKey:  {CheckCloudAWSIAMRootAccessKey, SeverityCritical, ModeDeep},
 	CheckCloudAWSIAMRootNoMFA:      {CheckCloudAWSIAMRootNoMFA, SeverityCritical, ModeDeep},
 	CheckCloudAWSIAMUserNoMFA:      {CheckCloudAWSIAMUserNoMFA, SeverityHigh, ModeDeep},

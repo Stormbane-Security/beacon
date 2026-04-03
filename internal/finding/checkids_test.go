@@ -367,6 +367,7 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudGCPComputeDefaultSA:     true,
 		finding.CheckCloudGCPGKEPublicEndpoint:    true,
 		finding.CheckCloudGCPGKENoBinaryAuth:      true,
+		finding.CheckCloudAWSScanError:         true,
 		finding.CheckCloudAWSIAMRootAccessKey:  true,
 		finding.CheckCloudAWSIAMRootNoMFA:      true,
 		finding.CheckCloudAWSIAMUserNoMFA:      true,

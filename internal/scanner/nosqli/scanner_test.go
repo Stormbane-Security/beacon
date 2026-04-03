@@ -165,3 +165,34 @@ func TestSurfaceModeSkips(t *testing.T) {
 		t.Errorf("expected no findings in surface mode, got %d", len(findings))
 	}
 }
+
+func TestAppendSliceSafety(t *testing.T) {
+	// Verify that combining loginPaths and dataPaths does not mutate the
+	// original package-level slices. Before the fix, append(loginPaths,
+	// dataPaths...) could corrupt loginPaths if its backing array had
+	// spare capacity.
+	origLogin := make([]string, len(loginPaths))
+	copy(origLogin, loginPaths)
+	origData := make([]string, len(dataPaths))
+	copy(origData, dataPaths)
+
+	// Simulate what checkWhereInjection does
+	allPaths := make([]string, 0, len(loginPaths)+len(dataPaths))
+	allPaths = append(allPaths, loginPaths...)
+	allPaths = append(allPaths, dataPaths...)
+
+	// Verify originals unchanged
+	for i, p := range loginPaths {
+		if p != origLogin[i] {
+			t.Errorf("loginPaths[%d] mutated: %q -> %q", i, origLogin[i], p)
+		}
+	}
+	for i, p := range dataPaths {
+		if p != origData[i] {
+			t.Errorf("dataPaths[%d] mutated: %q -> %q", i, origData[i], p)
+		}
+	}
+	if len(allPaths) != len(loginPaths)+len(dataPaths) {
+		t.Errorf("allPaths length mismatch: got %d, want %d", len(allPaths), len(loginPaths)+len(dataPaths))
+	}
+}

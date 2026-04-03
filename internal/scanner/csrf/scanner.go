@@ -120,7 +120,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebCSRFMissing,
-					Module:   "surface",
+					Module:   "deep",
 					Scanner:  scannerName,
 					Severity: finding.SeverityMedium,
 					Title:    fmt.Sprintf("POST form at %s missing CSRF token", path),

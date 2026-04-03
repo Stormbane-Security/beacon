@@ -419,5 +419,6 @@ func isEmptyRule(r MatchRule) bool {
 		r.HasDMARC == nil &&
 		r.ProxyTypeContains == "" &&
 		r.InfraLayerContains == "" &&
-		r.CheckIDPresent == ""
+		r.CheckIDPresent == "" &&
+		r.WAFVendorContains == ""
 }

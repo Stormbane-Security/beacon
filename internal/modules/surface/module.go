@@ -1385,7 +1385,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			parts = append(parts, fmt.Sprintf("title=%q", ev.Title))
 		}
 		if ev.JARMFingerprint != "" {
-			parts = append(parts, "JARM="+ev.JARMFingerprint[:8]+"…")
+			jarmPreview := ev.JARMFingerprint
+			if len(jarmPreview) > 8 {
+				jarmPreview = jarmPreview[:8] + "…"
+			}
+			parts = append(parts, "JARM="+jarmPreview)
 		}
 		msg := asset
 		if len(parts) > 0 {
@@ -2247,7 +2251,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		// record reflects these paths and they participate in path_responds
 		// playbook matching on subsequent scans.
 		for _, f := range findings {
-			if f.CheckID != "exposure.api_version" {
+			if f.CheckID != finding.CheckExposureAPIVersion {
 				continue
 			}
 			if path, ok := f.Evidence["path"].(string); ok && path != "" {
