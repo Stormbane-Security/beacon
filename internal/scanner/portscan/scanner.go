@@ -346,7 +346,9 @@ collectResults:
 
 	var findings []finding.Finding
 	openPorts := make(map[int]string)
+	totalScanned := 0
 	for r := range results {
+		totalScanned++
 		if !r.open {
 			continue
 		}
@@ -358,6 +360,31 @@ collectResults:
 		if hint := EmitPortServiceDiscovered(asset, r.entry.port, r.entry.service, r.banner); hint != nil {
 			findings = append(findings, *hint)
 		}
+	}
+
+	// Transparent proxy / honeypot detection: if 80%+ of scanned ports
+	// responded as open, the host is likely behind a transparent proxy or
+	// is a honeypot. Individual port findings are unreliable in this case.
+	if totalScanned >= 10 && len(openPorts)*100/totalScanned >= 80 {
+		return []finding.Finding{{
+			CheckID:  finding.CheckPortServiceDiscovered,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityInfo,
+			Asset:    asset,
+			Title:    fmt.Sprintf("Transparent proxy or honeypot detected on %s (%d/%d ports open)", asset, len(openPorts), totalScanned),
+			Description: fmt.Sprintf(
+				"%d out of %d scanned ports responded as open, which indicates a transparent "+
+					"proxy, firewall SYN-ACK reflection, or honeypot. Individual port findings "+
+					"are suppressed because they are unreliable in this scenario.",
+				len(openPorts), totalScanned),
+			Evidence: map[string]any{
+				"open_count":    len(openPorts),
+				"scanned_count": totalScanned,
+				"ratio_pct":     len(openPorts) * 100 / totalScanned,
+			},
+			DiscoveredAt: time.Now(),
+		}}, nil
 	}
 
 	// Run nmap against confirmed open ports for service version + NSE scripts.

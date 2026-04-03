@@ -107,7 +107,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		for _, tr := range traces {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWebXSS,
-				Module:   "surface",
+				Module:   "deep",
 				Scanner:  scannerName,
 				Severity: finding.SeverityHigh,
 				Title:    fmt.Sprintf("DOM XSS via %s sink at %s (source: location.hash)", tr.Sink, path),
@@ -116,7 +116,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 						"Data: %q. This confirms a DOM-based cross-site scripting vulnerability "+
 						"where user-controlled URL fragments are rendered without sanitization.",
 					tr.Sink, truncate(tr.Data, 200)),
-				Asset: asset,
+				Asset:    asset,
+				DeepOnly: true,
 				Evidence: map[string]any{
 					"path":   path,
 					"sink":   tr.Sink,
@@ -141,7 +142,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		for _, tr := range traces {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWebXSS,
-				Module:   "surface",
+				Module:   "deep",
 				Scanner:  scannerName,
 				Severity: finding.SeverityHigh,
 				Title:    fmt.Sprintf("DOM XSS via %s sink at %s (source: location.search)", tr.Sink, path),
@@ -150,7 +151,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 						"Data: %q. This confirms a DOM-based cross-site scripting vulnerability "+
 						"where user-controlled URL parameters are rendered without sanitization.",
 					tr.Sink, truncate(tr.Data, 200)),
-				Asset: asset,
+				Asset:    asset,
+				DeepOnly: true,
 				Evidence: map[string]any{
 					"path":   path,
 					"sink":   tr.Sink,
