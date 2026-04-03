@@ -1,0 +1,46 @@
+name: waf-bypass-xss
+description: >
+  Web application behind ModSecurity WAF with reflected XSS. Standard
+  XSS payloads (<script>alert(1)</script>) are blocked. Beacon should
+  use SVG, event handler alternatives, and encoding bypass to confirm XSS.
+
+services:
+  webapp:
+    image: vulnerables/web-dvwa:latest
+    ports: ["8080:80"]
+    environment:
+      MYSQL_HOST: database
+      MYSQL_USER: root
+      MYSQL_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+    depends_on: [database]
+
+  database:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["80:80"]
+    environment:
+      BACKEND: "http://webapp:80"
+      PARANOIA: "1"
+    depends_on: [webapp]
+
+assertions:
+  # WAF blocks standard XSS
+  - name: waf-blocks-standard-xss
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?name=%3Cscript%3Ealert(1)%3C/script%3E'"
+      stdout_contains: "403"
+
+  # Beacon should detect XSS using evasion techniques
+  - name: beacon-bypasses-waf-xss
+    type: beacon
+    target: localhost
+    args: ["--deep", "--scanners", "xss,ssti", "--output-json", "/tmp/results.json"]
+    expect:
+      check_id: web.xss

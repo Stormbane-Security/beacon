@@ -1,0 +1,72 @@
+name: agent-deploy-cmdinj
+description: >
+  Multi-container scenario: web app with command injection + internal
+  PostgreSQL database with credentials in web app's environment. Beacon
+  should exploit command injection, deploy agent, collect evidence
+  (env vars, network, credentials), discover internal database, and
+  extract data through the agent.
+
+services:
+  webapp:
+    image: vulnerables/web-dvwa:latest
+    ports: ["8080:80"]
+    environment:
+      MYSQL_HOST: database
+      MYSQL_USER: root
+      MYSQL_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+      DATABASE_URL: "postgres://admin:secret123@internal-db:5432/customers"
+      AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
+      AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    depends_on: [database]
+    networks: [frontend, internal]
+
+  database:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+    networks: [frontend]
+
+  internal-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+      POSTGRES_DB: customers
+    networks: [internal]
+
+networks:
+  frontend:
+  internal:
+
+assertions:
+  # Beacon should find command injection
+  - name: beacon-finds-cmdinj
+    type: beacon
+    target: localhost:8080
+    args: ["--authorized", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
+    expect:
+      check_id: web.command_injection
+
+  # Post-exploitation should harvest credentials from environment
+  - name: beacon-harvests-creds
+    type: beacon_output
+    file: /tmp/results.json
+    expect:
+      check_id: exploit.credential_harvest
+
+  # Post-exploitation should discover internal network
+  - name: beacon-discovers-internal
+    type: beacon_output
+    file: /tmp/results.json
+    expect:
+      check_id: exploit.internal_network_discovered
+
+  # Agent deployment should succeed
+  - name: beacon-deploys-agent
+    type: beacon_output
+    file: /tmp/results.json
+    expect:
+      check_id: exploit.code_execution
+      evidence_contains: "agent"

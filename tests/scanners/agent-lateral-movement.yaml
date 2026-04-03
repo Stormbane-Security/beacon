@@ -1,0 +1,96 @@
+name: agent-lateral-movement
+description: >
+  Three-tier scenario testing agent lateral movement:
+  - Frontend web app with command injection (externally accessible)
+  - Internal API server with Redis (reachable only from frontend)
+  - Database server with PostgreSQL (reachable only from API server)
+
+  Beacon should exploit frontend → deploy agent → discover internal API →
+  pivot to database → extract data. Tests the full attack chain.
+
+services:
+  frontend:
+    image: vulnerables/web-dvwa:latest
+    ports: ["8080:80"]
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+      API_URL: "http://api:3000"
+      API_KEY: "FAKE_API_KEY_FOR_BEACON_TESTS_0"
+    depends_on: [db, api]
+    networks: [public, tier1]
+
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+    networks: [public]
+
+  api:
+    image: node:20-slim
+    command: >
+      sh -c "npm init -y && npm install express redis &&
+      node -e \"
+        const express = require('express');
+        const app = express();
+        app.get('/health', (req, res) => res.json({status: 'ok'}));
+        app.get('/users', (req, res) => res.json([{id:1,name:'admin',email:'admin@example.com'}]));
+        app.listen(3000);
+      \""
+    environment:
+      REDIS_URL: "redis://cache:6379"
+      DB_HOST: "database"
+      DB_USER: "apiuser"
+      DB_PASS: "api_secret_password"
+    networks: [tier1, tier2]
+
+  cache:
+    image: redis:7
+    networks: [tier2]
+
+  database:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: apiuser
+      POSTGRES_PASSWORD: api_secret_password
+      POSTGRES_DB: production
+    networks: [tier2]
+
+networks:
+  public:
+  tier1:
+  tier2:
+
+assertions:
+  # Beacon exploits frontend command injection
+  - name: exploit-frontend
+    type: beacon
+    target: localhost:8080
+    args: ["--authorized", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
+    expect:
+      check_id: web.command_injection
+
+  # Beacon discovers tier1 network from frontend
+  - name: discover-internal-network
+    type: beacon_output
+    file: /tmp/results.json
+    expect:
+      check_id: exploit.internal_network_discovered
+
+  # Beacon harvests API credentials from frontend env
+  - name: harvest-api-credentials
+    type: beacon_output
+    file: /tmp/results.json
+    expect:
+      check_id: exploit.credential_harvest
+
+  # Beacon discovers Redis via lateral movement
+  - name: discover-redis
+    type: beacon_output
+    file: /tmp/results.json
+    expect:
+      check_id: exploit.lateral_movement
+      evidence_contains: "redis"
