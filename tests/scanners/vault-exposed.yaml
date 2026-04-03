@@ -20,18 +20,44 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-vault-seal-status-accessible
+  # --- Exploit proofs: verify Vault is fully exposed ---
+  - name: exploit-seal-status-unauthenticated
     type: command
     expect:
       command: "curl -sf http://localhost:9313/v1/sys/seal-status | grep -q '\"sealed\":false'"
       exit_code: 0
 
-  - name: exploit-vault-mounts-accessible
+  - name: exploit-vault-version-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9313/v1/sys/seal-status | grep -oP '\"version\":\"[0-9.]+\"'"
+      exit_code: 0
+
+  - name: exploit-mounts-list-secrets-engine
     type: command
     expect:
       command: "curl -sf -H 'X-Vault-Token: beacon-test-token' http://localhost:9313/v1/sys/mounts | grep -q 'secret/'"
       exit_code: 0
 
+  - name: exploit-write-then-read-secret
+    type: command
+    expect:
+      command: "curl -sf -X POST -H 'X-Vault-Token: beacon-test-token' -d '{\"data\":{\"password\":\"hunter2\"}}' http://localhost:9313/v1/secret/data/beacon-test && curl -sf -H 'X-Vault-Token: beacon-test-token' http://localhost:9313/v1/secret/data/beacon-test | grep -q 'hunter2'"
+      exit_code: 0
+
+  - name: exploit-list-policies-accessible
+    type: command
+    expect:
+      command: "curl -sf -H 'X-Vault-Token: beacon-test-token' http://localhost:9313/v1/sys/policies/acl | grep -q 'default'"
+      exit_code: 0
+
+  - name: exploit-health-endpoint-unauthenticated
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9313/v1/sys/health | grep -q '\"initialized\":true'"
+      exit_code: 0
+
+  # --- Scanner detection ---
   - name: detects-vault-exposed
     type: beacon
     target: localhost:9313

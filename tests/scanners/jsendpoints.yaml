@@ -18,10 +18,17 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-js-contains-internal-endpoints
+  # --- Exploit proofs: JS file contains sensitive endpoint data ---
+  - name: exploit-html-includes-script-tag
     type: command
     expect:
-      command: "curl -s http://localhost:9311/app.js | grep -q 'api-internal.staging'"
+      command: "curl -s http://localhost:9311/ | grep -q '<script src=\"/app.js\"'"
+      exit_code: 0
+
+  - name: exploit-js-contains-staging-api
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q 'api-internal.staging.example.com'"
       exit_code: 0
 
   - name: exploit-js-contains-private-ip
@@ -30,6 +37,38 @@ assertions:
       command: "curl -s http://localhost:9311/app.js | grep -q '192.168.1.50'"
       exit_code: 0
 
+  - name: exploit-js-contains-graphql-endpoint
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q '/graphql'"
+      exit_code: 0
+
+  - name: exploit-js-contains-admin-path
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q '/admin/dashboard/users'"
+      exit_code: 0
+
+  - name: exploit-js-contains-internal-metrics-host
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q 'metrics-internal.prod.example.com'"
+      exit_code: 0
+
+  - name: exploit-js-contains-versioned-api-path
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q '/api/v1/admin/settings'"
+      exit_code: 0
+
+  # --- Negative: HTML page itself doesn't contain raw endpoints ---
+  - name: negative-html-does-not-contain-endpoints-directly
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/ | grep -q '192.168.1.50'"
+      exit_code: 1
+
+  # --- Scanner detection ---
   - name: detects-js-internal-endpoints
     type: beacon
     target: localhost:9311

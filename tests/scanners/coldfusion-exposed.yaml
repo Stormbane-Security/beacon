@@ -18,18 +18,45 @@ ready:
   interval: 5s
 
 assertions:
-  - name: exploit-lucee-admin-accessible
+  # --- Exploit proofs: verify ColdFusion admin is exposed ---
+  - name: exploit-lucee-server-admin-accessible
     type: command
     expect:
-      command: "curl -s http://localhost:9320/lucee/admin/server.cfm | grep -qi 'lucee\\|administrator'"
+      command: "curl -s http://localhost:9320/lucee/admin/server.cfm | grep -qi 'lucee'"
       exit_code: 0
 
-  - name: exploit-cfide-path-accessible
+  - name: exploit-admin-login-form-present
+    type: command
+    expect:
+      command: "curl -s http://localhost:9320/lucee/admin/server.cfm | grep -qi 'password\\|login\\|sign in'"
+      exit_code: 0
+
+  - name: exploit-lucee-web-admin-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9320/lucee/admin/web.cfm | grep -q '200\\|302'"
+      exit_code: 0
+
+  - name: exploit-cfide-administrator-path
     type: command
     expect:
       command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9320/CFIDE/administrator/"
       stdout_contains: "200"
 
+  - name: exploit-lucee-version-exposed
+    type: command
+    expect:
+      command: "curl -s http://localhost:9320/lucee/admin/server.cfm | grep -oiP 'lucee\\s+[0-9]+\\.[0-9]+' || curl -sI http://localhost:9320/ | grep -qi 'lucee'"
+      exit_code: 0
+
+  # --- Negative: root page should not directly expose admin ---
+  - name: negative-root-is-default-page
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9320/"
+      stdout_contains: "200"
+
+  # --- Scanner detection ---
   - name: detects-coldfusion-admin-exposed
     type: beacon
     target: localhost:9320

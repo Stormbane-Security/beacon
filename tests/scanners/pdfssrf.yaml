@@ -17,14 +17,47 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-gotenberg-html-to-pdf
+  # --- Exploit proofs: verify PDF generation from HTML works ---
+  - name: exploit-health-endpoint-accessible
     type: command
     expect:
-      command: "curl -sf --form 'files=@/dev/stdin;filename=index.html' http://localhost:9321/forms/chromium/convert/html -o /tmp/test.pdf <<< '<html><body>test</body></html>' && file /tmp/test.pdf | grep -q PDF"
+      command: "curl -sf http://localhost:9321/health | grep -qi 'up\\|ok\\|true'"
       exit_code: 0
 
-  # Note: pdfssrf scanner probes common paths like /api/pdf, /generate-pdf etc.
-  # Gotenberg uses /forms/chromium/convert/html which is Gotenberg-specific.
-  # Scanner detection of Gotenberg's specific API path is covered by unit tests.
+  - name: exploit-html-to-pdf-renders-valid-pdf
+    type: command
+    expect:
+      command: "echo '<html><body><h1>Beacon SSRF Test</h1></body></html>' | curl -sf --form 'files=@-;filename=index.html' http://localhost:9321/forms/chromium/convert/html -o /tmp/beacon-pdfssrf-test.pdf && head -c 5 /tmp/beacon-pdfssrf-test.pdf | grep -q '%PDF'"
+      exit_code: 0
+
+  - name: exploit-pdf-contains-rendered-content
+    type: command
+    expect:
+      command: "strings /tmp/beacon-pdfssrf-test.pdf | grep -qi 'Beacon SSRF Test'"
+      exit_code: 0
+
+  - name: exploit-html-with-external-ref-accepted
+    type: command
+    expect:
+      command: "echo '<html><body><img src=\"http://169.254.169.254/latest/meta-data/\"><p>ssrf-test</p></body></html>' | curl -sf --form 'files=@-;filename=index.html' http://localhost:9321/forms/chromium/convert/html -o /tmp/beacon-pdfssrf-ssrf.pdf && head -c 5 /tmp/beacon-pdfssrf-ssrf.pdf | grep -q '%PDF'"
+      exit_code: 0
+
+  - name: exploit-url-based-conversion-available
+    type: command
+    expect:
+      command: "curl -sf --form 'url=https://example.com' http://localhost:9321/forms/chromium/convert/url -o /tmp/beacon-pdfssrf-url.pdf && head -c 5 /tmp/beacon-pdfssrf-url.pdf | grep -q '%PDF'"
+      exit_code: 0
+
+  # --- Negative: non-PDF endpoints return errors ---
+  - name: negative-invalid-endpoint-returns-error
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9321/api/pdf"
+      stdout_contains: "404"
+
+  # pdfssrf scanner probes common paths like /api/pdf, /generate-pdf — Gotenberg
+  # uses /forms/chromium/convert/html. Scanner detection of Gotenberg's specific
+  # API path would need the scanner to know about Gotenberg. Unit tests verify
+  # the scanner's detection logic against the generic paths.
 
 timeout: 5m

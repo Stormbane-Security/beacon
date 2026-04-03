@@ -18,22 +18,55 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-verb-tamper-get-blocked
+  # --- Exploit proofs: verify the vuln is real ---
+  - name: exploit-get-admin-blocked
     type: command
     expect:
       command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9310/admin"
       stdout_contains: "403"
 
-  - name: exploit-verb-tamper-post-allowed
+  - name: exploit-post-admin-bypasses-auth
     type: command
     expect:
       command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9310/admin"
       stdout_contains: "200"
 
+  - name: exploit-put-admin-also-bypasses
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X PUT http://localhost:9310/admin"
+      stdout_contains: "200"
+
+  - name: exploit-patch-admin-also-bypasses
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X PATCH http://localhost:9310/admin"
+      stdout_contains: "200"
+
+  - name: exploit-bypass-returns-real-content
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:9310/admin | grep -q 'Admin panel accessible'"
+      exit_code: 0
+
+  - name: exploit-second-protected-path-also-bypassable
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9310/api/admin"
+      stdout_contains: "200"
+
+  # --- Negative: public paths unaffected ---
+  - name: negative-root-returns-200-on-get
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9310/"
+      stdout_contains: "200"
+
+  # --- Scanner detection ---
   - name: detects-verb-tamper-bypass
     type: beacon
     target: localhost:9310
-    args: ["--no-enrich", "--scanners", "verbtamper", "--deep"]
+    args: ["--no-enrich", "--scanners", "verbtamper", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.verb_tamper_auth_bypass
 

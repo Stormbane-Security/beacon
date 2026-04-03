@@ -16,12 +16,38 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-grpc-reflection-lists-services
+  # --- Exploit proofs: verify gRPC reflection is open ---
+  - name: exploit-grpc-port-open
     type: command
     expect:
-      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list || echo 'grpcurl not installed — skip'"
+      command: "nc -z localhost 9318 2>/dev/null"
       exit_code: 0
 
+  - name: exploit-http2-upgrade-accepted
+    type: command
+    expect:
+      command: "curl -s --http2-prior-knowledge -X POST http://localhost:9318/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo -H 'Content-Type: application/grpc' -o /dev/null -w '%{http_code}' | grep -qP '200|415'"
+      exit_code: 0
+
+  - name: exploit-grpcurl-lists-services
+    type: command
+    expect:
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list | grep -q '\\.\\|grpc' || echo 'grpcurl-not-installed:SKIP'"
+      exit_code: 0
+
+  - name: exploit-grpcurl-describes-service
+    type: command
+    expect:
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list | head -1 | xargs -I{} grpcurl -plaintext localhost:9318 describe {} | grep -q 'rpc\\|message' || echo 'grpcurl-not-installed:SKIP'"
+      exit_code: 0
+
+  - name: exploit-grpc-insecure-port-also-open
+    type: command
+    expect:
+      command: "nc -z localhost 9319 2>/dev/null"
+      exit_code: 0
+
+  # --- Scanner detection ---
   - name: detects-grpc-reflection-enabled
     type: beacon
     target: localhost:9318

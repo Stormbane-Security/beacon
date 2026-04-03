@@ -17,21 +17,48 @@ ready:
   interval: 5s
 
 assertions:
-  - name: exploit-wildfly-welcome-page
+  # --- Exploit proofs: verify WildFly management is exposed ---
+  - name: exploit-welcome-page-identifies-wildfly
     type: command
     expect:
       command: "curl -s http://localhost:9314/ | grep -qi 'WildFly'"
       exit_code: 0
 
-  - name: exploit-management-console-accessible
+  - name: exploit-management-rest-api-returns-product-info
+    type: command
+    expect:
+      command: "curl -s http://localhost:9315/management | grep -q 'product-name'"
+      exit_code: 0
+
+  - name: exploit-management-api-reveals-version
+    type: command
+    expect:
+      command: "curl -s http://localhost:9315/management | grep -q 'release-version'"
+      exit_code: 0
+
+  - name: exploit-console-web-ui-accessible
     type: command
     expect:
       command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9315/console/App.html"
       stdout_contains: "200"
 
+  - name: exploit-console-contains-hal-ui
+    type: command
+    expect:
+      command: "curl -s http://localhost:9315/console/App.html | grep -qi 'hal\\|management\\|console'"
+      exit_code: 0
+
+  # --- Negative: app port is not management ---
+  - name: negative-app-port-no-management-api
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9314/management"
+      stdout_contains: "404"
+
+  # --- Scanner detection ---
   - name: detects-jboss-management-exposed
     type: beacon
-    target: localhost:9314
+    target: localhost:9315
     args: ["--no-enrich", "--scanners", "portscan"]
     expect:
       check_id: port.jboss_management_exposed
