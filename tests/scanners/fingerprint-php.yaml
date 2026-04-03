@@ -1,5 +1,5 @@
 name: fingerprint-wordpress
-description: "Real WordPress 6.4 instance — beacon classify should detect Framework=wordpress, PHPSESSID cookie, PHP headers, wp-content paths"
+description: "Real WordPress 6.4 instance — beacon classify detects Framework=wordpress"
 tags: [fingerprint, classify, discovery, wordpress]
 
 services:
@@ -35,10 +35,9 @@ assertions:
       exit_code: 0
 
   - name: detects-wordpress-framework
-    type: beacon
+    type: classify
     target: localhost:9215
-    args: ["--no-enrich", "--scanners", "classify", "--ports", "80"]
     expect:
-      min_findings: 1
+      framework: wordpress
 
 timeout: 5m

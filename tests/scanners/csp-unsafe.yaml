@@ -1,13 +1,13 @@
 name: csp-unsafe-directives
-description: "Web app with CSP containing unsafe-inline, unsafe-eval, and wildcard sources"
+description: "nginx with CSP containing unsafe-inline, unsafe-eval, and wildcard sources"
 tags: [csp, security-headers, web]
 
 services:
-  app:
-    build:
-      context: ./csp-unsafe
-      dockerfile: Dockerfile
-    ports: ["9301:8080"]
+  nginx:
+    image: nginx:alpine
+    ports: ["9301:80"]
+    volumes:
+      - ./csp-unsafe/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
   cmd: "curl -sf http://localhost:9301/ >/dev/null"
@@ -30,7 +30,7 @@ assertions:
   - name: detects-csp-unsafe-inline
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
     expect:
       check_id: csp.unsafe_inline
 

@@ -33,7 +33,7 @@ assertions:
   - name: detects-spring-actuator
     type: beacon
     target: localhost:9216
-    args: ["--no-enrich", "--scanners", "swagger", "--deep", "--permission-confirmed", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "swagger", "--deep", "--permission-confirmed"]
     expect:
       min_findings: 1
 

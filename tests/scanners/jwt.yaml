@@ -18,13 +18,13 @@ assertions:
   - name: exploit-jwt-token-issued
     type: command
     expect:
-      command: "curl -sf http://localhost:9205/token | grep -q '\\.'"
+      command: "curl -sf http://localhost:9205/login | python3 -c 'import sys,json; t=json.load(sys.stdin)[\"token\"]; assert \".\" in t'"
       exit_code: 0
 
   - name: exploit-jwt-alg-none-header
     type: command
     expect:
-      command: "TOKEN=$(curl -sf http://localhost:9205/token) && HEADER=$(echo $TOKEN | cut -d. -f1) && (echo $HEADER | base64 -d 2>/dev/null || echo $HEADER | base64 -D 2>/dev/null || echo $HEADER= | base64 -d 2>/dev/null) | grep -qiE '(none|HS256)'"
+      command: "TOKEN=$(curl -sf http://localhost:9205/login | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"token\"])') && HEADER=$(echo $TOKEN | cut -d. -f1) && python3 -c \"import base64,sys; h=sys.argv[1]; print(base64.urlsafe_b64decode(h+'==').decode())\" \"$HEADER\" | grep -qi none"
       exit_code: 0
 
   - name: detects-weak-jwt-algorithm

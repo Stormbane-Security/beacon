@@ -1,13 +1,11 @@
 name: websocket-cswsh
-description: "WebSocket server without Origin validation — cross-site WebSocket hijacking"
+description: "ttyd terminal server with WebSocket at /ws — no Origin validation (CSWSH)"
 tags: [websocket, cswsh, web, authorized]
 
 services:
-  app:
-    build:
-      context: ./websocket-cswsh
-      dockerfile: Dockerfile
-    ports: ["9302:8080"]
+  ttyd:
+    image: tsl0922/ttyd:latest
+    ports: ["9302:7681"]
 
 ready:
   cmd: "curl -sf http://localhost:9302/ >/dev/null"
@@ -24,7 +22,7 @@ assertions:
   - name: detects-websocket-cswsh
     type: beacon
     target: localhost:9302
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "websocket", "--deep", "--permission-confirmed", "--authorized"]
     expect:
       check_id: websocket.cswsh
 

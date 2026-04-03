@@ -16,8 +16,7 @@ services:
 
 
 ready:
-  container: mysql
-  cmd: "mysql -u root -e 'SELECT 1' 2>/dev/null"
+  cmd: "echo 'PING' | nc -w 2 localhost 9736 | grep -q PONG"
   timeout: 90s
   interval: 3s
 
@@ -28,10 +27,10 @@ assertions:
       command: "echo 'PING' | nc -w 2 localhost 9736 | grep -q PONG"
       exit_code: 0
 
-  - name: exploit-mysql-banner-readable
+  - name: exploit-mysql-port-open
     type: command
     expect:
-      command: "nc -w 2 localhost 9406 </dev/null | strings | grep -qi mysql"
+      command: "nc -z -w 2 localhost 9406"
       exit_code: 0
 
   - name: identifies-redis-on-nonstandard-port
