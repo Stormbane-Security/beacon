@@ -226,6 +226,10 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 				DiscoveredAt: time.Now(),
 			})
 
+			// Post-exploitation: env leak + RCE confirmation
+			postFindings := postExploit(ctx, client, asset, targetURL, header)
+			findings = append(findings, postFindings...)
+
 			// One finding per asset is enough — stop all loops.
 			return findings, nil
 		}

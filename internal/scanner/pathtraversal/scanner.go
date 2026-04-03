@@ -184,6 +184,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					},
 					DiscoveredAt: time.Now(),
 				})
+
+				// Post-exploitation: read sensitive files via same traversal
+				postFindings := postExploit(ctx, client, asset, base, t.prefix)
+				findings = append(findings, postFindings...)
+
 				break // one traversal per path is enough
 			}
 		}

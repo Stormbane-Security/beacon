@@ -108,6 +108,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, fs...)
 	}
 
+	// Post-exploitation: if any injection was confirmed, attempt data extraction
+	if len(findings) > 0 {
+		injType := "operator_injection"
+		if p, ok := findings[0].Evidence["payload"].(string); ok {
+			injType = p
+		}
+		postFindings := postExploit(ctx, client, asset, base, injType)
+		findings = append(findings, postFindings...)
+	}
+
 	return findings, nil
 }
 

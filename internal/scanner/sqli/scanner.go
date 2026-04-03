@@ -194,6 +194,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					DiscoveredAt: time.Now(),
 				})
 
+				// Post-exploitation: attempt data extraction
+				postFindings := postExploit(ctx, client, asset, scheme, pp.path, param, p.dbType)
+				findings = append(findings, postFindings...)
+
 				// One confirmed SQLi per parameter is enough
 				break
 			}

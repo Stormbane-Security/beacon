@@ -29,6 +29,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/modules/surface"
 	"github.com/stormbane-security/beacon/internal/profiler"
 	"github.com/stormbane-security/beacon/internal/report"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 	"github.com/stormbane-security/beacon/internal/store"
 	sqlitestore "github.com/stormbane-security/beacon/internal/store/sqlite"
@@ -74,6 +75,8 @@ SCAN FLAGS:
   --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
+  --log-file <path>          Write structured JSON logs to file (one event per line)
+  --log-level <level>        Log level: debug, info (default), warn, error
 
 ENRICH FLAGS:
   --input <file>             Raw findings JSON from --output-raw (required)
@@ -264,6 +267,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		scannersFlag        string
 		portsFlag           string
 		dnsServer           string
+		logFile             string
+		logLevel            string
 	)
 
 	// --quiet can also be set via env var for automation.
@@ -388,6 +393,16 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				portsFlag = args[i]
 			}
+		case "--log-file":
+			i++
+			if i < len(args) {
+				logFile = args[i]
+			}
+		case "--log-level":
+			i++
+			if i < len(args) {
+				logLevel = args[i]
+			}
 		}
 	}
 
@@ -456,7 +471,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
 		return
 	}
 
@@ -544,6 +559,13 @@ Type exactly: I have written authorization for %s
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Set up structured logging if --log-file is specified.
+	if logFile != "" {
+		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
+		defer sl.Close()
+		ctx = scanlog.WithLogger(ctx, sl)
+	}
 
 	// Open store
 	st, err := sqlitestore.Open(cfg.Store.Path)
@@ -761,6 +783,14 @@ Type exactly: I have written authorization for %s
 	if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
 		fatalf("save findings: %v", err)
 	}
+
+	// Log all findings to structured log file (if --log-file was specified).
+	sl := scanlog.FromContext(ctx)
+	sl.ScanStart(domain, string(scanType), []string{domain})
+	for _, f := range findings {
+		sl.Finding(f)
+	}
+	sl.ScanComplete(domain, len(findings), time.Since(run.StartedAt))
 
 	// Run deterministic compound-attack correlation rules synchronously.
 	// These fire without AI and appear in the TUI even when AI is skipped.
@@ -1045,6 +1075,7 @@ func cmdScanMultiAsset(
 	scannersList []string,
 	portsList []int,
 	dryRun bool,
+	logFile, logLevel string,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -1098,6 +1129,13 @@ Type exactly: I have written authorization for all listed targets
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Set up structured logging if --log-file is specified.
+	if logFile != "" {
+		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
+		defer sl.Close()
+		ctx = scanlog.WithLogger(ctx, sl)
+	}
 
 	st, err := sqlitestore.Open(cfg.Store.Path)
 	if err != nil {
@@ -1242,6 +1280,14 @@ Type exactly: I have written authorization for all listed targets
 		if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
 			fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", domain, err)
 		}
+
+		// Log findings to structured log file.
+		sl := scanlog.FromContext(ctx)
+		sl.ScanStart(domain, string(scanType), []string{domain})
+		for _, f := range findings {
+			sl.Finding(f)
+		}
+		sl.ScanComplete(domain, len(findings), time.Since(run.StartedAt))
 
 		if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
 			info("beacon: correlations %s: %v\n", domain, err)

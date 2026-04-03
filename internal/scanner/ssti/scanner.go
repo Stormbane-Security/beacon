@@ -189,6 +189,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					DiscoveredAt: time.Now(),
 				})
 
+				// Post-exploitation: attempt RCE + credential harvest
+				postFindings := postExploit(ctx, client, asset, base, path, param, p.engine)
+				findings = append(findings, postFindings...)
+
 				// One finding per path+param combo is enough.
 				break
 			}

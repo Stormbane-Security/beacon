@@ -145,6 +145,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			f := probeXXE(ctx, client, asset, endpoint, p.name, p.payload, p.indicator)
 			if f != nil {
 				findings = append(findings, *f)
+				// Post-exploitation: extract sensitive files + SSRF
+				postFindings := postExploit(ctx, client, asset, endpoint, "application/xml")
+				findings = append(findings, postFindings...)
 				// One finding per endpoint is sufficient.
 				break
 			}
