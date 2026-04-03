@@ -1,0 +1,31 @@
+name: ratelimit-missing
+description: "API endpoint with no rate limiting — beacon detects missing rate limiting after burst probe"
+tags: [ratelimit, scanner, web, api]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9248:80"]
+    volumes:
+      - ./ratelimit-missing/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9248/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-no-rate-limit
+    type: command
+    expect:
+      command: "for i in $(seq 1 50); do curl -sf http://localhost:9248/ >/dev/null || exit 1; done"
+      exit_code: 0
+
+  - name: detects-missing-rate-limit
+    type: beacon
+    target: localhost:9248
+    args: ["--no-enrich", "--scanners", "ratelimit", "--deep"]
+    expect:
+      check_id: api.rate_limit_missing
+
+timeout: 3m
