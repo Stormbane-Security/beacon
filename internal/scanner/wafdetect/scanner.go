@@ -170,6 +170,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Evidence:     map[string]any{"vendor": vendor, "scheme": scheme},
 			DiscoveredAt: time.Now(),
 		})
+
+		// Try to extract WAF product version from headers.
+		version := extractWAFVersion(headers, vendor)
+		if version != "" {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWAFProductVersion,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityInfo,
+				Asset:    asset,
+				Title:    fmt.Sprintf("WAF version: %s %s", vendor, version),
+				Description: fmt.Sprintf(
+					"%s is running %s version %s. Knowing the exact version helps "+
+						"identify applicable CVEs and bypass techniques.",
+					asset, vendor, version,
+				),
+				Evidence:     map[string]any{"vendor": vendor, "version": version, "scheme": scheme},
+				DiscoveredAt: time.Now(),
+			})
+		}
 	}
 
 	if idsVendor != "" {
@@ -854,6 +874,50 @@ func getStatusMethod(ctx context.Context, client *http.Client, asset, scheme, pa
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 	resp.Body.Close()
 	return resp.StatusCode
+}
+
+// extractWAFVersion attempts to determine the WAF product version from
+// response headers. Returns "" if no version information is found.
+func extractWAFVersion(headers map[string]string, vendor string) string {
+	switch vendor {
+	case "Cloudflare":
+		// Cloudflare doesn't expose version, but cf-ray contains datacenter code.
+		return ""
+	case "Imperva Incapsula":
+		if v, ok := headers["x-cdn"]; ok && v != "" {
+			return v
+		}
+	case "Akamai":
+		if v, ok := headers["server"]; ok && strings.Contains(strings.ToLower(v), "akamai") {
+			return v
+		}
+	case "ModSecurity":
+		if v, ok := headers["server"]; ok {
+			lower := strings.ToLower(v)
+			if idx := strings.Index(lower, "mod_security"); idx >= 0 {
+				return v[idx:]
+			}
+			if idx := strings.Index(lower, "modsecurity"); idx >= 0 {
+				return v[idx:]
+			}
+		}
+	case "F5 BIG-IP", "F5 BIG-IP ASM":
+		if v, ok := headers["server"]; ok && strings.Contains(strings.ToLower(v), "big-ip") {
+			return v
+		}
+	}
+
+	// Generic: check Server header for version info.
+	if server, ok := headers["server"]; ok {
+		lower := strings.ToLower(server)
+		for _, kw := range []string{"waf", "firewall", "proxy"} {
+			if strings.Contains(lower, kw) {
+				return server
+			}
+		}
+	}
+
+	return ""
 }
 
 // postWithContentType sends a POST request with the given content type and body.

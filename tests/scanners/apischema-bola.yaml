@@ -1,0 +1,29 @@
+name: apischema-bola
+description: "Swagger Petstore API exposes OpenAPI spec with parameterized paths — beacon detects BOLA risk"
+tags: [apischema, scanner, web, api]
+
+services:
+  app:
+    image: swaggerapi/petstore3:unstable
+    ports: ["9246:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9246/api/v3/openapi.json >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-openapi-spec-exists
+    type: command
+    expect:
+      command: "curl -s http://localhost:9246/api/v3/openapi.json | grep -qi 'openapi'"
+      exit_code: 0
+
+  - name: detects-bola-risk
+    type: beacon
+    target: localhost:9246
+    args: ["--no-enrich", "--scanners", "apischema", "--deep"]
+    expect:
+      check_id: api.bola
+
+timeout: 3m

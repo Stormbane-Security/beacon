@@ -1491,6 +1491,83 @@ const (
 
 	// Meta — internal beacon operational findings
 	CheckMetaDryRunPlan CheckID = "meta.dry_run_plan" // Dry-run scan plan (no scanners executed)
+
+	// ── Cookie Security (expanded) ──────────────────────────────────────
+	CheckCookieNoPrefix       CheckID = "cookie.no_secure_prefix"    // session cookie missing __Host-/__Secure- prefix
+	CheckCookieExcessiveScope CheckID = "cookie.excessive_scope"     // cookie Domain attribute broader than necessary
+
+	// ── Well-Known URIs ─────────────────────────────────────────────────
+	CheckWellKnownSecurityTxt   CheckID = "wellknown.security_txt"        // security.txt found — reveals contact/policy info
+	CheckWellKnownChangePwd     CheckID = "wellknown.change_password"     // /.well-known/change-password endpoint exists
+	CheckWellKnownAppleAppSite  CheckID = "wellknown.apple_app_site"      // apple-app-site-association exposed
+	CheckWellKnownAssetLinks    CheckID = "wellknown.assetlinks"          // assetlinks.json exposed (Android app links)
+	CheckWellKnownNodeInfo      CheckID = "wellknown.nodeinfo"            // nodeinfo endpoint (federated service)
+	CheckWellKnownWebfinger     CheckID = "wellknown.webfinger"           // webfinger endpoint accessible
+	CheckWellKnownMTA           CheckID = "wellknown.mta_sts"             // MTA-STS policy via well-known
+	CheckWellKnownMatrix        CheckID = "wellknown.matrix_server"       // Matrix federation server
+	CheckWellKnownHostMeta      CheckID = "wellknown.host_meta"           // host-meta (XRD/LRDD) exposed
+	CheckWellKnownResourceMissing CheckID = "wellknown.security_txt_missing" // no security.txt — best practice gap
+
+	// ── robots.txt / sitemap.xml ────────────────────────────────────────
+	CheckRobotsSensitivePath    CheckID = "exposure.robots_sensitive_path" // robots.txt Disallow reveals admin/internal paths
+	CheckRobotsCrawlDelay       CheckID = "exposure.robots_crawl_delay"   // robots.txt Crawl-delay hints at resource constraints
+	CheckSitemapSensitiveURL    CheckID = "exposure.sitemap_sensitive_url" // sitemap.xml references internal/admin URLs
+
+	// ── HTTP/2 ──────────────────────────────────────────────────────────
+	CheckHTTP2ContinuationFlood CheckID = "http2.continuation_flood"      // server vulnerable to HTTP/2 CONTINUATION frame DoS (CVE-2024-27316)
+
+	// ── CSP Bypass ──────────────────────────────────────────────────────
+	CheckCSPDataURI            CheckID = "csp.data_uri"             // data: URI in script-src allows XSS bypass
+	CheckCSPBaseURIMissing     CheckID = "csp.base_uri_missing"     // base-uri not set — base tag injection risk
+	CheckCSPFrameAncestors     CheckID = "csp.frame_ancestors_missing" // frame-ancestors not set — clickjacking
+	CheckCSPObjectSrc          CheckID = "csp.object_src_missing"   // object-src not restricted — Flash/plugin injection
+	CheckCSPReportOnly         CheckID = "csp.report_only"          // CSP in report-only mode — not enforced
+
+	// ── NTLM ────────────────────────────────────────────────────────────
+	CheckNTLMInfoLeak          CheckID = "ntlm.info_leak"           // NTLM Type 2 response leaks internal domain/server name
+
+	// ── Subdomain Discovery ─────────────────────────────────────────────
+	CheckSubdomainPermutation  CheckID = "subdomain.permutation_found"  // subdomain discovered via permutation
+	CheckSubdomainBruteforce   CheckID = "subdomain.bruteforce_found"   // subdomain discovered via dictionary brute-force
+
+	// ── API Security ────────────────────────────────────────────────────
+	CheckAPIBOLA               CheckID = "api.bola"                 // broken object-level authorization
+	CheckAPIMassAssignment     CheckID = "api.mass_assignment"      // mass assignment — extra fields accepted
+	CheckAPINoRateLimit        CheckID = "api.no_rate_limit"        // API endpoint has no rate limiting
+
+	// ── IPv6 ────────────────────────────────────────────────────────────
+	CheckIPv6AAAAFound         CheckID = "ipv6.aaaa_record_found"   // AAAA record exists — IPv6 reachable
+	CheckIPv6ServiceOpen       CheckID = "ipv6.service_accessible"  // service accessible over IPv6
+
+	// ── Favicon ─────────────────────────────────────────────────────────
+	CheckFaviconHashMatch      CheckID = "favicon.hash_match"       // favicon hash matches known service signature
+
+	// ── CT Log ──────────────────────────────────────────────────────────
+	CheckCTLogSubdomain        CheckID = "ct.subdomain_found"       // subdomain discovered via Certificate Transparency logs
+
+	// ── ASN/IP Range ────────────────────────────────────────────────────
+	CheckASNRangeDiscovered    CheckID = "asset.asn_range_discovered" // IP range discovered via ASN lookup
+
+	// ── WebSocket (expanded) ────────────────────────────────────────────
+	CheckWebSocketNoAuth       CheckID = "websocket.no_auth"        // WebSocket endpoint requires no authentication
+	CheckWebSocketMsgInjection CheckID = "websocket.message_injection" // WebSocket accepts injected messages without validation
+
+	// ── WAF (expanded) ──────────────────────────────────────────────────
+	CheckWAFProductVersion     CheckID = "waf.product_version"      // WAF product and version fingerprinted
+
+	// ── JS Framework Detection ──────────────────────────────────────────
+	CheckJSFrameworkDetected   CheckID = "js.framework_detected"    // client-side JS framework and version identified
+	CheckJSFrameworkVulnerable CheckID = "js.framework_vulnerable"  // known CVE in detected JS framework version
+
+	// ── Dirbust (expanded) ──────────────────────────────────────────────
+	CheckDirbustTechExtension  CheckID = "dirbust.tech_extension_found" // path found via tech-specific extension probing
+	CheckDirbustRecursive      CheckID = "dirbust.recursive_found"      // path found via recursive directory probing
+
+	// ── Cloud Bucket (expanded) ─────────────────────────────────────────
+	CheckCloudBucketPermutation CheckID = "cloud.bucket_permutation_found" // bucket found via org-name permutation
+
+	// ── OOB Callback ────────────────────────────────────────────────────
+	CheckOOBCallbackReceived   CheckID = "oob.callback_received"   // OOB callback confirmed blind vulnerability
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -2970,6 +3047,83 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebSocketOpen:       {CheckWebSocketOpen, SeverityMedium, ModeSurface},
 	CheckWellKnownOIDC:       {CheckWellKnownOIDC, SeverityInfo, ModeSurface},
 	CheckWellKnownJWKS:       {CheckWellKnownJWKS, SeverityInfo, ModeSurface},
+
+	// Cookie Security (expanded)
+	CheckCookieNoPrefix:       {CheckCookieNoPrefix, SeverityLow, ModeSurface},
+	CheckCookieExcessiveScope: {CheckCookieExcessiveScope, SeverityMedium, ModeSurface},
+
+	// Well-Known URIs
+	CheckWellKnownSecurityTxt:     {CheckWellKnownSecurityTxt, SeverityInfo, ModeSurface},
+	CheckWellKnownChangePwd:       {CheckWellKnownChangePwd, SeverityInfo, ModeSurface},
+	CheckWellKnownAppleAppSite:    {CheckWellKnownAppleAppSite, SeverityInfo, ModeSurface},
+	CheckWellKnownAssetLinks:      {CheckWellKnownAssetLinks, SeverityInfo, ModeSurface},
+	CheckWellKnownNodeInfo:        {CheckWellKnownNodeInfo, SeverityInfo, ModeSurface},
+	CheckWellKnownWebfinger:       {CheckWellKnownWebfinger, SeverityInfo, ModeSurface},
+	CheckWellKnownMTA:             {CheckWellKnownMTA, SeverityInfo, ModeSurface},
+	CheckWellKnownMatrix:          {CheckWellKnownMatrix, SeverityInfo, ModeSurface},
+	CheckWellKnownHostMeta:        {CheckWellKnownHostMeta, SeverityInfo, ModeSurface},
+	CheckWellKnownResourceMissing: {CheckWellKnownResourceMissing, SeverityInfo, ModeSurface},
+
+	// robots.txt / sitemap.xml
+	CheckRobotsSensitivePath:  {CheckRobotsSensitivePath, SeverityMedium, ModeSurface},
+	CheckRobotsCrawlDelay:     {CheckRobotsCrawlDelay, SeverityInfo, ModeSurface},
+	CheckSitemapSensitiveURL:  {CheckSitemapSensitiveURL, SeverityMedium, ModeSurface},
+
+	// HTTP/2
+	CheckHTTP2ContinuationFlood: {CheckHTTP2ContinuationFlood, SeverityHigh, ModeDeep},
+
+	// CSP Bypass
+	CheckCSPDataURI:          {CheckCSPDataURI, SeverityHigh, ModeSurface},
+	CheckCSPBaseURIMissing:   {CheckCSPBaseURIMissing, SeverityMedium, ModeSurface},
+	CheckCSPFrameAncestors:   {CheckCSPFrameAncestors, SeverityMedium, ModeSurface},
+	CheckCSPObjectSrc:        {CheckCSPObjectSrc, SeverityMedium, ModeSurface},
+	CheckCSPReportOnly:       {CheckCSPReportOnly, SeverityMedium, ModeSurface},
+
+	// NTLM
+	CheckNTLMInfoLeak: {CheckNTLMInfoLeak, SeverityMedium, ModeSurface},
+
+	// Subdomain Discovery
+	CheckSubdomainPermutation: {CheckSubdomainPermutation, SeverityInfo, ModeSurface},
+	CheckSubdomainBruteforce:  {CheckSubdomainBruteforce, SeverityInfo, ModeSurface},
+
+	// API Security
+	CheckAPIBOLA:           {CheckAPIBOLA, SeverityCritical, ModeDeep},
+	CheckAPIMassAssignment: {CheckAPIMassAssignment, SeverityHigh, ModeDeep},
+	CheckAPINoRateLimit:    {CheckAPINoRateLimit, SeverityMedium, ModeDeep},
+
+	// IPv6
+	CheckIPv6AAAAFound:   {CheckIPv6AAAAFound, SeverityInfo, ModeSurface},
+	CheckIPv6ServiceOpen: {CheckIPv6ServiceOpen, SeverityInfo, ModeSurface},
+
+	// Favicon
+	CheckFaviconHashMatch: {CheckFaviconHashMatch, SeverityInfo, ModeSurface},
+
+	// CT Log
+	CheckCTLogSubdomain: {CheckCTLogSubdomain, SeverityInfo, ModeSurface},
+
+	// ASN/IP Range
+	CheckASNRangeDiscovered: {CheckASNRangeDiscovered, SeverityInfo, ModeSurface},
+
+	// WebSocket (expanded)
+	CheckWebSocketNoAuth:       {CheckWebSocketNoAuth, SeverityMedium, ModeDeep},
+	CheckWebSocketMsgInjection: {CheckWebSocketMsgInjection, SeverityHigh, ModeDeep},
+
+	// WAF (expanded)
+	CheckWAFProductVersion: {CheckWAFProductVersion, SeverityInfo, ModeSurface},
+
+	// JS Framework Detection
+	CheckJSFrameworkDetected:   {CheckJSFrameworkDetected, SeverityInfo, ModeSurface},
+	CheckJSFrameworkVulnerable: {CheckJSFrameworkVulnerable, SeverityMedium, ModeSurface},
+
+	// Dirbust (expanded)
+	CheckDirbustTechExtension: {CheckDirbustTechExtension, SeverityMedium, ModeDeep},
+	CheckDirbustRecursive:     {CheckDirbustRecursive, SeverityMedium, ModeDeep},
+
+	// Cloud Bucket (expanded)
+	CheckCloudBucketPermutation: {CheckCloudBucketPermutation, SeverityMedium, ModeSurface},
+
+	// OOB Callback
+	CheckOOBCallbackReceived: {CheckOOBCallbackReceived, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

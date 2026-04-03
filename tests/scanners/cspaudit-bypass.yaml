@@ -1,0 +1,45 @@
+name: cspaudit-bypass
+description: "Web server with weak CSP (unsafe-inline, data: URIs, missing directives) — beacon identifies bypass opportunities"
+tags: [cspaudit, scanner, web, headers]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9242:80"]
+    volumes:
+      - ./cspaudit-bypass/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9242/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-csp-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9242/ | grep -qi 'Content-Security-Policy'"
+      exit_code: 0
+
+  - name: detects-csp-data-uri
+    type: beacon
+    target: localhost:9242
+    args: ["--no-enrich", "--scanners", "cspaudit"]
+    expect:
+      check_id: csp.data_uri
+
+  - name: detects-csp-unsafe-inline
+    type: beacon
+    target: localhost:9242
+    args: ["--no-enrich", "--scanners", "cspaudit"]
+    expect:
+      check_id: csp.unsafe_inline
+
+  - name: detects-csp-missing-frame-ancestors
+    type: beacon
+    target: localhost:9242
+    args: ["--no-enrich", "--scanners", "cspaudit"]
+    expect:
+      check_id: csp.frame_ancestors_missing
+
+timeout: 3m

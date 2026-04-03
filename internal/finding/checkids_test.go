@@ -695,6 +695,16 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckWebRaceCondition:        true,
 		finding.CheckWebXSDInjection:         true,
 		finding.CheckWebPDFSSRF:              true,
+		// Tier 2 scanner gaps — deep mode
+		finding.CheckOOBCallbackReceived:    true,
+		finding.CheckDirbustRecursive:      true,
+		finding.CheckDirbustTechExtension:  true,
+		finding.CheckWebSocketMsgInjection: true,
+		finding.CheckWebSocketNoAuth:        true,
+		finding.CheckHTTP2ContinuationFlood: true,
+		finding.CheckAPINoRateLimit:         true,
+		finding.CheckAPIBOLA:                true,
+		finding.CheckAPIMassAssignment:      true,
 	}
 
 	for id, meta := range finding.Registry {

@@ -644,4 +644,33 @@ var complianceMap = map[CheckID][]string{
 	CheckCVEWebLogicWLSWSAT:          {"PCI-6.3.3", "SOC2-CC6.6", "NIST-PR.IP"},
 	CheckCVEHikvisionISAPI:           {"PCI-6.3.3", "SOC2-CC6.6"},
 	CheckCVEOpenSSHUsernameEnum:      {"PCI-6.3.3", "SOC2-CC6.6"},
+
+	// ── Cookie Security ─────────────────────────────────────────────────
+	CheckCookieNoPrefix:       {"SOC2-CC6.1", "PCI-6.5.10", "CIS-16.1"},
+	CheckCookieExcessiveScope: {"SOC2-CC6.1", "PCI-6.5.10", "CIS-16.1"},
+
+	// ── CSP Bypass ──────────────────────────────────────────────────────
+	CheckCSPDataURI:        {"SOC2-CC6.1", "PCI-6.5.7", "NIST-PR.DS", "CIS-16.1"},
+	CheckCSPBaseURIMissing: {"SOC2-CC6.1", "PCI-6.5.7", "CIS-16.1"},
+	CheckCSPFrameAncestors: {"SOC2-CC6.1", "PCI-6.5.7", "CIS-16.1"},
+	CheckCSPObjectSrc:      {"SOC2-CC6.1", "PCI-6.5.7", "CIS-16.1"},
+	CheckCSPReportOnly:     {"SOC2-CC6.1", "CIS-16.1"},
+
+	// ── NTLM ────────────────────────────────────────────────────────────
+	CheckNTLMInfoLeak: {"SOC2-CC6.1", "PCI-2.2.2", "NIST-PR.AC", "CIS-3.3"},
+
+	// ── HTTP/2 ──────────────────────────────────────────────────────────
+	CheckHTTP2ContinuationFlood: {"SOC2-CC7.1", "PCI-6.5.2", "NIST-PR.DS", "CIS-13.6"},
+
+	// ── API Security ────────────────────────────────────────────────────
+	CheckAPIBOLA:           {"SOC2-CC6.1", "PCI-6.5.8", "NIST-PR.AC", "CIS-14.6"},
+	CheckAPIMassAssignment: {"SOC2-CC6.1", "PCI-6.5.8", "CIS-14.6"},
+	CheckAPINoRateLimit:    {"SOC2-CC6.1", "PCI-6.5.2", "CIS-13.6"},
+
+	// ── Subdomain Discovery ─────────────────────────────────────────────
+	CheckSubdomainPermutation: {"SOC2-CC7.1", "CIS-12.1"},
+	CheckSubdomainBruteforce:  {"SOC2-CC7.1", "CIS-12.1"},
+
+	// ── OOB Callback ────────────────────────────────────────────────────
+	CheckOOBCallbackReceived: {"SOC2-CC6.6", "PCI-6.5.1", "NIST-PR.DS", "CIS-16.1"},
 }

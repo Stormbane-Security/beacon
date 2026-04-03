@@ -1,0 +1,32 @@
+name: favicon-match
+description: "Grafana instance serves known favicon — beacon fingerprints service via favicon hash"
+tags: [favicon, scanner, web, fingerprint]
+
+services:
+  app:
+    image: grafana/grafana:10.4.1
+    ports: ["9245:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+
+ready:
+  cmd: "curl -sf http://localhost:9245/login >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-favicon-exists
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9245/public/img/grafana_icon.svg | grep -qi '200'"
+      exit_code: 0
+
+  - name: detects-favicon-fingerprint
+    type: beacon
+    target: localhost:9245
+    args: ["--no-enrich", "--scanners", "favicon"]
+    expect:
+      check_id: favicon.hash_match
+
+timeout: 3m

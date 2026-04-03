@@ -148,8 +148,15 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"cache":     true,
 		"lb":        true,
 		"mcp":       true,
-		"auth":      true,
-		"wellknown": true,
+		"auth":        true,
+		"wellknown":   true,
+		"http2":       true,
+		"ntlm":        true,
+		"ipv6":        true,
+		"favicon":     true,
+		"ct":          true,
+		"oob":         true,
+		"fingerprint": true,
 	}
 
 	for _, decl := range f.Decls {
