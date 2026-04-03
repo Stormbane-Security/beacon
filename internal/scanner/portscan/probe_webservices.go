@@ -175,7 +175,7 @@ func init() {
 	registerProbe(ServiceProbe{
 		Name:         "coldfusion",
 		Category:     ProbeCatHTTP,
-		DefaultPorts: []int{8500},
+		DefaultPorts: []int{8500, 8888},
 		Detect:       detectColdFusion,
 	})
 }
@@ -955,6 +955,7 @@ func detectJBoss(ctx context.Context, host string, port int, banner string, make
 func detectColdFusion(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	ev := map[string]any{"port": port, "service": "coldfusion", "banner": banner}
 
+	// Adobe ColdFusion admin paths.
 	paths := []string{"/CFIDE/administrator/", "/CFIDE/administrator/index.cfm", "/CFIDE/main/ide.cfm"}
 
 	for _, path := range paths {
@@ -968,7 +969,6 @@ func detectColdFusion(ctx context.Context, host string, port int, banner string,
 		lb := strings.ToLower(body)
 		if strings.Contains(lb, "coldfusion") || strings.Contains(lb, "cfide") ||
 			strings.Contains(lb, "adobe") && strings.Contains(lb, "administrator") {
-			// Try to extract version from response.
 			if idx := strings.Index(lb, "version"); idx >= 0 {
 				snippet := body[idx:min(idx+40, len(body))]
 				ev["version_hint"] = snippet
@@ -983,6 +983,32 @@ func detectColdFusion(ctx context.Context, host string, port int, banner string,
 					"vulnerabilities (CVE-2023-26360 KEV, CVE-2023-29298). Exposing the admin "+
 					"panel increases the attack surface for brute-force, credential stuffing, and "+
 					"CVE exploitation. Restrict /CFIDE/ to internal networks.",
+				ev,
+			)}
+		}
+	}
+
+	// Lucee (open-source CFML engine) admin paths.
+	luceePaths := []string{"/lucee/admin/server.cfm", "/lucee/admin/web.cfm"}
+	for _, path := range luceePaths {
+		body, ok := probeHTTPBody(ctx, host, port, false, path)
+		if !ok {
+			body, ok = probeHTTPBody(ctx, host, port, true, path)
+		}
+		if !ok {
+			continue
+		}
+		lb := strings.ToLower(body)
+		if strings.Contains(lb, "lucee") || strings.Contains(lb, "password") && strings.Contains(lb, "login") {
+			ev["service"] = "lucee"
+			return []finding.Finding{makeF(
+				finding.CheckPortColdFusionAdminExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("Lucee CFML administrator panel exposed on port %d", port),
+				"The Lucee Server administrator panel (/lucee/admin/) is publicly accessible. "+
+					"Lucee is an open-source CFML engine with similar attack surface to Adobe "+
+					"ColdFusion. The admin panel allows server configuration, datasource management, "+
+					"and extension installation. Restrict /lucee/admin/ to internal networks.",
 				ev,
 			)}
 		}

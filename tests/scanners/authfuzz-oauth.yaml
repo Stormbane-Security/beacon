@@ -47,15 +47,15 @@ assertions:
   - name: detects-redirect-uri-abuse
     type: beacon
     target: localhost:9287
-    args: ["--no-enrich", "--scanners", "authfuzz", "--authorized"]
+    args: ["--no-enrich", "--scanners", "authfuzz", "--deep", "--permission-confirmed", "--authorized"]
     expect:
-      check_id: web.auth_fuzz_redirect_abuse
+      check_id: authfuzz.redirect_uri_abuse
 
   - name: detects-token-substitution
     type: beacon
     target: localhost:9287
-    args: ["--no-enrich", "--scanners", "authfuzz", "--authorized"]
+    args: ["--no-enrich", "--scanners", "authfuzz", "--deep", "--permission-confirmed", "--authorized"]
     expect:
-      check_id: web.auth_fuzz_token_substitution
+      check_id: authfuzz.token_substitution
 
 timeout: 5m

@@ -41,7 +41,7 @@ assertions:
   - name: exploit-vary-includes-user-agent
     type: command
     expect:
-      command: "curl -sI http://localhost:9291/get | grep -qi 'Vary.*User-Agent'"
+      command: "curl -sI http://localhost:9291/get | grep -qi 'Vary.*X-Forwarded-Host'"
       exit_code: 0
 
   - name: detects-cache-behavior

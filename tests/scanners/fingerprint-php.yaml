@@ -23,9 +23,15 @@ services:
       MYSQL_RANDOM_ROOT_PASSWORD: "yes"
 
 ready:
-  cmd: "curl -sf http://localhost:9215/ >/dev/null"
+  cmd: "curl -sfL http://localhost:9215/wp-admin/install.php | grep -qi 'wordpress'"
   timeout: 120s
   interval: 5s
+
+run:
+  - >
+    curl -s -X POST 'http://localhost:9215/wp-admin/install.php?step=2'
+    -d 'weblog_title=TestSite&user_name=admin&admin_password=admin123&admin_password2=admin123&pw_weak=1&admin_email=admin@test.com&Submit=Install+WordPress'
+    >/dev/null
 
 assertions:
   - name: exploit-wordpress-login-accessible

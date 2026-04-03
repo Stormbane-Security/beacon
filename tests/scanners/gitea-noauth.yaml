@@ -56,7 +56,7 @@ assertions:
   - name: detects-gitea-no-auth
     type: beacon
     target: localhost:9324
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3000"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9324"]
     expect:
       check_id: port.gitea_no_auth
 

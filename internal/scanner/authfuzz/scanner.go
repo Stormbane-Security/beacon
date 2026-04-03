@@ -114,7 +114,10 @@ func discoverAuthEndpoint(ctx context.Context, client *http.Client, base string)
 			continue
 		}
 		if ep := extractJSONString(string(body), "authorization_endpoint"); ep != "" {
-			return ep
+			// Rebase the discovered endpoint to the target's base URL.
+			// OIDC discovery may return absolute URLs with a different
+			// host/port than the target (e.g. internal hostname vs public).
+			return rebaseURL(ep, base)
 		}
 	}
 
@@ -415,6 +418,18 @@ func deriveTokenEndpoint(authEndpoint string) string {
 		return u.String()
 	}
 	return ""
+}
+
+// rebaseURL takes a discovered endpoint URL and rebases it onto the target's
+// base URL. OIDC discovery documents often return absolute URLs with a
+// different host/port (e.g. internal hostname vs public), so we keep only
+// the path and graft it onto the base we're actually scanning.
+func rebaseURL(discovered, base string) string {
+	u, err := url.Parse(discovered)
+	if err != nil {
+		return discovered
+	}
+	return strings.TrimRight(base, "/") + u.Path
 }
 
 // extractHost returns the host from a URL string, or the URL if parsing fails.

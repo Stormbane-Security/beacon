@@ -1,5 +1,5 @@
 name: cms-drupal-detection
-description: "Drupal CMS detection — beacon fingerprints Drupal via X-Drupal-Cache header and core markers"
+description: "Drupal CMS detection — beacon classify detects Framework=drupal via Generator meta tag"
 tags: [cmsplugins, scanner, web, cms]
 
 services:
@@ -8,22 +8,21 @@ services:
     ports: ["9233:80"]
 
 ready:
-  cmd: "curl -sf http://localhost:9233/ >/dev/null"
+  cmd: "curl -sfL http://localhost:9233/ | grep -qi 'drupal'"
   timeout: 120s
   interval: 5s
 
 assertions:
-  - name: exploit-drupal-headers-present
+  - name: exploit-drupal-generator-meta-present
     type: command
     expect:
-      command: "curl -sI http://localhost:9233/ | grep -qi 'X-Generator\\|X-Drupal\\|Drupal'"
+      command: "curl -sL http://localhost:9233/ | grep -qi 'Generator.*Drupal'"
       exit_code: 0
 
-  - name: detects-drupal-cms
-    type: beacon
+  - name: detects-drupal-framework
+    type: classify
     target: localhost:9233
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
     expect:
-      check_id: cms.plugin_found
+      framework: drupal
 
 timeout: 8m

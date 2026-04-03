@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
@@ -57,13 +59,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	host := asset
-	if h, _, err := net.SplitHostPort(asset); err == nil {
+	assetPort := ""
+	if h, p, err := net.SplitHostPort(asset); err == nil {
 		host = h
+		assetPort = p
+	}
+
+	// Build port list: asset's explicit port first, then defaults.
+	ports := make([]string, 0, len(grpcPorts)+1)
+	if assetPort != "" {
+		ports = append(ports, assetPort)
+	}
+	for _, p := range grpcPorts {
+		if p != assetPort {
+			ports = append(ports, p)
+		}
 	}
 
 	var findings []finding.Finding
 
-	for _, port := range grpcPorts {
+	for _, port := range ports {
 		if ctx.Err() != nil {
 			break
 		}
@@ -118,10 +133,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 // probeReflection sends a gRPC reflection ListServices request via HTTP/2.
 func probeReflection(ctx context.Context, host, port, path string) []string {
 	// Build a minimal gRPC reflection ListServices request.
-	// The protobuf-encoded message for ServerReflectionRequest.list_services = ""
-	// is: field 3 (list_services), wire type 2 (length-delimited), length 0
-	// → bytes: 0x1a, 0x00
-	protoMsg := []byte{0x1a, 0x00}
+	// ServerReflectionRequest.list_services is field 7, wire type 2 (length-delimited).
+	// Tag = (7 << 3) | 2 = 0x3a, value = "" (length 0).
+	protoMsg := []byte{0x3a, 0x00}
 
 	// gRPC frame: 1 byte compression flag (0) + 4 bytes message length + message
 	var grpcFrame bytes.Buffer
@@ -131,16 +145,27 @@ func probeReflection(ctx context.Context, host, port, path string) []string {
 	grpcFrame.Write(msgLen)
 	grpcFrame.Write(protoMsg)
 
-	// Try both plaintext and TLS.
+	// Try both plaintext (h2c) and TLS.
 	for _, useTLS := range []bool{false, true} {
 		scheme := "http"
-		transport := &http.Transport{
-			ForceAttemptHTTP2: true,
-			DialContext:       (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
-		}
+		var transport http.RoundTripper
 		if useTLS {
 			scheme = "https"
-			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+			transport = &http.Transport{
+				ForceAttemptHTTP2: true,
+				DialContext:       (&net.Dialer{Timeout: 3 * time.Second}).DialContext,
+				TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+			}
+		} else {
+			// Plaintext HTTP/2 (h2c) — Go's standard http.Transport only
+			// speaks HTTP/2 over TLS. For plaintext gRPC we need an
+			// explicit HTTP/2 transport.
+			transport = &http2.Transport{
+				AllowHTTP: true,
+				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+					return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, network, addr)
+				},
+			}
 		}
 
 		client := &http.Client{

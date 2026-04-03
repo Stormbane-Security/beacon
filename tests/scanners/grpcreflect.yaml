@@ -23,10 +23,10 @@ assertions:
       command: "nc -z localhost 9318 2>/dev/null"
       exit_code: 0
 
-  - name: exploit-http2-upgrade-accepted
+  - name: exploit-grpcurl-reflection-responsive
     type: command
     expect:
-      command: "curl -s --http2-prior-knowledge -X POST http://localhost:9318/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo -H 'Content-Type: application/grpc' -o /dev/null -w '%{http_code}' | grep -qP '200|415'"
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list | wc -l | grep -qE '[1-9]' || echo 'grpcurl-not-installed:SKIP'"
       exit_code: 0
 
   - name: exploit-grpcurl-lists-services

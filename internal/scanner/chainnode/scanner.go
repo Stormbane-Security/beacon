@@ -63,10 +63,12 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	// Strip port from asset if present — we probe our own ports.
+	// Extract host and optional explicit port from asset.
 	host := asset
-	if h, _, err := net.SplitHostPort(asset); err == nil {
+	assetPort := ""
+	if h, p, err := net.SplitHostPort(asset); err == nil {
 		host = h
+		assetPort = p
 	}
 
 	client := &http.Client{
@@ -79,10 +81,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var findings []finding.Finding
 	ethRPCBase := ""
 
+	// If the asset specifies a non-standard port (e.g. from drydock ephemeral
+	// mapping), probe it as Ethereum RPC first — it's likely what the caller
+	// intended us to check.
+	if assetPort != "" && assetPort != "8545" && assetPort != "8546" {
+		if f := probeEthRPC(ctx, client, host, assetPort); len(f) > 0 {
+			findings = append(findings, f...)
+			ethRPCBase = fmt.Sprintf("http://%s:%s", host, assetPort)
+		}
+	}
+
 	// Ethereum JSON-RPC (port 8545)
 	if f := probeEthRPC(ctx, client, host, "8545"); len(f) > 0 {
 		findings = append(findings, f...)
-		ethRPCBase = fmt.Sprintf("http://%s:8545", host)
+		if ethRPCBase == "" {
+			ethRPCBase = fmt.Sprintf("http://%s:8545", host)
+		}
 	}
 
 	// Ethereum WebSocket RPC (port 8546) — verify with a real WebSocket upgrade

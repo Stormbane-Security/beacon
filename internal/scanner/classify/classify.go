@@ -1530,6 +1530,15 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.Framework = "phoenix"
 	case strings.Contains(setCookieLower, "_phoenix_flash"):
 		e.Framework = "phoenix"
+	// ── CMS platforms (more specific than generic "php") ──────────────────
+	case strings.Contains(body, "wp-content") || strings.Contains(body, "wp-includes") ||
+		strings.Contains(setCookieLower, "wp-settings") ||
+		strings.Contains(strings.ToLower(h["link"]), "api.w.org"):
+		e.Framework = "wordpress"
+	case strings.Contains(body, "drupal") || strings.Contains(body, "drupal.js"):
+		e.Framework = "drupal"
+	case strings.Contains(body, "joomla") || strings.Contains(body, "/media/jui/"):
+		e.Framework = "joomla"
 	}
 
 	// ── Platform detection from body (products not captured by Framework) ────

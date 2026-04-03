@@ -91,19 +91,9 @@ func detectGrafanaDefaultCreds(ctx context.Context, host string, port int, banne
 		return nil
 	}
 
-	url := fmt.Sprintf("http://%s:%d/api/login/ping", host, port)
 	loginURL := fmt.Sprintf("http://%s:%d/login", host, port)
 	payload := strings.NewReader(`{"user":"admin","password":"admin"}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Try the session login endpoint instead.
-	url = fmt.Sprintf("http://%s:%d/api/login", host, port)
-	payload = strings.NewReader(`{"user":"admin","password":"admin"}`)
-	req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, payload)
 	if err != nil {
 		return nil
 	}
@@ -128,7 +118,7 @@ func detectGrafanaDefaultCreds(ctx context.Context, host string, port int, banne
 				"and can modify or delete dashboards and data source configurations. "+
 				"Change the admin password immediately.",
 			map[string]any{"port": port, "service": "grafana", "default_creds": true,
-				"proof": fmt.Sprintf("curl -s -X POST %s -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}'", url)},
+				"proof": fmt.Sprintf("curl -s -X POST %s -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}'", loginURL)},
 		)}
 	}
 
@@ -431,18 +421,29 @@ func detectGiteaNoAuth(ctx context.Context, host string, port int, _ string, mak
 		return nil
 	}
 
-	// Check if the explore/repos page is accessible and shows repos.
+	// Check if the repos search API is accessible without auth.
+	// A successful response (contains "ok" or "data" or "full_name") means
+	// the API is open. Even an empty repo list is a finding — the API itself
+	// should require authentication.
 	repoBody, ok := probeHTTPBody(ctx, host, port, false, "/api/v1/repos/search?limit=5")
 	if !ok {
 		return nil
 	}
-	if strings.Contains(repoBody, "full_name") {
+	if strings.Contains(repoBody, "full_name") || strings.Contains(repoBody, `"ok":true`) || strings.Contains(repoBody, `"data":`) {
+		sev := finding.SeverityHigh
+		desc := "Gitea or Forgejo is accessible without authentication and exposes repository contents. " +
+			"An attacker can browse source code, issues, and potentially clone private repositories."
+		if !strings.Contains(repoBody, "full_name") {
+			sev = finding.SeverityMedium
+			desc = "Gitea or Forgejo API is accessible without authentication. " +
+				"No repositories are currently exposed, but the unauthenticated API allows enumeration " +
+				"and may expose repos if they are created later."
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortGiteaNoAuth,
-			finding.SeverityHigh,
-			fmt.Sprintf("Gitea/Forgejo exposes repositories without authentication on port %d", port),
-			"Gitea or Forgejo is accessible without authentication and exposes repository contents. "+
-				"An attacker can browse source code, issues, and potentially clone private repositories.",
+			sev,
+			fmt.Sprintf("Gitea/Forgejo exposes API without authentication on port %d", port),
+			desc,
 			map[string]any{"port": port, "service": "gitea", "authenticated": false,
 				"proof": fmt.Sprintf("curl -s http://%s:%d/api/v1/repos/search?limit=5", host, port)},
 		)}

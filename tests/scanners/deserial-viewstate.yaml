@@ -34,7 +34,7 @@ assertions:
   - name: exploit-java-error-on-post
     type: command
     expect:
-      command: "curl -sf -X POST http://localhost:9285/api/v1 | grep -q 'StreamCorruptedException'"
+      command: "curl -s -X POST http://localhost:9285/api/v1 | grep -q 'StreamCorruptedException'"
       exit_code: 0
 
   - name: detects-insecure-deserialize

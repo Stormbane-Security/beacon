@@ -55,6 +55,6 @@ assertions:
     target: localhost:9284
     args: ["--no-enrich", "--scanners", "apiversions", "--deep", "--permission-confirmed"]
     expect:
-      check_id: web.api_version_auth_bypass
+      check_id: api.version_auth_bypass
 
 timeout: 5m

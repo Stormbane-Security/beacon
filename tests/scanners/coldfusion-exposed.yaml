@@ -46,7 +46,7 @@ assertions:
   - name: exploit-lucee-version-exposed
     type: command
     expect:
-      command: "curl -s http://localhost:9320/lucee/admin/server.cfm | grep -oiP 'lucee\\s+[0-9]+\\.[0-9]+' || curl -sI http://localhost:9320/ | grep -qi 'lucee'"
+      command: "curl -sI http://localhost:9320/ | grep -qi 'lucee' || curl -s http://localhost:9320/lucee/admin/server.cfm | grep -qi 'lucee.*[0-9]'"
       exit_code: 0
 
   # --- Negative: root page should not directly expose admin ---
@@ -60,7 +60,7 @@ assertions:
   - name: detects-coldfusion-admin-exposed
     type: beacon
     target: localhost:9320
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9320"]
     expect:
       check_id: port.coldfusion_admin_exposed
 
