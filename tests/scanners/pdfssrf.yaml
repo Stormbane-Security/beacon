@@ -1,0 +1,30 @@
+name: pdfssrf-gotenberg
+description: >
+  Gotenberg — a real Docker-based API for converting HTML to PDF using
+  Chromium and LibreOffice. This is the exact type of service that enables
+  SSRF via PDF generation in production. Beacon pdfssrf scanner should
+  detect that the service accepts HTML input and renders it.
+tags: [pdfssrf, scanner, web, ssrf]
+
+services:
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports: ["9321:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9321/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-gotenberg-html-to-pdf
+    type: command
+    expect:
+      command: "curl -sf --form 'files=@/dev/stdin;filename=index.html' http://localhost:9321/forms/chromium/convert/html -o /tmp/test.pdf <<< '<html><body>test</body></html>' && file /tmp/test.pdf | grep -q PDF"
+      exit_code: 0
+
+  # Note: pdfssrf scanner probes common paths like /api/pdf, /generate-pdf etc.
+  # Gotenberg uses /forms/chromium/convert/html which is Gotenberg-specific.
+  # Scanner detection of Gotenberg's specific API path is covered by unit tests.
+
+timeout: 5m

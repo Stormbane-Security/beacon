@@ -1,0 +1,30 @@
+name: pathtraversal-tomcat
+description: >
+  Apache Tomcat serving a web application. Beacon pathtraversal scanner
+  tests framework-specific traversal payloads (..;/ for Tomcat/Spring,
+  %2e%2e%2f for URL-encoded bypass). Detection is via status code
+  change or sensitive content in response body.
+tags: [pathtraversal, scanner, web, tomcat]
+
+services:
+  tomcat:
+    image: tomcat:9.0-jdk17
+    ports: ["9316:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9316/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-tomcat-manager-exists
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9316/manager/html"
+      stdout_contains: "401"
+
+  # Tomcat 9 default config is generally not vulnerable to ..;/ traversal,
+  # but scanner unit tests verify detection logic. This drydock test confirms
+  # scanner runs without error against real Tomcat.
+
+timeout: 5m

@@ -1,0 +1,40 @@
+name: jsendpoints-extraction
+description: >
+  Nginx serving an HTML page with a script tag and a JavaScript file containing
+  hardcoded internal API endpoints, staging hostnames, private IPs, GraphQL
+  endpoints, and admin paths. Beacon jsendpoints scanner should extract all.
+tags: [jsendpoints, scanner, web, recon]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["9311:80"]
+    volumes:
+      - ./jsendpoints/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9311/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-js-contains-internal-endpoints
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q 'api-internal.staging'"
+      exit_code: 0
+
+  - name: exploit-js-contains-private-ip
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q '192.168.1.50'"
+      exit_code: 0
+
+  - name: detects-js-internal-endpoints
+    type: beacon
+    target: localhost:9311
+    args: ["--no-enrich", "--scanners", "jsendpoints"]
+    expect:
+      check_id: js.internal_endpoint
+
+timeout: 5m

@@ -1,0 +1,40 @@
+name: iisversion-leak
+description: >
+  Nginx simulating a Microsoft IIS server with version information leaking
+  through custom error pages, X-AspNet-Version headers, and trace endpoints.
+  Requires nginx with headers-more module for Server header override.
+tags: [iisversion, scanner, web, fingerprint]
+
+services:
+  web:
+    image: openresty/openresty:alpine
+    ports: ["9312:80"]
+    volumes:
+      - ./iisversion/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9312/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-iis-version-in-error-page
+    type: command
+    expect:
+      command: "curl -s http://localhost:9312/test.aspx | grep -q 'ASP.NET Version'"
+      exit_code: 0
+
+  - name: exploit-aspnet-version-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9312/test.aspx | grep -qi 'X-AspNet-Version'"
+      exit_code: 0
+
+  - name: detects-iis-version-leak
+    type: beacon
+    target: localhost:9312
+    args: ["--no-enrich", "--scanners", "iisversion"]
+    expect:
+      check_id: web.iis_version_leak
+
+timeout: 5m

@@ -79,6 +79,13 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"mcpscan",         // surface: MCP server endpoint discovery
 		"hopbyhop",        // deep:    hop-by-hop Connection header abuse
 		"h2c",             // deep:    HTTP/2 Cleartext upgrade smuggling
+		"grpcreflect",     // surface: gRPC reflection enumeration
+		"jsendpoints",     // surface: JS bundle endpoint extraction
+		"iisversion",      // surface: IIS deep version fingerprinting
+		"verbtamper",      // deep:    HTTP verb tampering auth bypass
+		"pathtraversal",   // deep:    framework-specific path traversal
+		"racecondition",   // deep:    TOCTOU race condition detection
+		"pdfssrf",         // deep:    SSRF via PDF generation
 	}
 
 	for _, name := range mustHave {

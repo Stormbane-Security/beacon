@@ -114,6 +114,10 @@ const (
 	CheckWebDefaultCredentials     CheckID = "web.default_credentials"
 	CheckWebHTTPRequestSmuggling   CheckID = "web.http_request_smuggling"
 	CheckWebDangerousMethodEnabled CheckID = "web.dangerous_method_enabled"   // PUT/DELETE/TRACE enabled on web server
+	CheckWebVerbTamperAuthBypass   CheckID = "web.verb_tamper_auth_bypass"   // alternate HTTP method bypasses authentication/authorization
+	CheckWebRaceCondition          CheckID = "web.race_condition"            // concurrent requests produce inconsistent state (TOCTOU)
+	CheckWebXSDInjection           CheckID = "web.xsd_injection"            // XML Schema (XSD) injection via remote schema reference
+	CheckWebPDFSSRF                CheckID = "web.pdf_ssrf"                 // SSRF via PDF generation endpoint (HTML→PDF with external refs)
 	CheckSecretInResponseHeader    CheckID = "web.secret_in_response_header"  // API key or token leaked in HTTP response header
 
 	// Asset Intelligence (no API keys — all open services)
@@ -129,6 +133,8 @@ const (
 	CheckWHOISDomainExpiry7d  CheckID = "whois.domain_expiry_7d"   // domain expires within 7 days
 	CheckWHOISDomainExpiry30d CheckID = "whois.domain_expiry_30d"  // domain expires within 30 days
 	CheckWHOISDomainInfo      CheckID = "whois.domain_info"        // registrar, nameservers, creation date
+	CheckWHOISNoPrivacy       CheckID = "whois.no_privacy"         // registrant info exposed (no privacy protection)
+	CheckWHOISRecentRegistration CheckID = "whois.recent_registration" // domain registered within last 90 days (phishing indicator)
 
 	// Cloud Storage Buckets
 	CheckCloudBucketPublic   CheckID = "cloud.bucket_public"   // publicly readable bucket
@@ -225,6 +231,10 @@ const (
 	CheckPortZooKeeperExposed    CheckID = "port.zookeeper_exposed"             // Apache ZooKeeper exposed
 	CheckPortInfluxDBExposed     CheckID = "port.influxdb_exposed"              // InfluxDB time-series DB exposed
 	CheckPortSplunkMgmtExposed   CheckID = "port.splunk_mgmt_exposed"           // Splunk management API exposed
+	CheckPortVaultExposed        CheckID = "port.vault_exposed"                 // HashiCorp Vault API exposed
+	CheckPortVaultUnsealedNoAuth CheckID = "port.vault_unsealed_no_auth"       // Vault unsealed + secrets readable without auth
+	CheckPortJBossManagementExposed CheckID = "port.jboss_management_exposed"  // JBoss/WildFly management console exposed
+	CheckPortColdFusionAdminExposed CheckID = "port.coldfusion_admin_exposed"  // Adobe ColdFusion administrator panel exposed
 
 	// GraphQL
 	CheckGraphQLIntrospection         CheckID = "graphql.introspection_enabled"      // introspection leaks full schema
@@ -484,6 +494,7 @@ const (
 	CheckWebHPP               CheckID = "web.http_parameter_pollution" // HTTP parameter pollution
 	CheckWebNginxAliasTraversal CheckID = "web.nginx_alias_traversal" // nginx alias path traversal
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
+	CheckWebIISVersionLeak    CheckID = "web.iis_version_leak"       // IIS detailed version from error pages or debug endpoints
 	CheckWebFileUpload        CheckID = "web.file_upload_bypass"     // file upload MIME/extension bypass
 	CheckWebCmdInjection      CheckID = "web.command_injection"       // OS command injection via timing or OOB callback
 	CheckWebNoSQLi            CheckID = "web.nosql_injection"         // NoSQL/MongoDB operator injection ($ne, $gt, $where)
@@ -1621,6 +1632,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebDefaultCredentials:   {CheckWebDefaultCredentials, SeverityCritical, ModeDeep},
 	CheckWebHTTPRequestSmuggling:   {CheckWebHTTPRequestSmuggling, SeverityHigh, ModeDeep},
 	CheckWebDangerousMethodEnabled: {CheckWebDangerousMethodEnabled, SeverityMedium, ModeSurface},
+	CheckWebVerbTamperAuthBypass:   {CheckWebVerbTamperAuthBypass, SeverityHigh, ModeDeep},
+	CheckWebRaceCondition:          {CheckWebRaceCondition, SeverityCritical, ModeDeep},
+	CheckWebXSDInjection:           {CheckWebXSDInjection, SeverityCritical, ModeDeep},
+	CheckWebPDFSSRF:                {CheckWebPDFSSRF, SeverityCritical, ModeDeep},
 	CheckSecretInResponseHeader:    {CheckSecretInResponseHeader, SeverityHigh, ModeSurface},
 
 	// Asset Intelligence — queries external public APIs, no target contact → Surface
@@ -1633,9 +1648,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAssetScreenshot:     {CheckAssetScreenshot, SeverityInfo, ModeSurface},
 
 	// WHOIS / RDAP — queries public registry servers → Surface
-	CheckWHOISDomainExpiry7d:  {CheckWHOISDomainExpiry7d, SeverityCritical, ModeSurface},
-	CheckWHOISDomainExpiry30d: {CheckWHOISDomainExpiry30d, SeverityHigh, ModeSurface},
-	CheckWHOISDomainInfo:      {CheckWHOISDomainInfo, SeverityInfo, ModeSurface},
+	CheckWHOISDomainExpiry7d:     {CheckWHOISDomainExpiry7d, SeverityCritical, ModeSurface},
+	CheckWHOISDomainExpiry30d:    {CheckWHOISDomainExpiry30d, SeverityHigh, ModeSurface},
+	CheckWHOISDomainInfo:         {CheckWHOISDomainInfo, SeverityInfo, ModeSurface},
+	CheckWHOISNoPrivacy:          {CheckWHOISNoPrivacy, SeverityMedium, ModeSurface},
+	CheckWHOISRecentRegistration: {CheckWHOISRecentRegistration, SeverityMedium, ModeSurface},
 
 	// Cloud Buckets — HTTP GET/PUT probes to public cloud storage URLs → Surface
 	CheckCloudBucketPublic:   {CheckCloudBucketPublic, SeverityCritical, ModeSurface},
@@ -1729,6 +1746,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortZooKeeperExposed:    {CheckPortZooKeeperExposed, SeverityHigh, ModeSurface},
 	CheckPortInfluxDBExposed:     {CheckPortInfluxDBExposed, SeverityHigh, ModeSurface},
 	CheckPortSplunkMgmtExposed:   {CheckPortSplunkMgmtExposed, SeverityHigh, ModeSurface},
+	CheckPortVaultExposed:        {CheckPortVaultExposed, SeverityHigh, ModeSurface},
+	CheckPortVaultUnsealedNoAuth: {CheckPortVaultUnsealedNoAuth, SeverityCritical, ModeSurface},
+	CheckPortJBossManagementExposed: {CheckPortJBossManagementExposed, SeverityHigh, ModeSurface},
+	CheckPortColdFusionAdminExposed: {CheckPortColdFusionAdminExposed, SeverityHigh, ModeSurface},
 
 	// GraphQL — Surface: introspection query; Deep: batch + persisted query probes
 	CheckGraphQLIntrospection:        {CheckGraphQLIntrospection, SeverityMedium, ModeSurface},
@@ -2242,6 +2263,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebHPP:                {CheckWebHPP, SeverityMedium, ModeDeep},
 	CheckWebNginxAliasTraversal: {CheckWebNginxAliasTraversal, SeverityCritical, ModeDeep},
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
+	CheckWebIISVersionLeak:     {CheckWebIISVersionLeak, SeverityMedium, ModeSurface},
 	CheckWebFileUpload:         {CheckWebFileUpload, SeverityCritical, ModeDeep},
 	CheckWebCmdInjection:      {CheckWebCmdInjection, SeverityCritical, ModeDeep},
 	CheckWebNoSQLi:            {CheckWebNoSQLi, SeverityCritical, ModeDeep},

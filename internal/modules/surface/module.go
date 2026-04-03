@@ -112,6 +112,13 @@ import (
 	oktascanner "github.com/stormbane-security/beacon/internal/scanner/okta"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/cmdinj"
+	"github.com/stormbane-security/beacon/internal/scanner/verbtamper"
+	"github.com/stormbane-security/beacon/internal/scanner/pathtraversal"
+	"github.com/stormbane-security/beacon/internal/scanner/racecondition"
+	"github.com/stormbane-security/beacon/internal/scanner/grpcreflect"
+	"github.com/stormbane-security/beacon/internal/scanner/jsendpoints"
+	"github.com/stormbane-security/beacon/internal/scanner/pdfssrf"
+	"github.com/stormbane-security/beacon/internal/scanner/iisversion"
 	csrfscanner "github.com/stormbane-security/beacon/internal/scanner/csrf"
 	"github.com/stormbane-security/beacon/internal/scanner/openredir"
 	"github.com/stormbane-security/beacon/internal/scanner/sqli"
@@ -446,6 +453,13 @@ func New(cfg Config) (*Module, error) {
 		"openredir":       openredir.New(),
 		"proxychain":      proxychain.New(),
 		"cacheprobe":      cacheprobe.New(),
+		"verbtamper":      verbtamper.New(),
+		"pathtraversal":   pathtraversal.New(),
+		"racecondition":   racecondition.New(),
+		"grpcreflect":     grpcreflect.New(),
+		"jsendpoints":     jsendpoints.New(),
+		"pdfssrf":         pdfssrf.New(),
+		"iisversion":      iisversion.New(),
 	}
 
 	// Clamp depth and asset limits to their hard ceilings.

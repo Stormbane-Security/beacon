@@ -156,6 +156,53 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 	}
 
+	// Check for exposed registrant info (no privacy protection).
+	registrantName, registrantEmail, registrantOrg := extractRegistrant(rdap.Entities)
+	if registrantEmail != "" || (registrantOrg != "" && !isPrivacyProxy(registrantOrg)) {
+		privEvidence := map[string]any{}
+		if registrantName != "" {
+			privEvidence["registrant_name"] = registrantName
+		}
+		if registrantEmail != "" {
+			privEvidence["registrant_email"] = registrantEmail
+		}
+		if registrantOrg != "" {
+			privEvidence["registrant_org"] = registrantOrg
+		}
+		findings = append(findings, finding.Finding{
+			CheckID:     finding.CheckWHOISNoPrivacy,
+			Module:      "surface",
+			Scanner:     scannerName,
+			Severity:    finding.SeverityMedium,
+			Title:       fmt.Sprintf("Domain %s has no WHOIS privacy protection", asset),
+			Description: fmt.Sprintf("The WHOIS/RDAP record for %s exposes registrant contact information. This reveals organizational details and personal email addresses that can be used for targeted phishing, social engineering, or correlating domain ownership across assets.", asset),
+			Asset:       asset,
+			Evidence:    privEvidence,
+			DiscoveredAt: now,
+		})
+	}
+
+	// Check for recent registration (phishing/typosquatting indicator).
+	if !registeredAt.IsZero() {
+		daysSinceRegistration := int(now.Sub(registeredAt).Hours() / 24)
+		if daysSinceRegistration <= 90 {
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckWHOISRecentRegistration,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityMedium,
+				Title:       fmt.Sprintf("Domain %s was registered %d days ago", asset, daysSinceRegistration),
+				Description: fmt.Sprintf("The domain %s was registered on %s (%d days ago). Recently registered domains are commonly associated with phishing campaigns, typosquatting, or brand impersonation.", asset, registeredAt.Format("Jan 2, 2006"), daysSinceRegistration),
+				Asset:       asset,
+				Evidence: map[string]any{
+					"registered_at":       registeredAt.Format(time.RFC3339),
+					"days_since_registration": daysSinceRegistration,
+				},
+				DiscoveredAt: now,
+			})
+		}
+	}
+
 	// Informational domain registration record
 	evidence := map[string]any{
 		"registrar":    registrar,
@@ -210,4 +257,61 @@ func extractVCardFN(vcardArray []any) string {
 		}
 	}
 	return ""
+}
+
+// extractRegistrant pulls registrant name, email, and org from RDAP entities.
+func extractRegistrant(entities []rdapEntity) (name, email, org string) {
+	for _, e := range entities {
+		isRegistrant := false
+		for _, role := range e.Roles {
+			if role == "registrant" {
+				isRegistrant = true
+				break
+			}
+		}
+		if !isRegistrant {
+			continue
+		}
+		if len(e.VCardArray) < 2 {
+			continue
+		}
+		props, ok := e.VCardArray[1].([]any)
+		if !ok {
+			continue
+		}
+		for _, prop := range props {
+			arr, ok := prop.([]any)
+			if !ok || len(arr) < 4 {
+				continue
+			}
+			propName, _ := arr[0].(string)
+			val, _ := arr[3].(string)
+			switch propName {
+			case "fn":
+				name = val
+			case "email":
+				email = val
+			case "org":
+				org = val
+			}
+		}
+		return
+	}
+	return
+}
+
+// isPrivacyProxy returns true if the org name looks like a WHOIS privacy service.
+func isPrivacyProxy(org string) bool {
+	lower := strings.ToLower(org)
+	proxies := []string{
+		"privacy", "proxy", "redacted", "whoisguard", "domains by proxy",
+		"contact privacy", "withheld", "data protected", "not disclosed",
+		"identity protect", "perfect privacy", "privatewhois",
+	}
+	for _, p := range proxies {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }

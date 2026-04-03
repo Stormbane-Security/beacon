@@ -39,6 +39,15 @@ already sets up this topology but timing-based detection is inherently probabili
 **Status:** Existing test is acceptable as soft (`min_findings: 0`). The topology is
 correct; whether it fires depends on the specific nginx+httpbin version combination.
 
+### xsd-injection — `docker:xml-parser`
+**Check ID:** `web.xsd_injection`
+**Why deferred:** XSD injection requires a real XML parser that attempts to
+fetch remote XSD schemas referenced in submitted XML. The scanner uses
+timing-based detection — if the server tries to fetch the schema, response
+takes >2s longer. nginx cannot simulate XML schema validation.
+**Test approach:** Java app with JAXB/SAX parser or Python lxml app with
+schema validation enabled. BaseX (`basex/basexhttp`) is one option.
+
 ## Requires Network Infrastructure
 
 ### portscan (extended) — `docker:multi-service`

@@ -682,6 +682,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCachePoisonUnkeyed: true,
 		finding.CheckCacheDeception:     true,
 		finding.CheckCacheHostRouting:   true,
+		// New scanner gaps — deep mode
+		finding.CheckWebVerbTamperAuthBypass: true,
+		finding.CheckWebRaceCondition:        true,
+		finding.CheckWebXSDInjection:         true,
+		finding.CheckWebPDFSSRF:              true,
 	}
 
 	for id, meta := range finding.Registry {

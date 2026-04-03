@@ -1,0 +1,40 @@
+name: verbtamper-auth-bypass
+description: >
+  Nginx returning 403 on GET /admin but 200 on POST /admin, simulating
+  an HTTP verb tampering authentication bypass. Beacon verbtamper scanner
+  should detect the inconsistent access control.
+tags: [verbtamper, scanner, web, auth-bypass]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["9310:80"]
+    volumes:
+      - ./verbtamper/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9310/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-verb-tamper-get-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9310/admin"
+      stdout_contains: "403"
+
+  - name: exploit-verb-tamper-post-allowed
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9310/admin"
+      stdout_contains: "200"
+
+  - name: detects-verb-tamper-bypass
+    type: beacon
+    target: localhost:9310
+    args: ["--no-enrich", "--scanners", "verbtamper", "--deep"]
+    expect:
+      check_id: web.verb_tamper_auth_bypass
+
+timeout: 5m

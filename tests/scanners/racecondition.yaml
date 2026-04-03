@@ -1,0 +1,55 @@
+name: racecondition-toctou
+description: >
+  Python Flask app with an unsynchronized state-changing endpoint. The
+  /api/redeem endpoint accepts POST requests and always returns 200 without
+  deduplication — the exact pattern that causes real TOCTOU race conditions
+  (coupon double-spend, vote manipulation, balance overdraw). Beacon
+  racecondition scanner should detect that concurrent requests all succeed.
+tags: [racecondition, scanner, web, toctou]
+
+services:
+  app:
+    image: python:3.11-alpine
+    ports: ["9317:5000"]
+    command:
+      - sh
+      - -c
+      - |
+        pip install -q flask &&
+        python -c "
+        from flask import Flask, jsonify
+        app = Flask(__name__)
+        balance = {'value': 100}
+        @app.route('/api/redeem', methods=['POST'])
+        def redeem():
+            # No locking, no idempotency key — classic TOCTOU
+            if balance['value'] > 0:
+                balance['value'] -= 1
+                return jsonify(success=True, balance=balance['value'])
+            return jsonify(success=False), 409
+        @app.route('/')
+        def index():
+            return 'OK'
+        app.run(host='0.0.0.0', port=5000)
+        "
+
+ready:
+  cmd: "curl -sf http://localhost:9317/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-concurrent-redeems-all-succeed
+    type: command
+    expect:
+      command: "for i in $(seq 1 10); do curl -s -X POST http://localhost:9317/api/redeem & done | wait; curl -s -X POST http://localhost:9317/api/redeem | grep -q 'success'"
+      exit_code: 0
+
+  - name: detects-race-condition
+    type: beacon
+    target: localhost:9317
+    args: ["--no-enrich", "--scanners", "racecondition", "--deep"]
+    expect:
+      check_id: web.race_condition
+
+timeout: 5m

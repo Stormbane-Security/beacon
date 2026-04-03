@@ -53,6 +53,9 @@ surface:
     - bigip          # F5 BIG-IP persistence cookie decoding — internal IP leak
     - aiinfra        # AI/ML infrastructure exposure (Jupyter, Ray, MLflow, Gradio)
     - mcpscan        # MCP server endpoint discovery — unauthenticated tool access
+    - grpcreflect    # gRPC reflection enumeration — exposes full API surface
+    - jsendpoints    # JS bundle endpoint extraction — internal API/hostname/IP leakage
+    - iisversion     # IIS deep version fingerprinting from error pages and debug endpoints
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:
@@ -105,6 +108,10 @@ deep:
     - redos          # Regular Expression DoS via catastrophic backtracking timing detection
     - hopbyhop       # hop-by-hop Connection header abuse — proxy strips security headers
     - h2c            # HTTP/2 Cleartext upgrade smuggling — bypasses proxy controls
+    - verbtamper     # HTTP verb tampering auth bypass — alternate method on protected paths
+    - pathtraversal  # framework-specific path traversal (Spring ..;/, Tomcat %2e, IIS %5C)
+    - racecondition  # TOCTOU race condition detection via concurrent request burst
+    - pdfssrf        # SSRF via HTML-to-PDF generation endpoints
   nuclei_tags:
     - cves
     - network

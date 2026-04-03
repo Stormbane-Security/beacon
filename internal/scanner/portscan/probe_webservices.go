@@ -160,6 +160,24 @@ func init() {
 		DefaultPorts: []int{9998},
 		Detect:       detectApacheTika,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "vault",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8200},
+		Detect:       detectVault,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "jboss",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 9990},
+		Detect:       detectJBoss,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "coldfusion",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8500},
+		Detect:       detectColdFusion,
+	})
 }
 
 func detectJupyter(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -792,6 +810,184 @@ func detectKubeDashboardNodePort(ctx context.Context, host string, port int, ban
 			)}
 		}
 	}
+	return nil
+}
+
+// detectVault checks for HashiCorp Vault API exposure and unauthenticated secret access.
+func detectVault(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Step 1: Check seal status — this confirms it's Vault and reveals operational state.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/v1/sys/seal-status")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, true, "/v1/sys/seal-status")
+	}
+	if !ok {
+		return nil
+	}
+
+	lb := strings.ToLower(body)
+	if !strings.Contains(lb, "sealed") || !strings.Contains(lb, "cluster_name") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "vault", "banner": banner}
+
+	// Extract version and seal status.
+	isSealed := strings.Contains(body, `"sealed":true`)
+	isUnsealed := strings.Contains(body, `"sealed":false`)
+	if idx := strings.Index(body, `"version":"`); idx > 0 {
+		end := strings.Index(body[idx+11:], `"`)
+		if end > 0 {
+			ev["version"] = body[idx+11 : idx+11+end]
+		}
+	}
+	ev["sealed"] = isSealed
+
+	var findings []finding.Finding
+
+	// Always report Vault exposure as a fingerprint finding.
+	findings = append(findings, makeF(
+		finding.CheckPortVaultExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("HashiCorp Vault API exposed on port %d", port),
+		"A HashiCorp Vault server is publicly accessible. Vault stores secrets, encryption "+
+			"keys, and database credentials. Even if authentication is required, exposing Vault "+
+			"to the internet increases the attack surface for brute-force, CVE exploitation, and "+
+			"seal/unseal manipulation. Restrict to internal networks via firewall rules.",
+		ev,
+	))
+
+	// Step 2: If unsealed, try to read secrets without authentication.
+	if isUnsealed {
+		ev["sealed"] = false
+		// Try listing secret engines.
+		mountsBody, mountsOk := probeHTTPBody(ctx, host, port, false, "/v1/sys/mounts")
+		if !mountsOk {
+			mountsBody, mountsOk = probeHTTPBody(ctx, host, port, true, "/v1/sys/mounts")
+		}
+		if mountsOk && strings.Contains(mountsBody, "secret/") {
+			ev["unauthenticated_mounts"] = true
+			findings = append(findings, makeF(
+				finding.CheckPortVaultUnsealedNoAuth,
+				finding.SeverityCritical,
+				fmt.Sprintf("HashiCorp Vault on port %d is unsealed and secrets are readable without authentication", port),
+				"The Vault server is unsealed and its secret engine mount listing is accessible "+
+					"without any authentication token. This means secrets can be read, written, "+
+					"and deleted by any network-reachable attacker. This is a critical finding "+
+					"that requires immediate remediation: enable authentication, seal the vault, "+
+					"and rotate all stored secrets.",
+				ev,
+			))
+		}
+	}
+
+	return findings
+}
+
+// detectJBoss checks for JBoss/WildFly management console and REST API exposure.
+func detectJBoss(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	ev := map[string]any{"port": port, "service": "jboss", "banner": banner}
+
+	// Check the management REST API (port 9990 by default).
+	body, ok := probeHTTPBody(ctx, host, port, false, "/management")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, true, "/management")
+	}
+	if ok && (strings.Contains(body, "product-name") || strings.Contains(body, "release-version")) {
+		// Extract product name and version.
+		if idx := strings.Index(body, `"product-name"`); idx >= 0 {
+			sub := body[idx:]
+			if qi := strings.Index(sub, `": "`); qi > 0 {
+				end := strings.Index(sub[qi+4:], `"`)
+				if end > 0 {
+					ev["product"] = sub[qi+4 : qi+4+end]
+				}
+			}
+		}
+		if idx := strings.Index(body, `"release-version"`); idx >= 0 {
+			sub := body[idx:]
+			if qi := strings.Index(sub, `": "`); qi > 0 {
+				end := strings.Index(sub[qi+4:], `"`)
+				if end > 0 {
+					ev["version"] = sub[qi+4 : qi+4+end]
+				}
+			}
+		}
+
+		return []finding.Finding{makeF(
+			finding.CheckPortJBossManagementExposed,
+			finding.SeverityHigh,
+			fmt.Sprintf("JBoss/WildFly management API exposed on port %d", port),
+			"The JBoss/WildFly application server management REST API is publicly accessible "+
+				"without authentication. The management API allows deploying applications, reading "+
+				"server configuration, and executing operations. Historically, unauthenticated JBoss "+
+				"management access has been exploited for remote code execution (CVE-2010-0738, "+
+				"CVE-2015-7501). Restrict management access to localhost or a management network.",
+			ev,
+		)}
+	}
+
+	// Check the web console at /console.
+	body, ok = probeHTTPBody(ctx, host, port, false, "/console/App.html")
+	if !ok {
+		body, ok = probeHTTPBody(ctx, host, port, true, "/console/App.html")
+	}
+	if ok {
+		lb := strings.ToLower(body)
+		if strings.Contains(lb, "wildfly") || strings.Contains(lb, "jboss") ||
+			strings.Contains(lb, "hal management console") || strings.Contains(lb, "management console") {
+			return []finding.Finding{makeF(
+				finding.CheckPortJBossManagementExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("JBoss/WildFly management console exposed on port %d", port),
+				"The JBoss/WildFly HAL Management Console web interface is publicly accessible. "+
+					"The console provides full application server management capabilities including "+
+					"deploying WAR files, configuring datasources, and managing security domains. "+
+					"Restrict to localhost or a management network.",
+				ev,
+			)}
+		}
+	}
+
+	return nil
+}
+
+// detectColdFusion checks for Adobe ColdFusion administrator panel exposure.
+func detectColdFusion(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	ev := map[string]any{"port": port, "service": "coldfusion", "banner": banner}
+
+	paths := []string{"/CFIDE/administrator/", "/CFIDE/administrator/index.cfm", "/CFIDE/main/ide.cfm"}
+
+	for _, path := range paths {
+		body, ok := probeHTTPBody(ctx, host, port, false, path)
+		if !ok {
+			body, ok = probeHTTPBody(ctx, host, port, true, path)
+		}
+		if !ok {
+			continue
+		}
+		lb := strings.ToLower(body)
+		if strings.Contains(lb, "coldfusion") || strings.Contains(lb, "cfide") ||
+			strings.Contains(lb, "adobe") && strings.Contains(lb, "administrator") {
+			// Try to extract version from response.
+			if idx := strings.Index(lb, "version"); idx >= 0 {
+				snippet := body[idx:min(idx+40, len(body))]
+				ev["version_hint"] = snippet
+			}
+
+			return []finding.Finding{makeF(
+				finding.CheckPortColdFusionAdminExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("Adobe ColdFusion administrator panel exposed on port %d", port),
+				"The Adobe ColdFusion administrator panel (/CFIDE/administrator/) is publicly "+
+					"accessible. ColdFusion has a history of critical pre-authentication RCE "+
+					"vulnerabilities (CVE-2023-26360 KEV, CVE-2023-29298). Exposing the admin "+
+					"panel increases the attack surface for brute-force, credential stuffing, and "+
+					"CVE exploitation. Restrict /CFIDE/ to internal networks.",
+				ev,
+			)}
+		}
+	}
+
 	return nil
 }
 

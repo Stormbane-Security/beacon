@@ -1,0 +1,42 @@
+name: vault-exposed
+description: >
+  HashiCorp Vault in dev mode — unsealed, no auth required, secret engine
+  accessible. Beacon portscan vault probe should detect the exposed Vault
+  service and report unsealed/unauthenticated access.
+tags: [vault, scanner, port, infrastructure]
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    ports: ["9313:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "beacon-test-token"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add: ["IPC_LOCK"]
+
+ready:
+  cmd: "curl -sf http://localhost:9313/v1/sys/seal-status | grep -q '\"sealed\":false'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-vault-seal-status-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9313/v1/sys/seal-status | grep -q '\"sealed\":false'"
+      exit_code: 0
+
+  - name: exploit-vault-mounts-accessible
+    type: command
+    expect:
+      command: "curl -sf -H 'X-Vault-Token: beacon-test-token' http://localhost:9313/v1/sys/mounts | grep -q 'secret/'"
+      exit_code: 0
+
+  - name: detects-vault-exposed
+    type: beacon
+    target: localhost:9313
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.vault_exposed
+
+timeout: 5m

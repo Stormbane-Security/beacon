@@ -1,0 +1,40 @@
+name: coldfusion-admin-exposed
+description: >
+  Lucee (open-source ColdFusion engine) with the CFIDE administrator
+  panel exposed. Beacon portscan coldfusion probe should detect the
+  admin interface.
+tags: [coldfusion, scanner, port, infrastructure]
+
+services:
+  cfml:
+    image: lucee/lucee:5.4
+    ports: ["9320:8888"]
+    environment:
+      LUCEE_ADMIN_PASSWORD: "beacon-test"
+
+ready:
+  cmd: "curl -sf http://localhost:9320/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-lucee-admin-accessible
+    type: command
+    expect:
+      command: "curl -s http://localhost:9320/lucee/admin/server.cfm | grep -qi 'lucee\\|administrator'"
+      exit_code: 0
+
+  - name: exploit-cfide-path-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9320/CFIDE/administrator/"
+      stdout_contains: "200"
+
+  - name: detects-coldfusion-admin-exposed
+    type: beacon
+    target: localhost:9320
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.coldfusion_admin_exposed
+
+timeout: 5m

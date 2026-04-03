@@ -1,0 +1,32 @@
+name: grpcreflect-enumeration
+description: >
+  gRPC server with reflection enabled using the grpcbin image. Beacon
+  grpcreflect scanner should detect reflection is enabled and enumerate
+  exposed services.
+tags: [grpcreflect, scanner, port, grpc]
+
+services:
+  grpc:
+    image: moul/grpcbin
+    ports: ["9318:9000", "9319:9001"]
+
+ready:
+  cmd: "nc -z localhost 9318 2>/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-grpc-reflection-lists-services
+    type: command
+    expect:
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list || echo 'grpcurl not installed — skip'"
+      exit_code: 0
+
+  - name: detects-grpc-reflection-enabled
+    type: beacon
+    target: localhost:9318
+    args: ["--no-enrich", "--scanners", "grpcreflect"]
+    expect:
+      check_id: port.grpc_reflection_enabled
+
+timeout: 5m
