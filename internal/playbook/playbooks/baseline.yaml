@@ -49,6 +49,7 @@ surface:
     - nextjs         # Next.js CVE-2025-29927 middleware bypass — safe header probe
     - passivedns     # passive DNS aggregation from public sources (no active queries)
     - bgp            # BGP prefix origin validation and AS ownership
+    - errordisclosure # stack traces, debug endpoints, verbose error info leak
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:

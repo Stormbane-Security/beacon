@@ -1,0 +1,54 @@
+name: errordisclosure-stack-trace
+description: >
+  Nginx simulating a Python/Flask application that leaks stack traces with
+  database connection strings in error responses, and exposes a pprof-like
+  debug diagnostic endpoint. Beacon errordisclosure scanner should detect
+  both the stack trace info leak and the exposed debug endpoint.
+tags: [errordisclosure, scanner, web, info-leak, debug, stack-trace]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9293:80"]
+    volumes:
+      - ./errordisclosure-stack/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9293/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-404-returns-stack-trace
+    type: command
+    expect:
+      command: "curl -s http://localhost:9293/does-not-exist | grep -q 'Traceback (most recent call last)'"
+      exit_code: 0
+
+  - name: exploit-debug-pprof-exposed
+    type: command
+    expect:
+      command: "curl -s http://localhost:9293/debug/pprof/ | grep -q 'goroutines'"
+      exit_code: 0
+
+  - name: exploit-stack-trace-leaks-db-creds
+    type: command
+    expect:
+      command: "curl -s http://localhost:9293/nonexistent | grep -q 'postgresql://'"
+      exit_code: 0
+
+  - name: detects-error-info-leak
+    type: beacon
+    target: localhost:9293
+    args: ["--no-enrich", "--scanners", "errordisclosure", "--permission-confirmed"]
+    expect:
+      check_id: web.error_info_leak
+
+  - name: detects-debug-endpoint
+    type: beacon
+    target: localhost:9293
+    args: ["--no-enrich", "--scanners", "errordisclosure", "--permission-confirmed"]
+    expect:
+      check_id: web.debug_endpoint
+
+timeout: 5m

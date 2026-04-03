@@ -73,6 +73,7 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"accesscontrol",  // deep:    broken access control path bypass
 		"redos",          // deep:    ReDoS timing detection
 		"nosqli",         // deep:    NoSQL/MongoDB operator injection
+		"errordisclosure", // surface: stack traces, debug endpoints, verbose errors
 	}
 
 	for _, name := range mustHave {
