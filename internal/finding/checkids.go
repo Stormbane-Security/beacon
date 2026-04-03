@@ -90,6 +90,7 @@ const (
 	CheckExposureSpringActuator   CheckID = "exposure.spring_actuator"
 	CheckExposureCloudStorage     CheckID = "exposure.cloud_storage"
 	CheckExposureSensitiveFile    CheckID = "exposure.sensitive_file"
+	CheckExposureAIModelFile     CheckID = "exposure.ai_model_file"    // ML model weights served publicly (.onnx, .pt, .safetensors, etc.)
 
 	// Nuclei-sourced (mapped from template IDs)
 	CheckNucleiS3BucketExposed   CheckID = "nuclei.s3_bucket_exposed"
@@ -1583,6 +1584,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckExposureSpringActuator:   {CheckExposureSpringActuator, SeverityCritical, ModeSurface},
 	CheckExposureCloudStorage:     {CheckExposureCloudStorage, SeverityCritical, ModeSurface},
 	CheckExposureSensitiveFile:    {CheckExposureSensitiveFile, SeverityHigh, ModeSurface},
+	CheckExposureAIModelFile:     {CheckExposureAIModelFile, SeverityHigh, ModeSurface},
 	CheckNucleiS3BucketExposed:    {CheckNucleiS3BucketExposed, SeverityCritical, ModeSurface},
 	CheckNucleiMisconfiguredCORS:  {CheckNucleiMisconfiguredCORS, SeverityMedium, ModeSurface},
 	CheckNucleiStaleTemplates:     {CheckNucleiStaleTemplates, SeverityMedium, ModeSurface},

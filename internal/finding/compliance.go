@@ -93,6 +93,7 @@ var complianceMap = map[CheckID][]string{
 	CheckExposureSpringActuator:   {"SOC2-CC6.6", "PCI-6.4"},
 	CheckExposureCloudStorage:     {"SOC2-CC6.6", "PCI-1.3", "NIST-PR.DS"},
 	CheckExposureSensitiveFile:    {"SOC2-CC6.1", "PCI-6.3.1"},
+	CheckExposureAIModelFile:     {"SOC2-CC6.1", "PCI-6.3.1"},
 
 	// ── Subdomain / Domain ──────────────────────────────────────────────────
 	CheckSubdomainTakeover: {"SOC2-CC6.6", "NIST-PR.IP"},

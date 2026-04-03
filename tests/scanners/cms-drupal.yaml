@@ -1,0 +1,29 @@
+name: cms-drupal-detection
+description: "Drupal CMS detection — beacon fingerprints Drupal via X-Drupal-Cache header and core markers"
+tags: [cmsplugins, scanner, web, cms]
+
+services:
+  drupal:
+    image: drupal:10-apache
+    ports: ["9233:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9233/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-drupal-headers-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9233/ | grep -qi 'X-Generator\\|X-Drupal\\|Drupal'"
+      exit_code: 0
+
+  - name: detects-drupal-cms
+    type: beacon
+    target: localhost:9233
+    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.plugin_found
+
+timeout: 8m

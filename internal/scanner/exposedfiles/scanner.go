@@ -126,6 +126,57 @@ var targets = []sensitiveFile{
 			"a full JVM heap dump containing all in-memory objects — passwords, session tokens, encryption keys, " +
 			"and sensitive business data can be extracted from the dump with standard Java tools."},
 
+	// High — AI/ML model files publicly served
+	// Exposed model weights enable model theft, adversarial attack crafting, and reveal
+	// internal ML pipeline details. Large models also indicate significant IP exposure.
+	{path: "/model.onnx", title: "Exposed ONNX model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "An ONNX model file is publicly accessible. ONNX models contain trained neural network " +
+			"weights and architecture that represent significant intellectual property. Exposed models enable " +
+			"theft, adversarial example crafting, and reverse engineering of the ML pipeline."},
+	{path: "/model.safetensors", title: "Exposed SafeTensors model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A SafeTensors model file is publicly accessible. This format stores trained model weights " +
+			"used by Hugging Face Transformers. Exposed model weights enable model theft and adversarial attacks."},
+	{path: "/model.pt", title: "Exposed PyTorch model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A PyTorch model file (.pt) is publicly accessible. PyTorch model files can contain " +
+			"arbitrary Python code via pickle deserialization — loading an untrusted .pt file executes code. " +
+			"Exposure enables model theft and potential supply chain attacks."},
+	{path: "/model.pth", title: "Exposed PyTorch model checkpoint", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A PyTorch model checkpoint (.pth) is publicly accessible. Like .pt files, .pth files " +
+			"use pickle serialization and can execute arbitrary code when loaded."},
+	{path: "/model.h5", title: "Exposed Keras/TensorFlow model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A Keras/TensorFlow HDF5 model file is publicly accessible. H5 model files contain " +
+			"trained weights and model architecture — exposing them enables model theft and adversarial research."},
+	{path: "/model.pkl", title: "Exposed pickled model file", severity: finding.SeverityCritical,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A pickled Python model file is publicly accessible. Pickle files execute arbitrary Python " +
+			"code on deserialization — an attacker can replace this with a malicious payload. This is both " +
+			"an IP theft risk and a remote code execution vector if any system loads the file."},
+	{path: "/model.bin", title: "Exposed model binary weights", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A model binary weights file is publicly accessible. The .bin format is used by Hugging Face " +
+			"Transformers and other ML frameworks to store trained model parameters."},
+	{path: "/model.gguf", title: "Exposed GGUF quantized model", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A GGUF quantized model file is publicly accessible. GGUF is the format used by llama.cpp " +
+			"and Ollama for quantized LLM inference. Exposed GGUF files reveal the exact model being served."},
+	{path: "/models/model.safetensors", title: "Exposed SafeTensors model in /models/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/weights/model.bin", title: "Exposed model weights in /weights/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/ml/model.onnx", title: "Exposed ONNX model in /ml/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/checkpoints/model.pt", title: "Exposed PyTorch checkpoint in /checkpoints/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/.cache/huggingface/", title: "Exposed Hugging Face cache directory", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true,
+		description: "The Hugging Face model cache directory is publicly accessible. This directory contains " +
+			"downloaded model weights, tokenizers, and configuration files for all models used by the application."},
+
 	// Info — fingerprinting / metadata
 	{path: "/server-status", title: "Apache server-status exposed", severity: finding.SeverityMedium, bodyContains: "Apache"},
 	{path: "/server-info", title: "Apache server-info exposed", severity: finding.SeverityMedium, bodyContains: "Apache"},

@@ -1,0 +1,32 @@
+name: cms-ghost-detection
+description: "Ghost CMS detection — beacon fingerprints Ghost via /ghost/ admin panel and probes admin paths"
+tags: [cmsplugins, scanner, web, cms]
+
+services:
+  ghost:
+    image: ghost:5-alpine
+    ports: ["9232:2368"]
+    environment:
+      NODE_ENV: development
+      url: "http://localhost:9232"
+
+ready:
+  cmd: "curl -sf http://localhost:9232/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-ghost-admin-accessible
+    type: command
+    expect:
+      command: "curl -sL -o /dev/null -w '%{http_code}' http://localhost:9232/ghost/ | grep -qE '200|301|302'"
+      exit_code: 0
+
+  - name: detects-ghost-cms
+    type: beacon
+    target: localhost:9232
+    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.plugin_found
+
+timeout: 8m
