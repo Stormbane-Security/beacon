@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
@@ -268,17 +269,44 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 				}
 
 				injected3 := buildPayload(p, 3)
-				testURL3 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+injected3))
-				latency3, err := timeRequest(ctx, client, testURL3)
-				if err != nil {
+
+				// Build candidate list: original payload + WAF evasion variants.
+				candidates := []string{injected3}
+				if p.os == "unix" {
+					candidates = append(candidates, evasion.CmdBypass(injected3)...)
+				}
+
+				var confirmedURL3 string
+				var confirmedDelta3 time.Duration
+				var confirmedLabel string
+
+				for ci, candidate := range candidates {
+					if ctx.Err() != nil {
+						break
+					}
+					testURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+candidate))
+					latency, err := timeRequest(ctx, client, testURL)
+					if err != nil {
+						continue
+					}
+					delta := latency - baseline
+					if delta >= 2500*time.Millisecond {
+						confirmedURL3 = testURL
+						confirmedDelta3 = delta
+						if ci == 0 {
+							confirmedLabel = p.name
+						} else {
+							confirmedLabel = fmt.Sprintf("%s+evasion-%d", p.name, ci)
+						}
+						break
+					}
+				}
+
+				if confirmedURL3 == "" {
 					continue
 				}
 
-				delta3 := latency3 - baseline
-				if delta3 < 2500*time.Millisecond {
-					continue
-				}
-
+				// Confirm with sleep(5).
 				injected5 := buildPayload(p, 5)
 				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+injected5))
 				latency5, err := timeRequest(ctx, client, testURL5)
@@ -301,22 +329,23 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 						"Calibration-based timing confirmed command injection. "+
 							"Baseline: %s, sleep(3) delta: %s, sleep(5) delta: %s. "+
 							"OS type: %s. Payload: %s",
-						baseline.Round(time.Millisecond), delta3.Round(time.Millisecond),
-						delta5.Round(time.Millisecond), p.os, p.name),
+						baseline.Round(time.Millisecond), confirmedDelta3.Round(time.Millisecond),
+						delta5.Round(time.Millisecond), p.os, confirmedLabel),
 					Asset:    asset,
 					DeepOnly: true,
 					Evidence: map[string]any{
 						"path":            pp.path,
 						"parameter":       param,
-						"payload":         p.name,
+						"payload":         confirmedLabel,
 						"os_type":         p.os,
 						"baseline_ms":     baseline.Milliseconds(),
-						"sleep3_delta_ms": delta3.Milliseconds(),
+						"sleep3_delta_ms": confirmedDelta3.Milliseconds(),
 						"sleep5_delta_ms": delta5.Milliseconds(),
+						"waf_bypass":      confirmedLabel != p.name,
 					},
 					ProofCommand: fmt.Sprintf(
 						`time curl -sk '%s'  # should take ~3s longer than baseline`,
-						testURL3),
+						confirmedURL3),
 					DiscoveredAt: time.Now(),
 				})
 				break // one per parameter

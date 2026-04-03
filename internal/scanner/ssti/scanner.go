@@ -17,10 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
-	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
 
@@ -134,29 +135,44 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		for _, param := range probeParams {
 			for _, p := range payloads {
-				u := base + path + "?" + param + "=" + url.QueryEscape(p.expr)
-				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-				if err != nil {
-					continue
+				// Build candidate expressions: original + WAF evasion variants.
+				candidates := []string{p.expr}
+				candidates = append(candidates, evasion.SSTIBypass(p.expr)...)
+
+				var bodyStr string
+				var usedExpr string
+				var matched bool
+
+				for _, expr := range candidates {
+					u := base + path + "?" + param + "=" + url.QueryEscape(expr)
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+					if err != nil {
+						continue
+					}
+
+					resp, err := client.Do(req)
+					if err != nil {
+						continue
+					}
+
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+					resp.Body.Close()
+
+					if resp.StatusCode == http.StatusNotFound {
+						continue
+					}
+
+					bodyStr = string(body)
+					if evaluatedInBody(p.expect, bodyStr) {
+						usedExpr = expr
+						matched = true
+						break
+					}
 				}
 
-				resp, err := client.Do(req)
-				if err != nil {
+				if !matched {
 					continue
 				}
-
-				body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-				resp.Body.Close()
-
-				if resp.StatusCode == http.StatusNotFound {
-					continue
-				}
-
-				bodyStr := string(body)
-				if !evaluatedInBody(p.expect, bodyStr) {
-					continue
-				}
-
 				// Delta check: fetch the page without injection and count
 				// baseline occurrences. Only flag if the injected response
 				// has MORE occurrences — handles pages that naturally contain
@@ -167,6 +183,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue
 				}
 
+				wafBypassed := usedExpr != p.expr
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebSSTI,
 					Module:   "deep",
@@ -178,18 +195,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 							"The payload %q was reflected as %q, indicating the application renders "+
 							"user input through a %s template engine. An attacker can use this to "+
 							"execute arbitrary code on the server.",
-						param, path, p.expr, p.expect, p.engine),
+						param, path, usedExpr, p.expect, p.engine),
 					Asset:    asset,
 					DeepOnly: true,
 					ProofCommand: fmt.Sprintf(
-						`curl -s "https://%s/search?q={{7*7}}" | grep -o '\b49\b'`, asset),
+						`curl -s '%s' | grep -o '\b%s\b'`,
+						base+path+"?"+param+"="+url.QueryEscape(usedExpr), p.expect),
 					Evidence: map[string]any{
-						"url":     u,
-						"path":    path,
-						"param":   param,
-						"payload": p.expr,
-						"expect":  p.expect,
-						"engine":  p.engine,
+						"url":        base + path + "?" + param + "=" + url.QueryEscape(usedExpr),
+						"path":       path,
+						"param":      param,
+						"payload":    usedExpr,
+						"expect":     p.expect,
+						"engine":     p.engine,
+						"waf_bypass": wafBypassed,
 					},
 					DiscoveredAt: time.Now(),
 				})

@@ -15,10 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
-	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
 
@@ -64,6 +65,26 @@ var injectionSuffixes = []struct {
 	{encoded: "%250a" + injectedHeader + ":" + injectedValue, label: "double-encoded LF"},
 }
 
+// allInjectionSuffixes includes the base suffixes plus WAF evasion variants.
+var allInjectionSuffixes = func() []struct {
+	encoded string
+	label   string
+} {
+	out := append([]struct {
+		encoded string
+		label   string
+	}{}, injectionSuffixes...)
+	for _, s := range injectionSuffixes {
+		for i, v := range evasion.CRLFBypass(s.encoded) {
+			out = append(out, struct {
+				encoded string
+				label   string
+			}{encoded: v, label: fmt.Sprintf("%s+evasion-%d", s.label, i)})
+		}
+	}
+	return out
+}()
+
 // Scanner probes for CRLF injection in HTTP redirect parameters.
 type Scanner struct{}
 
@@ -93,7 +114,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	for _, path := range probePaths {
 		for _, param := range redirectParams {
-			for _, suffix := range injectionSuffixes {
+			for _, suffix := range allInjectionSuffixes {
 				// Build URL with injected CRLF sequence.
 				// We do NOT use url.Values because that would double-encode the %.
 				rawURL := fmt.Sprintf("%s%s?%s=https://beacon-test.invalid%s",

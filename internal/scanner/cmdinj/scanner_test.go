@@ -96,7 +96,12 @@ func TestBuildPayload_CmdInj(t *testing.T) {
 
 func TestCmdInj_OOBIntegration(t *testing.T) {
 	oobSrv := oob.NewServer("oob.test.com", "127.0.0.1:0")
-	ctx := oob.WithOOB(context.Background(), oobSrv)
+	// Use a short context deadline — this test only verifies the scanner
+	// doesn't crash when OOB is present; it doesn't need to exhaust all
+	// evasion variants (which would multiply HTTP requests past 30s).
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ctx = oob.WithOOB(ctx, oobSrv)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

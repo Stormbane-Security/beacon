@@ -19,10 +19,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
@@ -143,16 +144,39 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue
 				}
 
-				// First probe: SLEEP(3)
+				// First probe: SLEEP(3) — try original + WAF evasion variants.
 				injected3 := buildPayload(p, 3)
-				testURL3 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(injected3))
-				latency3, err := timeRequest(ctx, client, testURL3)
-				if err != nil {
-					continue
+
+				candidates := []string{injected3}
+				candidates = append(candidates, evasion.SQLBypass(injected3)...)
+
+				var confirmedURL3 string
+				var confirmedDelta3 time.Duration
+				var confirmedLabel string
+
+				for ci, candidate := range candidates {
+					if ctx.Err() != nil {
+						break
+					}
+					testURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(candidate))
+					latency, err := timeRequest(ctx, client, testURL)
+					if err != nil {
+						continue
+					}
+					delta := latency - baseline
+					if delta >= 2500*time.Millisecond {
+						confirmedURL3 = testURL
+						confirmedDelta3 = delta
+						if ci == 0 {
+							confirmedLabel = p.name
+						} else {
+							confirmedLabel = fmt.Sprintf("%s+evasion-%d", p.name, ci)
+						}
+						break
+					}
 				}
 
-				delta3 := latency3 - baseline
-				if delta3 < 2500*time.Millisecond {
+				if confirmedURL3 == "" {
 					continue // not significantly slower
 				}
 
@@ -180,21 +204,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 						"Calibration-based timing analysis confirmed SQL injection. "+
 							"Baseline: %s, SLEEP(3) delta: %s, SLEEP(5) delta: %s. "+
 							"Database type: %s. Payload: %s",
-						baseline.Round(time.Millisecond), delta3.Round(time.Millisecond),
-						delta5.Round(time.Millisecond), p.dbType, p.name),
+						baseline.Round(time.Millisecond), confirmedDelta3.Round(time.Millisecond),
+						delta5.Round(time.Millisecond), p.dbType, confirmedLabel),
 					Asset: asset,
 					Evidence: map[string]any{
-						"path":           pp.path,
-						"parameter":      param,
-						"payload":        p.name,
-						"db_type":        p.dbType,
-						"baseline_ms":    baseline.Milliseconds(),
-						"sleep3_delta_ms": delta3.Milliseconds(),
+						"path":            pp.path,
+						"parameter":       param,
+						"payload":         confirmedLabel,
+						"db_type":         p.dbType,
+						"baseline_ms":     baseline.Milliseconds(),
+						"sleep3_delta_ms": confirmedDelta3.Milliseconds(),
 						"sleep5_delta_ms": delta5.Milliseconds(),
+						"waf_bypass":      confirmedLabel != p.name,
 					},
 					ProofCommand: fmt.Sprintf(
 						`time curl -sk '%s'  # should take ~3s longer than baseline`,
-						testURL3),
+						confirmedURL3),
 					DiscoveredAt: time.Now(),
 				})
 

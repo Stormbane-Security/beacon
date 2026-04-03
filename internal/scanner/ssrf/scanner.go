@@ -15,10 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
-	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
 
@@ -58,6 +59,26 @@ var metadataPayloads = []string{
 	// Oracle Cloud Infrastructure metadata
 	"http://169.254.169.254/opc/v1/instance/",
 }
+
+// allMetadataPayloads includes the original payloads plus WAF evasion variants
+// (IP obfuscation, protocol tricks, encoding bypasses).
+var allMetadataPayloads = func() []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, p := range metadataPayloads {
+		if !seen[p] {
+			out = append(out, p)
+			seen[p] = true
+		}
+		for _, v := range evasion.SSRFBypass(p) {
+			if !seen[v] {
+				out = append(out, v)
+				seen[v] = true
+			}
+		}
+	}
+	return out
+}()
 
 // metadataSignals are substrings that appear in cloud metadata CONTENT.
 // These must NOT be substrings of any payload URL — otherwise a server that
@@ -106,7 +127,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var findings []finding.Finding
 
 	for _, param := range probeParams {
-		for _, payload := range metadataPayloads {
+		for _, payload := range allMetadataPayloads {
 			u := base + "/?" + param + "=" + url.QueryEscape(payload)
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 			if err != nil {
@@ -173,7 +194,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// is technically an open redirect, redirecting to cloud metadata IPs is a
 	// well-known SSRF escalation pattern (e.g. IMDS via 302 redirect on ELB).
 	for _, param := range probeParams {
-		for _, payload := range metadataPayloads {
+		for _, payload := range allMetadataPayloads {
 			u := base + "/?" + param + "=" + url.QueryEscape(payload)
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 			if err != nil {

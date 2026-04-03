@@ -191,3 +191,112 @@ func TestHTMLEntityEncode(t *testing.T) {
 		t.Errorf("htmlEntityEncode missing hex entities: %q", result)
 	}
 }
+
+func TestSSTIBypass(t *testing.T) {
+	variants := SSTIBypass("{{7*7}}")
+	if len(variants) < 2 {
+		t.Errorf("SSTIBypass returned %d variants, want at least 2", len(variants))
+	}
+
+	// Should have Jinja2 print variant.
+	hasPrint := false
+	for _, v := range variants {
+		if strings.Contains(v, "print") {
+			hasPrint = true
+			break
+		}
+	}
+	if !hasPrint {
+		t.Error("Missing Jinja2 print() bypass variant")
+	}
+
+	// Should have URL-encoded braces variant.
+	hasEncoded := false
+	for _, v := range variants {
+		if strings.Contains(v, "%7B") {
+			hasEncoded = true
+			break
+		}
+	}
+	if !hasEncoded {
+		t.Error("Missing URL-encoded braces variant")
+	}
+}
+
+func TestSSRFBypass(t *testing.T) {
+	variants := SSRFBypass("http://169.254.169.254/latest/meta-data/")
+	if len(variants) < 3 {
+		t.Errorf("SSRFBypass returned %d variants, want at least 3", len(variants))
+	}
+
+	// Should have decimal IP variant.
+	hasDecimal := false
+	for _, v := range variants {
+		if strings.Contains(v, "2852039166") {
+			hasDecimal = true
+			break
+		}
+	}
+	if !hasDecimal {
+		t.Error("Missing decimal IP notation variant")
+	}
+
+	// Should have hex IP variant.
+	hasHexIP := false
+	for _, v := range variants {
+		if strings.Contains(v, "0xa9fea9fe") {
+			hasHexIP = true
+			break
+		}
+	}
+	if !hasHexIP {
+		t.Error("Missing hex IP notation variant")
+	}
+}
+
+func TestSSRFBypass_NonMetadata(t *testing.T) {
+	// Non-metadata URL should still produce protocol variants.
+	variants := SSRFBypass("http://internal.example.com/api")
+	hasProto := false
+	for _, v := range variants {
+		if strings.Contains(v, "http:///") {
+			hasProto = true
+			break
+		}
+	}
+	if !hasProto {
+		t.Error("Missing protocol bypass variant for non-metadata URL")
+	}
+}
+
+func TestCRLFBypass(t *testing.T) {
+	suffix := "%0d%0aX-Injected:test"
+	variants := CRLFBypass(suffix)
+	if len(variants) < 2 {
+		t.Errorf("CRLFBypass returned %d variants, want at least 2", len(variants))
+	}
+
+	// Should have double-encoded variant.
+	hasDouble := false
+	for _, v := range variants {
+		if strings.Contains(v, "%250d") {
+			hasDouble = true
+			break
+		}
+	}
+	if !hasDouble {
+		t.Error("Missing double-encoded CRLF variant")
+	}
+
+	// Should have Unicode variant.
+	hasUnicode := false
+	for _, v := range variants {
+		if strings.Contains(v, "%E5%98") {
+			hasUnicode = true
+			break
+		}
+	}
+	if !hasUnicode {
+		t.Error("Missing Unicode CRLF variant")
+	}
+}
