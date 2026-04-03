@@ -119,6 +119,70 @@ func collectDNSIntel(ctx context.Context, hostname string, e *playbook.Evidence)
 	for _, ip := range r.aaaa {
 		e.AAAARecords = append(e.AAAARecords, ip.String())
 	}
+
+	// ── SRV records ──────────────────────────────────────────────────────────
+	// Discover services advertised via DNS SRV records. These reveal internal
+	// infrastructure like Active Directory (LDAP/Kerberos), Exchange
+	// (autodiscover), SIP, XMPP, and mail submission servers.
+	e.SRVRecords = lookupSRVRecords(ctx, hostname)
+}
+
+// srvQueries are common DNS SRV record prefixes that reveal infrastructure.
+var srvQueries = []string{
+	"_ldap._tcp",           // Active Directory LDAP
+	"_kerberos._tcp",       // Kerberos / AD authentication
+	"_gc._tcp",             // Active Directory Global Catalog
+	"_autodiscover._tcp",   // Exchange / Office 365 Autodiscover
+	"_sip._tcp",            // SIP / VoIP
+	"_sip._udp",            // SIP over UDP
+	"_xmpp-server._tcp",    // XMPP / Jabber federation
+	"_xmpp-client._tcp",    // XMPP client connections
+	"_imaps._tcp",          // IMAP over TLS
+	"_submission._tcp",     // SMTP mail submission (port 587)
+	"_caldavs._tcp",        // CalDAV (calendar)
+	"_carddavs._tcp",       // CardDAV (contacts)
+	"_matrix._tcp",         // Matrix federation
+}
+
+// lookupSRVRecords queries common SRV record prefixes and returns any that
+// resolve. Each successful lookup indicates an advertised service.
+func lookupSRVRecords(ctx context.Context, hostname string) map[string][]string {
+	type srvResult struct {
+		query   string
+		entries []string
+	}
+
+	ch := make(chan srvResult, len(srvQueries))
+	for _, q := range srvQueries {
+		go func(query string) {
+			fqdn := query + "." + hostname
+			_, addrs, err := net.DefaultResolver.LookupSRV(ctx, "", "", fqdn)
+			if err != nil || len(addrs) == 0 {
+				ch <- srvResult{query: query}
+				return
+			}
+			var entries []string
+			for _, a := range addrs {
+				host := strings.TrimSuffix(a.Target, ".")
+				if host != "" && host != "." {
+					entries = append(entries, fmt.Sprintf("%s:%d", host, a.Port))
+				}
+			}
+			ch <- srvResult{query: query, entries: entries}
+		}(q)
+	}
+
+	results := make(map[string][]string)
+	for range srvQueries {
+		r := <-ch
+		if len(r.entries) > 0 {
+			results[r.query] = r.entries
+		}
+	}
+	if len(results) == 0 {
+		return nil
+	}
+	return results
 }
 
 // detectMXProvider infers the email provider from MX hostnames.

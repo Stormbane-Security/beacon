@@ -607,7 +607,15 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckSIWEChainBypass:           true,
 		finding.CheckSIWEReplayAttack:          true,
 		// Port-level active probes
-		finding.CheckPortMinIODefaultCreds: true,
+		finding.CheckPortMinIODefaultCreds:     true,
+		finding.CheckPortGrafanaDefaultCreds:   true,
+		finding.CheckPortSonarQubeDefaultCreds: true,
+		finding.CheckPortAirflowDefaultCreds:   true,
+		finding.CheckPortTomcatDefaultCreds:    true,
+		finding.CheckPortPortainerDefaultCreds: true,
+		finding.CheckPortPgAdminDefaultCreds:   true,
+		finding.CheckPortZabbixDefaultCreds:    true,
+		finding.CheckPortSupersetDefaultCreds:  true,
 		// MFA enforcement — cloud API
 		finding.CheckCloudGCPNo2SV:                    true,
 		finding.CheckCloudAzureNoConditionalAccessMFA: true,

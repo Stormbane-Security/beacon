@@ -746,6 +746,16 @@ const (
 	CheckPortBGPExposed               CheckID = "port.bgp_exposed"                 // BGP port 179 accessible — routing infrastructure exposed
 	CheckPortKibanaVulnerable         CheckID = "cve.kibana_cve_2025_25015"        // CVE-2025-25015 Kibana 8.15.0–8.17.2 prototype pollution RCE (CVSS 9.9)
 	CheckPortMinIODefaultCreds        CheckID = "port.minio_default_credentials"   // MinIO console (port 9001) accepts minioadmin:minioadmin default credentials
+	CheckPortGrafanaDefaultCreds      CheckID = "port.grafana_default_credentials" // Grafana (port 3000) accepts admin:admin default credentials
+	CheckPortSonarQubeDefaultCreds    CheckID = "port.sonarqube_default_credentials" // SonarQube (port 9000) accepts admin:admin default credentials
+	CheckPortAirflowDefaultCreds      CheckID = "port.airflow_default_credentials" // Apache Airflow (port 8080) accepts airflow:airflow default credentials
+	CheckPortTomcatDefaultCreds       CheckID = "port.tomcat_default_credentials"  // Apache Tomcat manager (port 8080) accepts tomcat:tomcat default credentials
+	CheckPortJenkinsNoAuth            CheckID = "port.jenkins_no_auth"             // Jenkins (port 8080) allows unauthenticated access to script console or job config
+	CheckPortPortainerDefaultCreds    CheckID = "port.portainer_default_credentials" // Portainer (port 9443/9000) initial admin setup still available
+	CheckPortPgAdminDefaultCreds      CheckID = "port.pgadmin_default_credentials" // pgAdmin (port 5050) accepts default admin credentials
+	CheckPortZabbixDefaultCreds       CheckID = "port.zabbix_default_credentials"  // Zabbix (port 80) accepts Admin:zabbix default credentials
+	CheckPortGiteaNoAuth              CheckID = "port.gitea_no_auth"               // Gitea/Forgejo (port 3000) exposes repositories without authentication
+	CheckPortSupersetDefaultCreds     CheckID = "port.superset_default_credentials" // Apache Superset (port 8088) accepts admin:admin default credentials
 	CheckCVENextJSMiddlewareBypass    CheckID = "cve.nextjs_middleware_bypass"      // CVE-2025-29927 Next.js middleware auth bypass via X-Middleware-Subrequest (CVSS 9.1, KEV)
 	CheckCVEViteFileRead              CheckID = "cve.vite_file_read"               // CVE-2025-30208 Vite dev server arbitrary file read via /@fs/ path double-query confusion (CVSS 9.1)
 	CheckCVEIngressNightmare          CheckID = "cve.ingress_nightmare"            // CVE-2025-1974 ingress-nginx admission webhook exposed — pre-auth RCE via annotation injection (CVSS 9.8, KEV)
@@ -2673,7 +2683,17 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortRedisVulnerableCVE2025: {CheckPortRedisVulnerableCVE2025, SeverityCritical, ModeSurface},
 	CheckPortBGPExposed:        {CheckPortBGPExposed, SeverityMedium, ModeSurface},
 	CheckPortKibanaVulnerable:  {CheckPortKibanaVulnerable, SeverityCritical, ModeSurface},
-	CheckPortMinIODefaultCreds: {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortMinIODefaultCreds:     {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortGrafanaDefaultCreds:   {CheckPortGrafanaDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortSonarQubeDefaultCreds: {CheckPortSonarQubeDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortAirflowDefaultCreds:   {CheckPortAirflowDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortTomcatDefaultCreds:    {CheckPortTomcatDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortJenkinsNoAuth:         {CheckPortJenkinsNoAuth, SeverityCritical, ModeSurface},
+	CheckPortPortainerDefaultCreds: {CheckPortPortainerDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortPgAdminDefaultCreds:   {CheckPortPgAdminDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortZabbixDefaultCreds:    {CheckPortZabbixDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortGiteaNoAuth:           {CheckPortGiteaNoAuth, SeverityHigh, ModeSurface},
+	CheckPortSupersetDefaultCreds:  {CheckPortSupersetDefaultCreds, SeverityCritical, ModeDeep},
 
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},

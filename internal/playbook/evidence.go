@@ -115,6 +115,16 @@ type Evidence struct {
 	HasDMARC   bool     // _dmarc TXT record exists
 	DMARCPolicy string  // DMARC p= tag value: "none", "quarantine", "reject", ""
 
+	// SRVRecords holds service discovery results from DNS SRV lookups.
+	// Keys are the query name (e.g. "_sip._tcp", "_ldap._tcp"), values are
+	// "host:port" strings. Reveals internal services like AD, XMPP, SIP, Exchange.
+	SRVRecords map[string][]string
+
+	// FaviconProduct is the product name identified by matching the FaviconHash
+	// against a known hash database (e.g. "Grafana", "Jenkins", "Kibana").
+	// Empty when the hash is unknown or no favicon was fetched.
+	FaviconProduct string
+
 	// Discovery hints — subdomains of the root domain found in the page source.
 	// Populated by classify scanner using the full 8KB response body.
 	// Used by the surface module to queue new assets missed by passive enumeration.

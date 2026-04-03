@@ -1,0 +1,62 @@
+name: grafana-default-credentials
+description: >
+  Grafana OSS with factory-default admin:admin credentials. Beacon portscan
+  should detect the default credentials via the /api/login endpoint.
+tags: [grafana, scanner, port, defaultcreds]
+
+services:
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["9322:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+ready:
+  cmd: "curl -sf http://localhost:9322/api/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs: verify Grafana default credentials work ---
+  - name: exploit-grafana-health-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9322/api/health | grep -q 'database'"
+      exit_code: 0
+
+  - name: exploit-grafana-login-accepts-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9322/api/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}' | grep -qi 'logged in\\|changePassword'"
+      exit_code: 0
+
+  - name: exploit-grafana-api-accessible-with-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:9322/api/org | grep -q 'name'"
+      exit_code: 0
+
+  - name: exploit-grafana-datasources-accessible
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:9322/api/datasources -o /dev/null -w '%{http_code}' | grep -q '200'"
+      exit_code: 0
+
+  # --- Negative: wrong password rejected ---
+  - name: negative-wrong-password-rejected
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:9322/api/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"wrongpassword\"}' -o /dev/null -w '%{http_code}' | grep -q '401'"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-grafana-default-creds
+    type: beacon
+    target: localhost:9322
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3000", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+timeout: 5m

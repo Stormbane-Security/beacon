@@ -1,0 +1,62 @@
+name: tomcat-default-credentials
+description: >
+  Apache Tomcat 9 with manager app configured with default tomcat:tomcat
+  credentials. Beacon portscan should detect the default credentials
+  via Basic Auth on /manager/html.
+tags: [tomcat, scanner, port, defaultcreds]
+
+services:
+  tomcat:
+    image: tomcat:9.0-jdk17
+    ports: ["9323:8080"]
+    volumes:
+      - ./tomcat-defaultcreds/tomcat-users.xml:/usr/local/tomcat/conf/tomcat-users.xml:ro
+      - ./tomcat-defaultcreds/context.xml:/usr/local/tomcat/webapps/manager/META-INF/context.xml:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9323/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs: verify Tomcat default credentials work ---
+  - name: exploit-tomcat-root-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9323/ -o /dev/null -w '%{http_code}' | grep -q '200'"
+      exit_code: 0
+
+  - name: exploit-tomcat-manager-requires-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9323/manager/html | grep -q '401'"
+      exit_code: 0
+
+  - name: exploit-tomcat-manager-accepts-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u tomcat:tomcat http://localhost:9323/manager/html | grep -qi 'tomcat.*manager'"
+      exit_code: 0
+
+  - name: exploit-tomcat-server-status-accessible
+    type: command
+    expect:
+      command: "curl -sf -u tomcat:tomcat http://localhost:9323/manager/status | grep -qi 'tomcat\\|server'"
+      exit_code: 0
+
+  # --- Negative: wrong password rejected ---
+  - name: negative-wrong-password-rejected
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -u tomcat:wrongpass http://localhost:9323/manager/html); [ \"$STATUS\" = \"401\" ]"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-tomcat-default-creds
+    type: beacon
+    target: localhost:9323
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.tomcat_default_credentials
+
+timeout: 5m
