@@ -30,6 +30,6 @@ assertions:
     target: localhost:9217
     args: ["--no-enrich", "--scanners", "aidetect", "--ports", "11434"]
     expect:
-      min_findings: 1
+      check_id: ai.endpoint_exposed
 
 timeout: 10m

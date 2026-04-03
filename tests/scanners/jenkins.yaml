@@ -23,11 +23,11 @@ assertions:
       command: "curl -sI http://localhost:9274/ | grep -qi 'Jenkins'"
       exit_code: 0
 
-  - name: detects-jenkins
+  - name: detects-jenkins-cicd-panel
     type: beacon
     target: localhost:9274
     args: ["--no-enrich", "--scanners", "jenkins"]
     expect:
-      min_findings: 1
+      check_id: exposure.cicd_panel
 
 timeout: 10m

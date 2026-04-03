@@ -34,11 +34,11 @@ assertions:
       exit_code: 0
 
   # Test 1: Web3 frontend fingerprinting
-  - name: detects-web3-signals
+  - name: detects-web3-wallet-lib
     type: beacon
     target: localhost:9219
     args: ["--no-enrich", "--scanners", "web3detect", "--ports", "80"]
     expect:
-      min_findings: 1
+      check_id: web3.wallet_lib_detected
 
 timeout: 10m
