@@ -31,6 +31,22 @@ func init() {
 
 const scannerName = "portscan"
 
+// scanTypeKey is a context key for passing the scan type to probes.
+type scanTypeKeyT struct{}
+
+var scanTypeKey = scanTypeKeyT{}
+
+// withScanType stores the scan type in the context.
+func withScanType(ctx context.Context, st module.ScanType) context.Context {
+	return context.WithValue(ctx, scanTypeKey, st)
+}
+
+// isAuthorized returns true if the context carries ScanAuthorized.
+func isAuthorized(ctx context.Context) bool {
+	st, _ := ctx.Value(scanTypeKey).(module.ScanType)
+	return st == module.ScanAuthorized
+}
+
 // timeouts for the various probe stages.
 const (
 	dialTimeout   = 3 * time.Second
@@ -248,6 +264,9 @@ const maxPortFindings = 50
 // Surface mode scans the top 30 most impactful ports (critical + high).
 // Deep mode scans all 50+ ports including the extended list.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// Store scan type in context so probes can check for authorized mode.
+	ctx = withScanType(ctx, scanType)
+
 	// If the asset includes a port (e.g. "host:9122"), extract it so we
 	// scan that specific port in addition to the standard list.
 	host, targetPort := parseAssetPort(asset)

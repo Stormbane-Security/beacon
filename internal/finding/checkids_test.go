@@ -714,6 +714,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 			if strings.HasPrefix(string(id), "onprem.") {
 				continue
 			}
+			// All exploit.* and container.* checks are intentionally deep —
+			// they require --authorized mode (post-exploitation).
+			if strings.HasPrefix(string(id), "exploit.") || strings.HasPrefix(string(id), "container.") {
+				continue
+			}
 			t.Errorf("CheckID %q is tagged ModeDeep but is not in the known-deep allowlist — review and add it if intentional", id)
 		}
 		if meta.Mode == finding.ModeSurface && knownDeep[id] {

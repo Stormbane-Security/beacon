@@ -9,64 +9,48 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/stormbane-security/beacon/internal/exploit"
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func init() {
-	registerProbe(ServiceProbe{
-		Name:         "grafana-creds",
-		Category:     ProbeCatHTTP,
-		DefaultPorts: []int{3000},
-		Detect:       detectGrafanaDefaultCreds,
+	// Register engine-driven probes for services with YAML playbooks.
+	for _, pb := range exploit.Playbooks() {
+		pb := pb // capture loop variable
+		registerProbe(ServiceProbe{
+			Name:         pb.Service + "-exploit",
+			Category:     ProbeCatHTTP,
+			DefaultPorts: pb.DefaultPorts,
+			Detect: func(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+				return exploit.Run(ctx, pb, host, port, exploit.FindingFunc(makeF), false)
+			},
+		})
+	}
 
-	})
-	registerProbe(ServiceProbe{
-		Name:         "sonarqube-creds",
-		Category:     ProbeCatHTTP,
-		DefaultPorts: []int{9000},
-		Detect:       detectSonarQubeDefaultCreds,
-
-	})
-	registerProbe(ServiceProbe{
-		Name:         "airflow-creds",
-		Category:     ProbeCatHTTP,
-		DefaultPorts: []int{8080},
-		Detect:       detectAirflowDefaultCreds,
-
-	})
+	// Go-only probes for services without YAML playbooks.
 	registerProbe(ServiceProbe{
 		Name:         "tomcat-creds",
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{8080},
 		Detect:       detectTomcatDefaultCreds,
-
-	})
-	registerProbe(ServiceProbe{
-		Name:         "jenkins-noauth",
-		Category:     ProbeCatHTTP,
-		DefaultPorts: []int{8080},
-		Detect:       detectJenkinsNoAuth,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "portainer-creds",
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{9000, 9443},
 		Detect:       detectPortainerSetup,
-
 	})
 	registerProbe(ServiceProbe{
 		Name:         "pgadmin-creds",
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{5050, 80},
 		Detect:       detectPgAdminDefaultCreds,
-
 	})
 	registerProbe(ServiceProbe{
 		Name:         "zabbix-creds",
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{80, 8080},
 		Detect:       detectZabbixDefaultCreds,
-
 	})
 	registerProbe(ServiceProbe{
 		Name:         "gitea-noauth",
@@ -79,119 +63,7 @@ func init() {
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{8088},
 		Detect:       detectSupersetDefaultCreds,
-
 	})
-}
-
-// detectGrafanaDefaultCreds attempts Grafana login with admin:admin.
-func detectGrafanaDefaultCreds(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	// First verify this is actually Grafana.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/api/health")
-	if !ok || !strings.Contains(body, "database") {
-		return nil
-	}
-
-	loginURL := fmt.Sprintf("http://%s:%d/login", host, port)
-	payload := strings.NewReader(`{"user":"admin","password":"admin"}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, payload)
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: httpTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-
-	// Grafana returns 200 with "message":"Logged in" on success.
-	if resp.StatusCode == http.StatusOK && strings.Contains(string(b), "Logged in") {
-		return []finding.Finding{makeF(
-			finding.CheckPortGrafanaDefaultCreds,
-			finding.SeverityCritical,
-			fmt.Sprintf("Grafana accepts default admin:admin credentials on port %d", port),
-			"Grafana is accessible with the factory-default credentials admin/admin. "+
-				"An attacker can view all dashboards, data sources, and configured alert channels, "+
-				"and can modify or delete dashboards and data source configurations. "+
-				"Change the admin password immediately.",
-			map[string]any{"port": port, "service": "grafana", "default_creds": true,
-				"proof": fmt.Sprintf("curl -s -X POST %s -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}'", loginURL)},
-		)}
-	}
-
-	// Grafana may also respond with 401 "Invalid username or password" but redirect
-	// to password change page on first login — check for the password change prompt.
-	if resp.StatusCode == http.StatusOK && strings.Contains(string(b), "changePassword") {
-		return []finding.Finding{makeF(
-			finding.CheckPortGrafanaDefaultCreds,
-			finding.SeverityCritical,
-			fmt.Sprintf("Grafana accepts default admin:admin credentials on port %d (password change pending)", port),
-			"Grafana accepted the factory-default admin:admin credentials and is prompting for "+
-				"a password change. Until changed, anyone can log in with admin:admin.",
-			map[string]any{"port": port, "service": "grafana", "default_creds": true,
-				"proof": fmt.Sprintf("curl -s -X POST %s -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}'", loginURL)},
-		)}
-	}
-	return nil
-}
-
-// detectSonarQubeDefaultCreds attempts SonarQube login with admin:admin.
-func detectSonarQubeDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
-	// Verify it's SonarQube first.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/api/system/status")
-	if !ok || !strings.Contains(strings.ToLower(body), "status") {
-		return nil
-	}
-
-	// SonarQube uses HTTP Basic Auth on its API.
-	authBody, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/api/authentication/validate", "admin", "admin")
-	if !ok {
-		return nil
-	}
-	if strings.Contains(authBody, `"valid":true`) {
-		return []finding.Finding{makeF(
-			finding.CheckPortSonarQubeDefaultCreds,
-			finding.SeverityCritical,
-			fmt.Sprintf("SonarQube accepts default admin:admin credentials on port %d", port),
-			"SonarQube code quality server is accessible with factory-default credentials admin/admin. "+
-				"An attacker can view all source code analysis results, security hotspots, "+
-				"and configure quality gates and webhooks.",
-			map[string]any{"port": port, "service": "sonarqube", "default_creds": true,
-				"proof": fmt.Sprintf("curl -s -u admin:admin http://%s:%d/api/authentication/validate", host, port)},
-		)}
-	}
-	return nil
-}
-
-// detectAirflowDefaultCreds attempts Airflow login with airflow:airflow.
-func detectAirflowDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
-	// Verify it's Airflow first.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/api/v1/health")
-	if !ok || !strings.Contains(body, "metadatabase") {
-		return nil
-	}
-
-	// Airflow uses HTTP Basic Auth on the REST API.
-	authBody, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/api/v1/dags?limit=1", "airflow", "airflow")
-	if !ok {
-		return nil
-	}
-	if strings.Contains(authBody, "dag_id") || strings.Contains(authBody, "dags") {
-		return []finding.Finding{makeF(
-			finding.CheckPortAirflowDefaultCreds,
-			finding.SeverityCritical,
-			fmt.Sprintf("Apache Airflow accepts default airflow:airflow credentials on port %d", port),
-			"Apache Airflow is accessible with factory-default credentials airflow/airflow. "+
-				"An attacker can view, modify, and trigger DAGs which may execute arbitrary code "+
-				"or access connected data stores and cloud services.",
-			map[string]any{"port": port, "service": "airflow", "default_creds": true,
-				"proof": fmt.Sprintf("curl -s -u airflow:airflow http://%s:%d/api/v1/dags?limit=1", host, port)},
-		)}
-	}
-	return nil
 }
 
 // detectTomcatDefaultCreds attempts Tomcat Manager login with common default credentials.
@@ -220,42 +92,6 @@ func detectTomcatDefaultCreds(ctx context.Context, host string, port int, _ stri
 					"proof":    fmt.Sprintf("curl -s -u %s:%s http://%s:%d/manager/html", creds[0], creds[1], host, port)},
 			)}
 		}
-	}
-	return nil
-}
-
-// detectJenkinsNoAuth checks if Jenkins script console or job config is accessible without auth.
-func detectJenkinsNoAuth(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
-	// Check if the script console is accessible (most critical).
-	body, ok := probeHTTPBody(ctx, host, port, false, "/script")
-	if ok && strings.Contains(strings.ToLower(body), "groovy") {
-		return []finding.Finding{makeF(
-			finding.CheckPortJenkinsNoAuth,
-			finding.SeverityCritical,
-			fmt.Sprintf("Jenkins script console accessible without authentication on port %d", port),
-			"The Jenkins Groovy script console is accessible without authentication. "+
-				"This provides arbitrary code execution on the Jenkins server. "+
-				"Enable authentication immediately via 'Configure Global Security'.",
-			map[string]any{"port": port, "service": "jenkins", "authenticated": false,
-				"path":  "/script",
-				"proof": fmt.Sprintf("curl -s http://%s:%d/script", host, port)},
-		)}
-	}
-
-	// Check if the API is accessible (less critical but still exposes job configs and secrets).
-	body, ok = probeHTTPBody(ctx, host, port, false, "/api/json")
-	if ok && strings.Contains(body, "primaryView") {
-		return []finding.Finding{makeF(
-			finding.CheckPortJenkinsNoAuth,
-			finding.SeverityHigh,
-			fmt.Sprintf("Jenkins API accessible without authentication on port %d", port),
-			"The Jenkins REST API is accessible without authentication. "+
-				"An attacker can enumerate jobs, view build logs, and extract credentials "+
-				"stored in Jenkins. Enable authentication via 'Configure Global Security'.",
-			map[string]any{"port": port, "service": "jenkins", "authenticated": false,
-				"path":  "/api/json",
-				"proof": fmt.Sprintf("curl -s http://%s:%d/api/json", host, port)},
-		)}
 	}
 	return nil
 }

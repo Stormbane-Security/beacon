@@ -137,6 +137,7 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"ai": true, "saml": true, "iam": true, "cve": true,
 		"web3": true, "contract": true, "chain": true, "nmap": true,
 		"intel": true, "gateway": true, "cdn": true, "cms": true,
+		"exploit": true,
 		"api": true, "osint": true, "supply_chain": true,
 		"correlation": true, "terraform": true, "aifp": true,
 		"authfuzz": true, "netdev": true, "wifi": true, "gitlab": true,

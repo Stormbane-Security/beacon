@@ -1568,6 +1568,25 @@ const (
 
 	// ── OOB Callback ────────────────────────────────────────────────────
 	CheckOOBCallbackReceived   CheckID = "oob.callback_received"   // OOB callback confirmed blind vulnerability
+
+	// ── Exploitation / Post-Exploitation (ScanAuthorized only) ─────────
+	// These findings represent actual exploitation results, not just
+	// vulnerability detection. Emitted only in --authorized mode.
+	CheckExploitCredentialHarvest      CheckID = "exploit.credential_harvest"          // credentials extracted from exploited service (DB passwords, API keys, tokens)
+	CheckExploitCredentialValidated    CheckID = "exploit.credential_validated"        // extracted credential confirmed live via identity endpoint (sts, /user, auth.test)
+	CheckExploitDataExtracted          CheckID = "exploit.data_extracted"              // sensitive data accessed through exploitation chain (PII, financial, secrets)
+	CheckExploitDatasourceExposed      CheckID = "exploit.datasource_exposed"         // backend datasource accessible via exploited management interface
+	CheckExploitSessionHijack          CheckID = "exploit.session_hijack"             // session tokens harvested enabling account takeover
+	CheckExploitLateralMovement        CheckID = "exploit.lateral_movement"           // internal service discovered and accessed via pivot through exploited target
+	CheckExploitInternalNetDiscovered  CheckID = "exploit.internal_network_discovered" // internal network topology mapped through exploited container
+	CheckExploitContainerEscape        CheckID = "exploit.container_escape"           // container escape achieved (Docker socket, privileged mode, kernel exploit)
+	CheckExploitHostAccess             CheckID = "exploit.host_access"                // host-level access obtained from within container
+	CheckExploitCloudMetadataExposed   CheckID = "exploit.cloud_metadata_exposed"     // cloud metadata endpoint reached (GCP/AWS/Azure) yielding IAM credentials
+	CheckExploitPrivilegeEscalation    CheckID = "exploit.privilege_escalation"       // elevated privileges obtained (admin token forged, role escalated)
+	CheckExploitCodeExecution          CheckID = "exploit.code_execution"             // arbitrary code/command execution achieved on exploited target
+
+	// ── Container Runtime Detection (from within exploited containers) ──
+	CheckContainerDockerSocketExposed  CheckID = "container.docker_socket_exposed"    // Docker socket mounted in container — full host escape path
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -3124,6 +3143,23 @@ var Registry = map[CheckID]CheckMeta{
 
 	// OOB Callback
 	CheckOOBCallbackReceived: {CheckOOBCallbackReceived, SeverityCritical, ModeDeep},
+
+	// Exploitation / Post-Exploitation (ScanAuthorized — all Deep)
+	CheckExploitCredentialHarvest:     {CheckExploitCredentialHarvest, SeverityCritical, ModeDeep},
+	CheckExploitCredentialValidated:  {CheckExploitCredentialValidated, SeverityCritical, ModeDeep},
+	CheckExploitDataExtracted:        {CheckExploitDataExtracted, SeverityCritical, ModeDeep},
+	CheckExploitDatasourceExposed:    {CheckExploitDatasourceExposed, SeverityHigh, ModeDeep},
+	CheckExploitSessionHijack:        {CheckExploitSessionHijack, SeverityCritical, ModeDeep},
+	CheckExploitLateralMovement:      {CheckExploitLateralMovement, SeverityCritical, ModeDeep},
+	CheckExploitInternalNetDiscovered: {CheckExploitInternalNetDiscovered, SeverityHigh, ModeDeep},
+	CheckExploitContainerEscape:      {CheckExploitContainerEscape, SeverityCritical, ModeDeep},
+	CheckExploitHostAccess:           {CheckExploitHostAccess, SeverityCritical, ModeDeep},
+	CheckExploitCloudMetadataExposed: {CheckExploitCloudMetadataExposed, SeverityCritical, ModeDeep},
+	CheckExploitPrivilegeEscalation:  {CheckExploitPrivilegeEscalation, SeverityCritical, ModeDeep},
+	CheckExploitCodeExecution:       {CheckExploitCodeExecution, SeverityCritical, ModeDeep},
+
+	// Container Runtime Detection
+	CheckContainerDockerSocketExposed: {CheckContainerDockerSocketExposed, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
