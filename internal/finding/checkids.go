@@ -475,6 +475,7 @@ const (
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
 	CheckWebFileUpload        CheckID = "web.file_upload_bypass"     // file upload MIME/extension bypass
 	CheckWebCmdInjection      CheckID = "web.command_injection"       // OS command injection via timing or OOB callback
+	CheckWebNoSQLi            CheckID = "web.nosql_injection"         // NoSQL/MongoDB operator injection ($ne, $gt, $where)
 	CheckWebCSRFMissing       CheckID = "web.csrf_token_missing"     // POST form missing CSRF token + no SameSite cookie
 	CheckWebAPIFuzz           CheckID = "web.api_fuzz_error"         // API endpoint returns 500 on fuzz input
 	CheckHTTPClickjacking     CheckID = "http.clickjacking"          // missing X-Frame-Options / CSP frame-ancestors
@@ -2221,6 +2222,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
 	CheckWebFileUpload:         {CheckWebFileUpload, SeverityCritical, ModeDeep},
 	CheckWebCmdInjection:      {CheckWebCmdInjection, SeverityCritical, ModeDeep},
+	CheckWebNoSQLi:            {CheckWebNoSQLi, SeverityCritical, ModeDeep},
 	CheckWebCSRFMissing:       {CheckWebCSRFMissing, SeverityMedium, ModeDeep},
 	CheckWebAPIFuzz:            {CheckWebAPIFuzz, SeverityHigh, ModeDeep},
 	CheckHTTPClickjacking:     {CheckHTTPClickjacking, SeverityMedium, ModeSurface},

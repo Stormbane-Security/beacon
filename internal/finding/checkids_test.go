@@ -328,6 +328,7 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudMetadataSSRF:   true,
 		// Web injection / exploitation scanners
 		finding.CheckWebCmdInjection:        true,
+		finding.CheckWebNoSQLi:              true,
 		finding.CheckWebCSRFMissing:         true,
 		finding.CheckWebSSTI:                true,
 		finding.CheckWebCRLFInjection:       true,

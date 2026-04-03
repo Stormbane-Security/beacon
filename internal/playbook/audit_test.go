@@ -72,6 +72,7 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"idor",           // deep:    IDOR/BOLA sequential ID manipulation
 		"accesscontrol",  // deep:    broken access control path bypass
 		"redos",          // deep:    ReDoS timing detection
+		"nosqli",         // deep:    NoSQL/MongoDB operator injection
 	}
 
 	for _, name := range mustHave {

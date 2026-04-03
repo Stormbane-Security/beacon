@@ -92,6 +92,7 @@ deep:
     - openredir      # open redirect via common redirect parameters (?url=, ?redirect=, ?next=)
     - swagger        # OpenAPI endpoint fuzzing: missing-param 500s, type confusion, SQL canaries
     - sqli           # time-blind SQL injection with calibration-based dual-sleep confirmation
+    - nosqli         # NoSQL/MongoDB operator injection ($ne, $gt, $where) auth bypass + data exfil
     - cmdinj         # OS command injection via timing analysis + OOB nslookup confirmation
     - domxss         # DOM-based XSS detection via headless Chrome source-to-sink tracing
     - elinjection    # Java Expression Language injection (SpEL, OGNL, EL) in parameters

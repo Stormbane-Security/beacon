@@ -115,6 +115,7 @@ import (
 	csrfscanner "github.com/stormbane-security/beacon/internal/scanner/csrf"
 	"github.com/stormbane-security/beacon/internal/scanner/openredir"
 	"github.com/stormbane-security/beacon/internal/scanner/sqli"
+	"github.com/stormbane-security/beacon/internal/scanner/nosqli"
 	"github.com/stormbane-security/beacon/internal/scanner/secheaders"
 	"github.com/stormbane-security/beacon/internal/scanner/proxychain"
 	"github.com/stormbane-security/beacon/internal/scanner/cacheprobe"
@@ -375,6 +376,7 @@ func New(cfg Config) (*Module, error) {
 		"cors":           cors.New(),
 		"csrf":           csrfscanner.New(),
 		"sqli":           sqli.New(),
+		"nosqli":         nosqli.New(),
 		"cmdinj":         cmdinj.New(),
 		"domxss":         domxss.New(),
 		"hibp":           hibp.New(cfg.HIBPAPIKey),
