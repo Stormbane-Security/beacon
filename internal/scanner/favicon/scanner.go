@@ -12,6 +12,8 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -39,6 +41,7 @@ var knownFavicons = map[int32]string{
 	116323821:   "Fortinet FortiGate",
 	-247388890:  "Apache Tomcat",
 	988422585:   "Grafana",
+	-428950591:  "Grafana",
 	-305179312:  "Atlassian Jira",
 	-1507567067: "Jenkins",
 	81586312:    "Apache httpd (default)",
@@ -67,6 +70,28 @@ var knownFavicons = map[int32]string{
 	1967017233:  "Keycloak",
 }
 
+// linkIconRe extracts href from <link rel="icon" ...> or <link rel="shortcut icon" ...> tags.
+var linkIconRe = regexp.MustCompile(`(?i)<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']`)
+
+// extractFaviconHrefs parses HTML for <link rel="icon"> tags and returns absolute URLs.
+func extractFaviconHrefs(html, baseURL string) []string {
+	matches := linkIconRe.FindAllStringSubmatch(html, 5)
+	var urls []string
+	for _, m := range matches {
+		href := m[1]
+		if strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://") {
+			urls = append(urls, href)
+		} else if strings.HasPrefix(href, "//") {
+			urls = append(urls, "http:"+href)
+		} else if strings.HasPrefix(href, "/") {
+			urls = append(urls, baseURL+href)
+		} else {
+			urls = append(urls, baseURL+"/"+href)
+		}
+	}
+	return urls
+}
+
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
 	client := &http.Client{
 		Timeout: 8 * time.Second,
@@ -78,12 +103,29 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		},
 	}
 
-	paths := []string{"/favicon.ico", "/static/favicon.ico", "/assets/favicon.ico"}
-	var findings []finding.Finding
+	staticPaths := []string{"/favicon.ico", "/static/favicon.ico", "/assets/favicon.ico"}
 
 	for _, scheme := range []string{"https", "http"} {
-		for _, path := range paths {
-			url := scheme + "://" + asset + path
+		baseURL := scheme + "://" + asset
+
+		// Collect candidate URLs: static paths + HTML-discovered paths.
+		var candidates []string
+		for _, p := range staticPaths {
+			candidates = append(candidates, baseURL+p)
+		}
+
+		// Fetch root page and parse <link rel="icon"> tags.
+		if req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil); err == nil {
+			if resp, err := client.Do(req); err == nil {
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+				resp.Body.Close()
+				if resp.StatusCode == 200 {
+					candidates = append(candidates, extractFaviconHrefs(string(body), baseURL)...)
+				}
+			}
+		}
+
+		for _, url := range candidates {
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 			if err != nil {
 				continue
@@ -102,7 +144,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			faviconHash := mmh3Hash(body)
 			if service, ok := knownFavicons[faviconHash]; ok {
 				md5sum := fmt.Sprintf("%x", md5.Sum(body))
-				findings = append(findings, finding.Finding{
+				return []finding.Finding{{
 					CheckID:  finding.CheckFaviconHashMatch,
 					Module:   "surface",
 					Scanner:  scannerName,
@@ -123,13 +165,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 					},
 					ProofCommand: fmt.Sprintf("curl -s '%s' | md5", url),
 					DiscoveredAt: time.Now(),
-				})
-				return findings, nil // One match is enough.
+				}}, nil
 			}
 		}
 	}
 
-	return findings, nil
+	return nil, nil
 }
 
 // mmh3Hash computes the MurmurHash3 of base64-encoded favicon data.

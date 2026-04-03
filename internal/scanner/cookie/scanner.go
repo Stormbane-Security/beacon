@@ -121,7 +121,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 
 		// Check missing SameSite attribute.
-		if c.SameSite == http.SameSiteDefaultMode && sensitive {
+		// Go's net/http leaves SameSite as 0 (zero value) when the attribute is
+		// absent, while SameSiteDefaultMode == 1. Check both.
+		if (c.SameSite == 0 || c.SameSite == http.SameSiteDefaultMode) && sensitive {
 			findings = append(findings, finding.Finding{
 				CheckID:     finding.CheckCookieMissingSameSite,
 				Module:      "surface",
