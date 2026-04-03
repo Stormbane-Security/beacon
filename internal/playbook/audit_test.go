@@ -62,6 +62,16 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"hpp",            // deep:    HTTP parameter pollution probes
 		"secheaders",     // surface: missing security response headers
 		"openredir",      // deep:    open redirect via redirect parameters
+		"containerimage", // surface: Docker/OCI registry exposure
+		"jenkins",        // surface: Jenkins dashboard fingerprinting
+		"cms-plugins",    // surface: CMS detection and admin panel discovery
+		"cacheprobe",     // surface: HTTP cache behavior detection
+		"proxychain",     // surface: reverse proxy hop detection
+		"nextjs",         // surface: Next.js CVE-2025-29927 middleware bypass
+		"elinjection",    // deep:    Java EL/SpEL/OGNL injection
+		"idor",           // deep:    IDOR/BOLA sequential ID manipulation
+		"accesscontrol",  // deep:    broken access control path bypass
+		"redos",          // deep:    ReDoS timing detection
 	}
 
 	for _, name := range mustHave {

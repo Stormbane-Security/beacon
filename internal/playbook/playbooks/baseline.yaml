@@ -41,6 +41,14 @@ surface:
     - swagger        # OpenAPI/Swagger spec exposure — safe GET probes to common spec paths
     - chainnode      # blockchain node/validator/miner detection — port probes + JSON-RPC fingerprinting
     - githubactions  # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
+    - containerimage # Docker/OCI registry exposure — anonymous catalog, unsigned images
+    - jenkins        # Jenkins dashboard and API exposure — passive fingerprinting
+    - cms-plugins    # CMS detection and admin panel discovery (WordPress, Ghost, Drupal, etc.)
+    - cacheprobe     # HTTP cache behavior detection — cache key analysis, poisoning signals
+    - proxychain     # reverse proxy/CDN hop detection via diagnostic headers
+    - nextjs         # Next.js CVE-2025-29927 middleware bypass — safe header probe
+    - passivedns     # passive DNS aggregation from public sources (no active queries)
+    - bgp            # BGP prefix origin validation and AS ownership
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:
@@ -86,6 +94,10 @@ deep:
     - sqli           # time-blind SQL injection with calibration-based dual-sleep confirmation
     - cmdinj         # OS command injection via timing analysis + OOB nslookup confirmation
     - domxss         # DOM-based XSS detection via headless Chrome source-to-sink tracing
+    - elinjection    # Java Expression Language injection (SpEL, OGNL, EL) in parameters
+    - idor           # IDOR/BOLA: sequential numeric ID manipulation on REST API endpoints
+    - accesscontrol  # broken access control: admin path bypass, method override, path traversal
+    - redos          # Regular Expression DoS via catastrophic backtracking timing detection
   nuclei_tags:
     - cves
     - network

@@ -32,8 +32,15 @@ assertions:
   - name: detects-registry-exposed
     type: beacon
     target: localhost:9257
-    args: ["--no-enrich", "--scanners", "containerimage"]
+    args: ["--no-enrich", "--scanners", "containerimage", "--deep", "--permission-confirmed"]
     expect:
       check_id: container.registry_exposed
+
+  - name: detects-anonymous-push
+    type: beacon
+    target: localhost:9257
+    args: ["--no-enrich", "--scanners", "containerimage", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: container.registry_anonymous_push
 
 timeout: 5m

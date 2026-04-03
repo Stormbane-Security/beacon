@@ -29,6 +29,12 @@ assertions:
       command: "curl -s -X PUT http://localhost:9251/ | grep -q 'PUT accepted'"
       exit_code: 0
 
+  - name: exploit-delete-allowed
+    type: command
+    expect:
+      command: "curl -s -X DELETE http://localhost:9251/ | grep -q 'DELETE accepted'"
+      exit_code: 0
+
   - name: detects-dangerous-methods
     type: beacon
     target: localhost:9251

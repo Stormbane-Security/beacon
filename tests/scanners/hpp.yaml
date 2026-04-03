@@ -28,6 +28,6 @@ assertions:
     target: localhost:9258
     args: ["--no-enrich", "--scanners", "hpp", "--deep", "--permission-confirmed"]
     expect:
-      check_id: web.hpp
+      check_id: web.http_parameter_pollution
 
 timeout: 5m

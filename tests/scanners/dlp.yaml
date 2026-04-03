@@ -29,11 +29,25 @@ assertions:
       command: "curl -sf http://localhost:9253/ | grep -qE '4532015112830366'"
       exit_code: 0
 
-  - name: detects-sensitive-data
+  - name: detects-ssn-pattern
     type: beacon
     target: localhost:9253
     args: ["--no-enrich", "--scanners", "dlp"]
     expect:
-      min_findings: 1
+      check_id: dlp.ssn_pattern
+
+  - name: detects-credit-card
+    type: beacon
+    target: localhost:9253
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.credit_card
+
+  - name: detects-api-key
+    type: beacon
+    target: localhost:9253
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.api_key
 
 timeout: 5m

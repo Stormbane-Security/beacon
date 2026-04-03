@@ -57,4 +57,18 @@ assertions:
     expect:
       check_id: exposure.git_exposed
 
+  - name: detects-backup-file
+    type: beacon
+    target: localhost:9252
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exposure.backup_file
+
+  - name: detects-robots-leak
+    type: beacon
+    target: localhost:9252
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.robots_disallow_leak
+
 timeout: 5m

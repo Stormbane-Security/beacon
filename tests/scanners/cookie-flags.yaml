@@ -34,4 +34,18 @@ assertions:
     expect:
       check_id: cookie.missing_secure
 
+  - name: detects-cookie-missing-httponly
+    type: beacon
+    target: localhost:9300
+    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: cookie.missing_httponly
+
+  - name: detects-cookie-missing-samesite
+    type: beacon
+    target: localhost:9300
+    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: cookie.missing_samesite
+
 timeout: 5m
