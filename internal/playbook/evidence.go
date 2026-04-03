@@ -171,4 +171,66 @@ type Evidence struct {
 	// this asset's IP against cloud instance IPs. Nil when no cross-reference
 	// was found or when no cloud scan was performed.
 	CloudCtx *CloudContext
+
+	// ── Advanced fingerprinting signals ─────────────────────────────────────
+
+	// HeaderOrder records the order in which the server returns HTTP response
+	// headers. Different server implementations (nginx, Apache, IIS, Caddy, etc.)
+	// return headers in characteristic orders, enabling identification even when
+	// Server headers are stripped. Only the first 20 header names are stored.
+	HeaderOrder []string
+
+	// HTTPMethods maps HTTP method names to the status codes returned when that
+	// method is sent to the root path. Different servers respond differently to
+	// OPTIONS, TRACE, DELETE, etc., creating a behavioral fingerprint.
+	HTTPMethods map[string]int
+
+	// ErrorPageSignature is a technology hint derived from the default error page
+	// (404 response body). Different frameworks produce distinctive error pages
+	// that reveal server identity even without Server/X-Powered-By headers.
+	ErrorPageSignature string
+
+	// SecurityTxtPresent indicates /.well-known/security.txt was found.
+	// SecurityTxtContact holds the extracted Contact: field if present.
+	SecurityTxtPresent bool
+	SecurityTxtContact string
+
+	// VCSExposed records which version control system is exposed, if any.
+	// Values: "git", "svn", "hg", "bzr", "" (empty = none detected).
+	// A non-empty value means the VCS metadata directory is web-accessible.
+	VCSExposed string
+
+	// SourceMapsExposed is true when JavaScript source maps (.map files) are
+	// accessible, potentially revealing unminified source code and internal paths.
+	SourceMapsExposed bool
+
+	// WellKnownPaths tracks .well-known URIs that responded successfully.
+	// Keys are the path (e.g. "security.txt", "change-password"), values are
+	// brief content summaries or "present".
+	WellKnownPaths map[string]string
+
+	// SitemapURLs holds URLs extracted from /sitemap.xml. These often reveal
+	// application structure, API endpoints, and content hierarchies that
+	// passive crawling misses.
+	SitemapURLs []string
+
+	// DNSProvider is the hosting provider inferred from NS records.
+	// Values: "cloudflare", "aws_route53", "gcp_cloud_dns", "azure_dns",
+	// "godaddy", "namecheap", "dnsimple", "ns1", "cloudns", "hetzner", ""
+	DNSProvider string
+
+	// CAARecords holds Certification Authority Authorization DNS records.
+	// These specify which CAs are allowed to issue certificates for the domain.
+	CAARecords []string
+
+	// CHAOSVersion is the DNS server software version from CHAOS TXT query
+	// for version.bind. Reveals BIND version, PowerDNS, etc.
+	CHAOSVersion string
+
+	// GRPCReflection is true when gRPC server reflection is enabled,
+	// allowing enumeration of all available services and methods.
+	GRPCReflection bool
+
+	// WebSocketEndpoints lists paths where WebSocket upgrade was accepted.
+	WebSocketEndpoints []string
 }

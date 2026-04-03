@@ -1,0 +1,41 @@
+name: security-txt-discovery
+description: >
+  Web server with /.well-known/security.txt present. The classify pipeline
+  should discover it during .well-known URI enumeration and record the
+  contact information.
+tags: [wellknown, security-txt, fingerprint]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9326:80"]
+    volumes:
+      - ./security-txt/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9326/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify security.txt is accessible ---
+  - name: exploit-security-txt-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9326/.well-known/security.txt | grep -q 'Contact:'"
+      exit_code: 0
+
+  - name: exploit-security-txt-has-policy
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9326/.well-known/security.txt | grep -q 'Policy:'"
+      exit_code: 0
+
+  # --- Negative: random .well-known paths return 404 ---
+  - name: negative-random-wellknown-404
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9326/.well-known/nonexistent); [ \"$STATUS\" = \"404\" ]"
+      exit_code: 0
+
+timeout: 5m

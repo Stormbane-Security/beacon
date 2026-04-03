@@ -193,6 +193,13 @@ func Collect(ctx context.Context, hostname string) playbook.Evidence {
 		e.JARMFingerprint = jarmFingerprint(ctx, hostname)
 	}
 
+	// ── Advanced fingerprinting (all surface-safe) ──────────────────────────
+	// These run concurrently after the main evidence collection to avoid
+	// adding latency to the critical path.
+	if e.StatusCode > 0 {
+		advancedFingerprint(ctx, hostname, &e)
+	}
+
 	return e
 }
 
@@ -1273,11 +1280,13 @@ func cookieTechHint(setCookieHeader string) string {
 		return "Java (Servlet/JSP)"
 	case strings.Contains(lower, "asp.net_sessionid"):
 		return "ASP.NET"
-	case strings.Contains(lower, "_rails"):
+	case strings.Contains(lower, ".aspxauth"):
+		return "ASP.NET Forms Auth"
+	case strings.Contains(lower, "_rails") || strings.Contains(lower, "_session_id"):
 		return "Ruby on Rails"
 	case strings.Contains(lower, "laravel_session"):
 		return "Laravel (PHP)"
-	case strings.Contains(lower, "django"):
+	case strings.Contains(lower, "django") || strings.Contains(lower, "csrftoken"):
 		return "Django (Python)"
 	case strings.Contains(lower, "express.sid") || strings.Contains(lower, "connect.sid"):
 		return "Node.js (Express)"
@@ -1285,6 +1294,48 @@ func cookieTechHint(setCookieHeader string) string {
 		return "ColdFusion"
 	case strings.Contains(lower, "wp-settings"):
 		return "WordPress"
+	case strings.Contains(lower, "rack.session"):
+		return "Ruby (Rack/Sinatra)"
+	case strings.Contains(lower, "play_session"):
+		return "Play Framework (Scala/Java)"
+	case strings.Contains(lower, "_gorilla_session"):
+		return "Go (Gorilla)"
+	case strings.Contains(lower, "ci_session"):
+		return "CodeIgniter (PHP)"
+	case strings.Contains(lower, "cakephp"):
+		return "CakePHP"
+	case strings.Contains(lower, "yii"):
+		return "Yii (PHP)"
+	case strings.Contains(lower, "fuel_csrf_token"):
+		return "FuelPHP"
+	case strings.Contains(lower, "pyramid_auth"):
+		return "Pyramid (Python)"
+	case strings.Contains(lower, "flask"):
+		return "Flask (Python)"
+	case strings.Contains(lower, "_sails_sid"):
+		return "Sails.js (Node.js)"
+	case strings.Contains(lower, "tornado"):
+		return "Tornado (Python)"
+	case strings.Contains(lower, "auth_tkt"):
+		return "Pylons/TurboGears (Python)"
+	case strings.Contains(lower, "bigipserver"):
+		return "F5 BIG-IP"
+	case strings.Contains(lower, "incap_ses") || strings.Contains(lower, "visid_incap"):
+		return "Imperva Incapsula"
+	case strings.Contains(lower, "akamai"):
+		return "Akamai CDN"
+	case strings.Contains(lower, "__cfduid") || strings.Contains(lower, "cf_clearance"):
+		return "Cloudflare"
+	case strings.Contains(lower, "grafana_session"):
+		return "Grafana"
+	case strings.Contains(lower, "jenkins"):
+		return "Jenkins"
+	case strings.Contains(lower, "keycloak"):
+		return "Keycloak"
+	case strings.Contains(lower, "gitlab_session"):
+		return "GitLab"
+	case strings.Contains(lower, "remember_token") && strings.Contains(lower, "github"):
+		return "GitHub Enterprise"
 	}
 	return ""
 }

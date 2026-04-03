@@ -142,13 +142,14 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"authfuzz": true, "netdev": true, "wifi": true, "gitlab": true,
 		"teamcity": true, "oidc": true, "http": true, "websocket": true,
 		"bitbucket": true, "container": true, "circleci": true,
-		"onprem": true,
-		"meta":   true,
-		"proxy":  true,
-		"cache":  true,
-		"lb":     true,
-		"mcp":    true,
-		"auth":   true,
+		"onprem":    true,
+		"meta":      true,
+		"proxy":     true,
+		"cache":     true,
+		"lb":        true,
+		"mcp":       true,
+		"auth":      true,
+		"wellknown": true,
 	}
 
 	for _, decl := range f.Decls {

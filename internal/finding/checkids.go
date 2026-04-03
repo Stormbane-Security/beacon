@@ -912,6 +912,20 @@ const (
 	CheckPortArtifactoryExposed    CheckID = "port.artifactory_exposed"        // JFrog Artifactory repository manager exposed — unauthenticated or default admin:password (port 8081/8082)
 	CheckPortNexusExposed          CheckID = "port.nexus_exposed"              // Sonatype Nexus Repository Manager exposed — unauthenticated or default admin:admin123 (port 8081)
 	CheckPortGRPCReflectionEnabled CheckID = "port.grpc_reflection_enabled"   // gRPC server reflection enabled — lists all services/methods without authentication (port 50051)
+
+	// ── Advanced fingerprinting and discovery ────────────────────────────────
+	CheckExposureVCSExposed       CheckID = "exposure.vcs_exposed"          // Version control metadata (.git, .svn, .hg) web-accessible — source code leak
+	CheckExposureSourceMaps       CheckID = "exposure.source_maps_exposed"  // JavaScript source maps (.map) accessible — reveals unminified source code
+	CheckExposureSecurityTxt      CheckID = "exposure.security_txt"         // security.txt present — responsible disclosure contact (info)
+	CheckExposureSitemapXML       CheckID = "exposure.sitemap_xml"          // sitemap.xml exposed — reveals URL structure and hidden endpoints (info)
+	CheckDNSCHAOSVersion          CheckID = "dns.chaos_version_exposed"     // DNS CHAOS TXT version.bind reveals server software version
+	CheckDNSCAAMissing            CheckID = "dns.caa_missing"               // No CAA records — any CA can issue certificates for this domain
+	CheckDNSProviderDetected      CheckID = "dns.provider_detected"         // DNS hosting provider identified from NS records (info)
+	CheckHTTPMethodTrace          CheckID = "http.trace_enabled"            // HTTP TRACE method enabled — cross-site tracing (XST) risk
+	CheckHTTPMethodUnsafe         CheckID = "http.unsafe_method_enabled"    // HTTP PUT/DELETE method accepted on root path — potential write access
+	CheckWebSocketOpen            CheckID = "websocket.endpoint_open"       // WebSocket endpoint accepts upgrade — potential CSWSH if no origin validation
+	CheckWellKnownOIDC            CheckID = "wellknown.oidc_discovery"      // OIDC discovery document exposed — reveals auth infrastructure (info)
+	CheckWellKnownJWKS            CheckID = "wellknown.jwks_exposed"        // JWKS endpoint exposed — public key enumeration (info)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -2942,6 +2956,20 @@ var Registry = map[CheckID]CheckMeta{
 
 	// Meta — internal operational findings (always surface-safe)
 	CheckMetaDryRunPlan: {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
+
+	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
+	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},
+	CheckExposureSourceMaps:  {CheckExposureSourceMaps, SeverityHigh, ModeSurface},
+	CheckExposureSecurityTxt: {CheckExposureSecurityTxt, SeverityInfo, ModeSurface},
+	CheckExposureSitemapXML:  {CheckExposureSitemapXML, SeverityInfo, ModeSurface},
+	CheckDNSCHAOSVersion:     {CheckDNSCHAOSVersion, SeverityMedium, ModeSurface},
+	CheckDNSCAAMissing:       {CheckDNSCAAMissing, SeverityMedium, ModeSurface},
+	CheckDNSProviderDetected: {CheckDNSProviderDetected, SeverityInfo, ModeSurface},
+	CheckHTTPMethodTrace:     {CheckHTTPMethodTrace, SeverityMedium, ModeSurface},
+	CheckHTTPMethodUnsafe:    {CheckHTTPMethodUnsafe, SeverityHigh, ModeSurface},
+	CheckWebSocketOpen:       {CheckWebSocketOpen, SeverityMedium, ModeSurface},
+	CheckWellKnownOIDC:       {CheckWellKnownOIDC, SeverityInfo, ModeSurface},
+	CheckWellKnownJWKS:       {CheckWellKnownJWKS, SeverityInfo, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
