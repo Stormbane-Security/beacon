@@ -1,0 +1,83 @@
+name: chain-mongodb-data-exfil
+description: >
+  Exploit chain: unauthenticated MongoDB → database enumeration →
+  collection scanning → PII/credential extraction.
+  MongoDB without authentication allows full read/write access to all
+  databases and collections, enabling mass data exfiltration.
+tags: [chain, postexploit, mongodb, data-exfil, authorized]
+
+services:
+  mongodb:
+    image: mongo:7.0
+    ports: ["0:27017"]
+    # No auth configured — fully open
+
+  seed:
+    image: mongo:7.0
+    depends_on: [mongodb]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        mongosh --host mongodb --eval '
+          db = db.getSiblingDB("production");
+          db.users.insertMany([
+            {name: "Alice Johnson", email: "alice@corp.com", ssn: "111-22-3333", role: "admin"},
+            {name: "Bob Smith", email: "bob@corp.com", ssn: "444-55-6666", password_hash: "$$2b$$10$$abc123"}
+          ]);
+          db.api_keys.insertOne({
+            service: "aws",
+            access_key: "AKIAIOSFODNN7EXAMPLE",
+            secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+          });
+          db.config.insertOne({
+            redis_url: "redis://:AuthPass@10.0.2.10:6379",
+            postgres_url: "postgres://admin:DbSecret@10.0.2.20:5432/app"
+          });
+        '
+
+ready:
+  cmd: "mongosh --host localhost --port ${fixture.mongodb.port} --eval 'db.adminCommand({ping:1})' --quiet | grep -q ok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Verify exploit
+  - name: exploit-databases-enumerable
+    type: command
+    expect:
+      command: "mongosh --host localhost --port ${fixture.mongodb.port} --eval 'show dbs' --quiet | grep -q production"
+      exit_code: 0
+
+  - name: exploit-pii-readable
+    type: command
+    expect:
+      command: "mongosh --host localhost --port ${fixture.mongodb.port} --eval 'db.getSiblingDB(\"production\").users.findOne()' --quiet | grep -q ssn"
+      exit_code: 0
+
+  # Beacon detection
+  - name: detects-mongodb-no-auth
+    type: beacon
+    target: "localhost:${fixture.mongodb.port}"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.mongodb.port}"]
+    expect:
+      check_id: port.database_exposed
+
+  # Post-exploit: data extraction
+  - name: chain-extracts-pii
+    type: beacon
+    target: "localhost:${fixture.mongodb.port}"
+    args: ["--no-enrich", "--authorized", "--ports", "${fixture.mongodb.port}"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # Post-exploit: credential harvest
+  - name: chain-harvests-credentials
+    type: beacon
+    target: "localhost:${fixture.mongodb.port}"
+    args: ["--no-enrich", "--authorized", "--ports", "${fixture.mongodb.port}"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 5m

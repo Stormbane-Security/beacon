@@ -29,6 +29,16 @@ type Finding struct {
 	// DuplicateConfidence is how certain we are this is a duplicate (0.0–1.0).
 	// Only meaningful when DuplicateOf is non-empty.
 	DuplicateConfidence float64 `json:"duplicate_confidence,omitempty"`
+
+	// EnabledBy references the CheckID+Asset of a prerequisite finding that
+	// made this finding possible. Used to model exploit chains where one
+	// vulnerability enables exploitation of another.
+	// Format: "check_id|asset" (e.g. "web.command_injection|app.example.com").
+	EnabledBy string `json:"enabled_by,omitempty"`
+
+	// ChainDepth tracks how many hops from the initial entry point this
+	// finding is. Depth 0 = direct scan finding, 1 = first pivot, etc.
+	ChainDepth int `json:"chain_depth,omitempty"`
 }
 
 // Meta returns the CheckMeta for this finding's CheckID.
