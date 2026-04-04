@@ -87,6 +87,7 @@ jobs:
         env:
           BEACON_AUTHORIZED_ACK: "1"
         run: |
+          set -o pipefail
           drydock run tests/${{ matrix.category }} \
             --fixed-ports \
             --artifacts .drydock/runs 2>&1 | tee drydock-output.log
