@@ -334,7 +334,7 @@ func TestJWT_JWKSWeakRSAKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/jwks.json" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, jwks)
+			_, _ = fmt.Fprint(w, jwks)
 			return
 		}
 		http.NotFound(w, r)
@@ -371,7 +371,7 @@ func TestJWT_JWKSMissingKID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/jwks.json" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, jwks)
+			_, _ = fmt.Fprint(w, jwks)
 			return
 		}
 		http.NotFound(w, r)
@@ -440,7 +440,7 @@ func TestRun_JWTInLargeBody_Detected(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body)) //nolint:errcheck
+		_, _ = w.Write([]byte(body)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -475,7 +475,7 @@ func TestRun_ScanAuthorized_RunsDeepChecks(t *testing.T) {
 		if strings.HasPrefix(auth, "Bearer ") {
 			// Accept any token — simulates a broken server for the test
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"user":"test","id":1}`)
+			_, _ = fmt.Fprint(w, `{"user":"test","id":1}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -634,7 +634,7 @@ func TestOIDC_WeakSigningAlg(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-configuration" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, discovery)
+			_, _ = fmt.Fprint(w, discovery)
 			return
 		}
 		http.NotFound(w, r)

@@ -354,7 +354,7 @@ func probeHeaders(ctx context.Context, client *http.Client, asset string) (map[s
 			continue
 		}
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		out := make(map[string]string, len(resp.Header))
 		for k, v := range resp.Header {
 			out[strings.ToLower(k)] = strings.Join(v, ", ")
@@ -379,8 +379,8 @@ func probeHTTPOnly(ctx context.Context, client *http.Client, asset string) (int,
 	if err != nil {
 		return 0, nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	hdrs := make(map[string]string, len(resp.Header))
 	for k, v := range resp.Header {
 		hdrs[strings.ToLower(k)] = strings.Join(v, ", ")
@@ -516,8 +516,8 @@ func originResponds(ctx context.Context, client *http.Client, originIP, asset st
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+		_ = resp.Body.Close()
 		// Accept 2xx only. 3xx redirects (e.g. 301 → /login) are not confirmation
 		// that the origin serves the application — they could be generic redirect
 		// pages on any CDN/load-balancer. 4xx and 5xx are not confirmations.
@@ -571,8 +571,8 @@ func getStatus(ctx context.Context, client *http.Client, asset, scheme string, e
 	if err != nil {
 		return 0
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return resp.StatusCode
 }
 
@@ -877,8 +877,8 @@ func getStatusPath(ctx context.Context, client *http.Client, asset, scheme, path
 	if err != nil {
 		return 0
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return resp.StatusCode
 }
 
@@ -898,8 +898,8 @@ func getStatusMethod(ctx context.Context, client *http.Client, asset, scheme, pa
 	if err != nil {
 		return 0
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return resp.StatusCode
 }
 
@@ -960,7 +960,7 @@ func postWithContentType(ctx context.Context, client *http.Client, asset, scheme
 	if err != nil {
 		return 0
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return resp.StatusCode
 }

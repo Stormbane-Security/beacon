@@ -35,7 +35,7 @@ func main() {
 	// Step 2: Find all scanner directories
 	scannerDirs, err := filepath.Glob(filepath.Join(root, "*"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "glob: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "glob: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -212,7 +212,7 @@ func findCheckIDsInDir(dir string) []string {
 func parseRegistry(path string) map[string]registryEntry {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "read %s: %v\n", path, err)
+		_, _ = fmt.Fprintf(os.Stderr, "read %s: %v\n", path, err)
 		os.Exit(1)
 	}
 

@@ -1045,12 +1045,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Confirm it's a real file, not a soft 404 or CMS catch-all.
 		if t.bodyContains != "" && !strings.Contains(string(body), t.bodyContains) {
@@ -1425,6 +1425,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// phpMyAdmin with default/empty root password:
+	// GET / and check if phpMyAdmin is auto-logged-in with no authentication.
+	if f := probePHPMyAdminDefaultCreds(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	// Apache Airflow exposure + CVE-2024-39877 (DAG code execution, CVSS 8.8):
 	// /api/v1/health confirms Airflow; /api/v1/version reveals version < 2.10.0.
 	findings = append(findings, probeApacheAirflow(ctx, client, base, asset)...)
@@ -1518,7 +1524,7 @@ func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -1537,7 +1543,7 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	server := strings.ToLower(resp.Header.Get("Server"))
 	isTomcat := strings.Contains(server, "tomcat") || strings.Contains(server, "coyote")
 	if !isTomcat {
@@ -1638,7 +1644,7 @@ func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, ass
 	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, bypassURL, nil); err == nil {
 		if resp, err := client.Do(req); err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			bodyStr := string(body)
 			if resp.StatusCode == http.StatusOK &&
 				(strings.Contains(bodyStr, "<version>") || strings.Contains(bodyStr, "version")) {
@@ -1675,7 +1681,7 @@ func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, ass
 	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, altURL, nil); err == nil {
 		if resp, err := client.Do(req); err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			bodyStr := string(body)
 			if resp.StatusCode == http.StatusOK &&
 				(strings.Contains(bodyStr, "<version>") || strings.Contains(bodyStr, "version")) {
@@ -1723,7 +1729,7 @@ func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, a
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -1804,9 +1810,9 @@ func isFortiOSCredLeakVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if maj == 5 && min == 6 && patch >= 3 && patch <= 7 {
 		return true
 	}
@@ -1847,8 +1853,8 @@ func isFortiOSSSLVPNVulnerable(ver string) bool {
 		return false
 	}
 	maj, min := 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	// Affected: 6.x, 7.0.x, 7.1.x, 7.2.x, 7.3.x, 7.4.0–7.4.2
 	if maj < 7 {
 		return true
@@ -1859,7 +1865,7 @@ func isFortiOSSSLVPNVulnerable(ver string) bool {
 	if maj == 7 && min == 4 {
 		patch := 0
 		if len(parts) >= 3 {
-			fmt.Sscanf(parts[2], "%d", &patch)
+			_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 		}
 		return patch < 3
 	}
@@ -1881,7 +1887,7 @@ func probePHPCGIVersion(ctx context.Context, client *http.Client, base, asset st
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -1942,9 +1948,9 @@ func isPHPCGIVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if maj != 8 {
 		return false
 	}
@@ -1993,7 +1999,7 @@ func probeConfluenceSetup(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2038,7 +2044,7 @@ func probeConfluenceRestore(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2102,7 +2108,7 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2183,7 +2189,7 @@ func probeIvantiConnectSecure(ctx context.Context, client *http.Client, base, as
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2250,7 +2256,7 @@ func probeCitrixBleed(ctx context.Context, client *http.Client, base, asset stri
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2306,7 +2312,7 @@ func probeF5BigIPAuthBypass(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2355,7 +2361,7 @@ func probeConfluenceOGNL(ctx context.Context, client *http.Client, base, asset s
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// Must be 200 (not redirected already — older Confluence serves login.action directly).
 	if resp.StatusCode != 200 {
 		return nil
@@ -2422,7 +2428,7 @@ func probeFortiOSAuthBypass(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2486,7 +2492,7 @@ func probeTeamCityRPC2(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil
 	}
@@ -2538,7 +2544,7 @@ func probeSharePointJWT(ctx context.Context, client *http.Client, base, asset st
 			continue
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Check for SharePoint version in the response header.
 		spVer := resp.Header.Get("MicrosoftSharePointTeamServices")
@@ -2616,7 +2622,7 @@ func isSharePointJWTVulnerable(ver string) bool {
 		return false
 	}
 	build := 0
-	fmt.Sscanf(parts[2], "%d", &build)
+	_, _ = fmt.Sscanf(parts[2], "%d", &build)
 	// June 2023 CU for SharePoint Server 2019: build 16.0.10399.20000
 	// SharePoint Subscription Edition June 2023 CU: build 16.0.15601.20188
 	// For the 2019 release train (builds in the 10xxx range): < 10399 is unpatched.
@@ -2637,7 +2643,7 @@ func probeExchangeOWAVersion(ctx context.Context, client *http.Client, base, ass
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	ver := resp.Header.Get("X-OWA-Version")
 	if ver == "" {
 		return nil
@@ -2710,10 +2716,10 @@ func exchangeVulnStatus(ver string) (proxyLogon, proxyShell bool) {
 		return false, false
 	}
 	var minor, build, rev int
-	fmt.Sscanf(parts[1], "%d", &minor)
-	fmt.Sscanf(parts[2], "%d", &build)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[2], "%d", &build)
 	if len(parts) >= 4 {
-		fmt.Sscanf(parts[3], "%d", &rev)
+		_, _ = fmt.Sscanf(parts[3], "%d", &rev)
 	}
 	switch minor {
 	case 0: // Exchange 2013
@@ -2751,7 +2757,7 @@ func probeApacheHTTPVersion(ctx context.Context, client *http.Client, base, asse
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	server := resp.Header.Get("Server")
 	if server == "" {
 		return nil
@@ -2808,7 +2814,7 @@ func probeWebLogicConsole(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -2890,7 +2896,7 @@ func probeCitrixADCNitro(ctx context.Context, client *http.Client, base, asset s
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3024,7 +3030,7 @@ func probeSpringOAuthSpEL(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// 404 means no OAuth endpoint — not Spring OAuth.
 	if resp.StatusCode == http.StatusNotFound {
 		return nil
@@ -3086,7 +3092,7 @@ func probeSpring4Shell(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		return nil
 	}
@@ -3139,7 +3145,7 @@ func probeZimbraAuthBypass(ctx context.Context, client *http.Client, base, asset
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// 401 or 403 means auth is enforced — not vulnerable.
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil
@@ -3194,7 +3200,7 @@ func probePulseSecureVPN(ctx context.Context, client *http.Client, base, asset s
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3242,7 +3248,7 @@ func probePANGlobalProtect(ctx context.Context, client *http.Client, base, asset
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3331,10 +3337,10 @@ func isPANOSCMDInjectionVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) >= 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	switch {
 	case maj == 10 && min == 2:
@@ -3363,7 +3369,7 @@ func probeCrowdPdkInstall(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3409,7 +3415,7 @@ func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset strin
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// Any non-404 response with Telerik-specific content confirms the endpoint.
 	if resp.StatusCode == http.StatusNotFound {
 		return nil
@@ -3460,7 +3466,7 @@ func probeWebLogicAsync(ctx context.Context, client *http.Client, base, asset st
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3508,7 +3514,7 @@ func probeDrupalgeddon(ctx context.Context, client *http.Client, base, asset str
 			continue
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -3587,8 +3593,8 @@ func isDrupalgeddon1Vulnerable(ver string) bool {
 		return false
 	}
 	var major, minor int
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	return major == 7 && minor < 32
 }
 
@@ -3609,7 +3615,7 @@ func probeStruts2OGNL(ctx context.Context, client *http.Client, base, asset stri
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3658,7 +3664,7 @@ func probeJBossJMXConsole(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3708,7 +3714,7 @@ func probePHPCGIArgInjection2012(ctx context.Context, client *http.Client, base,
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3777,10 +3783,10 @@ func isDrupalVulnerable(ver string) (bool, string) {
 		return false, ""
 	}
 	var major, minor, patch int
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	if len(parts) >= 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	switch major {
 	case 8:
@@ -3811,7 +3817,7 @@ func probeWebLogicWLSWSAT(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3856,7 +3862,7 @@ func probeHikvisionISAPI(ctx context.Context, client *http.Client, base, asset s
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -3904,7 +3910,7 @@ func probeShiroRememberMe(ctx context.Context, client *http.Client, base, asset 
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// Check all Set-Cookie headers for rememberMe=deleteMe.
 	for _, cookie := range resp.Cookies() {
 		if strings.EqualFold(cookie.Name, "rememberMe") && cookie.Value == "deleteMe" {
@@ -3953,7 +3959,7 @@ func probeJBossJMXInvoker(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4067,7 +4073,7 @@ func probeBarracudaESG(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4132,7 +4138,7 @@ func probeOpenfire(ctx context.Context, client *http.Client, base, asset string)
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// Vulnerable: 200 with login or log content (not a redirect to /login.jsp).
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -4181,7 +4187,7 @@ func probeCiscoASASSLVPN(ctx context.Context, client *http.Client, base, asset s
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4228,7 +4234,7 @@ func probeRoundcube(ctx context.Context, client *http.Client, base, asset string
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4273,10 +4279,10 @@ func isRoundcubeVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) == 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if maj != 1 {
 		return false
@@ -4334,7 +4340,7 @@ func probeOracleEBS(ctx context.Context, client *http.Client, base, asset string
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4381,7 +4387,7 @@ func probeManageEngineADSelfService(ctx context.Context, client *http.Client, ba
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4428,7 +4434,7 @@ func probeSonicWallSMA(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4475,7 +4481,7 @@ func probevBulletin5x(ctx context.Context, client *http.Client, base, asset stri
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4522,10 +4528,10 @@ func isvBulletin5xVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) == 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if maj != 5 {
 		return false
@@ -4554,7 +4560,7 @@ func probeColdFusionFCKEditor(ctx context.Context, client *http.Client, base, as
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// 200 or 500 from ColdFusion confirms the endpoint exists and is reachable.
 	// A 404 means ColdFusion is not present or the path has been removed.
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
@@ -4609,7 +4615,7 @@ func probeHarbor(ctx context.Context, client *http.Client, base, asset string) [
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4711,7 +4717,7 @@ func probeArgoCD(ctx context.Context, client *http.Client, base, asset string) *
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4763,7 +4769,7 @@ func probeGrafanaPathTraversal(ctx context.Context, client *http.Client, base, a
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -4813,8 +4819,8 @@ func isGrafanaPathTraversalVulnerable(ver string) bool {
 		return false
 	}
 	maj, min := 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	return maj == 8 && min < 3
 }
 
@@ -4837,7 +4843,7 @@ func probeZabbixSessionForge(ctx context.Context, client *http.Client, base, ass
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -4886,10 +4892,10 @@ func isZabbixSessionForgeVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) == 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if maj == 6 && min == 0 {
 		return patch < 32
@@ -4919,7 +4925,7 @@ func probePgAdminValidateRCE(ctx context.Context, client *http.Client, base, ass
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	var ver string
 	if resp.StatusCode == http.StatusOK {
@@ -4993,7 +4999,7 @@ func isPgAdminValidateRCEVulnerable(ver string) bool {
 		return false
 	}
 	maj := 0
-	fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
 	// Affected: pgAdmin 4 ≤ 8.4. Since "8.4" means major version 8 minor 4,
 	// we check if the version string parses to 8.4 or below.
 	if maj < 8 {
@@ -5001,7 +5007,7 @@ func isPgAdminValidateRCEVulnerable(ver string) bool {
 	}
 	if maj == 8 && len(parts) == 2 {
 		minPatch := 0
-		fmt.Sscanf(parts[1], "%d", &minPatch)
+		_, _ = fmt.Sscanf(parts[1], "%d", &minPatch)
 		return minPatch <= 4
 	}
 	return false
@@ -5021,7 +5027,7 @@ func probeGiteaCMDInjection(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -5066,10 +5072,10 @@ func isGiteaCMDInjectionVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) == 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if maj < 1 {
 		return true
@@ -5098,7 +5104,7 @@ func probeJuniperJWeb2024(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -5145,7 +5151,7 @@ func probeVaultDefaultToken(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -5175,6 +5181,60 @@ func probeVaultDefaultToken(ctx context.Context, client *http.Client, base, asse
 	}
 }
 
+// probePHPMyAdminDefaultCreds checks whether a phpMyAdmin instance is accessible
+// and auto-logged-in (PMA_USER/PMA_PASSWORD set with default credentials).
+// phpMyAdmin with root/empty password is a common misconfiguration on shared hosting.
+func probePHPMyAdminDefaultCreds(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// phpMyAdmin pages contain "phpMyAdmin" in the title or body.
+	if !strings.Contains(bodyStr, "phpMyAdmin") && !strings.Contains(bodyStr, "phpmyadmin") {
+		return nil
+	}
+	// If the response shows the logged-in dashboard (database listing or navigation),
+	// the instance is using auto-login with default/empty credentials.
+	loggedIn := strings.Contains(bodyStr, "server_databases") ||
+		strings.Contains(bodyStr, "db_structure") ||
+		strings.Contains(bodyStr, "navigation") ||
+		strings.Contains(bodyStr, "server_sql") ||
+		strings.Contains(bodyStr, "server_status")
+	if !loggedIn {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckWebDefaultCredentials,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("phpMyAdmin accessible with default credentials on %s", asset),
+		Description: "phpMyAdmin at " + u + " is accessible without authentication, indicating " +
+			"auto-login is configured with default or empty database credentials (typically root with " +
+			"no password). This grants full database access including schema modification, data export, " +
+			"and potential OS command execution via SQL queries.",
+		Evidence: map[string]any{
+			"url":      u,
+			"app":      "phpMyAdmin",
+			"auto_login": true,
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | grep -i phpmyadmin", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
 // probeApacheAirflow tests for an exposed Apache Airflow web server and checks for
 // CVE-2024-39877 (CVSS 8.8) — DAG author code execution via malicious Python DAG files.
 // Affects Airflow < 2.10.0. The /api/v1/health endpoint confirms Airflow; /api/v1/version
@@ -5190,7 +5250,7 @@ func probeApacheAirflow(ctx context.Context, client *http.Client, base, asset st
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -5272,8 +5332,8 @@ func isAirflowDAGRCEVulnerable(ver string) bool {
 		return false
 	}
 	maj, min := 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if maj < 2 {
 		return true
 	}
@@ -5297,7 +5357,7 @@ func probeOpenWebUI(ctx context.Context, client *http.Client, base, asset string
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -5346,7 +5406,7 @@ func probeStepCASCEP(ctx context.Context, client *http.Client, base, asset strin
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -5401,7 +5461,7 @@ func probeStruts2S2066(ctx context.Context, client *http.Client, base, asset str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		bodyLow := strings.ToLower(string(body))
 		isStruts := strings.Contains(bodyLow, "apache struts") ||
 			strings.Contains(bodyLow, "struts2") ||
@@ -5451,7 +5511,7 @@ func probeRailsXMLRCE(ctx context.Context, client *http.Client, base, asset stri
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	xRuntime := resp.Header.Get("X-Runtime")
 	if xRuntime == "" {
@@ -5510,7 +5570,7 @@ func probeHFSRejetto(ctx context.Context, client *http.Client, base, asset strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	server := resp.Header.Get("Server")
 	bodyStr := string(body)
@@ -5569,7 +5629,7 @@ func probeManageEngineServiceDesk(ctx context.Context, client *http.Client, base
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -5617,7 +5677,7 @@ func probeMinIOEnvDisclosure(ctx context.Context, client *http.Client, base, ass
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := string(body)
 	if !strings.Contains(bodyStr, "MINIO_SECRET_KEY") && !strings.Contains(bodyStr, "MINIO_ROOT_PASSWORD") &&
@@ -5674,7 +5734,7 @@ func probeFortiOSWSAuthBypass(ctx context.Context, client *http.Client, base, as
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -5730,7 +5790,7 @@ func probeIvantiCS2025(ctx context.Context, client *http.Client, base, asset str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		bodyStr := string(body)
 		bodyLow := strings.ToLower(bodyStr)
 
@@ -5814,7 +5874,7 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		bodyLow := strings.ToLower(string(body))
 		if strings.Contains(bodyLow, "sap netweaver") || strings.Contains(bodyLow, "sap ag") ||
 			strings.Contains(bodyLow, "sap se") || strings.Contains(bodyLow, "sap portal") ||
@@ -5835,7 +5895,7 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 		resp, err := client.Do(req)
 		if err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			bodyLow := strings.ToLower(string(body))
 			// A 200 with upload-related content confirms the vulnerable endpoint is accessible.
 			if resp.StatusCode == http.StatusOK &&
@@ -5903,6 +5963,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

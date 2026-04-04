@@ -15,7 +15,7 @@ func TestAPIVersions_ActiveVersionDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"version":"1"}`)
+			_, _ = fmt.Fprintln(w, `{"version":"1"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -43,7 +43,7 @@ func TestAPIVersions_SoftHTMLResponseSkipped(t *testing.T) {
 	// Servers that return HTML for every path (catch-all) must not trigger findings.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintln(w, "<html><body>Welcome</body></html>")
+		_, _ = fmt.Fprintln(w, "<html><body>Welcome</body></html>")
 	}))
 	defer srv.Close()
 
@@ -78,7 +78,7 @@ func TestAPIVersions_DevEndpointHighSeverity(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/dev/", "/api/staging/", "/api/internal/", "/api/beta/", "/api/alpha/":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"env":"staging"}`)
+			_, _ = fmt.Fprintln(w, `{"env":"staging"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -108,7 +108,7 @@ func TestAPIVersions_NumberedVersionOnNonStdPort_MediumSeverity(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"ok":true}`)
+			_, _ = fmt.Fprintln(w, `{"ok":true}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -135,7 +135,7 @@ func TestAPIVersions_400NotFlagged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintln(w, `{"error":"bad request"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"bad request"}`)
 	}))
 	defer srv.Close()
 
@@ -170,7 +170,7 @@ func TestAPIVersions_NonStandardPort_ElevatesSeverity(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"version":"1"}`)
+			_, _ = fmt.Fprintln(w, `{"version":"1"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -199,7 +199,7 @@ func TestAPIVersions_NonStandardPort_TitleIncludesPort(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"ok":true}`)
+			_, _ = fmt.Fprintln(w, `{"ok":true}`)
 			return
 		}
 		http.NotFound(w, r)

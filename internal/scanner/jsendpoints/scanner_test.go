@@ -13,12 +13,12 @@ func TestExtractsAPIEndpointsFromJS(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "text/html")
-			w.Write([]byte(`<html><head><script src="/app.js"></script></head><body></body></html>`))
+			_, _ = w.Write([]byte(`<html><head><script src="/app.js"></script></head><body></body></html>`))
 			return
 		}
 		if r.URL.Path == "/app.js" {
 			w.Header().Set("Content-Type", "application/javascript")
-			w.Write([]byte(`
+			_, _ = w.Write([]byte(`
 				const API_BASE = "https://api-internal.staging.example.com:8443/api/v2/users";
 				fetch("/api/v1/admin/settings").then(r => r.json());
 				const DB_HOST = "192.168.1.50";
@@ -52,7 +52,7 @@ func TestExtractsAPIEndpointsFromJS(t *testing.T) {
 func TestNoFalsePositiveOnPlainHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body><h1>No JS here</h1></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><h1>No JS here</h1></body></html>`))
 	}))
 	defer srv.Close()
 

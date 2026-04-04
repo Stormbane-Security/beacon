@@ -109,7 +109,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				}
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(postResp.Body, maxBodySize)) //nolint:errcheck
+			_, _ = io.Copy(io.Discard, io.LimitReader(postResp.Body, maxBodySize)) //nolint:errcheck
 			_ = postResp.Body.Close()
 
 			// Only proceed if the endpoint accepted the POST (2xx or 3xx).
@@ -188,6 +188,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

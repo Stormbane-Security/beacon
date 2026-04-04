@@ -36,7 +36,7 @@ func TestShodan_KeySentInHeader(t *testing.T) {
 			t.Errorf("Key header = %q; want %q", r.Header.Get("Key"), "my-shodan-key")
 		}
 		w.WriteHeader(200)
-		w.Write([]byte(`{"ports":[80,443],"org":"ExampleCorp","os":""}`))
+		_, _ = w.Write([]byte(`{"ports":[80,443],"org":"ExampleCorp","os":""}`))
 	})
 	defer srv.Close()
 
@@ -52,7 +52,7 @@ func TestShodan_KeySentInHeader(t *testing.T) {
 func TestShodan_EmptyPortsAndOrg_ReturnsNil(t *testing.T) {
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"ports":[],"org":""}`))
+		_, _ = w.Write([]byte(`{"ports":[],"org":""}`))
 	})
 	defer srv.Close()
 
@@ -65,7 +65,7 @@ func TestShodan_EmptyPortsAndOrg_ReturnsNil(t *testing.T) {
 func TestShodan_Non200_ReturnsNil(t *testing.T) {
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
-		w.Write([]byte(`{"error":"Invalid API key"}`))
+		_, _ = w.Write([]byte(`{"error":"Invalid API key"}`))
 	})
 	defer srv.Close()
 
@@ -79,7 +79,7 @@ func TestShodan_WithCVEs_SeverityIsHigh(t *testing.T) {
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		// Real Shodan format: vulns is an object keyed by CVE ID.
-		w.Write([]byte(`{"ports":[22],"org":"Acme","os":"Linux","vulns":{"CVE-2021-44228":{"cvss":10.0},"CVE-2022-1234":{"cvss":9.8}}}`))
+		_, _ = w.Write([]byte(`{"ports":[22],"org":"Acme","os":"Linux","vulns":{"CVE-2021-44228":{"cvss":10.0},"CVE-2022-1234":{"cvss":9.8}}}`))
 	})
 	defer srv.Close()
 
@@ -104,7 +104,7 @@ func TestVirusTotal_APIKeyInHeader(t *testing.T) {
 			t.Errorf("x-apikey header = %q; want vtkey", r.Header.Get("x-apikey"))
 		}
 		w.WriteHeader(200)
-		w.Write([]byte(`{"data":{"attributes":{"last_analysis_stats":{"malicious":5,"suspicious":0,"harmless":60},"reputation":-10}}}`))
+		_, _ = w.Write([]byte(`{"data":{"attributes":{"last_analysis_stats":{"malicious":5,"suspicious":0,"harmless":60},"reputation":-10}}}`))
 	})
 	defer srv.Close()
 
@@ -120,7 +120,7 @@ func TestVirusTotal_APIKeyInHeader(t *testing.T) {
 func TestVirusTotal_CleanDomain_ReturnsNil(t *testing.T) {
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"data":{"attributes":{"last_analysis_stats":{"malicious":0,"suspicious":0,"harmless":72},"reputation":0}}}`))
+		_, _ = w.Write([]byte(`{"data":{"attributes":{"last_analysis_stats":{"malicious":0,"suspicious":0,"harmless":72},"reputation":0}}}`))
 	})
 	defer srv.Close()
 
@@ -150,7 +150,7 @@ func TestGreyNoise_APIKeyInHeader(t *testing.T) {
 			t.Errorf("key header = %q; want gnkey", r.Header.Get("key"))
 		}
 		w.WriteHeader(200)
-		w.Write([]byte(`{"ip":"1.2.3.4","noise":true,"riot":false,"classification":"malicious","name":"MalBot"}`))
+		_, _ = w.Write([]byte(`{"ip":"1.2.3.4","noise":true,"riot":false,"classification":"malicious","name":"MalBot"}`))
 	})
 	defer srv.Close()
 
@@ -167,7 +167,7 @@ func TestGreyNoise_404_ReturnsNil(t *testing.T) {
 	// 404 from GreyNoise means IP has no data — not an error.
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
-		w.Write([]byte(`{"message":"IP not found in dataset"}`))
+		_, _ = w.Write([]byte(`{"message":"IP not found in dataset"}`))
 	})
 	defer srv.Close()
 
@@ -182,7 +182,7 @@ func TestGreyNoise_RiotIP_ReturnsNil(t *testing.T) {
 	// No finding should be emitted.
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"ip":"8.8.8.8","noise":false,"riot":true,"classification":"benign","name":"Google Public DNS"}`))
+		_, _ = w.Write([]byte(`{"ip":"8.8.8.8","noise":false,"riot":true,"classification":"benign","name":"Google Public DNS"}`))
 	})
 	defer srv.Close()
 
@@ -202,7 +202,7 @@ func TestCensys_CredentialsSentAsBasicAuth(t *testing.T) {
 		}
 		w.WriteHeader(200)
 		// Real Censys v2 format: asn is integer, name is string inside autonomous_system.
-		w.Write([]byte(`{"result":{"ip":"1.2.3.4","autonomous_system":{"asn":12345,"name":"ExampleASN","bgp_prefix":"1.2.0.0/16"},"services":[{"port":443,"service_name":"HTTPS"}]}}`))
+		_, _ = w.Write([]byte(`{"result":{"ip":"1.2.3.4","autonomous_system":{"asn":12345,"name":"ExampleASN","bgp_prefix":"1.2.0.0/16"},"services":[{"port":443,"service_name":"HTTPS"}]}}`))
 	})
 	defer srv.Close()
 
@@ -235,7 +235,7 @@ func TestSecurityTrails_APIKeyInHeader(t *testing.T) {
 			t.Errorf("apikey header = %q; want stkey", r.Header.Get("apikey"))
 		}
 		w.WriteHeader(200)
-		w.Write([]byte(`{"subdomains":["mail","vpn","dev"],"endpoint":"example.com"}`))
+		_, _ = w.Write([]byte(`{"subdomains":["mail","vpn","dev"],"endpoint":"example.com"}`))
 	})
 	defer srv.Close()
 
@@ -248,7 +248,7 @@ func TestSecurityTrails_APIKeyInHeader(t *testing.T) {
 func TestSecurityTrails_EmptySubdomains_ReturnsNil(t *testing.T) {
 	client, srv := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`{"subdomains":[]}`))
+		_, _ = w.Write([]byte(`{"subdomains":[]}`))
 	})
 	defer srv.Close()
 

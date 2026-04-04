@@ -251,7 +251,7 @@ func fetchBody(ctx context.Context, client *http.Client, rawURL string, maxBytes
 		return "", err
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil {
 		return "", err
 	}
@@ -281,6 +281,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

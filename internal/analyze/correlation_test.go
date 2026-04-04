@@ -34,7 +34,7 @@ func fakeClaudeServerWithObject(t *testing.T, responseBody string) *httptest.Ser
 			"stop_reason": "end_turn",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		_ = json.NewEncoder(w).Encode(resp) //nolint:errcheck
 	}))
 }
 

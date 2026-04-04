@@ -336,7 +336,7 @@ func (c *ClaudeEnricher) Enrich(ctx context.Context, findings []finding.Finding)
 			if err := c.cache.SaveEnrichmentCache(ctx, id, e.explanation, e.impact, e.remediation); err != nil {
 				// Log but don't fail — the enrichment itself succeeded; missing
 				// cache only means the next scan re-computes this check type.
-				fmt.Fprintf(os.Stderr, "enrichment: cache write failed for %s: %v\n", id, err)
+				_, _ = fmt.Fprintf(os.Stderr, "enrichment: cache write failed for %s: %v\n", id, err)
 			}
 		}
 	}
@@ -777,7 +777,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("parsing Ollama response: %w", err)
 	}
 	if out.Error != "" {
-		return "", fmt.Errorf("Ollama error: %s", out.Error)
+		return "", fmt.Errorf("ollama error: %s", out.Error)
 	}
 	return out.Message.Content, nil
 }
@@ -840,7 +840,7 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 		if c.apiKey != "" {
 			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
 		}
-		return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, safeBody)
+		return "", fmt.Errorf("claude API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var cr claudeResponse
@@ -848,10 +848,10 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("parsing Claude response: %w", err)
 	}
 	if cr.Error != nil {
-		return "", fmt.Errorf("Claude API error: %s", cr.Error.Message)
+		return "", fmt.Errorf("claude API error: %s", cr.Error.Message)
 	}
 	if len(cr.Content) == 0 {
-		return "", fmt.Errorf("Claude returned empty content")
+		return "", fmt.Errorf("claude returned empty content")
 	}
 	return cr.Content[0].Text, nil
 }

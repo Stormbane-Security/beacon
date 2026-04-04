@@ -62,7 +62,7 @@ func (a *doAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // jsonResponse writes v as JSON with status 200.
 func jsonResponse(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // emptyLists returns handlers that return empty lists for all endpoints.
@@ -255,7 +255,7 @@ func TestSpaces_CDNFallback(t *testing.T) {
 	// Spaces endpoint returns 404 to trigger CDN fallback.
 	handlers["/spaces"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"id":"not_found"}`))
+		_, _ = w.Write([]byte(`{"id":"not_found"}`))
 	}
 	handlers["/cdn/endpoints"] = func(w http.ResponseWriter, _ *http.Request) {
 		jsonResponse(w, map[string]any{
@@ -940,12 +940,12 @@ func TestRun_SpacesAPIFailure_EmitsScanError(t *testing.T) {
 	handlers := emptyLists()
 	handlers["/spaces"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"id":"server_error","message":"internal error"}`))
+		_, _ = w.Write([]byte(`{"id":"server_error","message":"internal error"}`))
 	}
 	// CDN also fails to trigger the error path fully.
 	handlers["/cdn/endpoints"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"id":"server_error"}`))
+		_, _ = w.Write([]byte(`{"id":"server_error"}`))
 	}
 	ts := httptest.NewServer(&doAPI{handlers: handlers})
 	defer ts.Close()
@@ -965,7 +965,7 @@ func TestRun_DropletsAPIFailure_EmitsScanError(t *testing.T) {
 	handlers := emptyLists()
 	handlers["/droplets"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"id":"forbidden","message":"insufficient scope"}`))
+		_, _ = w.Write([]byte(`{"id":"forbidden","message":"insufficient scope"}`))
 	}
 	ts := httptest.NewServer(&doAPI{handlers: handlers})
 	defer ts.Close()
@@ -985,7 +985,7 @@ func TestRun_FirewallsAPIFailure_EmitsScanError(t *testing.T) {
 	handlers := emptyLists()
 	handlers["/firewalls"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"id":"unauthorized"}`))
+		_, _ = w.Write([]byte(`{"id":"unauthorized"}`))
 	}
 	ts := httptest.NewServer(&doAPI{handlers: handlers})
 	defer ts.Close()
@@ -1006,19 +1006,19 @@ func TestRun_AllAPIsFailure_MultipleScanErrors(t *testing.T) {
 	handlers := map[string]http.HandlerFunc{
 		"/spaces": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		},
 		"/cdn/endpoints": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		},
 		"/droplets": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		},
 		"/firewalls": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		},
 	}
 	ts := httptest.NewServer(&doAPI{handlers: handlers})

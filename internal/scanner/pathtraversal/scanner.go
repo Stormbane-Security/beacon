@@ -117,8 +117,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, getResp.Body)
-		getResp.Body.Close()
+		_, _ = io.Copy(io.Discard, getResp.Body)
+		_ = getResp.Body.Close()
 		baseStatus := getResp.StatusCode
 
 		// Try each traversal payload.
@@ -140,7 +140,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// Detection: response status changed from 403→200, OR body contains
 			// sensitive content not present in the baseline.

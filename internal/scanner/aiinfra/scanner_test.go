@@ -14,7 +14,7 @@ func TestJupyterDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/kernels" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `[{"id":"abc123","name":"python3","execution_state":"idle","last_activity":"2026-04-01T12:00:00Z"}]`)
+			_, _ = fmt.Fprint(w, `[{"id":"abc123","name":"python3","execution_state":"idle","last_activity":"2026-04-01T12:00:00Z"}]`)
 			return
 		}
 		w.WriteHeader(404)
@@ -38,7 +38,7 @@ func TestRayDashboardDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/jobs/" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `[{"submission_id":"ray_job_1","entrypoint":"python train.py","status":"SUCCEEDED"}]`)
+			_, _ = fmt.Fprint(w, `[{"submission_id":"ray_job_1","entrypoint":"python train.py","status":"SUCCEEDED"}]`)
 			return
 		}
 		w.WriteHeader(404)
@@ -62,7 +62,7 @@ func TestMLflowDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/2.0/mlflow/experiments/list" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"experiments":[{"experiment_id":"0","name":"Default","artifact_location":"mlruns/0"}]}`)
+			_, _ = fmt.Fprint(w, `{"experiments":[{"experiment_id":"0","name":"Default","artifact_location":"mlruns/0"}]}`)
 			return
 		}
 		w.WriteHeader(404)
@@ -86,7 +86,7 @@ func TestGradioDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/info" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"version":"4.19.0","mode":"blocks","api_prefix":"","gradio_version":"4.19.0"}`)
+			_, _ = fmt.Fprint(w, `{"version":"4.19.0","mode":"blocks","api_prefix":"","gradio_version":"4.19.0"}`)
 			return
 		}
 		w.WriteHeader(404)
@@ -109,7 +109,7 @@ func TestGradioDetection(t *testing.T) {
 func TestNoFalsePositiveOnCleanServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
-		fmt.Fprint(w, `{"error":"not found"}`)
+		_, _ = fmt.Fprint(w, `{"error":"not found"}`)
 	}))
 	defer srv.Close()
 

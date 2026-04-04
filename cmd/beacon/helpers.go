@@ -24,7 +24,7 @@ import (
 )
 
 func fatalf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "beacon: "+format+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: "+format+"\n", args...)
 	os.Exit(1)
 }
 
@@ -69,24 +69,24 @@ func warnMissingAPIKeys(cfg *config.Config) {
 		// Missing keys cause genuine detection gaps: passive DNS finds deleted subdomains
 		// that active scanning never sees; HIBP breach data is not reproducible by probing;
 		// Shodan captures ports that were open before the scan started but are now closed.
-		fmt.Fprintf(os.Stderr, "beacon: missing optional keys — these are distinct data sources, not speed improvements:\n")
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: missing optional keys — these are distinct data sources, not speed improvements:\n")
 		for _, k := range missing {
-			fmt.Fprintf(os.Stderr, "  %-55s  %s\n", k.name, k.desc)
+			_, _ = fmt.Fprintf(os.Stderr, "  %-55s  %s\n", k.name, k.desc)
 		}
 		if from := cfg.LoadedFrom(); from != "" {
-			fmt.Fprintf(os.Stderr, "  Config loaded from: %s\n", from)
-			fmt.Fprintf(os.Stderr, "  Add missing keys to that file using yaml key names (e.g. shodan_api_key: yourkey)\n\n")
+			_, _ = fmt.Fprintf(os.Stderr, "  Config loaded from: %s\n", from)
+			_, _ = fmt.Fprintf(os.Stderr, "  Add missing keys to that file using yaml key names (e.g. shodan_api_key: yourkey)\n\n")
 		} else {
-			fmt.Fprintf(os.Stderr, "  No config file found. Create ~/.beacon/config.yaml or set BEACON_* env vars.\n\n")
+			_, _ = fmt.Fprintf(os.Stderr, "  No config file found. Create ~/.beacon/config.yaml or set BEACON_* env vars.\n\n")
 		}
 	}
 
 	// Warn when nmap is enabled but running without root privileges.
 	if cfg.NmapBin != "" && os.Getuid() != 0 {
-		fmt.Fprintf(os.Stderr, "beacon: nmap configured but running without root — nmap will use TCP connect scan\n")
-		fmt.Fprintf(os.Stderr, "  Some deep-mode NSE scripts (ms17-010, smb-vuln-*, snmp-info) require raw sockets\n")
-		fmt.Fprintf(os.Stderr, "  and will have reduced coverage without root or CAP_NET_RAW.\n")
-		fmt.Fprintf(os.Stderr, "  Run with sudo or grant: sudo setcap cap_net_raw+ep %s\n\n", cfg.NmapBin)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: nmap configured but running without root — nmap will use TCP connect scan\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  Some deep-mode NSE scripts (ms17-010, smb-vuln-*, snmp-info) require raw sockets\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  and will have reduced coverage without root or CAP_NET_RAW.\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  Run with sudo or grant: sudo setcap cap_net_raw+ep %s\n\n", cfg.NmapBin)
 	}
 }
 
@@ -103,7 +103,7 @@ func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.Sc
 	case "https":
 		// OK
 	case "http":
-		fmt.Fprintf(os.Stderr, "beacon: warning: webhook URL uses plain HTTP — credentials and findings will be sent in cleartext\n")
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: warning: webhook URL uses plain HTTP — credentials and findings will be sent in cleartext\n")
 	default:
 		return fmt.Errorf("unsupported webhook URL scheme %q: only https:// and http:// are allowed", u.Scheme)
 	}
@@ -129,7 +129,7 @@ func deliverWebhook(ctx context.Context, webhookURL, apiKey string, run store.Sc
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Drain the response body so the underlying TCP connection can be reused.
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -634,7 +634,7 @@ func copyToClipboard(text string) bool {
 			continue
 		}
 		_, _ = io.WriteString(stdin, text)
-		stdin.Close()
+		_ = stdin.Close()
 		if err := cmd.Wait(); err == nil {
 			return true
 		}

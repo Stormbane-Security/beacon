@@ -34,7 +34,7 @@ func TestCheckIntrospection_NoSchemaInResponse_ReturnsFalse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		// Introspection disabled — server returns a data response without __schema
-		w.Write([]byte(`{"data":{"__typename":"Query"}}`))
+		_, _ = w.Write([]byte(`{"data":{"__typename":"Query"}}`))
 	}))
 	defer ts.Close()
 
@@ -67,7 +67,7 @@ func TestCheckIntrospection_ServerUnreachable_ReturnsFalse(t *testing.T) {
 func TestCheckIntrospection_ContextCancelled_ReturnsFalse(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"__schema":{}}}`))
+		_, _ = w.Write([]byte(`{"data":{"__schema":{}}}`))
 	}))
 	defer ts.Close()
 
@@ -85,7 +85,7 @@ func TestIsGraphQLEndpoint_DataAndTypenameInResponse_ReturnsTrue(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"__typename":"Query"}}`))
+		_, _ = w.Write([]byte(`{"data":{"__typename":"Query"}}`))
 	}))
 	defer ts.Close()
 
@@ -98,7 +98,7 @@ func TestIsGraphQLEndpoint_OnlyDataKey_ReturnsFalse(t *testing.T) {
 	// REST API that happens to return a "data" key — should not be flagged
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"id":1,"name":"Alice"}}`))
+		_, _ = w.Write([]byte(`{"data":{"id":1,"name":"Alice"}}`))
 	}))
 	defer ts.Close()
 
@@ -125,7 +125,7 @@ func TestCheckBatchQuery_ArrayResponse_FindingEmitted(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		// Return a JSON array — signals batch support
-		w.Write([]byte(`[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]`))
+		_, _ = w.Write([]byte(`[{"data":{"__typename":"Query"}},{"data":{"__typename":"Query"}}]`))
 	}))
 	defer ts.Close()
 
@@ -146,7 +146,7 @@ func TestCheckBatchQuery_ObjectResponse_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"__typename":"Query"}}`))
+		_, _ = w.Write([]byte(`{"data":{"__typename":"Query"}}`))
 	}))
 	defer ts.Close()
 
@@ -176,7 +176,7 @@ func TestCheckPersistedQueryBypass_ExecutesQueryOnMiss_FindingEmitted(t *testing
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"__typename":"Query"}}`))
+		_, _ = w.Write([]byte(`{"data":{"__typename":"Query"}}`))
 	}))
 	defer ts.Close()
 
@@ -194,7 +194,7 @@ func TestCheckPersistedQueryBypass_ReturnsPersistedQueryNotFound_NoFinding(t *te
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"errors":[{"message":"PersistedQueryNotFound"}]}`))
+		_, _ = w.Write([]byte(`{"errors":[{"message":"PersistedQueryNotFound"}]}`))
 	}))
 	defer ts.Close()
 
@@ -209,7 +209,7 @@ func TestCheckPersistedQueryBypass_NoDataKey_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer ts.Close()
 
@@ -272,7 +272,7 @@ func TestCheckBatchQuery_NonGraphQLJSONArray_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[{"name":"foo"},{"name":"bar"}]`))
+		_, _ = w.Write([]byte(`[{"name":"foo"},{"name":"bar"}]`))
 	}))
 	defer ts.Close()
 
@@ -287,7 +287,7 @@ func TestCheckBatchQuery_EmptyJSONArray_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[]`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer ts.Close()
 
@@ -303,7 +303,7 @@ func TestCheckBatchQuery_ArrayWithErrorsKey_FindingEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[{"errors":[{"message":"not authorized"}]},{"errors":[{"message":"not authorized"}]}]`))
+		_, _ = w.Write([]byte(`[{"errors":[{"message":"not authorized"}]},{"errors":[{"message":"not authorized"}]}]`))
 	}))
 	defer ts.Close()
 
@@ -325,7 +325,7 @@ func TestGraphQLIntrospectionDisabled(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"errors":[{"message":"Introspection is not allowed"}]}`))
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Introspection is not allowed"}]}`))
 	}))
 	defer ts.Close()
 
@@ -347,7 +347,7 @@ func TestGraphQLTruncatedResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		// Truncated JSON: "__schema" is present as a string but the JSON is incomplete.
-		w.Write([]byte(`{"data":{"__schema":{"types":[{"name":"Qu`))
+		_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[{"name":"Qu`))
 	}))
 	defer ts.Close()
 
@@ -369,7 +369,7 @@ func TestCheckBatchQuery_TruncatedJSON_NoPanic(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`[{"data":{"__typename":"Qu`)) // truncated
+		_, _ = w.Write([]byte(`[{"data":{"__typename":"Qu`)) // truncated
 	}))
 	defer ts.Close()
 
@@ -386,7 +386,7 @@ func TestCheckIntrospection_HTMLResponse_ReturnsFalse(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<html><body>Not a GraphQL endpoint</body></html>`))
+		_, _ = w.Write([]byte(`<html><body>Not a GraphQL endpoint</body></html>`))
 	}))
 	defer ts.Close()
 

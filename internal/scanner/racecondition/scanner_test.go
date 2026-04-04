@@ -19,7 +19,7 @@ func TestRaceConditionDetected(t *testing.T) {
 		if r.URL.Path == "/api/redeem" && r.Method == http.MethodPost {
 			count.Add(1)
 			w.WriteHeader(200)
-			w.Write([]byte(`{"success": true}`))
+			_, _ = w.Write([]byte(`{"success": true}`))
 			return
 		}
 		w.WriteHeader(404)
@@ -84,7 +84,7 @@ func TestRaceConcurrentRelease(t *testing.T) {
 			}
 			current.Add(-1)
 			w.WriteHeader(200)
-			w.Write([]byte(`{"success": true}`))
+			_, _ = w.Write([]byte(`{"success": true}`))
 			return
 		}
 		w.WriteHeader(404)

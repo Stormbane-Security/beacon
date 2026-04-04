@@ -171,7 +171,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if err != nil {
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return nil, nil
 	}
@@ -316,7 +316,7 @@ func cdnBypassFromHistory(ctx context.Context, client *http.Client, asset string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			responding = append(responding, respondingIP{IP: ip, Status: resp.StatusCode})
 		}

@@ -14,7 +14,7 @@ import (
 func TestSecurityTxtFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/security.txt" {
-			w.Write([]byte("Contact: security@example.com\nExpires: 2027-01-01T00:00:00Z\n"))
+			_, _ = w.Write([]byte("Contact: security@example.com\nExpires: 2027-01-01T00:00:00Z\n"))
 			return
 		}
 		w.WriteHeader(404)
@@ -67,7 +67,7 @@ func TestAppleAppSiteAssociation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/apple-app-site-association" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"applinks":{"apps":[],"details":[{"appID":"TEAM.com.example.app"}]}}`))
+			_, _ = w.Write([]byte(`{"applinks":{"apps":[],"details":[{"appID":"TEAM.com.example.app"}]}}`))
 			return
 		}
 		w.WriteHeader(404)

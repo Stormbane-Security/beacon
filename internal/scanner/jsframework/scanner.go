@@ -177,7 +177,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			continue
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024)) // 512 KB
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == 200 {
 			body = string(b)
 			break

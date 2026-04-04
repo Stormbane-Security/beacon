@@ -64,7 +64,7 @@ func TestOkta_MFANotEnforced(t *testing.T) {
 				},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -95,14 +95,14 @@ func TestOkta_MFAEnforced_NoFinding(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/policies":
 			if r.URL.Query().Get("type") == "OKTA_SIGN_ON" {
-				json.NewEncoder(w).Encode([]map[string]any{
+				_ = json.NewEncoder(w).Encode([]map[string]any{
 					{"id": "pol1", "name": "Secure Policy", "status": "ACTIVE", "type": "OKTA_SIGN_ON"},
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		case "/api/v1/policies/pol1/rules":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":     "rule1",
 					"name":   "Require MFA",
@@ -116,7 +116,7 @@ func TestOkta_MFAEnforced_NoFinding(t *testing.T) {
 				},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -138,7 +138,7 @@ func TestOkta_WeakPasswordPolicy(t *testing.T) {
 		case "/api/v1/policies":
 			ptype := r.URL.Query().Get("type")
 			if ptype == "PASSWORD" {
-				json.NewEncoder(w).Encode([]map[string]any{
+				_ = json.NewEncoder(w).Encode([]map[string]any{
 					{
 						"id": "ppol1", "name": "Weak Policy", "status": "ACTIVE", "type": "PASSWORD",
 						"settings": map[string]any{
@@ -157,9 +157,9 @@ func TestOkta_WeakPasswordPolicy(t *testing.T) {
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -178,7 +178,7 @@ func TestOkta_StrongPasswordPolicy_NoFinding(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/policies":
 			if r.URL.Query().Get("type") == "PASSWORD" {
-				json.NewEncoder(w).Encode([]map[string]any{
+				_ = json.NewEncoder(w).Encode([]map[string]any{
 					{
 						"id": "ppol1", "name": "Strong Policy", "status": "ACTIVE", "type": "PASSWORD",
 						"settings": map[string]any{
@@ -197,9 +197,9 @@ func TestOkta_StrongPasswordPolicy_NoFinding(t *testing.T) {
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -219,7 +219,7 @@ func TestOkta_APITokenNoExpiry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/api-tokens":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":      "tkn1",
 					"name":    "CI Token",
@@ -228,7 +228,7 @@ func TestOkta_APITokenNoExpiry(t *testing.T) {
 				},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -246,7 +246,7 @@ func TestOkta_APITokenLongLived(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/api-tokens":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":        "tkn2",
 					"name":      "Long Token",
@@ -255,7 +255,7 @@ func TestOkta_APITokenLongLived(t *testing.T) {
 				},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -275,11 +275,11 @@ func TestOkta_ThreatInsightDisabled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/threats/configuration":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"action": "none",
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -297,11 +297,11 @@ func TestOkta_ThreatInsightBlock_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/threats/configuration":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"action": "block",
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -321,9 +321,9 @@ func TestOkta_NoGroupRules(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/groups/rules":
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -341,11 +341,11 @@ func TestOkta_HasGroupRules_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/groups/rules":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "r1", "name": "Engineering", "status": "ACTIVE"},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -365,7 +365,7 @@ func TestOkta_EmptyGroup(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/groups":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":      "grp1",
 					"type":    "OKTA_GROUP",
@@ -373,9 +373,9 @@ func TestOkta_EmptyGroup(t *testing.T) {
 				},
 			})
 		case "/api/v1/groups/grp1/users":
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -395,21 +395,21 @@ func TestOkta_AppAssignedToEveryone(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/apps":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "app1", "label": "Admin Console", "status": "ACTIVE", "name": "admin"},
 			})
 		case "/api/v1/apps/app1/groups":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "grp_everyone", "priority": 0},
 			})
 		case "/api/v1/groups/grp_everyone":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":      "grp_everyone",
 				"type":    "BUILT_IN",
 				"profile": map[string]string{"name": "Everyone"},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -440,7 +440,7 @@ func TestOkta_NoToken_ReturnsNil(t *testing.T) {
 
 func TestOkta_ContextCancelled_NoPanic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]any{})
+		_ = json.NewEncoder(w).Encode([]any{})
 	}))
 	defer srv.Close()
 
@@ -469,7 +469,7 @@ func TestOkta_UserNoMFA(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/users":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":     "usr1",
 					"status": "ACTIVE",
@@ -480,11 +480,11 @@ func TestOkta_UserNoMFA(t *testing.T) {
 				},
 			})
 		case "/api/v1/users/usr1/factors":
-			json.NewEncoder(w).Encode([]any{}) // no factors
+			_ = json.NewEncoder(w).Encode([]any{}) // no factors
 		case "/api/v1/users/usr1/roles":
-			json.NewEncoder(w).Encode([]any{}) // not admin
+			_ = json.NewEncoder(w).Encode([]any{}) // not admin
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -513,14 +513,14 @@ func TestOkta_AllFindingsHaveScannerField(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/policies":
 			if r.URL.Query().Get("type") == "OKTA_SIGN_ON" {
-				json.NewEncoder(w).Encode([]map[string]any{
+				_ = json.NewEncoder(w).Encode([]map[string]any{
 					{"id": "pol1", "name": "Default", "status": "ACTIVE"},
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		case "/api/v1/policies/pol1/rules":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id": "r1", "name": "Weak", "status": "ACTIVE",
 					"actions": map[string]any{
@@ -529,11 +529,11 @@ func TestOkta_AllFindingsHaveScannerField(t *testing.T) {
 				},
 			})
 		case "/api/v1/threats/configuration":
-			json.NewEncoder(w).Encode(map[string]any{"action": "none"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"action": "none"})
 		case "/api/v1/groups/rules":
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -560,7 +560,7 @@ func TestOkta_NoSessionTimeout(t *testing.T) {
 		case "/api/v1/policies":
 			ptype := r.URL.Query().Get("type")
 			if ptype == "OKTA_SIGN_ON" {
-				json.NewEncoder(w).Encode([]map[string]any{
+				_ = json.NewEncoder(w).Encode([]map[string]any{
 					{
 						"id": "pol1", "name": "Default Policy", "status": "ACTIVE",
 						"settings": map[string]any{
@@ -573,9 +573,9 @@ func TestOkta_NoSessionTimeout(t *testing.T) {
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -595,7 +595,7 @@ func TestOkta_InactiveAdmin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/users":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"id":        "usr_admin",
 					"status":    "ACTIVE",
@@ -607,15 +607,15 @@ func TestOkta_InactiveAdmin(t *testing.T) {
 				},
 			})
 		case "/api/v1/users/usr_admin/roles":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "r1", "type": "SUPER_ADMIN", "label": "Super Admin"},
 			})
 		case "/api/v1/users/usr_admin/factors":
-			json.NewEncoder(w).Encode([]map[string]any{
+			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "f1", "factorType": "token:software:totp", "status": "ACTIVE"},
 			})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()
@@ -643,9 +643,9 @@ func TestOkta_FindingFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/threats/configuration":
-			json.NewEncoder(w).Encode(map[string]any{"action": "audit_only"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"action": "audit_only"})
 		default:
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 		}
 	}))
 	defer srv.Close()

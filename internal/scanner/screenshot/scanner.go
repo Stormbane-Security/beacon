@@ -51,7 +51,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 	// gowitness requires Chrome/Chromium — can't install a browser automatically
 	if !hasBrowser() {
-		fmt.Fprintf(os.Stderr, "beacon: screenshots skipped — Chrome or Chromium not found (install from https://www.google.com/chrome/)\n")
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: screenshots skipped — Chrome or Chromium not found (install from https://www.google.com/chrome/)\n")
 		return nil, nil
 	}
 

@@ -73,7 +73,7 @@ func TestMCPToolPoisoning(t *testing.T) {
 func TestNoFalsePositiveOnCleanServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
-		fmt.Fprint(w, `{"error":"not found"}`)
+		_, _ = fmt.Fprint(w, `{"error":"not found"}`)
 	}))
 	defer srv.Close()
 

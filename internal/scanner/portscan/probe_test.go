@@ -243,12 +243,12 @@ func TestProbeEPMD_NodesListed(t *testing.T) {
 // returns nil (no nodes to report).
 func TestProbeEPMD_EmptyNodeList(t *testing.T) {
 	port, cleanup := serveEPMD(t, func(c net.Conn) {
-		defer c.Close()
-		c.SetDeadline(time.Now().Add(2 * time.Second))
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, 16)
-		c.Read(buf)
+		_, _ = c.Read(buf)
 		// Only 4-byte port header, no node entries.
-		c.Write([]byte{0x00, 0x00, 0x11, 0x11})
+		_, _ = c.Write([]byte{0x00, 0x00, 0x11, 0x11})
 	})
 	defer cleanup()
 
@@ -263,11 +263,11 @@ func TestProbeEPMD_EmptyNodeList(t *testing.T) {
 // returns nil.
 func TestProbeEPMD_TruncatedResponse(t *testing.T) {
 	port, cleanup := serveEPMD(t, func(c net.Conn) {
-		defer c.Close()
-		c.SetDeadline(time.Now().Add(2 * time.Second))
+		defer func() { _ = c.Close() }()
+		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, 16)
-		c.Read(buf)
-		c.Write([]byte{0x00, 0x01}) // only 2 bytes — too short
+		_, _ = c.Read(buf)
+		_, _ = c.Write([]byte{0x00, 0x01}) // only 2 bytes — too short
 	})
 	defer cleanup()
 
@@ -592,7 +592,7 @@ func TestDetectSMB_NoFalsePositiveOnNonSMBPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -605,8 +605,8 @@ func TestDetectSMB_NoFalsePositiveOnNonSMBPort(t *testing.T) {
 			greeting[3] = 0x00
 			greeting[4] = 0x0a
 			copy(greeting[5:], []byte("8.0.36\x00"))
-			conn.Write(greeting)
-			conn.Close()
+			_, _ = conn.Write(greeting)
+			_ = conn.Close()
 		}
 	}()
 
@@ -632,7 +632,7 @@ func TestDetectSMB_ClosedPort(t *testing.T) {
 	}
 	_, portStr, _ := net.SplitHostPort(l.Addr().String())
 	port, _ := strconv.Atoi(portStr)
-	l.Close()
+	_ = l.Close()
 
 	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
 		return finding.Finding{CheckID: checkID}
@@ -649,7 +649,7 @@ func TestDetectSMB_RealSMBServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -657,8 +657,8 @@ func TestDetectSMB_RealSMBServer(t *testing.T) {
 				return
 			}
 			buf := make([]byte, 256)
-			conn.SetDeadline(time.Now().Add(2 * time.Second))
-			conn.Read(buf)
+			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+			_, _ = conn.Read(buf)
 			// Reply with SMBv2 negotiate response header.
 			resp := make([]byte, 68)
 			resp[0] = 0x00 // NetBIOS
@@ -669,8 +669,8 @@ func TestDetectSMB_RealSMBServer(t *testing.T) {
 			resp[5] = 0x53
 			resp[6] = 0x4d
 			resp[7] = 0x42
-			conn.Write(resp)
-			conn.Close()
+			_, _ = conn.Write(resp)
+			_ = conn.Close()
 		}
 	}()
 
@@ -733,31 +733,31 @@ func TestRunProbes_MySQLBannerRunsMySQLProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.SetDeadline(time.Now().Add(3 * time.Second))
+			_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 			// Send MySQL greeting: 4-byte header + payload starting with 0x0a
 			greeting := make([]byte, 80)
 			greeting[0] = 0x0a // protocol version 10
 			copy(greeting[1:], []byte("8.0.36\x00"))
 			// Write packet header: length(3) + seq(1)
 			hdr := []byte{byte(len(greeting)), 0x00, 0x00, 0x00}
-			conn.Write(hdr)
-			conn.Write(greeting)
+			_, _ = conn.Write(hdr)
+			_, _ = conn.Write(greeting)
 			// Read client auth (just consume it)
 			buf := make([]byte, 512)
-			conn.Read(buf)
+			_, _ = conn.Read(buf)
 			// Send OK response
 			okPayload := []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00}
 			okHdr := []byte{byte(len(okPayload)), 0x00, 0x00, 0x02}
-			conn.Write(okHdr)
-			conn.Write(okPayload)
-			conn.Close()
+			_, _ = conn.Write(okHdr)
+			_, _ = conn.Write(okPayload)
+			_ = conn.Close()
 		}
 	}()
 
@@ -798,28 +798,28 @@ func TestRunProbes_EmitsServiceIdentified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.SetDeadline(time.Now().Add(3 * time.Second))
+			_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 			// MySQL greeting
 			greeting := make([]byte, 80)
 			greeting[0] = 0x0a
 			copy(greeting[1:], []byte("8.0.36\x00"))
 			hdr := []byte{byte(len(greeting)), 0x00, 0x00, 0x00}
-			conn.Write(hdr)
-			conn.Write(greeting)
+			_, _ = conn.Write(hdr)
+			_, _ = conn.Write(greeting)
 			buf := make([]byte, 512)
-			conn.Read(buf)
+			_, _ = conn.Read(buf)
 			okPayload := []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00}
 			okHdr := []byte{byte(len(okPayload)), 0x00, 0x00, 0x02}
-			conn.Write(okHdr)
-			conn.Write(okPayload)
-			conn.Close()
+			_, _ = conn.Write(okHdr)
+			_, _ = conn.Write(okPayload)
+			_ = conn.Close()
 		}
 	}()
 
@@ -868,7 +868,7 @@ func TestProbeSMBOnPort_ClosedPort(t *testing.T) {
 	}
 	_, portStr, _ := net.SplitHostPort(l.Addr().String())
 	port, _ := strconv.Atoi(portStr)
-	l.Close()
+	_ = l.Close()
 
 	if probeSMBOnPort(context.Background(), "127.0.0.1", port) {
 		t.Error("probeSMBOnPort should return false for a closed port")
@@ -881,7 +881,7 @@ func TestProbeSMBOnPort_NonSMBServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -889,9 +889,9 @@ func TestProbeSMBOnPort_NonSMBServer(t *testing.T) {
 				return
 			}
 			buf := make([]byte, 256)
-			conn.Read(buf)
-			conn.Write([]byte("hello world"))
-			conn.Close()
+			_, _ = conn.Read(buf)
+			_, _ = conn.Write([]byte("hello world"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -908,7 +908,7 @@ func TestProbeSMBOnPort_SMBv2Server(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -916,15 +916,15 @@ func TestProbeSMBOnPort_SMBv2Server(t *testing.T) {
 				return
 			}
 			buf := make([]byte, 256)
-			conn.SetDeadline(time.Now().Add(2 * time.Second))
-			conn.Read(buf)
+			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+			_, _ = conn.Read(buf)
 			resp := make([]byte, 68)
 			resp[4] = 0xfe // \xfeSMB (SMBv2)
 			resp[5] = 0x53
 			resp[6] = 0x4d
 			resp[7] = 0x42
-			conn.Write(resp)
-			conn.Close()
+			_, _ = conn.Write(resp)
+			_ = conn.Close()
 		}
 	}()
 
@@ -954,7 +954,7 @@ func TestTransparentProxyDetection(t *testing.T) {
 			t.Fatalf("failed to start listener %d: %v", i, err)
 		}
 		listeners = append(listeners, l)
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 	}
 
 	// Build a port list from those listeners.

@@ -94,7 +94,7 @@ func dockerMux(body inspectBody) *http.ServeMux {
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"Version":    "24.0.7",
 			"ApiVersion": "1.43",
 		})
@@ -110,13 +110,13 @@ func dockerMux(body inspectBody) *http.ServeMux {
 	})
 	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(listResp)
+		_, _ = w.Write(listResp)
 	})
 
 	inspectResp, _ := json.Marshal(body)
 	mux.HandleFunc("/containers/"+body.ID+"/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(inspectResp)
+		_, _ = w.Write(inspectResp)
 	})
 
 	return mux
@@ -734,11 +734,11 @@ func TestScanError_BadAPI(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"Version": "24.0.7"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"Version": "24.0.7"})
 	})
 	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	})
 
 	findings, err := runScanner(t, mux, module.ScanDeep)
@@ -834,7 +834,7 @@ func TestMultipleContainers(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"Version": "24.0.7"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"Version": "24.0.7"})
 	})
 
 	listResp, _ := json.Marshal([]map[string]interface{}{
@@ -843,19 +843,19 @@ func TestMultipleContainers(t *testing.T) {
 	})
 	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(listResp)
+		_, _ = w.Write(listResp)
 	})
 
 	secResp, _ := json.Marshal(secure)
 	mux.HandleFunc("/containers/"+secure.ID+"/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(secResp)
+		_, _ = w.Write(secResp)
 	})
 
 	insecResp, _ := json.Marshal(insecure)
 	mux.HandleFunc("/containers/"+insecure.ID+"/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(insecResp)
+		_, _ = w.Write(insecResp)
 	})
 
 	findings, err := runScanner(t, mux, module.ScanDeep)

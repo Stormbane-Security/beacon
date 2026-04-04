@@ -197,8 +197,8 @@ func probeXSD(ctx context.Context, client *http.Client, asset, url, payloadName,
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, baseResp.Body)
-	baseResp.Body.Close()
+	_, _ = io.Copy(io.Discard, baseResp.Body)
+	_ = baseResp.Body.Close()
 	baseLatency := time.Since(baseStart)
 
 	// XSD probe: send the schema injection payload.
@@ -214,7 +214,7 @@ func probeXSD(ctx context.Context, client *http.Client, asset, url, payloadName,
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	xsdLatency := time.Since(xsdStart)
 
 	// If XSD response is >2s slower than baseline, the server likely attempted
@@ -277,8 +277,8 @@ func discoverXMLEndpoints(ctx context.Context, client *http.Client, base string)
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+			_ = resp.Body.Close()
 
 			// Accept any 2xx non-HTML response as a potential XML endpoint.
 			// We cannot require the response to be XML because many servers
@@ -318,7 +318,7 @@ func probeXXE(ctx context.Context, client *http.Client, asset, url, payloadName,
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if !strings.Contains(string(body), indicator) {
 		return nil

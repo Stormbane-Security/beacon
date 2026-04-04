@@ -144,7 +144,7 @@ func TestRun_DomainExpiry7Days(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer ts.Close()
 
@@ -222,7 +222,7 @@ func TestRun_DomainExpiry30Days(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer ts.Close()
 
@@ -272,7 +272,7 @@ func TestRun_DomainNotExpiringSoon(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer ts.Close()
 
@@ -342,7 +342,7 @@ func TestRun_MalformedJSON(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "{{not valid json}}")
+		_, _ = fmt.Fprint(w, "{{not valid json}}")
 	}))
 	defer ts.Close()
 
@@ -398,7 +398,7 @@ func TestRun_NoExpirationEvent(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer ts.Close()
 
@@ -438,7 +438,7 @@ func TestRun_NoRegistrarEntity(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, _ = w.Write(body)
 	}))
 	defer ts.Close()
 
@@ -474,7 +474,7 @@ func TestRun_NameserversAreLowercased(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer ts.Close()
 
@@ -522,7 +522,7 @@ func TestRun_MalformedEventDates(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rdap+json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, _ = w.Write(body)
 	}))
 	defer ts.Close()
 

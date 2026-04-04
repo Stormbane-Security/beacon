@@ -271,7 +271,7 @@ func TestDirBustRateLimitOnCanary(t *testing.T) {
 		// If the scanner retries after the canary 429s, the real path returns 200.
 		if r.URL.Path == "/admin" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("admin panel"))
+			_, _ = w.Write([]byte("admin panel"))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -301,7 +301,7 @@ func TestDirBustConnectionReset(t *testing.T) {
 			if ok {
 				conn, _, err := hj.Hijack()
 				if err == nil {
-					conn.Close()
+					_ = conn.Close()
 					return
 				}
 			}
@@ -392,7 +392,7 @@ func TestRecurse_FindsSubPaths(t *testing.T) {
 		switch r.URL.Path {
 		case "/admin", "/admin/backup", "/admin/config":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("found"))
+			_, _ = w.Write([]byte("found"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -418,7 +418,7 @@ func TestRecurse_Disabled_NoSubPaths(t *testing.T) {
 		switch r.URL.Path {
 		case "/admin", "/admin/backup":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("found"))
+			_, _ = w.Write([]byte("found"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -439,7 +439,7 @@ func TestFrameworkExtension_FindsPHPPaths(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin.php" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("PHP admin"))
+			_, _ = w.Write([]byte("PHP admin"))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

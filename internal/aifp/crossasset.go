@@ -88,12 +88,12 @@ func buildCrossAssetPrompt(allFindings []finding.Finding, rootDomain string) str
 	sort.Strings(assetOrder)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are a senior security researcher performing cross-asset analysis for domain %q.\n\n", rootDomain)
+	_, _ = fmt.Fprintf(&b, "You are a senior security researcher performing cross-asset analysis for domain %q.\n\n", rootDomain)
 	b.WriteString("FINDINGS BY ASSET:\n")
 	for _, asset := range assetOrder {
-		fmt.Fprintf(&b, "\n%s:\n", asset)
+		_, _ = fmt.Fprintf(&b, "\n%s:\n", asset)
 		for _, line := range grouped[asset] {
-			fmt.Fprintf(&b, "  %s\n", line)
+			_, _ = fmt.Fprintf(&b, "  %s\n", line)
 		}
 	}
 

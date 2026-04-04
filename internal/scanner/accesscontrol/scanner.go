@@ -256,7 +256,7 @@ func doRequest(ctx context.Context, client *http.Client, method, rawURL string) 
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode, string(body)
 }

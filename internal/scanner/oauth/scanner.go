@@ -262,7 +262,7 @@ func discoverClientID(ctx context.Context, client *http.Client, base string) pro
 		return syntheticClient()
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10)) // 512 KB cap
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if id := matchClientID(string(body)); id != "" {
 		return probeClientID{id: id, real: true, confidence: "high"}
@@ -363,7 +363,7 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// 404/405 = endpoint doesn't exist here, try next path.
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
@@ -482,7 +482,7 @@ func checkJWKSExposure(ctx context.Context, client *http.Client, asset, base str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -536,12 +536,12 @@ func fetchOIDCDocument(ctx context.Context, client *http.Client, base string) (*
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			if resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			continue
 		}
@@ -705,7 +705,7 @@ func discoverAuthEndpoint(ctx context.Context, client *http.Client, base string)
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusBadRequest ||
 			resp.StatusCode == http.StatusUnauthorized {
 			return u
@@ -730,7 +730,7 @@ func checkMissingState(ctx context.Context, client *http.Client, asset, authEndp
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := strings.ToLower(string(body))
 	if resp.StatusCode == http.StatusBadRequest && strings.Contains(bodyStr, "state") {
@@ -786,7 +786,7 @@ func checkMissingPKCE(ctx context.Context, client *http.Client, asset, authEndpo
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := strings.ToLower(string(body))
 	if resp.StatusCode == http.StatusBadRequest &&
@@ -841,7 +841,7 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	loc := resp.Header.Get("Location")
 	bodyStr := string(body)
@@ -901,7 +901,7 @@ func checkSubdomainBypass(ctx context.Context, client *http.Client, asset, authE
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	loc := resp.Header.Get("Location")
 	bodyStr := string(body)
@@ -967,7 +967,7 @@ func checkWeakState(ctx context.Context, client *http.Client, asset, authEndpoin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := strings.ToLower(string(body))
 	loc := resp.Header.Get("Location")
@@ -1034,7 +1034,7 @@ func checkImplicitFlowAccepted(ctx context.Context, client *http.Client, asset, 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	loc := resp.Header.Get("Location")
 	bodyStr := strings.ToLower(string(body))
@@ -1114,7 +1114,7 @@ func checkTokenLeakReferer(ctx context.Context, client *http.Client, asset, auth
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	loc := resp.Header.Get("Location")
 	if loc == "" {
@@ -1171,7 +1171,7 @@ func checkJWTNoVerification(ctx context.Context, client *http.Client, asset, bas
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK && len(body) > 10 {
 			bodyStr := strings.ToLower(string(body))
@@ -1295,7 +1295,7 @@ func checkTokenLongExpiry(ctx context.Context, client *http.Client, asset, base,
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// 401/403 means endpoint is protected — expected, skip.
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -1399,7 +1399,7 @@ func checkRefreshNotRotated(ctx context.Context, client *http.Client, asset, bas
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -1439,8 +1439,8 @@ func checkRefreshNotRotated(ctx context.Context, client *http.Client, asset, bas
 		if err != nil {
 			break
 		}
-		io.Copy(io.Discard, resp.Body) //nolint:errcheck
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
 			successCount++
@@ -1486,7 +1486,7 @@ func baseURL(ctx context.Context, client *http.Client, asset string) string {
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 500 {
 			continue
 		}
@@ -1518,7 +1518,7 @@ func oauthIsCatchAll(ctx context.Context, client *http.Client, base string) bool
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 

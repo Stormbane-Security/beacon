@@ -62,7 +62,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	if resp == nil {
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Only check pages that return an HTML response — non-HTML assets
 	// (APIs, images, fonts) are not framed and don't need these headers.

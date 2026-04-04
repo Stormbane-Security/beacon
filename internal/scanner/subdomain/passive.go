@@ -282,7 +282,7 @@ func crtsh(ctx context.Context, domain string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2MB max
 	if err != nil {

@@ -47,7 +47,7 @@ func nextJSHandler(nextjsOK bool, protectedPaths map[string]int, vulnerable bool
 		if r.URL.Path == "/_next/static/chunks/main.js" {
 			if nextjsOK {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("// next.js main chunk"))
+				_, _ = w.Write([]byte("// next.js main chunk"))
 			} else {
 				w.WriteHeader(http.StatusNotFound)
 			}
@@ -59,7 +59,7 @@ func nextJSHandler(nextjsOK bool, protectedPaths map[string]int, vulnerable bool
 			bypassHdr := r.Header.Get(bypassHeader)
 			if vulnerable && bypassHdr == bypassValue {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"message":"welcome admin"}`))
+				_, _ = w.Write([]byte(`{"message":"welcome admin"}`))
 				return
 			}
 			w.WriteHeader(baselineStatus)

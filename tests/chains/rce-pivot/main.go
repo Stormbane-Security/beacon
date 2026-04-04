@@ -10,7 +10,7 @@ import (
 
 func main() {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 
 	// Intentionally vulnerable: passes user input directly to shell.
@@ -23,8 +23,8 @@ func main() {
 		// VULNERABLE: shell injection via unsanitized input
 		out, _ := exec.Command("sh", "-c", "ping -c 1 -W 1 "+host).CombinedOutput()
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, string(out))
+		_, _ = fmt.Fprint(w, string(out))
 	})
 
-	http.ListenAndServe(":8080", nil)
+	_ = http.ListenAndServe(":8080", nil)
 }

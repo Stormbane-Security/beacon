@@ -247,7 +247,7 @@ func checkSCIM(ctx context.Context, client *http.Client, asset, base string) []f
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := string(body)
 
@@ -314,7 +314,7 @@ func checkOIDCUserinfo(ctx context.Context, client *http.Client, asset, base str
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -387,7 +387,7 @@ func checkIntrospect(ctx context.Context, client *http.Client, asset, base strin
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK && strings.Contains(string(respBody), `"active"`) {
 			return &finding.Finding{
@@ -431,7 +431,7 @@ func checkDeviceFlow(ctx context.Context, client *http.Client, asset, base strin
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK && strings.Contains(string(respBody), `"device_code"`) {
 			return &finding.Finding{
@@ -475,7 +475,7 @@ func checkDynClientReg(ctx context.Context, client *http.Client, asset, base str
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated) &&
 			strings.Contains(string(respBody), `"client_id"`) {
@@ -522,7 +522,7 @@ func checkIdPAdmin(ctx context.Context, client *http.Client, asset, base string)
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK || len(body) == 0 {
 			continue
@@ -574,7 +574,7 @@ func checkRoleEndpoints(ctx context.Context, client *http.Client, asset, base st
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := strings.TrimSpace(string(body))
 		if resp.StatusCode == http.StatusOK && strings.HasPrefix(bodyStr, "[") {
@@ -619,7 +619,7 @@ func checkCloudMetadataSSRF(ctx context.Context, client *http.Client, asset, bas
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			bodyStr := string(body)
 			if strings.Contains(bodyStr, "AccessKeyId") ||
@@ -696,7 +696,7 @@ func checkLDAPInjection(ctx context.Context, client *http.Client, asset, base st
 				continue
 			}
 			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			bodyStr := string(respBody)
 
@@ -755,7 +755,7 @@ func detectBase(ctx context.Context, client *http.Client, asset string) string {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return base
 	}
 	return ""
@@ -784,7 +784,7 @@ func checkKeycloakSAMLBypass(ctx context.Context, client *http.Client, asset, ba
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -1097,10 +1097,10 @@ func isKeycloakSAMLBypassVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) == 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if maj < 26 {
 		return true

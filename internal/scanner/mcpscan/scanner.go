@@ -134,7 +134,7 @@ func (s *Scanner) probeMCPEndpoint(ctx context.Context, client *http.Client, bas
 		return s.probeSSE(ctx, client, url, asset)
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -186,7 +186,7 @@ func (s *Scanner) probeSSE(ctx context.Context, client *http.Client, url, asset 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	ct := resp.Header.Get("Content-Type")
 	if resp.StatusCode == http.StatusOK &&
@@ -245,7 +245,7 @@ func (s *Scanner) checkToolPoisoning(ctx context.Context, client *http.Client, b
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue

@@ -445,7 +445,7 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string, canaryHash st
 
 		// Read body for soft-404 comparison (cap at 128 KB to avoid buffering huge pages).
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// WAF block: 403 with WAF-specific headers — signal the caller.
 		// Do not count as an interesting path finding.
@@ -544,7 +544,7 @@ func (s *Scanner) fetchCanaryHash(ctx context.Context, baseURL string) string {
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// If the server returns a proper 404, no soft-404 filtering needed.
 		if resp.StatusCode != http.StatusOK {

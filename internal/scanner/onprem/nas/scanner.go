@@ -880,7 +880,7 @@ func (s *Scanner) httpGet(ctx context.Context, url string) ([]byte, int) {
 	if err != nil {
 		return nil, 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	return body, resp.StatusCode
 }
@@ -899,7 +899,7 @@ func (s *Scanner) httpGetWithAuth(ctx context.Context, url, authHeader string) (
 	if err != nil {
 		return nil, 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	return body, resp.StatusCode
 }
@@ -914,7 +914,7 @@ func (s *Scanner) httpGetWithBasicAuth(ctx context.Context, url, user, pass stri
 	if err != nil {
 		return nil, 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	return body, resp.StatusCode
 }

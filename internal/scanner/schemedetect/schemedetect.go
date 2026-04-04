@@ -32,7 +32,7 @@ func Scheme(ctx context.Context, client *http.Client, asset string) string {
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }
 

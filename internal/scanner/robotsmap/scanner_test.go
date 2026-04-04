@@ -14,7 +14,7 @@ import (
 func TestRobotsSensitivePaths(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/robots.txt" {
-			w.Write([]byte("User-agent: *\nDisallow: /admin/\nDisallow: /api/internal/\nDisallow: /backup/\n"))
+			_, _ = w.Write([]byte("User-agent: *\nDisallow: /admin/\nDisallow: /api/internal/\nDisallow: /backup/\n"))
 			return
 		}
 		w.WriteHeader(404)
@@ -46,7 +46,7 @@ func TestRobotsSensitivePaths(t *testing.T) {
 func TestRobotsCrawlDelay(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/robots.txt" {
-			w.Write([]byte("User-agent: *\nCrawl-delay: 10\nDisallow: /\n"))
+			_, _ = w.Write([]byte("User-agent: *\nCrawl-delay: 10\nDisallow: /\n"))
 			return
 		}
 		w.WriteHeader(404)
@@ -78,7 +78,7 @@ func TestSitemapSensitiveURLs(t *testing.T) {
 			w.WriteHeader(404)
 		case "/sitemap.xml":
 			w.Header().Set("Content-Type", "application/xml")
-			w.Write([]byte(`<?xml version="1.0"?>
+			_, _ = w.Write([]byte(`<?xml version="1.0"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://example.com/</loc></url>
   <url><loc>https://example.com/admin/dashboard</loc></url>

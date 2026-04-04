@@ -135,7 +135,7 @@ func probeNTP(ctx context.Context, host string) []finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(ntpMode3Request[:]); err != nil {
 		return nil
@@ -238,7 +238,7 @@ func probeSNMPUDP(ctx context.Context, host string) []finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(snmpPublicGetRequest); err != nil {
 		return nil
@@ -296,7 +296,7 @@ func probeTFTP(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(tftpRRQ); err != nil {
 		return nil
@@ -347,7 +347,7 @@ func probeSSDPUDP(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(ssdpMSearch); err != nil {
 		return nil
@@ -440,10 +440,10 @@ func isLibupnpVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	if len(parts) >= 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if maj != 1 {
 		return false
@@ -483,7 +483,7 @@ func probeIKEUDP(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(ikeV2SAInit); err != nil {
 		return nil
@@ -545,7 +545,7 @@ func probeNetBIOSNS(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(netbiosNSQuery); err != nil {
 		return nil
@@ -599,7 +599,7 @@ func probeSTUN(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(stunBindingRequest); err != nil {
 		return nil
@@ -663,7 +663,7 @@ func probeMDNS(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(mdnsQuery); err != nil {
 		return nil
@@ -721,7 +721,7 @@ func probeRADIUS(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(radiusAccessRequest); err != nil {
 		return nil
@@ -788,7 +788,7 @@ func probeDNSResolver(ctx context.Context, host string) *finding.Finding {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.Write(dnsQueryExample); err != nil {
 		return nil

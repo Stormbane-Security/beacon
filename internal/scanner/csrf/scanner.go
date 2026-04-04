@@ -172,7 +172,7 @@ func fetchForms(ctx context.Context, client *http.Client, url string) ([]formInf
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.Cookies(), fmt.Errorf("status %d", resp.StatusCode)

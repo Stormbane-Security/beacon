@@ -317,7 +317,7 @@ func timeRequest(ctx context.Context, client *http.Client, rawURL string) (time.
 		return elapsed, err
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return elapsed, nil
 }
@@ -339,7 +339,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return scheme
 	}
 	return ""

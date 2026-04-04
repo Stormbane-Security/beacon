@@ -35,14 +35,14 @@ func TestAuthBypass(t *testing.T) {
 			// Operator injection → auth bypass
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"token":"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWRtaW4ifQ.fake","user":"admin"}`))
+			_, _ = w.Write([]byte(`{"token":"eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWRtaW4ifQ.fake","user":"admin"}`))
 			return
 		}
 
 		// Normal login: always fail
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"invalid credentials"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid credentials"}`))
 	}))
 	defer srv.Close()
 
@@ -78,7 +78,7 @@ func TestNoFalsePositiveOnSafeServer(t *testing.T) {
 		if r.URL.Path == "/api/login" && r.Method == http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"invalid credentials"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid credentials"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -120,13 +120,13 @@ func TestWhereInjection(t *testing.T) {
 		if _, ok := body["$where"]; ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":"MongoServerError: $where is not allowed in this context"}`))
+			_, _ = w.Write([]byte(`{"error":"MongoServerError: $where is not allowed in this context"}`))
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"results":[]}`))
+		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer srv.Close()
 

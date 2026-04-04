@@ -118,7 +118,7 @@ func (s *Scanner) probeGET(ctx context.Context, client *http.Client, base, asset
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if containsErrorIndicator(string(body)) {
 			return &finding.Finding{
@@ -173,7 +173,7 @@ func (s *Scanner) probePOST(ctx context.Context, client *http.Client, base, asse
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if containsErrorIndicator(string(body)) {
 			injectedParam := ""

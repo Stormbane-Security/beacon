@@ -182,7 +182,7 @@ func findSpec(ctx context.Context, client *http.Client, base string) (string, []
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024)) // 512 KB cap
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -265,7 +265,7 @@ func probeMissingParams(ctx context.Context, client *http.Client, asset, url, me
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		return nil
@@ -312,7 +312,7 @@ func probeTypeFuzz(ctx context.Context, client *http.Client, asset, url, method 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		return nil
@@ -388,8 +388,8 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return "https"
 }
 

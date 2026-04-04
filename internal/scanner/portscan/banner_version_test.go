@@ -30,7 +30,7 @@ func TestSSHVersionInFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 22: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	go func() {
 		for {
@@ -38,8 +38,8 @@ func TestSSHVersionInFinding(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -74,7 +74,7 @@ func TestSSHVersionDropbear(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 22: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	go func() {
 		for {
@@ -82,8 +82,8 @@ func TestSSHVersionDropbear(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("SSH-2.0-dropbear_2022.83\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("SSH-2.0-dropbear_2022.83\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -107,7 +107,7 @@ func TestSSHNoBannerNoSoftwareKey(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 22: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	go func() {
 		for {
@@ -116,7 +116,7 @@ func TestSSHNoBannerNoSoftwareKey(t *testing.T) {
 				return
 			}
 			// Close immediately — no banner
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -142,7 +142,7 @@ func TestFTPVersionInFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 21: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	go func() {
 		for {
@@ -150,8 +150,8 @@ func TestFTPVersionInFinding(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("220 ProFTPD 1.3.6 Server (hostname.example.com)\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("220 ProFTPD 1.3.6 Server (hostname.example.com)\r\n"))
+			_ = conn.Close()
 		}
 	}()
 

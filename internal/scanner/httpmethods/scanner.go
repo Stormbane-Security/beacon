@@ -219,7 +219,7 @@ func discoverBase(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode < 500 {
 			return url
 		}
@@ -237,7 +237,7 @@ func optionsAllowed(ctx context.Context, client *http.Client, url string) string
 	if err != nil {
 		return ""
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.Header.Get("Allow")
 }
 
@@ -260,7 +260,7 @@ func confirmMethod(ctx context.Context, client *http.Client, baseURL, method str
 	if err != nil {
 		return false, 0
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	code := resp.StatusCode
 	if code == http.StatusMethodNotAllowed || code == http.StatusNotImplemented {

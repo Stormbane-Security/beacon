@@ -378,8 +378,8 @@ func isJavaTarget(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	// Check response headers.
 	headerStr := strings.ToLower(fmt.Sprintf("%v", resp.Header))
@@ -410,8 +410,8 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusNotFound
 }
 
@@ -429,7 +429,7 @@ func doGet(ctx context.Context, client *http.Client, rawURL string) (int, string
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode, string(body)
 }
@@ -450,7 +450,7 @@ func doGetWithHeader(ctx context.Context, client *http.Client, rawURL, header, v
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode, string(body)
 }
@@ -471,7 +471,7 @@ func doPost(ctx context.Context, client *http.Client, rawURL, postBody string) (
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode, string(body)
 }

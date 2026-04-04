@@ -120,7 +120,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		if req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/", nil); err == nil {
 			if resp, err := client.Do(req); err == nil {
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				if resp.StatusCode == 200 {
 					candidates = append(candidates, extractFaviconHrefs(string(body), baseURL)...)
 				}
@@ -137,7 +137,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != 200 || len(body) < 10 {
 				continue

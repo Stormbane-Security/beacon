@@ -179,7 +179,7 @@ func TestRun_DeepMode_AlgNoneAccepted_FindingEmitted(t *testing.T) {
 			if strings.HasPrefix(auth, "Bearer ") {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"user":"admin","role":"admin"}`))
+				_, _ = w.Write([]byte(`{"user":"admin","role":"admin"}`))
 			} else {
 				w.WriteHeader(http.StatusUnauthorized)
 			}

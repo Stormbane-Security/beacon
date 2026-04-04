@@ -132,7 +132,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			candidate := base + guess
 			resp, err := doGET(ctx, client, candidate)
 			if err == nil && resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				acsURL = candidate
 				break
 			}
@@ -185,7 +185,7 @@ func probeSAMLPath(ctx context.Context, client *http.Client, asset, base, path s
 		return nil, ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode >= 500 {
 		return nil, ""
@@ -728,7 +728,7 @@ func catchAllGET(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -745,7 +745,7 @@ func catchAllPOST(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -761,7 +761,7 @@ func detectBase(ctx context.Context, client *http.Client, asset string) string {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return base
 	}
 	return ""
@@ -792,7 +792,7 @@ func doFormPOST(ctx context.Context, client *http.Client, target string, data ur
 		return nil, nil, err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp, body, nil
 }
 

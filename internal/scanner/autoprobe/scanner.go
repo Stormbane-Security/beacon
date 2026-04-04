@@ -254,7 +254,7 @@ func (s *Scanner) surfaceCheck(ctx context.Context, client *http.Client, base, a
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == 200 && (strings.Contains(strings.ToLower(string(body)), "password") ||
 			strings.Contains(strings.ToLower(string(body)), "login")) {
 			loginURL = u
@@ -322,7 +322,7 @@ func probeLogin(ctx context.Context, client *http.Client, loginURL, username, pa
 	if err != nil {
 		return nil, 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return &probeResult{status: resp.StatusCode, bodyLen: len(b)}, elapsed
@@ -343,7 +343,7 @@ func findLoginEndpoint(ctx context.Context, client *http.Client, base string) st
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		// 404/405 means this path doesn't exist or doesn't accept POST.
 		// 200/401/403/422/429 all indicate the endpoint exists.
 		if resp.StatusCode != 404 && resp.StatusCode != 405 {
@@ -362,7 +362,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }
 

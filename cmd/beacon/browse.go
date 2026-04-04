@@ -322,7 +322,7 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 		_ = st.UpdateScanRun(bgCtx, run)
 		if len(findings) > 0 {
 			if err := st.SaveFindings(bgCtx, run.ID, findings); err != nil {
-				fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", run.ID, err)
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", run.ID, err)
 			}
 		}
 
@@ -348,7 +348,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	scans, err := st.ListRecentScanRuns(ctx, 200)
 	if err != nil {
@@ -361,11 +361,11 @@ func browseInteractive(cfg *config.Config) browseResult {
 	if err != nil {
 		fatalf("set raw mode: %v", err)
 	}
-	defer term.Restore(fd, old)
+	defer func() { _ = term.Restore(fd, old) }()
 
 	// Hide cursor, enter alternate screen.
-	fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
-	defer fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l")
+	_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+	defer func() { _, _ = fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l") }()
 
 	bs := &browseState{scans: scans}
 	browseRender(bs)
@@ -436,7 +436,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 				}
 				if detachNow {
 					bs.attachedJob = nil
-					fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+					_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 					if updated, err := st.ListRecentScanRuns(ctx, 200); err == nil {
 						bs.scans = updated
 					}
@@ -478,7 +478,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 			job.renderer.mu.Unlock()
 			if detachNow {
 				bs.attachedJob = nil
-				fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+				_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 				if updated, err := st.ListRecentScanRuns(ctx, 200); err == nil {
 					bs.scans = updated
 				}
@@ -590,7 +590,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 				}
 				old2, _ := term.MakeRaw(fd)
 				old = old2
-				fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+				_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 				browseRender(bs)
 				continue
 			}
@@ -640,12 +640,12 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 			// 'n' → scan type menu, then launch as a background job.
 			if b[0] == 'n' {
-				term.Restore(fd, old)
-				fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l\x1b[2J\x1b[H")
-				fmt.Fprint(os.Stderr, "New scan\n\n")
-				fmt.Fprint(os.Stderr, "  1) Surface scan       (passive recon, safe to run without permission)\n")
-				fmt.Fprint(os.Stderr, "  2) Deep scan          (active probes — requires explicit permission)\n")
-				fmt.Fprint(os.Stderr, "\nScan type [1, blank to cancel]: ")
+				_ = term.Restore(fd, old)
+				_, _ = fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l\x1b[2J\x1b[H")
+				_, _ = fmt.Fprint(os.Stderr, "New scan\n\n")
+				_, _ = fmt.Fprint(os.Stderr, "  1) Surface scan       (passive recon, safe to run without permission)\n")
+				_, _ = fmt.Fprint(os.Stderr, "  2) Deep scan          (active probes — requires explicit permission)\n")
+				_, _ = fmt.Fprint(os.Stderr, "\nScan type [1, blank to cancel]: ")
 				reader := bufio.NewReader(os.Stdin)
 				typeLine, err := reader.ReadString('\n')
 				if err != nil {
@@ -657,7 +657,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 				if typeChoice == "" {
 					old2, _ := term.MakeRaw(fd)
 					old = old2
-					fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+					_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 					browseRender(bs)
 					continue
 				}
@@ -668,25 +668,25 @@ func browseInteractive(cfg *config.Config) browseResult {
 				switch typeChoice {
 				case "2":
 					scanType = module.ScanDeep
-					fmt.Fprint(os.Stderr, "\nConfirm you have permission to actively probe the target [y/N]: ")
+					_, _ = fmt.Fprint(os.Stderr, "\nConfirm you have permission to actively probe the target [y/N]: ")
 					permLine, err := reader.ReadString('\n')
 					if err != nil {
 						permLine = ""
 					}
 					if strings.ToLower(strings.TrimSpace(permLine)) != "y" {
-						fmt.Fprint(os.Stderr, "Deep scan cancelled — permission not confirmed.\n")
-						fmt.Fprint(os.Stderr, "Press Enter to return...")
+						_, _ = fmt.Fprint(os.Stderr, "Deep scan cancelled — permission not confirmed.\n")
+						_, _ = fmt.Fprint(os.Stderr, "Press Enter to return...")
 						reader.ReadString('\n') //nolint:errcheck
 						old2, _ := term.MakeRaw(fd)
 						old = old2
-						fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+						_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 						browseRender(bs)
 						continue
 					}
 					permConfirmed = true
 				}
 
-				fmt.Fprint(os.Stderr, "\nTarget domain (or blank to cancel): ")
+				_, _ = fmt.Fprint(os.Stderr, "\nTarget domain (or blank to cancel): ")
 				domainLine, err := reader.ReadString('\n')
 				if err != nil {
 					domainLine = ""
@@ -695,7 +695,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 
 				old2, _ := term.MakeRaw(fd)
 				old = old2
-				fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+				_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 
 				if domain == "" || strings.ContainsAny(domain, " \t\r\n") {
 					browseRender(bs)
@@ -730,7 +730,7 @@ func browseInteractive(cfg *config.Config) browseResult {
 				}
 				old2, _ := term.MakeRaw(fd)
 				old = old2
-				fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
+				_, _ = fmt.Fprint(os.Stderr, "\x1b[?1049h\x1b[?25l")
 				browseRender(bs)
 				continue
 			}
@@ -920,7 +920,7 @@ func browseRender(bs *browseState) {
 		browseRenderAssetDetail(&buf, bs, termW, termH)
 	}
 
-	fmt.Fprint(os.Stderr, buf.String())
+	_, _ = fmt.Fprint(os.Stderr, buf.String())
 }
 
 // ── Browse helpers ────────────────────────────────────────────────────────────
@@ -1062,15 +1062,15 @@ func historicalJob(ctx context.Context, st interface {
 // Returns a zero-value browseResult if the user cancels.
 // fd/old are the terminal fd and saved terminal state from the caller.
 func browseExportPrompt(fd int, old *term.State, runID, domain string) browseResult {
-	term.Restore(fd, old)
-	fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l")
+	_ = term.Restore(fd, old)
+	_, _ = fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l")
 
-	fmt.Fprint(os.Stderr, "\nExport report\n\n")
-	fmt.Fprint(os.Stderr, "  1) Text      (plain text, terminal-friendly)\n")
-	fmt.Fprint(os.Stderr, "  2) Markdown  (.md)\n")
-	fmt.Fprint(os.Stderr, "  3) HTML      (.html)\n")
-	fmt.Fprint(os.Stderr, "  4) JSON      (.json)\n")
-	fmt.Fprint(os.Stderr, "\nFormat [1-4, blank to cancel]: ")
+	_, _ = fmt.Fprint(os.Stderr, "\nExport report\n\n")
+	_, _ = fmt.Fprint(os.Stderr, "  1) Text      (plain text, terminal-friendly)\n")
+	_, _ = fmt.Fprint(os.Stderr, "  2) Markdown  (.md)\n")
+	_, _ = fmt.Fprint(os.Stderr, "  3) HTML      (.html)\n")
+	_, _ = fmt.Fprint(os.Stderr, "  4) JSON      (.json)\n")
+	_, _ = fmt.Fprint(os.Stderr, "\nFormat [1-4, blank to cancel]: ")
 
 	reader := bufio.NewReader(os.Stdin)
 	choice, err := reader.ReadString('\n')
@@ -1086,7 +1086,7 @@ func browseExportPrompt(fd int, old *term.State, runID, domain string) browseRes
 	fmtMap := map[string]string{"1": "text", "2": "markdown", "3": "html", "4": "json"}
 	ext, ok := extMap[choice]
 	if !ok {
-		fmt.Fprint(os.Stderr, "Invalid choice — cancelled.\n")
+		_, _ = fmt.Fprint(os.Stderr, "Invalid choice — cancelled.\n")
 		return browseResult{}
 	}
 	format := fmtMap[choice]
@@ -1094,7 +1094,7 @@ func browseExportPrompt(fd int, old *term.State, runID, domain string) browseRes
 	// Default output path.
 	date := time.Now().Format("2006-01-02")
 	defaultPath := fmt.Sprintf("%s-%s.%s", domain, date, ext)
-	fmt.Fprintf(os.Stderr, "Output file [%s]: ", defaultPath)
+	_, _ = fmt.Fprintf(os.Stderr, "Output file [%s]: ", defaultPath)
 	pathLine, err := reader.ReadString('\n')
 	if err != nil {
 		pathLine = ""
@@ -1122,13 +1122,13 @@ func browseRenderScans(buf *strings.Builder, bs *browseState, termW, termH int) 
 	}
 
 	if bs.deleteBlockedMsg != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[31m⚠ cannot delete a running scan — %s\x1b[0m\n", bs.deleteBlockedMsg)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[31m⚠ cannot delete a running scan — %s\x1b[0m\n", bs.deleteBlockedMsg)
 	} else if bs.confirmingDelete {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[31mDelete this scan? [y/N]\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[31mDelete this scan? [y/N]\x1b[0m\n")
 	} else if bs.confirmingPurge {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[31mPurge all orphaned/failed/stopped scans? [y/N]\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[31mPurge all orphaned/failed/stopped scans? [y/N]\x1b[0m\n")
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[90m[↵] attach/view  [a] assets  [e] export  [n] new  [s] stop  [p] pause  [d] delete  [X] purge  [q] quit  %d scans\x1b[0m\n", len(bs.scans))
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mBeacon — Scan History\x1b[0m  \x1b[90m[↵] attach/view  [a] assets  [e] export  [n] new  [s] stop  [p] pause  [d] delete  [X] purge  [q] quit  %d scans\x1b[0m\n", len(bs.scans))
 	}
 	// Domain column fills available width; minimum 20, cap at 50.
 	// Layout: 2(indent) + domainW + 2 + 7(type) + 2 + 16(started) + 2 + status + trail
@@ -1139,7 +1139,7 @@ func browseRenderScans(buf *strings.Builder, bs *browseState, termW, termH int) 
 	if domainW > 50 {
 		domainW = 50
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-*s  %-7s  %-14s  %s\x1b[0m\n", domainW, "DOMAIN", "TYPE", "STATUS", "STARTED")
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-*s  %-7s  %-14s  %s\x1b[0m\n", domainW, "DOMAIN", "TYPE", "STATUS", "STARTED")
 
 	end := bs.scanOff + bodyLines
 	if end > len(bs.scans) {
@@ -1201,12 +1201,12 @@ func browseRenderScans(buf *strings.Builder, bs *browseState, termW, termH int) 
 			trailStr,
 		)
 		if i == bs.scanCursor {
-			fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
+			_, _ = fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
 		} else {
-			fmt.Fprintf(buf, "\x1b[2K\r%s\n", line)
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", line)
 		}
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", bs.scanCursor+1, len(bs.scans))
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", bs.scanCursor+1, len(bs.scans))
 }
 
 func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) {
@@ -1261,7 +1261,7 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 		filterLabel = ""
 	}
 
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36m%s\x1b[0m  \x1b[90m%s  [↵] detail  [j/k] move  [1-5] filter  [e] export  [q/b] back  %d/%d\x1b[0m%s\n",
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36m%s\x1b[0m  \x1b[90m%s  [↵] detail  [j/k] move  [1-5] filter  [e] export  [q/b] back  %d/%d\x1b[0m%s\n",
 		domain, started, len(filtered), len(bs.findings), filterLabel)
 	// Title column fills available terminal width; minimum 40.
 	// Layout: 2(indent) + 10(sev) + 2(sep) + titleW + 2(sep) + ~32(checkid)
@@ -1269,7 +1269,7 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 	if titleW < 40 {
 		titleW = 40
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-8s  %-*s  %s\x1b[0m\n", "SEV", titleW, "TITLE", "CHECK ID")
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-8s  %-*s  %s\x1b[0m\n", "SEV", titleW, "TITLE", "CHECK ID")
 
 	end := bs.findOff + bodyLines
 	if end > len(filtered) {
@@ -1282,16 +1282,16 @@ func browseRenderFinds(buf *strings.Builder, bs *browseState, termW, termH int) 
 		line := fmt.Sprintf("  %s  %-*s  \x1b[90m%s\x1b[0m",
 			sev, titleW, truncate(f.Title, titleW), f.CheckID)
 		if i == bs.findCursor {
-			fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
+			_, _ = fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
 		} else {
-			fmt.Fprintf(buf, "\x1b[2K\r%s\n", line)
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", line)
 		}
 	}
 	count := len(filtered)
 	if count == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings match filter\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings match filter\x1b[0m\n")
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", bs.findCursor+1, count)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", bs.findCursor+1, count)
 	}
 }
 
@@ -1385,10 +1385,10 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 
 	// Header — show copy flash feedback if present, otherwise normal hint bar.
 	if bs.copyFlash != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[90m[j/k] scroll  [b/q] back\x1b[0m\n", bs.copyFlash)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[90m[j/k] scroll  [b/q] back\x1b[0m\n", bs.copyFlash)
 		bs.copyFlash = "" // clear after one render
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [a] asset  [b/q] back\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m[j/k] scroll  [y] copy proof cmd  [a] asset  [b/q] back\x1b[0m\n")
 	}
 
 	end := bs.detailOff + bodyLines
@@ -1396,7 +1396,7 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 		end = len(lines)
 	}
 	for _, l := range lines[bs.detailOff:end] {
-		fmt.Fprintf(buf, "\x1b[2K\r  %s\n", l)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %s\n", l)
 	}
 }
 
@@ -1430,7 +1430,7 @@ func browseRenderAssets(buf *strings.Builder, bs *browseState, termW, termH int)
 	if bs.selectedRun != nil {
 		domain = bs.selectedRun.Domain
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36m%s — Assets\x1b[0m  \x1b[90m[↵] detail  [f] findings  [j/k] move  [q/b] back  %d assets\x1b[0m\n",
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36m%s — Assets\x1b[0m  \x1b[90m[↵] detail  [f] findings  [j/k] move  [q/b] back  %d assets\x1b[0m\n",
 		domain, total)
 	// Asset name column fills available terminal width; minimum 42.
 	// Layout: 2(cursor) + nameW + 2(sep) + 20(tech) + 2(sep) + ~20(badge)
@@ -1438,7 +1438,7 @@ func browseRenderAssets(buf *strings.Builder, bs *browseState, termW, termH int)
 	if nameW < 42 {
 		nameW = 42
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-*s  %-20s  %s\x1b[0m\n", nameW, "Asset", "Tech/Cloud", "Findings")
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%-*s  %-20s  %s\x1b[0m\n", nameW, "Asset", "Tech/Cloud", "Findings")
 
 	end := bs.execOff + bodyLines
 	if end > total {
@@ -1502,12 +1502,12 @@ func browseRenderAssets(buf *strings.Builder, bs *browseState, termW, termH int)
 
 		line := fmt.Sprintf(" %s%-*s  %-20s  %s", cursor, nameW, name, tech, badge)
 		if i == bs.execCursor {
-			fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
+			_, _ = fmt.Fprintf(buf, "\x1b[7m\x1b[2K\r%s\x1b[0m\n", line)
 		} else {
-			fmt.Fprintf(buf, "\x1b[2K\r%s\n", line)
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", line)
 		}
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", bs.execCursor+1, total)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", bs.execCursor+1, total)
 }
 
 func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH int) {
@@ -1837,7 +1837,7 @@ func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH
 	if len(name) > 50 {
 		name = "…" + name[len(name)-49:]
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m◀\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[j/k] scroll  [↵] open finding  [b/q] back\x1b[0m\n", name)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m◀\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[j/k] scroll  [↵] open finding  [b/q] back\x1b[0m\n", name)
 
 	bodyLines := termH - 2
 	if bodyLines < 1 {
@@ -1857,7 +1857,7 @@ func browseRenderAssetDetail(buf *strings.Builder, bs *browseState, termW, termH
 		end = len(lines)
 	}
 	for _, l := range lines[bs.assetDetailOff:end] {
-		fmt.Fprintf(buf, "\x1b[2K\r  %s\n", l)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %s\n", l)
 	}
 }
 

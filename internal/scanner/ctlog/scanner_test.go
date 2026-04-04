@@ -110,7 +110,7 @@ func TestSubdomainSkipsRootDomain(t *testing.T) {
 			{NameValue: "example.com"},
 			{NameValue: "api.example.com"},
 		}
-		json.NewEncoder(w).Encode(entries)
+		_ = json.NewEncoder(w).Encode(entries)
 	}))
 	defer ts.Close()
 

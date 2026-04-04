@@ -167,6 +167,6 @@ func statusCode(ctx context.Context, client *http.Client, url string, headers ma
 	if err != nil {
 		return 0, err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode, nil
 }

@@ -19,7 +19,7 @@ func TestSpringBootTraversal(t *testing.T) {
 		}
 		if strings.Contains(path, "..") || strings.Contains(path, "%2e") || strings.Contains(path, "%2E") {
 			w.WriteHeader(200)
-			w.Write([]byte(`{"admin": true, "actuator": "enabled"}`))
+			_, _ = w.Write([]byte(`{"admin": true, "actuator": "enabled"}`))
 			return
 		}
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {

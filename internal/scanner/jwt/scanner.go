@@ -114,7 +114,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if err != nil || resp == nil {
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Capture the working scheme from the initial connection for deep-mode probes.
 	workingScheme := resp.Request.URL.Scheme
@@ -680,7 +680,7 @@ func checkAlgorithmConfusion(ctx context.Context, client *http.Client, asset, ba
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -740,7 +740,7 @@ func checkAlgorithmConfusion(ctx context.Context, client *http.Client, asset, ba
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
 			bodyLower := strings.ToLower(string(body))
@@ -811,7 +811,7 @@ func submitTokenProbe(ctx context.Context, client *http.Client, base, token stri
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -921,7 +921,7 @@ func checkJWKSKeys(ctx context.Context, client *http.Client, asset, base string)
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -1003,7 +1003,7 @@ func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 

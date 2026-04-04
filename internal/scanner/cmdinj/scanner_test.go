@@ -35,7 +35,7 @@ func TestCmdInj_DetectsTimeBased(t *testing.T) {
 			time.Sleep(5 * time.Second)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
@@ -62,7 +62,7 @@ func TestCmdInj_DetectsTimeBased(t *testing.T) {
 func TestCmdInj_NoFalsePositiveConstantTime(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
@@ -149,12 +149,12 @@ func TestCmdInj_ShellshockDetection(t *testing.T) {
 			parts := strings.SplitN(ua, "echo; ", 2)
 			if len(parts) == 2 {
 				w.WriteHeader(http.StatusOK)
-				fmt.Fprint(w, parts[1])
+				_, _ = fmt.Fprint(w, parts[1])
 				return
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
@@ -212,17 +212,17 @@ func TestCmdInj_ShellshockPostExploit(t *testing.T) {
 				cmd := ua[start:end]
 				switch {
 				case cmd == "cat /etc/hosts 2>/dev/null":
-					fmt.Fprint(w, "127.0.0.1 localhost\n172.18.0.3 cache\n172.18.0.4 search\n")
+					_, _ = fmt.Fprint(w, "127.0.0.1 localhost\n172.18.0.3 cache\n172.18.0.4 search\n")
 				case cmd == "cat /proc/net/arp 2>/dev/null":
-					fmt.Fprint(w, "IP address       HW type     Flags       HW address            Mask     Device\n172.18.0.3       0x1         0x2         02:42:ac:12:00:03     *        eth0\n172.18.0.4       0x1         0x2         02:42:ac:12:00:04     *        eth0\n")
+					_, _ = fmt.Fprint(w, "IP address       HW type     Flags       HW address            Mask     Device\n172.18.0.3       0x1         0x2         02:42:ac:12:00:03     *        eth0\n172.18.0.4       0x1         0x2         02:42:ac:12:00:04     *        eth0\n")
 				case strings.HasPrefix(cmd, "ip addr") || strings.HasPrefix(cmd, "ifconfig"):
-					fmt.Fprint(w, "inet 172.18.0.2/16 brd 172.18.255.255 scope global eth0\n")
+					_, _ = fmt.Fprint(w, "inet 172.18.0.2/16 brd 172.18.255.255 scope global eth0\n")
 				case cmd == "cat /etc/resolv.conf 2>/dev/null":
-					fmt.Fprint(w, "nameserver 127.0.0.11\n")
+					_, _ = fmt.Fprint(w, "nameserver 127.0.0.11\n")
 				case cmd == "env 2>/dev/null":
-					fmt.Fprint(w, "HOME=/root\nPATH=/usr/local/sbin:/usr/local/bin\nDB_PASSWORD=secret123\n")
+					_, _ = fmt.Fprint(w, "HOME=/root\nPATH=/usr/local/sbin:/usr/local/bin\nDB_PASSWORD=secret123\n")
 				default:
-					fmt.Fprint(w, "")
+					_, _ = fmt.Fprint(w, "")
 				}
 				return
 			}
@@ -230,7 +230,7 @@ func TestCmdInj_ShellshockPostExploit(t *testing.T) {
 
 		// Simple echo marker detection.
 		if strings.Contains(ua, "echo "+shellshockMark) {
-			fmt.Fprint(w, shellshockMark)
+			_, _ = fmt.Fprint(w, shellshockMark)
 		}
 	}))
 	defer ts.Close()
@@ -278,7 +278,7 @@ func TestCmdInj_ShellshockPostExploit(t *testing.T) {
 func TestCmdInj_ShellshockNoFalsePositive(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Normal page"))
+		_, _ = w.Write([]byte("Normal page"))
 	}))
 	defer ts.Close()
 

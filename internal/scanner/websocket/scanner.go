@@ -79,7 +79,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				sessionCookies = append(sessionCookies, c.Name)
 			}
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	wsScheme := "ws"
@@ -120,7 +120,7 @@ func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -164,8 +164,8 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 512)) //nolint:errcheck
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512)) //nolint:errcheck
 
 	// 101 = server completed the WebSocket handshake with our forged Origin.
 	if resp.StatusCode != http.StatusSwitchingProtocols {

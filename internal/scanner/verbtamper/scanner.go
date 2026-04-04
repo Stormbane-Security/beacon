@@ -98,8 +98,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, getResp.Body)
-		getResp.Body.Close()
+		_, _ = io.Copy(io.Discard, getResp.Body)
+		_ = getResp.Body.Close()
 
 		// Only test paths that are explicitly blocked (not 404).
 		if getResp.StatusCode != 401 && getResp.StatusCode != 403 {
@@ -123,7 +123,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// 2xx response on an alternate method when GET was 401/403 = bypass.
 			// Exclude OPTIONS — many servers return 200 for CORS preflight on any path.

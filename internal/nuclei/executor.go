@@ -272,7 +272,7 @@ func doRequest(client *http.Client, req *http.Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(httpResp.Body, maxResponseBody))
 	if err != nil {
@@ -281,10 +281,10 @@ func doRequest(client *http.Client, req *http.Request) (*Response, error) {
 
 	// Build raw headers string
 	var headerBuf strings.Builder
-	fmt.Fprintf(&headerBuf, "%s %s\r\n", httpResp.Proto, httpResp.Status)
+	_, _ = fmt.Fprintf(&headerBuf, "%s %s\r\n", httpResp.Proto, httpResp.Status)
 	for k, vals := range httpResp.Header {
 		for _, v := range vals {
-			fmt.Fprintf(&headerBuf, "%s: %s\r\n", k, v)
+			_, _ = fmt.Fprintf(&headerBuf, "%s: %s\r\n", k, v)
 		}
 	}
 	headers := headerBuf.String()

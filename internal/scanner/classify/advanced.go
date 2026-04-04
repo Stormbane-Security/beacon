@@ -58,7 +58,7 @@ func advScheme(ctx context.Context, hostname string) string {
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }
 
@@ -84,8 +84,8 @@ func probeHeaderOrder(ctx context.Context, hostname string, e *playbook.Evidence
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	// resp.Header preserves insertion order per key, but Go's map iteration
 	// is random. However, http.Response has no ordered header list.
@@ -133,7 +133,7 @@ func probeHTTPMethods(ctx context.Context, hostname string, e *playbook.Evidence
 			if err != nil {
 				return
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			mu.Lock()
 			results[method] = resp.StatusCode
 			mu.Unlock()
@@ -226,7 +226,7 @@ func probeErrorPage(ctx context.Context, hostname string, e *playbook.Evidence) 
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 	bodyStr := string(body)
 
@@ -289,7 +289,7 @@ func probeWellKnown(ctx context.Context, hostname string, e *playbook.Evidence) 
 			if err != nil {
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != 200 && resp.StatusCode != 301 && resp.StatusCode != 302 {
 				return
@@ -360,7 +360,7 @@ func probeVCSExposure(ctx context.Context, hostname string, e *playbook.Evidence
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != 200 {
 			continue
@@ -405,7 +405,7 @@ func probeSourceMaps(ctx context.Context, hostname string, e *playbook.Evidence)
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == 200 {
 			ct := resp.Header.Get("Content-Type")
@@ -454,12 +454,12 @@ func probeSitemap(ctx context.Context, hostname string, e *playbook.Evidence) {
 			continue
 		}
 		if resp.StatusCode != 200 {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024)) // 256 KB max
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if !strings.Contains(string(body), "<urlset") && !strings.Contains(string(body), "<sitemapindex") {
 			continue
@@ -548,15 +548,16 @@ func probeWebSocket(ctx context.Context, hostname string, e *playbook.Evidence) 
 			if err != nil {
 				return
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// 101 = WebSocket upgrade accepted
 			// 400 with "Upgrade" in response = WebSocket endpoint exists but bad request
-			if resp.StatusCode == 101 {
+			switch resp.StatusCode {
+			case 101:
 				mu.Lock()
 				endpoints = append(endpoints, p)
 				mu.Unlock()
-			} else if resp.StatusCode == 400 {
+			case 400:
 				upgrade := strings.ToLower(resp.Header.Get("Upgrade"))
 				if strings.Contains(upgrade, "websocket") {
 					mu.Lock()
@@ -602,7 +603,7 @@ func probeGRPCReflection(ctx context.Context, hostname string, e *playbook.Evide
 		conn.SetDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
 		_, err = conn.Write([]byte(preface))
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 
@@ -610,7 +611,7 @@ func probeGRPCReflection(ctx context.Context, hostname string, e *playbook.Evide
 		// (byte 0x00 0x00 ... 0x04 for SETTINGS type)
 		buf := make([]byte, 32)
 		n, err := conn.Read(buf)
-		conn.Close()
+		_ = conn.Close()
 		if err != nil || n < 9 {
 			continue
 		}

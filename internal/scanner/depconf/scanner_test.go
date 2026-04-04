@@ -247,7 +247,7 @@ func TestRun_PackageJSONWithNoInternalPackages(t *testing.T) {
 		if r.URL.Path == "/package.json" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(body)) //nolint:errcheck
+			_, _ = w.Write([]byte(body)) //nolint:errcheck
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

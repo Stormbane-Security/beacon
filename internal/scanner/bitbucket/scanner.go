@@ -424,7 +424,7 @@ func (s *Scanner) fetchPipelineConfig(ctx context.Context, workspace, repo strin
 	if err != nil {
 		return "", false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB limit
 	if err != nil {

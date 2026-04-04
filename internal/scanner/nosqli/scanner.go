@@ -445,7 +445,7 @@ func postJSON(ctx context.Context, client *http.Client, url string, body any) (i
 		return 0, ""
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode, string(respBody)
 }
 
@@ -462,7 +462,7 @@ func getJSON(ctx context.Context, client *http.Client, url string) (int, string)
 		return 0, ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode, string(body)
 }
 

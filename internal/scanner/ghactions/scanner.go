@@ -1595,7 +1595,7 @@ func (s *Scanner) apiGetRetry(ctx context.Context, url string, retryOnRateLimit 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
 	if resp.StatusCode == http.StatusForbidden {
@@ -1706,11 +1706,11 @@ func (s *Scanner) repoFromPackageJSON(ctx context.Context, rawURL string) (strin
 	resp, err := s.httpClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return "", ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
 
 	var pkg struct {
@@ -1739,11 +1739,11 @@ func (s *Scanner) repoFromHTML(ctx context.Context, rawURL string) (string, stri
 	resp, err := s.httpClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return "", ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128<<10))
 	return parseGitHubURL(string(body))
 }

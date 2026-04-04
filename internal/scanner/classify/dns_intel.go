@@ -403,10 +403,6 @@ func lookupCHAOSVersion(ctx context.Context, nameserver string) string {
 	ctx2, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	ns := nameserver
-	if !strings.Contains(ns, ":") {
-		ns = ns + ":53"
-	}
 	// dig +short CHAOS TXT version.bind @nameserver
 	cmd := exec.CommandContext(ctx2, "dig", "+short", "-c", "CH", "-t", "TXT", "version.bind", "@"+nameserver)
 	out, err := cmd.Output()

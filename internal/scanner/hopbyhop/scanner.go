@@ -74,7 +74,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 	baseBody, _ := io.ReadAll(io.LimitReader(baseResp.Body, 64*1024))
-	baseResp.Body.Close()
+	_ = baseResp.Body.Close()
 
 	var findings []finding.Finding
 
@@ -100,7 +100,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Detect stripping: significant response change indicates the backend
 		// received a different request (header was stripped by the proxy).

@@ -95,7 +95,7 @@ func (s *Scanner) get(ctx context.Context, url string) (*http.Response, []byte, 
 		return nil, nil, err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp, body, nil
 }
 
@@ -111,7 +111,7 @@ func (s *Scanner) postJSON(ctx context.Context, url string, payload string) (*ht
 		return nil, nil, err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp, body, nil
 }
 

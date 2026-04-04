@@ -233,7 +233,7 @@ func (s *Scanner) apiGetRetry(ctx context.Context, urlStr string, retryOnRateLim
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
 	if resp.StatusCode == http.StatusForbidden && retryOnRateLimit {

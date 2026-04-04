@@ -45,6 +45,8 @@ var errorPaths = []string{
 	"/..%252f",            // double-encoded traversal → framework error
 	"/?id=1'",             // SQL-like input → error page
 	"/api/v1/",            // API root → may expose framework info
+	"/api/v1/data",        // common data endpoint → may throw on empty request
+	"/api/data",           // common data endpoint
 	"/undefined",          // common 404
 	"/test.php",           // PHP errors
 	"/test.asp",           // ASP errors
@@ -202,7 +204,7 @@ func (s *Scanner) probeErrorPath(ctx context.Context, client *http.Client, base,
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, int64(maxBodyRead)))
 	bodyStr := string(body)
@@ -281,7 +283,7 @@ func (s *Scanner) probeDebugPath(ctx context.Context, client *http.Client, base,
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Debug endpoints should not return 200 on production systems.
 	if resp.StatusCode != http.StatusOK {

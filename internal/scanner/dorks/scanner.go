@@ -172,7 +172,7 @@ func bingSearch(ctx context.Context, client *http.Client, apiKey, query string) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2 MiB cap
 	if err != nil {

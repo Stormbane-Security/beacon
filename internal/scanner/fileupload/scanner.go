@@ -44,6 +44,7 @@ const (
 // uploadPaths are common file upload endpoint paths.
 var uploadPaths = []string{
 	"/upload",
+	"/upload.php",
 	"/api/upload",
 	"/api/v1/upload",
 	"/api/v2/upload",
@@ -188,7 +189,7 @@ func discoverUploadEndpoints(ctx context.Context, client *http.Client, base stri
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Skip definitive "not found" and "not allowed" responses.
 		if resp.StatusCode == http.StatusNotFound ||
@@ -212,6 +213,8 @@ func discoverUploadEndpoints(ctx context.Context, client *http.Client, base stri
 		bodyStr := string(body)
 		hasUploadSignal := strings.Contains(bodyStr, "upload") ||
 			strings.Contains(bodyStr, "file") ||
+			strings.Contains(bodyStr, "image") ||
+			strings.Contains(bodyStr, "allowed") ||
 			strings.Contains(bodyStr, `"url"`) ||
 			strings.Contains(bodyStr, `"path"`)
 
@@ -255,7 +258,7 @@ func probeUpload(ctx context.Context, client *http.Client, asset, endpoint strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := string(body)
 

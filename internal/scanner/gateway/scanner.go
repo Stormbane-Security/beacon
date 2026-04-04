@@ -114,7 +114,7 @@ func probeKongAdmin(ctx context.Context, client *http.Client, asset string) []fi
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -178,7 +178,7 @@ func probeHAProxyStats(ctx context.Context, client *http.Client, base, asset str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Only flag on a real 200 response — redirects (3xx) often contain
 		// the word "haproxy" in the redirect body without the stats being accessible.
@@ -249,7 +249,7 @@ func probeNginxStatus(ctx context.Context, client *http.Client, base, asset stri
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -312,7 +312,7 @@ func probeTraefikAPI(ctx context.Context, client *http.Client, base, asset strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -366,7 +366,7 @@ func probeEnvoyAdmin(ctx context.Context, client *http.Client, base, asset strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -425,7 +425,7 @@ func probeLinkerdViz(ctx context.Context, client *http.Client, base, asset strin
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -474,7 +474,7 @@ func probeVarnishDebug(ctx context.Context, client *http.Client, base, asset str
 		req.Header.Set("Pragma", "akamai-x-cache-on, akamai-x-check-cacheable, akamai-x-get-cache-key")
 		resp, err := client.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			// Varnish/CDN debug headers appear in response
 			if resp.Header.Get("X-Cache-Debug") != "" || resp.Header.Get("X-Check-Cacheable") != "" ||
 				resp.Header.Get("X-Varnish-Cache") != "" {
@@ -507,7 +507,7 @@ func probeVarnishDebug(ctx context.Context, client *http.Client, base, asset str
 	if err == nil {
 		resp, err := client.Do(purgeReq)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			// 200 or 201 on PURGE = no auth required
 			if resp.StatusCode == http.StatusOK || resp.StatusCode == 201 {
 				findings = append(findings, finding.Finding{
@@ -551,7 +551,7 @@ func probeAkamaiDebug(ctx context.Context, client *http.Client, base, asset stri
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Akamai returns X-Check-Cacheable and X-Cache-Key when debug is enabled
 	cacheKey := resp.Header.Get("X-Cache-Key")
@@ -605,7 +605,7 @@ func probeTykDashboard(ctx context.Context, client *http.Client, base, asset str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue
@@ -654,6 +654,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

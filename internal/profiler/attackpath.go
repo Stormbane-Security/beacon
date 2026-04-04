@@ -123,15 +123,15 @@ func BuildAttackPathFinding(asset string, chains []AttackChain) *finding.Finding
 	// Format the chains into a readable description.
 	var sb strings.Builder
 	for i, chain := range chains {
-		fmt.Fprintf(&sb, "## Attack Path %d: %s\n", i+1, chain.Title)
-		fmt.Fprintf(&sb, "**Likelihood**: %s  **Impact**: %s\n\n", chain.Likelihood, chain.Impact)
+		_, _ = fmt.Fprintf(&sb, "## Attack Path %d: %s\n", i+1, chain.Title)
+		_, _ = fmt.Fprintf(&sb, "**Likelihood**: %s  **Impact**: %s\n\n", chain.Likelihood, chain.Impact)
 		for j, step := range chain.Steps {
-			fmt.Fprintf(&sb, "%d. %s\n", j+1, step)
+			_, _ = fmt.Fprintf(&sb, "%d. %s\n", j+1, step)
 		}
 		if len(chain.Mitigations) > 0 {
 			sb.WriteString("\n**Mitigations:**\n")
 			for _, m := range chain.Mitigations {
-				fmt.Fprintf(&sb, "- %s\n", m)
+				_, _ = fmt.Fprintf(&sb, "- %s\n", m)
 			}
 		}
 		sb.WriteString("\n")
@@ -191,7 +191,7 @@ func callClaudeForChains(ctx context.Context, apiKey, model, prompt string) ([]A
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {

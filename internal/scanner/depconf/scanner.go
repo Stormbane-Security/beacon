@@ -337,11 +337,11 @@ func fetchManifest(ctx context.Context, client *http.Client, baseURL, path strin
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 	if err != nil {
 		return nil
@@ -469,7 +469,7 @@ func checkNPM(ctx context.Context, client *http.Client, name string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -484,7 +484,7 @@ func checkPyPI(ctx context.Context, client *http.Client, name string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -626,7 +626,7 @@ func checkGoProxy(ctx context.Context, client *http.Client, modulePath string) b
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -641,7 +641,7 @@ func checkRubyGems(ctx context.Context, client *http.Client, name string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -656,7 +656,7 @@ func checkPackagist(ctx context.Context, client *http.Client, name string) bool 
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 

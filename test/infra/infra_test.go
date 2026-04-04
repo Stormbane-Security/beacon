@@ -125,7 +125,7 @@ func TestDockerImageRunsAndResponds(t *testing.T) {
 			if err != nil {
 				continue
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				responded = true
 			}
@@ -139,7 +139,7 @@ func TestDockerImageRunsAndResponds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /v1/scans failed: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GET /v1/scans: expected 200, got %d", resp.StatusCode)
 	}

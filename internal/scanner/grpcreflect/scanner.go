@@ -92,7 +92,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if err != nil {
 			continue
 		}
-		conn.Close()
+		_ = conn.Close()
 
 		// Try gRPC reflection via HTTP/2.
 		for _, reflPath := range reflectionPaths {
@@ -189,7 +189,7 @@ func probeReflection(ctx context.Context, host, port, path string) []string {
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		ct := resp.Header.Get("Content-Type")
 		if !strings.Contains(ct, "grpc") {

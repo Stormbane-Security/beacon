@@ -136,8 +136,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, resp.Body) //nolint:errcheck
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
+			_ = resp.Body.Close()
 
 			if !isRedirect(resp.StatusCode) {
 				continue
@@ -197,8 +197,8 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, resp.Body) //nolint:errcheck
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
+		_ = resp.Body.Close()
 		return s
 	}
 	return ""

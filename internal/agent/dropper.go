@@ -27,7 +27,7 @@ func truncToken(s string, n int) string {
 // GenerateToken creates a random token for agent identification.
 func GenerateToken() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 

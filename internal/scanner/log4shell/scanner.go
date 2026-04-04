@@ -175,7 +175,7 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 			}
 
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// Check whether the raw JNDI string is reflected in the response body.
 			// Without OOB detection we also require Java server signals — otherwise
@@ -256,8 +256,8 @@ func detectJavaSignals(ctx context.Context, client *http.Client, targetURL, _ st
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	ev := map[string]any{}
 
@@ -301,7 +301,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return "https"
 }

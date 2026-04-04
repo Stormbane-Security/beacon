@@ -48,7 +48,7 @@ func TestRunReturnsNoFindingsForClosedPorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, port, _ := net.SplitHostPort(l.Addr().String())
-	l.Close() // now closed
+	_ = l.Close() // now closed
 
 	// We can't inject the port into Run() directly (it probes fixed ports),
 	// so verify the scanner handles 127.0.0.1 cleanly with no panics or errors.
@@ -90,7 +90,7 @@ func TestElasticsearchUnauthFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_cat/health" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`[{"status":"green"}]`))
+			_, _ = w.Write([]byte(`[{"status":"green"}]`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -122,7 +122,7 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 	// Skip if port 22 (real SSH) is already open — scanner will correctly find
 	// it and any CheckPortSSHExposed assertion would be a false failure.
 	if conn, err := net.DialTimeout("tcp", "127.0.0.1:22", 500*time.Millisecond); err == nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Skip("port 22 is open in this environment — SSH finding is expected, test N/A")
 	}
 
@@ -131,15 +131,15 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 22222: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("SSH-2.0-OpenSSH_8.9\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("SSH-2.0-OpenSSH_8.9\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -166,7 +166,7 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 6379 already in use (real Redis running?): %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Serve a Redis-like PONG response to any connection
 	go func() {
@@ -175,8 +175,8 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("+PONG\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("+PONG\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -212,7 +212,7 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 6379 already in use: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Serve a Redis AUTH-required response
 	go func() {
@@ -221,8 +221,8 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("-NOAUTH Authentication required\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("-NOAUTH Authentication required\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -252,14 +252,14 @@ func TestPrometheusUnauthHTTPMock(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/v1/targets" {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"status":"success","data":{"activeTargets":[]}}`))
-				return
+				_, _ = w.Write([]byte(`{"status":"success","data":{"activeTargets":[]}}`))
+	return
 			}
 			w.WriteHeader(http.StatusNotFound)
 		}),
 	}
-	go srv.Serve(l)
-	defer srv.Close()
+	go func() { _ = srv.Serve(l) }()
+	defer func() { _ = srv.Close() }()
 
 	s := portscan.New()
 	// Longer timeout: the scanner probes many ports on 127.0.0.1 before
@@ -291,15 +291,15 @@ func TestTelnetExposedFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 23 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("\xff\xfb\x01\xff\xfb\x03")) // Telnet IAC negotiation bytes
-			conn.Close()
+			_, _ = conn.Write([]byte("\xff\xfb\x01\xff\xfb\x03")) // Telnet IAC negotiation bytes
+			_ = conn.Close()
 		}
 	}()
 
@@ -346,7 +346,7 @@ func TestPortScan_DefaultConcurrency_IsFive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	go func() {
 		for {
@@ -365,7 +365,7 @@ func TestPortScan_DefaultConcurrency_IsFive(t *testing.T) {
 				mu.Lock()
 				current--
 				mu.Unlock()
-				c.Close()
+				_ = c.Close()
 			}(conn)
 		}
 	}()
@@ -433,15 +433,15 @@ func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 25 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("220 mail.example.com ESMTP Exim 4.96 Mon, 01 Jan 2025 00:00:00 +0000\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("220 mail.example.com ESMTP Exim 4.96 Mon, 01 Jan 2025 00:00:00 +0000\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -480,15 +480,15 @@ func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 25 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("220 mail.example.com ESMTP Postfix (Ubuntu)\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("220 mail.example.com ESMTP Postfix (Ubuntu)\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -525,15 +525,15 @@ func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 587 already in use: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("220 smtp.example.com ESMTP Exim 4.97.1\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("220 smtp.example.com ESMTP Exim 4.97.1\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -566,15 +566,15 @@ func TestSMTPSubmissionGenericBanner(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 587 already in use: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Write([]byte("220 smtp.example.com ESMTP Postfix\r\n"))
-			conn.Close()
+			_, _ = conn.Write([]byte("220 smtp.example.com ESMTP Postfix\r\n"))
+			_ = conn.Close()
 		}
 	}()
 
@@ -605,7 +605,7 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 25 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -613,7 +613,7 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 				return
 			}
 			// Close immediately — no banner written.
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -644,7 +644,7 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 389 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -652,11 +652,11 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				buf := make([]byte, 256)
 				// Read the null bind request (we don't parse it, just drain it).
-				c.SetDeadline(time.Now().Add(2 * time.Second))
-				c.Read(buf)
+				_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+				_, _ = c.Read(buf)
 				// Respond with BindResponse: resultCode 0 (success).
 				// BER: SEQUENCE { INTEGER 1 (msgID), [APPLICATION 1] { ENUMERATED 0 (success), "" "", "" } }
 				bindResp := []byte{
@@ -667,9 +667,9 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 					0x04, 0x00, // OCTET STRING "" (matchedDN)
 					0x04, 0x00, // OCTET STRING "" (errorMessage)
 				}
-				c.Write(bindResp)
+				_, _ = c.Write(bindResp)
 				// Read rootDSE request.
-				c.Read(buf)
+				_, _ = c.Read(buf)
 				// Respond with a minimal SearchResultEntry (no DC= attributes) + SearchResultDone.
 				// SearchResultDone: resultCode 0.
 				searchDone := []byte{
@@ -680,7 +680,7 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 					0x04, 0x00,
 					0x04, 0x00,
 				}
-				c.Write(searchDone)
+				_, _ = c.Write(searchDone)
 			}(conn)
 		}
 	}()
@@ -717,7 +717,7 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 389 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -725,11 +725,11 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				buf := make([]byte, 256)
-				c.SetDeadline(time.Now().Add(2 * time.Second))
+				_ = c.SetDeadline(time.Now().Add(2 * time.Second))
 				// Drain null bind request.
-				c.Read(buf)
+				_, _ = c.Read(buf)
 				// BindResponse: success.
 				bindResp := []byte{
 					0x30, 0x0c,
@@ -739,9 +739,9 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 					0x04, 0x00,
 					0x04, 0x00,
 				}
-				c.Write(bindResp)
+				_, _ = c.Write(bindResp)
 				// Drain rootDSE search request.
-				c.Read(buf)
+				_, _ = c.Read(buf)
 				// Send a response that contains "DC=corp,DC=example,DC=com" to trigger AD detection.
 				adText := "DC=corp,DC=example,DC=com"
 				// Wrap it in a minimal SearchResultEntry so the scanner sees it.
@@ -752,9 +752,9 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 					0x04, byte(len(adText)),
 				}, []byte(adText)...)
 				entry = append(entry, 0x30, 0x00) // empty attributes
-				c.Write(entry)
+				_, _ = c.Write(entry)
 				// SearchResultDone.
-				c.Write([]byte{0x30, 0x0c, 0x02, 0x01, 0x02, 0x65, 0x07, 0x0a, 0x01, 0x00, 0x04, 0x00, 0x04, 0x00})
+				_, _ = c.Write([]byte{0x30, 0x0c, 0x02, 0x01, 0x02, 0x65, 0x07, 0x0a, 0x01, 0x00, 0x04, 0x00, 0x04, 0x00})
 			}(conn)
 		}
 	}()
@@ -788,7 +788,7 @@ func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
 	if err != nil {
 		t.Skipf("port 389 already in use or requires privilege: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -796,10 +796,10 @@ func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				buf := make([]byte, 256)
-				c.SetDeadline(time.Now().Add(2 * time.Second))
-				c.Read(buf)
+				_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+				_, _ = c.Read(buf)
 				// BindResponse: resultCode 49 (invalidCredentials) — null bind refused.
 				bindResp := []byte{
 					0x30, 0x0c,
@@ -809,7 +809,7 @@ func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
 					0x04, 0x00,
 					0x04, 0x00,
 				}
-				c.Write(bindResp)
+				_, _ = c.Write(bindResp)
 			}(conn)
 		}
 	}()

@@ -118,7 +118,7 @@ func DiscoverInternalTargets(ctx context.Context, netInfo *NetworkInfo) []Intern
 					if n, err := conn.Read(buf); err == nil && n > 0 {
 						banner = strings.TrimSpace(string(buf[:n]))
 					}
-					conn.Close()
+					_ = conn.Close()
 
 					mu.Lock()
 					targets = append(targets, InternalTarget{
@@ -189,7 +189,7 @@ func TrySSH(ctx context.Context, host string, port int, username, password strin
 		result.Error = err.Error()
 		return result
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// SSH banner grab confirms it's an SSH server.
 	result.Success = false
@@ -217,7 +217,7 @@ func TryHTTP(ctx context.Context, url, username, password string) LateralResult 
 		result.Error = err.Error()
 		return result
 	}
-	conn.Close()
+	_ = conn.Close()
 	result.Success = true
 	result.Output = "reachable"
 	return result

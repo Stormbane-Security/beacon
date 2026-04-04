@@ -511,7 +511,7 @@ func probePort(ctx context.Context, host string, port int) (bool, string) {
 	if err != nil {
 		return false, ""
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Attempt a passive banner grab: set a short read deadline and read whatever
 	// the server sends before we've said anything.
@@ -689,7 +689,7 @@ func probeRedis(ctx context.Context, host string, port int) (bool, string) {
 	if err != nil {
 		return false, ""
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	// RESP inline PING
 	_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
@@ -803,7 +803,7 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 	if err != nil {
 		return "", false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", false
 	}
@@ -843,7 +843,7 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -877,7 +877,7 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return ""
@@ -898,7 +898,7 @@ func probeMemcached(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	_, err = conn.Write([]byte("stats\r\n"))
 	if err != nil {
@@ -928,7 +928,7 @@ func probeJupyter(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil {
 		return false
@@ -949,7 +949,7 @@ func probeMongoDB(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	// Build a minimal OP_MSG hello.
@@ -1016,7 +1016,7 @@ func probeMQTT(ctx context.Context, host string, port int, useTLS bool) bool {
 		}
 		tlsConn := tls.Client(rawConn, tlsCfg)
 		if err = tlsConn.HandshakeContext(ctx); err != nil {
-			rawConn.Close()
+			_ = rawConn.Close()
 			return false
 		}
 		conn = tlsConn
@@ -1026,7 +1026,7 @@ func probeMQTT(ctx context.Context, host string, port int, useTLS bool) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	// MQTT 3.1.1 CONNECT packet (minimal — empty client ID, no auth).
@@ -1059,7 +1059,7 @@ func probeSIP(ctx context.Context, host string, port int) string {
 	if err != nil {
 		return ""
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	req := fmt.Sprintf(
@@ -1098,7 +1098,7 @@ func probeRTSP(ctx context.Context, host string, port int) string {
 	if err != nil {
 		return ""
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	req := fmt.Sprintf("OPTIONS rtsp://%s:%d/ RTSP/1.0\r\nCSeq: 1\r\n\r\n", host, port)
@@ -1126,7 +1126,7 @@ func probeISCSI(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	// Minimal iSCSI Login Request (48-byte header, empty data segment).
@@ -1156,7 +1156,7 @@ func probeModbus(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	// Modbus TCP ADU: Transaction ID (0x0001) | Protocol ID (0x0000) |
@@ -1405,8 +1405,8 @@ func isElasticsearchGroovyVulnerable(ver string) bool {
 		return false
 	}
 	major, minor := 0, 0
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	return major == 1 && minor < 6
 }
 
@@ -1433,10 +1433,10 @@ func isKubernetesPrivEscVulnerable(ver string) bool {
 		return false
 	}
 	maj, min, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
 	// Strip pre-release suffix from minor/patch (e.g. "11-gke.1" → 11)
-	fmt.Sscanf(parts[1], "%d", &min)
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if maj != 1 {
 		return false
 	}
@@ -1463,8 +1463,8 @@ func isApacheTikaRCEVulnerable(ver string) bool {
 		return false
 	}
 	maj, min := 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
 	return maj == 1 && min >= 7 && min <= 17
 }
 
@@ -1560,7 +1560,7 @@ func probeMinIODefaultCreds(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// 200 with a session token means credentials were accepted.
 	if resp.StatusCode != http.StatusOK {
 		return false
@@ -1696,7 +1696,7 @@ func probeLDAP(ctx context.Context, host string, port int) map[string]any {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(4 * time.Second))
 
 	// LDAP null bind request (LDAPMessage with BindRequest, empty DN, empty password).
@@ -1812,7 +1812,7 @@ func probeEPMD(ctx context.Context, host string, port int) []string {
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 
 	// EPMD NAMES request: 2-byte big-endian length prefix + 1 byte type (0x6e = NAMES_REQ).
@@ -1857,7 +1857,7 @@ func probeFTPAnonymous(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 
 	buf := make([]byte, 256)
@@ -1908,7 +1908,7 @@ func probeSMBOnPort(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 	negotiate := smbNegotiatePacket()
 	if _, err := conn.Write(negotiate); err != nil {
@@ -1934,7 +1934,7 @@ func probeSMBv1OnPort(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 	negotiate := smbNegotiatePacket()
 	if _, err := conn.Write(negotiate); err != nil {
@@ -1955,7 +1955,7 @@ func probeSMBNullSessionOnPort(ctx context.Context, host string, port int) bool 
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 	negotiate := smbNegotiatePacket()
 	if _, err := conn.Write(negotiate); err != nil {
@@ -2053,7 +2053,7 @@ func probeSMBNullSession(ctx context.Context, host string) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 
 	// SMBv1 Negotiate Request — asks for NTLM dialect.
@@ -2232,10 +2232,10 @@ func isEximHeapOverflowVulnerable(ver string) bool {
 		return false
 	}
 	major, minor, patch := 0, 0, 0
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	if len(parts) >= 3 {
-		fmt.Sscanf(parts[2], "%d", &patch)
+		_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	}
 	if major != 4 {
 		return false
@@ -2258,8 +2258,8 @@ func isEximRCE2019Vulnerable(ver string) bool {
 		return false
 	}
 	major, minor := 0, 0
-	fmt.Sscanf(parts[0], "%d", &major)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &major)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	return major == 4 && minor >= 87 && minor <= 91
 }
 
@@ -2275,7 +2275,7 @@ func probeSMTPOpenRelay(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(8 * time.Second)) //nolint:errcheck
 
 	readLine := func() string {
@@ -2285,7 +2285,7 @@ func probeSMTPOpenRelay(ctx context.Context, host string, port int) bool {
 	}
 	send := func(cmd string) string {
 		conn.SetDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
-		fmt.Fprintf(conn, "%s\r\n", cmd)                 //nolint:errcheck
+		_, _ = fmt.Fprintf(conn, "%s\r\n", cmd)                 //nolint:errcheck
 		return readLine()
 	}
 
@@ -2345,7 +2345,7 @@ func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bo
 	if err != nil {
 		return "", false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", false
 	}
@@ -2363,7 +2363,7 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
 
 	// Read the server greeting (initial handshake packet).
@@ -2485,7 +2485,7 @@ func probePostgreSQL(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
 
 	// PostgreSQL startup message: Int32(length) + Int32(196608 = protocol 3.0) + key=value pairs + NUL
@@ -2536,7 +2536,7 @@ func probeMSSQL(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
 
 	// TDS 7.0 PRELOGIN packet.
@@ -2732,7 +2732,7 @@ func probeGRPCReflection(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
 
 	// HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
@@ -2972,7 +2972,7 @@ func probeRDP(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	cr := []byte{
 		0x03, 0x00, 0x00, 0x13,
@@ -3010,7 +3010,7 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == 401 || resp.StatusCode == 200 || resp.StatusCode == 415
 }
 
@@ -3021,7 +3021,7 @@ func probeZooKeeper(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	if _, err := conn.Write([]byte("ruok")); err != nil {
 		return false
@@ -3038,7 +3038,7 @@ func probeAMQP(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	if _, err := conn.Write([]byte{'A', 'M', 'Q', 'P', 0x00, 0x00, 0x09, 0x01}); err != nil {
 		return false
@@ -3058,7 +3058,7 @@ func probeKafka(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	req := []byte{
 		0x00, 0x00, 0x00, 0x0A,
@@ -3084,7 +3084,7 @@ func probeCassandraCQL(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	frame := []byte{0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00}
 	if _, err := conn.Write(frame); err != nil {
@@ -3102,7 +3102,7 @@ func probeAJP(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	if _, err := conn.Write([]byte{0x12, 0x34, 0x00, 0x01, 0x0A}); err != nil {
 		return false
@@ -3119,7 +3119,7 @@ func probeDNSTCP(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	query := []byte{
 		0xAB, 0xCD, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -3144,7 +3144,7 @@ func probeKerberos(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	asReq := []byte{
 		0x6A, 0x29, 0x30, 0x27,
@@ -3174,7 +3174,7 @@ func probeRPCBind(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	rpcCall := []byte{
 		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
@@ -3204,7 +3204,7 @@ func probeJetDirect(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	if _, err := conn.Write([]byte("\x1B%-12345X@PJL INFO ID\r\n\x1B%-12345X\r\n")); err != nil {
 		return false
@@ -3222,7 +3222,7 @@ func probeS7comm(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	cr := []byte{
 		0x03, 0x00, 0x00, 0x16,
@@ -3246,7 +3246,7 @@ func probeEtherNetIP(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	listID := []byte{
 		0x63, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -3268,7 +3268,7 @@ func probeDNP3(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	frame := []byte{0x05, 0x64, 0x05, 0xC0, 0x01, 0x00, 0x02, 0x00}
 	crc := dnp3CRC(frame)
@@ -3331,7 +3331,7 @@ func probeBACnet(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	bvlc := []byte{
 		0x81, 0x0A, 0x00, 0x11, 0x01, 0x04, 0x00, 0x05, 0x01,
@@ -3352,7 +3352,7 @@ func probeMikroTikAPI(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	if _, err := conn.Write([]byte{0x06, '/', 'l', 'o', 'g', 'i', 'n', 0x00}); err != nil {
 		return false
@@ -3373,7 +3373,7 @@ func probeMikroTikWinbox(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	if _, err := conn.Write([]byte{0x06, 0x00, 0xFF, 0x06, 0x00, 0x01, 0x00}); err != nil {
 		return false
@@ -3393,7 +3393,7 @@ func probeBGP(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	msg := []byte{
 		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -3430,7 +3430,7 @@ func probeCiscoSmartInstall(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	hello := []byte{
 		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -3461,7 +3461,7 @@ func probeOracleTNS(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	// TNS Connect packet: a minimal CONNECT with service name.
@@ -3509,7 +3509,7 @@ func probeCheckPoint(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	tlsConn := conn.(*tls.Conn)
 	state := tlsConn.ConnectionState()
 	for _, cert := range state.PeerCertificates {
@@ -3543,7 +3543,7 @@ func probeJuniperAnomaly(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	tlsConn := conn.(*tls.Conn)
 	state := tlsConn.ConnectionState()
 	for _, cert := range state.PeerCertificates {
@@ -3563,7 +3563,7 @@ func probeWINS(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
 	// NBNS name query for "*" (wildcard) — a standard WINS query.

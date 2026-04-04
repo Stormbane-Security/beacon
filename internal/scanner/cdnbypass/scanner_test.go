@@ -479,7 +479,7 @@ func TestScoreCandidate_MailBannerPenalized(t *testing.T) {
 	// should be penalized heavily and score below the emit threshold.
 	mailSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("220 mail.example.com ESMTP Postfix"))
+		_, _ = w.Write([]byte("220 mail.example.com ESMTP Postfix"))
 	}))
 	defer mailSrv.Close()
 
@@ -513,10 +513,10 @@ func TestScoreCandidate_MatchingOrigin(t *testing.T) {
 		switch r.URL.Path {
 		case "/favicon.ico":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("ICODATA"))
+			_, _ = w.Write([]byte("ICODATA"))
 		default:
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(appHTML))
+			_, _ = w.Write([]byte(appHTML))
 		}
 	}))
 	defer originSrv.Close()

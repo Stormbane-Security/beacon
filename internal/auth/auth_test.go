@@ -335,7 +335,7 @@ func TestAuthenticate_APIKey_CustomHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.Get(srv.URL)
+	_, _ = client.Get(srv.URL)
 	if gotHeader != "my-api-key-value" {
 		t.Errorf("expected X-Custom-Auth = %q, got %q", "my-api-key-value", gotHeader)
 	}
@@ -383,7 +383,7 @@ func TestAuthenticate_Bearer_DoesNotDoublePrefixBearerToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.Get(srv.URL)
+	_, _ = client.Get(srv.URL)
 	// Should NOT produce "Bearer Bearer already-prefixed".
 	if strings.HasPrefix(gotHeader, "Bearer Bearer") {
 		t.Errorf("double Bearer prefix detected: %q", gotHeader)

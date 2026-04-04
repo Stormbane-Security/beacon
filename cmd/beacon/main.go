@@ -138,7 +138,7 @@ var quiet bool
 // info prints to stderr unless --quiet is active.
 func info(format string, args ...any) {
 	if !quiet {
-		fmt.Fprintf(os.Stderr, format, args...)
+		_, _ = fmt.Fprintf(os.Stderr, format, args...)
 	}
 }
 
@@ -207,7 +207,7 @@ func main() {
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", os.Args[1], usageText)
+		_, _ = fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", os.Args[1], usageText)
 		os.Exit(1)
 	}
 }
@@ -215,24 +215,24 @@ func main() {
 // ---------- install ----------
 
 func cmdInstall() {
-	fmt.Fprintln(os.Stderr, "beacon: checking and installing required tools...")
+	_, _ = fmt.Fprintln(os.Stderr, "beacon: checking and installing required tools...")
 	results := toolinstall.EnsureAll()
 	ok := true
 	for _, r := range results {
 		switch {
 		case r.Skipped:
-			fmt.Fprintf(os.Stderr, "  %-16s  skipped (not supported on this platform)\n", r.Name)
+			_, _ = fmt.Fprintf(os.Stderr, "  %-16s  skipped (not supported on this platform)\n", r.Name)
 		case r.Err != nil:
-			fmt.Fprintf(os.Stderr, "  %-16s  FAILED: %v\n", r.Name, r.Err)
+			_, _ = fmt.Fprintf(os.Stderr, "  %-16s  FAILED: %v\n", r.Name, r.Err)
 			ok = false
 		default:
-			fmt.Fprintf(os.Stderr, "  %-16s  ok  %s\n", r.Name, r.Path)
+			_, _ = fmt.Fprintf(os.Stderr, "  %-16s  ok  %s\n", r.Name, r.Path)
 		}
 	}
 	if ok {
-		fmt.Fprintln(os.Stderr, "beacon: all tools ready.")
+		_, _ = fmt.Fprintln(os.Stderr, "beacon: all tools ready.")
 	} else {
-		fmt.Fprintln(os.Stderr, "beacon: some tools failed to install — see errors above.")
+		_, _ = fmt.Fprintln(os.Stderr, "beacon: some tools failed to install — see errors above.")
 		os.Exit(1)
 	}
 }
@@ -410,7 +410,7 @@ func cmdScan(cfg *config.Config, args []string) {
 			}
 		default:
 			if strings.HasPrefix(args[i], "--") {
-				fmt.Fprintf(os.Stderr, "beacon: unknown flag %q\n", args[i])
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: unknown flag %q\n", args[i])
 				os.Exit(2)
 			}
 		}
@@ -525,7 +525,7 @@ By passing --permission-confirmed you confirm that:
 		// The operator is still responsible for ensuring authorization exists.
 		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
 			// Interactive legal acknowledgment — cannot be bypassed with a flag.
-			fmt.Fprintf(os.Stderr, `
+			_, _ = fmt.Fprintf(os.Stderr, `
 AUTHORIZED / EXPLOITATION SCAN MODE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This mode enables active exploitation probes against %s, including:
@@ -578,7 +578,7 @@ Type exactly: I have written authorization for %s
 	// Set up structured logging if --log-file is specified.
 	if logFile != "" {
 		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
-		defer sl.Close()
+		defer func() { _ = sl.Close() }()
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 
@@ -587,7 +587,7 @@ Type exactly: I have written authorization for %s
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Seed built-in fingerprint rules (idempotent — safe to call every scan).
 	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
@@ -707,7 +707,7 @@ Type exactly: I have written authorization for %s
 				_ = st.UpdateScanRun(cleanupCtx, run)
 				if len(res.findings) > 0 {
 					if err := st.SaveFindings(cleanupCtx, run.ID, res.findings); err != nil {
-						fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
+						_, _ = fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
 					}
 				}
 				return res.findings, true
@@ -733,10 +733,10 @@ Type exactly: I have written authorization for %s
 				_ = st.UpdateScanRun(cleanupCtx, run)
 				if len(res.findings) > 0 {
 					if err := st.SaveFindings(cleanupCtx, run.ID, res.findings); err != nil {
-						fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
+						_, _ = fmt.Fprintf(os.Stderr, "beacon: save partial findings: %v\n", err)
 					}
 				}
-				fmt.Fprintf(os.Stderr, "beacon: scan stopped — %d findings saved\n", len(res.findings))
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: scan stopped — %d findings saved\n", len(res.findings))
 				if !noTUI {
 					cmdBrowse(cfg)
 				}
@@ -844,7 +844,7 @@ Type exactly: I have written authorization for %s
 					info("beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
 					findings = append(findings, fpResult.Findings...)
 					if err := st.SaveFindings(ctx, run.ID, fpResult.Findings); err != nil {
-						fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
+						_, _ = fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
 					}
 				}
 
@@ -869,7 +869,7 @@ Type exactly: I have written authorization for %s
 								Confidence:  pr.Confidence,
 							}
 							if err := st.UpsertFingerprintRule(ctx, &rule); err != nil {
-								fmt.Fprintf(os.Stderr, "beacon: save proposed rule: %v\n", err)
+								_, _ = fmt.Fprintf(os.Stderr, "beacon: save proposed rule: %v\n", err)
 							}
 						}
 					}
@@ -949,7 +949,7 @@ Type exactly: I have written authorization for %s
 
 	enriched, err := enricher.Enrich(ctx, findings)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "beacon: enrich: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: enrich: %v\n", err)
 		// Fall back to unenriched findings so scanning results are not lost.
 		enriched = make([]enrichment.EnrichedFinding, len(findings))
 		for i, f := range findings {
@@ -962,7 +962,7 @@ Type exactly: I have written authorization for %s
 		info("beacon: generating executive summary...\n")
 		enriched, summary, err = enricher.ContextualizeAndSummarize(ctx, enriched, domain)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", err)
 		}
 	}
 
@@ -1026,7 +1026,7 @@ Type exactly: I have written authorization for %s
 		if f := profiler.BuildAttackPathFinding(domain, chains); f != nil {
 			info("beacon: %d attack path(s) identified\n", len(chains))
 			if err := st.SaveFindings(ctx, run.ID, []finding.Finding{*f}); err != nil {
-				fmt.Fprintf(os.Stderr, "beacon: save attack path findings: %v\n", err)
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: save attack path findings: %v\n", err)
 			}
 		}
 	}
@@ -1035,7 +1035,7 @@ Type exactly: I have written authorization for %s
 	// endpoint so findings can be streamed to a SIEM or external platform.
 	if cfg.WebhookURL != "" {
 		if err := deliverWebhook(ctx, cfg.WebhookURL, cfg.WebhookAPIKey, *run, enriched, summary); err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: webhook delivery failed: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: webhook delivery failed: %v\n", err)
 		} else {
 			info("beacon: findings posted to webhook\n")
 		}
@@ -1117,7 +1117,7 @@ responsibility for your use of --deep mode.`)
 	if authorized {
 		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
 			targetList := "  • " + strings.Join(targets, "\n  • ")
-			fmt.Fprintf(os.Stderr, `
+			_, _ = fmt.Fprintf(os.Stderr, `
 AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This mode enables active exploitation probes against %d targets:
@@ -1153,7 +1153,7 @@ Type exactly: I have written authorization for all listed targets
 	// Set up structured logging if --log-file is specified.
 	if logFile != "" {
 		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
-		defer sl.Close()
+		defer func() { _ = sl.Close() }()
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 
@@ -1161,7 +1161,7 @@ Type exactly: I have written authorization for all listed targets
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
 		info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
@@ -1230,7 +1230,7 @@ Type exactly: I have written authorization for all listed targets
 
 		target, err := st.UpsertTarget(ctx, domain)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: upsert target %s: %v\n", domain, err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: upsert target %s: %v\n", domain, err)
 			continue
 		}
 
@@ -1243,7 +1243,7 @@ Type exactly: I have written authorization for all listed targets
 			StartedAt: time.Now(),
 		}
 		if err := st.CreateScanRun(ctx, run); err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: create scan run %s: %v\n", domain, err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: create scan run %s: %v\n", domain, err)
 			continue
 		}
 
@@ -1282,14 +1282,14 @@ Type exactly: I have written authorization for all listed targets
 				_ = st.UpdateScanRun(cleanupCtx, run)
 				if len(findings) > 0 {
 					if err := st.SaveFindings(cleanupCtx, run.ID, findings); err != nil {
-						fmt.Fprintf(os.Stderr, "beacon: save partial findings %s: %v\n", domain, err)
+						_, _ = fmt.Fprintf(os.Stderr, "beacon: save partial findings %s: %v\n", domain, err)
 					}
 				}
 				cleanupCancel()
-				fmt.Fprintf(os.Stderr, "beacon: scan stopped for %s — %d findings saved\n", domain, len(findings))
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: scan stopped for %s — %d findings saved\n", domain, len(findings))
 				break
 			}
-			fmt.Fprintf(os.Stderr, "beacon: scan failed for %s: %v\n", domain, scanErr)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: scan failed for %s: %v\n", domain, scanErr)
 			run.Status = store.StatusFailed
 			run.Error = scanErr.Error()
 			_ = st.UpdateScanRun(cleanupCtx, run)
@@ -1298,7 +1298,7 @@ Type exactly: I have written authorization for all listed targets
 		}
 
 		if err := st.SaveFindings(ctx, run.ID, findings); err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", domain, err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", domain, err)
 		}
 
 		// Log findings to structured log file.
@@ -1353,7 +1353,7 @@ Type exactly: I have written authorization for all listed targets
 			Domain:              cloudAsset,
 		}
 		if cf, err := cloudMod.Run(ctx, cloudInput, scanType); err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: cloud scan error: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: cloud scan error: %v\n", err)
 		} else {
 			cloudFindings = cf
 			info("beacon: cloud scan — %d finding(s)\n", len(cloudFindings))
@@ -1365,7 +1365,7 @@ Type exactly: I have written authorization for all listed targets
 					continue
 				}
 				if err := st.SaveFindings(ctx, res.run.ID, cloudFindings); err != nil {
-					fmt.Fprintf(os.Stderr, "beacon: save cloud findings %s: %v\n", res.run.ID, err)
+					_, _ = fmt.Fprintf(os.Stderr, "beacon: save cloud findings %s: %v\n", res.run.ID, err)
 				}
 			}
 			allFindings = append(allFindings, cloudFindings...)
@@ -1381,7 +1381,7 @@ Type exactly: I have written authorization for all listed targets
 			Domain:    githubOrg,
 		}
 		if ghFindings, err := ghMod.Run(ctx, ghInput, scanType); err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: github scan error: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: github scan error: %v\n", err)
 		} else {
 			info("beacon: github scan — %d finding(s)\n", len(ghFindings))
 			for i := range ghFindings {
@@ -1392,7 +1392,7 @@ Type exactly: I have written authorization for all listed targets
 					continue
 				}
 				if err := st.SaveFindings(ctx, res.run.ID, ghFindings); err != nil {
-					fmt.Fprintf(os.Stderr, "beacon: save github findings %s: %v\n", res.run.ID, err)
+					_, _ = fmt.Fprintf(os.Stderr, "beacon: save github findings %s: %v\n", res.run.ID, err)
 				}
 			}
 			allFindings = append(allFindings, ghFindings...)
@@ -1476,7 +1476,7 @@ Type exactly: I have written authorization for all listed targets
 					allFindings = append(allFindings, fpResult.Findings...)
 					if len(allResults) > 0 && allResults[0].run != nil {
 						if err := st.SaveFindings(ctx, allResults[0].run.ID, fpResult.Findings); err != nil {
-							fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
+							_, _ = fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
 						}
 					}
 				}
@@ -1519,13 +1519,13 @@ Type exactly: I have written authorization for all listed targets
 			info("beacon: enriching %d findings across all modules...\n", len(allFindings))
 			allEnriched, enrichErr := enricher.Enrich(ctx, allFindings)
 			if enrichErr != nil {
-				fmt.Fprintf(os.Stderr, "beacon: enrichment failed: %v\n", enrichErr)
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: enrichment failed: %v\n", enrichErr)
 			} else {
 				// Contextual analysis — cross-module compound risk identification.
 				domainStr := strings.Join(targets, ", ")
 				allEnriched, summary, ctxErr := enricher.ContextualizeAndSummarize(ctx, allEnriched, domainStr)
 				if ctxErr != nil {
-					fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", ctxErr)
+					_, _ = fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", ctxErr)
 				}
 				if summary != "" {
 					info("\n\x1b[1mExecutive Summary:\x1b[0m\n%s\n", summary)
@@ -1557,7 +1557,7 @@ Type exactly: I have written authorization for all listed targets
 				}
 				for runID, enrichedSlice := range byRunID {
 					if err := st.SaveEnrichedFindings(ctx, runID, enrichedSlice); err != nil {
-						fmt.Fprintf(os.Stderr, "beacon: save enriched findings %s: %v\n", runID, err)
+						_, _ = fmt.Fprintf(os.Stderr, "beacon: save enriched findings %s: %v\n", runID, err)
 					}
 				}
 
@@ -1575,14 +1575,14 @@ Type exactly: I have written authorization for all listed targets
 							info("  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
 						}
 						if term.IsTerminal(int(os.Stdin.Fd())) {
-							fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
+							_, _ = fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
 							reader := bufio.NewReader(os.Stdin)
 							line, err := reader.ReadString('\n')
 							if err != nil {
 								line = ""
 							}
 							if strings.TrimSpace(strings.ToLower(line)) == "y" {
-								fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
+								_, _ = fmt.Fprintf(os.Stderr, "beacon: follow-up probes queued for next scan (use --cidr flags with the IPs above).\n")
 							}
 						}
 					}
@@ -1624,11 +1624,11 @@ Type exactly: I have written authorization for all listed targets
 // interactiveApproveExploit prompts the user on stderr for each exploit module.
 // Returns true if the user approves (y/Y/enter), false otherwise.
 func interactiveApproveExploit(moduleName string, host string, port int) bool {
-	fmt.Fprintf(os.Stderr, "\nExploit module %q targets %s:%d. Proceed? [Y/n] ", moduleName, host, port)
+	_, _ = fmt.Fprintf(os.Stderr, "\nExploit module %q targets %s:%d. Proceed? [Y/n] ", moduleName, host, port)
 
 	// If not a terminal (piped input), auto-deny for safety.
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprintln(os.Stderr, "n (non-interactive)")
+		_, _ = fmt.Fprintln(os.Stderr, "n (non-interactive)")
 		return false
 	}
 

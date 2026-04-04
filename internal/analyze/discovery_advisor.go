@@ -244,7 +244,7 @@ func (a *DiscoveryAdvisor) callAdvisor(ctx context.Context, prompt string) (stri
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -331,7 +331,7 @@ func probeHint(ctx context.Context, hostname string) AssetHint {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		hint.StatusCode = resp.StatusCode
 		hint.Server = resp.Header.Get("Server")
 		hint.Title = resp.Header.Get("X-Powered-By") // quick tech signal
@@ -470,7 +470,7 @@ func ProbeAlive(ctx context.Context, hostname string) bool {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return true
 	}
 

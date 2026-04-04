@@ -44,7 +44,7 @@ func (m *vCenterMock) handler() http.HandlerFunc {
 				return
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`"test-session-token"`))
+			_, _ = w.Write([]byte(`"test-session-token"`))
 			return
 		}
 
@@ -57,42 +57,42 @@ func (m *vCenterMock) handler() http.HandlerFunc {
 
 		switch {
 		case r.URL.Path == "/api/vcenter/host" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(m.Hosts)
+			_ = json.NewEncoder(w).Encode(m.Hosts)
 
 		case strings.HasPrefix(r.URL.Path, "/api/vcenter/host/") && r.Method == http.MethodGet:
 			hostID := strings.TrimPrefix(r.URL.Path, "/api/vcenter/host/")
 			for _, h := range m.Hosts {
 				if h["host"] == hostID {
-					json.NewEncoder(w).Encode(h)
+					_ = json.NewEncoder(w).Encode(h)
 					return
 				}
 			}
 			http.NotFound(w, r)
 
 		case r.URL.Path == "/api/vcenter/vm" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(m.VMs)
+			_ = json.NewEncoder(w).Encode(m.VMs)
 
 		case strings.HasSuffix(r.URL.Path, "/snapshots"):
 			vmID := strings.TrimPrefix(r.URL.Path, "/api/vcenter/vm/")
 			vmID = strings.TrimSuffix(vmID, "/snapshots")
 			if detail, ok := m.VMDetails[vmID]; ok {
 				if snaps, ok := detail["snapshots"]; ok {
-					json.NewEncoder(w).Encode(snaps)
+					_ = json.NewEncoder(w).Encode(snaps)
 					return
 				}
 			}
-			json.NewEncoder(w).Encode([]any{})
+			_ = json.NewEncoder(w).Encode([]any{})
 
 		case strings.HasPrefix(r.URL.Path, "/api/vcenter/vm/") && r.Method == http.MethodGet:
 			vmID := strings.TrimPrefix(r.URL.Path, "/api/vcenter/vm/")
 			if detail, ok := m.VMDetails[vmID]; ok {
-				json.NewEncoder(w).Encode(detail)
+				_ = json.NewEncoder(w).Encode(detail)
 				return
 			}
 			http.NotFound(w, r)
 
 		case r.URL.Path == "/api/vcenter/datastore" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(m.Datastores)
+			_ = json.NewEncoder(w).Encode(m.Datastores)
 
 		default:
 			http.NotFound(w, r)

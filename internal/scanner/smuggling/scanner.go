@@ -302,9 +302,23 @@ func probeTETEObfuscation(ctx context.Context, host, port, asset string, useTLS 
 }
 
 // resolveTarget finds a reachable host:port for the asset and returns
-// whether TLS should be used. Returns ("", 0, false) if unreachable.
+// whether TLS should be used. Returns ("", "", false) if unreachable.
 func resolveTarget(ctx context.Context, asset string) (string, string, bool) {
-	// Prefer HTTPS.
+	// If the asset includes an explicit port (e.g., "host:8080"), use it directly.
+	if host, port, err := net.SplitHostPort(asset); err == nil {
+		// Try TLS first, then plain.
+		for _, useTLS := range []bool{true, false} {
+			conn, dialErr := dialConnFunc(ctx, host, port, useTLS)
+			if dialErr != nil {
+				continue
+			}
+			_ = conn.Close()
+			return host, port, useTLS
+		}
+		return "", "", false
+	}
+
+	// No explicit port — try standard HTTPS/HTTP ports.
 	for _, entry := range []struct {
 		port   string
 		useTLS bool

@@ -111,7 +111,7 @@ func sendJARMProbe(ctx context.Context, hostname string, p jarmProbeConfig) (cip
 	if err != nil {
 		return 0, 0
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 
 	hello := buildJARMHello(sniHost, p.ciphers, p.version, p.alpns)

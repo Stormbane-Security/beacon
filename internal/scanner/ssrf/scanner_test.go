@@ -36,7 +36,7 @@ func TestSSRF_SurfaceModeReturnsNil(t *testing.T) {
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
-		fmt.Fprintln(w, "hello")
+		_, _ = fmt.Fprintln(w, "hello")
 	}))
 	defer srv.Close()
 
@@ -59,7 +59,7 @@ func TestSSRF_DeepModeReturnsNil(t *testing.T) {
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
-		fmt.Fprintln(w, "hello")
+		_, _ = fmt.Fprintln(w, "hello")
 	}))
 	defer srv.Close()
 
@@ -88,11 +88,11 @@ func TestSSRF_MetadataReflected(t *testing.T) {
 		// echoes back the content — we return metadata-like content directly.
 		urlParam := r.URL.Query().Get("url")
 		if urlParam != "" {
-			fmt.Fprintln(w, "ami-id: ami-0abcdef1234567890")
-			fmt.Fprintln(w, "instance-id: i-1234567890abcdef0")
+			_, _ = fmt.Fprintln(w, "ami-id: ami-0abcdef1234567890")
+			_, _ = fmt.Fprintln(w, "instance-id: i-1234567890abcdef0")
 			return
 		}
-		fmt.Fprintln(w, "Welcome")
+		_, _ = fmt.Fprintln(w, "Welcome")
 	}))
 	defer srv.Close()
 
@@ -126,7 +126,7 @@ func TestSSRF_MetadataReflected(t *testing.T) {
 // does not produce any SSRF findings.
 func TestSSRF_NoReflection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Hello, world! This is a normal page.")
+		_, _ = fmt.Fprintln(w, "Hello, world! This is a normal page.")
 	}))
 	defer srv.Close()
 
@@ -179,7 +179,7 @@ func TestSSRF_RedirectToAWSMetadata(t *testing.T) {
 			http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -226,7 +226,7 @@ func TestSSRF_RedirectToGCPMetadata(t *testing.T) {
 			http.Redirect(w, r, "http://metadata.google.internal/computeMetadata/v1/", http.StatusTemporaryRedirect)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -259,7 +259,7 @@ func TestSSRF_RedirectToAlibabaMetadata(t *testing.T) {
 			http.Redirect(w, r, "http://100.100.100.200/latest/meta-data/", http.StatusMovedPermanently)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -286,7 +286,7 @@ func TestSSRF_Redirect301NoBody(t *testing.T) {
 			w.WriteHeader(http.StatusMovedPermanently)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -314,7 +314,7 @@ func TestSSRF_RedirectNotSsrf(t *testing.T) {
 			http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -343,10 +343,10 @@ func TestSSRF_AzureIMDS(t *testing.T) {
 
 		// Only respond with Azure metadata when the Metadata header is set.
 		if urlParam != "" && metaHeader == "true" {
-			fmt.Fprintln(w, `{"subscriptionId":"12345","vmId":"vm-abc","resourceGroupName":"rg-test"}`)
+			_, _ = fmt.Fprintln(w, `{"subscriptionId":"12345","vmId":"vm-abc","resourceGroupName":"rg-test"}`)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -399,10 +399,10 @@ func TestSSRF_AzureIMDS_NoHeader(t *testing.T) {
 			// If this path is hit, the Azure probe sent the header.
 			// Simulate a server that does NOT forward it to the metadata
 			// service — returns normal content.
-			fmt.Fprintln(w, "Access denied: no metadata header forwarded")
+			_, _ = fmt.Fprintln(w, "Access denied: no metadata header forwarded")
 			return
 		}
-		fmt.Fprintln(w, "normal page content")
+		_, _ = fmt.Fprintln(w, "normal page content")
 	}))
 	defer srv.Close()
 
@@ -430,7 +430,7 @@ func TestSSRF_AzureIMDS_RedirectSkipped(t *testing.T) {
 			http.Redirect(w, r, "http://169.254.169.254/metadata/instance", http.StatusFound)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -462,11 +462,11 @@ func TestSSRF_OnePerParam(t *testing.T) {
 		for _, p := range probeParams {
 			if r.URL.Query().Get(p) != "" {
 				// Return 2+ metadata signals so metadataSignalFound triggers.
-				fmt.Fprintln(w, "ami-id: ami-abc123\ninstance-id: i-1234567890abcdef0")
+				_, _ = fmt.Fprintln(w, "ami-id: ami-abc123\ninstance-id: i-1234567890abcdef0")
 				return
 			}
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -688,7 +688,7 @@ func TestIsMetadataRedirect(t *testing.T) {
 // detectScheme returns "http".
 func TestDetectScheme_FallsBackToHTTP(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -706,7 +706,7 @@ func TestDetectScheme_FallsBackToHTTP(t *testing.T) {
 // detectScheme returns "https".
 func TestDetectScheme_PrefersHTTPS(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -728,7 +728,7 @@ func TestDetectScheme_PrefersHTTPS(t *testing.T) {
 // cancellation gracefully (returns no error on cancelled context).
 func TestSSRF_CancelledContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "ami-id: ami-12345")
+		_, _ = fmt.Fprintln(w, "ami-id: ami-12345")
 	}))
 	defer srv.Close()
 
@@ -760,10 +760,10 @@ func TestSSRF_RedirectWithMetadataBody(t *testing.T) {
 			w.Header().Set("Location", "http://169.254.169.254/latest/meta-data/")
 			w.WriteHeader(http.StatusFound)
 			// Sneaky: metadata in the redirect body.
-			fmt.Fprintln(w, "ami-id: ami-12345")
+			_, _ = fmt.Fprintln(w, "ami-id: ami-12345")
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -797,10 +797,10 @@ func TestSSRF_500WithMetadataBody(t *testing.T) {
 		urlParam := r.URL.Query().Get("url")
 		if urlParam != "" {
 			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintln(w, "Error occurred. Debug: ami-id=ami-12345 instance-id=i-abc")
+			_, _ = fmt.Fprintln(w, "Error occurred. Debug: ami-id=ami-12345 instance-id=i-abc")
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -893,7 +893,7 @@ func TestSSRF_URLReflectedNotMetadata_NoFinding(t *testing.T) {
 			_, _ = fmt.Fprintf(w, "You requested: %s\n", urlParam)
 			return
 		}
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 

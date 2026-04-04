@@ -118,7 +118,7 @@ func TestBingSearch_ReturnsResults(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(buildBingJSON("https://example.com/.env", "Exposed .env", "DB_PASS=secret"))
+		_, _ = w.Write(buildBingJSON("https://example.com/.env", "Exposed .env", "DB_PASS=secret"))
 	}))
 	defer srv.Close()
 
@@ -140,7 +140,7 @@ func TestBingSearch_ReturnsResults(t *testing.T) {
 func TestBingSearch_EmptyResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"webPages":{"value":[]}}`))
+		_, _ = w.Write([]byte(`{"webPages":{"value":[]}}`))
 	}))
 	defer srv.Close()
 
@@ -155,7 +155,7 @@ func TestBingSearch_EmptyResults(t *testing.T) {
 
 func TestBingSearch_InvalidJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`not-json`))
+		_, _ = w.Write([]byte(`not-json`))
 	}))
 	defer srv.Close()
 
@@ -180,7 +180,7 @@ func TestBingSearch_EmptyBodyError(t *testing.T) {
 
 func TestBingSearch_ContextCancelled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write(buildBingJSON("https://example.com/.env", "", ""))
+		_, _ = w.Write(buildBingJSON("https://example.com/.env", "", ""))
 	}))
 	defer srv.Close()
 

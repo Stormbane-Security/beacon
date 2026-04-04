@@ -56,7 +56,7 @@ func (a *libvirtAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // jsonResponse writes v as JSON with status 200.
 func jsonResponse(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
 
 // healthyDomains returns a VM inventory with all secure settings.
@@ -689,7 +689,7 @@ func TestScanError_DomainsFail(t *testing.T) {
 	handlers := healthyBaseHandlers()
 	handlers["/domains"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error")) //nolint:errcheck
+		_, _ = w.Write([]byte("internal error")) //nolint:errcheck
 	}
 
 	api := &libvirtAPI{handlers: handlers}
@@ -711,7 +711,7 @@ func TestScanError_NetworksFail(t *testing.T) {
 	handlers := healthyBaseHandlers()
 	handlers["/networks"] = func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error")) //nolint:errcheck
+		_, _ = w.Write([]byte("internal error")) //nolint:errcheck
 	}
 
 	api := &libvirtAPI{handlers: handlers}

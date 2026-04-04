@@ -162,7 +162,7 @@ func scriptAccessible(ctx context.Context, client *http.Client, scriptURL string
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -199,7 +199,7 @@ func fetchCrumb(ctx context.Context, client *http.Client, baseURL string) (field
 	if err != nil {
 		return "", ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", ""
 	}
@@ -235,7 +235,7 @@ func probeGroovyExecution(ctx context.Context, client *http.Client, scriptURL st
 			continue
 		}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		body := string(raw)
 		start := strings.Index(body, probeMarker)
@@ -272,7 +272,7 @@ func probeJenkinsCLIVersion(ctx context.Context, client *http.Client, asset stri
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		ver := resp.Header.Get("X-Jenkins")
 		if ver == "" {
 			continue

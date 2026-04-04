@@ -72,7 +72,7 @@ func mockBitbucketAPI(t *testing.T, workspace, repo, pipelineYAML string, status
 		expected := fmt.Sprintf("/2.0/repositories/%s/%s/src/HEAD/bitbucket-pipelines.yml", workspace, repo)
 		if r.URL.Path == expected {
 			w.WriteHeader(statusCode)
-			fmt.Fprint(w, pipelineYAML)
+			_, _ = fmt.Fprint(w, pipelineYAML)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

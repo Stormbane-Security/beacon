@@ -18,13 +18,13 @@ assertions:
   - name: exploit-stack-trace-leaked
     type: command
     expect:
-      command: "curl -sf http://localhost:9251/nonexistent 2>/dev/null | grep -qiE '(Traceback|stack.trace|File \"|Exception)'"
+      command: "curl -s http://localhost:9251/api/v1/data 2>/dev/null | grep -qiE '(Traceback|stack.trace|File \"|Exception)'"
       exit_code: 0
 
   - name: detects-error-info-leak
     type: beacon
     target: localhost:9251
-    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "errordisclosure", "--ports", "8080"]
     expect:
       check_id: web.error_info_leak
 

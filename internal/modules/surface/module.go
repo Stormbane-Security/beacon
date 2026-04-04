@@ -1835,7 +1835,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 			// Resolve the effective scanner — some scanners need per-asset
 			// state (aillm evidence, autoprobe emails, origin IP routing).
-			var effectiveScanner sc.Scanner = scanner
+			var effectiveScanner = scanner
 			if name == "aillm" && len(ev.AIEndpoints) > 0 {
 				effectiveScanner = aillm.NewWithEvidence(&ev)
 			} else if name == "autoprobe" {
@@ -2103,7 +2103,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 					// Mirror the same special-cases as Phase B to ensure convergence
 					// scanners get the same context (AI endpoints, harvester emails,
 					// origin IP) that Phase B scanners receive.
-					var effectiveScanner sc.Scanner = convScanner
+					var effectiveScanner = convScanner
 					switch {
 					case name == "aillm" && len(ev.AIEndpoints) > 0:
 						effectiveScanner = aillm.NewWithEvidence(&ev)
@@ -2461,7 +2461,7 @@ func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 			if err != nil {
 				continue
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode <= 599 {
 				mu.Lock()
 				if !seen[ip] {

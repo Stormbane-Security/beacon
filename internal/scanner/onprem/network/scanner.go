@@ -472,7 +472,7 @@ func (s *Scanner) checkHTTPMgmt(ctx context.Context, ip string) []finding.Findin
 		body := make([]byte, 4096)
 		n, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		copy(body, n)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 500 {
 			serverHeader := resp.Header.Get("Server")

@@ -20,7 +20,7 @@ func TestReDoS_SkippedInSurfaceMode(t *testing.T) {
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -55,12 +55,12 @@ func TestReDoS_SlowEvil_FastBaseline_FindingEmitted(t *testing.T) {
 				// the scanner measures wall-clock time and the threshold is
 				// checked as evilMs > 5000.
 				time.Sleep(5500 * time.Millisecond)
-				fmt.Fprintln(w, "slow")
+				_, _ = fmt.Fprintln(w, "slow")
 				return
 			}
 		}
 		// Benign/baseline requests return immediately.
-		fmt.Fprintln(w, "fast")
+		_, _ = fmt.Fprintln(w, "fast")
 	}))
 	defer srv.Close()
 
@@ -106,7 +106,7 @@ func TestReDoS_SlowEvil_FastBaseline_FindingEmitted(t *testing.T) {
 // payloads get fast responses, no finding is emitted.
 func TestReDoS_FastResponses_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "fast response")
+		_, _ = fmt.Fprintln(w, "fast response")
 	}))
 	defer srv.Close()
 
@@ -129,7 +129,7 @@ func TestReDoS_SlowBaseline_Skipped(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Every request is slow — simulates a slow server.
 		time.Sleep(1200 * time.Millisecond)
-		fmt.Fprintln(w, "slow baseline")
+		_, _ = fmt.Fprintln(w, "slow baseline")
 	}))
 	defer srv.Close()
 
@@ -149,7 +149,7 @@ func TestReDoS_SlowBaseline_Skipped(t *testing.T) {
 // not cause a panic and returns gracefully.
 func TestReDoS_ContextCancelled_NoPanic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "ok")
+		_, _ = fmt.Fprintln(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -188,10 +188,10 @@ func TestReDoS_EvilJustUnderThreshold_NoFinding(t *testing.T) {
 		if strings.Contains(val, evilSuffix) {
 			// Sleep for 4s — under the 5000ms threshold.
 			time.Sleep(4 * time.Second)
-			fmt.Fprintln(w, "moderate")
+			_, _ = fmt.Fprintln(w, "moderate")
 			return
 		}
-		fmt.Fprintln(w, "fast")
+		_, _ = fmt.Fprintln(w, "fast")
 	}))
 	defer srv.Close()
 
@@ -232,10 +232,10 @@ func TestReDoS_MultiplePayloadTypes_FindingsEmitted(t *testing.T) {
 			strings.Contains(val, urlEvil) ||
 			strings.Contains(val, numericEvil) {
 			time.Sleep(5500 * time.Millisecond)
-			fmt.Fprintln(w, "slow")
+			_, _ = fmt.Fprintln(w, "slow")
 			return
 		}
-		fmt.Fprintln(w, "fast")
+		_, _ = fmt.Fprintln(w, "fast")
 	}))
 	defer srv.Close()
 
@@ -272,10 +272,10 @@ func TestReDoS_FindingFields_Complete(t *testing.T) {
 		val := r.URL.Query().Get("q")
 		if strings.Contains(val, evilSuffix) {
 			time.Sleep(5500 * time.Millisecond)
-			fmt.Fprintln(w, "slow")
+			_, _ = fmt.Fprintln(w, "slow")
 			return
 		}
-		fmt.Fprintln(w, "fast")
+		_, _ = fmt.Fprintln(w, "fast")
 	}))
 	defer srv.Close()
 

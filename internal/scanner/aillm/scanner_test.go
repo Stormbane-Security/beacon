@@ -28,7 +28,7 @@ func chatServer(t *testing.T, responseText string) *httptest.Server {
 				{"message": map[string]string{"content": responseText}, "finish_reason": "stop"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		_ = json.NewEncoder(w).Encode(resp) //nolint:errcheck
 	}))
 }
 
@@ -274,7 +274,7 @@ func TestAILLM_NonJSONResponse(t *testing.T) {
 		if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, `<!DOCTYPE html><html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>`)
+			_, _ = fmt.Fprintln(w, `<!DOCTYPE html><html><head><title>Not Found</title></head><body><h1>404 Not Found</h1></body></html>`)
 			return
 		}
 		http.NotFound(w, r)
@@ -343,7 +343,7 @@ func TestAILLM_EvidenceEndpointsUsed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed[r.URL.Path] = true
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"choices":[{"message":{"content":"I cannot do that."}}]}`)
+		_, _ = fmt.Fprintln(w, `{"choices":[{"message":{"content":"I cannot do that."}}]}`)
 	}))
 	defer srv.Close()
 

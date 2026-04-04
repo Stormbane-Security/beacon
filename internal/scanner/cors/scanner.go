@@ -101,8 +101,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+			_ = resp.Body.Close()
 			targets = append(targets, u)
 		}
 	}
@@ -121,8 +121,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+			_ = resp.Body.Close()
 
 			acao := resp.Header.Get("Access-Control-Allow-Origin")
 			acac := strings.ToLower(resp.Header.Get("Access-Control-Allow-Credentials"))
@@ -281,7 +281,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				break
 			}
-			io.Copy(io.Discard, io.LimitReader(cResp.Body, 4096)) //nolint:errcheck
+			_, _ = io.Copy(io.Discard, io.LimitReader(cResp.Body, 4096)) //nolint:errcheck
 			_ = cResp.Body.Close()
 			cacao := cResp.Header.Get("Access-Control-Allow-Origin")
 			cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
@@ -302,7 +302,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq.Header.Set("Access-Control-Request-Headers", "Authorization")
 
 				if preResp, err := client.Do(preReq); err == nil {
-					io.Copy(io.Discard, io.LimitReader(preResp.Body, 4096)) //nolint:errcheck
+					_, _ = io.Copy(io.Discard, io.LimitReader(preResp.Body, 4096)) //nolint:errcheck
 					_ = preResp.Body.Close()
 
 					preACAO := preResp.Header.Get("Access-Control-Allow-Origin")
@@ -353,7 +353,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq2.Header.Set("Access-Control-Request-Headers", "X-Custom")
 
 				if preResp2, err := client.Do(preReq2); err == nil {
-					io.Copy(io.Discard, io.LimitReader(preResp2.Body, 4096)) //nolint:errcheck
+					_, _ = io.Copy(io.Discard, io.LimitReader(preResp2.Body, 4096)) //nolint:errcheck
 					_ = preResp2.Body.Close()
 
 					preACAO2 := preResp2.Header.Get("Access-Control-Allow-Origin")
@@ -416,7 +416,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq3.Header.Set("Access-Control-Request-Headers", canaryHeader)
 
 				if preResp3, err := client.Do(preReq3); err == nil {
-					io.Copy(io.Discard, io.LimitReader(preResp3.Body, 4096)) //nolint:errcheck
+					_, _ = io.Copy(io.Discard, io.LimitReader(preResp3.Body, 4096)) //nolint:errcheck
 					_ = preResp3.Body.Close()
 
 					preACAO3 := preResp3.Header.Get("Access-Control-Allow-Origin")

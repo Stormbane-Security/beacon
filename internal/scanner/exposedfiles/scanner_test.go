@@ -15,8 +15,8 @@ func TestExposedFiles_EnvFileExposed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.env" {
 			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintln(w, "DATABASE_URL=postgres://user:pass@host/db")
-			fmt.Fprintln(w, "SECRET_KEY=abc123=xyz")
+			_, _ = fmt.Fprintln(w, "DATABASE_URL=postgres://user:pass@host/db")
+			_, _ = fmt.Fprintln(w, "SECRET_KEY=abc123=xyz")
 			return
 		}
 		http.NotFound(w, r)
@@ -47,7 +47,7 @@ func TestExposedFiles_Soft404NotFlagged(t *testing.T) {
 	// Server returns 200 for every path but body is HTML (soft 404)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintln(w, "<html><body>Page Not Found</body></html>")
+		_, _ = fmt.Fprintln(w, "<html><body>Page Not Found</body></html>")
 	}))
 	defer srv.Close()
 
@@ -71,7 +71,7 @@ func TestExposedFiles_BodyContainsFilterWorks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.env" {
 			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintln(w, "no variables here")
+			_, _ = fmt.Fprintln(w, "no variables here")
 			return
 		}
 		http.NotFound(w, r)
@@ -110,8 +110,8 @@ func TestExposedFiles_GitConfigExposed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.git/config" {
 			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintln(w, "[core]")
-			fmt.Fprintln(w, "\trepositoryformatversion = 0")
+			_, _ = fmt.Fprintln(w, "[core]")
+			_, _ = fmt.Fprintln(w, "\trepositoryformatversion = 0")
 			return
 		}
 		http.NotFound(w, r)
@@ -142,7 +142,7 @@ func TestExposedFiles_DeepOnlySkippedInSurface(t *testing.T) {
 		if r.URL.Path == "/error.log" {
 			probed = true
 			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintln(w, "some error")
+			_, _ = fmt.Fprintln(w, "some error")
 			return
 		}
 		http.NotFound(w, r)
@@ -162,7 +162,7 @@ func TestExposedFiles_DeepOnlyProbedInDeep(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/error.log" {
 			w.Header().Set("Content-Type", "text/plain")
-			fmt.Fprintln(w, "[2024-01-01 local.ERROR]: something failed")
+			_, _ = fmt.Fprintln(w, "[2024-01-01 local.ERROR]: something failed")
 			return
 		}
 		http.NotFound(w, r)
@@ -189,7 +189,7 @@ func TestExposedFiles_Spring4ShellDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" && strings.Contains(r.URL.RawQuery, "class.module.classLoader") {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintln(w, "Whitelabel Error Page - Spring data binding error for classLoader")
+			_, _ = fmt.Fprintln(w, "Whitelabel Error Page - Spring data binding error for classLoader")
 			return
 		}
 		http.NotFound(w, r)
@@ -234,7 +234,7 @@ func TestExposedFiles_ZimbraAuthBypassDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/service/extension/backup/mboximport" {
 			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintln(w, "Zimbra mboximport error: missing required parameter")
+			_, _ = fmt.Fprintln(w, "Zimbra mboximport error: missing required parameter")
 			return
 		}
 		http.NotFound(w, r)
@@ -287,7 +287,7 @@ func TestExposedFiles_GiteaVersionAPIDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/version" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"version":"1.21.4"}`)
+			_, _ = fmt.Fprintln(w, `{"version":"1.21.4"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -318,7 +318,7 @@ func TestExposedFiles_GrafanaHealthDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/health" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"commit":"abc123","database":"ok","version":"10.2.3"}`)
+			_, _ = fmt.Fprintln(w, `{"commit":"abc123","database":"ok","version":"10.2.3"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -345,7 +345,7 @@ func TestExposedFiles_GrafanaHealthNotFlaggedWithoutDatabaseKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/health" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"status":"ok"}`) // no "database" key
+			_, _ = fmt.Fprintln(w, `{"status":"ok"}`) // no "database" key
 			return
 		}
 		http.NotFound(w, r)
@@ -372,7 +372,7 @@ func TestExposedFiles_SpringActuatorDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/actuator" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"_links":{"self":{"href":"/actuator"},"health":{"href":"/actuator/health"}}}`)
+			_, _ = fmt.Fprintln(w, `{"_links":{"self":{"href":"/actuator"},"health":{"href":"/actuator/health"}}}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -399,7 +399,7 @@ func TestExposedFiles_SpringActuatorNotFlaggedWithout_links(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/actuator" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"status":"UP"}`) // no "_links"
+			_, _ = fmt.Fprintln(w, `{"status":"UP"}`) // no "_links"
 			return
 		}
 		http.NotFound(w, r)
@@ -426,7 +426,7 @@ func TestExposedFiles_VaultDefaultTokenDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/sys/health" && r.Header.Get("X-Vault-Token") == "root" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"initialized":true,"sealed":false,"standby":false,"version":"1.15.4"}`)
+			_, _ = fmt.Fprintln(w, `{"initialized":true,"sealed":false,"standby":false,"version":"1.15.4"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -479,7 +479,7 @@ func TestExposedFiles_AIModelFileONNX(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/model.onnx" {
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Write([]byte("\x08\x07\x12\x04onnx")) // ONNX magic bytes
+			_, _ = w.Write([]byte("\x08\x07\x12\x04onnx")) // ONNX magic bytes
 			return
 		}
 		http.NotFound(w, r)
@@ -506,7 +506,7 @@ func TestExposedFiles_AIModelFilePickle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/model.pkl" {
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Write([]byte("\x80\x04\x95")) // Python pickle v4 header
+			_, _ = w.Write([]byte("\x80\x04\x95")) // Python pickle v4 header
 			return
 		}
 		http.NotFound(w, r)
@@ -554,12 +554,12 @@ func TestExposedFiles_AIModelFileDeepOnlyInDeep(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/models/model.safetensors" {
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Write([]byte("safetensors data"))
+			_, _ = w.Write([]byte("safetensors data"))
 			return
 		}
 		if r.URL.Path == "/model.safetensors" {
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Write([]byte("safetensors data"))
+			_, _ = w.Write([]byte("safetensors data"))
 			return
 		}
 		http.NotFound(w, r)

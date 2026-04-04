@@ -130,7 +130,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				return
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// Skip 404 and method-not-allowed.
 			if resp.StatusCode == 404 || resp.StatusCode == 405 {
@@ -323,7 +323,7 @@ func checkVersionAuthBypass(ctx context.Context, client *http.Client, asset, bas
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		ct := resp.Header.Get("Content-Type")
 		// Skip HTML responses — likely a catch-all.
@@ -467,7 +467,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset, port string) 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+asset, nil)
 		if err == nil {
 			if resp, err := client.Do(req); err == nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				return "http"
 			}
 		}
@@ -481,7 +481,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset, port string) 
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }
 
@@ -519,7 +519,7 @@ func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
 			return nil, 0
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			return nil, resp.StatusCode
 		}

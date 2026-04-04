@@ -413,7 +413,7 @@ func burstProbe(ctx context.Context, client *http.Client, url string, count int,
 			// Hash first 512 bytes of body for change detection.
 			buf := make([]byte, 512)
 			n, _ := io.ReadFull(resp.Body, buf)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			h := fnv.New32a()
 			h.Write(buf[:n])
@@ -571,7 +571,7 @@ func controlProbe(ctx context.Context, client *http.Client, url string) int {
 	if err != nil {
 		return 0
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode
 }
 
@@ -589,7 +589,7 @@ func bypassProbe(ctx context.Context, client *http.Client, url, headerName, head
 	if err != nil {
 		return false, 0
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	code := resp.StatusCode
 	bypassed := code >= 200 && code < 300
@@ -607,7 +607,7 @@ func retryAfterPresent(ctx context.Context, client *http.Client, url string) boo
 	if err != nil {
 		return true
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.Header.Get("Retry-After") != ""
 }
 
@@ -626,7 +626,7 @@ func findProbeTarget(ctx context.Context, client *http.Client, asset string, pro
 			if err != nil {
 				continue
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusNotFound && resp.StatusCode < 500 {
 				return base, url
 			}

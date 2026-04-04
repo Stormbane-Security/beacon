@@ -65,8 +65,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if err != nil {
 		return nil, nil
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 
 	var findings []finding.Finding
 

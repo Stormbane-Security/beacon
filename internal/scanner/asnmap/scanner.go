@@ -110,7 +110,7 @@ func queryASN(ctx context.Context, ip string) (map[string]any, error) {
 		// Fallback to DNS-based lookup via Team Cymru.
 		return queryASNViaDNS(ctx, ip)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return queryASNViaDNS(ctx, ip)
@@ -175,7 +175,7 @@ func queryPrefixes(ctx context.Context, asn string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)

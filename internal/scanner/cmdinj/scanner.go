@@ -170,7 +170,7 @@ func (s *Scanner) shellshockProbe(ctx context.Context, client *http.Client, sche
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if !strings.Contains(string(body), shellshockMark) {
 				continue
@@ -237,7 +237,7 @@ func shellshockExec(ctx context.Context, client *http.Client, targetURL, header,
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
@@ -451,7 +451,7 @@ func timeRequest(ctx context.Context, client *http.Client, rawURL string) (time.
 		return elapsed, err
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return elapsed, nil
 }
 
@@ -465,7 +465,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return scheme
 	}
 	return ""

@@ -37,7 +37,7 @@ func fakeEmptyIntelServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// Minimal valid responses for both CISA KEV and NVD formats.
-		fmt.Fprint(w, `{"vulnerabilities":[]}`)
+		_, _ = fmt.Fprint(w, `{"vulnerabilities":[]}`)
 	}))
 }
 
@@ -52,7 +52,7 @@ func fakeClaudeServer(t *testing.T, responseBody string) *httptest.Server {
 			"stop_reason": "end_turn",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		_ = json.NewEncoder(w).Encode(resp) //nolint:errcheck
 	}))
 }
 

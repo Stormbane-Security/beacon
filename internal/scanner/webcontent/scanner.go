@@ -180,7 +180,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			return nil, nil // unreachable, not a finding
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB
 	if err != nil {
@@ -512,10 +512,10 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 		return nil
 	}
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	src, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10)) // 512KB max per file
 	if err != nil {
@@ -570,7 +570,7 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 					val := sub[1]
 					isEnvVarRef := true
 					for _, c := range val {
-						if !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+						if (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 							isEnvVarRef = false
 							break
 						}
@@ -598,7 +598,7 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 					// name or i18n key rather than a credential (e.g. password:"text").
 					allLowerWord := true
 					for _, c := range val {
-						if !((c >= 'a' && c <= 'z') || c == '-' || c == '_') {
+						if (c < 'a' || c > 'z') && c != '-' && c != '_' {
 							allLowerWord = false
 							break
 						}
@@ -782,7 +782,7 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return nil
 	}

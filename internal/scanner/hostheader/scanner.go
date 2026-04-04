@@ -102,7 +102,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		location := resp.Header.Get("Location")
 		setCookie := resp.Header.Get("Set-Cookie")
@@ -244,7 +244,7 @@ func baseline(ctx context.Context, client *http.Client, asset string) (
 		}
 
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		scheme = s
 		statusCode = resp.StatusCode

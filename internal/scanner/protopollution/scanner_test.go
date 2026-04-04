@@ -27,12 +27,12 @@ func TestProtoPollution_PayloadReflected(t *testing.T) {
 		if polluted {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"` + probeMarker + `":true,"other":"data"}`)) //nolint:errcheck
+			_, _ = w.Write([]byte(`{"` + probeMarker + `":true,"other":"data"}`)) //nolint:errcheck
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -64,7 +64,7 @@ func TestProtoPollution_NotReflected(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		// Response never includes the marker regardless of POST payload.
-		w.Write([]byte(`{"status":"ok"}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"status":"ok"}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 

@@ -192,13 +192,13 @@ func (c *Classifier) Classify(ctx context.Context, ev *playbook.Evidence) (*Clas
 		// Persist proposed fingerprint rules.
 		for i := range result.ProposedRules {
 			if err := c.st.UpsertFingerprintRule(ctx, &result.ProposedRules[i]); err != nil {
-				fmt.Fprintf(os.Stderr, "aifp: failed to persist fingerprint rule: %v\n", err)
+				_, _ = fmt.Fprintf(os.Stderr, "aifp: failed to persist fingerprint rule: %v\n", err)
 			}
 		}
 		// Persist a proposed playbook when the classifier has enough signal.
 		if sugg := buildProposedPlaybook(result); sugg != nil {
 			if err := c.st.SavePlaybookSuggestion(ctx, sugg); err != nil {
-				fmt.Fprintf(os.Stderr, "aifp: failed to persist playbook suggestion: %v\n", err)
+				_, _ = fmt.Fprintf(os.Stderr, "aifp: failed to persist playbook suggestion: %v\n", err)
 			}
 		}
 	}
@@ -261,10 +261,10 @@ func buildPlaybookYAML(tech string, result *ClassifyResult) string {
 	var b strings.Builder
 	safeName := strings.ToLower(strings.NewReplacer(" ", "_", "-", "_", "/", "_").Replace(tech))
 
-	fmt.Fprintf(&b, "name: %s\n", safeName)
+	_, _ = fmt.Fprintf(&b, "name: %s\n", safeName)
 	b.WriteString("description: >\n")
-	fmt.Fprintf(&b, "  AI-detected: %s\n", result.Explanation)
-	fmt.Fprintf(&b, "  Confidence: %s. Signals: %s.\n", result.Confidence, strings.Join(result.Signals, ", "))
+	_, _ = fmt.Fprintf(&b, "  AI-detected: %s\n", result.Explanation)
+	_, _ = fmt.Fprintf(&b, "  Confidence: %s. Signals: %s.\n", result.Confidence, strings.Join(result.Signals, ", "))
 	b.WriteString("  This playbook was proposed automatically — review match conditions and scanner list before approving.\n")
 	b.WriteString("match:\n  any:\n")
 
@@ -272,19 +272,19 @@ func buildPlaybookYAML(tech string, result *ClassifyResult) string {
 
 	// High-level evidence fields already resolved by the classifier.
 	if result.Framework != "" {
-		fmt.Fprintf(&b, "    - framework_contains: %q\n", result.Framework)
+		_, _ = fmt.Fprintf(&b, "    - framework_contains: %q\n", result.Framework)
 		matchCount++
 	}
 	if result.ProxyType != "" {
-		fmt.Fprintf(&b, "    - proxy_type_contains: %q\n", result.ProxyType)
+		_, _ = fmt.Fprintf(&b, "    - proxy_type_contains: %q\n", result.ProxyType)
 		matchCount++
 	}
 	if result.CloudProvider != "" {
-		fmt.Fprintf(&b, "    - cloud_provider_contains: %q\n", result.CloudProvider)
+		_, _ = fmt.Fprintf(&b, "    - cloud_provider_contains: %q\n", result.CloudProvider)
 		matchCount++
 	}
 	if result.AuthSystem != "" {
-		fmt.Fprintf(&b, "    - auth_system_contains: %q\n", result.AuthSystem)
+		_, _ = fmt.Fprintf(&b, "    - auth_system_contains: %q\n", result.AuthSystem)
 		matchCount++
 	}
 
@@ -296,46 +296,46 @@ func buildPlaybookYAML(tech string, result *ClassifyResult) string {
 		switch r.SignalType {
 		case "header":
 			if r.SignalKey != "" && r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - header_value:\n        name: %q\n        contains: %q\n", r.SignalKey, r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - header_value:\n        name: %q\n        contains: %q\n", r.SignalKey, r.SignalValue)
 				matchCount++
 			} else if r.SignalKey != "" {
-				fmt.Fprintf(&b, "    - header_present: %q\n", r.SignalKey)
+				_, _ = fmt.Fprintf(&b, "    - header_present: %q\n", r.SignalKey)
 				matchCount++
 			}
 		case "body":
 			if r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - body_contains: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - body_contains: %q\n", r.SignalValue)
 				matchCount++
 			}
 		case "title":
 			if r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - title_contains: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - title_contains: %q\n", r.SignalValue)
 				matchCount++
 			}
 		case "path":
 			if r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - path_responds: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - path_responds: %q\n", r.SignalValue)
 				matchCount++
 			}
 		case "cname":
 			if r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - cname_contains: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - cname_contains: %q\n", r.SignalValue)
 				matchCount++
 			}
 		case "dns_suffix":
 			if r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - dns_suffix: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - dns_suffix: %q\n", r.SignalValue)
 				matchCount++
 			}
 		case "asn_org":
 			if r.SignalValue != "" {
-				fmt.Fprintf(&b, "    - asn_org_contains: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - asn_org_contains: %q\n", r.SignalValue)
 				matchCount++
 			}
 		case "cookie":
 			if r.SignalValue != "" {
 				// Cookies arrive as Set-Cookie header values.
-				fmt.Fprintf(&b, "    - header_value:\n        name: \"set-cookie\"\n        contains: %q\n", r.SignalValue)
+				_, _ = fmt.Fprintf(&b, "    - header_value:\n        name: \"set-cookie\"\n        contains: %q\n", r.SignalValue)
 				matchCount++
 			}
 		}
@@ -362,13 +362,13 @@ func buildPlaybookYAML(tech string, result *ClassifyResult) string {
 	if len(surfaceScanners) > 0 {
 		b.WriteString("surface:\n  scanners:\n")
 		for _, s := range surfaceScanners {
-			fmt.Fprintf(&b, "    - %s\n", s)
+			_, _ = fmt.Fprintf(&b, "    - %s\n", s)
 		}
 	}
 	if len(deepScanners) > 0 {
 		b.WriteString("deep:\n  scanners:\n")
 		for _, s := range deepScanners {
-			fmt.Fprintf(&b, "    - %s\n", s)
+			_, _ = fmt.Fprintf(&b, "    - %s\n", s)
 		}
 	}
 
@@ -384,57 +384,57 @@ func buildClassifyPrompt(ev *playbook.Evidence) string {
 	b.WriteString("RAW SIGNALS:\n")
 
 	if ev.StatusCode > 0 {
-		fmt.Fprintf(&b, "- HTTP status: %d\n", ev.StatusCode)
+		_, _ = fmt.Fprintf(&b, "- HTTP status: %d\n", ev.StatusCode)
 	}
 	// Headers — most informative signals.
 	for k, v := range ev.Headers {
-		fmt.Fprintf(&b, "- Header %s: %s\n", k, trunc(v, 140))
+		_, _ = fmt.Fprintf(&b, "- Header %s: %s\n", k, trunc(v, 140))
 	}
 	if ev.Title != "" {
-		fmt.Fprintf(&b, "- Page title: %s\n", trunc(ev.Title, 100))
+		_, _ = fmt.Fprintf(&b, "- Page title: %s\n", trunc(ev.Title, 100))
 	}
 	if ev.Body512 != "" {
-		fmt.Fprintf(&b, "- Body (first 512 bytes): %s\n", sanitizeEvidence(trunc(ev.Body512, 300)))
+		_, _ = fmt.Fprintf(&b, "- Body (first 512 bytes): %s\n", sanitizeEvidence(trunc(ev.Body512, 300)))
 	}
 	for _, san := range ev.CertSANs {
-		fmt.Fprintf(&b, "- TLS SAN: %s\n", san)
+		_, _ = fmt.Fprintf(&b, "- TLS SAN: %s\n", san)
 	}
 	if ev.CertIssuer != "" {
-		fmt.Fprintf(&b, "- TLS issuer: %s\n", ev.CertIssuer)
+		_, _ = fmt.Fprintf(&b, "- TLS issuer: %s\n", ev.CertIssuer)
 	}
 	for _, c := range ev.CNAMEChain {
-		fmt.Fprintf(&b, "- CNAME: %s\n", c)
+		_, _ = fmt.Fprintf(&b, "- CNAME: %s\n", c)
 	}
 	if ev.ASNOrg != "" {
-		fmt.Fprintf(&b, "- ASN org: %s\n", ev.ASNOrg)
+		_, _ = fmt.Fprintf(&b, "- ASN org: %s\n", ev.ASNOrg)
 	}
 	for _, p := range ev.RespondingPaths {
-		fmt.Fprintf(&b, "- Responding path: %s\n", p)
+		_, _ = fmt.Fprintf(&b, "- Responding path: %s\n", p)
 	}
 	for k, v := range ev.ServiceVersions {
-		fmt.Fprintf(&b, "- Service version [%s]: %s\n", k, v)
+		_, _ = fmt.Fprintf(&b, "- Service version [%s]: %s\n", k, v)
 	}
 	for _, ck := range ev.CookieNames {
-		fmt.Fprintf(&b, "- Cookie name: %s\n", ck)
+		_, _ = fmt.Fprintf(&b, "- Cookie name: %s\n", ck)
 	}
 	if ev.JARMFingerprint != "" {
-		fmt.Fprintf(&b, "- JARM: %s\n", ev.JARMFingerprint[:min(len(ev.JARMFingerprint), 32)])
+		_, _ = fmt.Fprintf(&b, "- JARM: %s\n", ev.JARMFingerprint[:min(len(ev.JARMFingerprint), 32)])
 	}
 	if ev.FaviconHash != "" {
-		fmt.Fprintf(&b, "- Favicon hash (FNV): %s\n", ev.FaviconHash)
+		_, _ = fmt.Fprintf(&b, "- Favicon hash (FNV): %s\n", ev.FaviconHash)
 	}
 	if ev.DNSSuffix != "" {
-		fmt.Fprintf(&b, "- DNS suffix: %s\n", ev.DNSSuffix)
+		_, _ = fmt.Fprintf(&b, "- DNS suffix: %s\n", ev.DNSSuffix)
 	}
 	// Tell the AI what deterministic rules already found to avoid duplication.
 	if ev.Framework != "" {
-		fmt.Fprintf(&b, "- Already identified framework: %s\n", ev.Framework)
+		_, _ = fmt.Fprintf(&b, "- Already identified framework: %s\n", ev.Framework)
 	}
 	if ev.ProxyType != "" {
-		fmt.Fprintf(&b, "- Already identified proxy: %s\n", ev.ProxyType)
+		_, _ = fmt.Fprintf(&b, "- Already identified proxy: %s\n", ev.ProxyType)
 	}
 	if ev.CloudProvider != "" {
-		fmt.Fprintf(&b, "- Already identified cloud: %s\n", ev.CloudProvider)
+		_, _ = fmt.Fprintf(&b, "- Already identified cloud: %s\n", ev.CloudProvider)
 	}
 
 	b.WriteString(`

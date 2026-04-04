@@ -255,7 +255,7 @@ func runProbe(ctx context.Context, client *http.Client, url, asset string, p pro
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Only evaluate 2xx responses — 401/403 means auth required (good!), 4xx/5xx means no LLM there.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -371,6 +371,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

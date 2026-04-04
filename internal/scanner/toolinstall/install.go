@@ -55,7 +55,7 @@ func Ensure(bin string) (string, error) {
 		return "", fmt.Errorf("%s not found and go compiler is not available for auto-install", bin)
 	}
 
-	fmt.Fprintf(os.Stderr, "beacon: installing %s via go install...\n", bin)
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: installing %s via go install...\n", bin)
 	cmd := exec.Command("go", "install", "-v", pkg)
 	cmd.Stdout = os.Stderr // show progress
 	cmd.Stderr = os.Stderr
@@ -96,7 +96,7 @@ func EnsureTestssl(bin string) (string, error) {
 		return dest, nil
 	}
 
-	fmt.Fprintf(os.Stderr, "beacon: downloading testssl.sh...\n")
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: downloading testssl.sh...\n")
 	cmd := exec.Command("curl", "-fsSL",
 		"https://raw.githubusercontent.com/drwetter/testssl.sh/3.2/testssl.sh",
 		"-o", dest,
@@ -151,7 +151,7 @@ func ensureTheHarvester() (string, error) {
 	// macOS: try brew
 	if runtime.GOOS == "darwin" {
 		if brewPath, err := exec.LookPath("brew"); err == nil {
-			fmt.Fprintf(os.Stderr, "beacon: installing theHarvester via brew...\n")
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: installing theHarvester via brew...\n")
 			cmd := exec.Command(brewPath, "install", "theharvester")
 			cmd.Stdout = os.Stderr
 			cmd.Stderr = os.Stderr
@@ -173,7 +173,7 @@ func ensureTheHarvester() (string, error) {
 	// Linux: try apt-get
 	if runtime.GOOS == "linux" {
 		if aptPath, err := exec.LookPath("apt-get"); err == nil {
-			fmt.Fprintf(os.Stderr, "beacon: installing theharvester via apt-get...\n")
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: installing theharvester via apt-get...\n")
 			cmd := exec.Command(aptPath, "install", "-y", "theharvester")
 			cmd.Stdout = os.Stderr
 			cmd.Stderr = os.Stderr
@@ -242,7 +242,7 @@ func EnsureSwaks() (string, error) {
 
 	if runtime.GOOS == "darwin" {
 		if brewPath, err := exec.LookPath("brew"); err == nil {
-			fmt.Fprintf(os.Stderr, "beacon: installing swaks via brew...\n")
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: installing swaks via brew...\n")
 			cmd := exec.Command(brewPath, "install", "swaks")
 			cmd.Stdout = os.Stderr
 			cmd.Stderr = os.Stderr
@@ -257,7 +257,7 @@ func EnsureSwaks() (string, error) {
 
 	if runtime.GOOS == "linux" {
 		if aptPath, err := exec.LookPath("apt-get"); err == nil {
-			fmt.Fprintf(os.Stderr, "beacon: installing swaks via apt-get...\n")
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: installing swaks via apt-get...\n")
 			cmd := exec.Command(aptPath, "install", "-y", "swaks")
 			cmd.Stdout = os.Stderr
 			cmd.Stderr = os.Stderr

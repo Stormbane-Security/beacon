@@ -24,11 +24,11 @@ func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, su
 	var b strings.Builder
 
 	// Header
-	fmt.Fprintf(&b, "# Beacon Security Report — %s\n\n", run.Domain)
-	fmt.Fprintf(&b, "**Scan type:** %s  \n", run.ScanType)
-	fmt.Fprintf(&b, "**Started:** %s  \n", run.StartedAt.Format("2006-01-02 15:04"))
+	_, _ = fmt.Fprintf(&b, "# Beacon Security Report — %s\n\n", run.Domain)
+	_, _ = fmt.Fprintf(&b, "**Scan type:** %s  \n", run.ScanType)
+	_, _ = fmt.Fprintf(&b, "**Started:** %s  \n", run.StartedAt.Format("2006-01-02 15:04"))
 	if run.CompletedAt != nil {
-		fmt.Fprintf(&b, "**Completed:** %s  \n", run.CompletedAt.Format("2006-01-02 15:04"))
+		_, _ = fmt.Fprintf(&b, "**Completed:** %s  \n", run.CompletedAt.Format("2006-01-02 15:04"))
 	}
 	b.WriteString("\n")
 
@@ -37,12 +37,12 @@ func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, su
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Severity | Count |\n")
 	b.WriteString("|----------|-------|\n")
-	fmt.Fprintf(&b, "| Critical | %d |\n", counts[finding.SeverityCritical])
-	fmt.Fprintf(&b, "| High     | %d |\n", counts[finding.SeverityHigh])
-	fmt.Fprintf(&b, "| Medium   | %d |\n", counts[finding.SeverityMedium])
-	fmt.Fprintf(&b, "| Low      | %d |\n", counts[finding.SeverityLow])
-	fmt.Fprintf(&b, "| Info     | %d |\n", counts[finding.SeverityInfo])
-	fmt.Fprintf(&b, "| **Total**| **%d** |\n\n", len(enriched))
+	_, _ = fmt.Fprintf(&b, "| Critical | %d |\n", counts[finding.SeverityCritical])
+	_, _ = fmt.Fprintf(&b, "| High     | %d |\n", counts[finding.SeverityHigh])
+	_, _ = fmt.Fprintf(&b, "| Medium   | %d |\n", counts[finding.SeverityMedium])
+	_, _ = fmt.Fprintf(&b, "| Low      | %d |\n", counts[finding.SeverityLow])
+	_, _ = fmt.Fprintf(&b, "| Info     | %d |\n", counts[finding.SeverityInfo])
+	_, _ = fmt.Fprintf(&b, "| **Total**| **%d** |\n\n", len(enriched))
 
 	// Executive summary
 	if summary != "" {
@@ -60,7 +60,7 @@ func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, su
 			if e.total > 0 {
 				findStr = fmt.Sprintf("%d", e.total)
 			}
-			fmt.Fprintf(&b, "| %s | %s | %s | %d | %d | %d | %d |\n",
+			_, _ = fmt.Fprintf(&b, "| %s | %s | %s | %d | %d | %d | %d |\n",
 				e.asset, e.tech, findStr, e.crit, e.high, e.med, e.low)
 		}
 		b.WriteString("\n")
@@ -95,14 +95,14 @@ func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, su
 				continue
 			}
 			label := SeverityLabel(ef.Finding.Severity)
-			fmt.Fprintf(&b, "### [%s] %s\n\n", label, ef.Finding.Title)
-			fmt.Fprintf(&b, "**Asset:** %s  \n", ef.Finding.Asset)
-			fmt.Fprintf(&b, "**Check:** `%s`  \n", ef.Finding.CheckID)
+			_, _ = fmt.Fprintf(&b, "### [%s] %s\n\n", label, ef.Finding.Title)
+			_, _ = fmt.Fprintf(&b, "**Asset:** %s  \n", ef.Finding.Asset)
+			_, _ = fmt.Fprintf(&b, "**Check:** `%s`  \n", ef.Finding.CheckID)
 			if ef.Finding.DiscoveredAt != (time.Time{}) {
-				fmt.Fprintf(&b, "**Found:** %s  \n", ef.Finding.DiscoveredAt.Format("2006-01-02 15:04"))
+				_, _ = fmt.Fprintf(&b, "**Found:** %s  \n", ef.Finding.DiscoveredAt.Format("2006-01-02 15:04"))
 			}
 			if ef.DeltaStatus != "" {
-				fmt.Fprintf(&b, "**Status:** %s  \n", ef.DeltaStatus)
+				_, _ = fmt.Fprintf(&b, "**Status:** %s  \n", ef.DeltaStatus)
 			}
 			if ef.Explanation != "" {
 				b.WriteString("\n" + ef.Explanation + "\n")
@@ -117,14 +117,14 @@ func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, su
 				b.WriteString("\n**Tech-specific fix:** " + ef.TechSpecificRemediation + "\n")
 			}
 			if len(ef.ComplianceTags) > 0 {
-				fmt.Fprintf(&b, "\n**Compliance:** %s\n", strings.Join(ef.ComplianceTags, ", "))
+				_, _ = fmt.Fprintf(&b, "\n**Compliance:** %s\n", strings.Join(ef.ComplianceTags, ", "))
 			}
 			proofCmd := ef.Finding.ProofCommand
 			if proofCmd == "" {
 				proofCmd = verifyCmd(ef.Finding.CheckID, ef.Finding.Asset)
 			}
 			if proofCmd != "" {
-				fmt.Fprintf(&b, "\n**Proof Command** (copy-paste to confirm):\n```sh\n%s\n```\n", proofCmd)
+				_, _ = fmt.Fprintf(&b, "\n**Proof Command** (copy-paste to confirm):\n```sh\n%s\n```\n", proofCmd)
 			}
 			b.WriteString("\n---\n\n")
 		}

@@ -75,7 +75,7 @@ func collectCloudMetadata(ctx context.Context) map[string]string {
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == 200 && len(body) > 0 {
 			key := fmt.Sprintf("%s_%s", ep.provider, ep.key)
@@ -93,7 +93,7 @@ func collectCloudMetadata(ctx context.Context) map[string]string {
 				resp, err := client.Do(req)
 				if err == nil {
 					body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
-					resp.Body.Close()
+					_ = resp.Body.Close()
 					if resp.StatusCode == 200 {
 						meta["aws_iam_credentials"] = string(body)
 					}

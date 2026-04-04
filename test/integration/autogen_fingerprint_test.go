@@ -153,7 +153,7 @@ func ruleHandler(r store.FingerprintRule) http.Handler {
 			w.Header().Set("Server", r.SignalValue)
 		case "body":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, "<html><body>%s</body></html>", r.SignalValue)
+			_, _ = fmt.Fprintf(w, "<html><body>%s</body></html>", r.SignalValue)
 		case "cookie":
 			http.SetCookie(w, &http.Cookie{Name: r.SignalValue, Value: "test"})
 		}
@@ -174,7 +174,7 @@ func collectHTTPEvidence(t *testing.T, rawURL string) playbook.Evidence {
 	if err != nil {
 		t.Fatalf("GET %s: %v", rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	ev := playbook.Evidence{
 		Headers: make(map[string]string),

@@ -119,7 +119,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024)) // 2MB max per JS file
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != 200 {
 			continue
@@ -192,7 +192,7 @@ func discoverJSFiles(ctx context.Context, client *http.Client, base string) []st
 		resp, err := client.Do(req)
 		if err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// Simple regex to find script src attributes.
 			srcRe := regexp.MustCompile(`<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
@@ -235,7 +235,7 @@ func discoverJSFiles(ctx context.Context, client *http.Client, base string) []st
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == 200 {
 			ct := resp.Header.Get("Content-Type")
 			if strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript") ||

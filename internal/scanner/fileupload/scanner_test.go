@@ -47,7 +47,7 @@ func TestRun_DeepMode_UploadAcceptsPHPDoubleExt_FindingEmitted(t *testing.T) {
 			if strings.HasPrefix(ct, "multipart/form-data") {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"url":"/uploads/beacon_test.php.jpg","filename":"beacon_test.php.jpg"}`))
+				_, _ = w.Write([]byte(`{"url":"/uploads/beacon_test.php.jpg","filename":"beacon_test.php.jpg"}`))
 				return
 			}
 		}
@@ -101,7 +101,7 @@ func TestRun_DeepMode_UploadReturns200WithoutFileURL_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok"}`))
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

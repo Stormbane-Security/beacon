@@ -389,11 +389,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 						continue
 					}
 					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-						resp.Body.Close()
+						_ = resp.Body.Close()
 						continue
 					}
 					body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-					resp.Body.Close()
+					_ = resp.Body.Close()
 					if len(body) == 0 {
 						continue
 					}
@@ -591,7 +591,7 @@ func scanPath(ctx context.Context, client *http.Client, asset, url string, alrea
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Only scan successful responses — 2xx means the path is exposed and returning data.
 	// 3xx would require following redirects (which we disabled); skip them.
@@ -665,7 +665,7 @@ func fetchBody(ctx context.Context, client *http.Client, asset string) ([]byte, 
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, url, err
 		}

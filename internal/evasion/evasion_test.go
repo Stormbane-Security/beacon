@@ -105,7 +105,7 @@ func TestHTTPClient_RequestReachesServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if !hit.Load() {
 		t.Error("request did not reach test server")
 	}
@@ -203,7 +203,7 @@ func TestRateLimiting_JitterAppliesDelay(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	elapsed := time.Since(start)
 
@@ -235,7 +235,7 @@ func TestFallback_InvalidProxyURL_RequestSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected fallback to direct connection, got error: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if !hit.Load() {
 		t.Error("request did not reach test server via fallback")
 	}

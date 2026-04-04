@@ -283,7 +283,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1) // SQLite doesn't handle concurrent writers
 
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 
@@ -318,7 +318,7 @@ func Open(path string) (*Store, error) {
 		if _, err := db.Exec(m); err != nil {
 			msg := err.Error()
 			if !strings.Contains(msg, "duplicate column") && !strings.Contains(msg, "already exists") {
-				fmt.Fprintf(os.Stderr, "beacon: migration warning: %v\n", err)
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: migration warning: %v\n", err)
 			}
 		}
 	}
@@ -363,7 +363,7 @@ func (s *Store) ListTargets(ctx context.Context) ([]store.Target, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.Target
 	for rows.Next() {
@@ -442,7 +442,7 @@ func (s *Store) ListScanRuns(ctx context.Context, domain string) ([]store.ScanRu
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.ScanRun
 	for rows.Next() {
@@ -467,7 +467,7 @@ func (s *Store) ListAllScanRuns(ctx context.Context, limit int) ([]store.ScanRun
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.ScanRun
 	for rows.Next() {
@@ -530,12 +530,12 @@ func (s *Store) PurgeOrphanedRuns(ctx context.Context, olderThan time.Time) (int
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
@@ -607,7 +607,7 @@ func (s *Store) SaveFindings(ctx context.Context, scanRunID string, findings []f
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, f := range findings {
 		ev, _ := json.Marshal(f.Evidence)
@@ -636,7 +636,7 @@ func (s *Store) GetFindings(ctx context.Context, scanRunID string) ([]finding.Fi
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []finding.Finding
 	for rows.Next() {
@@ -683,7 +683,7 @@ func (s *Store) SaveEnrichedFindings(ctx context.Context, scanRunID string, efs 
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().UTC()
 	for _, ef := range efs {
@@ -712,7 +712,7 @@ func (s *Store) GetEnrichedFindings(ctx context.Context, scanRunID string) ([]en
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []enrichment.EnrichedFinding
 	for rows.Next() {
@@ -832,7 +832,7 @@ func (s *Store) ListAssetExecutions(ctx context.Context, scanRunID string) ([]st
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.AssetExecution
 	for rows.Next() {
@@ -897,7 +897,7 @@ func (s *Store) ListUnmatchedAssets(ctx context.Context) ([]store.UnmatchedAsset
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.UnmatchedAsset
 	for rows.Next() {
@@ -962,7 +962,7 @@ func (s *Store) ListPlaybookSuggestions(ctx context.Context, status string) ([]s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.PlaybookSuggestion
 	for rows.Next() {
@@ -1036,7 +1036,7 @@ func (s *Store) SaveCorrelationFindings(ctx context.Context, findings []store.Co
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for i := range findings {
 		f := &findings[i]
@@ -1068,7 +1068,7 @@ func (s *Store) ListCorrelationFindings(ctx context.Context, domain string) ([]s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.CorrelationFinding
 	for rows.Next() {
@@ -1103,7 +1103,7 @@ func (s *Store) ListRecentScanRuns(ctx context.Context, limit int) ([]store.Scan
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.ScanRun
 	for rows.Next() {
@@ -1139,7 +1139,7 @@ func (s *Store) ListSuppressions(ctx context.Context, domain string) ([]store.Fi
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.FindingSuppression
 	for rows.Next() {
@@ -1197,7 +1197,7 @@ func (s *Store) ListScannerMetrics(ctx context.Context, scanRunID string) ([]sto
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.ScannerMetric
 	for rows.Next() {
@@ -1238,7 +1238,7 @@ func (s *Store) GetScannerROI(ctx context.Context, domain string) ([]store.Scann
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.ScannerROISummary
 	for rows.Next() {
@@ -1280,7 +1280,7 @@ func (s *Store) SaveDiscoveryAudit(ctx context.Context, audits []store.Discovery
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 	for _, a := range audits {
 		if _, err := stmt.ExecContext(ctx,a.ID, a.ScanRunID, a.Asset, a.Source, a.CreatedAt); err != nil {
 			return err
@@ -1301,7 +1301,7 @@ func (s *Store) GetDiscoverySourceSummary(ctx context.Context, domain string) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []store.DiscoverySourceSummary
 	for rows.Next() {
 		var s store.DiscoverySourceSummary
@@ -1318,7 +1318,7 @@ func (s *Store) GetDiscoverySourcesByRun(ctx context.Context, scanRunID string) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make(map[string]string)
 	for rows.Next() {
 		var asset, source string
@@ -1352,7 +1352,7 @@ func (s *Store) GetFalsePositivePatterns(ctx context.Context, domain string) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var checks []string
 	for rows.Next() {
 		var c string
@@ -1384,7 +1384,7 @@ func (s *Store) SaveSanitizedMetrics(ctx context.Context, metrics []store.Saniti
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 	for _, m := range metrics {
 		skipped := 0
 		if m.Skipped {
@@ -1420,7 +1420,7 @@ func (s *Store) GetCrossDomainScannerSummary(ctx context.Context) ([]store.Cross
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []store.CrossDomainScannerSummary
 	for rows.Next() {
@@ -1457,7 +1457,7 @@ func (s *Store) GetFingerprintRules(ctx context.Context, status string) ([]store
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var rules []store.FingerprintRule
 	for rows.Next() {
 		var r store.FingerprintRule

@@ -68,8 +68,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			return nil, nil
 		}
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	_ = resp.Body.Close()
 
 	var findings []finding.Finding
 	now := time.Now()

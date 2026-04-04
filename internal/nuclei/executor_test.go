@@ -132,7 +132,7 @@ func TestExecuteTemplate_SimpleGET(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.git/config" {
 			w.WriteHeader(200)
-			w.Write([]byte("[core]\n\trepositoryformatversion = 0"))
+			_, _ = w.Write([]byte("[core]\n\trepositoryformatversion = 0"))
 			return
 		}
 		w.WriteHeader(404)
@@ -178,7 +178,7 @@ func TestExecuteTemplate_SimpleGET(t *testing.T) {
 func TestExecuteTemplate_NoMatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
-		w.Write([]byte("not found"))
+		_, _ = w.Write([]byte("not found"))
 	}))
 	defer server.Close()
 
@@ -217,7 +217,7 @@ func TestExecuteTemplate_RawWithPayloads(t *testing.T) {
 		if r.Method == "POST" && r.URL.Path == "/login" {
 			w.Header().Set("Set-Cookie", "session=abc123")
 			w.WriteHeader(200)
-			w.Write([]byte(`{"message":"Logged in"}`))
+			_, _ = w.Write([]byte(`{"message":"Logged in"}`))
 			return
 		}
 		w.WriteHeader(401)
@@ -267,7 +267,7 @@ func TestExecuteTemplate_Extractors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Apache/2.4.49")
 		w.WriteHeader(200)
-		w.Write([]byte(`version: 2.4.49`))
+		_, _ = w.Write([]byte(`version: 2.4.49`))
 	}))
 	defer server.Close()
 
@@ -314,7 +314,7 @@ func TestExecuteTemplate_Extractors(t *testing.T) {
 func TestExecuteTemplate_DSLMatcher(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`DebugKit Dashboard`))
+		_, _ = w.Write([]byte(`DebugKit Dashboard`))
 	}))
 	defer server.Close()
 

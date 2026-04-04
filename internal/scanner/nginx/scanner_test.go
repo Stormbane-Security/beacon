@@ -19,9 +19,9 @@ func TestNginx_AliasTraversal(t *testing.T) {
 		// Simulate an Nginx alias traversal vulnerability: paths containing
 		// "etc/passwd" return the passwd file content.
 		if strings.Contains(r.URL.Path, "etc/passwd") {
-			fmt.Fprintln(w, "root:x:0:0:root:/root:/bin/bash")
-			fmt.Fprintln(w, "bin:x:1:1:bin:/bin:/sbin/nologin")
-			fmt.Fprintln(w, "daemon:x:2:2:daemon:/sbin:/sbin/nologin")
+			_, _ = fmt.Fprintln(w, "root:x:0:0:root:/root:/bin/bash")
+			_, _ = fmt.Fprintln(w, "bin:x:1:1:bin:/bin:/sbin/nologin")
+			_, _ = fmt.Fprintln(w, "daemon:x:2:2:daemon:/sbin:/sbin/nologin")
 			return
 		}
 		http.NotFound(w, r)
@@ -57,7 +57,7 @@ func TestNginx_IISShortname(t *testing.T) {
 		if r.URL.Path == "/~1/" {
 			w.Header().Set("Server", "Microsoft-IIS/10.0")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintln(w, "Bad Request")
+			_, _ = fmt.Fprintln(w, "Bad Request")
 			return
 		}
 		http.NotFound(w, r)
@@ -96,7 +96,7 @@ func TestNginx_SurfaceMode_NoTraversalPayloads(t *testing.T) {
 		// Simulate a vulnerable server that would return passwd content
 		// if traversal paths are probed.
 		if strings.Contains(r.URL.Path, "etc/passwd") {
-			fmt.Fprintln(w, "root:x:0:0:root:/root:/bin/bash")
+			_, _ = fmt.Fprintln(w, "root:x:0:0:root:/root:/bin/bash")
 			return
 		}
 		http.NotFound(w, r)
@@ -130,7 +130,7 @@ func TestNginx_NormalServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Normal server: 404 for everything unusual, 200 for root.
 		if r.URL.Path == "/" {
-			fmt.Fprintln(w, "Welcome to our website!")
+			_, _ = fmt.Fprintln(w, "Welcome to our website!")
 			return
 		}
 		http.NotFound(w, r)

@@ -1258,7 +1258,7 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 		if ev.StatusMsg != "" {
 			r.statusMsg = ev.StatusMsg
 			if !r.ansi {
-				fmt.Fprintf(os.Stderr, "beacon: %s\n", ev.StatusMsg)
+				_, _ = fmt.Fprintf(os.Stderr, "beacon: %s\n", ev.StatusMsg)
 			}
 		}
 
@@ -1274,7 +1274,7 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 			}
 		}
 		if !r.ansi {
-			fmt.Fprintf(os.Stderr, "beacon: discovery done — %d assets\n", r.total)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: discovery done — %d assets\n", r.total)
 		}
 
 	case "unconfirmed_assets", "deploy_targets":
@@ -1334,7 +1334,7 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 			if r.ansi {
 				r.logLine(fmt.Sprintf("  %-14s  %s", ev.ScannerName, ev.ScannerCmd))
 			} else {
-				fmt.Fprintf(os.Stderr, "  %-14s  %s\n", ev.ScannerName, ev.ScannerCmd)
+				_, _ = fmt.Fprintf(os.Stderr, "  %-14s  %s\n", ev.ScannerName, ev.ScannerCmd)
 			}
 		}
 
@@ -1409,7 +1409,7 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 				r.logLine(fmt.Sprintf("  %-14s  \x1b[33m+%d finding(s)\x1b[0m on %s",
 					ev.ScannerName, ev.FindingDelta, ev.ActiveAsset))
 			} else {
-				fmt.Fprintf(os.Stderr, "  %-14s  +%d finding(s) on %s\n",
+				_, _ = fmt.Fprintf(os.Stderr, "  %-14s  +%d finding(s) on %s\n",
 					ev.ScannerName, ev.FindingDelta, ev.ActiveAsset)
 			}
 		}
@@ -1421,7 +1421,7 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 			if r.ansi {
 				r.logLine(fmt.Sprintf("  \x1b[36mfingerprint\x1b[0m    %s", ev.StatusMsg))
 			} else {
-				fmt.Fprintf(os.Stderr, "  fingerprint    %s\n", ev.StatusMsg)
+				_, _ = fmt.Fprintf(os.Stderr, "  fingerprint    %s\n", ev.StatusMsg)
 			}
 		}
 	}
@@ -1436,14 +1436,14 @@ func (r *progressRenderer) Handle(ev module.ProgressEvent) {
 func (r *progressRenderer) logLine(line string) {
 	var buf strings.Builder
 	if r.drawn && r.drawnLines > 0 {
-		fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
+		_, _ = fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
 		for i := 0; i < r.drawnLines; i++ {
 			buf.WriteString("\x1b[2K\n")
 		}
-		fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
+		_, _ = fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
 	}
-	fmt.Fprintf(&buf, "\x1b[2K\r%s\n", line)
-	os.Stderr.WriteString(buf.String())
+	_, _ = fmt.Fprintf(&buf, "\x1b[2K\r%s\n", line)
+	_, _ = os.Stderr.WriteString(buf.String())
 	r.drawn = false
 	r.drawnLines = 0
 }
@@ -1455,12 +1455,12 @@ func (r *progressRenderer) eraseBlock() {
 		return
 	}
 	var buf strings.Builder
-	fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
+	_, _ = fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
 	for i := 0; i < r.drawnLines; i++ {
 		buf.WriteString("\x1b[2K\n")
 	}
-	fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
-	os.Stderr.WriteString(buf.String())
+	_, _ = fmt.Fprintf(&buf, "\x1b[%dA", r.drawnLines)
+	_, _ = os.Stderr.WriteString(buf.String())
 }
 
 // render draws (or redraws) the status block in a single write to avoid
@@ -1502,7 +1502,7 @@ func (r *progressRenderer) render() {
 	} else if r.drawnLines > 0 {
 		// Move cursor up to the start of the previous block and clear everything
 		// below — handles mode switches where new content may be shorter than old.
-		fmt.Fprintf(&buf, "\x1b[%dA\x1b[J", r.drawnLines)
+		_, _ = fmt.Fprintf(&buf, "\x1b[%dA\x1b[J", r.drawnLines)
 	}
 
 	var lines int
@@ -1529,7 +1529,7 @@ func (r *progressRenderer) render() {
 		lines = r.renderProgress(&buf)
 	}
 
-	os.Stderr.WriteString(buf.String())
+	_, _ = os.Stderr.WriteString(buf.String())
 	r.drawn = true
 	r.drawnLines = lines
 }
@@ -1566,7 +1566,7 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		if len(msg) > msgMax {
 			msg = "…" + msg[len(msg)-msgMax+1:]
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r%s%-*s%s\n", prefix, msgMax, msg, suffix)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s%-*s%s\n", prefix, msgMax, msg, suffix)
 	} else {
 		const barWidth = 32
 		pct := 0.0
@@ -1583,7 +1583,7 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		runningCount := len(r.activeOps)
 		doneCount := len(r.recentOps)
 		statusStr := fmt.Sprintf("\x1b[33m%d running\x1b[0m \x1b[90m·\x1b[0m \x1b[32m%d done\x1b[0m", runningCount, doneCount)
-		fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[1m%3.0f%%\x1b[0m   %s   ETA \x1b[33m%s\x1b[0m\n",
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %s  \x1b[1m%3.0f%%\x1b[0m   %s   ETA \x1b[33m%s\x1b[0m\n",
 			bar, pct*100, statusStr, fmtETA(eta))
 	}
 
@@ -1601,7 +1601,7 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 	}
 	sevHint := "\x1b[90m[1-5] sev  \x1b[0m"
 	if r.confirmingExit {
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[1;31mStop scan? [y] yes  [n] no\x1b[0m\n",
 			r.done, r.total, findingsLabel)
 	} else if r.phase == "done" {
 		reviewHint := ""
@@ -1612,18 +1612,18 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 		if len(r.discoveredAssets) > 0 {
 			discoveredHint = fmt.Sprintf("  [d] discovered (%d)", len(r.discoveredAssets))
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r  %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [e] export  [q/b] back\x1b[0m%s\n",
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [e] export  [q/b] back\x1b[0m%s\n",
 			r.total, findingsLabel, sevHint, discoveredHint, reviewHint)
 	} else if r.phase == "discovering" {
 		// Asset list is not yet known — show findings count without misleading "0 / 0 assets".
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   %s   \x1b[90m%s[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[34mdiscovering assets\x1b[0m   %s   \x1b[90m%s[f] findings  [q/b] detach  [s] stop\x1b[0m\n",
 			findingsLabel, sevHint)
 	} else {
 		discoveredHint := ""
 		if len(r.discoveredAssets) > 0 {
 			discoveredHint = fmt.Sprintf("  [d] discovered (%d)", len(r.discoveredAssets))
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [q/b] detach  [s] stop\x1b[0m\n",
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %d / %d assets   %s   \x1b[90m%s[f] findings  [a] assets  [t] topology%s  [q/b] detach  [s] stop\x1b[0m\n",
 			r.done, r.total, findingsLabel, sevHint, discoveredHint)
 	}
 	lineCount := 2
@@ -1744,7 +1744,7 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 				cmd = cmd[:cmdAvail-1] + "…"
 			}
 			spin := spinChars[spinFrame]
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[33m%s\x1b[0m  \x1b[36m%-*s\x1b[0m  %-*s  \x1b[90m%s\x1b[0m%s\n",
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[33m%s\x1b[0m  \x1b[36m%-*s\x1b[0m  %-*s  \x1b[90m%s\x1b[0m%s\n",
 				spin, scannerW, op.scanner, assetW, asset, cmd, elapsedStr)
 		} else {
 			// Done: green checkmark, fixed elapsed in gray, +N findings in yellow.
@@ -1756,7 +1756,7 @@ func (r *progressRenderer) renderProgress(buf *strings.Builder) int {
 			if len(cmd) > cmdW {
 				cmd = cmd[:cmdW-1] + "…"
 			}
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[32m✓\x1b[0m  \x1b[90m%-*s  %-*s  %s\x1b[0m%s  \x1b[90m%s\x1b[0m\n",
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[32m✓\x1b[0m  \x1b[90m%-*s  %-*s  %s\x1b[0m%s  \x1b[90m%s\x1b[0m\n",
 				scannerW, op.scanner, assetW, asset, cmd, findStr, elapsedFmt)
 		}
 		lineCount++
@@ -1910,11 +1910,11 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 
 	// Header — hints change depending on filter state.
 	if r.findingFilterMode {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	} else if r.findingFilter != "" {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter: %s  [Esc] clear  [f/q] back  %d/%d\x1b[0m\n", sevSelector, r.findingFilter, nFindings, totalFindings)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter: %s  [Esc] clear  [f/q] back  %d/%d\x1b[0m\n", sevSelector, r.findingFilter, nFindings, totalFindings)
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mLive Findings\x1b[0m  %s  \x1b[90m[↵] open  [j/k] scroll  [[] sev  [/] filter  [f/q] back  %d/%d\x1b[0m\n", sevSelector, nFindings, totalFindings)
 	}
 	lineCount++
 
@@ -1924,7 +1924,7 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 		if row.isHeader {
 			col := severityColor(row.severity)
 			label := strings.ToUpper(row.severity.String())
-			fmt.Fprintf(buf, "\x1b[2K\r  %s── %s ──\x1b[0m\n", col, label)
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %s── %s ──\x1b[0m\n", col, label)
 		} else {
 			f := filtered[row.idx]
 			col := severityColor(f.Severity)
@@ -1973,9 +1973,9 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 				title = title[:titleMax-1] + "…"
 			}
 			if i == r.findingsCursor {
-				fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m%s%s\n", col, sev, asset, title, badge, overrideMarker)
+				_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[7m  %s%-4s\x1b[0m\x1b[7m  %-30s  %s\x1b[0m%s%s\n", col, sev, asset, title, badge, overrideMarker)
 			} else {
-				fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s%s%s\n", col, sev, asset, title, badge, overrideMarker)
+				_, _ = fmt.Fprintf(buf, "\x1b[2K\r  %s%-4s\x1b[0m  %-30s  %s%s%s\n", col, sev, asset, title, badge, overrideMarker)
 			}
 		}
 		lineCount++
@@ -1989,15 +1989,15 @@ func (r *progressRenderer) renderFindingsPager(buf *strings.Builder) int {
 
 	// Footer — show filter input prompt when in filter mode.
 	if r.findingFilterMode {
-		fmt.Fprintf(buf, "\x1b[2K\r  /filter: \x1b[1m%s\x1b[0m_\n", r.findingFilter)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  /filter: \x1b[1m%s\x1b[0m_\n", r.findingFilter)
 	} else if total == 0 {
 		if r.phase == "done" {
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings\x1b[0m\n")
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings\x1b[0m\n")
 		} else {
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings yet — scan is still running\x1b[0m\n")
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings yet — scan is still running\x1b[0m\n")
 		}
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", r.findingsCursor+1, total)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d\x1b[0m\n", r.findingsCursor+1, total)
 	}
 	lineCount++
 
@@ -2047,7 +2047,7 @@ func (r *progressRenderer) renderAssets(buf *strings.Builder) int {
 	lineCount := 0
 
 	// Header
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mAssets\x1b[0m  \x1b[90m[a/q] progress  [j/k ↑↓] move  [↵] view findings  %d assets\x1b[0m\n", total)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[1;36mAssets\x1b[0m  \x1b[90m[a/q] progress  [j/k ↑↓] move  [↵] view findings  %d assets\x1b[0m\n", total)
 	lineCount++
 
 	for i := off; i < end; i++ {
@@ -2089,7 +2089,7 @@ func (r *progressRenderer) renderAssets(buf *strings.Builder) int {
 			countStr = "\x1b[32mclean\x1b[0m"
 		}
 
-		fmt.Fprintf(buf, "\x1b[2K\r %s%s  %-42s  %s\n", cursor, icon, name, countStr)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r %s%s  %-42s  %s\n", cursor, icon, name, countStr)
 		lineCount++
 	}
 
@@ -2101,9 +2101,9 @@ func (r *progressRenderer) renderAssets(buf *strings.Builder) int {
 
 	// Footer
 	if total == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mDiscovering assets…\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mDiscovering assets…\x1b[0m\n")
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d–%d of %d assets\x1b[0m\n", off+1, end, total)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d–%d of %d assets\x1b[0m\n", off+1, end, total)
 	}
 	lineCount++
 
@@ -2148,7 +2148,7 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 	if len(name) > 50 {
 		name = "\u2026" + name[len(name)-49:]
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m\u25c0\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[q/b] back  [j/k] move  [Enter] detail\x1b[0m\n", name)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m\u25c0\x1b[0m \x1b[1;36m%s\x1b[0m  \x1b[90m[q/b] back  [j/k] move  [Enter] detail\x1b[0m\n", name)
 	lineCount++
 
 	// Network info line from fingerprint evidence.
@@ -2181,7 +2181,7 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 			infoParts = append(infoParts, "\u2192 "+cn)
 		}
 		if len(infoParts) > 0 {
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Join(infoParts, "  "))
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Join(infoParts, "  "))
 			lineCount++
 		}
 		// Open ports/services line.
@@ -2190,7 +2190,7 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 			for _, sv := range svcs {
 				svcParts = append(svcParts, fmt.Sprintf("%s:%d", sv.service, sv.port))
 			}
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mports: %s\x1b[0m\n", strings.Join(svcParts, "  "))
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mports: %s\x1b[0m\n", strings.Join(svcParts, "  "))
 			lineCount++
 		}
 		// Tech stack (framework, auth system, cloud, proxy).
@@ -2208,7 +2208,7 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 			techParts = append(techParts, "\x1b[90mproxy:\x1b[0m"+ev.ProxyType)
 		}
 		if len(techParts) > 0 {
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mtech: \x1b[0m%s\n", strings.Join(techParts, "  "))
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mtech: \x1b[0m%s\n", strings.Join(techParts, "  "))
 			lineCount++
 		}
 		// Responding paths — show all paths that returned a success response.
@@ -2222,7 +2222,7 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 				overflow = len(paths) - maxShown
 				paths = paths[:maxShown]
 			}
-			fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mpaths:\x1b[0m\n")
+			_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mpaths:\x1b[0m\n")
 			lineCount++
 			for i := 0; i < len(paths); i += pathCols {
 				end := i + pathCols
@@ -2236,17 +2236,17 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 					}
 					cols = append(cols, fmt.Sprintf("\x1b[36m%-35s\x1b[0m", p))
 				}
-				fmt.Fprintf(buf, "\x1b[2K\r    %s\n", strings.Join(cols, "  "))
+				_, _ = fmt.Fprintf(buf, "\x1b[2K\r    %s\n", strings.Join(cols, "  "))
 				lineCount++
 			}
 			if overflow > 0 {
-				fmt.Fprintf(buf, "\x1b[2K\r    \x1b[90m... +%d more paths\x1b[0m\n", overflow)
+				_, _ = fmt.Fprintf(buf, "\x1b[2K\r    \x1b[90m... +%d more paths\x1b[0m\n", overflow)
 				lineCount++
 			}
 		}
 	}
 	// Separator between asset info and findings list.
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Repeat("\u2500", 70))
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%s\x1b[0m\n", strings.Repeat("\u2500", 70))
 	lineCount++
 
 	// --- Findings list ---
@@ -2298,7 +2298,7 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 		if i == r.assetDetailCursor {
 			cursor = "\x1b[1;33m\u25b6\x1b[0m "
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r%s%s%-4s\x1b[0m  %-44s  \x1b[90m%s\x1b[0m\n", cursor, col, sev, title, checkID)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s%s%-4s\x1b[0m  %-44s  \x1b[90m%s\x1b[0m\n", cursor, col, sev, title, checkID)
 		lineCount++
 	}
 
@@ -2310,9 +2310,9 @@ func (r *progressRenderer) renderAssetDetail(buf *strings.Builder) int {
 
 	// Footer
 	if total == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings for this asset\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo findings for this asset\x1b[0m\n")
 	} else {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d findings\x1b[0m\n", r.assetDetailCursor+1, total)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m%d of %d findings\x1b[0m\n", r.assetDetailCursor+1, total)
 	}
 	lineCount++
 
@@ -2496,7 +2496,7 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	lineCount := 0
 
 	// Header
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m\u25c0\x1b[0m \x1b[1mFinding Detail\x1b[0m  \x1b[90m[q/b] back  [j/k \u2191\u2193] scroll\x1b[0m\n")
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90m\u25c0\x1b[0m \x1b[1mFinding Detail\x1b[0m  \x1b[90m[q/b] back  [j/k \u2191\u2193] scroll\x1b[0m\n")
 	lineCount++
 
 	// Body
@@ -2505,7 +2505,7 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 		end = total
 	}
 	for i := r.findingDetailOff; i < end; i++ {
-		fmt.Fprintf(buf, "\x1b[2K\r%s\n", lines[i])
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", lines[i])
 		lineCount++
 	}
 	for i := end - r.findingDetailOff; i < bodyH; i++ {
@@ -2518,7 +2518,7 @@ func (r *progressRenderer) renderFindingDetail(buf *strings.Builder) int {
 	if total > bodyH {
 		scrollPct = (r.findingDetailOff * 100) / (total - bodyH)
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mline %d/%d (%d%%)  [y] copy proof cmd  [b/q] back  [j/k] scroll\x1b[0m\n", r.findingDetailOff+1, total, scrollPct)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mline %d/%d (%d%%)  [y] copy proof cmd  [b/q] back  [j/k] scroll\x1b[0m\n", r.findingDetailOff+1, total, scrollPct)
 	lineCount++
 
 	return lineCount
@@ -2755,11 +2755,11 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 	}
 
 	drawn := 0
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mNETWORK TOPOLOGY\x1b[0m  \x1b[90m%d assets  [↵] detail  [j/k] move  [t/q] back\x1b[0m\n",
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mNETWORK TOPOLOGY\x1b[0m  \x1b[90m%d assets  [↵] detail  [j/k] move  [t/q] back\x1b[0m\n",
 		len(r.topoEvidence))
 	drawn++
 	for _, l := range visible {
-		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
 		drawn++
 	}
 	for drawn-1 < bodyLines {
@@ -2770,7 +2770,7 @@ func (r *progressRenderer) renderTopology(buf *strings.Builder) int {
 	if maxOff > 0 {
 		pct = r.topoOff * 100 / maxOff
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
 	drawn++
 	return drawn
 }
@@ -2814,11 +2814,11 @@ func (r *progressRenderer) renderReview(buf *strings.Builder) int {
 		items = append(items, reviewItem{kind: "playbook", label: label, suggID: s.ID})
 	}
 
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [i] import playbook  [b/q] back\x1b[0m\n")
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mREVIEW PENDING\x1b[0m  \x1b[90m[j/k] move  [a] approve  [x] reject  [d] delete  [i] import playbook  [b/q] back\x1b[0m\n")
 	lineCount := 1
 
 	if len(items) == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo pending items.\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r  \x1b[90mNo pending items.\x1b[0m\n")
 		return 2
 	}
 
@@ -2848,7 +2848,7 @@ func (r *progressRenderer) renderReview(buf *strings.Builder) int {
 		if i == r.reviewCursor {
 			cursor = "\x1b[7m▶\x1b[0m "
 		}
-		fmt.Fprintf(buf, "\x1b[2K\r%s%s\n", cursor, item.label)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s%s\n", cursor, item.label)
 		lineCount++
 	}
 	return lineCount
@@ -3136,10 +3136,10 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 	if len(r.topoHostOrder) > 1 {
 		posHint = fmt.Sprintf("  \x1b[90m%d/%d", r.topoCursor+1, len(r.topoHostOrder))
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m%s  \x1b[90m[j/k] scroll  [n/p] next/prev  [b] topology\x1b[0m\n", posHint)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mASSET DETAIL\x1b[0m%s  \x1b[90m[j/k] scroll  [n/p] next/prev  [b] topology\x1b[0m\n", posHint)
 	drawn++
 	for _, l := range visible {
-		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
 		drawn++
 	}
 	for drawn-1 < bodyLines {
@@ -3150,7 +3150,7 @@ func (r *progressRenderer) renderTopoDetail(buf *strings.Builder) int {
 	if maxOff > 0 {
 		pct = r.topoDetailOff * 100 / maxOff
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
 	drawn++
 	return drawn
 }
@@ -3248,10 +3248,10 @@ func (r *progressRenderer) renderDiscovered(buf *strings.Builder) int {
 	}
 
 	drawn := 0
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSETS (%d)\x1b[0m  \x1b[90m[↵] detail  [j/k] move  [b/q] back\x1b[0m\n", total)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSETS (%d)\x1b[0m  \x1b[90m[↵] detail  [j/k] move  [b/q] back\x1b[0m\n", total)
 	drawn++
 	for _, row := range visible {
-		fmt.Fprintf(buf, "\x1b[2K\r%s\n", row.text)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", row.text)
 		drawn++
 	}
 	for drawn-1 < bodyLines {
@@ -3262,7 +3262,7 @@ func (r *progressRenderer) renderDiscovered(buf *strings.Builder) int {
 	if maxOff > 0 {
 		pct = r.discoveredOff * 100 / maxOff
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m── %d%% ──\x1b[0m\n", pct)
 	drawn++
 	return drawn
 }
@@ -3282,7 +3282,7 @@ func (r *progressRenderer) renderDiscoveredDetail(buf *strings.Builder) int {
 	bodyLines := termH - 2
 
 	if len(r.discoveredAssets) == 0 {
-		fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m\n\x1b[2K\r  \x1b[90mNo assets.\x1b[0m\n")
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m\n\x1b[2K\r  \x1b[90mNo assets.\x1b[0m\n")
 		return 2
 	}
 
@@ -3409,17 +3409,17 @@ func (r *progressRenderer) renderDiscoveredDetail(buf *strings.Builder) int {
 
 	drawn := 0
 	nav := fmt.Sprintf("%d/%d", idx+1, len(r.discoveredAssets))
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m  \x1b[90m%s  [j/k] next/prev  [p] authorize  [b/q] back\x1b[0m\n", nav)
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[1mDISCOVERED ASSET\x1b[0m  \x1b[90m%s  [j/k] next/prev  [p] authorize  [b/q] back\x1b[0m\n", nav)
 	drawn++
 	for _, l := range visible {
-		fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
+		_, _ = fmt.Fprintf(buf, "\x1b[2K\r%s\n", l)
 		drawn++
 	}
 	for drawn-1 < bodyLines {
 		buf.WriteString("\x1b[2K\r\n")
 		drawn++
 	}
-	fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m──────\x1b[0m\n")
+	_, _ = fmt.Fprintf(buf, "\x1b[2K\r\x1b[90m──────\x1b[0m\n")
 	drawn++
 	return drawn
 }

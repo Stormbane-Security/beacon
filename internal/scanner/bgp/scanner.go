@@ -310,7 +310,7 @@ func probeASNIPRange(ctx context.Context, prefixes []string) []finding.Finding {
 		if err != nil {
 			return
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode > 599 {
 			return
@@ -601,10 +601,10 @@ func lookupASN(ctx context.Context, client *http.Client, ip string) (int, string
 		return 0, "", fmt.Errorf("ip-api lookup failed")
 	}
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return 0, "", fmt.Errorf("ip-api lookup failed")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 	if err != nil {
@@ -657,7 +657,7 @@ func fetchASNPrefixes(ctx context.Context, client *http.Client, asn int) ([]stri
 	if err != nil {
 		return nil, fmt.Errorf("bgpview fetch failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("bgpview fetch failed: status %d", resp.StatusCode)
 	}

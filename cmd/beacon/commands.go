@@ -47,7 +47,7 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 	defer cancel()
 
 	mod := githubmodule.New(cfg.GitHubToken)
-	fmt.Fprintf(os.Stderr, "beacon: scanning GitHub org/repo %s for Actions vulnerabilities...\n", orgOrRepo)
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: scanning GitHub org/repo %s for Actions vulnerabilities...\n", orgOrRepo)
 
 	findings, err := mod.Run(ctx, input, module.ScanSurface)
 	if err != nil {
@@ -63,7 +63,7 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 	}
 
 	if len(filtered) == 0 {
-		fmt.Fprintf(os.Stderr, "beacon: no findings at or above severity %q\n", severityFlag)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: no findings at or above severity %q\n", severityFlag)
 		return
 	}
 
@@ -105,9 +105,9 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 		out = report.RenderMarkdown(syntheticRun, enriched, "", nil)
 	default: // "text" or empty
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60))
+		_, _ = fmt.Fprintf(&sb, "GitHub Actions scan: %s\n%s\n\n", orgOrRepo, strings.Repeat("─", 60))
 		for _, f := range filtered {
-			fmt.Fprintf(&sb, "[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset)
+			_, _ = fmt.Fprintf(&sb, "[%s] %s\n  %s\n  Asset: %s\n\n", f.Severity, f.Title, f.Description, f.Asset)
 		}
 		out = sb.String()
 	}
@@ -116,7 +116,7 @@ func cmdScanGitHub(cfg *config.Config, orgOrRepo string, outPath string, format 
 		if err := os.WriteFile(outPath, []byte(out), 0o600); err != nil {
 			fatalf("write report: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
 	} else {
 		fmt.Print(out)
 	}
@@ -143,7 +143,7 @@ func cmdHistory(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	runs, err := st.ListScanRuns(ctx, domain)
 	if err != nil {
@@ -151,18 +151,18 @@ func cmdHistory(cfg *config.Config, args []string) {
 	}
 
 	if len(runs) == 0 {
-		fmt.Fprintf(os.Stderr, "no scans found for %s\n", domain)
+		_, _ = fmt.Fprintf(os.Stderr, "no scans found for %s\n", domain)
 		return
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tDOMAIN\tTYPE\tSTATUS\tFINDINGS\tSTARTED")
+	_, _ = fmt.Fprintln(w, "ID\tDOMAIN\tTYPE\tSTATUS\tFINDINGS\tSTARTED")
 	for _, r := range runs {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
 			r.ID, r.Domain, r.ScanType, r.Status, r.FindingCount,
 			r.StartedAt.Format("2006-01-02 15:04"))
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 // ---------- scans (list all) ----------
@@ -185,7 +185,7 @@ func cmdScans(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	runs, err := st.ListAllScanRuns(ctx, limit)
 	if err != nil {
@@ -193,12 +193,12 @@ func cmdScans(cfg *config.Config, args []string) {
 	}
 
 	if len(runs) == 0 {
-		fmt.Fprintln(os.Stderr, "no scans found")
+		_, _ = fmt.Fprintln(os.Stderr, "no scans found")
 		return
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tDOMAIN\tTYPE\tSTATUS\tFINDINGS\tSTARTED\tDURATION")
+	_, _ = fmt.Fprintln(w, "ID\tDOMAIN\tTYPE\tSTATUS\tFINDINGS\tSTARTED\tDURATION")
 	for _, r := range runs {
 		dur := ""
 		if r.CompletedAt != nil {
@@ -206,11 +206,11 @@ func cmdScans(cfg *config.Config, args []string) {
 		} else if r.Status == store.StatusRunning {
 			dur = time.Since(r.StartedAt).Truncate(time.Second).String() + " (running)"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 			r.ID, r.Domain, r.ScanType, r.Status, r.FindingCount,
 			r.StartedAt.Format("2006-01-02 15:04"), dur)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 // ---------- stop ----------
@@ -234,14 +234,14 @@ func cmdStop(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	run, err := st.GetScanRun(ctx, id)
 	if err != nil {
 		fatalf("get scan: %v", err)
 	}
 	if run.Status != store.StatusRunning && run.Status != store.StatusPending {
-		fmt.Fprintf(os.Stderr, "scan %s is already %s\n", id, run.Status)
+		_, _ = fmt.Fprintf(os.Stderr, "scan %s is already %s\n", id, run.Status)
 		return
 	}
 
@@ -255,7 +255,7 @@ func cmdStop(cfg *config.Config, args []string) {
 	if err := st.UpdateScanRun(ctx, run); err != nil {
 		fatalf("update scan: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "beacon: scan %s marked as stopped\n", id)
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: scan %s marked as stopped\n", id)
 }
 
 // ---------- report ----------
@@ -295,7 +295,7 @@ func cmdReport(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	rep, err := st.GetReport(ctx, id)
 	if err != nil {
@@ -327,7 +327,7 @@ func cmdReport(cfg *config.Config, args []string) {
 		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
 			fatalf("write report file: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
 	} else {
 		fmt.Print(output)
 	}
@@ -364,7 +364,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	a, err := analyze.New(st, cfg.AnthropicAPIKey)
 	if err != nil {
@@ -372,20 +372,20 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	}
 	a.WithModel(cfg.ClaudeModel)
 	a.WithProgress(func(msg string) {
-		fmt.Fprintf(os.Stderr, "beacon: %s\n", msg)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: %s\n", msg)
 	})
 
 	result, err := a.RunFull(ctx)
 	if err != nil {
 		fatalf("analyze: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "beacon: analysis complete — %d suggestion(s), %d accuracy reviews\n",
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: analysis complete — %d suggestion(s), %d accuracy reviews\n",
 		len(result.Suggestions), len(result.AccuracyReview))
 
 	// Build the full markdown report from all analysis sections.
 	var md strings.Builder
 	md.WriteString("# Beacon Analysis Report\n\n")
-	fmt.Fprintf(&md, "Generated: %s\n\n", time.Now().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(&md, "Generated: %s\n\n", time.Now().Format(time.RFC3339))
 
 	// Section: Finding Accuracy Review
 	if len(result.AccuracyReview) > 0 {
@@ -471,12 +471,12 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 		if err := os.WriteFile(outPath, []byte(report), 0o600); err != nil {
 			fatalf("write output: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
 	} else {
 		fmt.Print(report)
 	}
 
-	fmt.Fprintln(os.Stderr, "beacon: run 'beacon playbook suggestions' to review and apply suggestions")
+	_, _ = fmt.Fprintln(os.Stderr, "beacon: run 'beacon playbook suggestions' to review and apply suggestions")
 }
 
 // ---------- playbook ----------
@@ -488,7 +488,7 @@ func cmdPlaybookSuggestions(cfg *config.Config) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	suggestions, err := st.ListPlaybookSuggestions(ctx, "pending")
 	if err != nil {
@@ -496,20 +496,20 @@ func cmdPlaybookSuggestions(cfg *config.Config) {
 	}
 
 	if len(suggestions) == 0 {
-		fmt.Fprintln(os.Stdout, "No pending playbook suggestions. Run 'beacon analyze' to generate them.")
+		_, _ = fmt.Fprintln(os.Stdout, "No pending playbook suggestions. Run 'beacon analyze' to generate them.")
 		return
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tTYPE\tPLAYBOOK\tSTATUS\tREASONING")
+	_, _ = fmt.Fprintln(w, "ID\tTYPE\tPLAYBOOK\tSTATUS\tREASONING")
 	for _, s := range suggestions {
 		reasoning := s.Reasoning
 		if len(reasoning) > 60 {
 			reasoning = reasoning[:57] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Type, s.TargetPlaybook, s.Status, reasoning)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Type, s.TargetPlaybook, s.Status, reasoning)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
@@ -531,7 +531,7 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
 	if err != nil {
@@ -561,7 +561,7 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	if err := os.WriteFile(yamlPath, []byte(target.SuggestedYAML), 0o600); err != nil {
 		fatalf("write yaml: %v", err)
 	}
-	defer os.Remove(yamlPath)
+	defer func() { _ = os.Remove(yamlPath) }()
 
 	prTitle := fmt.Sprintf("playbook: add/update %s", target.TargetPlaybook)
 	prBody := fmt.Sprintf("AI-suggested playbook change.\n\n**Reasoning:** %s\n\n**Type:** %s\n\n```yaml\n%s\n```",
@@ -576,14 +576,14 @@ func cmdPlaybookOpenPR(cfg *config.Config, args []string) {
 	ghCmd.Stdout = os.Stdout
 	ghCmd.Stderr = os.Stderr
 
-	fmt.Fprintf(os.Stderr, "beacon: opening PR for suggestion %s...\n", id)
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: opening PR for suggestion %s...\n", id)
 	if err := ghCmd.Run(); err != nil {
 		fatalf("gh pr create: %v\n\nSuggested YAML written to %s", err, yamlPath)
 	}
 
 	target.Status = "pr_opened"
 	if err := st.UpdatePlaybookSuggestion(ctx, target); err != nil {
-		fmt.Fprintf(os.Stderr, "beacon: warning: failed to update suggestion status: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: warning: failed to update suggestion status: %v\n", err)
 	}
 }
 
@@ -609,7 +609,7 @@ func cmdPlaybookImport(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
 	if err != nil {
@@ -631,7 +631,7 @@ func cmdPlaybookImport(cfg *config.Config, args []string) {
 	}
 	target.Status = "imported"
 	_ = st.UpdatePlaybookSuggestion(ctx, target)
-	fmt.Fprintf(os.Stdout, "Imported playbook %q — active on next scan.\n", target.TargetPlaybook)
+	_, _ = fmt.Fprintf(os.Stdout, "Imported playbook %q — active on next scan.\n", target.TargetPlaybook)
 }
 
 // cmdPlaybookDismiss marks a pending suggestion as dismissed so it no longer
@@ -655,7 +655,7 @@ func cmdPlaybookDismiss(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	suggestions, err := st.ListPlaybookSuggestions(ctx, "")
 	if err != nil {
@@ -676,7 +676,7 @@ func cmdPlaybookDismiss(cfg *config.Config, args []string) {
 	if err := st.UpdatePlaybookSuggestion(ctx, target); err != nil {
 		fatalf("dismiss: %v", err)
 	}
-	fmt.Fprintf(os.Stdout, "Dismissed suggestion %s (%s).\n", id, target.TargetPlaybook)
+	_, _ = fmt.Fprintf(os.Stdout, "Dismissed suggestion %s (%s).\n", id, target.TargetPlaybook)
 }
 
 // ---------- terraform ----------
@@ -865,7 +865,7 @@ func cmdEnrich(cfg *config.Config, args []string) {
 		fatalf("%v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "beacon: loaded %d findings for %s from %s\n", len(raw.Findings), raw.Domain, inputPath)
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: loaded %d findings for %s from %s\n", len(raw.Findings), raw.Domain, inputPath)
 
 	findings := raw.Findings
 
@@ -897,14 +897,14 @@ func cmdEnrich(cfg *config.Config, args []string) {
 		st, stErr := sqlitestore.Open(cfg.Store.Path)
 		if stErr == nil {
 			enricher = ce.WithCache(st)
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 		} else {
 			enricher = ce
 		}
-		fmt.Fprintf(os.Stderr, "beacon: enriching %d findings with AI (%s)...\n", len(findings), ai.Provider)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: enriching %d findings with AI (%s)...\n", len(findings), ai.Provider)
 	} else {
 		enricher = enrichment.NewNoop()
-		fmt.Fprintf(os.Stderr, "beacon: no AI configured — building report with noop enrichment...\n")
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: no AI configured — building report with noop enrichment...\n")
 	}
 
 	enriched, err := enricher.Enrich(ctx, findings)
@@ -912,7 +912,7 @@ func cmdEnrich(cfg *config.Config, args []string) {
 		fatalf("enrich: %v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
 	enriched, summary, err := enricher.ContextualizeAndSummarize(ctx, enriched, raw.Domain)
 	if err != nil {
 		fatalf("contextualize: %v", err)
@@ -952,7 +952,7 @@ func cmdEnrich(cfg *config.Config, args []string) {
 		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
 			fatalf("write report: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "beacon: enriched report written to %s\n", outPath)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: enriched report written to %s\n", outPath)
 	} else {
 		fmt.Print(output)
 	}
@@ -1035,7 +1035,7 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 	if len(providerList) == 0 {
 		fatalf("no cloud providers compiled in — rebuild without -tags no_cloud")
 	}
-	fmt.Fprintf(os.Stderr, "beacon: cloud providers: %s\n", strings.Join(providerList, ", "))
+	_, _ = fmt.Fprintf(os.Stderr, "beacon: cloud providers: %s\n", strings.Join(providerList, ", "))
 
 	ctx := context.Background()
 	m := cloudmodule.New()
@@ -1081,7 +1081,7 @@ func cmdScanCloud(cfg *config.Config, args []string) {
 		if err != nil {
 			fatalf("cloud: create output file: %v", err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		w = f
 	}
 
@@ -1102,53 +1102,53 @@ func printCloudText(w io.Writer, enriched []enrichment.EnrichedFinding) {
 	for _, ef := range enriched {
 		counts[ef.Finding.Severity]++
 	}
-	fmt.Fprintf(w, "Cloud posture scan: %d finding(s)\n", len(enriched))
+	_, _ = fmt.Fprintf(w, "Cloud posture scan: %d finding(s)\n", len(enriched))
 	for _, sev := range []finding.Severity{finding.SeverityCritical, finding.SeverityHigh, finding.SeverityMedium, finding.SeverityLow, finding.SeverityInfo} {
 		if n := counts[sev]; n > 0 {
-			fmt.Fprintf(w, "  %s: %d\n", sev, n)
+			_, _ = fmt.Fprintf(w, "  %s: %d\n", sev, n)
 		}
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 	for _, ef := range enriched {
 		f := ef.Finding
-		fmt.Fprintf(w, "[%s] %s\n", f.Severity, f.Title)
-		fmt.Fprintf(w, "  Asset: %s\n", f.Asset)
+		_, _ = fmt.Fprintf(w, "[%s] %s\n", f.Severity, f.Title)
+		_, _ = fmt.Fprintf(w, "  Asset: %s\n", f.Asset)
 		if ef.Explanation != "" && ef.Explanation != f.Description {
-			fmt.Fprintf(w, "  %s\n", ef.Explanation)
+			_, _ = fmt.Fprintf(w, "  %s\n", ef.Explanation)
 		} else {
-			fmt.Fprintf(w, "  %s\n", f.Description)
+			_, _ = fmt.Fprintf(w, "  %s\n", f.Description)
 		}
 		if f.ProofCommand != "" {
-			fmt.Fprintf(w, "  Proof: %s\n", f.ProofCommand)
+			_, _ = fmt.Fprintf(w, "  Proof: %s\n", f.ProofCommand)
 		}
 		if ef.Remediation != "" {
-			fmt.Fprintf(w, "  Fix: %s\n", ef.Remediation)
+			_, _ = fmt.Fprintf(w, "  Fix: %s\n", ef.Remediation)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 }
 
 func printCloudMarkdown(w io.Writer, enriched []enrichment.EnrichedFinding) {
-	fmt.Fprintf(w, "# Cloud Posture Scan Results\n\n%d finding(s)\n\n", len(enriched))
+	_, _ = fmt.Fprintf(w, "# Cloud Posture Scan Results\n\n%d finding(s)\n\n", len(enriched))
 	for _, ef := range enriched {
 		f := ef.Finding
-		fmt.Fprintf(w, "## [%s] %s\n\n", f.Severity, f.Title)
-		fmt.Fprintf(w, "**Asset:** `%s`\n\n", f.Asset)
+		_, _ = fmt.Fprintf(w, "## [%s] %s\n\n", f.Severity, f.Title)
+		_, _ = fmt.Fprintf(w, "**Asset:** `%s`\n\n", f.Asset)
 		if ef.Explanation != "" {
-			fmt.Fprintf(w, "%s\n\n", ef.Explanation)
+			_, _ = fmt.Fprintf(w, "%s\n\n", ef.Explanation)
 		} else if f.Description != "" {
-			fmt.Fprintf(w, "%s\n\n", f.Description)
+			_, _ = fmt.Fprintf(w, "%s\n\n", f.Description)
 		}
 		if ef.Impact != "" {
-			fmt.Fprintf(w, "**Impact:** %s\n\n", ef.Impact)
+			_, _ = fmt.Fprintf(w, "**Impact:** %s\n\n", ef.Impact)
 		}
 		if ef.Remediation != "" {
-			fmt.Fprintf(w, "**Remediation:** %s\n\n", ef.Remediation)
+			_, _ = fmt.Fprintf(w, "**Remediation:** %s\n\n", ef.Remediation)
 		}
 		if f.ProofCommand != "" {
-			fmt.Fprintf(w, "**Proof:** `%s`\n\n", f.ProofCommand)
+			_, _ = fmt.Fprintf(w, "**Proof:** `%s`\n\n", f.ProofCommand)
 		}
-		fmt.Fprintf(w, "---\n\n")
+		_, _ = fmt.Fprintf(w, "---\n\n")
 	}
 }
 
@@ -1184,7 +1184,7 @@ func cmdFingerprints(cfg *config.Config, args []string) {
 	if err != nil {
 		fatalf("open db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ctx := context.Background()
 
 	sub := "list"

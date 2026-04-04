@@ -21,11 +21,11 @@ func TestDetectsStatusChange(t *testing.T) {
 		// Subsequent requests with Connection header get 403.
 		if requestCount > 1 {
 			w.WriteHeader(403)
-			fmt.Fprint(w, `{"error":"access denied"}`)
+			_, _ = fmt.Fprint(w, `{"error":"access denied"}`)
 			return
 		}
 		w.WriteHeader(200)
-		fmt.Fprint(w, `{"status":"ok"}`)
+		_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 	}))
 	defer srv.Close()
 
@@ -45,7 +45,7 @@ func TestDetectsStatusChange(t *testing.T) {
 func TestNoFalsePositiveOnConsistentServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		fmt.Fprint(w, `{"status":"ok"}`)
+		_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 	}))
 	defer srv.Close()
 
