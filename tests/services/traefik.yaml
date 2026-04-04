@@ -19,6 +19,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-traefik-api-rawdata
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/api/rawdata | grep -qE '(routers|services)'"
+      exit_code: 0
+
+  - name: exploit-traefik-api-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/api/version | grep -q Version"
+      exit_code: 0
+
   - name: classifies-as-traefik
     type: classify
     target: localhost:8080

@@ -18,6 +18,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-rabbitmq-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:15672/api/overview | grep -q rabbitmq_version"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-list-users
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:15672/api/users | grep -q guest"
+      exit_code: 0
+
   - name: classifies-as-rabbitmq
     type: classify
     target: localhost:15672

@@ -1,0 +1,49 @@
+name: websocket-endpoint-discovery
+description: >
+  Node.js server with WebSocket endpoint on /ws. The classify pipeline
+  should detect the WebSocket upgrade capability during advanced fingerprinting.
+tags: [websocket, discovery, fingerprint]
+
+services:
+  ws-server:
+    image: node:20-alpine
+    ports: ["9329:8080"]
+    command: >
+      sh -c 'cat > /app/server.js << "SCRIPT"
+      const http = require("http");
+      const server = http.createServer((req, res) => {
+        res.writeHead(200, {"Content-Type": "text/html"});
+        res.end("<html><body><h1>WebSocket Test</h1></body></html>");
+      });
+      server.on("upgrade", (req, socket, head) => {
+        if (req.url === "/ws" && req.headers.upgrade === "websocket") {
+          socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: test\r\n\r\n");
+        } else {
+          socket.destroy();
+        }
+      });
+      server.listen(8080, () => console.log("WS server on :8080"));
+      SCRIPT
+      node /app/server.js'
+
+ready:
+  cmd: "curl -sf http://localhost:9329/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs: verify WebSocket upgrade works ---
+  - name: exploit-ws-upgrade-accepted
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://localhost:9329/ws | grep -q '101'"
+      exit_code: 0
+
+  # --- Negative: non-WS paths don't upgrade ---
+  - name: negative-root-no-upgrade
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -H 'Upgrade: websocket' -H 'Connection: Upgrade' http://localhost:9329/); [ \"$STATUS\" != \"101\" ]"
+      exit_code: 0
+
+timeout: 5m

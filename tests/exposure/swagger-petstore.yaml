@@ -13,10 +13,22 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-petstore-spec-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/api/v3/openapi.json | grep -q paths"
+      exit_code: 0
+
+  - name: exploit-petstore-api-callable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/api/v3/pet/findByStatus?status=available -o /dev/null -w '%{http_code}' | grep -q 200"
+      exit_code: 0
+
   - name: detects-swagger-spec-exposed
     type: beacon
     target: localhost:8080
-    args: ["--no-enrich", "--scanners", "swagger"]
+    args: ["--no-enrich", "--scanners", "swagger", "--ports", "8080"]
     expect:
       check_id: web.swagger_exposed
 

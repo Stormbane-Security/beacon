@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DeFi App</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+</head>
+<body>
+    <h1>Connect Wallet</h1>
+    <button onclick="connectWallet()">Connect MetaMask</button>
+    <script>
+        async function connectWallet() {
+            if (window.ethereum) {
+                const provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                const signer = provider.getSigner();
+                const address = await signer.getAddress();
+                document.getElementById("addr").textContent = address;
+            }
+        }
+        // Contract address
+        const CONTRACT = "0x1234567890abcdef1234567890abcdef12345678";
+        const RPC_URL = "https://mainnet.infura.io/v3/YOUR_PROJECT_ID";
+    </script>
+    <p id="addr"></p>
+</body>
+</html>

@@ -4,6 +4,7 @@
 package portscan
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -19,9 +20,39 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/postexploit"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return NewWithNmap(cfg.Get("nmap.bin"))
+	},
+		scan.Check(finding.CheckPortServiceDiscovered, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckNetDeviceUniFiExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEUniFiLog4Shell, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckNetDeviceTPLinkOmada, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVETPLinkOmadaRCE, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
+
 const scannerName = "portscan"
+
+// scanTypeKey is a context key for passing the scan type to probes.
+type scanTypeKeyT struct{}
+
+var scanTypeKey = scanTypeKeyT{}
+
+// withScanType stores the scan type in the context.
+func withScanType(ctx context.Context, st module.ScanType) context.Context {
+	return context.WithValue(ctx, scanTypeKey, st)
+}
+
+// isAuthorized returns true if the context carries ScanAuthorized.
+func isAuthorized(ctx context.Context) bool {
+	st, _ := ctx.Value(scanTypeKey).(module.ScanType)
+	return st == module.ScanAuthorized
+}
 
 // timeouts for the various probe stages.
 const (
@@ -240,6 +271,9 @@ const maxPortFindings = 50
 // Surface mode scans the top 30 most impactful ports (critical + high).
 // Deep mode scans all 50+ ports including the extended list.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// Store scan type in context so probes can check for authorized mode.
+	ctx = withScanType(ctx, scanType)
+
 	// If the asset includes a port (e.g. "host:9122"), extract it so we
 	// scan that specific port in addition to the standard list.
 	host, targetPort := parseAssetPort(asset)
@@ -313,17 +347,81 @@ collectResults:
 
 	var findings []finding.Finding
 	openPorts := make(map[int]string)
+	totalScanned := 0
 	for r := range results {
+		totalScanned++
 		if !r.open {
 			continue
 		}
 		openPorts[r.entry.port] = r.entry.service
 		fs := buildFindings(ctx, asset, r.entry, r.banner)
 		findings = append(findings, fs...)
+		// Update service name from probe-identified findings. When --ports
+		// is used, the initial portEntry has service="unknown". The probe
+		// registry identifies the actual service (e.g. "redis") and stores
+		// it in the service_identified finding's evidence. Use that for
+		// accurate post-exploit module routing.
+		for _, f := range fs {
+			if f.CheckID == finding.CheckPortServiceIdentified {
+				if svc, ok := f.Evidence["service"].(string); ok && svc != "" {
+					openPorts[r.entry.port] = svc
+				}
+			}
+		}
 		// Emit a service-discovered hint for web-like services on non-standard ports.
 		// The surface module picks these up to schedule a full per-port classify pass.
 		if hint := EmitPortServiceDiscovered(asset, r.entry.port, r.entry.service, r.banner); hint != nil {
 			findings = append(findings, *hint)
+		}
+	}
+
+	// Transparent proxy / honeypot detection: if 80%+ of scanned ports
+	// responded as open, the host is likely behind a transparent proxy or
+	// is a honeypot. Individual port findings are unreliable in this case.
+	if totalScanned >= 10 && len(openPorts)*100/totalScanned >= 80 {
+		return []finding.Finding{{
+			CheckID:  finding.CheckPortServiceDiscovered,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityInfo,
+			Asset:    asset,
+			Title:    fmt.Sprintf("Transparent proxy or honeypot detected on %s (%d/%d ports open)", asset, len(openPorts), totalScanned),
+			Description: fmt.Sprintf(
+				"%d out of %d scanned ports responded as open, which indicates a transparent "+
+					"proxy, firewall SYN-ACK reflection, or honeypot. Individual port findings "+
+					"are suppressed because they are unreliable in this scenario.",
+				len(openPorts), totalScanned),
+			Evidence: map[string]any{
+				"open_count":    len(openPorts),
+				"scanned_count": totalScanned,
+				"ratio_pct":     len(openPorts) * 100 / totalScanned,
+			},
+			DiscoveredAt: time.Now(),
+		}}, nil
+	}
+
+	// Authorized mode: run post-exploit chain against discovered services.
+	// This runs BEFORE nmap because chain findings (credential harvest,
+	// data extraction, lateral movement) are higher value and faster than
+	// nmap vuln scripts. Nmap is supplementary and can take 5+ minutes.
+	if scanType == module.ScanAuthorized && ctx.Err() == nil {
+		host, _ := parseAssetPort(asset)
+		if host == "" {
+			host = asset
+		}
+		if len(openPorts) > 0 {
+			chain := postexploit.NewChain()
+			chain.Timeout = 2 * time.Minute // tighter timeout within portscan context
+			chain.ApproveFunc = postexploit.ApproveFuncFromContext(ctx)
+			fb := &postexploit.FindingBuilder{
+				Module:  "surface",
+				Scanner: scannerName,
+				Asset:   asset,
+			}
+			// Pass service map so chain only probes modules matching
+			// identified services, not all 16 modules on non-standard ports.
+			chainFindings := chain.ProbeHostServices(ctx, host, openPorts, fb)
+			findings = append(findings, chainFindings...)
 		}
 	}
 
@@ -339,6 +437,35 @@ collectResults:
 	if ctx.Err() == nil {
 		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
+
+			// Authorized mode: route UDP-discovered services into postexploit chain.
+			// UDP services (SNMP, DNS, TFTP, etc.) need exploitation too.
+			if scanType == module.ScanAuthorized && ctx.Err() == nil {
+				host, _ := parseAssetPort(asset)
+				if host == "" {
+					host = asset
+				}
+				udpServices := make(map[int]string)
+				for _, f := range udpFs {
+					if svc, ok := f.Evidence["service"].(string); ok {
+						if p, ok := f.Evidence["port"].(int); ok {
+							udpServices[p] = svc
+						}
+					}
+				}
+				if len(udpServices) > 0 {
+					chain := postexploit.NewChain()
+					chain.Timeout = 2 * time.Minute
+					chain.ApproveFunc = postexploit.ApproveFuncFromContext(ctx)
+					fb := &postexploit.FindingBuilder{
+						Module:  "surface",
+						Scanner: scannerName,
+						Asset:   asset,
+					}
+					chainFindings := chain.ProbeHostServices(ctx, host, udpServices, fb)
+					findings = append(findings, chainFindings...)
+				}
+			}
 		}
 	}
 
@@ -638,6 +765,9 @@ func isVulnerableRedis(version string) bool {
 		return patch < 4
 	case major == 8 && minor == 2:
 		return patch < 2
+	case major == 8:
+		// 8.1, 8.3, etc. — no patch listed for these minor versions
+		return true
 	default:
 		return false
 	}
@@ -658,6 +788,7 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -695,6 +826,7 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for security probe
 		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -727,6 +859,7 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -752,7 +885,7 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 	}
 	s := string(b)
 	if strings.Contains(s, "AdmissionReview") || strings.Contains(s, "admission.k8s.io") ||
-		strings.Contains(s, "admission") && strings.Contains(s, "ingress") {
+		(strings.Contains(s, "admission") && strings.Contains(s, "ingress")) {
 		return s
 	}
 	return ""
@@ -783,6 +916,7 @@ func probeJupyter(ctx context.Context, host string, port int) bool {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -877,7 +1011,16 @@ func probeMQTT(ctx context.Context, host string, port int, useTLS bool) bool {
 	var err error
 	if useTLS {
 		tlsCfg := &tls.Config{InsecureSkipVerify: true} //nolint:gosec
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsCfg)
+		rawConn, dialErr := dialer.DialContext(ctx, "tcp", addr)
+		if dialErr != nil {
+			return false
+		}
+		tlsConn := tls.Client(rawConn, tlsCfg)
+		if err = tlsConn.HandshakeContext(ctx); err != nil {
+			rawConn.Close()
+			return false
+		}
+		conn = tlsConn
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
@@ -1758,6 +1901,151 @@ func probeFTPAnonymous(ctx context.Context, host string, port int) bool {
 
 // ── SMB null session probe ────────────────────────────────────────────────────
 
+// probeSMBOnPort sends an SMB Negotiate request to host:port and returns true
+// when the response contains a valid SMB header (\xffSMB or \xfeSMB).
+func probeSMBOnPort(ctx context.Context, host string, port int) bool {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+	negotiate := smbNegotiatePacket()
+	if _, err := conn.Write(negotiate); err != nil {
+		return false
+	}
+	resp := make([]byte, 64)
+	n, err := conn.Read(resp)
+	if err != nil || n < 8 {
+		return false
+	}
+	// \xffSMB = SMBv1, \xfeSMB = SMBv2/3 — both are valid SMB.
+	if resp[5] == 0x53 && resp[6] == 0x4d && resp[7] == 0x42 {
+		return resp[4] == 0xff || resp[4] == 0xfe
+	}
+	return false
+}
+
+// probeSMBv1OnPort connects to host:port and sends a multi-dialect SMB Negotiate
+// request. Returns true when the server selects SMBv1 ("NT LM 0.12").
+func probeSMBv1OnPort(ctx context.Context, host string, port int) bool {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+	negotiate := smbNegotiatePacket()
+	if _, err := conn.Write(negotiate); err != nil {
+		return false
+	}
+	resp := make([]byte, 64)
+	n, err := conn.Read(resp)
+	if err != nil || n < 8 {
+		return false
+	}
+	return resp[4] == 0xff && resp[5] == 0x53 && resp[6] == 0x4d && resp[7] == 0x42
+}
+
+// probeSMBNullSessionOnPort attempts an SMB null session on host:port.
+func probeSMBNullSessionOnPort(ctx context.Context, host string, port int) bool {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+	negotiate := smbNegotiatePacket()
+	if _, err := conn.Write(negotiate); err != nil {
+		return false
+	}
+	resp := make([]byte, 256)
+	n, err := conn.Read(resp)
+	if err != nil || n < 36 || string(resp[4:8]) != "\xffSMB" {
+		return false
+	}
+	if resp[9] != 0 || resp[10] != 0 || resp[11] != 0 || resp[12] != 0 {
+		return false
+	}
+	if _, err := conn.Write(smbNullSessionSetupPacket()); err != nil {
+		return false
+	}
+	conn.SetDeadline(time.Now().Add(3 * time.Second)) //nolint:errcheck
+	resp2 := make([]byte, 256)
+	n2, err := conn.Read(resp2)
+	if err != nil || n2 < 36 {
+		return false
+	}
+	if resp2[9] != 0 || resp2[10] != 0 || resp2[11] != 0 || resp2[12] != 0 {
+		return false
+	}
+	if n2 > 41 {
+		return resp2[41]&0x01 != 0
+	}
+	return true
+}
+
+// smbNegotiatePacket returns the SMB multi-dialect negotiate request bytes.
+func smbNegotiatePacket() []byte {
+	return []byte{
+		0x00, 0x00, 0x00, 0x54,
+		0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00,
+		0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x40, 0x00,
+		0x00,
+		0x26, 0x00,
+		0x02, 0x4e, 0x54, 0x20, 0x4c, 0x4d, 0x20, 0x30, 0x2e, 0x31, 0x32, 0x00, // NT LM 0.12
+		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x30, 0x30, 0x32, 0x00,       // SMB 2.002
+		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x3f, 0x3f, 0x3f, 0x00,       // SMB 2.???
+	}
+}
+
+// smbNullSessionSetupPacket returns the SMBv1 Session Setup AndX packet with
+// null credentials (empty password, empty username).
+func smbNullSessionSetupPacket() []byte {
+	return []byte{
+		// NetBIOS session header
+		0x00,
+		0x00, 0x00, 0x4a, // length: 74
+		// SMB header
+		0xff, 0x53, 0x4d, 0x42, // \xffSMB
+		0x73,                   // command: Session Setup AndX (0x73)
+		0x00, 0x00, 0x00, 0x00, // status: 0
+		0x18,
+		0x01, 0x20,
+		0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00,
+		0x00, 0x00, // TID
+		0xff, 0xfe, // PID
+		0x00, 0x00, // UID
+		0x41, 0x00, // MID
+		// Parameters (WordCount=13)
+		0x0d,
+		0xff,       // AndXCommand: no further commands
+		0x00,       // reserved
+		0x00, 0x00, // AndXOffset
+		0xff, 0xff, // MaxBufferSize
+		0x02, 0x00, // MaxMpxCount
+		0x01, 0x00, // VcNumber
+		0x00, 0x00, 0x00, 0x00, // SessionKey
+		0x01, 0x00, // OEMPasswordLen: 1 (null byte)
+		0x00, 0x00, // UnicodePasswordLen: 0
+		0x00, 0x00, 0x00, 0x00, // reserved
+		0x40, 0x00, 0x00, 0x00, // Capabilities
+		// Data
+		0x16, 0x00, // ByteCount: 22
+		0x00,                                           // OEM password: null byte
+		0x00, 0x00,                                     // Account: empty
+		0x57, 0x00, 0x4f, 0x00, 0x52, 0x00, 0x4b, 0x00, // "WORKGROUP" UTF-16LE
+		0x47, 0x00, 0x52, 0x00, 0x4f, 0x00, 0x55, 0x00,
+		0x50, 0x00, 0x00, 0x00,
+	}
+}
+
 // probeSMBv1Enabled connects to port 445 and sends a multi-dialect SMB Negotiate
 // request. It returns true when the server selects SMBv1 ("NT LM 0.12") over SMBv2/3
 // — identifiable by the \xffSMB magic bytes in the response (vs \xfeSMB for SMB2+).
@@ -2084,6 +2372,7 @@ func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bo
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -2142,10 +2431,32 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 	// Server capability flags are at bytes 14-15 (little-endian) in the greeting.
 	// We need CLIENT_PROTOCOL_41 (0x0200) to know the auth format.
 	// For simplicity, send a MySQL 4.1 client auth packet with root/empty password.
-	// Client auth packet: capabilities(4) + max_packet(4) + charset(1) + reserved(23) + username + NUL + auth_response_length(1) + auth_response(0)
-	authPkt := make([]byte, 0, 64)
-	// Capabilities: CLIENT_PROTOCOL_41 | CLIENT_LONG_PASSWORD | CLIENT_CONNECT_WITH_DB(off) | CLIENT_SECURE_CONNECTION
-	caps := uint32(0x00000200 | 0x00000001 | 0x00008000) // protocol41 | long_password | secure_connection
+	// Parse auth plugin name from greeting to handle MySQL 8.0 caching_sha2_password.
+	var authPlugin string
+	if nul := bytes.IndexByte(greeting[1:], 0); nul >= 0 {
+		// After version string (NUL-terminated): 4 thread_id + 8 auth_data_1 + 1 filler +
+		// 2 caps_lo + 1 charset + 2 status + 2 caps_hi + 1 auth_len + 10 reserved = 31 bytes
+		// then auth_data_2 (max(13, auth_len-8)) then plugin name (NUL-terminated).
+		base := 1 + nul + 1 // past version string NUL
+		if len(greeting) > base+31 {
+			authDataLen := int(greeting[base+4+8+1+2+1+2+2])
+			part2Len := authDataLen - 8
+			if part2Len < 13 {
+				part2Len = 13
+			}
+			pluginOff := base + 31 + part2Len
+			if pluginOff < len(greeting) {
+				if end := bytes.IndexByte(greeting[pluginOff:], 0); end >= 0 {
+					authPlugin = string(greeting[pluginOff : pluginOff+end])
+				}
+			}
+		}
+	}
+
+	// Client auth packet: capabilities(4) + max_packet(4) + charset(1) + reserved(23) + username + NUL + auth_response_length(1) + auth_response(0) [+ plugin_name]
+	authPkt := make([]byte, 0, 128)
+	// Capabilities: CLIENT_PROTOCOL_41 | CLIENT_LONG_PASSWORD | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH
+	caps := uint32(0x00000200 | 0x00000001 | 0x00008000 | 0x00080000)
 	authPkt = append(authPkt,
 		byte(caps), byte(caps>>8), byte(caps>>16), byte(caps>>24), // capabilities
 		0x00, 0x00, 0x00, 0x01, // max packet size (16MB)
@@ -2155,6 +2466,10 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 	authPkt = append(authPkt, []byte("root")...)
 	authPkt = append(authPkt, 0x00) // NUL terminator for username
 	authPkt = append(authPkt, 0x00) // auth_response_length = 0 (empty password)
+	if authPlugin != "" {
+		authPkt = append(authPkt, []byte(authPlugin)...)
+		authPkt = append(authPkt, 0x00) // NUL terminator for plugin name
+	}
 
 	// Wrap in MySQL packet frame (length + sequence 1)
 	frame := make([]byte, 4+len(authPkt))
@@ -2181,7 +2496,28 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	// OK packet: first byte is 0x00; Error packet: first byte is 0xff
-	return len(respPayload) > 0 && respPayload[0] == 0x00
+	// AuthMoreData (0x01): MySQL 8.0 caching_sha2_password sends this for
+	// fast auth success — byte 1 is 0x03 (fast auth OK), followed by OK packet.
+	if len(respPayload) > 0 && respPayload[0] == 0x00 {
+		return true
+	}
+	if len(respPayload) >= 2 && respPayload[0] == 0x01 && respPayload[1] == 0x03 {
+		// Fast auth success — read the following OK packet.
+		okHdr := make([]byte, 4)
+		if _, err := io.ReadFull(conn, okHdr); err != nil {
+			return false
+		}
+		okLen := int(okHdr[0]) | int(okHdr[1])<<8 | int(okHdr[2])<<16
+		if okLen == 0 {
+			return false
+		}
+		okPayload := make([]byte, okLen)
+		if _, err := io.ReadFull(conn, okPayload); err != nil {
+			return false
+		}
+		return len(okPayload) > 0 && okPayload[0] == 0x00
+	}
+	return false
 }
 
 // probePostgreSQL attempts a PostgreSQL startup handshake as user "postgres" with no password.
@@ -2707,6 +3043,7 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Timeout: httpTimeout, Transport: transport}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(""))
 	if err != nil {

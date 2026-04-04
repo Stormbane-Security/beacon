@@ -16,6 +16,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-nats-varz
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9222/varz | grep -q server_id"
+      exit_code: 0
+
   - name: detects-nats-on-nonstandard-port
     type: beacon
     target: localhost:9222

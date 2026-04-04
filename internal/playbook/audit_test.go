@@ -60,6 +60,32 @@ func TestBaseline_NewScannersRegistered(t *testing.T) {
 		"ssrf",           // deep:    SSRF cloud-metadata injection
 		"nginx",          // surface: Nginx alias traversal path probes
 		"hpp",            // deep:    HTTP parameter pollution probes
+		"secheaders",     // surface: missing security response headers
+		"openredir",      // deep:    open redirect via redirect parameters
+		"containerimage", // surface: Docker/OCI registry exposure
+		"jenkins",        // surface: Jenkins dashboard fingerprinting
+		"cms-plugins",    // surface: CMS detection and admin panel discovery
+		"cacheprobe",     // surface: HTTP cache behavior detection
+		"proxychain",     // surface: reverse proxy hop detection
+		"nextjs",         // surface: Next.js CVE-2025-29927 middleware bypass
+		"elinjection",    // deep:    Java EL/SpEL/OGNL injection
+		"idor",           // deep:    IDOR/BOLA sequential ID manipulation
+		"accesscontrol",  // deep:    broken access control path bypass
+		"redos",          // deep:    ReDoS timing detection
+		"nosqli",         // deep:    NoSQL/MongoDB operator injection
+		"errordisclosure", // surface: stack traces, debug endpoints, verbose errors
+		"bigip",           // surface: F5 BIG-IP cookie internal IP leak
+		"aiinfra",         // surface: AI/ML infrastructure exposure
+		"mcpscan",         // surface: MCP server endpoint discovery
+		"hopbyhop",        // deep:    hop-by-hop Connection header abuse
+		"h2c",             // deep:    HTTP/2 Cleartext upgrade smuggling
+		"grpcreflect",     // surface: gRPC reflection enumeration
+		"jsendpoints",     // surface: JS bundle endpoint extraction
+		"iisversion",      // surface: IIS deep version fingerprinting
+		"verbtamper",      // deep:    HTTP verb tampering auth bypass
+		"pathtraversal",   // deep:    framework-specific path traversal
+		"racecondition",   // deep:    TOCTOU race condition detection
+		"pdfssrf",         // deep:    SSRF via PDF generation
 	}
 
 	for _, name := range mustHave {

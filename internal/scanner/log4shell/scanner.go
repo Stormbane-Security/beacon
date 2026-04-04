@@ -1,5 +1,4 @@
-// Package log4shell detects potential Log4j JNDI injection (CVE-2021-44228)
-// in HTTP headers. It operates in two modes:
+// Package log4shell detects potential Log4j JNDI injection (CVE-2021-44228)// in HTTP headers. It operates in two modes:
 //
 // Surface mode: passively checks response headers and cookies for Java/Log4j
 // stack signals (Tomcat, JSESSIONID, X-Powered-By: Spring, etc.). Signals are
@@ -22,10 +21,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCVELog4Shell, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitCodeExecution, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitCredentialHarvest, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitDataExtracted, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName     = "log4shell"
 	maxBodySize     = 32 * 1024 // 32 KB
@@ -63,11 +75,11 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes the Log4Shell scan.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	ac := authctx.HTTPClient(ctx)
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       10 * time.Second,
+		Transport:     ac.Transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	scheme := detectScheme(ctx, client, asset)
@@ -218,6 +230,10 @@ func (s *Scanner) deepScan(ctx context.Context, client *http.Client, targetURL, 
 				Evidence:     ev,
 				DiscoveredAt: time.Now(),
 			})
+
+			// Post-exploitation: env leak + RCE confirmation
+			postFindings := postExploit(ctx, client, asset, targetURL, header)
+			findings = append(findings, postFindings...)
 
 			// One finding per asset is enough — stop all loops.
 			return findings, nil

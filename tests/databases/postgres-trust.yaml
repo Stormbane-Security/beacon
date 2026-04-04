@@ -1,0 +1,32 @@
+name: postgresql-trust
+description: "PostgreSQL trust authentication — connects as postgres with no password"
+tags: [postgresql, database, credentials, port]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports: ["5433:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+
+ready:
+  container: postgres
+  cmd: "pg_isready -U postgres"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-postgres-trust-query
+    type: command
+    expect:
+      command: "PGPASSWORD='' psql -h localhost -p 5433 -U postgres -c 'SELECT 1 AS pwned;' 2>/dev/null | grep -q pwned"
+      exit_code: 0
+
+  - name: detects-postgresql-trust
+    type: beacon
+    target: localhost:5433
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5432"]
+    expect:
+      check_id: port.postgresql_trust
+
+timeout: 5m

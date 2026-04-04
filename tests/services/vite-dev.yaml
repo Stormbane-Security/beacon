@@ -1,0 +1,30 @@
+name: vite-dev-server-exposed
+description: "Vite dev server exposed publicly — beacon detects JS dev server"
+tags: [vite, dev-server, javascript, portscan]
+
+services:
+  vite:
+    image: node:20-alpine
+    ports: ["9291:5173"]
+    command: ["sh", "-c", "npm init -y && npm install vite && npx vite --host 0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:9291/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-vite-dev-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9291/ | grep -qiE '(vite|script|module)'"
+      exit_code: 0
+
+  - name: detects-dev-server-exposed
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5173"]
+    expect:
+      check_id: port.dev_server_exposed
+
+timeout: 5m

@@ -1,0 +1,33 @@
+name: chain-snmp-default-community
+description: >
+  Exploit chain: SNMP agent with default 'public' community string →
+  system info extraction → network interface enumeration.
+  SNMP is UDP-only so beacon's TCP portscan won't discover it. This test
+  validates the infrastructure and tool-level exploitation. The SNMP module
+  fires through ProbePivot chains or ProbeDirect when snmpwalk is available.
+tags: [chain, postexploit, snmp, data-extraction, authorized]
+
+services:
+  snmp:
+    image: polinux/snmpd:alpine
+    ports: ["9429:161/udp"]
+
+ready:
+  cmd: "snmpget -v2c -c public localhost:9429 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING || sleep 2"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: snmp-community-public-accessible
+    type: command
+    expect:
+      command: "snmpget -v2c -c public localhost:9429 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING"
+      exit_code: 0
+
+  - name: snmp-walk-system-info
+    type: command
+    expect:
+      command: "snmpwalk -v2c -c public localhost:9429 1.3.6.1.2.1.1 2>/dev/null | grep -q STRING"
+      exit_code: 0
+
+timeout: 5m

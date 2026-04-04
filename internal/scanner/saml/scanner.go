@@ -29,10 +29,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckSAMLEndpointExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckSAMLIssuerNotValidated, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLMetadataExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckSAMLOpenRedirect, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLSignatureNotValidated, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLXMLWrapping, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckSAMLXXEInjection, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const scannerName = "saml"
 
 // Scanner detects SAML endpoints and tests for SAML security vulnerabilities.
@@ -183,11 +198,17 @@ func probeSAMLPath(ctx context.Context, client *http.Client, asset, base, path s
 	hasEntityDescriptor := strings.Contains(bodyStr, "<EntityDescriptor") ||
 		strings.Contains(bodyStr, "<md:EntityDescriptor")
 
-	hasSAMLKeyword := strings.Contains(strings.ToLower(bodyStr), "saml") ||
-		strings.Contains(strings.ToLower(bodyStr), "sso") ||
-		strings.Contains(strings.ToLower(bodyStr), "federation")
+	bodyLower := strings.ToLower(bodyStr)
+	// Require "saml" specifically, not generic words like "sso" or "federation"
+	// that appear on non-SAML pages (e.g. documentation mentioning single sign-on).
+	hasSAMLKeyword := strings.Contains(bodyLower, "saml") ||
+		(strings.Contains(bodyLower, "sso") && strings.Contains(bodyLower, "samlrequest")) ||
+		(strings.Contains(bodyLower, "federation") && strings.Contains(bodyLower, "metadata"))
 
-	if !hasEntityDescriptor && !hasSAMLKeyword && resp.StatusCode != http.StatusOK {
+	if !hasEntityDescriptor && !hasSAMLKeyword {
+		return nil, ""
+	}
+	if !hasEntityDescriptor && resp.StatusCode != http.StatusOK {
 		return nil, ""
 	}
 

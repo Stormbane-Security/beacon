@@ -33,82 +33,119 @@ import (
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/playbook"
 	"github.com/stormbane-security/beacon/internal/scanner/classify"
+	"github.com/stormbane-security/beacon/internal/scan"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 	"github.com/stormbane-security/beacon/internal/scanner/assetintel"
 	"github.com/stormbane-security/beacon/internal/scanner/bgp"
-	"github.com/stormbane-security/beacon/internal/scanner/cdnbypass"
-	"github.com/stormbane-security/beacon/internal/scanner/cmsplugins"
-	"github.com/stormbane-security/beacon/internal/scanner/crlf"
-	"github.com/stormbane-security/beacon/internal/scanner/iam"
-	"github.com/stormbane-security/beacon/internal/scanner/log4shell"
-	"github.com/stormbane-security/beacon/internal/scanner/saml"
-	"github.com/stormbane-security/beacon/internal/scanner/protopollution"
-	"github.com/stormbane-security/beacon/internal/scanner/ssti"
-	"github.com/stormbane-security/beacon/internal/scanner/web3auth"
-	"github.com/stormbane-security/beacon/internal/scanner/web3detect"
-	"github.com/stormbane-security/beacon/internal/scanner/depconf"
-	"github.com/stormbane-security/beacon/internal/scanner/ssrf"
-	"github.com/stormbane-security/beacon/internal/scanner/nginx"
-	"github.com/stormbane-security/beacon/internal/scanner/hpp"
-	"github.com/stormbane-security/beacon/internal/scanner/harvester"
-	"github.com/stormbane-security/beacon/internal/scanner/aidetect"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cdnbypass"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cmsplugins"
+	_ "github.com/stormbane-security/beacon/internal/scanner/crlf"
+	_ "github.com/stormbane-security/beacon/internal/scanner/iam"
+	_ "github.com/stormbane-security/beacon/internal/scanner/log4shell"
+	_ "github.com/stormbane-security/beacon/internal/scanner/saml"
+	_ "github.com/stormbane-security/beacon/internal/scanner/protopollution"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ssti"
+	_ "github.com/stormbane-security/beacon/internal/scanner/web3auth"
+	_ "github.com/stormbane-security/beacon/internal/scanner/web3detect"
+	_ "github.com/stormbane-security/beacon/internal/scanner/depconf"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ssrf"
+	_ "github.com/stormbane-security/beacon/internal/scanner/nginx"
+	_ "github.com/stormbane-security/beacon/internal/scanner/hpp"
+	_ "github.com/stormbane-security/beacon/internal/scanner/harvester"
+	_ "github.com/stormbane-security/beacon/internal/scanner/aidetect"
 	"github.com/stormbane-security/beacon/internal/scanner/aillm"
-	"github.com/stormbane-security/beacon/internal/scanner/apiversions"
+	_ "github.com/stormbane-security/beacon/internal/scanner/apiversions"
 	"github.com/stormbane-security/beacon/internal/scanner/autoprobe"
-	"github.com/stormbane-security/beacon/internal/scanner/clickjacking"
+	_ "github.com/stormbane-security/beacon/internal/scanner/clickjacking"
 	"github.com/stormbane-security/beacon/internal/scanner/dns"
-	"github.com/stormbane-security/beacon/internal/scanner/exposedfiles"
-	"github.com/stormbane-security/beacon/internal/scanner/httpmethods"
-	"github.com/stormbane-security/beacon/internal/scanner/smuggling"
-	"github.com/stormbane-security/beacon/internal/scanner/websocket"
-	"github.com/stormbane-security/beacon/internal/scanner/takeover"
-	"github.com/stormbane-security/beacon/internal/scanner/wafdetect"
-	"github.com/stormbane-security/beacon/internal/scanner/oauth"
-	"github.com/stormbane-security/beacon/internal/scanner/ratelimit"
-	"github.com/stormbane-security/beacon/internal/scanner/cloudbuckets"
-	"github.com/stormbane-security/beacon/internal/scanner/cors"
-	"github.com/stormbane-security/beacon/internal/scanner/crawler"
+	_ "github.com/stormbane-security/beacon/internal/scanner/exposedfiles"
+	_ "github.com/stormbane-security/beacon/internal/scanner/httpmethods"
+	_ "github.com/stormbane-security/beacon/internal/scanner/smuggling"
+	_ "github.com/stormbane-security/beacon/internal/scanner/websocket"
+	_ "github.com/stormbane-security/beacon/internal/scanner/takeover"
+	_ "github.com/stormbane-security/beacon/internal/scanner/wafdetect"
+	_ "github.com/stormbane-security/beacon/internal/scanner/oauth"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ratelimit"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cloudbuckets"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cors"
+	_ "github.com/stormbane-security/beacon/internal/scanner/crawler"
 	"github.com/stormbane-security/beacon/internal/scanner/dirbust"
 	"github.com/stormbane-security/beacon/internal/scanner/dlp"
-	"github.com/stormbane-security/beacon/internal/scanner/dorks"
-	"github.com/stormbane-security/beacon/internal/scanner/email"
-	"github.com/stormbane-security/beacon/internal/scanner/graphql"
-	"github.com/stormbane-security/beacon/internal/scanner/jenkins"
-	"github.com/stormbane-security/beacon/internal/scanner/hibp"
-	"github.com/stormbane-security/beacon/internal/scanner/historicalurls"
-	"github.com/stormbane-security/beacon/internal/scanner/hostheader"
-	"github.com/stormbane-security/beacon/internal/scanner/jwt"
+	_ "github.com/stormbane-security/beacon/internal/scanner/domxss"
+	_ "github.com/stormbane-security/beacon/internal/scanner/dorks"
+	_ "github.com/stormbane-security/beacon/internal/scanner/email"
+	_ "github.com/stormbane-security/beacon/internal/scanner/graphql"
+	_ "github.com/stormbane-security/beacon/internal/scanner/jenkins"
+	_ "github.com/stormbane-security/beacon/internal/scanner/hibp"
+	_ "github.com/stormbane-security/beacon/internal/scanner/historicalurls"
+	_ "github.com/stormbane-security/beacon/internal/scanner/hostheader"
+	_ "github.com/stormbane-security/beacon/internal/scanner/jwt"
 	"github.com/stormbane-security/beacon/internal/scanner/nuclei"
 	"github.com/stormbane-security/beacon/internal/scanner/passivedns"
 	"github.com/stormbane-security/beacon/internal/scanner/portscan"
-	"github.com/stormbane-security/beacon/internal/scanner/screenshot"
+	_ "github.com/stormbane-security/beacon/internal/scanner/screenshot"
 	"github.com/stormbane-security/beacon/internal/scanner/subdomain"
-	"github.com/stormbane-security/beacon/internal/scanner/testssl"
-	tlsscanner "github.com/stormbane-security/beacon/internal/scanner/tls"
-	"github.com/stormbane-security/beacon/internal/scanner/typosquat"
-	"github.com/stormbane-security/beacon/internal/scanner/vhost"
-	"github.com/stormbane-security/beacon/internal/scanner/webcontent"
+	_ "github.com/stormbane-security/beacon/internal/scanner/testssl"
+	_ "github.com/stormbane-security/beacon/internal/scanner/tls"
+	_ "github.com/stormbane-security/beacon/internal/scanner/typosquat"
+	_ "github.com/stormbane-security/beacon/internal/scanner/vhost"
+	_ "github.com/stormbane-security/beacon/internal/scanner/webcontent"
 	"github.com/stormbane-security/beacon/internal/scanner/whois"
-	"github.com/stormbane-security/beacon/internal/scanner/authfuzz"
-	"github.com/stormbane-security/beacon/internal/scanner/xxe"
-	"github.com/stormbane-security/beacon/internal/scanner/deserial"
-	"github.com/stormbane-security/beacon/internal/scanner/fileupload"
-	"github.com/stormbane-security/beacon/internal/scanner/gateway"
-	"github.com/stormbane-security/beacon/internal/scanner/swagger"
-	"github.com/stormbane-security/beacon/internal/scanner/contractscan"
-	"github.com/stormbane-security/beacon/internal/scanner/chainnode"
-	"github.com/stormbane-security/beacon/internal/scanner/githubactions"
-	"github.com/stormbane-security/beacon/internal/scanner/nextjs"
-	"github.com/stormbane-security/beacon/internal/scanner/wifi"
-	"github.com/stormbane-security/beacon/internal/scanner/idor"
-	"github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
-	"github.com/stormbane-security/beacon/internal/scanner/elinjection"
-	"github.com/stormbane-security/beacon/internal/scanner/containerimage"
-	"github.com/stormbane-security/beacon/internal/scanner/redos"
-	"github.com/stormbane-security/beacon/internal/scanner/artifactsign"
-	"github.com/stormbane-security/beacon/internal/scanner/bitbucket"
-	"github.com/stormbane-security/beacon/internal/scanner/circleci"
-	oktascanner "github.com/stormbane-security/beacon/internal/scanner/okta"
+	_ "github.com/stormbane-security/beacon/internal/scanner/authfuzz"
+	_ "github.com/stormbane-security/beacon/internal/scanner/xxe"
+	_ "github.com/stormbane-security/beacon/internal/scanner/deserial"
+	_ "github.com/stormbane-security/beacon/internal/scanner/fileupload"
+	_ "github.com/stormbane-security/beacon/internal/scanner/gateway"
+	_ "github.com/stormbane-security/beacon/internal/scanner/swagger"
+	_ "github.com/stormbane-security/beacon/internal/scanner/contractscan"
+	_ "github.com/stormbane-security/beacon/internal/scanner/chainnode"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ghactions"
+	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
+	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
+	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
+	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
+	_ "github.com/stormbane-security/beacon/internal/scanner/elinjection"
+	_ "github.com/stormbane-security/beacon/internal/scanner/containerimage"
+	_ "github.com/stormbane-security/beacon/internal/scanner/redos"
+	_ "github.com/stormbane-security/beacon/internal/scanner/artifactsign"
+	_ "github.com/stormbane-security/beacon/internal/scanner/bitbucket"
+	_ "github.com/stormbane-security/beacon/internal/scanner/circleci"
+	_ "github.com/stormbane-security/beacon/internal/scanner/okta"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cmdinj"
+	_ "github.com/stormbane-security/beacon/internal/scanner/verbtamper"
+	_ "github.com/stormbane-security/beacon/internal/scanner/pathtraversal"
+	_ "github.com/stormbane-security/beacon/internal/scanner/racecondition"
+	_ "github.com/stormbane-security/beacon/internal/scanner/grpcreflect"
+	_ "github.com/stormbane-security/beacon/internal/scanner/jsendpoints"
+	_ "github.com/stormbane-security/beacon/internal/scanner/pdfssrf"
+	_ "github.com/stormbane-security/beacon/internal/scanner/iisversion"
+	_ "github.com/stormbane-security/beacon/internal/scanner/csrf"
+	_ "github.com/stormbane-security/beacon/internal/scanner/openredir"
+	_ "github.com/stormbane-security/beacon/internal/scanner/sqli"
+	_ "github.com/stormbane-security/beacon/internal/scanner/nosqli"
+	_ "github.com/stormbane-security/beacon/internal/scanner/errordisclosure"
+	_ "github.com/stormbane-security/beacon/internal/scanner/hopbyhop"
+	_ "github.com/stormbane-security/beacon/internal/scanner/bigip"
+	_ "github.com/stormbane-security/beacon/internal/scanner/aiinfra"
+	_ "github.com/stormbane-security/beacon/internal/scanner/mcpscan"
+	_ "github.com/stormbane-security/beacon/internal/scanner/h2c"
+	_ "github.com/stormbane-security/beacon/internal/scanner/secheaders"
+	_ "github.com/stormbane-security/beacon/internal/scanner/proxychain"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cacheprobe"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cookie"
+	_ "github.com/stormbane-security/beacon/internal/scanner/wellknown"
+	_ "github.com/stormbane-security/beacon/internal/scanner/robotsmap"
+	_ "github.com/stormbane-security/beacon/internal/scanner/http2"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ldapi"
+	_ "github.com/stormbane-security/beacon/internal/scanner/cspaudit"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ntlm"
+	_ "github.com/stormbane-security/beacon/internal/scanner/favicon"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ctlog"
+	_ "github.com/stormbane-security/beacon/internal/scanner/asnmap"
+	_ "github.com/stormbane-security/beacon/internal/scanner/ipv6"
+	_ "github.com/stormbane-security/beacon/internal/scanner/apischema"
+	_ "github.com/stormbane-security/beacon/internal/scanner/jsframework"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
 	"github.com/stormbane-security/beacon/internal/profiler"
@@ -180,6 +217,11 @@ type Module struct {
 	// active, asset discovery, evidence classification, and playbook matching
 	// are all skipped.
 	scannerFilter []string
+
+	// dryRun, when true, runs evidence collection and playbook matching but
+	// stops before executing scanners. The planned scanner list is returned
+	// as a single finding with the plan details in Evidence.
+	dryRun bool
 
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
@@ -273,7 +315,7 @@ type Config struct {
 	Auth []config.AuthConfig
 
 	// GitHubToken is an optional GitHub personal access token used by the
-	// githubactions scanner to fetch workflow files via the GitHub API.
+	// ghactions scanner to fetch workflow files via the GitHub API.
 	// Without it the scanner is limited to 60 unauthenticated requests/hour.
 	GitHubToken string
 
@@ -312,6 +354,30 @@ const (
 	PlaybookDepthHardCap = 3
 )
 
+// moduleScannerConfig adapts the module's Config into a scan.ScannerConfig
+// for the global scanner registry. Keys map to scanner factory expectations.
+func moduleScannerConfig(cfg Config) scan.MapConfig {
+	return scan.MapConfig{
+		"shodan.api_key":         cfg.ShodanAPIKey,
+		"virustotal.api_key":     cfg.VirusTotalAPIKey,
+		"securitytrails.api_key": cfg.SecurityTrailsAPIKey,
+		"censys.api_id":          cfg.CensysAPIID,
+		"censys.api_secret":      cfg.CensysAPISecret,
+		"greynoise.api_key":      cfg.GreyNoiseAPIKey,
+		"hibp.api_key":           cfg.HIBPAPIKey,
+		"bing.api_key":           cfg.BingAPIKey,
+		"github.token":           cfg.GitHubToken,
+		"okta.domain":            cfg.OktaDomain,
+		"okta.token":             cfg.OktaToken,
+		"nmap.bin":               cfg.NmapBin,
+		"gau.bin":                cfg.GauBin,
+		"katana.bin":             cfg.KatanaBin,
+		"gowitness.bin":          cfg.GowitnessBin,
+		"testssl.bin":            cfg.TestsslBin,
+		"harvester.bin":          cfg.HarvesterBin,
+	}
+}
+
 // New creates a new Surface module.
 // Returns an error if the embedded playbook registry fails to load.
 func New(cfg Config) (*Module, error) {
@@ -336,81 +402,19 @@ func New(cfg Config) (*Module, error) {
 
 	nucl := nuclei.New(cfg.NucleiBin, surfaceList, deepList)
 
-	scannerMap := map[string]sc.Scanner{
-		"email":          email.New(),
-		"whois":          whois.New(),
-		"tls":            nucl,        // TLS cert checks are in nuclei surface templates
-		"tlscheck":       tlsscanner.New(), // native Go TLS: key strength, OCSP, CT, PFS, HSTS policy
-		"assetintel":     assetintel.NewWithKeys(cfg.ShodanAPIKey, cfg.VirusTotalAPIKey, cfg.SecurityTrailsAPIKey, cfg.CensysAPIID, cfg.CensysAPISecret, cfg.GreyNoiseAPIKey),
-		"vhost":          vhost.New(),
-		"webcontent":     webcontent.New(),
-		"cloudbuckets":   cloudbuckets.New(),
-		"historicalurls": historicalurls.New(cfg.GauBin),
-		"crawler":        crawler.New(cfg.KatanaBin),
-		"screenshot":     screenshot.New(cfg.GowitnessBin),
-		"testssl":        testssl.New(cfg.TestsslBin),
-		"bgp":            bgp.New(),
-		"passivedns":     passivedns.New(),
-		"typosquat":      typosquat.New(),
-		"dlp":            dlp.New(),
-		"portscan":       portscan.NewWithNmap(cfg.NmapBin),
-		"graphql":        graphql.New(),
-		"cdnbypass":      cdnbypass.New(),
-		"hostheader":     hostheader.New(),
-		"jwt":            jwt.New(),
-		"cors":           cors.New(),
-		"hibp":           hibp.New(cfg.HIBPAPIKey),
-		"dorks":       dorks.New(cfg.BingAPIKey),
-		"cms-plugins": cmsplugins.New(),
-		"oauth":        oauth.New(),
-		"ratelimit":    ratelimit.New(),
-		"depconf":      depconf.New(),
-		"smuggling":    smuggling.New(),
-		"dns":          dns.New(),
-		"httpmethods":  httpmethods.New(),
-		"takeover":     takeover.New(),
-		"wafdetect":    wafdetect.New(),
-		"harvester":    harvester.New(cfg.HarvesterBin),
-		"jenkins":      jenkins.New(),
-		"clickjacking": clickjacking.New(),
-		"autoprobe":    autoprobe.New(),
-		"websocket":    websocket.New(),
-		"exposedfiles": exposedfiles.New(),
-		"apiversions":  apiversions.New(),
-		"aidetect":     aidetect.New(),
-		"aillm":        aillm.New(),
-		"saml":         saml.New(),
-		"iam":          iam.New(),
-		"ssti":             ssti.New(),
-		"crlf":             crlf.New(),
-		"log4shell":        log4shell.New(),
-		"protopollution":   protopollution.New(),
-		"web3detect":       web3detect.New(),
-		"web3auth":         web3auth.New(),
-		"ssrf":             ssrf.New(),
-		"nginx":            nginx.New(),
-		"hpp":              hpp.New(),
-		"authfuzz":         authfuzz.New(),
-		"xxe":              xxe.New(),
-		"deserial":         deserial.New(),
-		"fileupload":       fileupload.New(),
-		"gateway":          gateway.New(),
-		"swagger":          swagger.New(),
-		"contractscan":     contractscan.New(),
-		"chainnode":        chainnode.New(),
-		"githubactions":   githubactions.New(cfg.GitHubToken),
-		"nextjs":          nextjs.New(),
-		"wifi":            wifi.New(),
-		"idor":            idor.New(),
-		"accesscontrol":   accesscontrol.New(),
-		"elinjection":     elinjection.New(),
-		"containerimage":  containerimage.New(),
-		"redos":           redos.New(),
-		"artifactsign":    artifactsign.New(),
-		"bitbucket":       bitbucket.New(),
-		"circleci":        circleci.New(cfg.GitHubToken),
-		"okta":            oktascanner.New(cfg.OktaDomain, cfg.OktaToken),
-	}
+	// Merge scanner-declared check IDs into the finding Registry.
+	// Scanners that use RegisterWithCheckDecls() self-declare their checks;
+	// this fills gaps in the hand-maintained Registry for gradual migration.
+	scan.MergeChecksIntoRegistry()
+
+	// Build scanner map from the global registry. All scanners register
+	// themselves via init() in their packages — no manual wiring needed.
+	scannerCfg := moduleScannerConfig(cfg)
+	scannerMap := scan.Build(scannerCfg)
+
+	// Special cases: nuclei shares a single instance for "tls" and is
+	// not in the registry because it requires per-module configuration.
+	scannerMap["tls"] = nucl
 
 	// Clamp depth and asset limits to their hard ceilings.
 	maxDepth := cfg.MaxDiscoveryDepth
@@ -493,8 +497,9 @@ func isDeepOrAuthorized(t module.ScanType) bool {
 func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
 	rootDomain := input.Domain
 
-	// Store scanner filter for use in runAsset.
+	// Store scanner filter and dry-run flag for use in runAsset.
 	m.scannerFilter = input.Scanners
+	m.dryRun = input.DryRun
 
 	// Pass port restriction to the portscan scanner if set.
 	if len(input.Ports) > 0 {
@@ -1194,7 +1199,11 @@ assetLoop:
 				var addWg sync.WaitGroup
 				for targetAsset, scannerNames := range result.AdditionalScans {
 					targetAsset, scannerNames := targetAsset, scannerNames
-					addSem <- struct{}{}
+					select {
+					case addSem <- struct{}{}:
+					case <-ctx.Done():
+						continue
+					}
 					addWg.Add(1)
 					go func() {
 						defer addWg.Done()
@@ -1241,7 +1250,53 @@ assetLoop:
 		}
 	}
 
+	// Second safety gate: cross-asset AI analysis and its additional scanners
+	// may have injected ModeDeep findings after the first gate.
+	if scanType == module.ScanSurface {
+		filtered := allFindings[:0]
+		for _, f := range allFindings {
+			if finding.Meta(f.CheckID).Mode == finding.ModeDeep {
+				continue
+			}
+			filtered = append(filtered, f)
+		}
+		allFindings = filtered
+	}
+
+	// Deduplicate findings by CheckID+Asset, preferring native scanners over
+	// nuclei. When both a native scanner and nuclei detect the same issue on
+	// the same asset, the native finding has richer evidence and proof commands.
+	allFindings = deduplicateFindings(allFindings)
+
 	return allFindings, nil
+}
+
+// deduplicateFindings removes duplicate findings sharing the same CheckID+Asset.
+// When a native scanner and nuclei both produce a finding for the same check,
+// the native scanner's finding is kept because it has richer evidence, better
+// proof commands, and more specific descriptions.
+func deduplicateFindings(findings []finding.Finding) []finding.Finding {
+	type dedupKey struct {
+		checkID string
+		asset   string
+	}
+	seen := make(map[dedupKey]int, len(findings)) // key → index in result
+	result := make([]finding.Finding, 0, len(findings))
+
+	for _, f := range findings {
+		key := dedupKey{f.CheckID, f.Asset}
+		if idx, exists := seen[key]; exists {
+			// Prefer native scanner over nuclei.
+			if result[idx].Scanner == "nuclei" && f.Scanner != "nuclei" {
+				result[idx] = f // replace nuclei finding with native
+			}
+			// Otherwise keep the first (native) finding, skip the dupe.
+			continue
+		}
+		seen[key] = len(result)
+		result = append(result, f)
+	}
+	return result
 }
 
 // runFilteredScanners executes only the scanners named in m.scannerFilter
@@ -1270,20 +1325,19 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			start := time.Now()
-			fs, scanErr := scanner.Run(ctx, asset, scanType)
+			result := scan.Execute(scanner, ctx, asset, scanType)
 			mu.Lock()
-			findings = append(findings, fs...)
+			findings = append(findings, result.Findings...)
 			mu.Unlock()
-			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, time.Since(start), fs, scanErr)
+			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, result.Metrics.Duration, result.Findings, result.Error)
 			if progressFn != nil {
-				fsCopy := make([]finding.Finding, len(fs))
-				copy(fsCopy, fs)
+				fsCopy := make([]finding.Finding, len(result.Findings))
+				copy(fsCopy, result.Findings)
 				progressFn(module.ProgressEvent{
 					Phase:        "scanner_done",
 					ActiveAsset:  asset,
 					ScannerName:  name,
-					FindingDelta: len(fs),
+					FindingDelta: len(result.Findings),
 					NewFindings:  fsCopy,
 				})
 			}
@@ -1359,7 +1413,13 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			_ = session // session.Label available for logging if verbose
 		}
 	}
-	_ = httpClient // available for scanners that accept an http.Client in future
+	ctx = authctx.WithHTTPClient(ctx, httpClient)
+
+	// Inject ScanContext — provides typed accessors (asset, scanType, HTTP client,
+	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
+	// for backward compatibility.
+	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+	ctx = sctx.Inject(ctx)
 
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
 		parts := []string{}
@@ -1375,7 +1435,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			parts = append(parts, fmt.Sprintf("title=%q", ev.Title))
 		}
 		if ev.JARMFingerprint != "" {
-			parts = append(parts, "JARM="+ev.JARMFingerprint[:8]+"…")
+			jarmPreview := ev.JARMFingerprint
+			if len(jarmPreview) > 8 {
+				jarmPreview = jarmPreview[:8] + "…"
+			}
+			parts = append(parts, "JARM="+jarmPreview)
 		}
 		msg := asset
 		if len(parts) > 0 {
@@ -1402,6 +1466,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Build unified RunPlan
 	plan := playbook.BuildRunPlan(matched)
+
+	// Merge deep-only scanners into the plan when the scan mode permits active probing.
+	if scanType != module.ScanSurface && len(plan.DeepOnlyScanners) > 0 {
+		plan.Scanners = append(plan.Scanners, plan.DeepOnlyScanners...)
+	}
 
 	// AI-powered scanner suggestions — augment the plan with scanners the
 	// playbook system did not match but the AI considers relevant to the
@@ -1434,6 +1503,41 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}
 	}
 
+	// Merge AIFP-suggested scanners into the plan.
+	for _, s := range aifpSuggestedScanners {
+		if !planContains(plan.Scanners, s) {
+			plan.Scanners = append(plan.Scanners, s)
+		}
+	}
+
+	// ── Dry-run: output the planned scanner list and stop ────────────────────
+	if m.dryRun {
+		matchedNames := make([]string, len(matched))
+		for i, pb := range matched {
+			matchedNames[i] = pb.Name
+		}
+		return []finding.Finding{{
+			CheckID:     finding.CheckMetaDryRunPlan,
+			Module:      "surface",
+			Scanner:     "planner",
+			Severity:    finding.SeverityInfo,
+			Title:       "Dry-run scan plan for " + asset,
+			Description: "Planned scanners and matched playbooks (no scanners were executed)",
+			Asset:       asset,
+			Evidence: map[string]any{
+				"scanners":  plan.Scanners,
+				"playbooks": matchedNames,
+				"evidence": map[string]any{
+					"status_code":      ev.StatusCode,
+					"title":            ev.Title,
+					"service_versions": ev.ServiceVersions,
+					"framework":        ev.Framework,
+					"waf_vendor":       ev.WAFVendor,
+				},
+			},
+		}}
+	}
+
 	noHTTP := ev.StatusCode == 0
 
 	// ── Phase A: Intelligence scanners (parallel) ────────────────────────────
@@ -1462,12 +1566,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		phaseAWg.Add(1)
 		go func() {
 			defer phaseAWg.Done()
-			start := time.Now()
-			fs, scanErr := sc.Run(ctx, asset, scanType)
+			result := scan.Execute(sc, ctx, asset, scanType)
 			phaseAMu.Lock()
-			phaseAFindings = append(phaseAFindings, fs...)
+			phaseAFindings = append(phaseAFindings, result.Findings...)
 			phaseAMu.Unlock()
-			m.saveScanMetric(ctx, scanRunID, asset, name, start, fs, scanErr)
+			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, result.Metrics.Duration, result.Findings, result.Error)
 		}()
 	}
 	phaseAWg.Wait()
@@ -1476,10 +1579,31 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	behindWAF, wafVendor := extractWAFInfo(phaseAFindings)
 	originIP := extractOriginIP(phaseAFindings)
 	openPorts := extractOpenPorts(phaseAFindings)
+	// Feed WAF/IDS vendor back into evidence for playbook matching and AI enrichment.
+	if wafVendor != "" {
+		ev.WAFVendor = wafVendor
+	}
+	if idsVendor := extractIDSVendor(phaseAFindings); idsVendor != "" {
+		ev.IDSVendor = idsVendor
+	}
 	// Populate ev.AIEndpoints from aidetect findings so aillm targets confirmed
 	// endpoints instead of falling back to a generic default path list.
 	if eps := extractAIEndpoints(phaseAFindings); len(eps) > 0 {
 		ev.AIEndpoints = eps
+	}
+	// Propagate portscan-identified service versions into Evidence so Phase B
+	// scanners and nuclei template selection can use them. Portscan probes
+	// identify services via banner fingerprinting (e.g., "redis", "ssh", "mysql").
+	if len(openPorts) > 0 {
+		if ev.ServiceVersions == nil {
+			ev.ServiceVersions = make(map[string]string)
+		}
+		for port, svc := range openPorts {
+			if svc != "" {
+				key := fmt.Sprintf("port_%d", port)
+				ev.ServiceVersions[key] = svc
+			}
+		}
 	}
 
 	// Non-standard HTTP port recovery: if classify found no HTTP on 80/443 but
@@ -1656,6 +1780,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		"depconf": true, "cdnbypass": true, "jenkins": true,
 		"clickjacking": true, "autoprobe": true, "websocket": true,
 		"exposedfiles": true, "apiversions": true,
+		"proxychain": true, "cacheprobe": true,
 	}
 
 	var findings []finding.Finding
@@ -1708,29 +1833,28 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			if jitter != nil {
 				jitter.Jitter(ctx)
 			}
-			start := time.Now()
-			var fs []finding.Finding
-			var scanErr error
-			// aillm uses per-asset Evidence so it targets confirmed AI endpoints
-			// discovered by aidetect (Phase A) rather than a generic default list.
-			// autoprobe uses discovered harvester emails for higher-confidence
-			// username enumeration against real employee accounts.
+			// Resolve the effective scanner — some scanners need per-asset
+			// state (aillm evidence, autoprobe emails, origin IP routing).
+			var effectiveScanner sc.Scanner = scanner
 			if name == "aillm" && len(ev.AIEndpoints) > 0 {
-				fs, scanErr = aillm.NewWithEvidence(&ev).Run(ctx, asset, scanType)
+				effectiveScanner = aillm.NewWithEvidence(&ev)
 			} else if name == "autoprobe" {
 				m.harvesterEmailsMu.Lock()
 				emails := m.harvesterEmails
 				m.harvesterEmailsMu.Unlock()
-				fs, scanErr = autoprobe.NewWithEmails(emails).Run(ctx, asset, scanType)
-			} else if originSc, ok := scanner.(sc.OriginScanner); ok && originIP != "" {
-				// If the scanner supports direct-IP probing and we have a known origin IP
-				// (e.g. the real backend behind a CDN), use it to avoid hitting shared CDN
-				// edge infrastructure with crafted Host headers.
-				fs, scanErr = originSc.RunWithOriginIP(ctx, asset, originIP, scanType)
-			} else {
-				fs, scanErr = scanner.Run(ctx, asset, scanType)
+				effectiveScanner = autoprobe.NewWithEmails(emails)
 			}
-			elapsed := time.Since(start)
+			// Execute with panic recovery, timing, and structured result.
+			var result *scan.Result
+			if originSc, ok := effectiveScanner.(sc.OriginScanner); ok && originIP != "" {
+				// OriginScanner uses a different method — wrap manually.
+				result = scan.Execute(scan.AdaptFunc(name, func(ctx2 context.Context, a string, st module.ScanType) ([]finding.Finding, error) {
+					return originSc.RunWithOriginIP(ctx2, a, originIP, st)
+				}), ctx, asset, scanType)
+			} else {
+				result = scan.Execute(effectiveScanner, ctx, asset, scanType)
+			}
+			fs := result.Findings
 			// Cache harvester emails for use by autoprobe on this and future assets.
 			if name == "harvester" && len(fs) > 0 {
 				for _, f := range fs {
@@ -1759,7 +1883,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			mu.Lock()
 			findings = append(findings, fs...)
 			mu.Unlock()
-			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, elapsed, fs, scanErr)
+			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, result.Metrics.Duration, fs, result.Error)
 			if progressFn != nil && len(fs) > 0 {
 				// Deep-copy fs before passing to the progress callback so that
 				// the renderer's accumulated slice cannot alias the scanner's
@@ -1792,11 +1916,28 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		go func() {
 			defer wg.Done()
 			db := dirbust.NewWithFfuf(m.ffufBin)
+			db.SetFramework(ev.Framework)
+			db.SetRecurse(true)
 			dbFindings := db.Run(ctx, asset, dirbustPaths)
 			mu.Lock()
 			findings = append(findings, dbFindings...)
 			mu.Unlock()
 		}()
+	}
+
+	// IPv6 portscan: if classify found an AAAA record, run a portscan against
+	// the IPv6 address concurrently with Phase B scanners.
+	if ev.IPv6 != "" {
+		if ps, ok := m.scanners["portscan"]; ok {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ipv6Findings, _ := ps.Run(ctx, ev.IPv6, scanType)
+				mu.Lock()
+				findings = append(findings, ipv6Findings...)
+				mu.Unlock()
+			}()
+		}
 	}
 
 	// DLP Vision — waits only for the screenshot scanner, then runs concurrently
@@ -1959,31 +2100,31 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				convWg.Add(1)
 				go func() {
 					defer convWg.Done()
-					start := time.Now()
-					var fs []finding.Finding
-					var scanErr error
 					// Mirror the same special-cases as Phase B to ensure convergence
 					// scanners get the same context (AI endpoints, harvester emails,
 					// origin IP) that Phase B scanners receive.
+					var effectiveScanner sc.Scanner = convScanner
 					switch {
 					case name == "aillm" && len(ev.AIEndpoints) > 0:
-						fs, scanErr = aillm.NewWithEvidence(&ev).Run(ctx, asset, scanType)
+						effectiveScanner = aillm.NewWithEvidence(&ev)
 					case name == "autoprobe":
 						m.harvesterEmailsMu.Lock()
 						emails := m.harvesterEmails
 						m.harvesterEmailsMu.Unlock()
-						fs, scanErr = autoprobe.NewWithEmails(emails).Run(ctx, asset, scanType)
-					default:
-						if originSc, ok := convScanner.(sc.OriginScanner); ok && originIP != "" {
-							fs, scanErr = originSc.RunWithOriginIP(ctx, asset, originIP, scanType)
-						} else {
-							fs, scanErr = convScanner.Run(ctx, asset, scanType)
-						}
+						effectiveScanner = autoprobe.NewWithEmails(emails)
+					}
+					var result *scan.Result
+					if originSc, ok := effectiveScanner.(sc.OriginScanner); ok && originIP != "" {
+						result = scan.Execute(scan.AdaptFunc(name, func(ctx2 context.Context, a string, st module.ScanType) ([]finding.Finding, error) {
+							return originSc.RunWithOriginIP(ctx2, a, originIP, st)
+						}), ctx, asset, scanType)
+					} else {
+						result = scan.Execute(effectiveScanner, ctx, asset, scanType)
 					}
 					mu.Lock()
-					findings = append(findings, fs...)
+					findings = append(findings, result.Findings...)
 					mu.Unlock()
-					m.saveScanMetricElapsed(ctx, scanRunID, asset, name, time.Since(start), fs, scanErr)
+					m.saveScanMetricElapsed(ctx, scanRunID, asset, name, result.Metrics.Duration, result.Findings, result.Error)
 				}()
 			}
 			convWg.Wait()
@@ -2179,7 +2320,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		// record reflects these paths and they participate in path_responds
 		// playbook matching on subsequent scans.
 		for _, f := range findings {
-			if f.CheckID != "exposure.api_version" {
+			if f.CheckID != finding.CheckExposureAPIVersion {
 				continue
 			}
 			if path, ok := f.Evidence["path"].(string); ok && path != "" {
@@ -2310,10 +2451,6 @@ func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 	}
 
 	probe := func(ip string) {
-		defer wg.Done()
-		sem <- struct{}{}
-		defer func() { <-sem }()
-
 		for _, scheme := range []string{"https", "http"} {
 			url := scheme + "://" + ip
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -2354,8 +2491,18 @@ outer:
 			}
 			total++
 			ipStr := ip.String()
+			// Acquire semaphore before spawning to bound goroutine count.
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				break outer
+			}
 			wg.Add(1)
-			go probe(ipStr)
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				probe(ipStr)
+			}()
 			incrementNetIP(ip)
 		}
 	}
@@ -2561,6 +2708,17 @@ func extractWAFInfo(findings []finding.Finding) (bool, string) {
 	return false, ""
 }
 
+// extractIDSVendor inspects Phase A findings for IDS/NGFW detection.
+func extractIDSVendor(findings []finding.Finding) string {
+	for _, f := range findings {
+		if f.CheckID == finding.CheckIDSDetected {
+			vendor, _ := f.Evidence["vendor"].(string)
+			return vendor
+		}
+	}
+	return ""
+}
+
 // extractOpenPorts inspects Phase A findings for open TCP ports.
 // Returns a map of port number → service name (e.g. 6379 → "redis").
 func extractOpenPorts(findings []finding.Finding) map[int]string {
@@ -2746,19 +2904,8 @@ func scannerSkipReason(
 	return ""
 }
 
-// saveScanMetric records a scanner run's timing and finding counts to the store.
+// saveScanMetricElapsed records a scanner run's timing and finding counts to the store.
 // Non-fatal — metric failures must never affect the scan result.
-func (m *Module) saveScanMetric(
-	ctx context.Context,
-	scanRunID, asset, scannerName string,
-	start time.Time,
-	fs []finding.Finding,
-	scanErr error,
-) {
-	m.saveScanMetricElapsed(ctx, scanRunID, asset, scannerName, time.Since(start), fs, scanErr)
-}
-
-// saveScanMetricElapsed is like saveScanMetric but accepts a pre-measured duration.
 func (m *Module) saveScanMetricElapsed(
 	ctx context.Context,
 	scanRunID, asset, scannerName string,
@@ -2875,6 +3022,10 @@ func scannerCmd(name, asset string, scanType module.ScanType) string {
 		return fmt.Sprintf("cloud bucket enumeration → %s", asset)
 	case "cdnbypass":
 		return fmt.Sprintf("CDN origin IP discovery → %s", asset)
+	case "proxychain":
+		return fmt.Sprintf("proxy chain detection → %s", asset)
+	case "cacheprobe":
+		return fmt.Sprintf("CDN cache intelligence → %s", asset)
 	default:
 		return fmt.Sprintf("%s → %s", name, asset)
 	}

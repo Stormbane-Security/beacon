@@ -1,0 +1,34 @@
+name: log4shell-vulnerable
+description: >
+  Vulnerable Java application (CVE-2021-44228). Beacon log4shell scanner
+  should detect Java stack signals in surface mode and JNDI reflection
+  in authorized mode.
+tags: [log4shell, scanner, cve, java]
+
+services:
+  vulnerable-app:
+    image: christophetd/log4shell-vulnerable-app:latest
+    ports: ["9259:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9259/ -o /dev/null -w '%{http_code}' | grep -qE '200|404'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # The app is a Java/Spring Boot application — verify Java signals present
+  - name: exploit-java-server-detected
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9259/ | grep -qiE 'Tomcat|Spring|Java|JSESSIONID'"
+      exit_code: 0
+
+  # Beacon should detect this as a Java target (surface-level signals)
+  - name: detects-log4shell-signals
+    type: beacon
+    target: localhost:9259
+    args: ["--no-enrich", "--scanners", "log4shell", "--authorized"]
+    expect:
+      check_id: cve.log4shell
+
+timeout: 10m

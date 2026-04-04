@@ -1,0 +1,31 @@
+name: ssti-jinja2
+description: "Python app with Jinja2 template injection via search parameter triggers web.ssti"
+tags: [ssti, scanner, web]
+
+services:
+  ssti-app:
+    build:
+      context: ./ssti
+      dockerfile: Dockerfile
+    ports: ["9204:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9204/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-ssti-math-eval
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9204/search?q=%7B%7B7*7%7D%7D' | grep -q 49"
+      exit_code: 0
+
+  - name: detects-ssti
+    type: beacon
+    target: localhost:9204
+    args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: web.ssti
+
+timeout: 5m

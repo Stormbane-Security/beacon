@@ -2,6 +2,7 @@ package portscan
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -87,11 +88,24 @@ func bannerProtocol(banner string) string {
 		return "redis"
 	case strings.HasPrefix(upper, "220 ") && strings.Contains(upper, "FTP"):
 		return "ftp"
-	case strings.Contains(upper, "MYSQL") || (len(banner) > 4 && banner[0] < 32):
-		// MySQL protocol greeting starts with a length-encoded packet
+	case strings.Contains(upper, "MYSQL") || isMySQLGreeting(banner):
 		return "mysql"
 	}
 	return ""
+}
+
+// isMySQLGreeting checks if the banner looks like a MySQL protocol greeting.
+// MySQL wire protocol: 3-byte length + 1-byte sequence (0x00) + 1-byte
+// protocol version (0x0a). The version string follows as a NUL-terminated
+// ASCII string. The old heuristic (banner[0] < 32) missed MySQL 8.0+ where
+// the greeting packet is typically 70-120 bytes long (first byte 0x46-0x78).
+func isMySQLGreeting(banner string) bool {
+	if len(banner) < 6 {
+		return false
+	}
+	b := []byte(banner)
+	// Sequence number 0 + protocol version 10 (0x0a) is the MySQL handshake.
+	return b[3] == 0x00 && b[4] == 0x0a
 }
 
 // runProbes iterates all registered probes against an open port and returns
@@ -102,6 +116,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	bannerProto := bannerProtocol(banner)
 
 	var findings []finding.Finding
+	identified := false
 	for _, probe := range probeRegistry {
 		if hasBanner {
 			// Skip HTTP probes when the banner is clearly non-HTTP.
@@ -114,13 +129,56 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			}
 			// Skip protocol probes when the banner identifies a different
 			// protocol (e.g. don't try Redis probe on an SMTP port).
-			if probe.Category == ProbeCatProtocol && bannerProto != "" && bannerProto != probe.Name {
+			// Use Contains so compound probe names like "mysql-postgres-mssql-oracle"
+			// match when bannerProto is "mysql".
+			if probe.Category == ProbeCatProtocol && bannerProto != "" && !strings.Contains(probe.Name, bannerProto) {
 				continue
 			}
 		}
 
 		if fs := probe.Detect(ctx, host, port, banner, makeF); len(fs) > 0 {
 			findings = append(findings, fs...)
+			// Emit a service identification finding so the asset graph and
+			// classify pipeline know what's running on this port, even when
+			// the probe finds no vulnerability. Only emit once per port.
+			if !identified {
+				identified = true
+				// Extract service name from the first finding's evidence if
+				// available, otherwise fall back to the probe name.
+				service := probe.Name
+				version := ""
+				if ev := fs[0].Evidence; ev != nil {
+					if s, ok := ev["service"].(string); ok && s != "" {
+						service = s
+					}
+					if v, ok := ev["version"].(string); ok && v != "" {
+						version = v
+					}
+				}
+				ev := map[string]any{
+					"port":    port,
+					"service": service,
+					"probe":   probe.Name,
+				}
+				if version != "" {
+					ev["version"] = version
+				}
+				if banner != "" {
+					ev["banner"] = banner
+				}
+				title := fmt.Sprintf("%s identified on port %d", service, port)
+				if version != "" {
+					title = fmt.Sprintf("%s %s identified on port %d", service, version, port)
+				}
+				findings = append(findings, makeF(
+					finding.CheckPortServiceIdentified,
+					finding.SeverityInfo,
+					title,
+					fmt.Sprintf("Wire-protocol probe confirmed %s is running on port %d. "+
+						"This identification is based on active protocol handshake, not port number assumption.", service, port),
+					ev,
+				))
+			}
 		}
 	}
 	return findings

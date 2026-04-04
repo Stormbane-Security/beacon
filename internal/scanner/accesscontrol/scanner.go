@@ -15,11 +15,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckAccessControlMethodBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckAccessControlPathTraversalBypass, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAccessControlVerticalEscalation, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "accesscontrol"
 	maxBodySize = 32 * 1024 // 32 KB

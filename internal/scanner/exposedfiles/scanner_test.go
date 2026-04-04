@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -467,5 +468,129 @@ func TestExposedFiles_VaultRejectsTokenNotFlagged(t *testing.T) {
 		if f.CheckID == "web.default_credentials" {
 			t.Errorf("should not flag Vault when token is rejected: %v", f)
 		}
+	}
+}
+
+// ===========================================================================
+// AI Model File Exposure
+// ===========================================================================
+
+func TestExposedFiles_AIModelFileONNX(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model.onnx" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("\x08\x07\x12\x04onnx")) // ONNX magic bytes
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.ai_model_file" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected ai_model_file finding for exposed /model.onnx")
+	}
+}
+
+func TestExposedFiles_AIModelFilePickle(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model.pkl" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("\x80\x04\x95")) // Python pickle v4 header
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.ai_model_file" {
+			found = true
+			if f.Severity != finding.SeverityCritical {
+				t.Errorf("expected critical severity for pickle model file, got %s", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected ai_model_file finding for exposed /model.pkl")
+	}
+}
+
+func TestExposedFiles_AIModelFile404NotFlagged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.CheckID == "exposure.ai_model_file" {
+			t.Errorf("should not flag AI model files when server returns 404: %v", f)
+		}
+	}
+}
+
+func TestExposedFiles_AIModelFileDeepOnlyInDeep(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models/model.safetensors" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("safetensors data"))
+			return
+		}
+		if r.URL.Path == "/model.safetensors" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("safetensors data"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+
+	// Surface mode: should find /model.safetensors but NOT /models/model.safetensors
+	surfaceFindings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range surfaceFindings {
+		if f.CheckID == "exposure.ai_model_file" && strings.Contains(f.Title, "/models/") {
+			t.Error("deepOnly path /models/model.safetensors should not be probed in surface mode")
+		}
+	}
+
+	// Deep mode: should find both
+	deepFindings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundDeep bool
+	for _, f := range deepFindings {
+		if f.CheckID == "exposure.ai_model_file" && strings.Contains(f.Title, "/models/") {
+			foundDeep = true
+		}
+	}
+	if !foundDeep {
+		t.Error("deepOnly path /models/model.safetensors should be probed in deep mode")
 	}
 }

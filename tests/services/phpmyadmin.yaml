@@ -24,6 +24,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-phpmyadmin-login-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qi phpmyadmin"
+      exit_code: 0
+
   - name: classifies-as-phpmyadmin
     type: classify
     target: localhost:80

@@ -22,6 +22,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-airflow-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:8080/api/v1/security/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin\"}' | grep -qE '(access_token|session)' || curl -sf -u admin:admin http://localhost:8080/api/v1/dags | grep -q dags"
+      exit_code: 0
+
+  - name: exploit-airflow-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/health | grep -q healthy"
+      exit_code: 0
+
   - name: classifies-as-airflow
     type: classify
     target: localhost:8080

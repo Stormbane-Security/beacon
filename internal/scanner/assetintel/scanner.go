@@ -14,9 +14,31 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return NewWithKeys(
+			cfg.Get("shodan.api_key"),
+			cfg.Get("virustotal.api_key"),
+			cfg.Get("securitytrails.api_key"),
+			cfg.Get("censys.api_id"),
+			cfg.Get("censys.api_secret"),
+			cfg.Get("greynoise.api_key"),
+		)
+	},
+		scan.Check(finding.CheckAssetReverseIP, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckAssetOrgDomains, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckShodanHostInfo, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckVirusTotalReputation, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCensysHostData, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGreyNoiseContext, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckAssetPassiveDNS, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 
 const scannerName = "assetintel"
 

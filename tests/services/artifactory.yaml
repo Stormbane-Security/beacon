@@ -1,0 +1,23 @@
+name: artifactory-exposed
+description: "JFrog Artifactory repository manager exposed"
+tags: [artifactory, registry, port]
+
+services:
+  artifactory:
+    image: releases-docker.jfrog.io/jfrog/artifactory-oss:7.77.5
+    ports: ["8081:8081"]
+
+ready:
+  cmd: "curl -sf http://localhost:8081/artifactory/api/system/ping >/dev/null"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  - name: detects-artifactory-exposed
+    type: beacon
+    target: localhost:8081
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8081"]
+    expect:
+      check_id: port.artifactory_exposed
+
+timeout: 10m

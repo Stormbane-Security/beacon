@@ -1,0 +1,41 @@
+name: chain-spring4shell-classloader
+description: >
+  Exploit chain: Spring Boot app on JDK 9+ → CVE-2022-22965 (Spring4Shell)
+  classLoader binding detection. Uses vulfocus Spring4Shell vulnerable image
+  to verify exposedfiles scanner detects the data-binding error pattern.
+tags: [chain, cve, spring4shell, rce, authorized]
+weight: 70
+
+services:
+  spring4shell:
+    image: vulfocus/spring-core-rce-2022-03-29:latest
+    ports: ["9440:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9440/ -o /dev/null -w '%{http_code}' 2>/dev/null | grep -qE '(200|404|500)'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: spring-app-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9440/ -o /dev/null -w '%{http_code}' | grep -qE '(200|404|500)'"
+      exit_code: 0
+
+  - name: classloader-probe-returns-400
+    type: command
+    expect:
+      command: |
+        code=$(curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9440/?class.module.classLoader.URLs[0]=0')
+        test "$code" = "400"
+      exit_code: 0
+
+  - name: detects-spring4shell-cve
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed", "--ports", "9440"]
+    expect:
+      check_id: cve.spring4shell
+
+timeout: 10m

@@ -12,10 +12,19 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckDomainTyposquat, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 const scannerName = "typosquat"
 
 // Scanner checks for registered lookalike domains.

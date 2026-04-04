@@ -1,0 +1,19 @@
+name: modsecurity-waf
+description: >
+  OWASP ModSecurity CRS on Nginx. Provides WAF protection for a backend
+  web application. Paranoia level and backend URL are configurable via
+  environment variables.
+
+services:
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["80:80"]
+    environment:
+      BACKEND: "http://webapp:80"
+      PARANOIA: "2"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+
+readiness:
+  - command: "curl -sf http://localhost:80/ || true"
+    timeout: 15s

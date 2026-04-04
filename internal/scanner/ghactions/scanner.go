@@ -21,7 +21,44 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("github.token"))
+	},
+		scan.Check(finding.CheckGHActionRepoDiscovered, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionDeployTargets, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionUnpinned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionPRTargetUnsafe, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionScriptInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionOverpermissioned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionSecretsEchoed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionSelfHostedPublic, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionWorkflowRunUnsafe, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionGitHubEnvInjection, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionSecretsInherit, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionInsecureCommands, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionBotConditionSpoofable, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionArtiPacked, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionCachePoisoning, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionAWSLongLivedKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionGCPServiceAccountKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionAzureCredentials, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionNPMTokenNotOIDC, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionPyPITokenNotTrusted, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionDockerPasswordSecret, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionVercelToken, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionTerraformCloudToken, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionFlyToken, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionPATUsedInWorkflow, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionUnsignedRelease, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionReusableWorkflowUnpinned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionWorkflowDispatchInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckGHActionKnownCompromised, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
 
 const scannerName = "github.actions"
 
@@ -43,13 +80,80 @@ func New(githubToken string) *Scanner {
 func (s *Scanner) Name() string { return scannerName }
 
 // Run analyses GitHub Actions workflows for the given target.
-// target must be "owner/repo" (e.g. "myorg/myrepo").
+// target can be "owner/repo" (e.g. "myorg/myrepo") or a domain
+// (e.g. "example.com") — if it's a domain, the scanner attempts to
+// discover the associated GitHub repository via package.json or HTML links.
 func (s *Scanner) Run(ctx context.Context, target string, scanType module.ScanType) ([]finding.Finding, error) {
 	owner, repo, ok := splitOwnerRepo(target)
 	if !ok {
-		return nil, fmt.Errorf("ghactions: invalid target %q — expected owner/repo", target)
+		// Not an owner/repo — try domain-based repo discovery.
+		disc := s.discoverRepo(ctx, target)
+		if disc == nil {
+			return nil, nil
+		}
+		owner, repo = disc.Owner, disc.Repo
+		if owner == "" || repo == "" {
+			return nil, nil
+		}
+
+		// Emit an audit finding documenting how the repo was discovered.
+		var all []finding.Finding
+		all = append(all, finding.Finding{
+			CheckID:  finding.CheckGHActionRepoDiscovered,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityInfo,
+			Asset:    target,
+			Title:    fmt.Sprintf("GitHub repository %s/%s linked to %s", owner, repo, target),
+			Description: fmt.Sprintf(
+				"The GitHub repository %s/%s was associated with %s via %s. "+
+					"GitHub Actions workflows in this repo were scanned for security issues.",
+				owner, repo, target, disc.Method),
+			Evidence: map[string]any{
+				"repo":             owner + "/" + repo,
+				"discovery_method": disc.Method,
+				"source_url":       disc.Source,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s' | grep -o 'github\\.com/[^\"/ ]*/[^\"/ ]*'", disc.Source),
+			DiscoveredAt: time.Now(),
+		})
+
+		// Run all checks then append deploy target discovery.
+		findings, err := s.runChecks(ctx, target, owner, repo, scanType)
+		all = append(all, findings...)
+
+		// Extract deployment targets from workflow files.
+		if paths, _ := s.listWorkflows(ctx, owner, repo); len(paths) > 0 {
+			var rawContents []string
+			for _, path := range paths {
+				if content, err := s.fetchWorkflowContent(ctx, owner, repo, path); err == nil {
+					rawContents = append(rawContents, content)
+				}
+			}
+			if targets := extractDeployTargets(rawContents); len(targets) > 0 {
+				all = append(all, finding.Finding{
+					CheckID:     finding.CheckGHActionDeployTargets,
+					Module:      "surface",
+					Scanner:     scannerName,
+					Severity:    finding.SeverityInfo,
+					Title:       fmt.Sprintf("GitHub Actions deploy targets discovered for %s", target),
+					Description: "Deployment targets (cloud accounts, hostnames, URLs) were extracted from GitHub Actions workflow files. These represent infrastructure associated with this repository.",
+					Asset:       target,
+					Evidence:    map[string]any{"deploy_targets": targets, "repo": owner + "/" + repo},
+					ProofCommand: fmt.Sprintf("gh api repos/%s/%s/actions/workflows --jq '.workflows[].path'", owner, repo),
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+
+		return all, err
 	}
 
+	return s.runChecks(ctx, target, owner, repo, scanType)
+}
+
+// runChecks runs all workflow analysis checks for the given owner/repo.
+func (s *Scanner) runChecks(ctx context.Context, asset, owner, repo string, scanType module.ScanType) ([]finding.Finding, error) {
 	// Determine whether the repo is public for the self-hosted runner check.
 	isPublic, err := s.isRepoPublic(ctx, owner, repo)
 	if err != nil {
@@ -1557,4 +1661,133 @@ func splitOwnerRepo(target string) (owner, repo string, ok bool) {
 	// Percent-encode both segments so slashes and path-traversal
 	// sequences cannot escape the intended URL path position.
 	return url.PathEscape(parts[0]), url.PathEscape(repo), true
+}
+
+// -------------------------------------------------------------------------
+// Domain-based repository discovery
+// -------------------------------------------------------------------------
+
+// githubRepoRe matches GitHub repo URLs in HTML source and package.json.
+var githubRepoRe = regexp.MustCompile(`github\.com[/:]([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git|/|"|\s|$)`)
+
+// repoDiscovery captures how a GitHub repo was found for an asset.
+type repoDiscovery struct {
+	Owner  string
+	Repo   string
+	Method string // "package_json" or "html_link"
+	Source string // URL that yielded the link
+}
+
+// discoverRepo tries to find the GitHub owner/repo for the given asset domain.
+func (s *Scanner) discoverRepo(ctx context.Context, asset string) *repoDiscovery {
+	host := asset
+	if idx := strings.LastIndex(host, ":"); idx > 0 {
+		host = host[:idx]
+	}
+
+	for _, scheme := range []string{"https", "http"} {
+		src := scheme + "://" + host + "/package.json"
+		if owner, repo := s.repoFromPackageJSON(ctx, src); owner != "" {
+			return &repoDiscovery{Owner: owner, Repo: repo, Method: "package_json", Source: src}
+		}
+		src = scheme + "://" + host + "/"
+		if owner, repo := s.repoFromHTML(ctx, src); owner != "" {
+			return &repoDiscovery{Owner: owner, Repo: repo, Method: "html_link", Source: src}
+		}
+	}
+	return nil
+}
+
+func (s *Scanner) repoFromPackageJSON(ctx context.Context, rawURL string) (string, string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", ""
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "", ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
+
+	var pkg struct {
+		Repository any `json:"repository"`
+	}
+	if err := json.Unmarshal(body, &pkg); err != nil {
+		return "", ""
+	}
+	var repoStr string
+	switch v := pkg.Repository.(type) {
+	case string:
+		repoStr = v
+	case map[string]any:
+		if u, ok := v["url"].(string); ok {
+			repoStr = u
+		}
+	}
+	return parseGitHubURL(repoStr)
+}
+
+func (s *Scanner) repoFromHTML(ctx context.Context, rawURL string) (string, string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", ""
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return "", ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128<<10))
+	return parseGitHubURL(string(body))
+}
+
+func parseGitHubURL(s string) (string, string) {
+	m := githubRepoRe.FindStringSubmatch(s)
+	if len(m) < 3 {
+		return "", ""
+	}
+	owner := m[1]
+	repo := strings.TrimSuffix(m[2], ".git")
+	if strings.EqualFold(owner, "github") {
+		return "", ""
+	}
+	return owner, repo
+}
+
+// -------------------------------------------------------------------------
+// Deploy target extraction
+// -------------------------------------------------------------------------
+
+// deployTargetRe matches common deployment target patterns in workflow content.
+var deployTargetRe = regexp.MustCompile(
+	`(?i)(https?://[a-z0-9._/-]+|` +
+		`[a-z0-9-]+\.fly\.dev|` +
+		`[a-z0-9-]+\.railway\.app|` +
+		`[a-z0-9-]+\.vercel\.app|` +
+		`[a-z0-9-]+\.netlify\.app|` +
+		`arn:aws:[a-z0-9:/_-]+|` +
+		`projects/[a-z0-9-]+)`)
+
+func extractDeployTargets(workflowContents []string) []string {
+	seen := map[string]bool{}
+	var targets []string
+	for _, raw := range workflowContents {
+		for _, m := range deployTargetRe.FindAllString(raw, -1) {
+			if strings.Contains(m, "github.com") || strings.Contains(m, "githubusercontent.com") {
+				continue
+			}
+			if !seen[m] {
+				seen[m] = true
+				targets = append(targets, m)
+			}
+		}
+	}
+	return targets
 }

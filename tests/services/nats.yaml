@@ -16,6 +16,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-nats-varz
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8222/varz | grep -q server_id"
+      exit_code: 0
+
+  - name: exploit-nats-connz
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8222/connz | grep -q num_connections"
+      exit_code: 0
+
   - name: detects-nats-monitoring-exposed
     type: beacon
     target: localhost:8222

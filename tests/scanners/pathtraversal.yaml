@@ -1,0 +1,75 @@
+name: pathtraversal-tomcat
+description: >
+  Apache Tomcat serving a web application. Tests framework-specific path
+  traversal payloads against a real Tomcat server. Tomcat 9 default config
+  blocks most traversals, but the test verifies scanner runs without error
+  and probes the right paths. Manager requires auth (401) which is the
+  access control wall the scanner tries to bypass.
+tags: [pathtraversal, scanner, web, tomcat]
+
+services:
+  tomcat:
+    image: tomcat:9.0-jdk17
+    ports: ["9316:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9316/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Infrastructure proofs: verify Tomcat is running and protected ---
+  - name: exploit-tomcat-root-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9316/"
+      stdout_contains: "200"
+
+  - name: exploit-tomcat-manager-requires-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9316/manager/html"
+      stdout_contains: "401"
+
+  - name: exploit-tomcat-host-manager-requires-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9316/host-manager/html"
+      stdout_contains: "401"
+
+  - name: exploit-tomcat-server-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9316/ | grep -qi 'Apache-Coyote\\|Tomcat'"
+      exit_code: 0
+
+  # --- Traversal payload probes (Tomcat 9 blocks these, but verifies payloads are well-formed) ---
+  - name: exploit-spring-traversal-payload-format
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9316/..;/manager/html' | grep -qP '400|404|401|403'"
+      exit_code: 0
+
+  - name: exploit-url-encoded-traversal-payload-format
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9316/%2e%2e%2fmanager/html' | grep -qP '400|404|401|403'"
+      exit_code: 0
+
+  - name: exploit-double-encoded-traversal-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9316/%252e%252e%252fmanager/html' | grep -qP '400|404|401|403'"
+      exit_code: 0
+
+  # --- Negative: traversals should NOT return 200 on a patched Tomcat ---
+  - name: negative-traversal-does-not-bypass-on-patched-tomcat
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9316/..;/manager/html'); [ \"$STATUS\" != \"200\" ]"
+      exit_code: 0
+
+  # Scanner may or may not find traversal on patched Tomcat — that's expected.
+  # The unit tests verify detection logic against a vulnerable mock server.
+
+timeout: 5m

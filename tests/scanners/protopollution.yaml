@@ -1,0 +1,35 @@
+name: protopollution-juice-shop
+description: >
+  OWASP Juice Shop (Node.js/Express) with JSON API endpoints vulnerable
+  to prototype pollution. Beacon protopollution scanner probes __proto__
+  injection in API endpoints.
+tags: [protopollution, scanner, web, nodejs]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["9261:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9261/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-json-api-exists
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9261/api/Products/ | grep -q 'data'"
+      exit_code: 0
+
+  # Protopollution requires --authorized mode. The scan will attempt
+  # __proto__ payloads against API endpoints. Whether it fires depends
+  # on whether the app is vulnerable — we verify the scanner runs.
+  - name: protopollution-scan-completes
+    type: beacon
+    target: localhost:9261
+    args: ["--no-enrich", "--scanners", "protopollution", "--authorized"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

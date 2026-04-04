@@ -13,9 +13,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("hibp.api_key"))
+	},
+		scan.Check(finding.CheckHIBPBreach, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 
 const scannerName = "hibp"
 

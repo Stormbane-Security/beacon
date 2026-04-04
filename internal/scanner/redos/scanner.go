@@ -1,5 +1,4 @@
-// Package redos detects Regular Expression Denial of Service (ReDoS)
-// vulnerabilities by injecting payloads that trigger catastrophic backtracking
+// Package redos detects Regular Expression Denial of Service (ReDoS)// vulnerabilities by injecting payloads that trigger catastrophic backtracking
 // in common server-side regex patterns (email, URL, numeric validators).
 // Deep mode only — sends active payloads to the target.
 package redos
@@ -14,10 +13,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebReDoS, finding.SeverityMedium, finding.ModeDeep),
+	)
+}
 const scannerName = "redos"
 
 // Scanner probes for ReDoS vulnerabilities via timing-based detection.

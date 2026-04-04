@@ -1,0 +1,62 @@
+name: scanner-selection-nginx
+description: "Verify beacon selects correct baseline scanners for a plain nginx web server"
+tags: [scanner-selection, dry-run, nginx]
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["9300:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9300/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Dry-run plan verification ---
+  # Baseline surface scanners should always be planned for any HTTP target.
+  - name: dryrun-plans-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --dry-run --format json --no-enrich --ports 80 2>/dev/null | grep -q portscan"
+      exit_code: 0
+
+  - name: dryrun-plans-secheaders
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --dry-run --format json --no-enrich --ports 80 2>/dev/null | grep -q secheaders"
+      exit_code: 0
+
+  - name: dryrun-plans-tlscheck
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --dry-run --format json --no-enrich --ports 80 2>/dev/null | grep -q tlscheck"
+      exit_code: 0
+
+  - name: dryrun-plans-webcontent
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --dry-run --format json --no-enrich --ports 80 2>/dev/null | grep -q webcontent"
+      exit_code: 0
+
+  - name: dryrun-plans-nginx-scanner
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --dry-run --format json --no-enrich --ports 80 2>/dev/null | grep -q nginx"
+      exit_code: 0
+
+  # --- Verbose execution verification ---
+  # When run with --verbose --no-tui, scanner names appear on stderr.
+  - name: verbose-runs-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --verbose --no-tui --format json --no-enrich --scanners portscan --ports 80 2>&1 | grep -q portscan"
+      exit_code: 0
+
+  - name: verbose-runs-secheaders
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9300 --verbose --no-tui --format json --no-enrich --scanners secheaders --ports 80 2>&1 | grep -q secheaders"
+      exit_code: 0
+
+timeout: 5m

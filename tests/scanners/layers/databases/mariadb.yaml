@@ -1,0 +1,6 @@
+image: mariadb:11
+environment:
+  MARIADB_DATABASE: testdb
+  MARIADB_USER: testuser
+  MARIADB_PASSWORD: testpass
+  MARIADB_ROOT_PASSWORD: rootpass

@@ -1,0 +1,28 @@
+name: cms-drupal-detection
+description: "Drupal CMS detection — beacon classify detects Framework=drupal via Generator meta tag"
+tags: [cmsplugins, scanner, web, cms]
+
+services:
+  drupal:
+    image: drupal:10-apache
+    ports: ["9233:80"]
+
+ready:
+  cmd: "curl -sfL http://localhost:9233/ | grep -qi 'drupal'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-drupal-generator-meta-present
+    type: command
+    expect:
+      command: "curl -sL http://localhost:9233/ | grep -qi 'Generator.*Drupal'"
+      exit_code: 0
+
+  - name: detects-drupal-framework
+    type: classify
+    target: localhost:9233
+    expect:
+      framework: drupal
+
+timeout: 8m

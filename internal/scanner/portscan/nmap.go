@@ -133,8 +133,16 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 
 	args = append(args, asset)
 
-	// 5 minutes max — nmap with vuln scripts can be slow on many ports
-	nmapCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	// Scale nmap timeout with the number of ports: 90s per port, min 90s, max 5m.
+	// Single-port scans with vuln scripts typically finish in under 60s.
+	nmapTimeout := time.Duration(len(openPorts)) * 90 * time.Second
+	if nmapTimeout < 90*time.Second {
+		nmapTimeout = 90 * time.Second
+	}
+	if nmapTimeout > 5*time.Minute {
+		nmapTimeout = 5 * time.Minute
+	}
+	nmapCtx, cancel := context.WithTimeout(ctx, nmapTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(nmapCtx, s.nmapBin, args...)

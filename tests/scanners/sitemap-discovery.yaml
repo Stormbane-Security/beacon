@@ -1,0 +1,46 @@
+name: sitemap-xml-discovery
+description: >
+  Web server with sitemap.xml exposed. The classify pipeline should parse
+  it and extract URLs for endpoint discovery.
+tags: [sitemap, discovery, fingerprint]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9328:80"]
+    volumes:
+      - ./sitemap-discovery/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9328/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify sitemap.xml is accessible and valid ---
+  - name: exploit-sitemap-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9328/sitemap.xml | grep -q '<urlset'"
+      exit_code: 0
+
+  - name: exploit-sitemap-has-urls
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9328/sitemap.xml | grep -c '<loc>' | awk '{exit ($1 >= 3) ? 0 : 1}'"
+      exit_code: 0
+
+  - name: exploit-sitemap-reveals-admin
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9328/sitemap.xml | grep -q '/admin/dashboard'"
+      exit_code: 0
+
+  # --- Negative: robots.txt doesn't exist ---
+  - name: negative-no-robots-txt
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9328/robots.txt); [ \"$STATUS\" = \"404\" ]"
+      exit_code: 0
+
+timeout: 5m

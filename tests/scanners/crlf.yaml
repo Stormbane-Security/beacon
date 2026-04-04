@@ -7,17 +7,23 @@ services:
     build:
       context: ./crlf
       dockerfile: Dockerfile
-    ports: ["8080:8080"]
+    ports: ["9202:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:8080/health >/dev/null"
+  cmd: "curl -sf http://localhost:9202/health >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
+  - name: exploit-crlf-header-injection
+    type: command
+    expect:
+      command: "curl -sD- -o/dev/null 'http://localhost:9202/?redirect=https://example.com%0d%0aX-CRLF-Injected:beacon' | grep -qi 'X-CRLF-Injected'"
+      exit_code: 0
+
   - name: detects-crlf-injection
     type: beacon
-    target: localhost:8080
+    target: localhost:9202
     args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.crlf_injection

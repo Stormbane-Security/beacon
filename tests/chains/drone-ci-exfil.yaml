@@ -1,0 +1,39 @@
+name: chain-drone-ci-exfil
+description: >
+  Exploit chain: Drone CI unauthenticated API → repo enumeration → build secret extraction.
+  Drone CI with disabled authentication exposes the full API including
+  build secrets and pipeline configurations.
+tags: [chain, postexploit, drone, credential-harvest, authorized]
+weight: 30
+
+services:
+  drone:
+    image: drone/drone:2
+    ports: ["9421:80"]
+    environment:
+      - DRONE_SERVER_HOST=localhost:9421
+      - DRONE_SERVER_PROTO=http
+      - DRONE_OPEN=true
+      - DRONE_ADMIN=admin
+      - DRONE_USER_CREATE=username:admin,admin:true
+
+ready:
+  cmd: "curl -sf http://localhost:9421/api/user 2>/dev/null | grep -q login"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: drone-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9421/api/user | grep -q login"
+      exit_code: 0
+
+  - name: chain-detects-drone
+    type: beacon
+    target: "localhost:9421"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9421"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 10m

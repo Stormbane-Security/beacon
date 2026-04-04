@@ -1,0 +1,33 @@
+name: proxmox-api-exposed
+description: "Proxmox VE API proxy — beacon detects management UI exposure"
+tags: [proxmox, hypervisor, port, cloud-needed]
+
+# NOTE: Real Proxmox requires bare metal or nested virt. This uses a
+# minimal nginx proxy returning Proxmox-like headers for fingerprint testing.
+# Full Proxmox posture scanning requires a real PVE host (tagged cloud-needed).
+services:
+  proxmox:
+    image: nginx:alpine
+    ports: ["8006:8006"]
+    command: ["sh", "-c", "echo 'server { listen 8006 ssl; ssl_certificate /etc/nginx/ssl/cert.pem; ssl_certificate_key /etc/nginx/ssl/key.pem; location / { add_header Server \"pve-api-daemon/8.1.4\"; return 200 \"{\\\"data\\\":null}\"; } }' > /etc/nginx/conf.d/default.conf && mkdir -p /etc/nginx/ssl && openssl req -x509 -nodes -days 1 -newkey rsa:2048 -keyout /etc/nginx/ssl/key.pem -out /etc/nginx/ssl/cert.pem -subj '/CN=proxmox' 2>/dev/null && nginx -g 'daemon off;'"]
+
+ready:
+  cmd: "curl -sfk https://localhost:8006/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-proxmox-api-header
+    type: command
+    expect:
+      command: "curl -sfk -I https://localhost:8006/ | grep -qi 'pve-api-daemon'"
+      exit_code: 0
+
+  - name: detects-proxmox-exposed
+    type: beacon
+    target: localhost:8006
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8006"]
+    expect:
+      check_id: port.proxmox_exposed
+
+timeout: 5m

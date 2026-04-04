@@ -1,0 +1,47 @@
+name: chain-docker-container-escape
+description: >
+  Exploit chain: unauthenticated Docker API → container enumeration →
+  image inspection → container escape via privileged mount.
+tags: [chain, postexploit, docker, container-escape, authorized]
+
+services:
+  dind:
+    image: docker:24-dind
+    privileged: true
+    ports: ["9403:2375"]
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+
+ready:
+  cmd: "curl -sf http://localhost:9403/version | grep -q ApiVersion"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-docker-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9403/version | grep -q ApiVersion"
+      exit_code: 0
+
+  - name: exploit-list-containers
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9403/containers/json?all=true"
+      exit_code: 0
+
+  - name: detects-docker-api-exposed
+    type: beacon
+    target: "localhost:9403"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9403"]
+    expect:
+      check_id: port.docker_unauthenticated
+
+  - name: chain-container-escape
+    type: beacon
+    target: "localhost:9403"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9403"]
+    expect:
+      check_id: exploit.container_escape
+
+timeout: 10m

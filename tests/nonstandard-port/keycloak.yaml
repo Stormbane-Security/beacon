@@ -1,0 +1,45 @@
+name: keycloak-nonstandard-port
+description: "Keycloak on non-standard port — probe must detect OAuth/SAML by response, not port number"
+tags: [keycloak, nonstandard-port]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    ports: ["8888:8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: ["start-dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:8888/realms/master/.well-known/openid-configuration >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-keycloak-oidc-config
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8888/realms/master/.well-known/openid-configuration | grep -q issuer"
+      exit_code: 0
+
+  - name: exploit-keycloak-admin-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:8888/realms/master/protocol/openid-connect/token -d 'client_id=admin-cli&username=admin&password=admin&grant_type=password' | grep -q access_token"
+      exit_code: 0
+
+  - name: classifies-keycloak-on-nonstandard-port
+    type: classify
+    target: localhost:8888
+    expect:
+      backend_service: Keycloak
+
+  - name: detects-oauth-on-nonstandard-port
+    type: beacon
+    target: localhost:8888
+    args: ["--no-enrich", "--scanners", "oauth"]
+    expect:
+      check_id: oauth.jwks_exposed
+
+timeout: 5m

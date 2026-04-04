@@ -11,10 +11,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckSupplyChainUnsignedContainer, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSupplyChainUnsignedNPM, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSupplyChainUnsignedPyPI, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "artifactsign"
 
 // Scanner queries public package registries for signature/provenance status.

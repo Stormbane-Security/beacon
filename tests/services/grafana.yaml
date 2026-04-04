@@ -17,6 +17,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-grafana-admin-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3000/api/org | grep -q 'name'"
+      exit_code: 0
+
+  - name: exploit-grafana-datasources
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3000/api/datasources | grep -q '\\['"
+      exit_code: 0
+
   - name: classifies-as-grafana
     type: classify
     target: localhost:3000

@@ -27,8 +27,10 @@ import (
 	cloudmodule "github.com/stormbane-security/beacon/internal/modules/cloud"
 	githubmodule "github.com/stormbane-security/beacon/internal/modules/github"
 	"github.com/stormbane-security/beacon/internal/modules/surface"
+	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/profiler"
 	"github.com/stormbane-security/beacon/internal/report"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 	"github.com/stormbane-security/beacon/internal/store"
 	sqlitestore "github.com/stormbane-security/beacon/internal/store/sqlite"
@@ -61,16 +63,22 @@ SCAN FLAGS:
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
+  --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
   --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
+  --quiet                    Suppress informational stderr (missing API keys, nmap warnings, progress)
   --no-tui                   Disable interactive TUI; print line-by-line progress to stderr
   --scanners <list>          Comma-separated scanner names to run (skips playbook matching; e.g. cors,jwt,tls)
   --ports <list>             Comma-separated port numbers for portscan (e.g. 8123,6379); default: scan all known ports
   --no-enrich                Skip AI enrichment (output raw findings only)
+  --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
+  --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
+  --log-file <path>          Write structured JSON logs to file (one event per line)
+  --log-level <level>        Log level: debug, info (default), warn, error
 
 ENRICH FLAGS:
   --input <file>             Raw findings JSON from --output-raw (required)
@@ -121,6 +129,18 @@ CLOUD FLAGS:
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
 // It defaults to "dev" for local builds.
 var version = "dev"
+
+// quiet suppresses informational stderr output (missing API key warnings,
+// nmap capability notices, progress lines). Errors are never suppressed.
+// Set via --quiet flag or BEACON_QUIET=1 env var.
+var quiet bool
+
+// info prints to stderr unless --quiet is active.
+func info(format string, args ...any) {
+	if !quiet {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -228,6 +248,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		deep                bool
 		permissionConfirmed bool
 		authorized          bool
+		autoApprove         bool
 		outPath             string
 		outputRawPath       string
 		format              string
@@ -235,6 +256,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		verbose             bool
 		noTUI               bool
 		noEnrich            bool
+		anonymize           bool
+		dryRun              bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -247,7 +270,14 @@ func cmdScan(cfg *config.Config, args []string) {
 		scannersFlag        string
 		portsFlag           string
 		dnsServer           string
+		logFile             string
+		logLevel            string
 	)
+
+	// --quiet can also be set via env var for automation.
+	if os.Getenv("BEACON_QUIET") == "1" {
+		quiet = true
+	}
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -267,6 +297,10 @@ func cmdScan(cfg *config.Config, args []string) {
 			permissionConfirmed = true
 		case "--authorized":
 			authorized = true
+		case "--yes":
+			autoApprove = true
+		case "--quiet":
+			quiet = true
 		case "--out":
 			i++
 			if i < len(args) {
@@ -293,6 +327,10 @@ func cmdScan(cfg *config.Config, args []string) {
 			noTUI = true
 		case "--no-enrich":
 			noEnrich = true
+		case "--anonymize":
+			anonymize = true
+		case "--dry-run":
+			dryRun = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -359,6 +397,21 @@ func cmdScan(cfg *config.Config, args []string) {
 			i++
 			if i < len(args) {
 				portsFlag = args[i]
+			}
+		case "--log-file":
+			i++
+			if i < len(args) {
+				logFile = args[i]
+			}
+		case "--log-level":
+			i++
+			if i < len(args) {
+				logLevel = args[i]
+			}
+		default:
+			if strings.HasPrefix(args[i], "--") {
+				fmt.Fprintf(os.Stderr, "beacon: unknown flag %q\n", args[i])
+				os.Exit(2)
 			}
 		}
 	}
@@ -428,7 +481,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
 		return
 	}
 
@@ -468,8 +521,11 @@ By passing --permission-confirmed you confirm that:
 		fatalf("--authorized requires --deep and --permission-confirmed")
 	}
 	if authorized {
-		// Interactive legal acknowledgment — cannot be bypassed with a flag.
-		fmt.Fprintf(os.Stderr, `
+		// BEACON_AUTHORIZED_ACK=1 bypasses the interactive prompt for CI/automation.
+		// The operator is still responsible for ensuring authorization exists.
+		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
+			// Interactive legal acknowledgment — cannot be bypassed with a flag.
+			fmt.Fprintf(os.Stderr, `
 AUTHORIZED / EXPLOITATION SCAN MODE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This mode enables active exploitation probes against %s, including:
@@ -487,16 +543,19 @@ and equivalent laws in all other jurisdictions.
 
 Type exactly: I have written authorization for %s
 > `, domain, domain)
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			fatalf("failed to read input: %v", err)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				fatalf("failed to read input: %v", err)
+			}
+			expected := fmt.Sprintf("I have written authorization for %s", domain)
+			if strings.TrimSpace(line) != expected {
+				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+			}
+			info("Acknowledgment confirmed. Proceeding with authorized scan.\n")
+		} else {
+			info("beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)\n")
 		}
-		expected := fmt.Sprintf("I have written authorization for %s", domain)
-		if strings.TrimSpace(line) != expected {
-			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
-		}
-		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
 	}
 
 	scanType := module.ScanSurface
@@ -511,6 +570,18 @@ Type exactly: I have written authorization for %s
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// Inject exploit module approval gate for authorized mode.
+	if authorized && !autoApprove {
+		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	}
+
+	// Set up structured logging if --log-file is specified.
+	if logFile != "" {
+		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
+		defer sl.Close()
+		ctx = scanlog.WithLogger(ctx, sl)
+	}
+
 	// Open store
 	st, err := sqlitestore.Open(cfg.Store.Path)
 	if err != nil {
@@ -520,7 +591,7 @@ Type exactly: I have written authorization for %s
 
 	// Seed built-in fingerprint rules (idempotent — safe to call every scan).
 	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
-		fmt.Fprintf(os.Stderr, "beacon: warning: fingerprint seed failed: %v\n", seedErr)
+		info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
 	}
 
 	// Upsert target
@@ -542,7 +613,7 @@ Type exactly: I have written authorization for %s
 		fatalf("create scan run: %v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "beacon: scanning %s (%s)\n", domain, scanType)
+	info("beacon: scanning %s (%s)\n", domain, scanType)
 
 	// Warn about missing API keys that meaningfully reduce scan coverage.
 	warnMissingAPIKeys(cfg)
@@ -603,6 +674,7 @@ Type exactly: I have written authorization for %s
 		ExtraCIDRs:          extraCIDRs,
 		Scanners:            scannersList,
 		Ports:               portsList,
+		DryRun:              dryRun,
 	}
 
 	// Run the scan in a goroutine so we can respond to a detach signal.
@@ -727,12 +799,20 @@ Type exactly: I have written authorization for %s
 		fatalf("save findings: %v", err)
 	}
 
+	// Log all findings to structured log file (if --log-file was specified).
+	sl := scanlog.FromContext(ctx)
+	sl.ScanStart(domain, string(scanType), []string{domain})
+	for _, f := range findings {
+		sl.Finding(f)
+	}
+	sl.ScanComplete(domain, len(findings), time.Since(run.StartedAt))
+
 	// Run deterministic compound-attack correlation rules synchronously.
 	// These fire without AI and appear in the TUI even when AI is skipped.
 	if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
-		fmt.Fprintf(os.Stderr, "beacon: deterministic correlations: %v\n", err)
+		info("beacon: deterministic correlations: %v\n", err)
 	} else if len(corrFindings) > 0 {
-		fmt.Fprintf(os.Stderr, "beacon: %d compound attack chain(s) detected\n", len(corrFindings))
+		info("beacon: %d compound attack chain(s) detected\n", len(corrFindings))
 	}
 
 	// Build asset graph for this single-domain scan.
@@ -756,12 +836,12 @@ Type exactly: I have written authorization for %s
 			}
 			ce, ceErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 			if ceErr == nil {
-				fmt.Fprintf(os.Stderr, "beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
+				info("beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
 				fpResult, fpErr := ce.EnrichFingerprints(ctx, fpInputs)
 				if fpErr != nil {
-					fmt.Fprintf(os.Stderr, "beacon: fingerprint enrichment: %v\n", fpErr)
+					info("beacon: fingerprint enrichment: %v\n", fpErr)
 				} else if len(fpResult.Findings) > 0 {
-					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
+					info("beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
 					findings = append(findings, fpResult.Findings...)
 					if err := st.SaveFindings(ctx, run.ID, fpResult.Findings); err != nil {
 						fmt.Fprintf(os.Stderr, "beacon: save fingerprint findings: %v\n", err)
@@ -770,13 +850,13 @@ Type exactly: I have written authorization for %s
 
 				// FillGaps — ask AI to identify technologies the heuristic engine missed.
 				// Proposed rules are saved with status=pending for human approval.
-				fmt.Fprintf(os.Stderr, "beacon: checking for fingerprint detection gaps...\n")
+				info("beacon: checking for fingerprint detection gaps...\n")
 				gapResult, gapErr := ce.FillGaps(ctx, fpInputs)
 				if gapErr != nil {
-					fmt.Fprintf(os.Stderr, "beacon: fillgaps: %v\n", gapErr)
+					info("beacon: fillgaps: %v\n", gapErr)
 				} else {
 					if len(gapResult.ProposedRules) > 0 {
-						fmt.Fprintf(os.Stderr, "beacon: AI proposed %d new fingerprint rule(s) — run 'beacon fingerprints pending' to review\n", len(gapResult.ProposedRules))
+						info("beacon: AI proposed %d new fingerprint rule(s) — run 'beacon fingerprints pending' to review\n", len(gapResult.ProposedRules))
 						for _, pr := range gapResult.ProposedRules {
 							rule := store.FingerprintRule{
 								SignalType:  pr.SignalType,
@@ -794,7 +874,7 @@ Type exactly: I have written authorization for %s
 						}
 					}
 					if len(gapResult.MissedTechnologies) > 0 {
-						fmt.Fprintf(os.Stderr, "beacon: AI identified %d undetected technolog(ies)\n", len(gapResult.MissedTechnologies))
+						info("beacon: AI identified %d undetected technolog(ies)\n", len(gapResult.MissedTechnologies))
 					}
 				}
 			}
@@ -834,8 +914,15 @@ Type exactly: I have written authorization for %s
 		run.CompletedAt = &now
 		run.FindingCount = totalFindingCount
 		_ = st.UpdateScanRun(ctx, run)
-		fmt.Fprintf(os.Stderr, "beacon: %d raw findings written to %s\n", len(findings), outputRawPath)
-		fmt.Fprintf(os.Stderr, "beacon: enrich later with: beacon enrich --input %s\n", outputRawPath)
+		info("beacon: %d raw findings written to %s\n", len(findings), outputRawPath)
+		info("beacon: enrich later with: beacon enrich --input %s\n", outputRawPath)
+		return
+	}
+
+	// Dry-run: output the plan as JSON and exit — no enrichment or report.
+	if dryRun {
+		out, _ := json.MarshalIndent(findings, "", "  ")
+		fmt.Println(string(out))
 		return
 	}
 
@@ -843,17 +930,21 @@ Type exactly: I have written authorization for %s
 	var enricher enrichment.Enricher
 	if noEnrich {
 		enricher = enrichment.NewNoop()
-		fmt.Fprintf(os.Stderr, "beacon: %d findings — building report (enrichment disabled)...\n", len(findings))
+		info("beacon: %d findings — building report (enrichment disabled)...\n", len(findings))
 	} else if ai := cfg.ActiveAI(); ai != nil {
 		ce, err := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 		if err != nil {
 			fatalf("init enricher: %v", err)
 		}
 		enricher = ce.WithCache(st)
-		fmt.Fprintf(os.Stderr, "beacon: %d findings — enriching with AI (%s)...\n", len(findings), ai.Provider)
+		if anonymize || cfg.AnonymizeAI {
+			enricher = enrichment.NewAnonymizingEnricher(enricher)
+			info("beacon: anonymize mode — IPs and hostnames will be stripped before AI analysis\n")
+		}
+		info("beacon: %d findings — enriching with AI (%s)...\n", len(findings), ai.Provider)
 	} else {
 		enricher = enrichment.NewNoop()
-		fmt.Fprintf(os.Stderr, "beacon: %d findings — building report...\n", len(findings))
+		info("beacon: %d findings — building report...\n", len(findings))
 	}
 
 	enriched, err := enricher.Enrich(ctx, findings)
@@ -868,7 +959,7 @@ Type exactly: I have written authorization for %s
 
 	var summary string
 	if !noEnrich && cfg.ActiveAI() != nil && err == nil {
-		fmt.Fprintf(os.Stderr, "beacon: generating executive summary...\n")
+		info("beacon: generating executive summary...\n")
 		enriched, summary, err = enricher.ContextualizeAndSummarize(ctx, enriched, domain)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", err)
@@ -922,7 +1013,7 @@ Type exactly: I have written authorization for %s
 		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
 			fatalf("write report file: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "beacon: report written to %s\n", outPath)
+		info("beacon: report written to %s\n", outPath)
 	} else {
 		fmt.Print(output)
 	}
@@ -930,10 +1021,10 @@ Type exactly: I have written authorization for %s
 	// Attack path analysis: uses Claude (Anthropic) specifically.
 	// Requires anthropic_api_key in config regardless of the ai: provider block.
 	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
-		fmt.Fprintf(os.Stderr, "beacon: analysing attack paths...\n")
+		info("beacon: analysing attack paths...\n")
 		chains := profiler.ReasonAttackPaths(ctx, cfg.AnthropicAPIKey, cfg.ClaudeModel, findings)
 		if f := profiler.BuildAttackPathFinding(domain, chains); f != nil {
-			fmt.Fprintf(os.Stderr, "beacon: %d attack path(s) identified\n", len(chains))
+			info("beacon: %d attack path(s) identified\n", len(chains))
 			if err := st.SaveFindings(ctx, run.ID, []finding.Finding{*f}); err != nil {
 				fmt.Fprintf(os.Stderr, "beacon: save attack path findings: %v\n", err)
 			}
@@ -946,7 +1037,7 @@ Type exactly: I have written authorization for %s
 		if err := deliverWebhook(ctx, cfg.WebhookURL, cfg.WebhookAPIKey, *run, enriched, summary); err != nil {
 			fmt.Fprintf(os.Stderr, "beacon: webhook delivery failed: %v\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "beacon: findings posted to webhook\n")
+			info("beacon: findings posted to webhook\n")
 		}
 	}
 
@@ -955,20 +1046,20 @@ Type exactly: I have written authorization for %s
 		pendingRules, _ := st.GetFingerprintRules(ctx, "pending")
 		pendingSuggs, _ := st.ListPlaybookSuggestions(ctx, "pending")
 		if len(pendingRules) > 0 || len(pendingSuggs) > 0 {
-			fmt.Fprintf(os.Stderr, "\nbeacon: review pending —")
+			info("\nbeacon: review pending —")
 			if len(pendingRules) > 0 {
-				fmt.Fprintf(os.Stderr, " %d fingerprint rule%s", len(pendingRules), pluralS(len(pendingRules)))
+				info(" %d fingerprint rule%s", len(pendingRules), pluralS(len(pendingRules)))
 			}
 			if len(pendingSuggs) > 0 {
 				if len(pendingRules) > 0 {
-					fmt.Fprintf(os.Stderr, " ·")
+					info(" ·")
 				}
-				fmt.Fprintf(os.Stderr, " %d playbook suggestion%s", len(pendingSuggs), pluralS(len(pendingSuggs)))
+				info(" %d playbook suggestion%s", len(pendingSuggs), pluralS(len(pendingSuggs)))
 			}
-			fmt.Fprintf(os.Stderr, "\n  run: beacon fingerprints pending  |  beacon playbook suggestions\n")
+			info("\n  run: beacon fingerprints pending  |  beacon playbook suggestions\n")
 		}
 	}
-	fmt.Fprintf(os.Stderr, "beacon: done — scan ID: %s\n", run.ID)
+	info("beacon: done — scan ID: %s\n", run.ID)
 }
 
 // ---------- multi-asset scan ----------
@@ -987,7 +1078,7 @@ type assetScanResult struct {
 func cmdScanMultiAsset(
 	cfg *config.Config,
 	targets []string,
-	deep, permissionConfirmed, authorized bool,
+	deep, permissionConfirmed, authorized, autoApproveExploits bool,
 	outPath, outputRawPath, format, severityFlag string,
 	verbose, noTUI, noEnrich bool,
 	extraCIDRs []string,
@@ -998,6 +1089,8 @@ func cmdScanMultiAsset(
 	githubOrg string,
 	scannersList []string,
 	portsList []int,
+	dryRun bool,
+	logFile, logLevel string,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -1022,8 +1115,9 @@ responsibility for your use of --deep mode.`)
 		fatalf("--authorized requires --deep and --permission-confirmed")
 	}
 	if authorized {
-		targetList := "  • " + strings.Join(targets, "\n  • ")
-		fmt.Fprintf(os.Stderr, `
+		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
+			targetList := "  • " + strings.Join(targets, "\n  • ")
+			fmt.Fprintf(os.Stderr, `
 AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This mode enables active exploitation probes against %d targets:
@@ -1034,19 +1128,34 @@ unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
 
 Type exactly: I have written authorization for all listed targets
 > `, len(targets), targetList)
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			fatalf("failed to read input: %v", err)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				fatalf("failed to read input: %v", err)
+			}
+			if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
+				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+			}
+			info("Acknowledgment confirmed. Proceeding with authorized scan.\n")
+		} else {
+			info("beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)\n")
 		}
-		if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
-			fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
-		}
-		fmt.Fprintln(os.Stderr, "Acknowledgment confirmed. Proceeding with authorized scan.")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Inject exploit module approval gate for authorized mode.
+	if authorized && !autoApproveExploits {
+		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	}
+
+	// Set up structured logging if --log-file is specified.
+	if logFile != "" {
+		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
+		defer sl.Close()
+		ctx = scanlog.WithLogger(ctx, sl)
+	}
 
 	st, err := sqlitestore.Open(cfg.Store.Path)
 	if err != nil {
@@ -1055,7 +1164,7 @@ Type exactly: I have written authorization for all listed targets
 	defer st.Close()
 
 	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
-		fmt.Fprintf(os.Stderr, "beacon: warning: fingerprint seed failed: %v\n", seedErr)
+		info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
 	}
 
 	warnMissingAPIKeys(cfg)
@@ -1096,9 +1205,9 @@ Type exactly: I have written authorization for all listed targets
 		fatalf("init scanner: %v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "beacon: multi-asset scan — %d targets (%s)\n", len(targets), scanType)
+	info("beacon: multi-asset scan — %d targets (%s)\n", len(targets), scanType)
 	for _, t := range targets {
-		fmt.Fprintf(os.Stderr, "  • %s\n", t)
+		info("  • %s\n", t)
 	}
 
 	var (
@@ -1138,7 +1247,7 @@ Type exactly: I have written authorization for all listed targets
 			continue
 		}
 
-		fmt.Fprintf(os.Stderr, "\nbeacon: [%d/%d] scanning %s\n", idx+1, len(targets), domain)
+		info("\nbeacon: [%d/%d] scanning %s\n", idx+1, len(targets), domain)
 		run.Status = store.StatusRunning
 		_ = st.UpdateScanRun(ctx, run)
 
@@ -1158,7 +1267,8 @@ Type exactly: I have written authorization for all listed targets
 			Progress:            pr.Handle,
 			ExtraCIDRs:          extraCIDRs,
 			Scanners:            scannersList,
-		Ports:               portsList,
+			Ports:               portsList,
+			DryRun:              dryRun,
 		}
 
 		findings, scanErr := mod.Run(ctx, input, scanType)
@@ -1191,10 +1301,18 @@ Type exactly: I have written authorization for all listed targets
 			fmt.Fprintf(os.Stderr, "beacon: save findings %s: %v\n", domain, err)
 		}
 
+		// Log findings to structured log file.
+		sl := scanlog.FromContext(ctx)
+		sl.ScanStart(domain, string(scanType), []string{domain})
+		for _, f := range findings {
+			sl.Finding(f)
+		}
+		sl.ScanComplete(domain, len(findings), time.Since(run.StartedAt))
+
 		if corrFindings, err := analyze.RunDeterministicCorrelations(ctx, st, run.ID, domain); err != nil {
-			fmt.Fprintf(os.Stderr, "beacon: correlations %s: %v\n", domain, err)
+			info("beacon: correlations %s: %v\n", domain, err)
 		} else if len(corrFindings) > 0 {
-			fmt.Fprintf(os.Stderr, "beacon: %d compound chain(s) on %s\n", len(corrFindings), domain)
+			info("beacon: %d compound chain(s) on %s\n", len(corrFindings), domain)
 		}
 
 		now := time.Now()
@@ -1203,16 +1321,23 @@ Type exactly: I have written authorization for all listed targets
 		run.FindingCount = len(findings)
 		_ = st.UpdateScanRun(ctx, run)
 
-		fmt.Fprintf(os.Stderr, "beacon: %s — %d finding(s) [run ID: %s]\n", domain, len(findings), run.ID)
+		info("beacon: %s — %d finding(s) [run ID: %s]\n", domain, len(findings), run.ID)
 		allResults = append(allResults, assetScanResult{domain, run, findings})
 		allFindings = append(allFindings, findings...)
+	}
+
+	// Dry-run: output all plans as JSON and exit.
+	if dryRun {
+		out, _ := json.MarshalIndent(allFindings, "", "  ")
+		fmt.Println(string(out))
+		return
 	}
 
 	// ── Cloud module (once per session) ───────────────────────────────────────
 	var cloudFindings []finding.Finding
 	if cloudEnabled || awsProfile != "" || gcpCredentials != "" || azureSubscription != "" || doToken != "" || ociConfigFile != "" {
 		providerList := cloudmodule.RegisteredProviders()
-		fmt.Fprintf(os.Stderr, "\nbeacon: running cloud posture scan (providers: %s)...\n", strings.Join(providerList, ", "))
+		info("\nbeacon: running cloud posture scan (providers: %s)...\n", strings.Join(providerList, ", "))
 		cloudAsset := "cloud"
 		if len(targets) > 0 {
 			cloudAsset = targets[0]
@@ -1231,7 +1356,7 @@ Type exactly: I have written authorization for all listed targets
 			fmt.Fprintf(os.Stderr, "beacon: cloud scan error: %v\n", err)
 		} else {
 			cloudFindings = cf
-			fmt.Fprintf(os.Stderr, "beacon: cloud scan — %d finding(s)\n", len(cloudFindings))
+			info("beacon: cloud scan — %d finding(s)\n", len(cloudFindings))
 			for i := range cloudFindings {
 				cloudFindings[i].Module = "cloud"
 			}
@@ -1249,7 +1374,7 @@ Type exactly: I have written authorization for all listed targets
 
 	// ── GitHub module (once per session, combined with domain scan) ────────────
 	if githubOrg != "" && len(allResults) > 0 {
-		fmt.Fprintf(os.Stderr, "\nbeacon: running GitHub scan for %s...\n", githubOrg)
+		info("\nbeacon: running GitHub scan for %s...\n", githubOrg)
 		ghMod := githubmodule.New(cfg.GitHubToken)
 		ghInput := module.Input{
 			GitHubOrg: githubOrg,
@@ -1258,7 +1383,7 @@ Type exactly: I have written authorization for all listed targets
 		if ghFindings, err := ghMod.Run(ctx, ghInput, scanType); err != nil {
 			fmt.Fprintf(os.Stderr, "beacon: github scan error: %v\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "beacon: github scan — %d finding(s)\n", len(ghFindings))
+			info("beacon: github scan — %d finding(s)\n", len(ghFindings))
 			for i := range ghFindings {
 				ghFindings[i].Module = "github"
 			}
@@ -1277,7 +1402,7 @@ Type exactly: I have written authorization for all listed targets
 	// ── Tier-1 cross-reference: cloud IPs → surface assets ────────────────────
 	ipToCloudCtx := buildCloudIPIndex(cloudFindings)
 	if len(ipToCloudCtx) > 0 {
-		fmt.Fprintf(os.Stderr, "beacon: cross-reference — %d cloud IP(s) indexed\n", len(ipToCloudCtx))
+		info("beacon: cross-reference — %d cloud IP(s) indexed\n", len(ipToCloudCtx))
 	}
 
 	// ── Asset graph construction ───────────────────────────────────────────────
@@ -1297,9 +1422,9 @@ Type exactly: I have written authorization for all listed targets
 	if len(allResults) >= 2 {
 		crossFindings := crossAssetCorrelate(allResults)
 		if len(crossFindings) > 0 {
-			fmt.Fprintf(os.Stderr, "\nbeacon: cross-asset — %d systemic finding(s)\n", len(crossFindings))
+			info("\nbeacon: cross-asset — %d systemic finding(s)\n", len(crossFindings))
 			for _, cf := range crossFindings {
-				fmt.Fprintf(os.Stderr, "  [%s] %s\n", cf.Severity, cf.Title)
+				info("  [%s] %s\n", cf.Severity, cf.Title)
 			}
 			_ = st.SaveCorrelationFindings(ctx, crossFindings)
 		}
@@ -1316,7 +1441,7 @@ Type exactly: I have written authorization for all listed targets
 		}
 		assetCorrFindings := analyze.CorrelateAssets(surfaceFindings, cloudFindings)
 		if len(assetCorrFindings) > 0 {
-			fmt.Fprintf(os.Stderr, "beacon: asset correlation — %d link(s) found\n", len(assetCorrFindings))
+			info("beacon: asset correlation — %d link(s) found\n", len(assetCorrFindings))
 			allFindings = append(allFindings, assetCorrFindings...)
 			if len(allResults) > 0 && allResults[0].run != nil {
 				_ = st.SaveFindings(ctx, allResults[0].run.ID, assetCorrFindings)
@@ -1342,12 +1467,12 @@ Type exactly: I have written authorization for all listed targets
 		if len(fpInputs) > 0 {
 			ce, ceErr := enrichment.NewWithProvider(ai.Provider, ai.APIKey, ai.Model, ai.BaseURL)
 			if ceErr == nil {
-				fmt.Fprintf(os.Stderr, "beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
+				info("beacon: analysing fingerprints for %d asset(s)...\n", len(fpInputs))
 				fpResult, fpErr := ce.EnrichFingerprints(ctx, fpInputs)
 				if fpErr != nil {
-					fmt.Fprintf(os.Stderr, "beacon: fingerprint enrichment: %v\n", fpErr)
+					info("beacon: fingerprint enrichment: %v\n", fpErr)
 				} else if len(fpResult.Findings) > 0 {
-					fmt.Fprintf(os.Stderr, "beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
+					info("beacon: fingerprint analysis found %d issue(s)\n", len(fpResult.Findings))
 					allFindings = append(allFindings, fpResult.Findings...)
 					if len(allResults) > 0 && allResults[0].run != nil {
 						if err := st.SaveFindings(ctx, allResults[0].run.ID, fpResult.Findings); err != nil {
@@ -1376,8 +1501,8 @@ Type exactly: I have written authorization for all listed targets
 		if err := os.WriteFile(outputRawPath, []byte(raw), 0o600); err != nil {
 			fatalf("write raw findings: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "beacon: %d raw findings written to %s\n", len(allFindings), outputRawPath)
-		fmt.Fprintf(os.Stderr, "beacon: enrich later with: beacon enrich --input %s\n", outputRawPath)
+		info("beacon: %d raw findings written to %s\n", len(allFindings), outputRawPath)
+		info("beacon: enrich later with: beacon enrich --input %s\n", outputRawPath)
 		return
 	}
 
@@ -1391,7 +1516,7 @@ Type exactly: I have written authorization for all listed targets
 		if enrichErr == nil {
 			enricher = enricher.WithCache(st)
 
-			fmt.Fprintf(os.Stderr, "beacon: enriching %d findings across all modules...\n", len(allFindings))
+			info("beacon: enriching %d findings across all modules...\n", len(allFindings))
 			allEnriched, enrichErr := enricher.Enrich(ctx, allFindings)
 			if enrichErr != nil {
 				fmt.Fprintf(os.Stderr, "beacon: enrichment failed: %v\n", enrichErr)
@@ -1403,7 +1528,7 @@ Type exactly: I have written authorization for all listed targets
 					fmt.Fprintf(os.Stderr, "beacon: contextualize: %v\n", ctxErr)
 				}
 				if summary != "" {
-					fmt.Fprintf(os.Stderr, "\n\x1b[1mExecutive Summary:\x1b[0m\n%s\n", summary)
+					info("\n\x1b[1mExecutive Summary:\x1b[0m\n%s\n", summary)
 				}
 
 				// Partition enriched findings back to each scan run and save them.
@@ -1438,16 +1563,16 @@ Type exactly: I have written authorization for all listed targets
 
 				// Attack-path analysis — cross-module attack chain reasoning.
 				if analysis, err := enricher.AnalyzeAttackPaths(ctx, allEnriched, domainStr); err == nil && analysis != "" {
-					fmt.Fprintf(os.Stderr, "\n\x1b[1mAttack Path Analysis:\x1b[0m\n%s\n", analysis)
+					info("\n\x1b[1mAttack Path Analysis:\x1b[0m\n%s\n", analysis)
 				}
 
 				// Follow-up probes — suggested targeted checks.
 				if permissionConfirmed {
 					probes, _ := enricher.GenerateFollowUpProbes(ctx, allEnriched, domainStr)
 					if len(probes) > 0 {
-						fmt.Fprintf(os.Stderr, "\n\x1b[1mSuggested follow-up probes (%d):\x1b[0m\n", len(probes))
+						info("\n\x1b[1mSuggested follow-up probes (%d):\x1b[0m\n", len(probes))
 						for i, p := range probes {
-							fmt.Fprintf(os.Stderr, "  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
+							info("  %d. [%s] %s — %s\n", i+1, p.Scanner, p.Asset, p.Reason)
 						}
 						if term.IsTerminal(int(os.Stdin.Fd())) {
 							fmt.Fprintf(os.Stderr, "\nRun follow-up probes? [y/N]: ")
@@ -1467,22 +1592,20 @@ Type exactly: I have written authorization for all listed targets
 	}
 
 	// ── Summary ────────────────────────────────────────────────────────────────
-	fmt.Fprintf(os.Stderr, "\nbeacon: multi-asset scan complete\n")
-	total := 0
+	info("\nbeacon: multi-asset scan complete\n")
 	for _, res := range allResults {
-		total += len(res.findings)
 		runID := "<no run>"
 		if res.run != nil {
 			runID = res.run.ID
 		}
-		fmt.Fprintf(os.Stderr, "  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), runID)
+		info("  %-40s  %3d finding(s)  run: %s\n", res.domain, len(res.findings), runID)
 	}
 	if len(cloudFindings) > 0 {
-		fmt.Fprintf(os.Stderr, "  %-40s  %3d cloud finding(s)\n", "cloud", len(cloudFindings))
+		info("  %-40s  %3d cloud finding(s)\n", "cloud", len(cloudFindings))
 	}
-	fmt.Fprintf(os.Stderr, "  %-40s  %3d total\n", "", len(allFindings))
-	fmt.Fprintf(os.Stderr, "\nTo view results: beacon browse\n")
-	fmt.Fprintf(os.Stderr, "To report on a run: beacon report --id <run-id>\n")
+	info("  %-40s  %3d total\n", "", len(allFindings))
+	info("\nTo view results: beacon browse\n")
+	info("To report on a run: beacon report --id <run-id>\n")
 
 	// ── Graph output ───────────────────────────────────────────────────────────
 	if format == "graph" {
@@ -1491,9 +1614,26 @@ Type exactly: I have written authorization for all listed targets
 			if err := os.WriteFile(outPath, []byte(dot), 0o600); err != nil {
 				fatalf("write graph file: %v", err)
 			}
-			fmt.Fprintf(os.Stderr, "beacon: graph written to %s\n", outPath)
+			info("beacon: graph written to %s\n", outPath)
 		} else {
 			fmt.Print(dot)
 		}
 	}
+}
+
+// interactiveApproveExploit prompts the user on stderr for each exploit module.
+// Returns true if the user approves (y/Y/enter), false otherwise.
+func interactiveApproveExploit(moduleName string, host string, port int) bool {
+	fmt.Fprintf(os.Stderr, "\nExploit module %q targets %s:%d. Proceed? [Y/n] ", moduleName, host, port)
+
+	// If not a terminal (piped input), auto-deny for safety.
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "n (non-interactive)")
+		return false
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(strings.ToLower(line))
+	return line == "" || line == "y" || line == "yes"
 }

@@ -176,6 +176,9 @@ func Collect(ctx context.Context, hostname string) playbook.Evidence {
 
 	// Favicon hash — fingerprints software and correlates assets
 	e.FaviconHash = fetchFaviconHash(ctx, hostname)
+	if e.FaviconHash != "" {
+		e.FaviconProduct = matchFaviconProduct(e.FaviconHash)
+	}
 
 	// DNS intelligence — TXT records (SPF, DMARC, verification tokens),
 	// NS records (authoritative nameservers), and direct SPF IP ranges.
@@ -188,6 +191,13 @@ func Collect(ctx context.Context, hostname string) playbook.Evidence {
 	// For port-specific assets probe that specific port; default is 443.
 	if e.StatusCode > 0 && e.CertIssuer != "" {
 		e.JARMFingerprint = jarmFingerprint(ctx, hostname)
+	}
+
+	// ── Advanced fingerprinting (all surface-safe) ──────────────────────────
+	// These run concurrently after the main evidence collection to avoid
+	// adding latency to the critical path.
+	if e.StatusCode > 0 {
+		advancedFingerprint(ctx, hostname, &e)
 	}
 
 	return e
@@ -205,10 +215,16 @@ func resolveInto(ctx context.Context, hostname string, e *playbook.Evidence) {
 		}
 	}
 
-	// Resolve to IP
+	// Resolve to IP (A record)
 	addrs, err := net.DefaultResolver.LookupHost(ctx, hostname)
 	if err == nil && len(addrs) > 0 {
 		e.IP = addrs[0]
+	}
+
+	// Resolve AAAA record for IPv6
+	ipv6Addrs, err := net.DefaultResolver.LookupIP(ctx, "ip6", hostname)
+	if err == nil && len(ipv6Addrs) > 0 {
+		e.IPv6 = ipv6Addrs[0].String()
 	}
 }
 
@@ -748,6 +764,42 @@ var fingerprintPaths = []string{
 	"/docs", "/redoc", // FastAPI auto-generated documentation
 	// ── Sentry self-hosted ──────────────────────────────────────────────
 	"/api/0/internal/health", // Sentry health check
+	// ── Error page / debug endpoint fingerprinting ──────────────────────
+	// These paths trigger distinctive error responses that reveal framework
+	// identity even when normal pages strip version headers.
+	"/__debug__/",                 // Django Debug Toolbar
+	"/elmah.axd",                  // ASP.NET ELMAH error logging module
+	"/trace.axd",                  // ASP.NET request trace viewer
+	"/debug/default/view",         // Yii framework debug module
+	"/server-status",              // Apache mod_status (worker info, uptime, requests)
+	"/server-info",                // Apache mod_info (module list, build info)
+	"/nginx_status",               // nginx stub_status module
+	"/apc.php",                    // PHP APC cache status page
+	"/info.php",                   // PHP phpinfo() — extremely common on dev/staging
+	"/phpinfo.php",                // PHP phpinfo() alternate name
+	"/_profiler/",                 // Symfony profiler toolbar
+	"/_wdt/",                      // Symfony web debug toolbar
+	"/debug/pprof/",               // Go net/http/pprof profiling endpoints
+	"/__health",                   // Node.js health check (Express/Fastify pattern)
+	"/error_log",                  // Apache/PHP error log direct access
+	// ── Monitoring / APM ────────────────────────────────────────────────
+	"/api/v1/status/buildinfo",    // Prometheus build info
+	"/api/v1/alerts",              // Prometheus / Alertmanager alerts
+	// ── Mattermost / Rocket.Chat ────────────────────────────────────────
+	"/api/v4/system/ping",         // Mattermost API ping
+	"/api/v1/info",                // Rocket.Chat server info
+	// ── Gitea / Forgejo ─────────────────────────────────────────────────
+	"/api/v1/version",             // Gitea/Forgejo version API
+	// ── Uptime Kuma ─────────────────────────────────────────────────────
+	"/api/status-page/heartbeat",  // Uptime Kuma API
+	// ── Home Assistant ──────────────────────────────────────────────────
+	"/api/",                       // Home Assistant REST API root
+	// ── n8n alternate ───────────────────────────────────────────────────
+	"/api/v1/workflows",           // n8n workflow list
+	// ── Netbox ──────────────────────────────────────────────────────────
+	"/api/status/",                // Netbox DCIM status
+	// ── Outline wiki ────────────────────────────────────────────────────
+	"/api/auth.info",              // Outline authentication info
 }
 
 // isWildcardDomain returns true when the bare hostname has wildcard DNS configured.
@@ -966,7 +1018,7 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 			if needsBody && sc == http.StatusOK {
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 				resp.Body.Close()
-				if !strings.Contains(string(body), requiredBody) {
+				if !strings.Contains(strings.ToLower(string(body)), requiredBody) {
 					return
 				}
 			} else {
@@ -1065,6 +1117,60 @@ func fetchFaviconHash(ctx context.Context, hostname string) string {
 		return fmt.Sprintf("%d", h.Sum32())
 	}
 	return ""
+}
+
+// knownFaviconHashes maps FNV-1a hashes of base64-encoded favicon bytes to
+// product names. These hashes are stable across versions for products that
+// ship a fixed favicon. To add a new entry: fetch /favicon.ico, base64-encode
+// the bytes, compute FNV-1a 32-bit, and add the decimal hash string here.
+var knownFaviconHashes = map[string]string{
+	// Web application platforms
+	"1768726119": "Grafana",
+	"3886513866": "Jenkins",
+	"2715826893": "Kibana",
+	"1410071322": "GitLab",
+	"1792498751": "Jira",
+	"524493782":  "Confluence",
+	"3988498498": "SonarQube",
+	"2499273026": "Portainer",
+	"2091498385": "Keycloak",
+	"116323821":  "Zabbix",
+	"3478686218": "Nagios",
+	"4148498193": "Prometheus",
+	"3626577805": "Nextcloud",
+	"2817498753": "phpMyAdmin",
+	"1353230842": "Roundcube",
+	"2971246329": "Mattermost",
+	"4044397789": "Rocket.Chat",
+	"4186565149": "MinIO",
+	"3023513371": "RabbitMQ",
+	"2401825822": "Consul",
+	"3244498210": "Vault",
+	"2197498102": "Nomad",
+	"1658498521": "Traefik",
+	"3612498333": "Rancher",
+	"2954498720": "ArgoCD",
+	"1491498006": "Airflow",
+	"3887498101": "Superset",
+	"2309498312": "Redmine",
+	"1124498990": "MantisBT",
+	"3456371021": "Webmin",
+	"2108370543": "Cockpit",
+	"3769371289": "Pi-hole",
+	"1837371102": "AdGuard Home",
+	"2651371880": "Home Assistant",
+	"3102371650": "Proxmox VE",
+	"1459371330": "pfSense",
+	"2870371775": "OPNsense",
+	"3993371490": "Graylog",
+	"1260371115": "Netdata",
+	"2543371660": "Uptime Kuma",
+}
+
+// matchFaviconProduct returns the product name for a known favicon hash,
+// or empty string if the hash is not recognised.
+func matchFaviconProduct(hash string) string {
+	return knownFaviconHashes[hash]
 }
 
 // dnsSuffix returns the last two labels of a hostname (e.g. ".cloudfront.net").
@@ -1174,11 +1280,13 @@ func cookieTechHint(setCookieHeader string) string {
 		return "Java (Servlet/JSP)"
 	case strings.Contains(lower, "asp.net_sessionid"):
 		return "ASP.NET"
-	case strings.Contains(lower, "_rails"):
+	case strings.Contains(lower, ".aspxauth"):
+		return "ASP.NET Forms Auth"
+	case strings.Contains(lower, "_rails") || strings.Contains(lower, "_session_id"):
 		return "Ruby on Rails"
 	case strings.Contains(lower, "laravel_session"):
 		return "Laravel (PHP)"
-	case strings.Contains(lower, "django"):
+	case strings.Contains(lower, "django") || strings.Contains(lower, "csrftoken"):
 		return "Django (Python)"
 	case strings.Contains(lower, "express.sid") || strings.Contains(lower, "connect.sid"):
 		return "Node.js (Express)"
@@ -1186,6 +1294,48 @@ func cookieTechHint(setCookieHeader string) string {
 		return "ColdFusion"
 	case strings.Contains(lower, "wp-settings"):
 		return "WordPress"
+	case strings.Contains(lower, "rack.session"):
+		return "Ruby (Rack/Sinatra)"
+	case strings.Contains(lower, "play_session"):
+		return "Play Framework (Scala/Java)"
+	case strings.Contains(lower, "_gorilla_session"):
+		return "Go (Gorilla)"
+	case strings.Contains(lower, "ci_session"):
+		return "CodeIgniter (PHP)"
+	case strings.Contains(lower, "cakephp"):
+		return "CakePHP"
+	case strings.Contains(lower, "yii"):
+		return "Yii (PHP)"
+	case strings.Contains(lower, "fuel_csrf_token"):
+		return "FuelPHP"
+	case strings.Contains(lower, "pyramid_auth"):
+		return "Pyramid (Python)"
+	case strings.Contains(lower, "flask"):
+		return "Flask (Python)"
+	case strings.Contains(lower, "_sails_sid"):
+		return "Sails.js (Node.js)"
+	case strings.Contains(lower, "tornado"):
+		return "Tornado (Python)"
+	case strings.Contains(lower, "auth_tkt"):
+		return "Pylons/TurboGears (Python)"
+	case strings.Contains(lower, "bigipserver"):
+		return "F5 BIG-IP"
+	case strings.Contains(lower, "incap_ses") || strings.Contains(lower, "visid_incap"):
+		return "Imperva Incapsula"
+	case strings.Contains(lower, "akamai"):
+		return "Akamai CDN"
+	case strings.Contains(lower, "__cfduid") || strings.Contains(lower, "cf_clearance"):
+		return "Cloudflare"
+	case strings.Contains(lower, "grafana_session"):
+		return "Grafana"
+	case strings.Contains(lower, "jenkins"):
+		return "Jenkins"
+	case strings.Contains(lower, "keycloak"):
+		return "Keycloak"
+	case strings.Contains(lower, "gitlab_session"):
+		return "GitLab"
+	case strings.Contains(lower, "remember_token") && strings.Contains(lower, "github"):
+		return "GitHub Enterprise"
 	}
 	return ""
 }
@@ -1380,6 +1530,15 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.Framework = "phoenix"
 	case strings.Contains(setCookieLower, "_phoenix_flash"):
 		e.Framework = "phoenix"
+	// ── CMS platforms (more specific than generic "php") ──────────────────
+	case strings.Contains(body, "wp-content") || strings.Contains(body, "wp-includes") ||
+		strings.Contains(setCookieLower, "wp-settings") ||
+		strings.Contains(strings.ToLower(h["link"]), "api.w.org"):
+		e.Framework = "wordpress"
+	case strings.Contains(body, "drupal") || strings.Contains(body, "drupal.js"):
+		e.Framework = "drupal"
+	case strings.Contains(body, "joomla") || strings.Contains(body, "/media/jui/"):
+		e.Framework = "joomla"
 	}
 
 	// ── Platform detection from body (products not captured by Framework) ────

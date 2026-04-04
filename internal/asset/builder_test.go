@@ -575,8 +575,8 @@ func TestAddFindings_WebFinding(t *testing.T) {
 	if ref.AssetID != "domain:api.example.com" {
 		t.Errorf("AssetID = %q, want %q", ref.AssetID, "domain:api.example.com")
 	}
-	if ref.FindingID != "cors-0" {
-		t.Errorf("FindingID = %q, want %q", ref.FindingID, "cors-0")
+	if ref.FindingID != "cors-1" {
+		t.Errorf("FindingID = %q, want %q", ref.FindingID, "cors-1")
 	}
 	if ref.Severity != "high" {
 		t.Errorf("Severity = %q, want %q", ref.Severity, "high")
@@ -661,7 +661,7 @@ func TestAddFindings_MultipleFindings_IncrementingIDs(t *testing.T) {
 	if len(b.findingRefs) != 3 {
 		t.Fatalf("expected 3 finding refs, got %d", len(b.findingRefs))
 	}
-	wantIDs := []string{"cors-0", "cors-1", "tls-2"}
+	wantIDs := []string{"cors-1", "cors-2", "tls-3"}
 	for i, want := range wantIDs {
 		if b.findingRefs[i].FindingID != want {
 			t.Errorf("findingRefs[%d].FindingID = %q, want %q", i, b.findingRefs[i].FindingID, want)

@@ -1,0 +1,39 @@
+name: chain-ldap-anonymous-bind
+description: >
+  Exploit chain: OpenLDAP with anonymous bind → base DN enumeration →
+  user/group extraction. ProbeDirect uses ldapsearch when available on the
+  host. Falls back to port identification if ldapsearch is not installed.
+tags: [chain, postexploit, ldap, data-extraction, authorized]
+
+services:
+  ldap:
+    image: osixia/openldap:1.5.0
+    ports: ["9428:389"]
+    environment:
+      - LDAP_ORGANISATION=Beacon Test Corp
+      - LDAP_DOMAIN=beacon.test
+      - LDAP_ADMIN_PASSWORD=admin
+      - LDAP_READONLY_USER=true
+      - LDAP_READONLY_USER_USERNAME=readonly
+      - LDAP_READONLY_USER_PASSWORD=readonly
+
+ready:
+  cmd: "nc -z localhost 9428 2>/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: ldap-anonymous-bind-works
+    type: command
+    expect:
+      command: "ldapsearch -x -H ldap://localhost:9428 -b '' -s base '(objectclass=*)' namingContexts 2>/dev/null | grep -q namingContexts"
+      exit_code: 0
+
+  - name: chain-detects-ldap
+    type: beacon
+    target: "localhost:9428"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9428"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 5m

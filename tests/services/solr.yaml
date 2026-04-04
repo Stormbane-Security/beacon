@@ -1,0 +1,36 @@
+name: solr-admin-exposed
+description: "Apache Solr admin API exposed without authentication"
+tags: [solr, search, port, cve]
+
+services:
+  solr:
+    image: solr:9.4
+    ports: ["8983:8983"]
+    command: ["solr-precreate", "testcore"]
+
+ready:
+  cmd: "curl -sf http://localhost:8983/solr/admin/cores >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: exploit-solr-admin-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8983/solr/admin/cores | grep -q 'responseHeader'"
+      exit_code: 0
+
+  - name: exploit-solr-system-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8983/solr/admin/info/system | grep -q 'solr_home'"
+      exit_code: 0
+
+  - name: detects-solr-admin
+    type: beacon
+    target: localhost:8983
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8983"]
+    expect:
+      check_id: cve.solr_admin_exposed
+
+timeout: 5m

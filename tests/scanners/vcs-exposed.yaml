@@ -1,0 +1,49 @@
+name: vcs-git-exposed-classify
+description: >
+  Web server with .git directory accessible. The classify pipeline's advanced
+  fingerprinting should detect the exposed VCS metadata independently of the
+  dedicated exposedfiles scanner.
+tags: [vcs, exposure, classify, fingerprint]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9325:80"]
+    volumes:
+      - ../exposure/git-exposed/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9325/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify .git metadata is accessible ---
+  - name: exploit-git-head-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9325/.git/HEAD | grep -q 'ref:'"
+      exit_code: 0
+
+  - name: exploit-git-config-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9325/.git/config | grep -q '\\[core\\]'"
+      exit_code: 0
+
+  # --- Negative: non-existent VCS paths return 404 ---
+  - name: negative-svn-not-exposed
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9325/.svn/entries); [ \"$STATUS\" = \"404\" ]"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-git-exposed
+    type: beacon
+    target: localhost:9325
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--ports", "80"]
+    expect:
+      check_id: exposure.git_exposed
+
+timeout: 5m

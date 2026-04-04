@@ -51,6 +51,9 @@ gosec.sarif
 trivy.sarif
 *.sarif
 
+# ── Drydock test run artifacts ─────────────────────────────────────────────────
+.drydock/
+
 # ── Release artifacts (built by CI, not committed) ────────────────────────────
 *.tar.gz
 *.zip

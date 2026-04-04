@@ -15,11 +15,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckBOLAHorizontalAccess, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckIDORSequentialID, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "idor"
 	maxBodySize = 64 * 1024 // 64 KB

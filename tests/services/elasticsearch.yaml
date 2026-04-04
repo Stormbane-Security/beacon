@@ -18,6 +18,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-elasticsearch-cluster-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9200/ | grep -q cluster_name"
+      exit_code: 0
+
+  - name: exploit-elasticsearch-list-indices
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9200/_cat/indices | grep -qE '(green|yellow|red)' || curl -sf http://localhost:9200/_cat/health | grep -qE '(green|yellow|red)'"
+      exit_code: 0
+
   - name: classifies-as-elasticsearch
     type: classify
     target: localhost:9200

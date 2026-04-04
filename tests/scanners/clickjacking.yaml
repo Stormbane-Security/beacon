@@ -1,0 +1,39 @@
+name: clickjacking
+description: >
+  Nginx serving HTML with login form but no X-Frame-Options or CSP
+  frame-ancestors. Beacon should detect clickjacking vulnerability.
+tags: [clickjacking, scanner, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9250:80"]
+    volumes:
+      - ./clickjacking/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9250/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-no-xframe-options
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:9250/ | grep -qi 'X-Frame-Options'"
+      exit_code: 0
+
+  - name: exploit-no-csp-frame-ancestors
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:9250/ | grep -qi 'frame-ancestors'"
+      exit_code: 0
+
+  - name: detects-clickjacking
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--scanners", "clickjacking"]
+    expect:
+      check_id: http.clickjacking
+
+timeout: 5m

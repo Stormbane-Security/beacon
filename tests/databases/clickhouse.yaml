@@ -13,6 +13,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-clickhouse-query
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:8123/?query=SELECT+current_user()' | grep -q default"
+      exit_code: 0
+
+  - name: exploit-clickhouse-show-databases
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:8123/?query=SHOW+DATABASES' | grep -q system"
+      exit_code: 0
+
   - name: classifies-as-clickhouse
     type: classify
     target: localhost:8123

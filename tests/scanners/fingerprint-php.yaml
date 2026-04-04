@@ -1,0 +1,49 @@
+name: fingerprint-wordpress
+description: "Real WordPress 6.4 instance — beacon classify detects Framework=wordpress"
+tags: [fingerprint, classify, discovery, wordpress]
+
+services:
+  wordpress:
+    image: wordpress:6.4-apache
+    ports: ["9215:80"]
+    environment:
+      WORDPRESS_DB_HOST: mysql
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wp
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wp
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+
+ready:
+  cmd: "curl -sfL http://localhost:9215/wp-admin/install.php | grep -qi 'wordpress'"
+  timeout: 120s
+  interval: 5s
+
+run:
+  - >
+    curl -s -X POST 'http://localhost:9215/wp-admin/install.php?step=2'
+    -d 'weblog_title=TestSite&user_name=admin&admin_password=admin123&admin_password2=admin123&pw_weak=1&admin_email=admin@test.com&Submit=Install+WordPress'
+    >/dev/null
+
+assertions:
+  - name: exploit-wordpress-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9215/wp-login.php | grep -qi 'wordpress\\|wp-login'"
+      exit_code: 0
+
+  - name: detects-wordpress-framework
+    type: classify
+    target: localhost:9215
+    expect:
+      framework: wordpress
+
+timeout: 5m

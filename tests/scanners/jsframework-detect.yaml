@@ -1,0 +1,38 @@
+name: jsframework-detect
+description: "Page referencing jQuery 3.3.1 and AngularJS 1.8 — beacon detects frameworks and flags vulnerable versions"
+tags: [jsframework, scanner, web, fingerprint]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9243:80"]
+    volumes:
+      - ./jsframework-detect/index.html:/usr/share/nginx/html/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9243/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-jquery-reference
+    type: command
+    expect:
+      command: "curl -s http://localhost:9243/ | grep -qi 'jquery'"
+      exit_code: 0
+
+  - name: detects-js-framework
+    type: beacon
+    target: localhost:9243
+    args: ["--no-enrich", "--scanners", "jsframework"]
+    expect:
+      check_id: js.framework_detected
+
+  - name: detects-vulnerable-framework
+    type: beacon
+    target: localhost:9243
+    args: ["--no-enrich", "--scanners", "jsframework"]
+    expect:
+      check_id: js.framework_vulnerable
+
+timeout: 3m

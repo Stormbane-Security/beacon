@@ -14,6 +14,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-consul-kv-write
+    type: command
+    expect:
+      command: "curl -sf -X PUT -d 'drydock_pwned' http://localhost:7500/v1/kv/drydock/test && curl -sf http://localhost:7500/v1/kv/drydock/test?raw | grep -q drydock_pwned"
+      exit_code: 0
+
   - name: detects-consul-on-nonstandard-port
     type: beacon
     target: localhost:7500

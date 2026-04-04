@@ -15,10 +15,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebPrototypePollution, finding.SeverityHigh, finding.ModeDeep),
+	)
+}
 const (
 	scannerName  = "protopollution"
 	maxBodySize  = 32 * 1024 // 32 KB

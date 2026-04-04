@@ -13,10 +13,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCloudBucketExists, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckCloudBucketPublic, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCloudBucketWritable, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
 const scannerName = "cloudbuckets"
 
 // Scanner probes common bucket naming patterns derived from the target domain.
@@ -443,6 +454,38 @@ func bucketCandidates(root string) []string {
 		"-private",
 		"-storage",
 		"-archive",
+		"-db",
+		"-database",
+		"-config",
+		"-configs",
+		"-secrets",
+		"-internal",
+		"-test",
+		"-testing",
+		"-temp",
+		"-tmp",
+		"-web",
+		"-www",
+		"-api",
+		"-docs",
+		"-documents",
+		"-reports",
+		"-export",
+		"-exports",
+		"-import",
+		"-dump",
+		"-sql",
+		"-terraform",
+		"-infra",
+		"-ci",
+		"-deploy",
+		"-release",
+		"-releases",
+		"-build",
+		"-builds",
+		"-dist",
+		"-packages",
+		"-artifacts",
 	}
 
 	seen := make(map[string]struct{})

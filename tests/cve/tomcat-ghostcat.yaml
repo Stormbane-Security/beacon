@@ -1,0 +1,37 @@
+name: tomcat-ghostcat
+description: "Apache Tomcat 9.0.30 with AJP connector exposed — CVE-2020-1938 GhostCat file read"
+tags: [tomcat, cve, ajp]
+
+services:
+  tomcat:
+    image: tomcat:9.0.30-jdk8
+    ports:
+      - "9233:8080"
+      - "8009:8009"
+
+ready:
+  cmd: "curl -sf http://localhost:9233/ >/dev/null || nc -z localhost 8009"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-ghostcat-ajp-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 8009"
+      exit_code: 0
+
+  - name: exploit-ghostcat-ajp-banner
+    type: command
+    expect:
+      command: "printf '\\x12\\x34\\x00\\x01\\x0a' | nc -w 3 localhost 8009 | od -A x -t x1 | head -1 | grep -q '41 42'"
+      exit_code: 0
+
+  - name: detects-ghostcat-ajp
+    type: beacon
+    target: localhost:8009
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8009"]
+    expect:
+      check_id: cve.tomcat_ghostcat
+
+timeout: 5m

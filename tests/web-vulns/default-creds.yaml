@@ -1,0 +1,40 @@
+name: default-credentials
+description: "phpMyAdmin with default MySQL root/empty password — beacon detects default credentials"
+tags: [default-creds, web, database]
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: "%"
+
+  phpmyadmin:
+    image: phpmyadmin:5
+    ports: ["9254:80"]
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: ""
+    depends_on: [mysql]
+
+ready:
+  cmd: "curl -sf http://localhost:9254/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-phpmyadmin-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9254/ | grep -qi phpmyadmin"
+      exit_code: 0
+
+  - name: detects-default-creds
+    type: beacon
+    target: localhost:9254
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
+    expect:
+      check_id: web.default_credentials
+
+timeout: 5m

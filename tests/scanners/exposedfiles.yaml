@@ -1,0 +1,74 @@
+name: exposedfiles
+description: >
+  Nginx serving common exposed files: .env, .git/config, backup files,
+  sensitive configs, and robots.txt with internal path leaks.
+tags: [exposedfiles, scanner, exposure]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9252:80"]
+    volumes:
+      - ./exposedfiles/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9252/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Exploit proofs
+  - name: exploit-env-file-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9252/.env | grep -q 'DATABASE_URL'"
+      exit_code: 0
+
+  - name: exploit-git-config-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9252/.git/config | grep -q '[core]'"
+      exit_code: 0
+
+  - name: exploit-backup-file-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9252/config.php.bak | grep -q 'db_pass'"
+      exit_code: 0
+
+  - name: exploit-robots-leaks-paths
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9252/robots.txt | grep -q '/admin/'"
+      exit_code: 0
+
+  # Beacon detection assertions
+  - name: detects-env-file
+    type: beacon
+    target: localhost:9252
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+  - name: detects-git-exposed
+    type: beacon
+    target: localhost:9252
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.git_exposed
+
+  - name: detects-backup-file
+    type: beacon
+    target: localhost:9252
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exposure.backup_file
+
+  - name: detects-robots-leak
+    type: beacon
+    target: localhost:9252
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.robots_disallow_leak
+
+timeout: 5m

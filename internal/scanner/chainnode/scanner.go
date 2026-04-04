@@ -4,8 +4,7 @@
 // infrastructure (Bitcoin, Solana).
 //
 // Exposed blockchain nodes are high-severity findings because they:
-//   - Reveal peer topology (net_peerCount, admin_peers)
-//   - Leak wallet addresses and transaction history (eth_accounts, eth_coinbase)
+//   - Reveal peer topology (net_peerCount, admin_peers)//   - Leak wallet addresses and transaction history (eth_accounts, eth_coinbase)
 //   - Allow state-changing calls if auth is absent (eth_sendTransaction,
 //     personal_unlockAccount, miner_start)
 //   - Expose validator keys and withdrawal credentials if beacon APIs are open
@@ -40,10 +39,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckChainNodeGrafanaExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeMinerExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodePeerCountLeak, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeRPCExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeUnauthorized, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeValidatorExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainNodeWSExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckRPCMethodDangerous, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const scannerName = "chainnode"
 
 const dialTimeout = 3 * time.Second
@@ -57,10 +72,12 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	// Strip port from asset if present — we probe our own ports.
+	// Extract host and optional explicit port from asset.
 	host := asset
-	if h, _, err := net.SplitHostPort(asset); err == nil {
+	assetPort := ""
+	if h, p, err := net.SplitHostPort(asset); err == nil {
 		host = h
+		assetPort = p
 	}
 
 	client := &http.Client{
@@ -73,10 +90,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var findings []finding.Finding
 	ethRPCBase := ""
 
+	// If the asset specifies a non-standard port (e.g. from drydock ephemeral
+	// mapping), probe it as Ethereum RPC first — it's likely what the caller
+	// intended us to check.
+	if assetPort != "" && assetPort != "8545" && assetPort != "8546" {
+		if f := probeEthRPC(ctx, client, host, assetPort); len(f) > 0 {
+			findings = append(findings, f...)
+			ethRPCBase = fmt.Sprintf("http://%s:%s", host, assetPort)
+		}
+	}
+
 	// Ethereum JSON-RPC (port 8545)
 	if f := probeEthRPC(ctx, client, host, "8545"); len(f) > 0 {
 		findings = append(findings, f...)
-		ethRPCBase = fmt.Sprintf("http://%s:8545", host)
+		if ethRPCBase == "" {
+			ethRPCBase = fmt.Sprintf("http://%s:8545", host)
+		}
 	}
 
 	// Ethereum WebSocket RPC (port 8546) — verify with a real WebSocket upgrade
@@ -320,6 +349,76 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, base, as
 				})
 			}
 		}
+	}
+
+	// Probe for dangerous state-changing methods that should never be exposed.
+	dangerousMethods := []struct {
+		method string
+		desc   string
+	}{
+		{"personal_unlockAccount", "unlock wallet accounts without passphrase enforcement"},
+		{"miner_start", "start/stop mining and redirect block rewards"},
+		{"eth_sendTransaction", "broadcast arbitrary transactions from unlocked accounts"},
+		{"debug_traceTransaction", "access internal EVM execution traces"},
+		{"admin_addPeer", "manipulate the node's peer connections"},
+	}
+
+	for _, dm := range dangerousMethods {
+		if ctx.Err() != nil {
+			break
+		}
+		// Send the method with empty/dummy params — we only check if the method
+		// is recognized (no "method not found" error), not if it succeeds.
+		payload := fmt.Sprintf(`{"jsonrpc":"2.0","method":"%s","params":[],"id":99}`, dm.method)
+		reqD, err := http.NewRequestWithContext(ctx, http.MethodPost, base, bytes.NewBufferString(payload))
+		if err != nil {
+			continue
+		}
+		reqD.Header.Set("Content-Type", "application/json")
+		respD, err := client.Do(reqD)
+		if err != nil {
+			continue
+		}
+		bodyD, _ := io.ReadAll(io.LimitReader(respD.Body, 2048))
+		respD.Body.Close()
+
+		// "Method not found" means it's disabled — safe.
+		// Any other response (including parameter errors) means it's available.
+		bodyLower := strings.ToLower(string(bodyD))
+		if strings.Contains(bodyLower, "method not found") ||
+			strings.Contains(bodyLower, "method not supported") ||
+			strings.Contains(bodyLower, "the method") {
+			continue
+		}
+		// Must be a valid JSON-RPC response (not just random HTTP)
+		var rpcCheck struct {
+			JSONRPC string `json:"jsonrpc"`
+		}
+		if json.Unmarshal(bodyD, &rpcCheck) != nil || rpcCheck.JSONRPC == "" {
+			continue
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckRPCMethodDangerous,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("Dangerous RPC method %s exposed on %s", dm.method, asset),
+			Description: fmt.Sprintf(
+				"The Ethereum JSON-RPC method %s is available without authentication on %s. "+
+					"This method can %s. State-changing and administrative RPC methods must be "+
+					"disabled or protected by JWT authentication on production nodes.",
+				dm.method, asset, dm.desc),
+			Asset: asset,
+			Evidence: map[string]any{
+				"host":   asset,
+				"method": dm.method,
+			},
+			ProofCommand: fmt.Sprintf(
+				`curl -s -X POST %s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"%s","params":[],"id":1}'`,
+				base, dm.method),
+			DiscoveredAt: time.Now(),
+		})
 	}
 
 	return findings

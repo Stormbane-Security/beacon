@@ -15,6 +15,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-haproxy-stats-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/haproxy?stats | grep -qiE '(HAProxy|Statistics|frontend)'"
+      exit_code: 0
+
   - name: classifies-as-haproxy
     type: classify
     target: localhost:8080

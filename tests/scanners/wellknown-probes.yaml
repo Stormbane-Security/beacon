@@ -1,0 +1,31 @@
+name: wellknown-probes
+description: "Web server with security.txt and apple-app-site-association — beacon discovers well-known URIs"
+tags: [wellknown, scanner, web, discovery]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9244:80"]
+    volumes:
+      - ./wellknown-probes/security.txt:/usr/share/nginx/html/.well-known/security.txt:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9244/.well-known/security.txt >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-security-txt-exists
+    type: command
+    expect:
+      command: "curl -s http://localhost:9244/.well-known/security.txt | grep -qi 'Contact:'"
+      exit_code: 0
+
+  - name: detects-security-txt
+    type: beacon
+    target: localhost:9244
+    args: ["--no-enrich", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.security_txt
+
+timeout: 3m

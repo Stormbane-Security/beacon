@@ -1,25 +1,138 @@
 name: jwt-weak-algorithm
-description: "Python app issuing JWTs with alg:none triggers jwt.weak_algorithm"
+description: >
+  Python HTTP server issuing JWTs with alg:none, sensitive payload data
+  (role, email), and far-future expiry. Beacon JWT scanner should detect
+  weak algorithm, sensitive payload, and long expiry in observable tokens.
 tags: [jwt, scanner, auth]
 
 services:
   jwt-app:
-    build:
-      context: ./jwt
-      dockerfile: Dockerfile
-    ports: ["8080:8080"]
+    image: python:3.11-alpine
+    ports: ["9205:8080"]
+    command:
+      - sh
+      - -c
+      - |
+        python3 -c "
+        import json, base64
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+
+        def b64url(data):
+            return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+        def make_none_jwt(claims):
+            header = b64url(json.dumps({'alg': 'none', 'typ': 'JWT'}).encode())
+            payload = b64url(json.dumps(claims).encode())
+            return header + '.' + payload + '.'
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/health':
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(b'ok')
+                    return
+                if self.path == '/login':
+                    token = make_none_jwt({
+                        'sub': 'admin',
+                        'role': 'superuser',
+                        'email': 'admin@internal.corp',
+                        'iat': 1700000000,
+                        'exp': 9999999999,
+                    })
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Set-Cookie', 'session=' + token + '; Path=/; HttpOnly')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'token': token}).encode())
+                    return
+                if self.path == '/':
+                    token = make_none_jwt({
+                        'sub': 'guest',
+                        'role': 'viewer',
+                        'iat': 1700000000,
+                        'exp': 9999999999,
+                    })
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html')
+                    self.send_header('Set-Cookie', 'session=' + token + '; Path=/; HttpOnly')
+                    self.end_headers()
+                    self.wfile.write(b'<html><body>Welcome</body></html>')
+                    return
+                self.send_response(404)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'not found')
+            def log_message(self, fmt, *args):
+                pass
+
+        HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
+        "
 
 ready:
-  cmd: "curl -sf http://localhost:8080/health >/dev/null"
-  timeout: 30s
-  interval: 2s
+  cmd: "curl -sf http://localhost:9205/health >/dev/null"
+  timeout: 60s
+  interval: 3s
 
 assertions:
+  # --- Exploit proofs: verify JWT weaknesses are real ---
+  - name: exploit-jwt-token-issued-on-login
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9205/login | python3 -c 'import sys,json; t=json.load(sys.stdin)[\"token\"]; assert \".\" in t; print(t[:60])'"
+      exit_code: 0
+
+  - name: exploit-jwt-alg-none-in-header
+    type: command
+    expect:
+      command: "TOKEN=$(curl -sf http://localhost:9205/login | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"token\"])') && HEADER=$(echo $TOKEN | cut -d. -f1) && python3 -c \"import base64,sys; h=sys.argv[1]; print(base64.urlsafe_b64decode(h+'==').decode())\" \"$HEADER\" | grep -qi 'none'"
+      exit_code: 0
+
+  - name: exploit-jwt-sensitive-role-in-payload
+    type: command
+    expect:
+      command: "TOKEN=$(curl -sf http://localhost:9205/login | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"token\"])') && PAYLOAD=$(echo $TOKEN | cut -d. -f2) && python3 -c \"import base64,sys; p=sys.argv[1]; print(base64.urlsafe_b64decode(p+'==').decode())\" \"$PAYLOAD\" | grep -q 'superuser'"
+      exit_code: 0
+
+  - name: exploit-jwt-email-pii-in-payload
+    type: command
+    expect:
+      command: "TOKEN=$(curl -sf http://localhost:9205/login | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"token\"])') && PAYLOAD=$(echo $TOKEN | cut -d. -f2) && python3 -c \"import base64,sys; p=sys.argv[1]; print(base64.urlsafe_b64decode(p+'==').decode())\" \"$PAYLOAD\" | grep -q 'email'"
+      exit_code: 0
+
+  - name: exploit-jwt-far-future-expiry
+    type: command
+    expect:
+      command: "TOKEN=$(curl -sf http://localhost:9205/login | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"token\"])') && PAYLOAD=$(echo $TOKEN | cut -d. -f2) && python3 -c \"import base64,json,sys; p=json.loads(base64.urlsafe_b64decode(sys.argv[1]+'==')); assert p['exp'] > 9999999990, 'exp too short'\" \"$PAYLOAD\""
+      exit_code: 0
+
+  - name: exploit-jwt-set-in-cookie
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9205/ | grep -i 'set-cookie' | grep -q 'session=eyJ'"
+      exit_code: 0
+
+  # --- Negative: health endpoint does not issue tokens ---
+  - name: negative-health-no-token
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9205/health | grep -ci 'set-cookie' | grep -q '^0$'"
+      exit_code: 0
+
+  # --- Scanner detection ---
   - name: detects-weak-jwt-algorithm
     type: beacon
-    target: localhost:8080
+    target: localhost:9205
     args: ["--no-enrich", "--scanners", "jwt"]
     expect:
       check_id: jwt.weak_algorithm
+
+  - name: detects-sensitive-jwt-payload
+    type: beacon
+    target: localhost:9205
+    args: ["--no-enrich", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.sensitive_payload
 
 timeout: 5m

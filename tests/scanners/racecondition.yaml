@@ -1,0 +1,86 @@
+name: racecondition-toctou
+description: >
+  Python Flask app with an unsynchronized state-changing endpoint. The
+  /api/redeem endpoint accepts POST requests and decrements a balance without
+  locking — the exact pattern that causes real TOCTOU race conditions
+  (coupon double-spend, vote manipulation, balance overdraw). Beacon
+  racecondition scanner should detect that concurrent requests all succeed.
+tags: [racecondition, scanner, web, toctou]
+
+services:
+  app:
+    image: python:3.11-alpine
+    ports: ["9317:5000"]
+    command:
+      - sh
+      - -c
+      - |
+        pip install -q flask &&
+        python -c "
+        from flask import Flask, jsonify, request
+        app = Flask(__name__)
+        balance = {'value': 100}
+        redeem_count = {'value': 0}
+        @app.route('/api/redeem', methods=['POST'])
+        def redeem():
+            # No locking, no idempotency key — classic TOCTOU
+            if balance['value'] > 0:
+                balance['value'] -= 1
+                redeem_count['value'] += 1
+                return jsonify(success=True, balance=balance['value'])
+            return jsonify(success=False), 409
+        @app.route('/api/balance')
+        def get_balance():
+            return jsonify(balance=balance['value'], total_redeems=redeem_count['value'])
+        @app.route('/')
+        def index():
+            return 'OK'
+        app.run(host='0.0.0.0', port=5000)
+        "
+
+ready:
+  cmd: "curl -sf http://localhost:9317/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs: verify the race condition is exploitable ---
+  - name: exploit-single-redeem-succeeds
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:9317/api/redeem | grep -q '\"success\": true'"
+      exit_code: 0
+
+  - name: exploit-balance-endpoint-accessible
+    type: command
+    expect:
+      command: "curl -s http://localhost:9317/api/balance | grep -q 'balance'"
+      exit_code: 0
+
+  - name: exploit-concurrent-burst-all-succeed
+    type: command
+    expect:
+      command: "for i in $(seq 1 10); do curl -s -X POST http://localhost:9317/api/redeem & done; wait; curl -s http://localhost:9317/api/balance | grep -q 'total_redeems'"
+      exit_code: 0
+
+  - name: exploit-balance-decremented-multiple-times
+    type: command
+    expect:
+      command: "curl -s http://localhost:9317/api/balance | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d[\"total_redeems\"] > 1, f\"only {d[\\\"total_redeems\\\"]} redeems\"; print(f\"OK: {d[\\\"total_redeems\\\"]} redeems, balance={d[\\\"balance\\\"]}\")')'"
+      exit_code: 0
+
+  - name: exploit-second-burst-also-succeeds
+    type: command
+    expect:
+      command: "for i in $(seq 1 10); do curl -s -X POST http://localhost:9317/api/redeem & done; wait; curl -s -X POST http://localhost:9317/api/redeem | grep -q 'success'"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-race-condition
+    type: beacon
+    target: localhost:9317
+    args: ["--no-enrich", "--scanners", "racecondition", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.race_condition
+
+timeout: 5m

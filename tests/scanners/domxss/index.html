@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>DOM XSS Vulnerable Page</title></head>
+<body>
+<h1>Welcome</h1>
+<div id="output"></div>
+<script>
+// VULNERABLE: location.hash flows directly into innerHTML (DOM XSS)
+var hash = decodeURIComponent(location.hash.substring(1));
+if (hash) {
+    document.getElementById('output').innerHTML = hash;
+}
+
+// VULNERABLE: location.search flows into document.write
+var params = new URLSearchParams(location.search);
+var q = params.get('q');
+if (q) {
+    document.write('<p>Search results for: ' + q + '</p>');
+}
+</script>
+</body>
+</html>

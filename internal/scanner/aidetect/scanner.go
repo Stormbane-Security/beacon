@@ -20,11 +20,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckAIEndpointExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckAIKeyExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckAIStreamingOpen, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "aidetect"
 
 // candidatePaths are common LLM/AI endpoint patterns to probe.

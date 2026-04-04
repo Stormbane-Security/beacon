@@ -1,0 +1,53 @@
+name: scanner-selection-grafana
+description: "Verify beacon selects Grafana playbook and baseline scanners for an exposed Grafana instance"
+tags: [scanner-selection, dry-run, grafana]
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["9302:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+
+ready:
+  cmd: "curl -sf http://localhost:9302/api/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  # --- Dry-run plan verification ---
+  # Grafana playbook should match (title contains "Grafana").
+  - name: dryrun-matches-grafana-playbook
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9302 --dry-run --format json --no-enrich --ports 3000 2>/dev/null | grep -q grafana"
+      exit_code: 0
+
+  # Baseline scanners: portscan, secheaders, webcontent, dlp should all be planned.
+  - name: dryrun-plans-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9302 --dry-run --format json --no-enrich --ports 3000 2>/dev/null | grep -q portscan"
+      exit_code: 0
+
+  - name: dryrun-plans-dlp
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9302 --dry-run --format json --no-enrich --ports 3000 2>/dev/null | grep -q dlp"
+      exit_code: 0
+
+  - name: dryrun-plans-webcontent
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9302 --dry-run --format json --no-enrich --ports 3000 2>/dev/null | grep -q webcontent"
+      exit_code: 0
+
+  # --- Verbose execution verification ---
+  - name: verbose-runs-secheaders
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9302 --verbose --no-tui --format json --no-enrich --scanners secheaders --ports 3000 2>&1 | grep -q secheaders"
+      exit_code: 0
+
+timeout: 5m

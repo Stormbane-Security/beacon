@@ -1,7 +1,6 @@
 // Package autoprobe probes authentication endpoints for security weaknesses
 // without requiring credentials. It detects:
-//   - Username enumeration via differential responses (timing, body, status)
-//   - Missing account lockout (no 429/lockout after repeated bad attempts)
+//   - Username enumeration via differential responses (timing, body, status)//   - Missing account lockout (no 429/lockout after repeated bad attempts)
 //   - Missing rate limiting on auth endpoints specifically
 //
 // Surface mode (safe, no auth requests):
@@ -30,10 +29,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.Register(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	})
+}
 const scannerName = "autoprobe"
 
 // candidatePaths are common login endpoint paths to probe.
@@ -159,7 +165,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					"possible against real accounts. " + desc
 			}
 			findings = append(findings, finding.Finding{
-				CheckID:  "auth.username_enumeration",
+				CheckID:  finding.CheckAuthUsernameEnumeration,
 				Module:   "deep",
 				Scanner:  scannerName,
 				Severity: finding.SeverityMedium,
@@ -207,7 +213,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	wgLock.Wait()
 	if !locked {
 		findings = append(findings, finding.Finding{
-			CheckID:  "auth.no_lockout",
+			CheckID:  finding.CheckAuthNoLockout,
 			Module:   "deep",
 			Scanner:  scannerName,
 			Severity: finding.SeverityMedium,
@@ -272,7 +278,7 @@ func (s *Scanner) surfaceCheck(ctx context.Context, client *http.Client, base, a
 
 	// No protection signals found on the page — emit a low-confidence advisory.
 	return []finding.Finding{{
-		CheckID:  "auth.no_bruteforce_protection_signals",
+		CheckID:  finding.CheckAuthNoBruteforceProtect,
 		Module:   "surface",
 		Scanner:  scannerName,
 		Severity: finding.SeverityInfo,

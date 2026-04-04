@@ -1,0 +1,37 @@
+name: waf-bypass-crlf
+description: >
+  Web application behind ModSecurity WAF with CRLF injection in redirect
+  parameters. Standard %0d%0a payloads are blocked. Beacon should use
+  evasion variants (double encoding, Unicode, mixed case hex) to bypass
+  and confirm the CRLF injection vulnerability.
+
+services:
+  webapp:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+    expose: ["8080"]
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["80:80"]
+    environment:
+      BACKEND: "http://webapp:8080"
+      PARANOIA: "2"
+    depends_on: [webapp]
+
+assertions:
+  # WAF blocks standard CRLF injection
+  - name: waf-blocks-standard-crlf
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?redirect=https://example.com%0d%0aX-Injected:test'"
+      stdout_contains: "403"
+
+  # Beacon with evasion should detect CRLF possibilities
+  - name: beacon-crlf-scan
+    type: beacon
+    target: localhost
+    args: ["--deep", "--scanners", "crlf", "--output-json", "/tmp/results.json"]
+    expect:
+      min_findings: 0

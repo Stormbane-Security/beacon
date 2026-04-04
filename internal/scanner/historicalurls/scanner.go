@@ -13,10 +13,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("gau.bin"))
+	},
+		scan.Check(finding.CheckAssetHistoricalURLs, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 
 const scannerName = "historicalurls"
 

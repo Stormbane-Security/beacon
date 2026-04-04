@@ -1,0 +1,32 @@
+name: domxss-innerhtml
+description: "Static HTML page with innerHTML = location.hash and document.write(location.search) — beacon detects DOM XSS via headless Chrome source-to-sink tracing"
+tags: [domxss, xss, scanner, web, authorized]
+
+services:
+  domxss-app:
+    image: nginx:alpine
+    ports: ["9213:80"]
+    volumes:
+      - ./domxss/index.html:/usr/share/nginx/html/index.html:ro
+      - ./domxss/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9213/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-innerhtml-sink-present
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9213/ | grep -q 'innerHTML\\|document\\.write'"
+      exit_code: 0
+
+  - name: detects-dom-xss
+    type: beacon
+    target: localhost:9213
+    args: ["--no-enrich", "--scanners", "domxss", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
+    expect:
+      check_id: web.xss
+
+timeout: 5m

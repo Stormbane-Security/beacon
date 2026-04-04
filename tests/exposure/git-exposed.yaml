@@ -15,10 +15,22 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-git-config-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/.git/config | grep -q '\\[core\\]'"
+      exit_code: 0
+
+  - name: exploit-git-head-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/.git/HEAD | grep -q ref"
+      exit_code: 0
+
   - name: detects-git-exposed
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--ports", "80"]
     expect:
       check_id: exposure.git_exposed
 

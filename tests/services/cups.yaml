@@ -1,0 +1,29 @@
+name: cups-ipp-exposed
+description: "CUPS print server with IPP exposed — beacon detects network printer on port 631"
+tags: [cups, ipp, printer, portscan]
+
+services:
+  cups:
+    image: olbat/cupsd
+    ports: ["9282:631"]
+
+ready:
+  cmd: "curl -sf http://localhost:9282/ >/dev/null || nc -z localhost 9282"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-cups-web-ui
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9282/ | grep -qiE '(CUPS|printer)'"
+      exit_code: 0
+
+  - name: detects-ipp-exposed
+    type: beacon
+    target: localhost:9282
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "631"]
+    expect:
+      check_id: port.ipp_exposed
+
+timeout: 5m

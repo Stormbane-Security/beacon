@@ -1,0 +1,15 @@
+apiVersion: 1
+datasources:
+  - name: CustomerDB
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: customers
+    user: grafana
+    isDefault: true
+    secureJsonData:
+      password: grafana_secret_pw
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 2

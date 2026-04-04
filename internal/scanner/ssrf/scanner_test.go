@@ -461,7 +461,8 @@ func TestSSRF_OnePerParam(t *testing.T) {
 		// Respond with metadata for every request with any known param.
 		for _, p := range probeParams {
 			if r.URL.Query().Get(p) != "" {
-				fmt.Fprintln(w, "ami-id: ami-abc123")
+				// Return 2+ metadata signals so metadataSignalFound triggers.
+				fmt.Fprintln(w, "ami-id: ami-abc123\ninstance-id: i-1234567890abcdef0")
 				return
 			}
 		}
@@ -521,44 +522,49 @@ func TestMetadataSignalFound(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "AWS ami-id",
+			name: "AWS multi-signal metadata",
 			body: "ami-id\ninstance-id\nlocal-hostname",
-			want: "ami-id",
+			want: "ami-id, instance-id, local-hostname",
 		},
 		{
-			name: "AWS AccessKeyId",
+			name: "AWS AccessKeyId single signal — no match",
 			body: `{"AccessKeyId":"AKIA...","SecretAccessKey":"..."}`,
-			want: "AccessKeyId",
+			want: "",
 		},
 		{
-			name: "GCP serviceAccounts",
+			name: "AWS AccessKeyId with instance-id — 2 signals",
+			body: `{"AccessKeyId":"AKIA...","instance-id":"i-1234"}`,
+			want: "AccessKeyId, instance-id",
+		},
+		{
+			name: "GCP serviceAccounts single signal — no match",
 			body: `{"serviceAccounts":{"default":{"email":"test@project.iam.gserviceaccount.com"}}}`,
-			want: "serviceAccounts",
+			want: "",
 		},
 		{
-			name: "GCP project-id",
-			body: "project-id\nsome-project-name",
-			want: "project-id",
+			name: "GCP multi-signal",
+			body: `{"serviceAccounts":{"default":{}},"project-id":"my-proj"}`,
+			want: "serviceAccounts, project-id",
 		},
 		{
-			name: "Azure subscriptionId",
+			name: "Azure subscriptionId + vmId — 2 signals",
 			body: `{"subscriptionId":"abcd-1234","vmId":"vm-9999"}`,
-			want: "subscriptionId",
+			want: "subscriptionId, vmId",
 		},
 		{
-			name: "Azure vmId only",
+			name: "Azure vmId only — single signal no match",
 			body: `{"vmId":"vm-1234"}`,
-			want: "vmId",
+			want: "",
 		},
 		{
-			name: "DigitalOcean droplet_id",
+			name: "DigitalOcean single signal — no match",
 			body: `{"droplet_id":12345,"hostname":"my-droplet"}`,
-			want: "droplet_id",
+			want: "",
 		},
 		{
-			name: "instance-id embedded in longer string",
+			name: "single signal in longer string — no match",
 			body: "some-prefix-instance-id-suffix",
-			want: "instance-id",
+			want: "",
 		},
 		{
 			name: "no false positive on unrelated JSON",
@@ -566,19 +572,19 @@ func TestMetadataSignalFound(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "security-groups signal",
-			body: "security-groups\nsg-12345678",
-			want: "security-groups",
+			name: "security-groups + local-hostname — 2 signals",
+			body: "security-groups\nsg-12345678\nlocal-hostname\nip-172-31-0-1",
+			want: "local-hostname, security-groups",
 		},
 		{
-			name: "local-hostname signal",
-			body: "local-hostname\nip-172-31-0-1.ec2.internal",
-			want: "local-hostname",
+			name: "instance/id + project-id GCP — 2 signals",
+			body: "instance/id\n1234567890\nproject-id\nmy-project",
+			want: "instance/id, project-id",
 		},
 		{
-			name: "instance/id GCP path",
-			body: "instance/id\n1234567890",
-			want: "instance/id",
+			name: "AWS full IMDS listing — many signals",
+			body: "ami-id\nami-launch-index\ninstance-id\ninstance-type\nlocal-hostname\nsecurity-groups",
+			want: "ami-id, instance-id, local-hostname, security-groups",
 		},
 	}
 

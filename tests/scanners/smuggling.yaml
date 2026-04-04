@@ -1,0 +1,44 @@
+name: smuggling-proxy-chain
+description: >
+  Nginx reverse proxy in front of go-httpbin backend. Creates the
+  front-end/back-end architecture where request smuggling can occur.
+  Beacon smuggling scanner probes for CL.TE and TE.CL disagreements.
+tags: [smuggling, scanner, web, deep]
+
+services:
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  nginx:
+    image: nginx:alpine
+    ports: ["9260:80"]
+    volumes:
+      - ./smuggling/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - httpbin
+
+ready:
+  cmd: "curl -sf http://localhost:9260/get >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-proxy-chain-exists
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9260/get | grep -qi 'HTTP'"
+      exit_code: 0
+
+  # Smuggling is timing-based and may not always trigger on all proxy
+  # pairs. We test that the scan completes without error. If the scanner
+  # does detect a timing anomaly, it will emit web.http_request_smuggling.
+  - name: smuggling-scan-completes
+    type: beacon
+    target: localhost:9260
+    args: ["--no-enrich", "--scanners", "smuggling", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

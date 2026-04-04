@@ -17,6 +17,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-netdata-system-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19999/api/v1/info | grep -q version"
+      exit_code: 0
+
+  - name: exploit-netdata-allmetrics
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:19999/api/v1/allmetrics?format=json' | grep -qE '(system|cpu)'"
+      exit_code: 0
+
   - name: classifies-as-netdata
     type: classify
     target: localhost:19999

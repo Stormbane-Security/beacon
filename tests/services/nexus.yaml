@@ -13,6 +13,18 @@ ready:
   interval: 5s
 
 assertions:
+  - name: exploit-nexus-status-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8081/service/rest/v1/status | grep -q true"
+      exit_code: 0
+
+  - name: exploit-nexus-repositories
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8081/service/rest/v1/repositories | grep -qE '(name|format)'"
+      exit_code: 0
+
   - name: classifies-as-nexus
     type: classify
     target: localhost:8081

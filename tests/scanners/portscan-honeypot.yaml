@@ -1,0 +1,42 @@
+name: portscan-honeypot
+description: >
+  Tests transparent proxy / honeypot detection in the port scanner.
+  Deploys socat listeners that accept connections on many ports,
+  simulating a transparent proxy that SYN-ACKs everything. Beacon
+  should detect this and suppress individual port findings.
+tags: [portscan, honeypot, false-positive]
+
+services:
+  honeypot:
+    image: alpine/socat:latest
+    ports:
+      - "9400:22"
+      - "9401:80"
+      - "9402:443"
+      - "9403:8080"
+      - "9404:8443"
+      - "9405:3306"
+      - "9406:5432"
+      - "9407:6379"
+      - "9408:27017"
+      - "9409:9200"
+      - "9410:5601"
+      - "9411:8888"
+    command: "TCP-LISTEN:22,fork,reuseaddr TCP-LISTEN:80,fork,reuseaddr TCP-LISTEN:443,fork,reuseaddr TCP-LISTEN:8080,fork,reuseaddr TCP-LISTEN:8443,fork,reuseaddr TCP-LISTEN:3306,fork,reuseaddr TCP-LISTEN:5432,fork,reuseaddr TCP-LISTEN:6379,fork,reuseaddr TCP-LISTEN:27017,fork,reuseaddr TCP-LISTEN:9200,fork,reuseaddr TCP-LISTEN:5601,fork,reuseaddr TCP-LISTEN:8888,fork,reuseaddr"
+
+ready:
+  cmd: "nc -z localhost 9400"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: honeypot-detection
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      # Should detect the honeypot/transparent proxy pattern
+      # and suppress individual false-positive port findings
+      min_findings: 1
+
+timeout: 3m

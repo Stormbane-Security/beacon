@@ -282,6 +282,349 @@ func TestDrupalDetection_ViaHeader(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Ghost detection via /ghost/ admin panel
+// ---------------------------------------------------------------------------
+
+func TestGhostDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ghost/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "<html><title>Ghost Admin</title></html>")
+		case "/ghost/api/v3/admin/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"meta":{"version":"5.0"}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Ghost") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected Ghost CMS detection finding when /ghost/ is accessible")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Strapi detection via /admin/ with strapi branding
+// ---------------------------------------------------------------------------
+
+func TestStrapiDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `<html><title>Strapi Admin</title><script src="/admin/strapi.js"></script></html>`)
+		case "/_health":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"status":"ok"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Strapi") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected Strapi CMS detection finding when /admin/ contains 'strapi'")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Directus detection via /server/info
+// ---------------------------------------------------------------------------
+
+func TestDirectusDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/server/info":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"project":{"project_name":"My Project"}}`)
+		case "/server/health":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"status":"ok"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Directus") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected Directus CMS detection finding when /server/info is accessible")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PrestaShop detection via body content
+// ---------------------------------------------------------------------------
+
+func TestPrestaShopDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `<html><meta name="generator" content="PrestaShop"/></html>`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "PrestaShop") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected PrestaShop CMS detection when body contains 'prestashop'")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Magento detection via /magento_version
+// ---------------------------------------------------------------------------
+
+func TestMagentoDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/magento_version":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "Magento/2.4 (Community)")
+		case "/rest/V1/store/storeConfigs":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `[{"id":1}]`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Magento") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected Magento CMS detection when /magento_version is accessible")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TYPO3 detection via /typo3/ admin panel
+// ---------------------------------------------------------------------------
+
+func TestTypo3Detection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/typo3/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "<html><title>TYPO3 Login</title></html>")
+		case "/typo3conf/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "<html>Directory listing</html>")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "TYPO3") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected TYPO3 CMS detection when /typo3/ is accessible")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Moodle detection via /login/index.php with moodle branding
+// ---------------------------------------------------------------------------
+
+func TestMoodleDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login/index.php":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `<html><body class="moodle-login">Welcome to Moodle</body></html>`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Moodle") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected Moodle CMS detection when /login/index.php contains 'moodle'")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Craft CMS detection via /admin/login with craft cms branding
+// ---------------------------------------------------------------------------
+
+func TestCraftCMSDetection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/login":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `<html><title>Craft CMS - Login</title></html>`)
+		case "/cpresources/":
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var cmsDetected bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "Craft") {
+			cmsDetected = true
+			break
+		}
+	}
+	if !cmsDetected {
+		t.Error("expected Craft CMS detection when /admin/login contains 'craft cms'")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CMS admin path probing — Ghost returns accessible admin paths
+// ---------------------------------------------------------------------------
+
+func TestGhostDetection_AdminPathProbed(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ghost/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "<html>Ghost Admin</html>")
+		case "/ghost/api/v3/admin/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"meta":{}}`)
+		case "/content/images/":
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "<html>Directory listing</html>")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	asset := strings.TrimPrefix(ts.URL, "http://")
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have CMS detection + at least one admin path finding
+	if len(findings) < 2 {
+		t.Errorf("expected at least 2 findings (CMS detection + admin paths), got %d", len(findings))
+	}
+
+	var hasPathFinding bool
+	for _, f := range findings {
+		if strings.Contains(f.Title, "path accessible") {
+			hasPathFinding = true
+			break
+		}
+	}
+	if !hasPathFinding {
+		t.Error("expected at least one 'path accessible' finding for Ghost admin paths")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Unknown CMS → no findings
 // ---------------------------------------------------------------------------
 

@@ -2,8 +2,7 @@
 // rate limiting. It uses an escalating multi-phase strategy to build
 // confidence before reporting:
 //
-//   Phase 1 — 8-request sanity burst   (500 ms spacing, ~4 s)
-//   Phase 2 — 16-request burst          (200 ms spacing, ~3 s)
+//   Phase 1 — 8-request sanity burst   (500 ms spacing, ~4 s)//   Phase 2 — 16-request burst          (200 ms spacing, ~3 s)
 //   Phase 3 — 32-request rapid burst    (no delay, ~1 s with network latency)
 //   Phase 4 — 20-request sustained      (1 req/sec, ~20 s)
 //
@@ -35,10 +34,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckRateLimitBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckRateLimitMissing, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckRateLimitNoRetryAfter, finding.SeverityInfo, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "ratelimit"
 

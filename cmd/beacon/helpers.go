@@ -37,6 +37,10 @@ func fatalf(format string, args ...any) {
 // because nmap falls back to TCP connect scan (noisier) and some deep-mode
 // NSE scripts with raw-socket requirements will have reduced coverage.
 func warnMissingAPIKeys(cfg *config.Config) {
+	if quiet {
+		return
+	}
+
 	type keyInfo struct {
 		val  string
 		name string
@@ -78,10 +82,6 @@ func warnMissingAPIKeys(cfg *config.Config) {
 	}
 
 	// Warn when nmap is enabled but running without root privileges.
-	// The core TCP connect scanner works fully without root. However, nmap
-	// requires root (or CAP_NET_RAW on Linux) for SYN scanning and certain
-	// NSE scripts (smb-vuln-*, ssl-heartbleed, ms17-010, snmp-info). Without
-	// root, nmap silently falls back to TCP connect scan for those checks.
 	if cfg.NmapBin != "" && os.Getuid() != 0 {
 		fmt.Fprintf(os.Stderr, "beacon: nmap configured but running without root — nmap will use TCP connect scan\n")
 		fmt.Fprintf(os.Stderr, "  Some deep-mode NSE scripts (ms17-010, smb-vuln-*, snmp-info) require raw sockets\n")

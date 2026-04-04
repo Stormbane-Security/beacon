@@ -1,0 +1,51 @@
+name: chain-mqtt-topic-harvest
+description: >
+  Exploit chain: MQTT broker no-auth → topic subscription → credential/data harvest.
+tags: [chain, postexploit, mqtt, topic-harvest, authorized]
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["9415:1883"]
+    command: ["mosquitto", "-c", "/dev/null", "-p", "1883"]
+
+  seed:
+    image: eclipse-mosquitto:2
+    depends_on: [mosquitto]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        mosquitto_pub -h mosquitto -t 'config/database' -m '{"host":"db.internal","user":"root","password":"RootDbPass!2024"}'
+        mosquitto_pub -h mosquitto -t 'sensors/temperature' -m '{"value":22.5,"unit":"C"}'
+        mosquitto_pub -h mosquitto -t 'auth/tokens' -m '{"service":"api-gateway","token":"gw_tok_a1b2c3d4e5f6"}'
+        mosquitto_pub -h mosquitto -t '$SYS/broker/version' -m 'mosquitto version 2.0.18' -r
+
+ready:
+  cmd: "mosquitto_sub -h localhost -p 9415 -t '$SYS/#' -C 1 -W 5 2>/dev/null | grep -q ."
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-mqtt-no-auth
+    type: command
+    expect:
+      command: "mosquitto_sub -h localhost -p 9415 -t '$SYS/#' -C 1 -W 3 2>/dev/null | grep -q ."
+      exit_code: 0
+
+  - name: detects-mqtt-exposed
+    type: beacon
+    target: "localhost:9415"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9415"]
+    expect:
+      check_id: port.mqtt_exposed
+
+  - name: chain-harvests-credentials
+    type: beacon
+    target: "localhost:9415"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9415"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 10m

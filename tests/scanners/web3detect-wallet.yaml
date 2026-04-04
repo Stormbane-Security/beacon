@@ -1,0 +1,38 @@
+name: web3detect-wallet
+description: "Static page with ethers.js, window.ethereum, and Infura RPC URL — beacon detects Web3 wallet integration"
+tags: [web3detect, scanner, web, web3]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9249:80"]
+    volumes:
+      - ./web3detect-wallet/index.html:/usr/share/nginx/html/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9249/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-ethers-present
+    type: command
+    expect:
+      command: "curl -s http://localhost:9249/ | grep -qi 'ethers'"
+      exit_code: 0
+
+  - name: detects-wallet-lib
+    type: beacon
+    target: localhost:9249
+    args: ["--no-enrich", "--scanners", "web3detect"]
+    expect:
+      check_id: web3.wallet_lib_detected
+
+  - name: detects-rpc-endpoint
+    type: beacon
+    target: localhost:9249
+    args: ["--no-enrich", "--scanners", "web3detect"]
+    expect:
+      check_id: web3.rpc_endpoint_exposed
+
+timeout: 3m

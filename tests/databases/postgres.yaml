@@ -17,6 +17,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-postgres-query
+    type: command
+    expect:
+      command: "PGPASSWORD='' psql -h localhost -p 5432 -U postgres -d testdb -c 'SELECT current_user;' 2>/dev/null | grep -q postgres"
+      exit_code: 0
+
   - name: detects-exposed-postgresql
     type: beacon
     target: localhost:5432

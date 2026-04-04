@@ -1,8 +1,13 @@
 package nuclei
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stormbane-security/beacon/internal/finding"
 )
 
 func TestIsValidHostname(t *testing.T) {
@@ -153,6 +158,26 @@ func TestIsValidHostname(t *testing.T) {
 	}
 }
 
+// TestNativelyExcluded_NoDuplicates verifies the exclusion list has no duplicates.
+func TestNativelyExcluded_NoDuplicates(t *testing.T) {
+	seen := make(map[string]bool, len(nativelyExcluded))
+	for _, id := range nativelyExcluded {
+		if seen[id] {
+			t.Errorf("duplicate in nativelyExcluded: %q", id)
+		}
+		seen[id] = true
+	}
+}
+
+// TestNativelyExcluded_AllNonEmpty verifies no empty strings in the list.
+func TestNativelyExcluded_AllNonEmpty(t *testing.T) {
+	for i, id := range nativelyExcluded {
+		if id == "" {
+			t.Errorf("nativelyExcluded[%d] is empty", i)
+		}
+	}
+}
+
 // TestRunWithTags_RejectsShellMetachars verifies that RunWithTags rejects
 // hostnames containing shell metacharacters that could lead to command
 // injection via the nuclei subprocess.
@@ -199,5 +224,182 @@ func TestRunWithTags_AcceptsValidHostname(t *testing.T) {
 	// The error should NOT be about invalid hostname — it should be about the missing binary.
 	if strings.Contains(err.Error(), "invalid hostname") {
 		t.Errorf("valid hostname was incorrectly rejected: %v", err)
+	}
+}
+
+// ── parseOutput tests ──────────────────────────────────────────────────────
+
+func TestParseOutput_ValidJSONL(t *testing.T) {
+	input := []byte(`{"template-id":"expired-ssl","info":{"name":"Expired SSL","severity":"high","description":"The SSL certificate has expired."},"host":"https://example.com","matched-at":"https://example.com:443","extracted-results":["cert expired"],"meta":{},"timestamp":"2025-01-15T10:00:00Z"}
+{"template-id":"missing-csp","info":{"name":"Missing CSP","severity":"medium","description":"No Content-Security-Policy header."},"host":"https://example.com","matched-at":"https://example.com","extracted-results":null,"meta":{},"timestamp":"2025-01-15T10:00:01Z"}`)
+
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+
+	// First finding: expired-ssl maps to a known CheckID.
+	if findings[0].CheckID != finding.CheckTLSCertExpiry7d {
+		t.Errorf("finding[0] CheckID = %q, want %q", findings[0].CheckID, finding.CheckTLSCertExpiry7d)
+	}
+	if findings[0].Title != "Expired SSL" {
+		t.Errorf("finding[0] Title = %q, want %q", findings[0].Title, "Expired SSL")
+	}
+	if findings[0].Severity != finding.SeverityHigh {
+		t.Errorf("finding[0] Severity = %d, want %d (high)", findings[0].Severity, finding.SeverityHigh)
+	}
+	if findings[0].Asset != "example.com" {
+		t.Errorf("finding[0] Asset = %q, want %q", findings[0].Asset, "example.com")
+	}
+
+	// Second finding: missing-csp maps to a known CheckID.
+	if findings[1].CheckID != finding.CheckHeadersMissingCSP {
+		t.Errorf("finding[1] CheckID = %q, want %q", findings[1].CheckID, finding.CheckHeadersMissingCSP)
+	}
+}
+
+func TestParseOutput_UnknownTemplate(t *testing.T) {
+	input := []byte(`{"template-id":"custom-vuln-xyz","info":{"name":"Custom Vuln","severity":"critical","description":"A custom vulnerability."},"host":"https://target.com","matched-at":"https://target.com/path","timestamp":"2025-01-15T10:00:00Z"}`)
+
+	findings, err := parseOutput("target.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	// Unknown templates get "nuclei." prefix.
+	if findings[0].CheckID != "nuclei.custom-vuln-xyz" {
+		t.Errorf("CheckID = %q, want %q", findings[0].CheckID, "nuclei.custom-vuln-xyz")
+	}
+	if findings[0].Severity != finding.SeverityCritical {
+		t.Errorf("Severity = %d, want critical", findings[0].Severity)
+	}
+}
+
+func TestParseOutput_MalformedJSON(t *testing.T) {
+	input := []byte(`not json at all
+{"template-id":"expired-ssl","info":{"name":"Expired SSL","severity":"high","description":"desc"},"host":"h","matched-at":"m","timestamp":"2025-01-15T10:00:00Z"}
+{broken json
+`)
+
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error for mixed input: %v", err)
+	}
+	// Should parse the one valid line and skip malformed ones.
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding from mixed input, got %d", len(findings))
+	}
+	if findings[0].Title != "Expired SSL" {
+		t.Errorf("Title = %q, want %q", findings[0].Title, "Expired SSL")
+	}
+}
+
+func TestParseOutput_EmptyInput(t *testing.T) {
+	findings, err := parseOutput("example.com", []byte{})
+	if err != nil {
+		t.Fatalf("parseOutput returned error for empty input: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for empty input, got %d", len(findings))
+	}
+}
+
+func TestParseOutput_EmptyLines(t *testing.T) {
+	input := []byte("\n\n\n")
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for blank lines, got %d", len(findings))
+	}
+}
+
+func TestParseOutput_MissingFields(t *testing.T) {
+	// Missing template-id → should be skipped.
+	input := []byte(`{"info":{"name":"No Template","severity":"high","description":"d"},"host":"h","matched-at":"m","timestamp":"2025-01-15T10:00:00Z"}
+{"template-id":"","info":{"name":"","severity":"high","description":"d"},"host":"h","matched-at":"m","timestamp":"2025-01-15T10:00:00Z"}`)
+
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for entries with missing required fields, got %d", len(findings))
+	}
+}
+
+func TestParseOutput_EvidenceFields(t *testing.T) {
+	input := []byte(`{"template-id":"test-tmpl","info":{"name":"Test","severity":"info","description":"d"},"host":"h","matched-at":"https://example.com/path","extracted-results":["secret123"],"meta":{"key":"value"},"timestamp":"2025-01-15T10:00:00Z"}`)
+
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	ev := findings[0].Evidence
+	if ev["template_id"] != "test-tmpl" {
+		t.Errorf("evidence template_id = %v, want %q", ev["template_id"], "test-tmpl")
+	}
+	if ev["matched_at"] != "https://example.com/path" {
+		t.Errorf("evidence matched_at = %v, want %q", ev["matched_at"], "https://example.com/path")
+	}
+	extracted, ok := ev["extracted_results"].([]string)
+	if !ok || len(extracted) != 1 || extracted[0] != "secret123" {
+		t.Errorf("evidence extracted_results = %v, want [secret123]", ev["extracted_results"])
+	}
+}
+
+// ── TemplateAge tests ──────────────────────────────────────────────────────
+
+func TestTemplateAge_NoTemplateDir(t *testing.T) {
+	// With a nonexistent binary and no template dirs, should return -1.
+	s := New("/nonexistent/nuclei", "", "")
+	age := s.TemplateAge()
+	if age != -1 {
+		t.Errorf("TemplateAge = %v, want -1 for missing binary", age)
+	}
+}
+
+func TestTemplateAge_StaleTemplates(t *testing.T) {
+	// Create a fake nuclei binary and template dir to test age calculation.
+	tmpDir := t.TempDir()
+	fakeBin := filepath.Join(tmpDir, "nuclei")
+	if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a template directory with old modification time.
+	home := t.TempDir()
+	templateDir := filepath.Join(home, ".local", "nuclei-templates")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Set mtime to 60 days ago.
+	oldTime := time.Now().Add(-60 * 24 * time.Hour)
+	if err := os.Chtimes(templateDir, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	// TemplateAge relies on os.UserHomeDir which we can't easily override,
+	// so we test the age math directly: if the dir mtime is 60 days ago,
+	// time.Since(mtime) should be >= 59 days.
+	info, err := os.Stat(templateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	age := time.Since(info.ModTime())
+	if age < 59*24*time.Hour {
+		t.Errorf("expected age >= 59 days, got %v", age)
+	}
+	if age <= staleTemplateThreshold {
+		t.Errorf("expected age > staleTemplateThreshold (%v), got %v", staleTemplateThreshold, age)
 	}
 }

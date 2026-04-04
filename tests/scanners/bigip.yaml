@@ -1,0 +1,40 @@
+name: bigip-cookie-leak
+description: >
+  Nginx simulating an F5 BIG-IP load balancer that sets BIGipServer persistence
+  cookies encoding internal backend IP 10.1.2.3 and port 8080. Beacon bigip
+  scanner should decode the cookie and report the internal address leak.
+tags: [bigip, scanner, lb, cookie, info-leak]
+
+services:
+  lb:
+    image: nginx:alpine
+    ports: ["9294:80"]
+    volumes:
+      - ./bigip/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9294/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-bigip-cookie-set
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9294/ | grep -qi 'BIGipServer'"
+      exit_code: 0
+
+  - name: exploit-bigip-cookie-decodes-internal-ip
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9294/ | grep -o 'BIGipServerapp_pool=[0-9.]*' | grep -q '50462986.36895'"
+      exit_code: 0
+
+  - name: detects-bigip-cookie-leak
+    type: beacon
+    target: localhost:9294
+    args: ["--no-enrich", "--scanners", "bigip"]
+    expect:
+      check_id: lb.bigip_cookie_leak
+
+timeout: 5m

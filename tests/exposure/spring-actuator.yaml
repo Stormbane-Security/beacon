@@ -16,10 +16,22 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-actuator-env
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/actuator/env | grep -qE '(activeProfiles|propertySources)'"
+      exit_code: 0
+
+  - name: exploit-actuator-health-details
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/actuator/health | grep -q status"
+      exit_code: 0
+
   - name: detects-spring-actuator-exposed
     type: beacon
     target: localhost:8080
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--ports", "8080"]
     expect:
       check_id: exposure.spring_actuator
 

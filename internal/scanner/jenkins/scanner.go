@@ -25,10 +25,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCVEJenkinsCLIFileRead, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJenkinsStaplerRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckExposureCICDPanel, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJenkinsGroovyRCE, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const scannerName = "jenkins"
 
 // probeMarker is embedded in the Groovy output so we can identify our own

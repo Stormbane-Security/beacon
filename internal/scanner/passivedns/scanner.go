@@ -14,9 +14,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckAssetPassiveDNS, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckCDNOriginFound, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 
 // cdnCIDRs lists IP ranges belonging to CDN/WAF providers whose edge nodes
 // commonly appear in passive DNS history. An IP in one of these ranges is a

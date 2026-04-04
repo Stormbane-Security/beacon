@@ -14,10 +14,19 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("gowitness.bin"))
+	},
+		scan.Check(finding.CheckAssetScreenshot, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 
 const scannerName = "screenshot"
 

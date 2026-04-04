@@ -104,6 +104,11 @@ type Input struct {
 	// (e.g. "cors", "jwt", "tls", "portscan").
 	Scanners []string
 
+	// DryRun, when true, runs evidence collection and playbook matching but
+	// stops before executing any scanners. The planned scanner list is written
+	// to stdout as JSON. Useful for verifying scanner selection logic.
+	DryRun bool
+
 	// Ports, when non-empty, restricts the portscan scanner to only these
 	// ports instead of the full default list. Useful for targeted scans and
 	// drydock e2e tests.

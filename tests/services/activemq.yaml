@@ -15,6 +15,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-activemq-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:8161/api/jolokia | grep -q value"
+      exit_code: 0
+
+  - name: exploit-activemq-queues
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin 'http://localhost:8161/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost' | grep -q BrokerName"
+      exit_code: 0
+
   - name: classifies-as-activemq
     type: classify
     target: localhost:8161

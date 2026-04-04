@@ -16,10 +16,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckASNIPService, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckAssetASNRanges, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckPTRRecord, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 const scannerName = "bgp"
 
 // maxIPsPerScan is the total IP enumeration ceiling across all prefixes.

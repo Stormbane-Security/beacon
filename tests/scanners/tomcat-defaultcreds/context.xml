@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Allow manager access from any IP (default blocks non-localhost) -->
+<Context antiResourceLocking="false" privileged="true">
+  <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor"
+                   sameSiteCookies="strict" />
+  <!-- Remove the default Valve that restricts to localhost -->
+</Context>

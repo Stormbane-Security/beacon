@@ -20,10 +20,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckJWKSMissingKID, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWKSWeakKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJWTAlgNoneVariant, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTAlgorithmConfusion, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTAudienceMissing, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckJWTEmptySecret, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTEncryptionMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWTIssuerNotValidated, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckJWTKidInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTLongExpiry, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWTReplayMissing, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckJWTSensitivePayload, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJWTWeakAlg, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
 const scannerName = "jwt"
 
 // jwtPattern matches the three base64url-encoded segments of a JWT.
@@ -60,14 +82,18 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run fetches the asset root and inspects any JWTs found in the response.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	ac := authctx.HTTPClient(ctx)
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
+		Timeout:   10 * time.Second,
+		Transport: ac.Transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+	if client.Transport == nil {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
 	}
 
 	var resp *http.Response
@@ -444,11 +470,20 @@ func extractStringField(json, key string) string {
 		return ""
 	}
 	rest = rest[1:]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return ""
+	// Find the closing quote, skipping escaped quotes (e.g. \").
+	var sb strings.Builder
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '\\' && i+1 < len(rest) {
+			sb.WriteByte(rest[i+1])
+			i++ // skip escaped character
+			continue
+		}
+		if rest[i] == '"' {
+			return sb.String()
+		}
+		sb.WriteByte(rest[i])
 	}
-	return rest[:end]
+	return ""
 }
 
 // extractIntField parses a JSON numeric value for the given key.
@@ -512,8 +547,11 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 	}
 	var found []string
 	for _, field := range allSensitiveFields {
-		if _, ok := claims[field]; ok {
-			found = append(found, field)
+		for k := range claims {
+			if strings.EqualFold(k, field) {
+				found = append(found, field)
+				break
+			}
 		}
 	}
 	if len(found) == 0 {
@@ -547,6 +585,21 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 func checkJTIMissing(asset string, claims map[string]any) *finding.Finding {
 	if _, ok := claims["jti"]; ok {
 		return nil
+	}
+	// Only flag missing jti when the token has a long lifetime (>1 hour).
+	// Short-lived tokens are replay-resistant by design; flagging every JWT
+	// without jti produces excessive noise.
+	if exp, ok := claims["exp"]; ok {
+		switch v := exp.(type) {
+		case float64:
+			if iat, ok := claims["iat"]; ok {
+				if iatV, ok := iat.(float64); ok {
+					if v-iatV <= 3600 {
+						return nil // token lives ≤1 hour
+					}
+				}
+			}
+		}
 	}
 	return &finding.Finding{
 		CheckID:  finding.CheckJWTReplayMissing,

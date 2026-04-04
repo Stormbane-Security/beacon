@@ -1,0 +1,32 @@
+name: argocd-exposed
+description: "Argo CD GitOps platform version endpoint accessible"
+tags: [argocd, gitops, kubernetes, port]
+
+# NOTE: ArgoCD normally runs in Kubernetes. This uses the standalone server
+# binary in a container to test beacon's port fingerprinting.
+services:
+  argocd:
+    image: quay.io/argoproj/argocd:v2.10.0
+    ports: ["8443:8080"]
+    command: ["argocd-server", "--insecure", "--staticassets", "/shared/app"]
+
+ready:
+  cmd: "curl -sf http://localhost:8443/api/version >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-argocd-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8443/api/version | grep -q Version"
+      exit_code: 0
+
+  - name: detects-argocd-exposed
+    type: beacon
+    target: localhost:8443
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
+    expect:
+      check_id: port.argocd_exposed
+
+timeout: 5m

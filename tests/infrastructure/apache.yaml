@@ -13,6 +13,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-apache-server-version-leaked
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: Apache/'"
+      exit_code: 0
+
   - name: classifies-as-apache
     type: classify
     target: localhost:80

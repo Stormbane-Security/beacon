@@ -1,0 +1,54 @@
+name: mcpscan-unauthenticated-poisoned
+description: >
+  Nginx serving MCP (Model Context Protocol) JSON-RPC responses without
+  authentication. The tool listing includes a poisoned tool with hidden
+  instructions that manipulate connected LLM agents. Beacon mcpscan scanner
+  should detect both the unauthenticated endpoint and the tool poisoning.
+tags: [mcpscan, scanner, mcp, ai, tool-poisoning, deep]
+
+services:
+  mcp:
+    image: nginx:alpine
+    ports: ["9299:80"]
+    volumes:
+      - ./mcpscan-server/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9299/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-mcp-initialize-unauthenticated
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:9299/mcp -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}' | grep -q 'protocolVersion'"
+      exit_code: 0
+
+  - name: exploit-mcp-tools-list-accessible
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:9299/mcp/tools -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":2}' | grep -q 'read_file'"
+      exit_code: 0
+
+  - name: exploit-mcp-tool-poisoning-present
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:9299/mcp/tools -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":2}' | grep -q 'ignore previous instructions'"
+      exit_code: 0
+
+  - name: detects-mcp-unauthenticated
+    type: beacon
+    target: localhost:9299
+    args: ["--no-enrich", "--scanners", "mcpscan"]
+    expect:
+      check_id: mcp.unauthenticated
+
+  - name: detects-mcp-tool-poisoning
+    type: beacon
+    target: localhost:9299
+    args: ["--no-enrich", "--scanners", "mcpscan", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: mcp.tool_poisoning
+
+timeout: 5m

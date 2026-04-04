@@ -19,6 +19,18 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-influxdb-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8086/health | grep -q pass"
+      exit_code: 0
+
+  - name: exploit-influxdb-setup-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8086/api/v2/setup | grep -q allowed"
+      exit_code: 0
+
   - name: classifies-as-influxdb
     type: classify
     target: localhost:8086

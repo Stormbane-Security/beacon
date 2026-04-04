@@ -1,0 +1,41 @@
+name: fileupload-unrestricted
+description: >
+  Nginx accepting any file upload via multipart POST to /upload and /api/upload,
+  returning 201 with file_url containing the uploaded filename. No extension
+  filtering applied. Beacon fileupload scanner should detect file upload bypass
+  via double extension, MIME confusion, or SVG upload.
+tags: [fileupload, scanner, web, upload]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9286:80"]
+    volumes:
+      - ./fileupload-accept/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9286/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-upload-endpoint-exists
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9286/upload | grep -q 'endpoint'"
+      exit_code: 0
+
+  - name: exploit-upload-accepts-post
+    type: command
+    expect:
+      command: "curl -sf -X POST -F 'file=@/dev/null;filename=test.txt' http://localhost:9286/upload | grep -q 'file_url'"
+      exit_code: 0
+
+  - name: detects-file-upload-bypass
+    type: beacon
+    target: localhost:9286
+    args: ["--no-enrich", "--scanners", "fileupload", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: web.file_upload_bypass
+
+timeout: 5m

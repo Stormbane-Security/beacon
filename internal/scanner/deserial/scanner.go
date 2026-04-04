@@ -17,11 +17,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebDotNetDeserialize, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWebInsecureDeserialize, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "deserial"
 	maxBodySize = 64 * 1024

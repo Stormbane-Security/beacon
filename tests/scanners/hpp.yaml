@@ -1,0 +1,33 @@
+name: hpp-parameter-pollution
+description: >
+  go-httpbin reflects request parameters, enabling HTTP Parameter
+  Pollution detection. Beacon should detect web.hpp.
+tags: [hpp, scanner, web]
+
+services:
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["9258:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:9258/get >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-params-reflected
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9258/get?test=a&test=b' | grep -q 'test'"
+      exit_code: 0
+
+  - name: detects-hpp
+    type: beacon
+    target: localhost:9258
+    args: ["--no-enrich", "--scanners", "hpp", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.http_parameter_pollution
+
+timeout: 5m

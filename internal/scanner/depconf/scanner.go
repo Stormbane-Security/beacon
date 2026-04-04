@@ -29,11 +29,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/osv"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckDependencyConfusion, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDependencyConfusionComposer, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDependencyConfusionGo, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckDependencyConfusionRuby, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckVulnerableDependency, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 const scannerName = "depconf"
 
 // Scanner probes for dependency confusion and vulnerable dependency issues.

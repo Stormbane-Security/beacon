@@ -1,0 +1,55 @@
+name: port-service-identification
+description: "Services on non-standard ports verify wire-protocol probe identification"
+tags: [portscan, probe, identification, fingerprint]
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["9736:6379"]
+    command: ["redis-server", "--save", ""]
+
+  mysql:
+    image: mysql:8.0
+    ports: ["9406:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+
+
+ready:
+  cmd: "echo 'PING' | nc -w 2 localhost 9736 | grep -q PONG"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-redis-ping-unauthenticated
+    type: command
+    expect:
+      command: "echo 'PING' | nc -w 2 localhost 9736 | grep -q PONG"
+      exit_code: 0
+
+  - name: exploit-mysql-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 9406"
+      exit_code: 0
+
+  - name: identifies-redis-on-nonstandard-port
+    type: beacon
+    target: localhost:9736
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "6379"]
+    expect:
+      check_id: port.service_identified
+      evidence_key: service
+      evidence_value: redis
+
+  - name: identifies-mysql-on-nonstandard-port
+    type: beacon
+    target: localhost:9406
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
+    expect:
+      check_id: port.service_identified
+      evidence_key: service
+      evidence_value: MySQL
+
+
+timeout: 5m

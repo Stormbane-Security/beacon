@@ -18,10 +18,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckBitbucketPipelineInsecureStep, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckBitbucketPipelineSecretEchoed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckBitbucketPipelineUnpinned, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckBitbucketPublicPipeline, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "bitbucket"
 
 // Scanner fetches and analyses Bitbucket Pipelines configuration for a repo.

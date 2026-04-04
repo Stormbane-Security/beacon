@@ -1,0 +1,66 @@
+name: chain-kibana-data-exfil
+description: >
+  Exploit chain: Kibana unauthenticated → Elasticsearch backend discovery →
+  index enumeration → data extraction.
+tags: [chain, postexploit, kibana, data-exfil, authorized]
+weight: 50
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    expose: ["9200"]
+    environment:
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    ports: ["9417:5601"]
+    depends_on: [elasticsearch]
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      XPACK_SECURITY_ENABLED: "false"
+
+  seed:
+    image: curlimages/curl:latest
+    depends_on: [elasticsearch]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 15
+        curl -sf -X PUT http://elasticsearch:9200/users/_doc/1 \
+          -H 'Content-Type: application/json' \
+          -d '{"name":"Iris Irwin","email":"iris@example.com","ssn":"777-88-9999","role":"admin"}'
+        curl -sf -X PUT http://elasticsearch:9200/secrets/_doc/1 \
+          -H 'Content-Type: application/json' \
+          -d '{"key":"master_api_key","value":"mak_prod_a1b2c3d4e5f6"}'
+
+ready:
+  cmd: "curl -sf http://localhost:9417/api/status | grep -q available"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-kibana-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9417/api/status | grep -q available"
+      exit_code: 0
+
+  - name: detects-kibana-exposed
+    type: beacon
+    target: "localhost:9417"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9417"]
+    expect:
+      check_id: port.kibana_exposed
+
+  - name: chain-extracts-data
+    type: beacon
+    target: "localhost:9417"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9417"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 10m

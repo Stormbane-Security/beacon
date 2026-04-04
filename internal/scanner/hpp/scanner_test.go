@@ -79,6 +79,51 @@ func TestHPP_BothIgnored(t *testing.T) {
 	}
 }
 
+// TestHPP_SmallBodyDiff_NoFinding verifies that trivially different responses
+// (like echoing back a different ID) don't produce false positives.
+func TestHPP_SmallBodyDiff_NoFinding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo back the id parameter value — small diff between "1" and "1,2".
+		ids := r.URL.Query()["id"]
+		if len(ids) > 0 {
+			fmt.Fprintf(w, "Result for id=%s", strings.Join(ids, ","))
+			return
+		}
+		fmt.Fprintln(w, "No id provided")
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebHPP && strings.Contains(f.Title, "id parameter") {
+			t.Error("expected no HPP finding for trivially different responses (small body diff)")
+		}
+	}
+}
+
+func TestHppBodyDiffSignificant(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"hello", "hello", false},                                          // identical
+		{"hello", "hello world!!", true},                                   // >20% diff
+		{"short", "this is a much longer response body", true},             // large diff
+		{"Result for id=1", "Result for id=1,2", false},                    // trivial echo
+		{"", "", false},                                                    // both empty
+	}
+	for _, tc := range cases {
+		got := hppBodyDiffSignificant(tc.a, tc.b)
+		if got != tc.want {
+			t.Errorf("hppBodyDiffSignificant(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
 // TestHPP_DeepModeOnly verifies that no probes are sent and no findings
 // are returned when running in surface mode.
 func TestHPP_DeepModeOnly(t *testing.T) {

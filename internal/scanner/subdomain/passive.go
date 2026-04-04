@@ -131,6 +131,18 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 		return nil, nil
 	}
 
+	// ── Subdomain permutation ────────────────────────────────────────────────
+	// Generate targeted permutations of discovered subdomains (env prefixes,
+	// version suffixes, infra keywords). Much smaller query set than blind
+	// wordlists — only permutes actually-discovered names.
+	var discovered []string
+	for sub := range subdomains {
+		discovered = append(discovered, sub)
+	}
+	for _, perm := range permuteSubdomains(discovered, asset) {
+		subdomains[perm] = struct{}{}
+	}
+
 	// ── Wildcard DNS detection ────────────────────────────────────────────────
 	// Before building the subdomain list, check if *.asset resolves. If it does,
 	// any subdomain resolving to the same wildcard IP set is a false positive
@@ -200,7 +212,7 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 	}
 
 	findings = append(findings, finding.Finding{
-		CheckID:      "asset.subdomains_discovered",
+		CheckID:      finding.CheckSubdomainsDiscovered,
 		Module:       "surface",
 		Scanner:      scannerName,
 		Severity:     finding.SeverityInfo,
@@ -232,7 +244,7 @@ func detectWildcardDNS(ctx context.Context, domain string) map[string]struct{} {
 
 // Subdomains extracts the list of discovered subdomains from a subdomain discovery finding.
 func Subdomains(f finding.Finding) []string {
-	if f.CheckID != "asset.subdomains_discovered" {
+	if f.CheckID != finding.CheckSubdomainsDiscovered {
 		return nil
 	}
 	raw, ok := f.Evidence["subdomains"]

@@ -16,6 +16,12 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-grafana-health-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3000/api/health | grep -q ok"
+      exit_code: 0
+
   - name: identifies-grafana-service
     type: classify
     target: localhost:3000

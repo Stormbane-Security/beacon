@@ -13,6 +13,12 @@ ready:
   interval: 3s
 
 assertions:
+  - name: exploit-prometheus-targets
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8888/api/v1/targets | grep -q activeTargets"
+      exit_code: 0
+
   - name: detects-prometheus-on-nonstandard-port
     type: beacon
     target: localhost:8888

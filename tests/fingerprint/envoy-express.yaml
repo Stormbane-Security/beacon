@@ -22,6 +22,18 @@ ready:
   interval: 2s
 
 assertions:
+  - name: exploit-envoy-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:8080/ | grep -qi 'server: envoy'"
+      exit_code: 0
+
+  - name: exploit-express-powered-by
+    type: command
+    expect:
+      command: "curl -sI http://localhost:8080/ | grep -qi 'X-Powered-By: Express'"
+      exit_code: 0
+
   - name: detects-envoy-proxy-layer
     type: classify
     target: localhost:8080

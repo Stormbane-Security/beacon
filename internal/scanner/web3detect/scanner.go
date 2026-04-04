@@ -13,10 +13,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWeb3ContractFound, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3RPCEndpointExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3WalletLibDetected, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 const (
 	scannerName  = "web3detect"
 	maxBodySize  = 512 * 1024 // 512 KB per JS file

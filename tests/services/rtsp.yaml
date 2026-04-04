@@ -1,0 +1,29 @@
+name: rtsp-stream-exposed
+description: "RTSP video streaming server exposed — beacon detects RTSP on port 554"
+tags: [rtsp, video, streaming, portscan]
+
+services:
+  rtsp:
+    image: bluenviron/mediamtx:latest
+    ports: ["9286:554", "9287:8554"]
+
+ready:
+  cmd: "nc -z localhost 9286"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-rtsp-options
+    type: command
+    expect:
+      command: "printf 'OPTIONS rtsp://localhost:9286 RTSP/1.0\\r\\nCSeq: 1\\r\\n\\r\\n' | nc -w 3 localhost 9286 | grep -qiE '(RTSP/1.0|Public)'"
+      exit_code: 0
+
+  - name: detects-rtsp-exposed
+    type: beacon
+    target: localhost:9287
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "554"]
+    expect:
+      check_id: port.rtsp_exposed
+
+timeout: 5m

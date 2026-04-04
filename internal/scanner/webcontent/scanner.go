@@ -13,10 +13,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCSPUnsafeEval, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPUnsafeInline, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPWildcardSource, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingHTTPOnly, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingSameSite, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingSecure, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersServerInfoLeak, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckJSAPIKeyInSourceMap, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJSAPIKeyInURL, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJSHardcodedSecret, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckJSInternalEndpoint, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJSSourceMapExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSecretInResponseHeader, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWAFNotDetected, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "webcontent"
 
 // secretPatterns matches common hardcoded secrets in JavaScript source.

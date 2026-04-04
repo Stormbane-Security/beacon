@@ -30,11 +30,37 @@ import (
 
 	"golang.org/x/crypto/ocsp"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
-const scannerName = "tls"
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckTLSCRLNoURL, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertLongValidity, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertNoOCSP, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertNoSCT, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertRevoked, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertSANMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertSelfSigned, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertWeakKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertWeakSignature, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSCertWildcard, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckTLSHSTSNoPreload, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckTLSHSTSNoSubdomains, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSHSTSShortMaxAge, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckTLSNoPFS, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckTLSNoTLS13, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckTLSProtocolTLS10, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckTLSProtocolTLS11, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckTLSWeakCipher, finding.SeverityHigh, finding.ModeDeep),
+	)
+}
+const scannerName = "tlscheck"
 
 // oidSCT is the OID for the Certificate Transparency signed certificate
 // timestamp (SCT) extension: 1.3.6.1.4.1.11129.2.4.2
@@ -123,6 +149,30 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				asset),
 			Evidence:     map[string]any{"subject_cn": leaf.Subject.CommonName},
 			ProofCommand: fmt.Sprintf("echo | openssl s_client -connect %s:443 2>/dev/null | openssl x509 -noout -text | grep -A5 'Subject Alternative'", asset),
+			DiscoveredAt: now,
+		})
+	}
+
+	// Self-signed certificate
+	if leaf.IsCA && leaf.CheckSignatureFrom(leaf) == nil {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckTLSCertSelfSigned,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    "Self-signed TLS certificate",
+			Description: fmt.Sprintf(
+				"The certificate for %s is self-signed (issuer and subject are the same, "+
+					"and the signature verifies against its own public key). Self-signed certificates "+
+					"are not trusted by browsers or API clients and indicate either a test/dev environment "+
+					"or a misconfigured production server.",
+				asset),
+			Evidence: map[string]any{
+				"subject": leaf.Subject.CommonName,
+				"issuer":  leaf.Issuer.CommonName,
+			},
+			ProofCommand: fmt.Sprintf("echo | openssl s_client -connect %s 2>/dev/null | openssl x509 -noout -issuer -subject", asset),
 			DiscoveredAt: now,
 		})
 	}
@@ -616,16 +666,12 @@ func tlsHandshake(ctx context.Context, host, port string, cfg *tls.Config) (*tls
 // both MinVersion and MaxVersion. If the server accepts the connection, it
 // returns a finding indicating the deprecated protocol is still enabled.
 func checkDeprecatedProtocol(ctx context.Context, host, port, asset string, version uint16, versionName string, checkID finding.CheckID, sev finding.Severity, now time.Time) *finding.Finding {
-	conn, _, _, err := tlsHandshake(ctx, host, port, &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         host,
-		MinVersion:         version,
-		MaxVersion:         version,
-	})
-	if err != nil {
-		return nil // server rejected — not vulnerable
+	// Go 1.22+ removed TLS 1.0/1.1 from crypto/tls and modern OpenSSL
+	// builds also disable legacy protocols. Use a raw TLS ClientHello
+	// probe that doesn't depend on any library's protocol support.
+	if !rawTLSProbeAccepted(ctx, host, port, version) {
+		return nil
 	}
-	conn.Close()
 
 	return &finding.Finding{
 		CheckID:  checkID,
@@ -648,6 +694,115 @@ func checkDeprecatedProtocol(ctx context.Context, host, port, asset string, vers
 			host, port, strings.ReplaceAll(strings.ToLower(versionName), " ", "")),
 		DiscoveredAt: now,
 	}
+}
+
+// rawTLSProbeAccepted sends a minimal TLS ClientHello at the specified protocol
+// version and checks whether the server responds with a ServerHello (acceptance)
+// or an alert/error (rejection). This works independently of Go's crypto/tls
+// and the system OpenSSL, both of which may have TLS 1.0/1.1 disabled.
+func rawTLSProbeAccepted(ctx context.Context, host, port string, version uint16) bool {
+	d := net.Dialer{Timeout: 3 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	// Build a minimal TLS ClientHello.
+	versionHi := byte(version >> 8)
+	versionLo := byte(version & 0xff)
+
+	// Cipher suites common to TLS 1.0/1.1 that most servers support.
+	ciphers := []byte{
+		0x00, 0x2f, // TLS_RSA_WITH_AES_128_CBC_SHA
+		0x00, 0x35, // TLS_RSA_WITH_AES_256_CBC_SHA
+		0x00, 0x0a, // TLS_RSA_WITH_3DES_EDE_CBC_SHA
+		0xc0, 0x13, // TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+		0xc0, 0x14, // TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+	}
+
+	// SNI extension for the hostname.
+	hostBytes := []byte(host)
+	sniEntry := make([]byte, 0, 5+len(hostBytes))
+	sniEntry = append(sniEntry, 0x00)                                    // type: host_name
+	sniEntry = append(sniEntry, byte(len(hostBytes)>>8), byte(len(hostBytes))) // length
+	sniEntry = append(sniEntry, hostBytes...)
+
+	sniList := make([]byte, 0, 2+len(sniEntry))
+	sniList = append(sniList, byte(len(sniEntry)>>8), byte(len(sniEntry)))
+	sniList = append(sniList, sniEntry...)
+
+	sniExt := make([]byte, 0, 4+len(sniList))
+	sniExt = append(sniExt, 0x00, 0x00) // extension type: server_name
+	sniExt = append(sniExt, byte(len(sniList)>>8), byte(len(sniList)))
+	sniExt = append(sniExt, sniList...)
+
+	extensions := sniExt
+	extLen := len(extensions)
+
+	// ClientHello body.
+	var hello []byte
+	hello = append(hello, versionHi, versionLo) // client_version
+
+	// 32 bytes of random.
+	random := make([]byte, 32)
+	for i := range random {
+		random[i] = byte(i + 1)
+	}
+	hello = append(hello, random...)
+
+	hello = append(hello, 0x00) // session_id length = 0
+
+	// Cipher suites.
+	hello = append(hello, byte(len(ciphers)>>8), byte(len(ciphers)))
+	hello = append(hello, ciphers...)
+
+	// Compression methods: null only.
+	hello = append(hello, 0x01, 0x00)
+
+	// Extensions.
+	hello = append(hello, byte(extLen>>8), byte(extLen))
+	hello = append(hello, extensions...)
+
+	// Handshake header: type=ClientHello(1) + 3-byte length.
+	handshake := []byte{0x01, byte(len(hello) >> 16), byte(len(hello) >> 8), byte(len(hello))}
+	handshake = append(handshake, hello...)
+
+	// TLS record header: type=Handshake(22) + version + 2-byte length.
+	record := []byte{0x16, versionHi, versionLo, byte(len(handshake) >> 8), byte(len(handshake))}
+	record = append(record, handshake...)
+
+	if _, err := conn.Write(record); err != nil {
+		return false
+	}
+
+	// Read server response — expect a TLS record.
+	respHdr := make([]byte, 5)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return false
+	}
+
+	// respHdr[0] = content type: 22 = Handshake (ServerHello), 21 = Alert
+	if respHdr[0] == 21 {
+		return false // TLS Alert — server rejected this protocol version
+	}
+	if respHdr[0] != 22 {
+		return false // unexpected response type
+	}
+
+	// It's a Handshake record. Read the handshake type byte to confirm ServerHello.
+	respLen := int(respHdr[3])<<8 | int(respHdr[4])
+	if respLen < 4 || respLen > 16384 {
+		return false
+	}
+	hsType := make([]byte, 1)
+	if _, err := io.ReadFull(conn, hsType); err != nil {
+		return false
+	}
+
+	// 0x02 = ServerHello — server accepted this protocol version.
+	return hsType[0] == 0x02
 }
 
 // supportsTLS13 returns true if host:port accepts a TLS 1.3-only connection.

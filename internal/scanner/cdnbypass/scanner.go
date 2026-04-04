@@ -12,8 +12,7 @@
 //
 // Score thresholds:
 //
-//	< 20   → not emitted (DNS artifact, not a real bypass)
-//	20–44  → Medium (probable origin — responds + weak content match)
+//	< 20   → not emitted (DNS artifact, not a real bypass)//	20–44  → Medium (probable origin — responds + weak content match)
 //	45+    → High   (strong origin — title/favicon/asset overlap confirmed)
 package cdnbypass
 
@@ -31,10 +30,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCDNOriginFound, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 const scannerName = "cdnbypass"
 
 // scoreThresholdHigh is the minimum fingerprint score to emit a High finding.

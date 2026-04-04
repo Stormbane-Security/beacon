@@ -7,25 +7,37 @@ services:
     build:
       context: ./tls
       dockerfile: Dockerfile
-    ports: ["443:443"]
+    ports: ["9207:443"]
 
 ready:
-  cmd: "openssl s_client -connect localhost:443 </dev/null 2>/dev/null | grep -q 'CONNECTED'"
+  cmd: "openssl s_client -connect localhost:9207 </dev/null 2>/dev/null | grep -q 'CONNECTED'"
   timeout: 30s
   interval: 2s
 
 assertions:
+  - name: exploit-tls10-accepted
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:9207 -tls1 </dev/null 2>&1 | grep -q 'CONNECTED\\|Protocol.*TLSv1'"
+      exit_code: 0
+
+  - name: exploit-self-signed-cert
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:9207 </dev/null 2>&1 | grep -qi 'self.signed\\|verify error'"
+      exit_code: 0
+
   - name: detects-tls10-protocol
     type: beacon
-    target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    target: localhost:9207
+    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-self-signed-cert
     type: beacon
-    target: localhost:443
-    args: ["--no-enrich", "--scanners", "tls"]
+    target: localhost:9207
+    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.cert_self_signed
 

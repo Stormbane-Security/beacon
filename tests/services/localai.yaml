@@ -1,0 +1,29 @@
+name: localai-exposed
+description: "LocalAI inference server exposed without auth — beacon detects unauthenticated LLM endpoint"
+tags: [localai, ai, llm, portscan]
+
+services:
+  localai:
+    image: localai/localai:latest
+    ports: ["9290:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9290/readyz >/dev/null || curl -sf http://localhost:9290/v1/models >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-localai-models
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9290/v1/models | grep -qE '(data|object)'"
+      exit_code: 0
+
+  - name: detects-localai-exposed
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
+    expect:
+      check_id: port.localai_exposed
+
+timeout: 10m

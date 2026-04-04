@@ -1,0 +1,73 @@
+name: iisversion-leak
+description: >
+  Nginx simulating a Microsoft IIS server with version information leaking
+  through custom error pages, X-AspNet-Version headers, and trace endpoints.
+  Requires nginx with headers-more module for Server header override.
+tags: [iisversion, scanner, web, fingerprint]
+
+services:
+  web:
+    image: openresty/openresty:alpine
+    ports: ["9312:80"]
+    volumes:
+      - ./iisversion/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9312/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify version info leaks ---
+  - name: exploit-server-header-reveals-iis
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9312/ | grep -qi 'Microsoft-IIS'"
+      exit_code: 0
+
+  - name: exploit-aspx-error-page-leaks-dotnet-version
+    type: command
+    expect:
+      command: "curl -s http://localhost:9312/test.aspx | grep -q 'ASP.NET Version:4.8'"
+      exit_code: 0
+
+  - name: exploit-aspx-error-page-leaks-framework-version
+    type: command
+    expect:
+      command: "curl -s http://localhost:9312/test.aspx | grep -q '.NET Framework Version:4.0.30319'"
+      exit_code: 0
+
+  - name: exploit-aspnet-version-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9312/test.aspx | grep -qi 'X-AspNet-Version: 4.0.30319'"
+      exit_code: 0
+
+  - name: exploit-trace-axd-accessible
+    type: command
+    expect:
+      command: "curl -s http://localhost:9312/trace.axd | grep -q 'Application Trace'"
+      exit_code: 0
+
+  - name: exploit-trace-axd-leaks-aspnet-version
+    type: command
+    expect:
+      command: "curl -s http://localhost:9312/trace.axd | grep -q 'ASP.NET Version:4.8'"
+      exit_code: 0
+
+  # --- Negative: root path does not leak version in body ---
+  - name: negative-root-body-no-version-leak
+    type: command
+    expect:
+      command: "curl -s http://localhost:9312/ | grep -q 'ASP.NET Version'"
+      exit_code: 1
+
+  # --- Scanner detection ---
+  - name: detects-iis-version-leak
+    type: beacon
+    target: localhost:9312
+    args: ["--no-enrich", "--scanners", "iisversion"]
+    expect:
+      check_id: web.iis_version_leak
+
+timeout: 5m

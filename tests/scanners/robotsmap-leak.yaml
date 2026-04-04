@@ -1,0 +1,39 @@
+name: robotsmap-leak
+description: "Nginx serving robots.txt with sensitive Disallow paths — beacon detects information leakage"
+tags: [robotsmap, scanner, web, exposure]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9241:80"]
+    volumes:
+      - ./robotsmap-leak/robots.txt:/usr/share/nginx/html/robots.txt:ro
+      - ./robotsmap-leak/sitemap.xml:/usr/share/nginx/html/sitemap.xml:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9241/robots.txt >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-robots-has-admin
+    type: command
+    expect:
+      command: "curl -s http://localhost:9241/robots.txt | grep -qi '/admin'"
+      exit_code: 0
+
+  - name: detects-sensitive-paths
+    type: beacon
+    target: localhost:9241
+    args: ["--no-enrich", "--scanners", "robotsmap"]
+    expect:
+      check_id: exposure.robots_sensitive_path
+
+  - name: detects-sitemap-leak
+    type: beacon
+    target: localhost:9241
+    args: ["--no-enrich", "--scanners", "robotsmap"]
+    expect:
+      check_id: exposure.sitemap_sensitive_url
+
+timeout: 3m
