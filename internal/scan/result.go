@@ -8,6 +8,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 // Scanner is the interface every individual scanner implements.
@@ -81,18 +82,27 @@ func Execute(s Scanner, ctx context.Context, asset string, scanType module.ScanT
 		},
 	}
 
+	log := scanlog.FromContext(ctx)
+
 	defer func() {
 		if r := recover(); r != nil {
 			result.Error = fmt.Errorf("scanner %s panicked: %v\n%s", s.Name(), r, debug.Stack())
 			result.Panicked = true
+			log.ScannerError(s.Name(), asset, result.Error)
 		}
 	}()
 
+	log.ScannerStart(s.Name(), asset)
 	start := time.Now()
 	findings, err := s.Run(ctx, asset, scanType)
 	result.Metrics.Duration = time.Since(start)
 	result.Findings = findings
 	result.Error = err
+
+	if err != nil {
+		log.ScannerError(s.Name(), asset, err)
+	}
+	log.ScannerComplete(s.Name(), asset, len(findings), result.Metrics.Duration)
 
 	return result
 }

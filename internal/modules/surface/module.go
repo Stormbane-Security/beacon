@@ -1228,13 +1228,15 @@ assetLoop:
 								ev := &playbook.Evidence{
 									AIEndpoints: extractAIEndpoints(assetFindings),
 								}
-								fs, scanErr = aillm.NewWithEvidence(ev).Run(ctx, targetAsset, scanType)
+								result := scan.Execute(aillm.NewWithEvidence(ev), ctx, targetAsset, scanType)
+								fs, scanErr = result.Findings, result.Error
 							default:
 								sc, ok := m.scanners[name]
 								if !ok {
 									continue
 								}
-								fs, scanErr = sc.Run(ctx, targetAsset, scanType)
+								result := scan.Execute(sc, ctx, targetAsset, scanType)
+								fs, scanErr = result.Findings, result.Error
 							}
 							_ = scanErr
 							if len(fs) > 0 {
