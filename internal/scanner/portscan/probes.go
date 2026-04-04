@@ -115,6 +115,17 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	hasBanner := banner != ""
 	bannerProto := bannerProtocol(banner)
 
+	// When no banner was received, the service might be HTTP (which doesn't
+	// send data until a request arrives) or a protocol service that waits for
+	// the client to speak first. Do a quick HTTP check: one request (~5s max)
+	// versus running ~35 protocol probes serially (~175s of timeouts).
+	if !hasBanner {
+		if quickHTTPCheck(ctx, host, port) {
+			bannerHTTP = true
+			hasBanner = true // enable the pre-filter below
+		}
+	}
+
 	var findings []finding.Finding
 	identified := false
 	for _, probe := range probeRegistry {

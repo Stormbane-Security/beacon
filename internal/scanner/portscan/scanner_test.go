@@ -47,21 +47,21 @@ func TestRunReturnsNoFindingsForClosedPorts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, _ := net.SplitHostPort(l.Addr().String())
+	port := l.Addr().(*net.TCPAddr).Port
 	_ = l.Close() // now closed
 
-	// We can't inject the port into Run() directly (it probes fixed ports),
-	// so verify the scanner handles 127.0.0.1 cleanly with no panics or errors.
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	s.Ports = []int{port} // only scan the closed port
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Errorf("Run() returned unexpected error: %v", err)
 	}
-	_ = findings // result depends on what happens to be running on 127.0.0.1
-	_ = port
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for closed port, got %d", len(findings))
+	}
 }
 
 // TestRunContextCancellationIsRespected verifies the scanner stops and
@@ -119,14 +119,7 @@ func TestElasticsearchUnauthFinding(t *testing.T) {
 // environment the scanner correctly finds real SSH and the assertion would
 // produce a false failure.
 func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
-	// Skip if port 22 (real SSH) is already open — scanner will correctly find
-	// it and any CheckPortSSHExposed assertion would be a false failure.
-	if conn, err := net.DialTimeout("tcp", "127.0.0.1:22", 500*time.Millisecond); err == nil {
-		_ = conn.Close()
-		t.Skip("port 22 is open in this environment — SSH finding is expected, test N/A")
-	}
-
-	// Bind port 22222 (not in scanner's list) with a fake SSH banner.
+	// Bind an SSH server on a port NOT in the scanner's list.
 	l, err := net.Listen("tcp", "127.0.0.1:22222")
 	if err != nil {
 		t.Skipf("cannot bind port 22222: %v", err)
@@ -143,8 +136,11 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 		}
 	}()
 
+	// Use a small explicit port list that does NOT include 22222.
+	// This verifies the scanner only probes the configured ports.
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{22223} // closed port — should produce no findings
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -162,10 +158,11 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 // TestProbeRedisUnauthDetection verifies that a Redis PONG response triggers
 // the unauthenticated finding. We bind port 6379 on loopback if available.
 func TestProbeRedisUnauthDetection(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:6379")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 6379 already in use (real Redis running?): %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 
 	// Serve a Redis-like PONG response to any connection
@@ -181,7 +178,8 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -208,10 +206,11 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 // TestProbeRedisAuthenticatedNoFinding verifies that a Redis -ERR AUTH response
 // (authentication required) does NOT produce an unauthenticated finding.
 func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:6379")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 6379 already in use: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 
 	// Serve a Redis AUTH-required response
@@ -227,7 +226,8 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -241,19 +241,22 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 	}
 }
 
-// TestPrometheusUnauthHTTPMock verifies Prometheus unauthenticated detection.
+// TestPrometheusUnauthHTTPMock verifies Prometheus unauthenticated detection
+// on an ephemeral port. The scanner's quickHTTPCheck identifies the service as
+// HTTP even without a banner, then runs the Prometheus probe.
 func TestPrometheusUnauthHTTPMock(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:9090")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 9090 already in use: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/v1/targets" {
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{"status":"success","data":{"activeTargets":[]}}`))
-	return
+				return
 			}
 			w.WriteHeader(http.StatusNotFound)
 		}),
@@ -262,9 +265,8 @@ func TestPrometheusUnauthHTTPMock(t *testing.T) {
 	defer func() { _ = srv.Close() }()
 
 	s := portscan.New()
-	// Longer timeout: the scanner probes many ports on 127.0.0.1 before
-	// reaching 9090. BGP/MQTT/other probes need time to complete or timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -287,10 +289,11 @@ func TestPrometheusUnauthHTTPMock(t *testing.T) {
 
 // TestTelnetExposedFinding verifies that an open port 23 triggers the telnet finding.
 func TestTelnetExposedFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:23")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 23 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -304,7 +307,8 @@ func TestTelnetExposedFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -429,10 +433,11 @@ func TestPortScan_ContextCancellation_Stops(t *testing.T) {
 // an Exim banner triggers CheckPortExImVulnerable (Critical), not the generic
 // CheckPortSMTPExposed.
 func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:25")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 25 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -446,7 +451,8 @@ func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -476,10 +482,11 @@ func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
 // TestSMTPGenericBannerProducesGenericFinding verifies that a non-Exim SMTP
 // banner (e.g. Postfix) triggers CheckPortSMTPExposed, not the Exim check.
 func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:25")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 25 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -493,7 +500,8 @@ func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -521,10 +529,11 @@ func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
 // on port 587 (submission) also triggers CheckPortExImVulnerable. Port 587
 // does not require root privileges on most systems.
 func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:587")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 587 already in use: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -538,7 +547,8 @@ func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -562,10 +572,11 @@ func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
 // TestSMTPSubmissionGenericBanner verifies that a non-Exim banner on port 587
 // triggers the generic CheckPortSMTPExposed finding.
 func TestSMTPSubmissionGenericBanner(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:587")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 587 already in use: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -579,7 +590,8 @@ func TestSMTPSubmissionGenericBanner(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -601,10 +613,11 @@ func TestSMTPSubmissionGenericBanner(t *testing.T) {
 // (connection closed immediately) does NOT produce a finding. The scanner
 // requires a non-empty banner before emitting SMTP findings.
 func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:25")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 25 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -618,7 +631,8 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -640,10 +654,11 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 // that accepts the null bind (responds with BindResponse resultCode 0) and
 // returns non-AD rootDSE data triggers CheckPortLDAPExposed.
 func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:389")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 389 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -686,7 +701,8 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -713,10 +729,11 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 // TestLDAPNullBindActiveDirectoryProducesADFinding verifies that an LDAP server
 // that responds with DC= attributes in the rootDSE triggers CheckPortActiveDirectoryExposed.
 func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:389")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 389 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -760,7 +777,8 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
@@ -784,10 +802,11 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 // TestLDAPNullBindRefusedNoFinding verifies that an LDAP server that refuses
 // the null bind (no 0x61 BindResponse with resultCode 0) produces no finding.
 func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:389")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("port 389 already in use or requires privilege: %v", err)
+		t.Fatal(err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 	defer func() { _ = l.Close() }()
 	go func() {
 		for {
@@ -815,7 +834,8 @@ func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	s.Ports = []int{port}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {

@@ -344,34 +344,57 @@ collectResults:
 		close(results)
 	}()
 
-	var findings []finding.Finding
-	openPorts := make(map[int]string)
+	// Collect port scan results, then probe open ports in parallel.
+	type openPort struct {
+		entry  portEntry
+		banner string
+	}
+	var open []openPort
 	totalScanned := 0
 	for r := range results {
 		totalScanned++
-		if !r.open {
-			continue
+		if r.open {
+			open = append(open, openPort{entry: r.entry, banner: r.banner})
 		}
-		openPorts[r.entry.port] = r.entry.service
-		fs := buildFindings(ctx, asset, r.entry, r.banner)
-		findings = append(findings, fs...)
-		// Update service name from probe-identified findings. When --ports
-		// is used, the initial portEntry has service="unknown". The probe
-		// registry identifies the actual service (e.g. "redis") and stores
-		// it in the service_identified finding's evidence. Use that for
-		// accurate post-exploit module routing.
-		for _, f := range fs {
-			if f.CheckID == finding.CheckPortServiceIdentified {
-				if svc, ok := f.Evidence["service"].(string); ok && svc != "" {
-					openPorts[r.entry.port] = svc
+	}
+
+	// Probe open ports concurrently — each port's probes run independently.
+	type probeResult struct {
+		port     int
+		service  string
+		findings []finding.Finding
+	}
+	probeCh := make(chan probeResult, len(open))
+	var probeWg sync.WaitGroup
+	for _, op := range open {
+		probeWg.Add(1)
+		go func(o openPort) {
+			defer probeWg.Done()
+			fs := buildFindings(ctx, asset, o.entry, o.banner)
+			svc := o.entry.service
+			for _, f := range fs {
+				if f.CheckID == finding.CheckPortServiceIdentified {
+					if s, ok := f.Evidence["service"].(string); ok && s != "" {
+						svc = s
+					}
 				}
 			}
-		}
-		// Emit a service-discovered hint for web-like services on non-standard ports.
-		// The surface module picks these up to schedule a full per-port classify pass.
-		if hint := EmitPortServiceDiscovered(asset, r.entry.port, r.entry.service, r.banner); hint != nil {
-			findings = append(findings, *hint)
-		}
+			if hint := EmitPortServiceDiscovered(asset, o.entry.port, o.entry.service, o.banner); hint != nil {
+				fs = append(fs, *hint)
+			}
+			probeCh <- probeResult{port: o.entry.port, service: svc, findings: fs}
+		}(op)
+	}
+	go func() {
+		probeWg.Wait()
+		close(probeCh)
+	}()
+
+	var findings []finding.Finding
+	openPorts := make(map[int]string)
+	for pr := range probeCh {
+		openPorts[pr.port] = pr.service
+		findings = append(findings, pr.findings...)
 	}
 
 	// Transparent proxy / honeypot detection: if 80%+ of scanned ports
@@ -681,6 +704,38 @@ func looksLikeHTTP(banner string) bool {
 		return true
 	}
 	return false
+}
+
+// quickHTTPCheck sends a HEAD request to http://host:port/ to determine if
+// the service speaks HTTP. Used by runProbes when no banner was received: HTTP
+// servers don't send data until a request arrives, so the passive banner grab
+// returns empty. One quick HTTP check (~3s) avoids running ~35 protocol probes
+// serially (~175s of timeouts) against an HTTP service.
+func quickHTTPCheck(ctx context.Context, host string, port int) bool {
+	url := fmt.Sprintf("http://%s:%d/", host, port)
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   dialTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	// Any valid HTTP response (even 4xx/5xx) means the service speaks HTTP.
+	return true
 }
 
 // ── Service-specific probes ───────────────────────────────────────────────────
