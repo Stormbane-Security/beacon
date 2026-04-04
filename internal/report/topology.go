@@ -190,7 +190,7 @@ func RenderTopologyText(executions []store.AssetExecution, findings []finding.Fi
 		if len(g.hosts) > 1 {
 			sharedNote = fmt.Sprintf("  (%d virtual hosts)", len(g.hosts))
 		}
-		b.WriteString(fmt.Sprintf("%s%s%s\n", ipBranch, g.ip, sharedNote))
+		fmt.Fprintf(&b, "%s%s%s\n", ipBranch, g.ip, sharedNote)
 
 		for hi, h := range g.hosts {
 			lastHost := hi == len(g.hosts)-1
@@ -205,14 +205,14 @@ func RenderTopologyText(executions []store.AssetExecution, findings []finding.Fi
 			if len(name) > 40 {
 				name = "…" + name[len(name)-39:]
 			}
-			b.WriteString(fmt.Sprintf("%s%-40s  %s\n", hostBranch, name, detail))
+			fmt.Fprintf(&b, "%s%-40s  %s\n", hostBranch, name, detail)
 
 			for si, svc := range h.services {
 				svcBranch := svcIndent + "├─ "
 				if si == len(h.services)-1 {
 					svcBranch = svcIndent + "└─ "
 				}
-				b.WriteString(fmt.Sprintf("%s%s:%d\n", svcBranch, svc.service, svc.port))
+				fmt.Fprintf(&b, "%s%s:%d\n", svcBranch, svc.service, svc.port)
 			}
 		}
 	}
@@ -239,15 +239,15 @@ func RenderTopologyMermaid(executions []store.AssetExecution, findings []finding
 
 		if !declaredProvs[g.provider] {
 			declaredProvs[g.provider] = true
-			b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", provID, mermaidEscape(g.provider)))
+			fmt.Fprintf(&b, "    %s[\"%s\"]\n", provID, mermaidEscape(g.provider))
 		}
 
 		ipLabel := g.ip
 		if len(g.hosts) > 1 {
 			ipLabel = fmt.Sprintf("%s\\n(%d hosts)", g.ip, len(g.hosts))
 		}
-		b.WriteString(fmt.Sprintf("    %s([\"%s\"])\n", ipID, mermaidEscape(ipLabel)))
-		b.WriteString(fmt.Sprintf("    %s --> %s\n", provID, ipID))
+		fmt.Fprintf(&b, "    %s([\"%s\"])\n", ipID, mermaidEscape(ipLabel))
+		fmt.Fprintf(&b, "    %s --> %s\n", provID, ipID)
 
 		for hi, h := range g.hosts {
 			hostID := mermaidID(fmt.Sprintf("h_%d_%d_%s", gi, hi, h.name))
@@ -255,13 +255,13 @@ func RenderTopologyMermaid(executions []store.AssetExecution, findings []finding
 			if d := hostDetail(h); d != "" {
 				label += "\\n" + d
 			}
-			b.WriteString(fmt.Sprintf("    %s[\"%s\"]\n", hostID, mermaidEscape(label)))
-			b.WriteString(fmt.Sprintf("    %s --> %s\n", ipID, hostID))
+			fmt.Fprintf(&b, "    %s[\"%s\"]\n", hostID, mermaidEscape(label))
+			fmt.Fprintf(&b, "    %s --> %s\n", ipID, hostID)
 
 			for si, svc := range h.services {
 				svcID := mermaidID(fmt.Sprintf("svc_%d_%d_%d_%s", gi, hi, si, svc.service))
-				b.WriteString(fmt.Sprintf("    %s{{\":%d %s\"}}\n", svcID, svc.port, mermaidEscape(svc.service)))
-				b.WriteString(fmt.Sprintf("    %s --> %s\n", hostID, svcID))
+				fmt.Fprintf(&b, "    %s{{\":%d %s\"}}\n", svcID, svc.port, mermaidEscape(svc.service))
+				fmt.Fprintf(&b, "    %s --> %s\n", hostID, svcID)
 			}
 		}
 	}

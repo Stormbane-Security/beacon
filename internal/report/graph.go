@@ -118,8 +118,8 @@ func RenderGraphDOT(g asset.AssetGraph) string {
 			edgeLabel = fmt.Sprintf("%s (%.0f%%)", r.Type, r.Confidence*100)
 		}
 
-		b.WriteString(fmt.Sprintf("    %s -> %s [label=%s, style=%s, color=\"%s\"];\n",
-			fromID, toID, dotQuote(edgeLabel), edgeStyle, edgeColor))
+		fmt.Fprintf(&b, "    %s -> %s [label=%s, style=%s, color=\"%s\"];\n",
+			fromID, toID, dotQuote(edgeLabel), edgeStyle, edgeColor)
 	}
 
 	b.WriteString("}\n")

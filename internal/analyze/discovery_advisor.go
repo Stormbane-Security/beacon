@@ -93,31 +93,31 @@ func (a *DiscoveryAdvisor) Suggest(ctx context.Context, rootDomain string, hints
 func buildAdvisorPrompt(rootDomain string, hints []AssetHint) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&b,
 		"You are a network discovery assistant. The target domain is %q.\n\n",
 		rootDomain,
-	))
+	)
 
 	b.WriteString("## Already discovered and scanned assets\n\n")
 	for _, h := range hints {
-		b.WriteString(fmt.Sprintf("  hostname=%q  status=%d  server=%q  title=%q",
-			h.Hostname, h.StatusCode, h.Server, h.Title))
+		fmt.Fprintf(&b, "  hostname=%q  status=%d  server=%q  title=%q",
+			h.Hostname, h.StatusCode, h.Server, h.Title)
 		if len(h.CNAMEChain) > 0 {
-			b.WriteString(fmt.Sprintf("  cname=%v", h.CNAMEChain))
+			fmt.Fprintf(&b, "  cname=%v", h.CNAMEChain)
 		}
 		if len(h.TechStack) > 0 {
-			b.WriteString(fmt.Sprintf("  tech=%v", h.TechStack))
+			fmt.Fprintf(&b, "  tech=%v", h.TechStack)
 		}
 		if len(h.OpenPorts) > 0 {
-			b.WriteString(fmt.Sprintf("  ports=%v", h.OpenPorts))
+			fmt.Fprintf(&b, "  ports=%v", h.OpenPorts)
 		}
 		if len(h.KeyFindings) > 0 {
-			b.WriteString(fmt.Sprintf("  findings=%v", h.KeyFindings))
+			fmt.Fprintf(&b, "  findings=%v", h.KeyFindings)
 		}
 		b.WriteString("\n")
 	}
 
-	b.WriteString(fmt.Sprintf(`
+	fmt.Fprintf(&b, `
 ## Task
 
 Based on the naming patterns, tech stack, and infrastructure above, suggest up to %d additional
@@ -137,7 +137,7 @@ Rules:
 - If no confident suggestions, return an empty array []
 
 Example output: ["api-v2.example.com", "admin.example.com", "staging-api.example.com"]
-`, advisorMaxSugg, rootDomain))
+`, advisorMaxSugg, rootDomain)
 
 	return b.String()
 }
