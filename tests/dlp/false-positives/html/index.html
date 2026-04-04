@@ -54,7 +54,8 @@ ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
 <h2>Database Configuration</h2>
 <pre>
 # Example connection string format (replace with real values):
-# postgresql://username:password@hostname:5432/database
+# protocol://username:password@hostname:port/database
+# Supported protocols: PostgreSQL, MySQL, Redis
 # Note: always use environment variables, never hardcode credentials
 </pre>
 
