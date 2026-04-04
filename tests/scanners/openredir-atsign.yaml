@@ -1,0 +1,58 @@
+name: openredir-atsign-bypass
+description: >
+  Python Flask app that redirects to any URL provided via ?url= parameter.
+  Tests the at-sign bypass variant: the canary domain must be in the host
+  position (after @), not the userinfo position (before @). If the payload
+  is backwards (canary@legitimate.com), the redirect goes to legitimate.com
+  and the scanner would produce a false negative.
+tags: [openredir, scanner, web, atsign, bypass]
+
+services:
+  app:
+    image: python:3.11-alpine
+    ports: ["9371:5000"]
+    command:
+      - sh
+      - -c
+      - |
+        pip install -q flask &&
+        python -c "
+        from flask import Flask, request, redirect
+        app = Flask(__name__)
+        @app.route('/')
+        def index():
+            url = request.args.get('url', '')
+            if url:
+                return redirect(url, code=302)
+            return 'OK'
+        app.run(host='0.0.0.0', port=5000)
+        "
+
+ready:
+  cmd: "curl -sf http://localhost:9371/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-redirect-works
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9371/?url=https://example.com'"
+      stdout_contains: "302"
+
+  - name: exploit-atsign-redirect-goes-to-host-after-at
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:9371/?url=https://legit.com@evil.com' | grep -i location"
+      stdout_contains: "@evil.com"
+
+  # --- Scanner detection ---
+  - name: detects-open-redirect
+    type: beacon
+    target: localhost:9371
+    args: ["--no-enrich", "--scanners", "openredir", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.open_redirect
+
+timeout: 3m

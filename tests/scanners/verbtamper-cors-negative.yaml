@@ -1,0 +1,54 @@
+name: verbtamper-cors-false-positive
+description: >
+  Nginx returning 403 on GET /admin but 200 on OPTIONS with CORS headers.
+  This is standard CORS preflight behavior, NOT an auth bypass. Beacon
+  verbtamper scanner must NOT flag this as a vulnerability.
+tags: [verbtamper, scanner, web, false-positive, negative]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["9370:80"]
+    volumes:
+      - ./verbtamper-cors-negative/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9370/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Verify the server setup is correct ---
+  - name: setup-get-admin-returns-403
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9370/admin"
+      stdout_contains: "403"
+
+  - name: setup-options-admin-returns-200-with-cors
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X OPTIONS http://localhost:9370/admin"
+      stdout_contains: "200"
+
+  - name: setup-cors-headers-present
+    type: command
+    expect:
+      command: "curl -sI -X OPTIONS http://localhost:9370/admin | grep -qi 'access-control-allow'"
+      exit_code: 0
+
+  - name: setup-head-admin-returns-200-empty
+    type: command
+    expect:
+      command: "curl -s -X HEAD -o /dev/null -w '%{http_code}' http://localhost:9370/admin"
+      stdout_contains: "200"
+
+  # --- Scanner must NOT produce false positives ---
+  - name: no-false-positive-verb-tamper
+    type: beacon
+    target: localhost:9370
+    args: ["--no-enrich", "--scanners", "verbtamper", "--deep", "--permission-confirmed"]
+    expect:
+      no_check_id: web.verb_tamper_auth_bypass
+
+timeout: 3m

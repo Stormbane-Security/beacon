@@ -1,0 +1,58 @@
+name: hpp-trivial-diff-no-finding
+description: >
+  Python Flask app that echoes back the id parameter. When id=1&id=2 is
+  sent, the response differs trivially (echoes "1,2" instead of "1").
+  This is NOT a vulnerability — many frameworks concatenate duplicate
+  params. Beacon HPP scanner should NOT flag trivially different responses.
+tags: [hpp, scanner, web, false-positive, negative]
+
+services:
+  app:
+    image: python:3.11-alpine
+    ports: ["9373:5000"]
+    command:
+      - sh
+      - -c
+      - |
+        pip install -q flask &&
+        python -c "
+        from flask import Flask, request
+        app = Flask(__name__)
+        @app.route('/api/search')
+        def search():
+            ids = request.args.getlist('id')
+            return 'Result for id=' + ','.join(ids)
+        @app.route('/')
+        def index():
+            return 'OK'
+        app.run(host='0.0.0.0', port=5000)
+        "
+
+ready:
+  cmd: "curl -sf http://localhost:9373/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Verify setup: responses differ trivially ---
+  - name: setup-single-id
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:9373/api/search?id=1'"
+      stdout_contains: "id=1"
+
+  - name: setup-dual-id-concatenated
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:9373/api/search?id=1&id=2'"
+      stdout_contains: "id=1,2"
+
+  # --- Scanner must NOT flag trivial diffs ---
+  - name: no-hpp-false-positive
+    type: beacon
+    target: localhost:9373
+    args: ["--no-enrich", "--scanners", "hpp", "--deep", "--permission-confirmed"]
+    expect:
+      no_check_id: web.hpp
+
+timeout: 3m
