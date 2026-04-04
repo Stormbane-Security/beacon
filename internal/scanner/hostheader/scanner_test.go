@@ -233,7 +233,7 @@ func TestRun_DeepMode_NoReflection_NoFinding(t *testing.T) {
 	// Server that never reflects the Host header.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Hello</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Hello</body></html>"))
 	}))
 	defer srv.Close()
 
@@ -319,12 +319,12 @@ func TestRun_DeepMode_CachePoisoning_XCacheHIT_Critical(t *testing.T) {
 			// Respond with the injected value in the body and a cache HIT.
 			w.Header().Set("X-Cache", "HIT")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Welcome to " + xfh + "</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Welcome to " + xfh + "</body></html>"))
 			return
 		}
 		// Baseline: no reflection, no cache header.
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Welcome</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Welcome</body></html>"))
 	}))
 	defer srv.Close()
 
@@ -371,11 +371,11 @@ func TestRun_DeepMode_CachePoisoning_CFCacheStatus_Critical(t *testing.T) {
 		if xfh != "" {
 			w.Header().Set("CF-Cache-Status", "HIT")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Cached content for " + xfh + "</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Cached content for " + xfh + "</body></html>"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Normal content</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Normal content</body></html>"))
 	}))
 	defer srv.Close()
 
@@ -405,11 +405,11 @@ func TestRun_DeepMode_NoCacheHeader_SeverityHigh(t *testing.T) {
 		if xfh != "" {
 			// Reflect the injected value in the body but NO cache header.
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Hello " + xfh + "</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Hello " + xfh + "</body></html>"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Hello</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Hello</body></html>"))
 	}))
 	defer srv.Close()
 
@@ -488,7 +488,7 @@ func TestRun_DeepMode_ReflectionAfter200Bytes_BaselineSuppresses(t *testing.T) {
 		// Both baseline and injected requests return the same body —
 		// the probe value appears naturally after 200 bytes.
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(padding + probeValue))
+		_, _ = w.Write([]byte(padding + probeValue))
 	}))
 	defer srv.Close()
 

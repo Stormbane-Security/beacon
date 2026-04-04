@@ -695,7 +695,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if readErr != nil {
 		return "", fmt.Errorf("reading Gemini response body: %w", readErr)
@@ -754,7 +754,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 	if err != nil {
 		return "", fmt.Errorf("ollama request failed (is Ollama running?): %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if readErr != nil {
 		return "", fmt.Errorf("reading Ollama response body: %w", readErr)
@@ -828,7 +828,7 @@ func (c *ClaudeEnricher) callClaude(ctx context.Context, model, prompt string) (
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if err != nil {

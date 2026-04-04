@@ -381,7 +381,7 @@ func checkVersionAuthBypass(ctx context.Context, client *http.Client, asset, bas
 			if err != nil {
 				break
 			}
-			rlResp.Body.Close()
+			_ = rlResp.Body.Close()
 			if rlResp.StatusCode == http.StatusTooManyRequests {
 				rateLimited = true
 				break
@@ -407,7 +407,7 @@ func checkVersionAuthBypass(ctx context.Context, client *http.Client, asset, bas
 				if err != nil {
 					break
 				}
-				rlResp.Body.Close()
+				_ = rlResp.Body.Close()
 				if rlResp.StatusCode == http.StatusTooManyRequests {
 					currentRateLimited = true
 					break

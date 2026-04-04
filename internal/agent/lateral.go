@@ -113,7 +113,7 @@ func DiscoverInternalTargets(ctx context.Context, netInfo *NetworkInfo) []Intern
 
 					// Try to read a banner (100ms timeout).
 					var banner string
-					conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+					_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 					buf := make([]byte, 256)
 					if n, err := conn.Read(buf); err == nil && n > 0 {
 						banner = strings.TrimSpace(string(buf[:n]))

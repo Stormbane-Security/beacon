@@ -112,7 +112,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
 
 			findings = append(findings, finding.Finding{

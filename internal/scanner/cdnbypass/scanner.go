@@ -767,8 +767,8 @@ func certMatchesAsset(ctx context.Context, originIP, asset string) bool {
 		InsecureSkipVerify: true,
 		ServerName:         host,
 	})
-	defer tlsConn.Close() // also closes underlying netConn
-	tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = tlsConn.Close() }() // also closes underlying netConn
+	_ = tlsConn.SetDeadline(time.Now().Add(5 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
 		return false
 	}

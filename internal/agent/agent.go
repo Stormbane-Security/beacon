@@ -150,7 +150,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err := a.connect(ctx); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	defer a.conn.Close()
+	defer func() { _ = a.conn.Close() }()
 
 	// Send hello.
 	if err := a.send(Message{Type: "hello", Token: a.config.Token}); err != nil {

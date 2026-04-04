@@ -83,8 +83,7 @@ func TestCollectNetwork(t *testing.T) {
 }
 
 func TestCollectEnv(t *testing.T) {
-	os.Setenv("BEACON_TEST_VAR", "test_value")
-	defer os.Unsetenv("BEACON_TEST_VAR")
+	t.Setenv("BEACON_TEST_VAR", "test_value")
 
 	env := collectEnv()
 	if v, ok := env["BEACON_TEST_VAR"]; !ok || v != "test_value" {

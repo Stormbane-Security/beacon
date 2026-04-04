@@ -61,7 +61,7 @@ func tlsServer(t *testing.T, dnsSANs []string, ipSANs []net.IP) (net.Listener, s
 	}
 
 	addr := ln.Addr().String()
-	return ln, addr, func() { ln.Close() }
+	return ln, addr, func() { _ = ln.Close() }
 }
 
 // tlsHTTPServer creates a TLS server that also responds to HTTP requests.
@@ -76,7 +76,7 @@ func tlsHTTPServer(t *testing.T, dnsSANs []string, ipSANs []net.IP, handler http
 	go srv.Serve(ln) //nolint:errcheck
 
 	return addr, func() {
-		srv.Close()
+		_ = srv.Close()
 		cleanup()
 	}
 }
@@ -860,7 +860,7 @@ func TestOwnership_UnreachableHost_NoTLSOrHTTPSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := ln.Addr().String()
-	ln.Close() // close immediately — port is now free and refusing connections
+	_ = ln.Close() // close immediately — port is now free and refusing connections
 
 	_, port, _ := net.SplitHostPort(addr)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

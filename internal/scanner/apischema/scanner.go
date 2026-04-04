@@ -246,7 +246,7 @@ func (s *Scanner) testRateLimiting(ctx context.Context, client *http.Client, ass
 				if err != nil {
 					break
 				}
-				io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
 				resp.Body.Close()
 
 				// Check for rate limit indicators.

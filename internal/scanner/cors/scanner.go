@@ -282,7 +282,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				break
 			}
 			io.Copy(io.Discard, io.LimitReader(cResp.Body, 4096)) //nolint:errcheck
-			cResp.Body.Close()
+			_ = cResp.Body.Close()
 			cacao := cResp.Header.Get("Access-Control-Allow-Origin")
 			cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
 			if strings.EqualFold(cacao, preflightOrigin) && cacac == "true" {
@@ -303,7 +303,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				if preResp, err := client.Do(preReq); err == nil {
 					io.Copy(io.Discard, io.LimitReader(preResp.Body, 4096)) //nolint:errcheck
-					preResp.Body.Close()
+					_ = preResp.Body.Close()
 
 					preACAO := preResp.Header.Get("Access-Control-Allow-Origin")
 					preACAC := strings.ToLower(preResp.Header.Get("Access-Control-Allow-Credentials"))
@@ -354,7 +354,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				if preResp2, err := client.Do(preReq2); err == nil {
 					io.Copy(io.Discard, io.LimitReader(preResp2.Body, 4096)) //nolint:errcheck
-					preResp2.Body.Close()
+					_ = preResp2.Body.Close()
 
 					preACAO2 := preResp2.Header.Get("Access-Control-Allow-Origin")
 					preACAC2 := strings.ToLower(preResp2.Header.Get("Access-Control-Allow-Credentials"))
@@ -417,7 +417,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				if preResp3, err := client.Do(preReq3); err == nil {
 					io.Copy(io.Discard, io.LimitReader(preResp3.Body, 4096)) //nolint:errcheck
-					preResp3.Body.Close()
+					_ = preResp3.Body.Close()
 
 					preACAO3 := preResp3.Header.Get("Access-Control-Allow-Origin")
 					preACAH3 := preResp3.Header.Get("Access-Control-Allow-Headers")

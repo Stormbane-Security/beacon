@@ -10,7 +10,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
 	"sync"
@@ -113,7 +112,7 @@ func (h *Handler) Start(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		_ = listener.Close()
 	}()
 
 	for {
@@ -131,12 +130,12 @@ func (h *Handler) Start(ctx context.Context) error {
 // Stop closes the listener and all sessions.
 func (h *Handler) Stop() {
 	if h.listener != nil {
-		h.listener.Close()
+		_ = h.listener.Close()
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, s := range h.sessions {
-		s.Close()
+		_ = s.Close()
 	}
 }
 
@@ -164,15 +163,15 @@ func (h *Handler) handleConnection(conn net.Conn) {
 
 	// Read hello message.
 	var hello Message
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if err := decoder.Decode(&hello); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
-	conn.SetReadDeadline(time.Time{}) // clear deadline
+	_ = conn.SetReadDeadline(time.Time{}) // clear deadline
 
 	if hello.Type != "hello" {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
@@ -197,9 +196,6 @@ func (h *Handler) handleConnection(conn net.Conn) {
 	for {
 		var msg Message
 		if err := decoder.Decode(&msg); err != nil {
-			if err != io.EOF {
-				// Connection error — remove session.
-			}
 			break
 		}
 
@@ -213,7 +209,7 @@ func (h *Handler) handleConnection(conn net.Conn) {
 				}
 			}
 		case "bye":
-			break
+			return
 		}
 	}
 

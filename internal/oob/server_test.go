@@ -322,8 +322,8 @@ func TestServer_FullHTTPRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go ts.Serve(ln)
-	defer ts.Close()
+	go func() { _ = ts.Serve(ln) }()
+	defer func() { _ = ts.Close() }()
 
 	addr := ln.Addr().String()
 	resp, err := http.Get(fmt.Sprintf("http://%s/%s", addr, token))

@@ -20,7 +20,7 @@ func TestIAM_SCIMUnauthenticated(t *testing.T) {
 		if strings.HasPrefix(r.URL.Path, "/scim/v2/") {
 			w.Header().Set("Content-Type", "application/scim+json")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:ListResponse"],"totalResults":3,"Resources":[]}`)
+			_, _ = fmt.Fprintln(w, `{"schemas":["urn:ietf:params:scim:api:messages:2.0:ListResponse"],"totalResults":3,"Resources":[]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -93,7 +93,7 @@ func TestIAM_OIDCUserinfoLeak(t *testing.T) {
 		case "/userinfo":
 			// Return user data without checking Authorization header.
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"sub":"user123","email":"alice@example.com","name":"Alice"}`)
+			_, _ = fmt.Fprintln(w, `{"sub":"user123","email":"alice@example.com","name":"Alice"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -130,7 +130,7 @@ func TestIAM_DeviceFlowExposed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oauth/device_authorization" && r.Method == http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"device_code":"DC-abc123","user_code":"ABCD-1234","verification_uri":"https://example.com/activate","expires_in":1800}`)
+			_, _ = fmt.Fprintln(w, `{"device_code":"DC-abc123","user_code":"ABCD-1234","verification_uri":"https://example.com/activate","expires_in":1800}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -165,7 +165,7 @@ func TestIAM_DynamicClientReg(t *testing.T) {
 		if r.URL.Path == "/oauth/register" && r.Method == http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
-			fmt.Fprintln(w, `{"client_id":"new-client-abc","client_secret":"s3cr3t","redirect_uris":["https://beacon-test.invalid"]}`)
+			_, _ = fmt.Fprintln(w, `{"client_id":"new-client-abc","client_secret":"s3cr3t","redirect_uris":["https://beacon-test.invalid"]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -200,7 +200,7 @@ func TestIAM_IntrospectExposed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oauth/introspect" && r.Method == http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"active":true,"sub":"user@example.com","scope":"openid profile","exp":9999999999}`)
+			_, _ = fmt.Fprintln(w, `{"active":true,"sub":"user@example.com","scope":"openid profile","exp":9999999999}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -235,7 +235,7 @@ func TestIAM_IdPAdminExposed(t *testing.T) {
 		if r.URL.Path == "/auth/admin/" {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, `<html><head><title>Keycloak Administration Console</title></head><body></body></html>`)
+			_, _ = fmt.Fprintln(w, `<html><head><title>Keycloak Administration Console</title></head><body></body></html>`)
 			return
 		}
 		http.NotFound(w, r)
@@ -273,7 +273,7 @@ func TestIAM_RoleAssignmentExposed(t *testing.T) {
 		if r.URL.Path == "/api/v1/roles" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, `[{"id":"1","name":"admin"},{"id":"2","name":"editor"},{"id":"3","name":"viewer"}]`)
+			_, _ = fmt.Fprintln(w, `[{"id":"1","name":"admin"},{"id":"2","name":"editor"},{"id":"3","name":"viewer"}]`)
 			return
 		}
 		http.NotFound(w, r)

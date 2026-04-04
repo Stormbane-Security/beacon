@@ -115,7 +115,7 @@ func TestBucketCandidates_SingleLabelDomain(t *testing.T) {
 func TestProbeURL_PublicBucket_CriticalFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `<ListBucketResult></ListBucketResult>`)
+		_, _ = fmt.Fprint(w, `<ListBucketResult></ListBucketResult>`)
 	}))
 	defer ts.Close()
 

@@ -611,7 +611,7 @@ func TestRun_DeepMode_PathParamsReplaced(t *testing.T) {
 	defer ts.Close()
 
 	s := New()
-	s.Run(context.Background(), hostFromURL(ts.URL), module.ScanDeep)
+	_, _ = s.Run(context.Background(), hostFromURL(ts.URL), module.ScanDeep)
 
 	if probed != "/users/1/posts/1" {
 		t.Errorf("expected path params replaced: got %q", probed)

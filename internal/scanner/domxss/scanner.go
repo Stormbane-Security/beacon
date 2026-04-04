@@ -13,7 +13,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/page"
@@ -242,12 +241,4 @@ func truncate(s string, max int) string {
 }
 
 // detectScheme probes the asset to determine HTTP vs HTTPS.
-func detectScheme(_ context.Context, asset string) string {
-	_ = asset
-	// chromedp handles TLS errors via ignore-certificate-errors flag,
-	// so we default to HTTPS and fall back in the main loop.
-	if strings.Contains(asset, ":80") {
-		return "http"
-	}
-	return "https"
-}
+

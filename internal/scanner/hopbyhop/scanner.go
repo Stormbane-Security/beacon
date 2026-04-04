@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/scan"
@@ -153,6 +152,4 @@ func abs(x int) int {
 }
 
 // containsHeader checks if the response body echoes a header value.
-func containsHeader(body []byte, value string) bool {
-	return strings.Contains(string(body), value)
-}
+
