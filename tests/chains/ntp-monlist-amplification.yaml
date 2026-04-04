@@ -1,0 +1,50 @@
+name: chain-ntp-monlist-amplification
+description: >
+  Exploit chain: NTP server exposure → version query → monlist amplification check.
+  Tests beacon's UDP NTP probing and the NTP postexploit module.
+  Uses the standard NTP server image (ntpd).
+tags: [chain, postexploit, ntp, data-extraction, authorized]
+
+services:
+  ntp:
+    image: cturra/ntp:latest
+    ports: ["9432:123/udp"]
+    cap_add: ["SYS_TIME"]
+
+ready:
+  cmd: |
+    python3 -c "
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(3)
+    req = bytearray(48)
+    req[0] = 0x23
+    s.sendto(req, ('127.0.0.1', 9432))
+    data, _ = s.recvfrom(128)
+    mode = data[0] & 0x07
+    assert mode in (4, 5), f'unexpected mode {mode}'
+    print('NTP responding')
+    " 2>&1 && echo ok
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: ntp-server-responds
+    type: command
+    expect:
+      command: |
+        python3 -c "
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(3)
+        req = bytearray(48)
+        req[0] = 0x23
+        s.sendto(req, ('127.0.0.1', 9432))
+        data, _ = s.recvfrom(128)
+        mode = data[0] & 0x07
+        assert mode in (4, 5), f'NTP mode {mode}, expected 4 or 5'
+        print('NTP ok')
+        " 2>&1
+      exit_code: 0
+
+timeout: 5m

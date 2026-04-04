@@ -122,6 +122,37 @@ services:
     image: polinux/snmpd:alpine
     ports: ["9623:161/udp"]
 
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["9624:53/udp"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        cat <<'COREFILE' > /tmp/Corefile
+        . {
+          forward . 8.8.8.8 8.8.4.4
+          log
+          cache
+        }
+        COREFILE
+        /coredns -conf /tmp/Corefile
+
+  ntp:
+    image: cturra/ntp:latest
+    ports: ["9625:123/udp"]
+    cap_add: ["SYS_TIME"]
+
+  tftp:
+    image: pghalliday/tftp
+    ports: ["9626:69/udp"]
+
+  docker-api:
+    image: docker:24-dind
+    privileged: true
+    ports: ["9627:2375"]
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+
 ready:
   cmd: >
     curl -sf http://localhost:9610/v1/status/leader 2>/dev/null | grep -q ':' &&
@@ -129,7 +160,8 @@ ready:
     curl -sf http://localhost:9612/api/v1/status/runtimeinfo 2>/dev/null | grep -q storageRetention &&
     curl -sf http://localhost:9619/api/status 2>/dev/null | grep -q Version &&
     nc -z localhost 9617 2>/dev/null &&
-    nc -z localhost 9622 2>/dev/null
+    nc -z localhost 9622 2>/dev/null &&
+    curl -sf http://localhost:9627/version 2>/dev/null | grep -q ApiVersion
   timeout: 120s
   interval: 5s
 
@@ -314,26 +346,74 @@ assertions:
     expect:
       check_id: exploit.data_extracted
 
-  # --- SNMP: UDP-only, beacon portscan is TCP so we test at command level ---
-  - name: snmp-community-public
-    type: command
+  # --- SNMP: UDP probing detects SNMP, postexploit chain extracts data ---
+  - name: snmp-udp-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9623"]
     expect:
-      command: "snmpget -v2c -c public localhost:9623 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING"
-      exit_code: 0
+      check_id: port.snmp_public_community
 
-  - name: snmp-walk-system
-    type: command
+  - name: snmp-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes", "--ports", "9623"]
     expect:
-      command: "snmpwalk -v2c -c public localhost:9623 1.3.6.1.2.1.1 2>/dev/null | grep -q STRING"
-      exit_code: 0
+      check_id: exploit.data_extracted
+
+  # --- DNS: UDP open resolver detection + postexploit ---
+  - name: dns-resolver-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9624"]
+    expect:
+      check_id: port.dns_open_resolver
+
+  - name: dns-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes", "--ports", "9624"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- NTP: UDP exposure detection ---
+  - name: ntp-exposed-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9625"]
+    expect:
+      check_id: port.ntp_exposed
+
+  # --- TFTP: UDP anonymous access detection ---
+  - name: tftp-anonymous-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9626"]
+    expect:
+      check_id: port.tftp_anonymous
+
+  # --- Docker API: identify + exploit (unauthenticated container escape) ---
+  - name: docker-api-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9627"]
+    expect:
+      check_id: port.docker_unauthenticated
+
+  - name: docker-container-escape-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes", "--ports", "9627"]
+    expect:
+      check_id: exploit.container_escape
 
   # --- Full scan: all infrastructure at once ---
   - name: full-infra-scan-finds-all
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
-           "--ports", "9610,9611,9612,9613,9614,9615,9616,9617,9618,9619,9620,9621,9622"]
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes",
+           "--ports", "9610,9611,9612,9613,9614,9615,9616,9617,9618,9619,9620,9621,9622,9627"]
     expect:
-      min_findings: 15
+      min_findings: 17
 
 timeout: 15m

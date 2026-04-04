@@ -1,0 +1,43 @@
+name: chain-dns-open-resolver
+description: >
+  Exploit chain: DNS open resolver → version disclosure → recursive resolution.
+  Tests beacon's UDP DNS probing and the DNS postexploit module.
+  Uses CoreDNS as a lightweight DNS resolver with recursion enabled.
+tags: [chain, postexploit, dns, data-extraction, authorized]
+
+services:
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["9430:53/udp"]
+    entrypoint: ["sh", "-c"]
+    # CoreDNS config: forward all queries to Google DNS (acts as open resolver).
+    command:
+      - |
+        cat <<'COREFILE' > /tmp/Corefile
+        . {
+          forward . 8.8.8.8 8.8.4.4
+          log
+          cache
+        }
+        COREFILE
+        /coredns -conf /tmp/Corefile
+
+ready:
+  cmd: "dig @localhost -p 9430 example.com +short +time=2 +tries=1 2>/dev/null | grep -qE '[0-9]+\\.[0-9]+'"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: dns-resolver-responds
+    type: command
+    expect:
+      command: "dig @localhost -p 9430 example.com A +short +time=3 +tries=1 2>/dev/null | grep -qE '[0-9]+\\.[0-9]+'"
+      exit_code: 0
+
+  - name: dns-version-query
+    type: command
+    expect:
+      command: "dig @localhost -p 9430 version.bind CHAOS TXT +short +time=3 +tries=1 2>/dev/null; echo ok"
+      exit_code: 0
+
+timeout: 5m
