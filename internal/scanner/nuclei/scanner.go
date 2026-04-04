@@ -39,6 +39,72 @@ const scannerName = "nuclei"
 
 const staleTemplateThreshold = 30 * 24 * time.Hour // 30 days
 
+// nativelyExcluded lists nuclei template IDs whose checks are fully covered
+// by beacon's native scanners with superior detection logic. These are passed
+// to nuclei via -exclude-id to avoid redundant probes and duplicate findings.
+//
+// Native scanner coverage:
+//   - tls scanner: full TLS handshake, 19+ checks including cipher/protocol/BEAST/POODLE
+//   - secheaders scanner: all security headers + cspaudit deep CSP analysis
+//   - dns scanner: actual AXFR transfer, CAA lookup, DNSSEC validation
+//   - exposedfiles scanner: 124+ exposure patterns including Git, env, backup, admin
+//   - takeover scanner: CNAME-aware fingerprint matching for 30+ services
+//   - graphql scanner: full introspection with schema analysis
+var nativelyExcluded = []string{
+	// TLS — native tls scanner does full handshake + cipher/protocol analysis
+	"ssl-dns-names",
+	"expired-ssl",
+	"expiring-ssl-30d",
+	"self-signed-ssl",
+	"untrusted-root-certificate",
+	"ssl-weak-cipher",
+	"tls-version",
+
+	// Security headers — native secheaders + cspaudit scanners
+	"missing-csp",
+	"missing-hsts",
+	"missing-x-frame-options",
+	"x-content-type-options",
+	"referrer-policy",
+	"permissions-policy",
+	"http-missing-security-headers",
+	"strict-transport-security",
+
+	// DNS — native dns scanner does real AXFR/CAA/DNSSEC
+	"dns-zone-transfer",
+	"missing-caa-record",
+	"dnssec-detection",
+
+	// Exposure — native exposedfiles scanner covers these patterns
+	"git-config",
+	"git-head",
+	"ds-store",
+	"dotenv-file",
+	"laravel-env",
+	"backup-files",
+	"db-backup-files",
+	"robots-txt-endpoint",
+
+	// API docs — native exposedfiles + swagger scanner
+	"swagger-api",
+	"swagger-ui",
+	"openapi",
+
+	// GraphQL — native graphql scanner does full introspection
+	"graphql-introspection",
+
+	// Subdomain takeover — native takeover scanner has CNAME-aware fingerprints
+	"subdomain-takeover",
+	"azure-takeover-detection",
+	"aws-bucket-takeover",
+	"github-pages-takeover",
+	"netlify-takeover",
+	"heroku-takeover",
+
+	// CORS — native cors scanner does credentialed + preflight + null origin
+	"cors-misconfig",
+}
+
 // Scanner wraps the nuclei binary as a subprocess.
 type Scanner struct {
 	bin         string
@@ -131,6 +197,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// Never run denial-of-service or crash templates regardless of mode.
 		// These could disrupt the target service even with authorization.
 		"-etags", "dos,crash,destructive",
+		// Skip templates fully covered by native beacon scanners.
+		"-exclude-id", strings.Join(nativelyExcluded, ","),
 	}
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
@@ -210,6 +278,8 @@ func (s *Scanner) RunWithTags(ctx context.Context, asset string, tags []string) 
 		"-timeout", "30",
 		"-retries", "1",
 		"-etags", "dos,crash,destructive",
+		// Skip templates fully covered by native beacon scanners.
+		"-exclude-id", strings.Join(nativelyExcluded, ","),
 	}
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)

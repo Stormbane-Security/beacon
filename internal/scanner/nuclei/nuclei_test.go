@@ -153,6 +153,26 @@ func TestIsValidHostname(t *testing.T) {
 	}
 }
 
+// TestNativelyExcluded_NoDuplicates verifies the exclusion list has no duplicates.
+func TestNativelyExcluded_NoDuplicates(t *testing.T) {
+	seen := make(map[string]bool, len(nativelyExcluded))
+	for _, id := range nativelyExcluded {
+		if seen[id] {
+			t.Errorf("duplicate in nativelyExcluded: %q", id)
+		}
+		seen[id] = true
+	}
+}
+
+// TestNativelyExcluded_AllNonEmpty verifies no empty strings in the list.
+func TestNativelyExcluded_AllNonEmpty(t *testing.T) {
+	for i, id := range nativelyExcluded {
+		if id == "" {
+			t.Errorf("nativelyExcluded[%d] is empty", i)
+		}
+	}
+}
+
 // TestRunWithTags_RejectsShellMetachars verifies that RunWithTags rejects
 // hostnames containing shell metacharacters that could lead to command
 // injection via the nuclei subprocess.

@@ -1263,7 +1263,40 @@ assetLoop:
 		allFindings = filtered
 	}
 
+	// Deduplicate findings by CheckID+Asset, preferring native scanners over
+	// nuclei. When both a native scanner and nuclei detect the same issue on
+	// the same asset, the native finding has richer evidence and proof commands.
+	allFindings = deduplicateFindings(allFindings)
+
 	return allFindings, nil
+}
+
+// deduplicateFindings removes duplicate findings sharing the same CheckID+Asset.
+// When a native scanner and nuclei both produce a finding for the same check,
+// the native scanner's finding is kept because it has richer evidence, better
+// proof commands, and more specific descriptions.
+func deduplicateFindings(findings []finding.Finding) []finding.Finding {
+	type dedupKey struct {
+		checkID string
+		asset   string
+	}
+	seen := make(map[dedupKey]int, len(findings)) // key → index in result
+	result := make([]finding.Finding, 0, len(findings))
+
+	for _, f := range findings {
+		key := dedupKey{f.CheckID, f.Asset}
+		if idx, exists := seen[key]; exists {
+			// Prefer native scanner over nuclei.
+			if result[idx].Scanner == "nuclei" && f.Scanner != "nuclei" {
+				result[idx] = f // replace nuclei finding with native
+			}
+			// Otherwise keep the first (native) finding, skip the dupe.
+			continue
+		}
+		seen[key] = len(result)
+		result = append(result, f)
+	}
+	return result
 }
 
 // runFilteredScanners executes only the scanners named in m.scannerFilter
