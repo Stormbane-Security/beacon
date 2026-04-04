@@ -937,6 +937,123 @@ func TestProbeSMBOnPort_SMBv2Server(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Probe registry integrity
+// ---------------------------------------------------------------------------
+
+// TestProbeRegistry_AllProbesHaveNames verifies every registered probe has
+// a non-empty name.
+func TestProbeRegistry_AllProbesHaveNames(t *testing.T) {
+	t.Parallel()
+	for i, p := range probeRegistry {
+		if p.Name == "" {
+			t.Errorf("probe at index %d has empty name", i)
+		}
+	}
+}
+
+// TestProbeRegistry_AllProbesHaveDetectFunc verifies every registered probe
+// has a non-nil Detect function.
+func TestProbeRegistry_AllProbesHaveDetectFunc(t *testing.T) {
+	t.Parallel()
+	for _, p := range probeRegistry {
+		if p.Detect == nil {
+			t.Errorf("probe %q has nil Detect function", p.Name)
+		}
+	}
+}
+
+// TestProbeRegistry_ValidCategories verifies all probes use a known category.
+func TestProbeRegistry_ValidCategories(t *testing.T) {
+	t.Parallel()
+	for _, p := range probeRegistry {
+		switch p.Category {
+		case ProbeCatBanner, ProbeCatProtocol, ProbeCatHTTP, ProbeCatTLS:
+			// valid
+		default:
+			t.Errorf("probe %q has unknown category %d", p.Name, p.Category)
+		}
+	}
+}
+
+// TestProbeRegistry_MinimumCount ensures we don't accidentally lose probes
+// during refactoring.
+func TestProbeRegistry_MinimumCount(t *testing.T) {
+	t.Parallel()
+	if len(probeRegistry) < 50 {
+		t.Errorf("expected at least 50 probes in registry, got %d", len(probeRegistry))
+	}
+}
+
+// TestQuickHTTPCheck_HTTPServer verifies quickHTTPCheck returns true for
+// an actual HTTP server.
+func TestQuickHTTPCheck_HTTPServer(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			// Minimal HTTP response
+			_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"))
+			_ = conn.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = l.Close() })
+
+	if !quickHTTPCheck(context.Background(), "127.0.0.1", port) {
+		t.Error("quickHTTPCheck should return true for HTTP server")
+	}
+}
+
+// TestQuickHTTPCheck_NonHTTPServer verifies quickHTTPCheck returns false for
+// a service that doesn't speak HTTP.
+func TestQuickHTTPCheck_NonHTTPServer(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			// Send non-HTTP data and close
+			_, _ = conn.Write([]byte("+PONG\r\n"))
+			_ = conn.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = l.Close() })
+
+	if quickHTTPCheck(context.Background(), "127.0.0.1", port) {
+		t.Error("quickHTTPCheck should return false for non-HTTP server")
+	}
+}
+
+// TestQuickHTTPCheck_ClosedPort verifies quickHTTPCheck returns false for
+// a closed port.
+func TestQuickHTTPCheck_ClosedPort(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close() // close immediately
+
+	if quickHTTPCheck(context.Background(), "127.0.0.1", port) {
+		t.Error("quickHTTPCheck should return false for closed port")
+	}
+}
+
 // Transparent proxy / honeypot detection
 // ---------------------------------------------------------------------------
 
@@ -945,46 +1062,52 @@ func TestProbeSMBOnPort_SMBv2Server(t *testing.T) {
 // individual port findings (which would all be false positives from a
 // transparent proxy or honeypot SYN-ACK reflection).
 func TestTransparentProxyDetection(t *testing.T) {
-	// Start 12 TCP listeners on random ports.
+	t.Parallel()
+	// Start 12 TCP listeners on random ports. Each listener accepts and
+	// immediately closes connections so probePort returns quickly (EOF)
+	// instead of waiting the full 2s banner timeout.
 	const listenCount = 12
-	var listeners []net.Listener
+	var ports []int
 	for i := 0; i < listenCount; i++ {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("failed to start listener %d: %v", i, err)
 		}
-		listeners = append(listeners, l)
-		defer func() { _ = l.Close() }()
+		p := l.Addr().(*net.TCPAddr).Port
+		ports = append(ports, p)
+		go func() {
+			for {
+				conn, err := l.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn.Close()
+			}
+		}()
+		t.Cleanup(func() { _ = l.Close() })
 	}
 
-	// Build a port list from those listeners.
-	var ports []portEntry
-	for _, l := range listeners {
-		_, portStr, _ := net.SplitHostPort(l.Addr().String())
-		p, _ := strconv.Atoi(portStr)
-		ports = append(ports, portEntry{port: p, service: "test"})
+	// Run the scanner with all 12 ports — all are open, so 100% > 80%
+	// triggers transparent proxy detection.
+	s := &Scanner{Ports: ports}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
 	}
 
-	// Run probes — all should be open.
-	ctx := context.Background()
-	openCount := 0
-	for _, e := range ports {
-		open, _ := probePort(ctx, "127.0.0.1", e.port)
-		if open {
-			openCount++
+	// Should get exactly one finding: transparent proxy / honeypot detection.
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding (transparent proxy), got %d", len(findings))
+	}
+	if findings[0].CheckID != finding.CheckPortServiceDiscovered {
+		t.Errorf("expected CheckPortServiceDiscovered, got %s", findings[0].CheckID)
+	}
+	if ratio, ok := findings[0].Evidence["ratio_pct"].(int); ok {
+		if ratio < 80 {
+			t.Errorf("expected ratio_pct >= 80, got %d", ratio)
 		}
-	}
-
-	// Verify our ratio exceeds the 80% threshold.
-	ratio := openCount * 100 / len(ports)
-	if ratio < 80 {
-		t.Skipf("only %d/%d ports open (%d%%), need 80%% for transparent proxy test", openCount, len(ports), ratio)
-	}
-
-	// The actual detection happens in Run(), but we test the threshold logic
-	// directly: with all ports open, ratio should be >= 80%.
-	if ratio < 80 {
-		t.Errorf("expected ratio >= 80%%, got %d%%", ratio)
 	}
 }
 

@@ -18,6 +18,7 @@ jobs:
   ci:
     uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
     with:
+      test-timeout: 10m
       gosec-excludes: G304,G107,G101
 
   # ── Drydock E2E: runs after CI passes ─────────────────────────────────
