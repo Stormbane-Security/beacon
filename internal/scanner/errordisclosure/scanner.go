@@ -45,6 +45,8 @@ var errorPaths = []string{
 	"/..%252f",            // double-encoded traversal → framework error
 	"/?id=1'",             // SQL-like input → error page
 	"/api/v1/",            // API root → may expose framework info
+	"/api/v1/data",        // common data endpoint → may throw on empty request
+	"/api/data",           // common data endpoint
 	"/undefined",          // common 404
 	"/test.php",           // PHP errors
 	"/test.asp",           // ASP errors

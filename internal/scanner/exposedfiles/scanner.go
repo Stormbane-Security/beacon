@@ -1425,6 +1425,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// phpMyAdmin with default/empty root password:
+	// GET / and check if phpMyAdmin is auto-logged-in with no authentication.
+	if f := probePHPMyAdminDefaultCreds(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	// Apache Airflow exposure + CVE-2024-39877 (DAG code execution, CVSS 8.8):
 	// /api/v1/health confirms Airflow; /api/v1/version reveals version < 2.10.0.
 	findings = append(findings, probeApacheAirflow(ctx, client, base, asset)...)
@@ -5171,6 +5177,60 @@ func probeVaultDefaultToken(ctx context.Context, client *http.Client, base, asse
 			"response":      bodyStr[:min(len(bodyStr), 300)],
 		},
 		ProofCommand: fmt.Sprintf("curl -s -H 'X-Vault-Token: root' '%s' | python3 -m json.tool", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probePHPMyAdminDefaultCreds checks whether a phpMyAdmin instance is accessible
+// and auto-logged-in (PMA_USER/PMA_PASSWORD set with default credentials).
+// phpMyAdmin with root/empty password is a common misconfiguration on shared hosting.
+func probePHPMyAdminDefaultCreds(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// phpMyAdmin pages contain "phpMyAdmin" in the title or body.
+	if !strings.Contains(bodyStr, "phpMyAdmin") && !strings.Contains(bodyStr, "phpmyadmin") {
+		return nil
+	}
+	// If the response shows the logged-in dashboard (database listing or navigation),
+	// the instance is using auto-login with default/empty credentials.
+	loggedIn := strings.Contains(bodyStr, "server_databases") ||
+		strings.Contains(bodyStr, "db_structure") ||
+		strings.Contains(bodyStr, "navigation") ||
+		strings.Contains(bodyStr, "server_sql") ||
+		strings.Contains(bodyStr, "server_status")
+	if !loggedIn {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckWebDefaultCredentials,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("phpMyAdmin accessible with default credentials on %s", asset),
+		Description: "phpMyAdmin at " + u + " is accessible without authentication, indicating " +
+			"auto-login is configured with default or empty database credentials (typically root with " +
+			"no password). This grants full database access including schema modification, data export, " +
+			"and potential OS command execution via SQL queries.",
+		Evidence: map[string]any{
+			"url":      u,
+			"app":      "phpMyAdmin",
+			"auto_login": true,
+		},
+		ProofCommand: fmt.Sprintf("curl -s '%s' | grep -i phpmyadmin", u),
 		DiscoveredAt: time.Now(),
 	}
 }

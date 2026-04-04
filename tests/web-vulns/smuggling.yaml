@@ -1,7 +1,11 @@
 name: http-request-smuggling
-description: "Nginx + gunicorn CL/TE mismatch — beacon detects HTTP request smuggling surface"
+description: "Nginx + gunicorn reverse proxy — beacon detects HTTP request smuggling surface"
 tags: [smuggling, web, authorized]
-
+# TODO: Modern nginx rejects conflicting CL+TE headers (returns 400).
+# This test needs a proxy version with a known CL/TE forwarding CVE
+# (e.g., specific HAProxy, Squid, or Apache mod_proxy versions).
+# The smuggling scanner's timing-based detection is correct but needs
+# infrastructure that actually creates the CL/TE disagreement.
 services:
   app:
     build:

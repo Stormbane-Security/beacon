@@ -73,13 +73,18 @@ var phpSerializedRE = regexp.MustCompile(`O:\d+:"[\w\\]+":\d+:\{`)
 var probePaths = []string{
 	"/api",
 	"/api/v1",
+	"/api/v1/session",
 	"/api/v2",
+	"/api/session",
+	"/api/data",
+	"/api/v1/data",
 	"/rpc",
 	"/invoke",
 	"/execute",
 	"/deserialize",
 	"/object",
 	"/session",
+	"/data",
 	"/viewstate",
 }
 
@@ -495,12 +500,18 @@ func containsPickleMagic(body []byte, bodyStr string) bool {
 var pickleProbePaths = []string{
 	"/api",
 	"/api/v1",
+	"/api/v1/session",
+	"/api/v2",
+	"/api/session",
 	"/rpc",
 	"/invoke",
 	"/execute",
 	"/session",
 	"/pickle",
 	"/load",
+	"/data",
+	"/api/data",
+	"/api/v1/data",
 }
 
 // probePythonPickle sends a minimal Python pickle payload to common endpoints

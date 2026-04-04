@@ -1,4 +1,9 @@
-"""Deliberately vulnerable Flask app with insecure pickle deserialization."""
+"""Deliberately vulnerable Flask app with insecure pickle deserialization.
+
+Simulates a Python API that deserializes user-controlled data via pickle.loads().
+The endpoint accepts both raw pickle bytes and base64-encoded pickle payloads,
+mirroring real-world Python APIs that use pickle for session state or RPC.
+"""
 import pickle
 import base64
 from flask import Flask, request
@@ -19,12 +24,17 @@ def session():
     if not data:
         return "No data", 400
     try:
-        # VULNERABLE: deserializes arbitrary pickle data from user input
-        decoded = base64.b64decode(data)
-        obj = pickle.loads(decoded)
+        # Try raw pickle first
+        obj = pickle.loads(data)
         return f"Session loaded: {obj}"
-    except Exception as e:
-        return f"Error: {e}", 500
+    except Exception:
+        try:
+            # Fall back to base64-decoded pickle
+            decoded = base64.b64decode(data)
+            obj = pickle.loads(decoded)
+            return f"Session loaded: {obj}"
+        except Exception as e:
+            return f"Error: {e}", 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

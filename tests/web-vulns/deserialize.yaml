@@ -15,10 +15,10 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-deserialize-endpoint-accepts-data
+  - name: exploit-pickle-endpoint-accepts-data
     type: command
     expect:
-      command: "curl -sf -X POST http://localhost:9255/api/data -H 'Content-Type: application/octet-stream' -d 'test' -o /dev/null -w '%{http_code}' | grep -qE '(200|400|500)'"
+      command: "printf '\\x80\\x02U\\x04testq\\x00.' | curl -s -X POST http://localhost:9255/api/v1/session --data-binary @- -H 'Content-Type: application/octet-stream' | grep -q 'Session loaded'"
       exit_code: 0
 
   - name: detects-insecure-deserialize

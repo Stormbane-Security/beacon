@@ -44,6 +44,7 @@ const (
 // uploadPaths are common file upload endpoint paths.
 var uploadPaths = []string{
 	"/upload",
+	"/upload.php",
 	"/api/upload",
 	"/api/v1/upload",
 	"/api/v2/upload",
@@ -212,6 +213,8 @@ func discoverUploadEndpoints(ctx context.Context, client *http.Client, base stri
 		bodyStr := string(body)
 		hasUploadSignal := strings.Contains(bodyStr, "upload") ||
 			strings.Contains(bodyStr, "file") ||
+			strings.Contains(bodyStr, "image") ||
+			strings.Contains(bodyStr, "allowed") ||
 			strings.Contains(bodyStr, `"url"`) ||
 			strings.Contains(bodyStr, `"path"`)
 
