@@ -8,7 +8,7 @@ services:
     ports: ["5353:53/udp", "5353:53/tcp"]
     command: ["-conf", "/etc/coredns/Corefile"]
     volumes:
-      - ./dns/Corefile:/etc/coredns/Corefile:ro
+      - ./Corefile:/etc/coredns/Corefile:ro
 
 ready:
   cmd: "dig @localhost -p 5353 example.com +short +time=2 +tries=1 >/dev/null 2>&1 || nc -z localhost 5353"
@@ -25,7 +25,7 @@ assertions:
   - name: detects-dns-open-resolver
     type: beacon
     target: localhost:5353
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "53"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5353"]
     expect:
       check_id: port.dns_open_resolver
 

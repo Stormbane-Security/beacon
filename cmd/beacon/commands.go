@@ -422,7 +422,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	if vreport, verr := v.RunLatest(ctx, runID); verr == nil && len(vreport.CredentialAlerts) > 0 {
 		md.WriteString("## Credential Exposure + Exploit Path Correlation\n\n")
 		for _, alert := range vreport.CredentialAlerts {
-			md.WriteString(fmt.Sprintf("- %s\n", alert))
+			fmt.Fprintf(&md, "- %s\n", alert)
 		}
 		md.WriteString("\n")
 	}
@@ -431,9 +431,9 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	if len(result.ScanOptimizations) > 0 {
 		md.WriteString("## Scan Optimizations\n\n")
 		for _, o := range result.ScanOptimizations {
-			md.WriteString(fmt.Sprintf("- [%s] **%s**: %s\n", o.Type, o.Scanner, o.Description))
+			fmt.Fprintf(&md, "- [%s] **%s**: %s\n", o.Type, o.Scanner, o.Description)
 			if o.SuggestedChange != "" {
-				md.WriteString(fmt.Sprintf("  > Fix: %s\n", o.SuggestedChange))
+				fmt.Fprintf(&md, "  > Fix: %s\n", o.SuggestedChange)
 			}
 		}
 		md.WriteString("\n")
@@ -443,9 +443,9 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	if len(result.ScanGaps) > 0 {
 		md.WriteString("## Detection Gaps\n\n")
 		for _, g := range result.ScanGaps {
-			md.WriteString(fmt.Sprintf("- **%s** (%s): %s\n", g.CVEID, g.Product, g.ReasonUndetectable))
+			fmt.Fprintf(&md, "- **%s** (%s): %s\n", g.CVEID, g.Product, g.ReasonUndetectable)
 			if g.SuggestedNewScannerOrCheck != "" {
-				md.WriteString(fmt.Sprintf("  > Suggested: %s\n", g.SuggestedNewScannerOrCheck))
+				fmt.Fprintf(&md, "  > Suggested: %s\n", g.SuggestedNewScannerOrCheck)
 			}
 		}
 		md.WriteString("\n")
@@ -462,7 +462,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 
 	// Section: Playbook Suggestions summary
 	if len(result.Suggestions) > 0 {
-		md.WriteString(fmt.Sprintf("## Playbook Suggestions (%d saved)\n\n", len(result.Suggestions)))
+		fmt.Fprintf(&md, "## Playbook Suggestions (%d saved)\n\n", len(result.Suggestions))
 		md.WriteString("Run `beacon playbook suggestions` to review and apply.\n\n")
 	}
 

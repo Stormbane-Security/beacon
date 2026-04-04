@@ -1,0 +1,59 @@
+name: dlp-false-positives
+description: >
+  Documentation page with test card numbers, placeholder API keys,
+  invalid SSN patterns, and example configs — beacon should NOT flag these
+tags: [dlp, false-positive]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./false-positives/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Verify the page is served and contains the decoy content.
+  - name: page-contains-test-cards
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -q '4242424242424242'"
+      exit_code: 0
+
+  # No SSN findings — all SSN-like strings use invalid area/group/serial.
+  - name: no-false-positive-ssn
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      not_check_id: dlp.ssn_pattern
+
+  # No private key findings — page has SSH instructions but no actual key.
+  - name: no-false-positive-private-key
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      not_check_id: dlp.private_key
+
+  # No database URL findings — example has no password component.
+  - name: no-false-positive-database-url
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      not_check_id: dlp.database_url
+
+  # No email list finding — only 2 emails, well below the 25 threshold.
+  - name: no-false-positive-email-list
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      not_check_id: dlp.email_list
+
+timeout: 5m

@@ -433,8 +433,14 @@ collectResults:
 
 	// Run UDP probes for services not reachable via TCP connect.
 	// Deep mode runs all UDP probes; surface mode runs the basic set only.
+	// Pass explicit ports so UDP probes can also try non-standard ports
+	// (e.g. DNS on 5353 instead of just 53).
 	if ctx.Err() == nil {
-		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
+		udpExtra := append([]int{}, s.Ports...)
+		if targetPort > 0 {
+			udpExtra = append(udpExtra, targetPort)
+		}
+		if udpFs := runUDP(ctx, asset, scanType, udpExtra...); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
 
 			// Authorized mode: route UDP-discovered services into postexploit chain.

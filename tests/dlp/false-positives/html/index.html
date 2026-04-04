@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head><title>Documentation Portal</title></head>
+<body>
+<h1>Integration Guide</h1>
+
+<h2>Example API Authentication</h2>
+<p>Use the following format for your GitHub token:</p>
+<pre>
+// Replace YOUR_TOKEN with your actual token
+const token = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+</pre>
+<p>Do <strong>not</strong> commit real tokens to source control.</p>
+
+<h2>Test Card Numbers</h2>
+<p>Use these Stripe test cards in your sandbox environment:</p>
+<table>
+<tr><th>Brand</th><th>Number</th><th>Note</th></tr>
+<tr><td>Visa</td><td>4242424242424242</td><td>Always succeeds</td></tr>
+<tr><td>Visa (debit)</td><td>4000056655665556</td><td>Debit card</td></tr>
+<tr><td>Mastercard</td><td>5555555555554444</td><td>Always succeeds</td></tr>
+<tr><td>Amex</td><td>378282246310005</td><td>Always succeeds</td></tr>
+</table>
+
+<h2>Phone Numbers and IDs</h2>
+<p>Order number: 000-00-0000 (invalid SSN area code 000)</p>
+<p>Employee badge: 666-45-1234 (invalid SSN area code 666)</p>
+<p>Ticket reference: 987-00-5432 (invalid SSN group 00)</p>
+<p>Serial number: 123-45-0000 (invalid SSN serial 0000)</p>
+
+<h2>Example GCP Configuration</h2>
+<pre>
+// This is a placeholder configuration — replace with your real credentials
+{
+  "type": "service_account",
+  "project_id": "example-project",
+  "private_key_id": "REPLACE_ME"
+}
+</pre>
+
+<h2>Contact</h2>
+<p>Email us at support@example.com or sales@example.com for help.</p>
+<p>Our office phone is 800-555-0199.</p>
+
+<h2>SSH Setup Guide</h2>
+<pre>
+# Generate a new SSH key (do not share the private key!)
+ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+
+# Your public key will be in ~/.ssh/id_rsa.pub
+# Add it to your GitHub account under Settings > SSH Keys
+</pre>
+
+<h2>Database Configuration</h2>
+<pre>
+# Example connection string format (replace with real values):
+# protocol://username:password@hostname:port/database
+# Supported protocols: PostgreSQL, MySQL, Redis
+# Note: always use environment variables, never hardcode credentials
+</pre>
+
+</body>
+</html>

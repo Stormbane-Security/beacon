@@ -301,7 +301,7 @@ func (a *Analyzer) buildSharedContext(ctx context.Context) (string, map[string]d
 	if !lastRun.IsZero() {
 		lastRunStr = lastRun.Format("2006-01-02 15:04 UTC")
 	}
-	b.WriteString(fmt.Sprintf(`You are a senior security tool architect for Beacon, a reconnaissance scanner.
+	fmt.Fprintf(&b, `You are a senior security tool architect for Beacon, a reconnaissance scanner.
 Your job is to analyze ALL accumulated scan history AND current threat intelligence,
 then produce high-quality playbook improvements AND identify cross-asset attack chains.
 
@@ -335,7 +335,7 @@ Nuclei CVE template naming convention: cve-YYYY-NNNNN
   (e.g. CVE-2024-12345 → nuclei tag "cve-2024-12345")
 
 ---
-`, lastRunStr, time.Now().UTC().Format("2006-01-02")))
+`, lastRunStr, time.Now().UTC().Format("2006-01-02"))
 
 	// Existing playbooks.
 	b.WriteString("## Existing playbooks\n")
@@ -350,15 +350,15 @@ Nuclei CVE template naming convention: cve-YYYY-NNNNN
 		if len(shown) > 20 {
 			shown = shown[:20]
 		}
-		b.WriteString(fmt.Sprintf("## Unmatched assets from scan history (%d unique fingerprints)\n", len(unmatched)))
+		fmt.Fprintf(&b, "## Unmatched assets from scan history (%d unique fingerprints)\n", len(unmatched))
 		b.WriteString("These assets had no targeted playbook match — potential gaps in coverage.\n\n")
 		for _, u := range shown {
 			ev := u.Evidence
-			b.WriteString(fmt.Sprintf(
+			fmt.Fprintf(&b,
 				"  asset=%s asn_org=%q dns_suffix=%q title=%q status=%d cname=%v cert_issuer=%q\n",
 				u.Asset, ev.ASNOrg, ev.DNSSuffix, ev.Title, ev.StatusCode,
 				ev.CNAMEChain, ev.CertIssuer,
-			))
+			)
 		}
 		b.WriteString("\n")
 	}
@@ -375,7 +375,7 @@ func (a *Analyzer) buildDomainPrompt(sharedCtx, domain string, ds domainSummary)
 	var b strings.Builder
 	b.WriteString(sharedCtx)
 	b.WriteString(ds.Text)
-	b.WriteString(fmt.Sprintf(`---
+	fmt.Fprintf(&b, `---
 ## Your task (for domain: %s)
 
 Return a single JSON object. No other text.
@@ -486,7 +486,7 @@ Rules:
 - Each suggested_yaml must be complete valid YAML.
 - Empty arrays [] for sections with no entries.
 - Every entry needs substantive reasoning grounded in evidence from the scan data.
-`, domain))
+`, domain)
 	return b.String()
 }
 
@@ -531,7 +531,7 @@ func (a *Analyzer) buildPrompt(ctx context.Context) (string, map[string]string, 
 	if !lastRun.IsZero() {
 		lastRunStr = lastRun.Format("2006-01-02 15:04 UTC")
 	}
-	b.WriteString(fmt.Sprintf(`You are a senior security tool architect for Beacon, a reconnaissance scanner.
+	fmt.Fprintf(&b, `You are a senior security tool architect for Beacon, a reconnaissance scanner.
 Your job is to analyze ALL accumulated scan history AND current threat intelligence,
 then produce high-quality playbook improvements AND identify cross-asset attack chains.
 
@@ -565,7 +565,7 @@ Nuclei CVE template naming convention: cve-YYYY-NNNNN
   (e.g. CVE-2024-12345 → nuclei tag "cve-2024-12345")
 
 ---
-`, lastRunStr, time.Now().UTC().Format("2006-01-02")))
+`, lastRunStr, time.Now().UTC().Format("2006-01-02"))
 
 	// Existing playbooks.
 	b.WriteString("## Existing playbooks\n")
@@ -580,15 +580,15 @@ Nuclei CVE template naming convention: cve-YYYY-NNNNN
 		if len(shown) > 50 {
 			shown = shown[:50]
 		}
-		b.WriteString(fmt.Sprintf("## Unmatched assets from scan history (%d unique fingerprints)\n", len(unmatched)))
+		fmt.Fprintf(&b, "## Unmatched assets from scan history (%d unique fingerprints)\n", len(unmatched))
 		b.WriteString("These assets had no targeted playbook match — potential gaps in coverage.\n\n")
 		for _, u := range shown {
 			ev := u.Evidence
-			b.WriteString(fmt.Sprintf(
+			fmt.Fprintf(&b,
 				"  asset=%s asn_org=%q dns_suffix=%q title=%q status=%d cname=%v cert_issuer=%q\n",
 				u.Asset, ev.ASNOrg, ev.DNSSuffix, ev.Title, ev.StatusCode,
 				ev.CNAMEChain, ev.CertIssuer,
-			))
+			)
 		}
 		b.WriteString("\n")
 	}
@@ -597,15 +597,15 @@ Nuclei CVE template naming convention: cve-YYYY-NNNNN
 	for domain := range domainRunIDs {
 		roi, err := a.st.GetScannerROI(ctx, domain)
 		if err == nil && len(roi) > 0 {
-			b.WriteString(fmt.Sprintf("## Scanner ROI for %s\n", domain))
+			fmt.Fprintf(&b, "## Scanner ROI for %s\n", domain)
 			b.WriteString("Format: scanner | runs | avg_duration_ms | total_findings (crit/high) | error_rate | skip_rate | findings_per_min\n\n")
 			for _, r := range roi {
-				b.WriteString(fmt.Sprintf(
+				fmt.Fprintf(&b,
 					"  %-20s | %3d runs | %5dms avg | %3d findings (%d crit/%d high) | %.0f%% err | %.0f%% skip | %.2f/min\n",
 					r.ScannerName, r.RunCount, r.AvgDurationMs,
 					r.TotalFindings, r.CriticalFindings, r.HighFindings,
 					r.ErrorRate*100, r.SkipRate*100, r.FindingsPerMin,
-				))
+				)
 			}
 			b.WriteString("\n")
 		}

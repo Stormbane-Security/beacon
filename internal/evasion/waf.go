@@ -274,7 +274,7 @@ func doubleURLEncode(s string) string {
 	// First pass: percent-encode every byte (not QueryEscape, which uses + for spaces).
 	var first strings.Builder
 	for i := 0; i < len(s); i++ {
-		first.WriteString(fmt.Sprintf("%%%02X", s[i]))
+		fmt.Fprintf(&first, "%%%02X", s[i])
 	}
 	// Second pass: encode the % signs from the first pass.
 	return strings.ReplaceAll(first.String(), "%", "%25")
@@ -345,7 +345,7 @@ func hexEncode(s string) string {
 	var hex strings.Builder
 	hex.WriteString("$'")
 	for _, c := range words[0] {
-		hex.WriteString(fmt.Sprintf("\\x%02x", c))
+		fmt.Fprintf(&hex, "\\x%02x", c)
 	}
 	hex.WriteString("'")
 	if len(words) > 1 {
@@ -370,7 +370,7 @@ func htmlEntityEncode(s string) string {
 	var b strings.Builder
 	for _, c := range s {
 		if c == '<' || c == '>' || c == '"' || c == '\'' || c == '/' {
-			b.WriteString(fmt.Sprintf("&#x%x;", c))
+			fmt.Fprintf(&b, "&#x%x;", c)
 		} else {
 			b.WriteRune(c)
 		}
