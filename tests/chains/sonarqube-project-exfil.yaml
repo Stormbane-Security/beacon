@@ -1,0 +1,34 @@
+name: chain-sonarqube-project-exfil
+description: >
+  Exploit chain: SonarQube default credentials (admin/admin) → project enumeration
+  → security hotspot extraction.
+tags: [chain, postexploit, sonarqube, data-exfil, authorized]
+
+services:
+  sonarqube:
+    image: sonarqube:9.9-community
+    ports: ["9415:9000"]
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+
+ready:
+  cmd: "curl -sf http://localhost:9415/api/system/status | grep -q UP"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-sonarqube-service
+    type: beacon
+    target: "localhost:9415"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9415"]
+    expect:
+      check_id: port.service_identified
+
+  - name: chain-exploits-sonarqube-default-creds
+    type: beacon
+    target: "localhost:9415"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9415"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 10m

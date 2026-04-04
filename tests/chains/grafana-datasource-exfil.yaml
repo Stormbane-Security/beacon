@@ -1,0 +1,37 @@
+name: chain-grafana-datasource-exfil
+description: >
+  Exploit chain: Grafana default credentials → datasource secret extraction.
+  Grafana 8.x ships with admin/admin default credentials. The post-exploit
+  chain authenticates, enumerates datasources, and extracts database credentials.
+tags: [chain, postexploit, grafana, credential-harvest, authorized]
+
+services:
+  grafana:
+    image: grafana/grafana:8.3.0
+    ports: ["9410:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+ready:
+  cmd: "curl -sf -u admin:admin http://localhost:9410/api/org | grep -q id"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: detects-grafana-service
+    type: beacon
+    target: "localhost:9410"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9410"]
+    expect:
+      check_id: port.service_identified
+
+  - name: chain-exploits-grafana-default-creds
+    type: beacon
+    target: "localhost:9410"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9410"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 10m
