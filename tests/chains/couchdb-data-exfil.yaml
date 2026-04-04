@@ -1,0 +1,67 @@
+name: chain-couchdb-data-exfil
+description: >
+  Exploit chain: CouchDB no-auth admin → database enumeration → document extraction.
+tags: [chain, postexploit, couchdb, data-exfil, authorized]
+
+services:
+  couchdb:
+    image: couchdb:3
+    ports: ["9411:5984"]
+    environment:
+      COUCHDB_USER: ""
+      COUCHDB_PASSWORD: ""
+
+  seed:
+    image: curlimages/curl:latest
+    depends_on: [couchdb]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        curl -sf -X PUT http://couchdb:5984/customers
+        curl -sf -X PUT http://couchdb:5984/customers/user1 \
+          -H 'Content-Type: application/json' \
+          -d '{"name":"Eve Engineer","email":"eve@example.com","ssn":"222-33-4444","card":"4111111111111111"}'
+        curl -sf -X PUT http://couchdb:5984/customers/user2 \
+          -H 'Content-Type: application/json' \
+          -d '{"name":"Frank Fisher","email":"frank@example.com","ssn":"555-66-7777","card":"5500000000000004"}'
+        curl -sf -X PUT http://couchdb:5984/config
+        curl -sf -X PUT http://couchdb:5984/config/db_creds \
+          -H 'Content-Type: application/json' \
+          -d '{"service":"postgres","host":"10.0.0.5","user":"admin","password":"PgAdminPass!456"}'
+
+ready:
+  cmd: "curl -sf http://localhost:9411/_all_dbs | grep -q customers"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-couchdb-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9411/_all_dbs | grep -q customers"
+      exit_code: 0
+
+  - name: detects-couchdb-unauth
+    type: beacon
+    target: "localhost:9411"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9411"]
+    expect:
+      check_id: port.couchdb_unauthenticated
+
+  - name: chain-harvests-credentials
+    type: beacon
+    target: "localhost:9411"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9411"]
+    expect:
+      check_id: exploit.credential_harvest
+
+  - name: chain-extracts-data
+    type: beacon
+    target: "localhost:9411"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9411"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 5m

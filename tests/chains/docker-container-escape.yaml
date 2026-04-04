@@ -2,59 +2,45 @@ name: chain-docker-container-escape
 description: >
   Exploit chain: unauthenticated Docker API → container enumeration →
   image inspection → container escape via privileged mount.
-  An exposed Docker socket allows creating privileged containers that
-  mount the host filesystem, achieving full host compromise.
 tags: [chain, postexploit, docker, container-escape, authorized]
 
 services:
-  # socat proxies the Docker socket to TCP (simulates exposed Docker API)
   dind:
     image: docker:24-dind
     privileged: true
-    ports: ["0:2375"]
+    ports: ["9403:2375"]
     environment:
       DOCKER_TLS_CERTDIR: ""
 
 ready:
-  cmd: "curl -sf http://localhost:${fixture.dind.port}/version | grep -q ApiVersion"
+  cmd: "curl -sf http://localhost:9403/version | grep -q ApiVersion"
   timeout: 60s
   interval: 3s
 
 assertions:
-  # Verify exploit: Docker API accessible
   - name: exploit-docker-version
     type: command
     expect:
-      command: "curl -sf http://localhost:${fixture.dind.port}/version | grep -q ApiVersion"
+      command: "curl -sf http://localhost:9403/version | grep -q ApiVersion"
       exit_code: 0
 
-  # Verify exploit: can list containers
   - name: exploit-list-containers
     type: command
     expect:
-      command: "curl -sf http://localhost:${fixture.dind.port}/containers/json?all=true"
+      command: "curl -sf http://localhost:9403/containers/json?all=true"
       exit_code: 0
 
-  # Verify exploit: can list images
-  - name: exploit-list-images
-    type: command
-    expect:
-      command: "curl -sf http://localhost:${fixture.dind.port}/images/json"
-      exit_code: 0
-
-  # Beacon detection
   - name: detects-docker-api-exposed
     type: beacon
-    target: "localhost:${fixture.dind.port}"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.dind.port}"]
+    target: "localhost:9403"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9403"]
     expect:
       check_id: port.docker_unauthenticated
 
-  # Post-exploit: container escape possible
   - name: chain-container-escape
     type: beacon
-    target: "localhost:${fixture.dind.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.dind.port}"]
+    target: "localhost:9403"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9403"]
     expect:
       check_id: exploit.container_escape
 

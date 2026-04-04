@@ -1,0 +1,59 @@
+name: chain-ftp-data-exfil
+description: >
+  Exploit chain: FTP anonymous access → file enumeration → credential/data extraction.
+tags: [chain, postexploit, ftp, data-exfil, authorized]
+
+services:
+  ftp:
+    image: delfer/alpine-ftp-server
+    ports: ["9416:21"]
+    environment:
+      USERS: "anonymous|anonymous"
+      ADDRESS: "localhost"
+
+  seed:
+    image: delfer/alpine-ftp-server
+    depends_on: [ftp]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        apk add --no-cache lftp
+        echo 'DB_HOST=10.0.0.5
+        DB_USER=admin
+        DB_PASSWORD=ProdDbPass!Secret123
+        AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+        AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' > /tmp/env.bak
+        echo 'name,email,ssn
+        Grace Green,grace@example.com,333-44-5555
+        Henry Hill,henry@example.com,666-77-8888' > /tmp/customers.csv
+        lftp -e "put /tmp/env.bak; put /tmp/customers.csv; bye" ftp://anonymous:anonymous@ftp 2>/dev/null || true
+
+ready:
+  cmd: "curl -sf ftp://localhost:9416/ 2>/dev/null | grep -q ."
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: exploit-ftp-anonymous-login
+    type: command
+    expect:
+      command: "curl -sf ftp://localhost:9416/ 2>/dev/null | grep -q ."
+      exit_code: 0
+
+  - name: detects-ftp-anonymous
+    type: beacon
+    target: "localhost:9416"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9416"]
+    expect:
+      check_id: port.ftp_anonymous
+
+  - name: chain-harvests-credentials
+    type: beacon
+    target: "localhost:9416"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9416"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 5m

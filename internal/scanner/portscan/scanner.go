@@ -18,9 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/postexploit"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 func init() {
@@ -399,6 +400,30 @@ collectResults:
 	if ctx.Err() == nil {
 		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
+		}
+	}
+
+	// Authorized mode: run post-exploit chain against discovered services.
+	// This triggers credential harvesting, data extraction, and lateral
+	// movement through unauthenticated services found during the port scan.
+	if scanType == module.ScanAuthorized && ctx.Err() == nil {
+		host, _ := parseAssetPort(asset)
+		if host == "" {
+			host = asset
+		}
+		var openPortList []int
+		for p := range openPorts {
+			openPortList = append(openPortList, p)
+		}
+		if len(openPortList) > 0 {
+			chain := postexploit.NewChain()
+			fb := &postexploit.FindingBuilder{
+				Module:  "surface",
+				Scanner: scannerName,
+				Asset:   asset,
+			}
+			chainFindings := chain.ProbeHostPorts(ctx, host, openPortList, fb)
+			findings = append(findings, chainFindings...)
 		}
 	}
 

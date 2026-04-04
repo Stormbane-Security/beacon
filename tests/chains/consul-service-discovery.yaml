@@ -10,7 +10,7 @@ tags: [chain, postexploit, consul, service-discovery, authorized]
 services:
   consul:
     image: hashicorp/consul:1.18
-    ports: ["0:8500"]
+    ports: ["9401:8500"]
     command: ["agent", "-dev", "-client", "0.0.0.0"]
 
   seed:
@@ -30,45 +30,41 @@ services:
         curl -sf -X PUT http://consul:8500/v1/agent/service/register -d '{"Name":"api-gateway","Port":8080,"Address":"10.0.1.10"}'
 
 ready:
-  cmd: "curl -sf http://localhost:${fixture.consul.port}/v1/status/leader | grep -q '\"'"
+  cmd: "curl -sf http://localhost:9401/v1/status/leader | grep -q '\"'"
   timeout: 30s
   interval: 2s
 
 assertions:
-  # Verify exploit works
   - name: exploit-kv-secrets-readable
     type: command
     expect:
-      command: "curl -sf http://localhost:${fixture.consul.port}/v1/kv/secrets/database/password?raw | grep -q RootDBPassword"
+      command: "curl -sf http://localhost:9401/v1/kv/secrets/database/password?raw | grep -q RootDBPassword"
       exit_code: 0
 
   - name: exploit-services-enumerable
     type: command
     expect:
-      command: "curl -sf http://localhost:${fixture.consul.port}/v1/catalog/services | grep -q postgres"
+      command: "curl -sf http://localhost:9401/v1/catalog/services | grep -q postgres"
       exit_code: 0
 
-  # Beacon detection
   - name: detects-consul-no-acl
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9401"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9401"]
     expect:
       check_id: port.consul_no_acl
 
-  # Post-exploit chain: credential harvest from KV store
   - name: chain-harvests-kv-credentials
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9401"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9401"]
     expect:
       check_id: exploit.credential_harvest
 
-  # Post-exploit chain: internal network discovered via service catalog
   - name: chain-discovers-internal-network
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9401"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9401"]
     expect:
       check_id: exploit.internal_network_discovered
 

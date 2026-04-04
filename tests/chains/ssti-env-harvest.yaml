@@ -1,9 +1,7 @@
 name: chain-ssti-env-harvest
 description: >
   Exploit chain: SSTI in Jinja2 template → code execution →
-  environment variable credential harvest. The SSTI scanner confirms
-  code execution, then the post-exploit module harvests credentials
-  from environment variables in the container.
+  environment variable credential harvest.
 tags: [chain, postexploit, ssti, credential-harvest, authorized]
 
 services:
@@ -11,7 +9,7 @@ services:
     build:
       context: ./ssti-env
       dockerfile: Dockerfile
-    ports: ["0:8080"]
+    ports: ["9408:8080"]
     environment:
       DATABASE_PASSWORD: "ProdDBPass!Secret123"
       AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
@@ -20,31 +18,28 @@ services:
       REDIS_AUTH: "RedisAuthToken!789"
 
 ready:
-  cmd: "curl -sf http://localhost:${fixture.ssti-app.port}/"
+  cmd: "curl -sf http://localhost:9408/"
   timeout: 30s
   interval: 2s
 
 assertions:
-  # Verify SSTI works
   - name: exploit-ssti-code-execution
     type: command
     expect:
-      command: "curl -sf 'http://localhost:${fixture.ssti-app.port}/greet?name={{7*7}}' | grep -q 49"
+      command: "curl -sf 'http://localhost:9408/greet?name={{7*7}}' | grep -q 49"
       exit_code: 0
 
-  # Beacon detects SSTI
   - name: detects-ssti
     type: beacon
-    target: "localhost:${fixture.ssti-app.port}"
-    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--ports", "${fixture.ssti-app.port}"]
+    target: "localhost:9408"
+    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
     expect:
       check_id: web.ssti
 
-  # Post-exploit: credential harvest from environment
   - name: chain-harvests-env-credentials
     type: beacon
-    target: "localhost:${fixture.ssti-app.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.ssti-app.port}"]
+    target: "localhost:9408"
+    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
     expect:
       check_id: exploit.credential_harvest
 

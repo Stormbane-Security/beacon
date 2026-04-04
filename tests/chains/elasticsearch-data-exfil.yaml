@@ -9,7 +9,7 @@ tags: [chain, postexploit, elasticsearch, data-exfil, authorized]
 services:
   elasticsearch:
     image: elasticsearch:8.13.0
-    ports: ["0:9200"]
+    ports: ["9402:9200"]
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -29,45 +29,41 @@ services:
         curl -sf -X PUT http://elasticsearch:9200/config/_doc/1 -H 'Content-Type: application/json' -d '{"database_url":"postgres://admin:SecretPass@10.0.1.50:5432/prod","redis_url":"redis://:AuthToken@10.0.1.51:6379"}'
 
 ready:
-  cmd: "curl -sf http://localhost:${fixture.elasticsearch.port}/_cat/indices | grep -q users"
+  cmd: "curl -sf http://localhost:9402/_cat/indices | grep -q users"
   timeout: 90s
   interval: 3s
 
 assertions:
-  # Verify exploit works
   - name: exploit-indices-enumerable
     type: command
     expect:
-      command: "curl -sf http://localhost:${fixture.elasticsearch.port}/_cat/indices | grep -c '^'"
+      command: "curl -sf http://localhost:9402/_cat/indices | grep -c '^'"
       exit_code: 0
 
   - name: exploit-pii-readable
     type: command
     expect:
-      command: "curl -sf 'http://localhost:${fixture.elasticsearch.port}/users/_search?pretty' | grep -q ssn"
+      command: "curl -sf 'http://localhost:9402/users/_search?pretty' | grep -q ssn"
       exit_code: 0
 
-  # Beacon detection
   - name: detects-elasticsearch-no-auth
     type: beacon
-    target: "localhost:${fixture.elasticsearch.port}"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.elasticsearch.port}"]
+    target: "localhost:9402"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9402"]
     expect:
       check_id: port.elasticsearch_unauthenticated
 
-  # Post-exploit: data extraction with PII
   - name: chain-extracts-pii
     type: beacon
-    target: "localhost:${fixture.elasticsearch.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.elasticsearch.port}"]
+    target: "localhost:9402"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9402"]
     expect:
       check_id: exploit.data_extracted
 
-  # Post-exploit: credential harvest from config index
   - name: chain-harvests-db-credentials
     type: beacon
-    target: "localhost:${fixture.elasticsearch.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.elasticsearch.port}"]
+    target: "localhost:9402"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9402"]
     expect:
       check_id: exploit.credential_harvest
 

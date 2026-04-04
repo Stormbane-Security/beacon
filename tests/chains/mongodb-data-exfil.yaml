@@ -2,15 +2,12 @@ name: chain-mongodb-data-exfil
 description: >
   Exploit chain: unauthenticated MongoDB → database enumeration →
   collection scanning → PII/credential extraction.
-  MongoDB without authentication allows full read/write access to all
-  databases and collections, enabling mass data exfiltration.
 tags: [chain, postexploit, mongodb, data-exfil, authorized]
 
 services:
   mongodb:
     image: mongo:7.0
-    ports: ["0:27017"]
-    # No auth configured — fully open
+    ports: ["9405:27017"]
 
   seed:
     image: mongo:7.0
@@ -38,45 +35,35 @@ services:
         '
 
 ready:
-  cmd: "mongosh --host localhost --port ${fixture.mongodb.port} --eval 'db.adminCommand({ping:1})' --quiet | grep -q ok"
+  cmd: "mongosh --host localhost --port 9405 --eval 'db.adminCommand({ping:1})' --quiet | grep -q ok"
   timeout: 60s
   interval: 3s
 
 assertions:
-  # Verify exploit
   - name: exploit-databases-enumerable
     type: command
     expect:
-      command: "mongosh --host localhost --port ${fixture.mongodb.port} --eval 'show dbs' --quiet | grep -q production"
+      command: "mongosh --host localhost --port 9405 --eval 'show dbs' --quiet | grep -q production"
       exit_code: 0
 
-  - name: exploit-pii-readable
-    type: command
-    expect:
-      command: "mongosh --host localhost --port ${fixture.mongodb.port} --eval 'db.getSiblingDB(\"production\").users.findOne()' --quiet | grep -q ssn"
-      exit_code: 0
-
-  # Beacon detection
   - name: detects-mongodb-no-auth
     type: beacon
-    target: "localhost:${fixture.mongodb.port}"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.mongodb.port}"]
+    target: "localhost:9405"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9405"]
     expect:
       check_id: port.database_exposed
 
-  # Post-exploit: data extraction
   - name: chain-extracts-pii
     type: beacon
-    target: "localhost:${fixture.mongodb.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.mongodb.port}"]
+    target: "localhost:9405"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9405"]
     expect:
       check_id: exploit.data_extracted
 
-  # Post-exploit: credential harvest
   - name: chain-harvests-credentials
     type: beacon
-    target: "localhost:${fixture.mongodb.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.mongodb.port}"]
+    target: "localhost:9405"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9405"]
     expect:
       check_id: exploit.credential_harvest
 

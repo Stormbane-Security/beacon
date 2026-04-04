@@ -44,7 +44,7 @@ Tracks which beacon check IDs have drydock e2e tests, and which require cloud ac
 | Supply Chain | 15 | 5 | 10 | 0 | 0 |
 | Okta | 15 | 0 | 15 | 0 | 0 |
 | Correlation | 8 | 0 (AI-generated) | 0 | 0 | 0 |
-| Exploit Chains | 9 | 9 | 0 | 0 | 9 |
+| Exploit Chains | 19 | 19 | 0 | 0 | 19 |
 
 ## Cloud Account Required (tag: cloud-needed)
 
@@ -275,3 +275,13 @@ These check IDs require real cloud provider accounts and cannot be tested locall
 - rce-pivot-internal.yaml → web.command_injection → exploit.internal_network_discovered → exploit.credential_harvest
 - multi-hop-lateral.yaml → port.consul_no_acl → exploit.internal_network_discovered → exploit.credential_harvest → exploit.data_extracted
 - ssti-env-harvest.yaml → web.ssti → exploit.credential_harvest
+- mysql-credential-harvest.yaml → port.mysql_no_auth → exploit.credential_harvest → exploit.data_extracted
+- postgresql-credential-harvest.yaml → port.postgresql_trust → exploit.credential_harvest → exploit.data_extracted
+- couchdb-data-exfil.yaml → port.couchdb_unauthenticated → exploit.credential_harvest → exploit.data_extracted
+- memcached-session-harvest.yaml → port.memcached_unauthenticated → exploit.credential_harvest
+- rabbitmq-credential-harvest.yaml → port.rabbitmq_default_creds → exploit.credential_harvest
+- mqtt-topic-harvest.yaml → port.mqtt_exposed → exploit.credential_harvest
+- ftp-data-exfil.yaml → port.ftp_anonymous → exploit.credential_harvest
+- kibana-data-exfil.yaml → port.kibana_exposed → exploit.data_extracted
+- prometheus-data-harvest.yaml → port.prometheus_unauthenticated → exploit.data_extracted
+- k8s-api-credential-harvest.yaml → port.k8s_api_exposed → exploit.credential_harvest

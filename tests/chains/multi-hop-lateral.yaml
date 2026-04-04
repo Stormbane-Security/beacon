@@ -2,14 +2,12 @@ name: chain-multi-hop-lateral
 description: >
   Multi-hop exploit chain: unauthenticated Consul → discover Redis + MongoDB →
   harvest credentials from Redis → extract data from MongoDB.
-  Demonstrates beacon's recursive chain orchestration across multiple
-  internal services discovered through a single entry point.
 tags: [chain, postexploit, multi-hop, lateral-movement, consul, redis, mongodb, authorized]
 
 services:
   consul:
     image: hashicorp/consul:1.18
-    ports: ["0:8500"]
+    ports: ["9407:8500"]
     command: ["agent", "-dev", "-client", "0.0.0.0"]
 
   redis:
@@ -29,10 +27,8 @@ services:
     command:
       - |
         sleep 5
-        # Register internal services in Consul
         curl -sf -X PUT http://consul:8500/v1/agent/service/register -d '{"Name":"redis-cache","Port":6379,"Address":"redis"}'
         curl -sf -X PUT http://consul:8500/v1/agent/service/register -d '{"Name":"user-db","Port":27017,"Address":"mongodb"}'
-        # Store credentials in Consul KV
         consul kv put -http-addr=http://consul:8500 config/mongodb/connection 'mongodb://mongodb:27017/production'
         consul kv put -http-addr=http://consul:8500 secrets/api/master-key 'mk_prod_a1b2c3d4e5f6'
 
@@ -64,40 +60,36 @@ services:
         '
 
 ready:
-  cmd: "curl -sf http://localhost:${fixture.consul.port}/v1/catalog/services | grep -q redis-cache"
+  cmd: "curl -sf http://localhost:9407/v1/catalog/services | grep -q redis-cache"
   timeout: 60s
   interval: 3s
 
 assertions:
-  # Entry point: Consul no ACL
   - name: detects-consul-entry-point
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9407"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9407"]
     expect:
       check_id: port.consul_no_acl
 
-  # Chain discovers internal services via Consul service catalog
   - name: chain-discovers-internal-topology
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9407"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9407"]
     expect:
       check_id: exploit.internal_network_discovered
 
-  # Chain harvests credentials from Consul KV + Redis
   - name: chain-harvests-credentials
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9407"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9407"]
     expect:
       check_id: exploit.credential_harvest
 
-  # Chain extracts PII from MongoDB
   - name: chain-extracts-data
     type: beacon
-    target: "localhost:${fixture.consul.port}"
-    args: ["--no-enrich", "--authorized", "--ports", "${fixture.consul.port}"]
+    target: "localhost:9407"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9407"]
     expect:
       check_id: exploit.data_extracted
 

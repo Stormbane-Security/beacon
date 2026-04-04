@@ -1,0 +1,51 @@
+name: chain-memcached-session-harvest
+description: >
+  Exploit chain: Memcached unauthenticated → session/token harvest → credential extraction.
+tags: [chain, postexploit, memcached, session-harvest, authorized]
+
+services:
+  memcached:
+    image: memcached:1.6-alpine
+    ports: ["9412:11211"]
+    command: ["memcached", "-m", "64"]
+
+  seed:
+    image: alpine:3.19
+    depends_on: [memcached]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        apk add --no-cache netcat-openbsd
+        sleep 3
+        printf 'set session:admin 0 3600 82\r\n{"uid":1,"role":"superadmin","token":"eyJhbGciOiJIUzI1NiJ9.YWRtaW4.FAKE_TOKEN"}\r\n' | nc -q1 memcached 11211
+        printf 'set config:db_pass 0 3600 22\r\nMongoSecretPass!789ab\r\n' | nc -q1 memcached 11211
+        printf 'set api:internal_key 0 3600 30\r\nik_prod_a1b2c3d4e5f6g7h8i9j0\r\n' | nc -q1 memcached 11211
+
+ready:
+  cmd: "printf 'stats\\r\\n' | nc -q1 localhost 9412 | grep -q curr_items"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-memcached-readable
+    type: command
+    expect:
+      command: "printf 'get session:admin\\r\\n' | nc -q1 localhost 9412 | grep -q superadmin"
+      exit_code: 0
+
+  - name: detects-memcached-unauth
+    type: beacon
+    target: "localhost:9412"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9412"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+  - name: chain-harvests-credentials
+    type: beacon
+    target: "localhost:9412"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9412"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 5m
