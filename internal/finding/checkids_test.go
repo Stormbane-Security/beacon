@@ -599,6 +599,10 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckAIDataExfil:           true,
 		finding.CheckAIToolAbuse:           true,
 		finding.CheckAIIndirectInjection:   true,
+		// Auth probing — active probing
+		finding.CheckAuthUsernameEnumeration:   true,
+		finding.CheckAuthNoLockout:             true,
+		finding.CheckAuthNoBruteforceProtect:   true,
 		// Auth fuzzing — active probing
 		finding.CheckAuthFuzzStateBypass:       true,
 		finding.CheckAuthFuzzCodeInterception:  true,

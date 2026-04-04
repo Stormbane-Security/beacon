@@ -12,6 +12,15 @@ import (
 
 // RenderMarkdown returns the scan results as a Markdown document.
 func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, executions []store.AssetExecution) string {
+	// Filter omitted findings before rendering.
+	filtered := make([]enrichment.EnrichedFinding, 0, len(enriched))
+	for _, ef := range enriched {
+		if !ef.Omit {
+			filtered = append(filtered, ef)
+		}
+	}
+	enriched = filtered
+
 	var b strings.Builder
 
 	// Header

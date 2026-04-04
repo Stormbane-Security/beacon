@@ -165,7 +165,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					"possible against real accounts. " + desc
 			}
 			findings = append(findings, finding.Finding{
-				CheckID:  "auth.username_enumeration",
+				CheckID:  finding.CheckAuthUsernameEnumeration,
 				Module:   "deep",
 				Scanner:  scannerName,
 				Severity: finding.SeverityMedium,
@@ -213,7 +213,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	wgLock.Wait()
 	if !locked {
 		findings = append(findings, finding.Finding{
-			CheckID:  "auth.no_lockout",
+			CheckID:  finding.CheckAuthNoLockout,
 			Module:   "deep",
 			Scanner:  scannerName,
 			Severity: finding.SeverityMedium,
@@ -278,7 +278,7 @@ func (s *Scanner) surfaceCheck(ctx context.Context, client *http.Client, base, a
 
 	// No protection signals found on the page — emit a low-confidence advisory.
 	return []finding.Finding{{
-		CheckID:  "auth.no_bruteforce_protection_signals",
+		CheckID:  finding.CheckAuthNoBruteforceProtect,
 		Module:   "surface",
 		Scanner:  scannerName,
 		Severity: finding.SeverityInfo,

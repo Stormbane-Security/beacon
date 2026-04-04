@@ -936,6 +936,13 @@ const (
 	CheckAdaptiveReconProfile CheckID = "ai.target_profile" // AI-generated target profile with recommended modules + evasion tips
 )
 
+// Auth probing — autoprobe scanner (Deep only).
+const (
+	CheckAuthUsernameEnumeration CheckID = "auth.username_enumeration"              // login form reveals valid usernames
+	CheckAuthNoLockout           CheckID = "auth.no_lockout"                        // no account lockout after failed attempts
+	CheckAuthNoBruteforceProtect CheckID = "auth.no_bruteforce_protection_signals"  // no rate-limit/CAPTCHA on login
+)
+
 // Dynamic auth flow mutation — authfuzz scanner (Deep only).
 const (
 	CheckAuthFuzzStateBypass      CheckID = "authfuzz.state_bypass"       // OAuth state parameter not validated (CSRF on auth flow)
@@ -2815,6 +2822,11 @@ var Registry = map[CheckID]CheckMeta{
 
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},
+
+	// Auth probing — Deep (active probing)
+	CheckAuthUsernameEnumeration: {CheckAuthUsernameEnumeration, SeverityMedium, ModeDeep},
+	CheckAuthNoLockout:           {CheckAuthNoLockout, SeverityMedium, ModeDeep},
+	CheckAuthNoBruteforceProtect: {CheckAuthNoBruteforceProtect, SeverityMedium, ModeDeep},
 
 	// Auth fuzzing — Deep (active probing)
 	CheckAuthFuzzStateBypass:      {CheckAuthFuzzStateBypass, SeverityHigh, ModeDeep},

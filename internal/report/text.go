@@ -17,6 +17,15 @@ const textWidth = 72
 // RenderText returns a plain-text (ASCII) security report suitable for
 // terminal output or piping to other tools.
 func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, executions []store.AssetExecution) string {
+	// Filter omitted findings before rendering.
+	filtered := make([]enrichment.EnrichedFinding, 0, len(enriched))
+	for _, ef := range enriched {
+		if !ef.Omit {
+			filtered = append(filtered, ef)
+		}
+	}
+	enriched = filtered
+
 	var b strings.Builder
 	sep := strings.Repeat("─", textWidth)
 	thick := strings.Repeat("═", textWidth)
