@@ -436,12 +436,9 @@ collectResults:
 	// Pass explicit ports so UDP probes can also try non-standard ports
 	// (e.g. DNS on 5353 instead of just 53).
 	if ctx.Err() == nil {
-		var udpExtra []int
+		udpExtra := append([]int{}, s.Ports...)
 		if targetPort > 0 {
 			udpExtra = append(udpExtra, targetPort)
-		}
-		for _, p := range s.Ports {
-			udpExtra = append(udpExtra, p)
 		}
 		if udpFs := runUDP(ctx, asset, scanType, udpExtra...); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
