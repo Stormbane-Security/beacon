@@ -183,9 +183,13 @@ func TestTimeRequest(t *testing.T) {
 }
 
 func TestSQLi_OOBIntegration(t *testing.T) {
-	// Verify OOB tokens are generated when server is available
+	// Verify OOB tokens are generated when server is available and scanner
+	// doesn't panic. Uses a short timeout — we only need to exercise the OOB
+	// code path, not iterate all payloads.
 	oobSrv := oob.NewServer("oob.test.com", "127.0.0.1:0")
-	ctx := oob.WithOOB(context.Background(), oobSrv)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ctx = oob.WithOOB(ctx, oobSrv)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -196,7 +200,7 @@ func TestSQLi_OOBIntegration(t *testing.T) {
 	host := ts.Listener.Addr().String()
 	// Won't find anything (no actual SQLi) but should not panic
 	findings, err := s.Run(ctx, host, module.ScanAuthorized)
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		t.Fatal(err)
 	}
 	// No findings expected since server doesn't actually execute SQL
