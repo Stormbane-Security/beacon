@@ -210,7 +210,7 @@ func listContainers(ctx context.Context, client *http.Client, endpoint string) (
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB cap
 	if err != nil {
@@ -237,7 +237,7 @@ func inspectContainer(ctx context.Context, client *http.Client, endpoint, id str
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20)) // 5 MB cap
 	if err != nil {

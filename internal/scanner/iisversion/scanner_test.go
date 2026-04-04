@@ -15,7 +15,7 @@ func TestDetectsIISVersion(t *testing.T) {
 		w.Header().Set("X-AspNet-Version", "4.0.30319")
 		if r.URL.Path == "/beacon-nonexistent-7f3a.aspx" {
 			w.WriteHeader(404)
-			w.Write([]byte(`<html><body>
+			_, _ = w.Write([]byte(`<html><body>
 				<h2>404 - File or directory not found.</h2>
 				<h3>The resource you are looking for might have been removed.</h3>
 				<p>Version Information: Microsoft .NET Framework Version:4.0.30319; ASP.NET Version:4.8.4494.0</p>

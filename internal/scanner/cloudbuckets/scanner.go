@@ -392,7 +392,7 @@ func probeWrite(ctx context.Context, client *http.Client, asset, baseURL, provid
 	if err == nil {
 		delResp, err := client.Do(delReq)
 		if delResp != nil {
-			delResp.Body.Close()
+			_ = delResp.Body.Close()
 		}
 		_ = err
 	}

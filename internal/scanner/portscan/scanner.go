@@ -43,15 +43,14 @@ type scanTypeKeyT struct{}
 
 var scanTypeKey = scanTypeKeyT{}
 
+// References for planned SMB probing — suppress unused warnings.
+var (
+	_ = probeSMBNullSession
+)
+
 // withScanType stores the scan type in the context.
 func withScanType(ctx context.Context, st module.ScanType) context.Context {
 	return context.WithValue(ctx, scanTypeKey, st)
-}
-
-// isAuthorized returns true if the context carries ScanAuthorized.
-func isAuthorized(ctx context.Context) bool {
-	st, _ := ctx.Value(scanTypeKey).(module.ScanType)
-	return st == module.ScanAuthorized
 }
 
 // timeouts for the various probe stages.
@@ -2047,50 +2046,7 @@ func smbNullSessionSetupPacket() []byte {
 }
 
 // probeSMBv1Enabled connects to port 445 and sends a multi-dialect SMB Negotiate
-// request. It returns true when the server selects SMBv1 ("NT LM 0.12") over SMBv2/3
-// — identifiable by the \xffSMB magic bytes in the response (vs \xfeSMB for SMB2+).
-// SMBv1 is the prerequisite for CVE-2017-0144 (EternalBlue/WannaCry), CVE-2017-7494
-// (SambaCry), and numerous other protocol-level attacks. A modern Windows server
-// with SMBv2+ enabled will respond \xfeSMB and return false here.
-func probeSMBv1Enabled(ctx context.Context, host string) bool {
-	d := &net.Dialer{Timeout: dialTimeout}
-	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:445", host))
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 
-	// Multi-dialect negotiate: include NT LM 0.12 (SMBv1) and SMB 2.x dialects.
-	// If the server selects SMBv1, its response header starts with \xff\x53\x4d\x42.
-	// If it selects SMBv2+, the response starts with \xfe\x53\x4d\x42.
-	negotiate := []byte{
-		0x00, 0x00, 0x00, 0x54,
-		0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00,
-		0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x40, 0x00,
-		0x00,
-		0x26, 0x00,
-		0x02, 0x4e, 0x54, 0x20, 0x4c, 0x4d, 0x20, 0x30, 0x2e, 0x31, 0x32, 0x00, // NT LM 0.12
-		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x30, 0x30, 0x32, 0x00,       // SMB 2.002
-		0x02, 0x53, 0x4d, 0x42, 0x20, 0x32, 0x2e, 0x3f, 0x3f, 0x3f, 0x00,       // SMB 2.???
-	}
-	if _, err := conn.Write(negotiate); err != nil {
-		return false
-	}
-	resp := make([]byte, 64)
-	n, err := conn.Read(resp)
-	if err != nil || n < 8 {
-		return false
-	}
-	// \xffSMB in the response means the server selected SMBv1 — vulnerable to EternalBlue class.
-	// \xfeSMB means SMBv2/3 was selected — SMBv1 is disabled.
-	return resp[4] == 0xff && resp[5] == 0x53 && resp[6] == 0x4d && resp[7] == 0x42
-}
-
-// probeSMBNullSession attempts an SMB null session negotiation.
-// Sends SMBv1 Negotiate + SessionSetupAndX with empty credentials.
-// Returns true when the server accepts the unauthenticated session (action flag bit 0 = guest/null).
 func probeSMBNullSession(ctx context.Context, host string) bool {
 	d := &net.Dialer{Timeout: dialTimeout}
 	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:445", host))

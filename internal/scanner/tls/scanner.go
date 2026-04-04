@@ -652,7 +652,7 @@ func tlsHandshake(ctx context.Context, host, port string, cfg *tls.Config) (*tls
 	}
 
 	tlsConn := tls.Client(netConn, cfg)
-	tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
 		netConn.Close()
 		return nil, tls.ConnectionState{}, nil, err

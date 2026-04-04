@@ -154,7 +154,7 @@ func checkAssetOwnership(ctx context.Context, ip, rootDomain string) OwnershipRe
 	if err == nil {
 		tlsConn := conn.(*tls.Conn)
 		certs := tlsConn.ConnectionState().PeerCertificates
-		conn.Close()
+		_ = conn.Close()
 
 		if len(certs) > 0 {
 			leaf := certs[0]

@@ -17,7 +17,7 @@ func TestAIDetect_OpenAICompatibleEndpoint(t *testing.T) {
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-OpenAI-Organization", "org-test")
-			fmt.Fprintln(w, `{"object":"list","data":[{"id":"gpt-4","object":"model"}]}`)
+			_, _ = fmt.Fprintln(w, `{"object":"list","data":[{"id":"gpt-4","object":"model"}]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -97,8 +97,8 @@ func TestAIDetect_SSEStreamingDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/chat/completions" {
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"Hello"}}]}`)
-			fmt.Fprintln(w, "data: [DONE]")
+			_, _ = fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"Hello"}}]}`)
+			_, _ = fmt.Fprintln(w, "data: [DONE]")
 			return
 		}
 		http.NotFound(w, r)
@@ -153,7 +153,7 @@ func TestAIDetect_OllamaTagsEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/tags" && r.Method == "GET" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintln(w, `{"models":[{"name":"llama2","size":3825819519}]}`)
+			_, _ = fmt.Fprintln(w, `{"models":[{"name":"llama2","size":3825819519}]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -177,7 +177,7 @@ func TestAIDetect_ContentTypeWithCharset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			fmt.Fprintln(w, `{"object":"list","data":[{"id":"gpt-4","object":"model"}]}`)
+			_, _ = fmt.Fprintln(w, `{"object":"list","data":[{"id":"gpt-4","object":"model"}]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -252,7 +252,7 @@ func TestAIDetect_ToolCallsProseRefusalNoHasTools(t *testing.T) {
 		if r.URL.Path == "/v1/chat/completions" {
 			w.Header().Set("Content-Type", "application/json")
 			// Prose refusal mentioning "tool_calls" in a sentence — should NOT trigger
-			fmt.Fprintln(w, `{"choices":[{"message":{"content":"I don't support \"tool_calls\" in this configuration."},"finish_reason":"stop"}]}`)
+			_, _ = fmt.Fprintln(w, `{"choices":[{"message":{"content":"I don't support \"tool_calls\" in this configuration."},"finish_reason":"stop"}]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -307,7 +307,7 @@ func TestAIDetect_EvidenceProviderSet(t *testing.T) {
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("anthropic-request-id", "req_test123")
-			fmt.Fprintln(w, `{"data":[]}`)
+			_, _ = fmt.Fprintln(w, `{"data":[]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -368,7 +368,7 @@ func TestAIDetect_AnthropicHeaderDetected(t *testing.T) {
 		if r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("anthropic-request-id", "req_123")
-			fmt.Fprintln(w, `{"data":[]}`)
+			_, _ = fmt.Fprintln(w, `{"data":[]}`)
 			return
 		}
 		http.NotFound(w, r)

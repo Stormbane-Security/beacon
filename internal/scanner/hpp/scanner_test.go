@@ -86,7 +86,7 @@ func TestHPP_SmallBodyDiff_NoFinding(t *testing.T) {
 		// Echo back the id parameter value — small diff between "1" and "1,2".
 		ids := r.URL.Query()["id"]
 		if len(ids) > 0 {
-			fmt.Fprintf(w, "Result for id=%s", strings.Join(ids, ","))
+			_, _ = fmt.Fprintf(w, "Result for id=%s", strings.Join(ids, ","))
 			return
 		}
 		fmt.Fprintln(w, "No id provided")

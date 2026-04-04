@@ -209,7 +209,7 @@ func (s *Scanner) doRequest(ctx context.Context, path string, dst any) error {
 	if err != nil {
 		return fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
@@ -237,7 +237,7 @@ func (s *Scanner) doUnauthRequest(ctx context.Context, path string) (int, error)
 	if err != nil {
 		return 0, fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	return resp.StatusCode, nil
 }
@@ -852,10 +852,10 @@ func (s *Scanner) scanError(asset, description string) finding.Finding {
 func parseVersion(v string) (major, minor int) {
 	parts := strings.SplitN(v, ".", 3)
 	if len(parts) >= 1 {
-		fmt.Sscanf(parts[0], "%d", &major)
+		_, _ = fmt.Sscanf(parts[0], "%d", &major)
 	}
 	if len(parts) >= 2 {
-		fmt.Sscanf(parts[1], "%d", &minor)
+		_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	}
 	return
 }
@@ -867,7 +867,7 @@ func jsonInt(v any) int {
 		return int(val)
 	case string:
 		var n int
-		fmt.Sscanf(val, "%d", &n)
+		_, _ = fmt.Sscanf(val, "%d", &n)
 		return n
 	default:
 		return 0

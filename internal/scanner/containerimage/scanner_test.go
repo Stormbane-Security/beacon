@@ -34,7 +34,7 @@ func startRegistry(t *testing.T, handler http.Handler) func() {
 	go srv.Serve(l) //nolint:errcheck
 
 	return func() {
-		srv.Close()
+		_ = srv.Close()
 	}
 }
 
@@ -104,7 +104,7 @@ func TestDeepMode_ExposedRegistry_WithCatalog(t *testing.T) {
 	mux.HandleFunc("/v2/_catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"repositories":["myapp","internal/secrets","infra/nginx"]}`)
+		_, _ = fmt.Fprint(w, `{"repositories":["myapp","internal/secrets","infra/nginx"]}`)
 	})
 
 	// /v2/<repo>/manifests/latest -- return 200 with digest header (latest tag exists)
@@ -279,7 +279,7 @@ func TestDeepMode_SignedImage_NoUnsignedFinding(t *testing.T) {
 	mux.HandleFunc("/v2/_catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"repositories":["signed-app"]}`)
+		_, _ = fmt.Fprint(w, `{"repositories":["signed-app"]}`)
 	})
 
 	// :latest tag exists with a digest

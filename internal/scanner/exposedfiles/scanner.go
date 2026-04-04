@@ -2401,7 +2401,7 @@ func probeFortiOSAuthBypass(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	fbStr := strings.ToLower(string(fb))
 	isFortiOS := strings.Contains(fbStr, "fortinet") || strings.Contains(fbStr, "fortigate") ||
 		strings.Contains(fbStr, "fortiproxy") || strings.Contains(fbStr, "fortios")
@@ -2470,7 +2470,7 @@ func probeTeamCityRPC2(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	if !strings.Contains(strings.ToLower(string(fb)), "teamcity") {
 		return nil
 	}
@@ -4116,7 +4116,7 @@ func probeOpenfire(ctx context.Context, client *http.Client, base, asset string)
 		return nil
 	}
 	loginBody, _ := io.ReadAll(io.LimitReader(loginResp.Body, 4096))
-	loginResp.Body.Close()
+	_ = loginResp.Body.Close()
 	if !strings.Contains(strings.ToLower(string(loginBody)), "openfire") {
 		return nil
 	}
@@ -4934,7 +4934,7 @@ func probePgAdminValidateRCE(ctx context.Context, client *http.Client, base, ass
 		if err2 == nil {
 			if rootResp, err3 := client.Do(rootReq); err3 == nil {
 				rootBody, _ := io.ReadAll(io.LimitReader(rootResp.Body, 8192))
-				rootResp.Body.Close()
+				_ = rootResp.Body.Close()
 				// Page source contains pgadmin4==X.Y or VERSION = 'X.Y'
 				rootStr := string(rootBody)
 				if strings.Contains(strings.ToLower(rootStr), "pgadmin") {
@@ -5231,7 +5231,7 @@ func probeApacheAirflow(ctx context.Context, client *http.Client, base, asset st
 		return findings
 	}
 	vbody, _ := io.ReadAll(io.LimitReader(vresp.Body, 512))
-	vresp.Body.Close()
+	_ = vresp.Body.Close()
 	if vresp.StatusCode != http.StatusOK {
 		return findings
 	}

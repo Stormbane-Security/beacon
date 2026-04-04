@@ -280,7 +280,7 @@ func (s *Scanner) getJSON(ctx context.Context, client *http.Client, url string, 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
@@ -297,7 +297,7 @@ func (s *Scanner) checkAnonymousAuth(ctx context.Context, client *http.Client, a
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

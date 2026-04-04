@@ -174,7 +174,7 @@ func probePDFEndpoint(ctx context.Context, client *http.Client, base, path, meth
 			var buf bytes.Buffer
 			w := multipart.NewWriter(&buf)
 			_ = w.WriteField(bodyKey, p.html)
-			w.Close()
+			_ = w.Close()
 			body = &buf
 			ct = w.FormDataContentType()
 		}

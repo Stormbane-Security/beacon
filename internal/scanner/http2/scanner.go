@@ -89,7 +89,7 @@ func checkALPN(ctx context.Context, asset string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tlsConn := conn.(*tls.Conn)
 	return tlsConn.ConnectionState().NegotiatedProtocol == "h2", nil
@@ -113,7 +113,7 @@ func probeContinuationFlood(ctx context.Context, asset string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.(*tls.Conn)
 
@@ -173,7 +173,7 @@ func probeContinuationFlood(ctx context.Context, asset string) (bool, error) {
 
 	// Try to read response — if we get data back, the server accepted all frames.
 	buf := make([]byte, 256)
-	conn.(net.Conn).SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.(net.Conn).SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, err := conn.Read(buf)
 	if err != nil {
 		// Timeout or close — check if we got a GOAWAY.

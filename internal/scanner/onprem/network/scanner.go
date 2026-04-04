@@ -166,13 +166,13 @@ func (s *Scanner) checkSNMP(ctx context.Context, ip string) []finding.Finding {
 		_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 		_, err = conn.Write(packet)
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 
 		buf := make([]byte, 4096)
 		n, err := conn.Read(buf)
-		conn.Close()
+		_ = conn.Close()
 		if err != nil {
 			continue
 		}
@@ -270,13 +270,13 @@ func (s *Scanner) checkUPnP(ctx context.Context, ip string) []finding.Finding {
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	_, err = conn.Write([]byte(ssdpDiscover))
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return findings
 	}
 
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
-	conn.Close()
+	_ = conn.Close()
 	if err != nil {
 		return findings
 	}
@@ -331,13 +331,13 @@ func (s *Scanner) checkMDNS(ctx context.Context, ip string) []finding.Finding {
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	_, err = conn.Write(query)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return findings
 	}
 
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
-	conn.Close()
+	_ = conn.Close()
 	if err != nil {
 		return findings
 	}
@@ -412,7 +412,7 @@ func (s *Scanner) checkTelnet(ctx context.Context, ip string) []finding.Finding 
 	if err != nil {
 		return findings
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Read the banner (if any) with a short timeout.
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))

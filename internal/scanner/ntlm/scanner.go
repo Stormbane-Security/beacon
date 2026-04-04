@@ -76,8 +76,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != 401 {
 				continue
@@ -99,8 +99,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp2.Body, 512))
-			resp2.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp2.Body, 512))
+			_ = resp2.Body.Close()
 
 			// Parse Type 2 challenge from WWW-Authenticate header.
 			auth := resp2.Header.Get("WWW-Authenticate")

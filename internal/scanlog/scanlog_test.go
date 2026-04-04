@@ -17,7 +17,7 @@ func TestNew_FileOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp.Close()
+	_ = tmp.Close()
 
 	l := New(tmp.Name(), slog.LevelDebug)
 	l.ScanStart("example.com", "surface", []string{"example.com"})
@@ -36,7 +36,7 @@ func TestNew_FileOutput(t *testing.T) {
 	l.ScannerStart("cors", "example.com")
 	l.ScannerComplete("cors", "example.com", 1, 200*time.Millisecond)
 	l.ScanComplete("example.com", 1, 5*time.Second)
-	l.Close()
+	_ = l.Close()
 
 	data, err := os.ReadFile(tmp.Name())
 	if err != nil {
@@ -58,7 +58,7 @@ func TestNew_FileOutput(t *testing.T) {
 
 	// Verify scan.start event
 	var start map[string]any
-	json.Unmarshal([]byte(lines[0]), &start)
+	_ = json.Unmarshal([]byte(lines[0]), &start)
 	if start["msg"] != "scan.start" {
 		t.Errorf("expected scan.start, got %v", start["msg"])
 	}
@@ -68,7 +68,7 @@ func TestNew_FileOutput(t *testing.T) {
 
 	// Verify finding event
 	var f map[string]any
-	json.Unmarshal([]byte(lines[1]), &f)
+	_ = json.Unmarshal([]byte(lines[1]), &f)
 	if f["msg"] != "finding.discovered" {
 		t.Errorf("expected finding.discovered, got %v", f["msg"])
 	}
@@ -84,7 +84,7 @@ func TestNew_Stderr(t *testing.T) {
 	// Empty path => stderr (no crash)
 	l := New("", slog.LevelInfo)
 	l.ScanStart("test.com", "surface", nil)
-	l.Close()
+	_ = l.Close()
 }
 
 func TestFromContext_NilReturnsNop(t *testing.T) {
@@ -128,14 +128,14 @@ func TestExploitChainLogging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp.Close()
+	_ = tmp.Close()
 
 	l := New(tmp.Name(), slog.LevelDebug)
 	l.ExploitChainStart("cmdinj", "target.com", "/api/exec?cmd=")
 	l.ExploitChainStep("cmdinj", "target.com", "host_discovery", "10.0.0.1:6379", true)
 	l.ExploitChainStep("cmdinj", "target.com", "redis_probe", "10.0.0.1:6379", true)
 	l.ExploitChainComplete("cmdinj", "target.com", 3)
-	l.Close()
+	_ = l.Close()
 
 	data, err := os.ReadFile(tmp.Name())
 	if err != nil {
@@ -147,7 +147,7 @@ func TestExploitChainLogging(t *testing.T) {
 	}
 
 	var chainStart map[string]any
-	json.Unmarshal([]byte(lines[0]), &chainStart)
+	_ = json.Unmarshal([]byte(lines[0]), &chainStart)
 	if chainStart["msg"] != "exploit.chain_start" {
 		t.Errorf("expected exploit.chain_start, got %v", chainStart["msg"])
 	}
