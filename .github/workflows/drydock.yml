@@ -1,59 +1,17 @@
 name: Drydock Baseline
 
 on:
-  # Baseline run on dev pushes — not blocking, just tracking.
-  # The blocking gate lives in ci.yml on dev → main PRs.
   push:
     branches: [dev]
   workflow_dispatch:
-    inputs:
-      category:
-        description: "Test category to run (blank = all)"
-        required: false
-        type: string
 
 concurrency:
   group: drydock-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
-        if: runner.environment == 'github-hosted'
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build beacon
-        run: |
-          CGO_ENABLED=1 go build -o beacon ./cmd/beacon
-          chmod +x beacon
-
-      - name: Install drydock
-        run: go install github.com/stormbane-security/drydock/cmd/drydock@latest
-
-      - name: Upload binaries
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: binaries
-          path: |
-            beacon
-            ~/go/bin/drydock
-          retention-days: 1
-
   test:
     name: "E2E: ${{ matrix.category }}"
-    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     continue-on-error: true
@@ -88,14 +46,16 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Download binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          name: binaries
-          path: /usr/local/bin
+          go-version-file: go.mod
+          cache: true
 
-      - name: Make binaries executable
-        run: chmod +x /usr/local/bin/beacon /usr/local/bin/drydock
+      - name: Install tools
+        run: |
+          CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
+          go install github.com/stormbane-security/drydock/cmd/drydock@latest
+          cp ~/go/bin/drydock /usr/local/bin/drydock
 
       - name: Skip if category is empty
         id: check
