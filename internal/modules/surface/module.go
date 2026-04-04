@@ -1591,6 +1591,20 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if eps := extractAIEndpoints(phaseAFindings); len(eps) > 0 {
 		ev.AIEndpoints = eps
 	}
+	// Propagate portscan-identified service versions into Evidence so Phase B
+	// scanners and nuclei template selection can use them. Portscan probes
+	// identify services via banner fingerprinting (e.g., "redis", "ssh", "mysql").
+	if len(openPorts) > 0 {
+		if ev.ServiceVersions == nil {
+			ev.ServiceVersions = make(map[string]string)
+		}
+		for port, svc := range openPorts {
+			if svc != "" {
+				key := fmt.Sprintf("port_%d", port)
+				ev.ServiceVersions[key] = svc
+			}
+		}
+	}
 
 	// Non-standard HTTP port recovery: if classify found no HTTP on 80/443 but
 	// portscan found a known HTTP-capable port (8080, 8443, 3000, etc.), try
