@@ -60,7 +60,7 @@ jobs:
       - name: Install tools
         run: |
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
-          go install github.com/stormbane-security/drydock/cmd/drydock@v0.3.0 # e31bb2a
+          go install github.com/stormbane-security/drydock/cmd/drydock@v0.3.0
           cp ~/go/bin/drydock /usr/local/bin/drydock
 
       - name: Skip if category is empty
