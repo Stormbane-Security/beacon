@@ -221,11 +221,12 @@ func probeXSD(ctx context.Context, client *http.Client, asset, url, payloadName,
 	// to fetch the remote schema (DNS resolution + connection timeout).
 	timeDelta := xsdLatency - baseLatency
 	if timeDelta < 2*time.Second {
-		// Also check if the response body mentions the schema URL — some parsers
-		// include error messages about failed schema fetches.
+		// Check if the response body mentions the canary domain — some parsers
+		// include error messages about failed schema fetches. Only match our
+		// specific canary, not the generic word "schema" which is too broad
+		// (appears in JSON Schema, GraphQL, database schema references, etc.).
 		bodyStr := strings.ToLower(string(body))
-		if !strings.Contains(bodyStr, "xsd-canary.beacon.invalid") &&
-			!strings.Contains(bodyStr, "schema") {
+		if !strings.Contains(bodyStr, "xsd-canary.beacon.invalid") {
 			return nil
 		}
 	}
@@ -276,6 +277,7 @@ func discoverXMLEndpoints(ctx context.Context, client *http.Client, base string)
 			if err != nil {
 				continue
 			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
 			resp.Body.Close()
 
 			// Accept any 2xx non-HTML response as a potential XML endpoint.

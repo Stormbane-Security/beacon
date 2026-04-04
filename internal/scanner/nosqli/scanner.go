@@ -83,14 +83,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
+	ac := authctx.HTTPClient(ctx)
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
+		Transport: ac.Transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}
-	if c := authctx.HTTPClient(ctx); c != nil {
-		client = c
 	}
 
 	base := schemedetect.Base(ctx, client, asset)
@@ -272,6 +271,12 @@ func checkDataExfiltration(ctx context.Context, client *http.Client, asset, base
 		// or returns data when baseline didn't
 		checkExfil := func(status int, body, via string) {
 			if status != 200 {
+				return
+			}
+			// Require baseline to have meaningful content — an empty baseline
+			// means the endpoint returned nothing normally, so any response
+			// content is likely just an error message, not exfiltrated data.
+			if len(baselineBody) < 10 {
 				return
 			}
 			if len(body) > len(baselineBody)*2 && len(body) > 100 {

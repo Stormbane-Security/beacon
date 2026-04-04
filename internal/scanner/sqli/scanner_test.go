@@ -3,6 +3,7 @@ package sqli
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,9 +81,12 @@ func TestSQLi_NoFalsePositiveConstantTime(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
 	s := New()
 	host := ts.Listener.Addr().String()
-	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
+	findings, err := s.Run(ctx, host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,16 +98,23 @@ func TestSQLi_NoFalsePositiveConstantTime(t *testing.T) {
 
 func TestSQLi_NoFalsePositiveJitter(t *testing.T) {
 	// Server with random jitter (0-500ms) — should not trigger because
-	// deltas won't consistently reach 2.5s+ and 4.5s+
+	// deltas won't consistently reach 2.5s+ and 4.5s+.
+	// Use a 30s context timeout: enough for the scanner to probe a few
+	// path/param combos (which confirms no false positives from jitter)
+	// without iterating the full matrix (~1100 requests × 500ms = too slow).
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Duration(rand.IntN(500)) * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	s := New()
 	host := ts.Listener.Addr().String()
-	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
+	findings, err := s.Run(ctx, host, module.ScanAuthorized)
 	if err != nil {
 		t.Fatal(err)
 	}

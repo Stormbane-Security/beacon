@@ -68,10 +68,11 @@ var protectedPaths = []string{
 }
 
 // sensitiveTargets — if traversal reaches these, it confirms the bypass.
+// All lowercase because they are compared against strings.ToLower(body).
 var sensitiveTargets = []string{
 	"/etc/passwd",
 	"actuator",
-	"WEB-INF",
+	"web-inf",
 	"web.xml",
 }
 

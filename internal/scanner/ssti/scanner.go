@@ -71,9 +71,6 @@ var payloads = []payload{
 	{expr: "<%= 7*7 %>", expect: "49", engine: "ERB/JSP"},
 	{expr: "#{7*7}", expect: "49", engine: "Ruby/Pebble"},
 	{expr: "{{7*'7'}}", expect: "7777777", engine: "Jinja2"},
-	// Polyglot payload — triggers across multiple template engines simultaneously.
-	// If any engine evaluates the embedded expression, "49" appears in the response.
-	{expr: `${{<%[%'"}}%\`, expect: "49", engine: "Polyglot"},
 	// Engine-specific additional payloads
 	{expr: "${7*7}", expect: "49", engine: "Java EL"},
 	// FreeMarker — uses [#assign] directive for variable assignment.
@@ -242,8 +239,11 @@ func evaluatedInBody(expect, body string) bool {
 }
 
 // isNotFound returns true when the path returns HTTP 404.
+// Uses a dummy query param so the check matches the actual scan request shape —
+// many apps return 404 for bare /path but 200 for /path?q=test.
 func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	testURL := rawURL + "?_beacon_probe=1"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return false
 	}

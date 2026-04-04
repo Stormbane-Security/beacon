@@ -381,10 +381,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 // metadataSignalFound returns the first metadata signal string found in body,
 // or an empty string if none are present.
 func metadataSignalFound(body string) string {
+	var matched []string
 	for _, sig := range metadataSignals {
 		if strings.Contains(body, sig) {
-			return sig
+			matched = append(matched, sig)
 		}
+	}
+	// Require 2+ signals to avoid false positives on cloud dashboards
+	// that naturally mention "instance-id" or similar terms in HTML.
+	if len(matched) >= 2 {
+		return strings.Join(matched, ", ")
 	}
 	return ""
 }

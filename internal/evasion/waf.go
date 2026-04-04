@@ -264,10 +264,8 @@ func urlEncodeKeywords(s string) string {
 	keywords := []string{"SELECT", "UNION", "FROM", "WHERE", "AND", "OR", "SLEEP", "WAITFOR"}
 	result := s
 	for _, kw := range keywords {
-		if strings.Contains(strings.ToUpper(result), kw) {
-			encoded := url.QueryEscape(kw)
-			result = strings.ReplaceAll(strings.ToUpper(result), kw, encoded)
-		}
+		encoded := url.QueryEscape(kw)
+		result = replaceIgnoreCase(result, kw, encoded)
 	}
 	return result
 }
