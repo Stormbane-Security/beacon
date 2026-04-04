@@ -82,4 +82,7 @@ Additional services that would improve coverage:
 
 ### Email scanners — `dns` + `smtp`
 - SPF, DMARC, DKIM — requires real domain with DNS records
-- SMTP relay — requires actual SMTP server
+- SMTP banner leak + open relay — requires MX records pointing to test server.
+  `checkSMTPConn` is unit-tested with mock TCP servers (smtp_test.go).
+  Drydock test needs `checkSMTP` refactored to accept a custom resolver/dialer,
+  or a CoreDNS container serving MX records for a test domain.

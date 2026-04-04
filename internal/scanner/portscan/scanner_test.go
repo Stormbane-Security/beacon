@@ -29,16 +29,6 @@ import (
 // internal logic by observing side effects via buildPortList and probePort
 // indirectly through Run() against 127.0.0.1 while the correct port is open.
 
-// TestBuildPortListSurfaceExcludesExtendedPorts verifies that surface scans
-// don't include extended (deep-only) ports.
-// TestBuildPortListSurfaceExcludesExtendedPorts is covered by TestBuildPortList
-// in banner_test.go (white-box, no network I/O). The previous version scanned
-// 192.0.2.1 (TEST-NET unreachable) which took ~120s due to dial timeouts and
-// provided no meaningful signal beyond what the white-box test already covers.
-func TestBuildPortListSurfaceExcludesExtendedPorts(t *testing.T) {
-	t.Skip("covered by TestBuildPortList in banner_test.go — see probe_test.go for network-level tests")
-}
-
 // TestRunReturnsNoFindingsForClosedPorts verifies that a port with nothing
 // listening does not produce a finding.
 func TestRunReturnsNoFindingsForClosedPorts(t *testing.T) {
@@ -122,12 +112,13 @@ func TestElasticsearchUnauthFinding(t *testing.T) {
 // produce a false failure.
 func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 	t.Parallel()
-	// Bind an SSH server on a port NOT in the scanner's list.
-	l, err := net.Listen("tcp", "127.0.0.1:22222")
+	// Bind an SSH server on a random port NOT in the scanner's list.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("cannot bind port 22222: %v", err)
+		t.Fatalf("cannot bind listener: %v", err)
 	}
 	defer func() { _ = l.Close() }()
+	sshPort := l.Addr().(*net.TCPAddr).Port
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -139,10 +130,11 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 		}
 	}()
 
-	// Use a small explicit port list that does NOT include 22222.
-	// This verifies the scanner only probes the configured ports.
+	// Use a small explicit port list that does NOT include the SSH port.
+	// Pick a different ephemeral port that's closed.
+	closedPort := sshPort + 1
 	s := portscan.New()
-	s.Ports = []int{22223} // closed port — should produce no findings
+	s.Ports = []int{closedPort} // closed port — should produce no findings
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
@@ -150,10 +142,10 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 		t.Fatalf("Run() error: %v", err)
 	}
 
-	// No finding should reference port 22222 — the scanner never probed it.
+	// No finding should reference the SSH port — the scanner never probed it.
 	for _, f := range findings {
-		if port, ok := f.Evidence["port"]; ok && port == 22222 {
-			t.Errorf("unexpected finding for port 22222 (not in scanner's port list): %s", f.CheckID)
+		if port, ok := f.Evidence["port"]; ok && port == sshPort {
+			t.Errorf("unexpected finding for port %d (not in scanner's port list): %s", sshPort, f.CheckID)
 		}
 	}
 }

@@ -159,7 +159,7 @@ func TestProbeSNMP_WrongTag(t *testing.T) {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil || n < 1 {
-		t.Skip("no response")
+		t.Fatal("no response from mock UDP server")
 	}
 	// Verify the probeSNMPUDP logic would reject this.
 	if buf[0] == 0x30 {
@@ -462,7 +462,7 @@ func TestProbeDNSResolver_WrongTransactionID(t *testing.T) {
 	buf := make([]byte, 512)
 	n, err := conn.Read(buf)
 	if err != nil || n < 4 {
-		t.Skip("no response")
+		t.Fatal("no response from mock UDP server")
 	}
 	// Probe logic checks buf[0]==0x12 && buf[1]==0x34 — this should fail.
 	if buf[0] == 0x12 && buf[1] == 0x34 {

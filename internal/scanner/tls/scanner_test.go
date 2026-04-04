@@ -244,7 +244,7 @@ func TestHasSCT_MissingExtension(t *testing.T) {
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		t.Skip("cannot dial test server:", err)
+		t.Fatal("cannot dial test server:", err)
 	}
 	defer func() { _ = conn.Close() }()
 	certs := conn.ConnectionState().PeerCertificates
