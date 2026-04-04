@@ -14,7 +14,7 @@ jobs:
     name: "E2E: ${{ matrix.category }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    continue-on-error: true
+    # continue-on-error removed — failures should be visible
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +54,7 @@ jobs:
       - name: Install tools
         run: |
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
-          go install github.com/stormbane-security/drydock/cmd/drydock@latest
+          go install github.com/stormbane-security/drydock/cmd/drydock@v0.3.0 # e31bb2a
           cp ~/go/bin/drydock /usr/local/bin/drydock
 
       - name: Skip if category is empty
