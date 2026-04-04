@@ -37,9 +37,25 @@ surface:
     - nginx          # Nginx alias traversal + IIS short-name probes — safe GET-only path probes
     - gateway        # CDN/LB/API-gateway/mesh admin interface exposure — vendor-specific GET probes
     - tlscheck       # native Go TLS: key strength, OCSP, CT logs, PFS, HSTS policy
+    - secheaders     # missing CSP, HSTS, X-Frame-Options, X-Content-Type, Referrer-Policy, Permissions-Policy
     - swagger        # OpenAPI/Swagger spec exposure — safe GET probes to common spec paths
     - chainnode      # blockchain node/validator/miner detection — port probes + JSON-RPC fingerprinting
-    - githubactions  # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
+    - github.actions # GitHub Actions workflow security: PR target abuse, secret exposure, shell injection
+    - containerimage # Docker/OCI registry exposure — anonymous catalog, unsigned images
+    - jenkins        # Jenkins dashboard and API exposure — passive fingerprinting
+    - cms-plugins    # CMS detection and admin panel discovery (WordPress, Ghost, Drupal, etc.)
+    - cacheprobe     # HTTP cache behavior detection — cache key analysis, poisoning signals
+    - proxychain     # reverse proxy/CDN hop detection via diagnostic headers
+    - nextjs         # Next.js CVE-2025-29927 middleware bypass — safe header probe
+    - passivedns     # passive DNS aggregation from public sources (no active queries)
+    - bgp            # BGP prefix origin validation and AS ownership
+    - errordisclosure # stack traces, debug endpoints, verbose error info leak
+    - bigip          # F5 BIG-IP persistence cookie decoding — internal IP leak
+    - aiinfra        # AI/ML infrastructure exposure (Jupyter, Ray, MLflow, Gradio)
+    - mcpscan        # MCP server endpoint discovery — unauthenticated tool access
+    - grpcreflect    # gRPC reflection enumeration — exposes full API surface
+    - jsendpoints    # JS bundle endpoint extraction — internal API/hostname/IP leakage
+    - iisversion     # IIS deep version fingerprinting from error pages and debug endpoints
     # vhost is deep-only: crafted Host headers sent to a shared IP could probe
     # virtual hosts belonging to other tenants on shared infrastructure.
   nuclei_tags:
@@ -75,11 +91,27 @@ deep:
     - ssrf           # SSRF via cloud metadata injection in URL params — active payloads
     - hpp            # HTTP parameter pollution — duplicate param probes
     - protopollution # Node.js prototype pollution in JSON API endpoints
+    - csrf           # POST form CSRF token absence + SameSite cookie check
     - authfuzz       # dynamic auth flow mutation: redirect_uri abuse, alg:none JWT, code re-use
     - xxe            # XML external entity injection in XML-accepting endpoints
     - deserial       # insecure deserialization fingerprinting (Java/PHP magic bytes + exception probing)
     - fileupload     # file upload bypass: double extension, MIME confusion, null byte
+    - openredir      # open redirect via common redirect parameters (?url=, ?redirect=, ?next=)
     - swagger        # OpenAPI endpoint fuzzing: missing-param 500s, type confusion, SQL canaries
+    - sqli           # time-blind SQL injection with calibration-based dual-sleep confirmation
+    - nosqli         # NoSQL/MongoDB operator injection ($ne, $gt, $where) auth bypass + data exfil
+    - cmdinj         # OS command injection via timing analysis + OOB nslookup confirmation
+    - domxss         # DOM-based XSS detection via headless Chrome source-to-sink tracing
+    - elinjection    # Java Expression Language injection (SpEL, OGNL, EL) in parameters
+    - idor           # IDOR/BOLA: sequential numeric ID manipulation on REST API endpoints
+    - accesscontrol  # broken access control: admin path bypass, method override, path traversal
+    - redos          # Regular Expression DoS via catastrophic backtracking timing detection
+    - hopbyhop       # hop-by-hop Connection header abuse — proxy strips security headers
+    - h2c            # HTTP/2 Cleartext upgrade smuggling — bypasses proxy controls
+    - verbtamper     # HTTP verb tampering auth bypass — alternate method on protected paths
+    - pathtraversal  # framework-specific path traversal (Spring ..;/, Tomcat %2e, IIS %5C)
+    - racecondition  # TOCTOU race condition detection via concurrent request burst
+    - pdfssrf        # SSRF via HTML-to-PDF generation endpoints
   nuclei_tags:
     - cves
     - network

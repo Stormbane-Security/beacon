@@ -3,7 +3,6 @@ package surface
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
@@ -262,13 +261,12 @@ func TestScannerSkipReasonNonHTTPDepNotSkipped(t *testing.T) {
 func TestSaveScanMetricNilStoreNoOp(t *testing.T) {
 	m := &Module{st: nil}
 	// Should not panic when store is nil
-	m.saveScanMetric(nil, "", "asset", "scanner", time.Now(), nil, nil)
-	m.saveScanMetricElapsed(nil, "", "asset", "scanner", 0, nil, nil)
-	m.saveSkipMetric(nil, "", "asset", "scanner", "test")
+	m.saveScanMetricElapsed(context.TODO(), "", "asset", "scanner", 0, nil, nil)
+	m.saveSkipMetric(context.TODO(), "", "asset", "scanner", "test")
 }
 
 func TestSaveScanMetricEmptyRunIDNoOp(t *testing.T) {
 	m := &Module{st: nil}
 	// scanRunID="" should be a no-op even if store were set
-	m.saveScanMetric(nil, "" /*scanRunID*/, "asset", "scanner", time.Now(), nil, nil)
+	m.saveScanMetricElapsed(context.TODO(), "" /*scanRunID*/, "asset", "scanner", 0, nil, nil)
 }

@@ -1,0 +1,57 @@
+name: cmsplugins-wordpress
+description: "WordPress instance with classic-editor plugin — beacon detects CMS and enumerates plugins"
+tags: [cmsplugins, scanner, web, cms]
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: wppass
+
+  app:
+    image: wordpress:latest
+    ports: ["9250:80"]
+    depends_on: [db]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: wppass
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - ./cmsplugins-wordpress/classic-editor:/var/www/html/wp-content/plugins/classic-editor:ro
+
+ready:
+  cmd: "curl -sfL http://localhost:9250/wp-admin/install.php | grep -qi 'wordpress'"
+  timeout: 120s
+  interval: 5s
+
+run:
+  - >
+    curl -s -X POST 'http://localhost:9250/wp-admin/install.php?step=2'
+    -d 'weblog_title=TestSite&user_name=admin&admin_password=admin123&admin_password2=admin123&pw_weak=1&admin_email=admin@test.com&Submit=Install+WordPress'
+    >/dev/null
+
+assertions:
+  - name: exploit-wordpress-detected
+    type: command
+    expect:
+      command: "curl -sL http://localhost:9250/ | grep -qi 'wordpress'"
+      exit_code: 0
+
+  - name: exploit-plugin-readme-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9250/wp-content/plugins/classic-editor/readme.txt | grep -qi 'Stable tag'"
+      exit_code: 0
+
+  - name: detects-cms-plugins
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.plugin_found
+
+timeout: 5m

@@ -168,7 +168,7 @@ func (s *Scanner) scanProject(ctx context.Context, projectID, asset string, opts
 func (s *Scanner) clientOptions() []option.ClientOption {
 	if s.cfg.ServiceAccountKeyFile != "" {
 		return []option.ClientOption{
-			option.WithCredentialsFile(s.cfg.ServiceAccountKeyFile),
+			option.WithCredentialsFile(s.cfg.ServiceAccountKeyFile), //nolint:staticcheck // SA1019: no viable replacement without changing API signature
 		}
 	}
 	// Use Application Default Credentials.

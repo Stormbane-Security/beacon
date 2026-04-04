@@ -51,16 +51,16 @@ func runFfuf(ctx context.Context, ffufBin, asset string, paths []string) []Resul
 	if err != nil {
 		return nil
 	}
-	defer os.Remove(wl.Name())
+	defer func() { _ = os.Remove(wl.Name()) }()
 
 	for _, p := range paths {
 		p = strings.TrimPrefix(p, "/")
 		if _, err := wl.WriteString(p + "\n"); err != nil {
-			wl.Close()
+			_ = wl.Close()
 			return nil
 		}
 	}
-	wl.Close()
+	_ = wl.Close()
 
 	// Temp file for JSON output.
 	out, err := os.CreateTemp("", "beacon-ffuf-out-*.json")
@@ -68,8 +68,8 @@ func runFfuf(ctx context.Context, ffufBin, asset string, paths []string) []Resul
 		return nil
 	}
 	outName := out.Name()
-	out.Close()
-	defer os.Remove(outName)
+	_ = out.Close()
+	defer func() { _ = os.Remove(outName) }()
 
 	// Determine scheme by attempting a quick HTTPS probe first.
 	scheme := probeScheme(ctx, asset)

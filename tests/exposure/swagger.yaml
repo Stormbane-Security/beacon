@@ -1,0 +1,35 @@
+name: swagger-exposed
+description: "FastAPI app exposes OpenAPI spec at /openapi.json by default"
+tags: [swagger, openapi, exposure, fastapi]
+
+services:
+  api:
+    image: tiangolo/uvicorn-gunicorn-fastapi:python3.11-slim
+    ports: ["8080:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/openapi.json | grep -q paths"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-openapi-spec-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/openapi.json | grep -q paths"
+      exit_code: 0
+
+  - name: exploit-swagger-ui-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/docs | grep -qi swagger"
+      exit_code: 0
+
+  - name: detects-openapi-spec-exposed
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "swagger", "--ports", "80"]
+    expect:
+      check_id: web.swagger_exposed
+
+timeout: 5m

@@ -1,0 +1,45 @@
+name: http-trace-method-enabled
+description: >
+  Apache with TRACE method enabled by default. Beacon's HTTP method
+  fingerprinting should detect TRACE is enabled (cross-site tracing risk).
+tags: [http, trace, method, fingerprint]
+
+services:
+  apache:
+    image: httpd:2.4-alpine
+    ports: ["9327:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9327/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify TRACE method is accepted ---
+  - name: exploit-trace-returns-200
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X TRACE http://localhost:9327/); [ \"$STATUS\" = \"200\" ]"
+      exit_code: 0
+
+  - name: exploit-trace-echoes-request
+    type: command
+    expect:
+      command: "curl -s -X TRACE http://localhost:9327/ | grep -qi 'TRACE'"
+      exit_code: 0
+
+  # --- Verify error page fingerprinting detects Apache ---
+  - name: exploit-404-reveals-apache
+    type: command
+    expect:
+      command: "curl -s http://localhost:9327/nonexistent-path | grep -qi 'apache'"
+      exit_code: 0
+
+  # --- Negative: DELETE on root should fail ---
+  - name: negative-delete-not-allowed
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE http://localhost:9327/); [ \"$STATUS\" != \"200\" ]"
+      exit_code: 0
+
+timeout: 5m

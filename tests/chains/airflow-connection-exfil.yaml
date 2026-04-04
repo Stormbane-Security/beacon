@@ -1,0 +1,41 @@
+name: chain-airflow-connection-exfil
+description: >
+  Exploit chain: Airflow default credentials → connection secret extraction.
+  Apache Airflow with default airflow/airflow credentials exposes all
+  connection configurations (database passwords, API keys) and variables.
+tags: [chain, postexploit, airflow, credential-harvest, authorized]
+weight: 60
+
+services:
+  airflow:
+    image: apache/airflow:2.7.0
+    ports: ["9424:8080"]
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - _AIRFLOW_DB_MIGRATE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=airflow
+      - _AIRFLOW_WWW_USER_PASSWORD=airflow
+    command: ["standalone"]
+
+ready:
+  cmd: "curl -sf -u airflow:airflow http://localhost:9424/api/v1/dags 2>/dev/null | grep -q dags"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: airflow-api-accessible
+    type: command
+    expect:
+      command: "curl -sf -u airflow:airflow http://localhost:9424/api/v1/dags | grep -q dags"
+      exit_code: 0
+
+  - name: chain-exploits-airflow-default-creds
+    type: beacon
+    target: "localhost:9424"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9424"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 10m

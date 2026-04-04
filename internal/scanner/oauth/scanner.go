@@ -4,8 +4,7 @@
 //   - JWKS endpoint exposure — /.well-known/jwks.json or /oauth/discovery
 //   - OIDC discovery document — checks for implicit flow enabled, missing PKCE support
 //   - Token endpoint unauthenticated access — POST /oauth/token without credentials
-//   - OAuth authorization endpoint — missing state parameter → CSRF risk (deep)
-//   - OAuth authorization endpoint — missing PKCE (code_challenge) → auth code interception (deep)
+//   - OAuth authorization endpoint — missing state parameter → CSRF risk (deep)//   - OAuth authorization endpoint — missing PKCE (code_challenge) → auth code interception (deep)
 //   - Open redirect in redirect_uri — accepts arbitrary domains (deep)
 //   - JWT no-verification — sends a token with an invalid signature (deep)
 //
@@ -30,10 +29,34 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckJWKSExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckJWTNoVerification, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthImplicitAccepted, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthMissingPKCE, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthMissingState, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthOpenRedirect, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthRefreshNotRotated, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthSubdomainBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthTokenInFragment, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthTokenLeakReferer, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthTokenLongExpiry, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthWeakState, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckOIDCBackchannelMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCImplicitFlow, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCMissingJWKSURI, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCWeakSigningAlg, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 // sanitizeShellArg wraps s in single quotes, escaping embedded single quotes.
 func sanitizeShellArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
@@ -414,7 +437,7 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 				strings.Contains(bodyLower, "oauth"))
 		if resp.StatusCode == http.StatusOK || is400Misconfig {
 			return &finding.Finding{
-				CheckID:  finding.CheckOAuthMissingState, // reuse closest check; ideally a dedicated ID
+				CheckID:  finding.CheckOAuthTokenEndpointNoAuth,
 				Module:   "surface",
 				Scanner:  scannerName,
 				Severity: finding.SeverityHigh,
@@ -823,8 +846,12 @@ func checkOpenRedirect(ctx context.Context, client *http.Client, asset, authEndp
 	loc := resp.Header.Get("Location")
 	bodyStr := string(body)
 
-	if strings.Contains(strings.ToLower(loc), "evil.com") ||
-		strings.Contains(bodyStr, "evil.com") {
+	isRedirect := resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308
+	isRejection := resp.StatusCode == 400 || resp.StatusCode == 401 || resp.StatusCode == 403
+	locMatch := strings.Contains(strings.ToLower(loc), "evil.com")
+	bodyMatch := strings.Contains(bodyStr, "evil.com")
+
+	if (isRedirect && locMatch) || (resp.StatusCode == 200 && bodyMatch) || (!isRejection && locMatch) {
 		ev, note := confidenceNote(pc)
 		ev["endpoint"] = authEndpoint
 		ev["injected_redirect"] = "https://evil.com/steal-tokens"
@@ -883,8 +910,12 @@ func checkSubdomainBypass(ctx context.Context, client *http.Client, asset, authE
 	// subdomain in the Location header or response body. The server may redirect
 	// directly or render a consent page that includes the redirect_uri.
 	evilHost := "evil." + asset
-	if strings.Contains(strings.ToLower(loc), evilHost) ||
-		strings.Contains(bodyStr, evilHost) {
+	isRedirect := resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308
+	isRejection := resp.StatusCode == 400 || resp.StatusCode == 401 || resp.StatusCode == 403
+	locMatch := strings.Contains(strings.ToLower(loc), evilHost)
+	bodyMatch := strings.Contains(bodyStr, evilHost)
+
+	if (isRedirect && locMatch) || (resp.StatusCode == 200 && bodyMatch) || (!isRejection && locMatch) {
 		ev, note := confidenceNote(pc)
 		ev["endpoint"] = authEndpoint
 		ev["injected_redirect"] = evilRedirect

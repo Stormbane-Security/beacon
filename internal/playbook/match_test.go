@@ -641,3 +641,32 @@ match:
 		t.Fatal("ai_endpoint_present: true must match when Evidence.AIEndpoints is non-empty")
 	}
 }
+
+// TestMatch_WAFVendorContains verifies that waf_vendor_contains matches
+// when WAFVendor is populated and is considered non-empty by isEmptyRule.
+func TestMatch_WAFVendorContains(t *testing.T) {
+	p := mustParse(t, `
+name: test_waf_vendor
+match:
+  any:
+    - waf_vendor_contains: cloudflare
+`)
+
+	// No WAF detected — must not match.
+	evEmpty := playbook.Evidence{}
+	if p.Matches(evEmpty) {
+		t.Fatal("waf_vendor_contains must not match when WAFVendor is empty")
+	}
+
+	// Wrong WAF vendor — must not match.
+	evWrong := playbook.Evidence{WAFVendor: "Akamai"}
+	if p.Matches(evWrong) {
+		t.Fatal("waf_vendor_contains must not match when WAFVendor is different")
+	}
+
+	// Correct WAF vendor — must match (case-insensitive).
+	evMatch := playbook.Evidence{WAFVendor: "Cloudflare CDN"}
+	if !p.Matches(evMatch) {
+		t.Fatal("waf_vendor_contains must match when WAFVendor contains the substring")
+	}
+}

@@ -6,13 +6,13 @@ import (
 	"log"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-func scanSQL(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanSQL(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armsql.NewServersClient(subID, cred, nil)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func scanSQL(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID
 
 // evaluateSQLServer checks a single Azure SQL server and its databases for
 // misconfigurations and returns any findings.
-func evaluateSQLServer(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, resourceGroup, name string, props *armsql.ServerProperties, asset string) []finding.Finding {
+func evaluateSQLServer(ctx context.Context, cred azcore.TokenCredential, subID, resourceGroup, name string, props *armsql.ServerProperties, asset string) []finding.Finding {
 	var findings []finding.Finding
 
 	// Check for public network access.
@@ -92,7 +92,7 @@ func evaluateSQLServer(ctx context.Context, cred *azidentity.DefaultAzureCredent
 
 // checkSQLAuditing retrieves the server blob auditing policy and flags if
 // auditing is disabled.
-func checkSQLAuditing(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, resourceGroup, serverName, asset string) []finding.Finding {
+func checkSQLAuditing(ctx context.Context, cred azcore.TokenCredential, subID, resourceGroup, serverName, asset string) []finding.Finding {
 	client, err := armsql.NewServerBlobAuditingPoliciesClient(subID, cred, nil)
 	if err != nil {
 		return nil
@@ -131,7 +131,7 @@ func checkSQLAuditing(ctx context.Context, cred *azidentity.DefaultAzureCredenti
 
 // checkSQLTDE lists databases under a server and flags any that do not have
 // transparent data encryption enabled.
-func checkSQLTDE(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, resourceGroup, serverName, asset string) []finding.Finding {
+func checkSQLTDE(ctx context.Context, cred azcore.TokenCredential, subID, resourceGroup, serverName, asset string) []finding.Finding {
 	dbClient, err := armsql.NewDatabasesClient(subID, cred, nil)
 	if err != nil {
 		return nil

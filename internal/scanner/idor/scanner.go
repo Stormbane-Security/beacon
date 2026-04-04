@@ -12,15 +12,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckBOLAHorizontalAccess, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckIDORSequentialID, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "idor"
 	maxBodySize = 64 * 1024 // 64 KB
@@ -53,9 +62,6 @@ var apiPrefixes = []string{
 // seedIDs are the initial numeric IDs to probe. For each, we also check ID+1
 // and ID-1 to detect sequential access.
 var seedIDs = []string{"1", "2", "100", "1000"}
-
-// numericIDPattern matches a trailing numeric segment in a URL path.
-var numericIDPattern = regexp.MustCompile(`/(\d+)$`)
 
 // Scanner probes for IDOR/BOLA vulnerabilities via sequential ID manipulation.
 type Scanner struct{}

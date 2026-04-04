@@ -1,0 +1,140 @@
+name: redis-credential-exfil
+description: >
+  Redis with no authentication containing session tokens, cached credentials,
+  and configuration data. Beacon in authorized mode should: detect no-auth
+  Redis, enumerate all keys by type, dump values containing credentials and
+  session tokens, and identify what services those credentials grant access to.
+  Demonstrates post-exploitation data exfiltration from a cache/session store.
+tags: [pivot, redis, noauth, authorized, exploit, credentials]
+
+services:
+  redis:
+    from: caches/redis
+    ports: ["9351:6379"]
+    # No password — intentionally insecure for testing
+
+ready:
+  cmd: "redis-cli -p 9351 ping 2>/dev/null | grep -q PONG"
+  timeout: 30s
+  interval: 2s
+
+# Seed Redis with realistic session/credential data after it's ready
+run:
+  # Session tokens (what you'd find in a real session store)
+  - >
+    redis-cli -p 9351 SET "session:abc123"
+    '{"user_id":1,"username":"admin","role":"superadmin","email":"admin@corp.internal","token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.fake"}'
+  - >
+    redis-cli -p 9351 SET "session:def456"
+    '{"user_id":42,"username":"svc-deploy","role":"deployer","email":"deploy@corp.internal","api_key":"sk-live-prod-deploy-key-DO-NOT-SHARE"}'
+  - >
+    redis-cli -p 9351 SET "session:ghi789"
+    '{"user_id":99,"username":"db-migration","role":"admin","db_password":"Migr@ti0n_Pr0d_2024!"}'
+  # Cached API keys and service credentials
+  - >
+    redis-cli -p 9351 SET "config:database"
+    '{"host":"db.internal.corp","port":5432,"user":"app_rw","password":"Pr0d_DB_P@ss!","database":"production"}'
+  - >
+    redis-cli -p 9351 SET "config:aws"
+    '{"access_key":"AKIAIOSFODNN7EXAMPLE","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","region":"us-east-1"}'
+  - >
+    redis-cli -p 9351 SET "config:stripe"
+    '{"api_key":"sk_test_FAKE0000000000000000000000","webhook_secret":"whsec_FAKE0000000000000000000000"}'
+  # Cached user data with PII
+  - >
+    redis-cli -p 9351 SET "user:1:profile"
+    '{"name":"Alice Admin","ssn":"123-45-6789","phone":"+1-555-0100","address":"123 Main St"}'
+  # Hash with OAuth tokens
+  - >
+    redis-cli -p 9351 HSET "oauth:tokens" "github" "ghp_ExampleGitHubPAT0000000000000000000"
+    "slack" "xoxb-example-slack-bot-token"
+    "google" "ya29.example-google-oauth-access-token"
+
+assertions:
+  # ── Pre-flight: verify Redis is open and seeded ────────────────────────
+
+  - name: exploit-redis-no-auth
+    type: command
+    expect:
+      command: "redis-cli -p 9351 ping | grep -q PONG"
+      exit_code: 0
+
+  - name: exploit-redis-keys-enumerable
+    type: command
+    expect:
+      command: "redis-cli -p 9351 KEYS '*' | wc -l | grep -qE '[5-9]|[0-9]{2}'"
+      exit_code: 0
+
+  - name: exploit-session-tokens-readable
+    type: command
+    expect:
+      command: "redis-cli -p 9351 GET 'session:abc123' | grep -q 'superadmin'"
+      exit_code: 0
+
+  - name: exploit-aws-creds-readable
+    type: command
+    expect:
+      command: "redis-cli -p 9351 GET 'config:aws' | grep -q 'AKIAIOSFODNN7EXAMPLE'"
+      exit_code: 0
+
+  - name: exploit-db-password-readable
+    type: command
+    expect:
+      command: "redis-cli -p 9351 GET 'config:database' | grep -q 'Pr0d_DB_P@ss'"
+      exit_code: 0
+
+  - name: exploit-oauth-tokens-readable
+    type: command
+    expect:
+      command: "redis-cli -p 9351 HGETALL 'oauth:tokens' | grep -q 'ghp_'"
+      exit_code: 0
+
+  # ── Beacon detection: no-auth Redis ────────────────────────────────────
+
+  - name: detects-redis-no-auth
+    type: beacon
+    target: localhost:9351
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351"]
+    expect:
+      check_id: port.redis_no_auth
+
+  # ── Beacon exploitation: authorized mode dumps credentials ─────────────
+  # Beacon should connect to Redis, enumerate keys, categorize by type
+  # (sessions, config, user data), extract values, and identify credentials.
+
+  - name: beacon-dumps-session-tokens
+    type: beacon
+    target: localhost:9351
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.session_hijack
+      evidence_key: session_count
+
+  - name: beacon-extracts-aws-credentials
+    type: beacon
+    target: localhost:9351
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.credential_harvest
+      evidence_key: credential_type
+      evidence_value: aws_access_key
+
+  - name: beacon-extracts-database-password
+    type: beacon
+    target: localhost:9351
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.credential_harvest
+      evidence_key: credential_type
+      evidence_value: database_password
+
+  - name: beacon-finds-pii-in-cache
+    type: beacon
+    target: localhost:9351
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    expect:
+      check_id: exploit.data_extracted
+      evidence_key: data_type
+      evidence_value: pii
+
+timeout: 5m

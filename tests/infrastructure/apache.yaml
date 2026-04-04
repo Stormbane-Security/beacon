@@ -1,0 +1,35 @@
+name: apache-default
+description: "Default Apache httpd 2.4 installation for proxy type classification"
+tags: [apache, infrastructure, proxy]
+
+services:
+  apache:
+    image: httpd:2.4-alpine
+    ports: ["80:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-apache-server-version-leaked
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: Apache/'"
+      exit_code: 0
+
+  - name: classifies-as-apache
+    type: classify
+    target: localhost:80
+    expect:
+      proxy_type: apache
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: headers.server_info_leak
+
+timeout: 5m

@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /api/internal/
+Disallow: /backup/db/
+Disallow: /debug/
+Disallow: /.git/
+Crawl-delay: 10

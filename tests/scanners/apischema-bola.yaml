@@ -1,0 +1,32 @@
+name: apischema-bola
+description: "API serves OpenAPI spec with parameterized paths and no auth — beacon detects BOLA risk"
+tags: [apischema, scanner, web, api]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9246:80"]
+    volumes:
+      - ./apischema-bola/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./apischema-bola/openapi.json:/data/openapi.json:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9246/openapi.json >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-openapi-spec-exists
+    type: command
+    expect:
+      command: "curl -s http://localhost:9246/openapi.json | grep -qi 'openapi'"
+      exit_code: 0
+
+  - name: detects-bola-risk
+    type: beacon
+    target: localhost:9246
+    args: ["--no-enrich", "--scanners", "apischema", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: api.bola
+
+timeout: 3m

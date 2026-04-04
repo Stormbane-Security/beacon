@@ -1,0 +1,50 @@
+name: airflow-exposed
+description: "Apache Airflow web server exposed with default credentials"
+tags: [airflow, workflow, data-pipeline]
+
+services:
+  airflow:
+    image: apache/airflow:2.8.1
+    ports: ["8080:8080"]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "true"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    command: ["standalone"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/health | grep -q healthy"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-airflow-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:8080/api/v1/security/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin\"}' | grep -qE '(access_token|session)' || curl -sf -u admin:admin http://localhost:8080/api/v1/dags | grep -q dags"
+      exit_code: 0
+
+  - name: exploit-airflow-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/health | grep -q healthy"
+      exit_code: 0
+
+  - name: classifies-as-airflow
+    type: classify
+    target: localhost:8080
+    expect:
+      backend_service: Apache Airflow
+
+  - name: detects-airflow-exposed
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: port.airflow_exposed
+
+timeout: 10m

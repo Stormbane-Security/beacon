@@ -338,7 +338,7 @@ func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (strin
 			"modules":       run.Modules,
 			"started_at":    run.StartedAt.Format(time.RFC3339),
 			"completed_at":  completedAtStr,
-			"finding_count": len(enriched),
+			"finding_count": countNonOmitted(enriched),
 		},
 	}
 	envelopeBytes, err := json.Marshal(envelope)
@@ -363,4 +363,14 @@ func RenderOCSF(run store.ScanRun, enriched []enrichment.EnrichedFinding) (strin
 	}
 
 	return sb.String(), nil
+}
+
+func countNonOmitted(enriched []enrichment.EnrichedFinding) int {
+	n := 0
+	for _, ef := range enriched {
+		if !ef.Omit {
+			n++
+		}
+	}
+	return n
 }

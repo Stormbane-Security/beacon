@@ -1,0 +1,31 @@
+name: wazuh-api-exposed
+description: "Wazuh SIEM/XDR REST API exposed — beacon detects management API on port 55000"
+tags: [wazuh, siem, xdr, portscan]
+
+services:
+  wazuh:
+    image: wazuh/wazuh-manager:4.7.2
+    ports: ["9289:55000"]
+    environment:
+      WAZUH_MANAGER: "wazuh"
+
+ready:
+  cmd: "nc -z localhost 9289"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-wazuh-api-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 9289"
+      exit_code: 0
+
+  - name: detects-wazuh-api-exposed
+    type: beacon
+    target: localhost:9289
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "55000"]
+    expect:
+      check_id: port.wazuh_api_exposed
+
+timeout: 10m

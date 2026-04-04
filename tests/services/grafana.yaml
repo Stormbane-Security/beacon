@@ -1,0 +1,45 @@
+name: grafana-anonymous-access
+description: "Grafana 10.4.0 with anonymous access enabled exposes monitoring panel"
+tags: [grafana, service, monitoring]
+
+services:
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["3000:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:3000/api/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-grafana-admin-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3000/api/org | grep -q 'name'"
+      exit_code: 0
+
+  - name: exploit-grafana-datasources
+    type: command
+    expect:
+      command: "curl -sf http://localhost:3000/api/datasources | grep -q '\\['"
+      exit_code: 0
+
+  - name: classifies-as-grafana
+    type: classify
+    target: localhost:3000
+    expect:
+      backend_service: Grafana
+
+  - name: detects-monitoring-panel
+    type: beacon
+    target: localhost:3000
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.monitoring_panel
+
+timeout: 5m

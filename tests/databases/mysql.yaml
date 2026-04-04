@@ -1,0 +1,32 @@
+name: mysql-empty-root-password
+description: "MySQL 8.0 with empty root password allows unauthenticated database access"
+tags: [mysql, database, portscan]
+
+services:
+  mysql:
+    image: mysql:8.0
+    ports: ["3306:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: "%"
+
+ready:
+  cmd: "nc -z localhost 3306"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-mysql-query
+    type: command
+    expect:
+      command: "mysql -h 127.0.0.1 -P 3306 -u root --skip-password -e 'SELECT current_user();' 2>/dev/null | grep -q root"
+      exit_code: 0
+
+  - name: detects-mysql-no-auth
+    type: beacon
+    target: localhost:3306
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
+    expect:
+      check_id: port.mysql_no_auth
+
+timeout: 5m

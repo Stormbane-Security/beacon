@@ -1,0 +1,53 @@
+name: cacheprobe-varnish
+description: "Varnish cache with unauthenticated PURGE and X-Cache headers — beacon detects cache behavior and PURGE vulnerability"
+tags: [cacheprobe, scanner, web, cache]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    expose: ["8080"]
+    environment:
+      PORT: "8080"
+
+  varnish:
+    image: varnish:7.5-alpine
+    ports: ["9232:80"]
+    volumes:
+      - ./cacheprobe/default.vcl:/etc/varnish/default.vcl:ro
+    depends_on:
+      - app
+    tmpfs:
+      - /var/lib/varnish/varnishd:exec
+
+ready:
+  cmd: "curl -sf http://localhost:9232/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-cache-headers-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9232/ | grep -qi 'X-Cache'"
+      exit_code: 0
+
+  - name: exploit-purge-accepted
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X PURGE http://localhost:9232/); [ \"$STATUS\" = \"200\" ]"
+      exit_code: 0
+
+  - name: exploit-cache-hit-after-warmup
+    type: command
+    expect:
+      command: "curl -s http://localhost:9232/ >/dev/null && curl -sI http://localhost:9232/ | grep -qi 'X-Cache: HIT'"
+      exit_code: 0
+
+  - name: detects-cache-behavior
+    type: beacon
+    target: localhost:9232
+    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    expect:
+      check_id: cache.behavior_detected
+
+timeout: 5m

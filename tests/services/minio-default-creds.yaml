@@ -1,0 +1,38 @@
+name: minio-default-creds
+description: "MinIO console accepts default minioadmin:minioadmin credentials"
+tags: [minio, storage, credentials, port]
+
+services:
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9001:9001"
+      - "9002:9000"
+    command: ["server", "/data", "--console-address", ":9001"]
+
+ready:
+  cmd: "curl -sf http://localhost:9001 >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-minio-health-check
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9002/minio/health/live"
+      exit_code: 0
+
+  - name: exploit-minio-console-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:9001 | grep -qE '(200|307)'"
+      exit_code: 0
+
+  - name: detects-minio-default-creds
+    type: beacon
+    target: localhost:9002
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9001"]
+    expect:
+      check_id: port.minio_default_credentials
+
+timeout: 5m

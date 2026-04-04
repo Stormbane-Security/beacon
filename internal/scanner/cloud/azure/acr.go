@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-func scanACR(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanACR(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armcontainerregistry.NewRegistriesClient(subID, cred, nil)
 	if err != nil {
 		return nil, err
@@ -43,10 +43,7 @@ func evaluateACR(name string, props *armcontainerregistry.RegistryProperties, su
 	var findings []finding.Finding
 
 	// Check for public network access.
-	publicAccess := true
-	if props.PublicNetworkAccess != nil && *props.PublicNetworkAccess == armcontainerregistry.PublicNetworkAccessDisabled {
-		publicAccess = false
-	}
+	publicAccess := props.PublicNetworkAccess == nil || *props.PublicNetworkAccess != armcontainerregistry.PublicNetworkAccessDisabled
 	if publicAccess {
 		findings = append(findings, finding.Finding{
 			CheckID: finding.CheckCloudAzureACRPublic,

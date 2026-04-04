@@ -17,10 +17,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckExploitCodeExecution, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitCredentialHarvest, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckExploitDataExtracted, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebSSTI, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "ssti"
 	maxBodySize = 32 * 1024 // 32 KB
@@ -57,9 +71,6 @@ var payloads = []payload{
 	{expr: "<%= 7*7 %>", expect: "49", engine: "ERB/JSP"},
 	{expr: "#{7*7}", expect: "49", engine: "Ruby/Pebble"},
 	{expr: "{{7*'7'}}", expect: "7777777", engine: "Jinja2"},
-	// Polyglot payload — triggers across multiple template engines simultaneously.
-	// If any engine evaluates the embedded expression, "49" appears in the response.
-	{expr: `${{<%[%'"}}%\`, expect: "49", engine: "Polyglot"},
 	// Engine-specific additional payloads
 	{expr: "${7*7}", expect: "49", engine: "Java EL"},
 	// FreeMarker — uses [#assign] directive for variable assignment.
@@ -101,11 +112,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
+	ac := authctx.HTTPClient(ctx)
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       10 * time.Second,
+		Transport:     ac.Transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	scheme := detectScheme(ctx, client, asset)
@@ -121,29 +132,44 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		for _, param := range probeParams {
 			for _, p := range payloads {
-				u := base + path + "?" + param + "=" + url.QueryEscape(p.expr)
-				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-				if err != nil {
-					continue
+				// Build candidate expressions: original + WAF evasion variants.
+				candidates := []string{p.expr}
+				candidates = append(candidates, evasion.SSTIBypass(p.expr)...)
+
+				var bodyStr string
+				var usedExpr string
+				var matched bool
+
+				for _, expr := range candidates {
+					u := base + path + "?" + param + "=" + url.QueryEscape(expr)
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+					if err != nil {
+						continue
+					}
+
+					resp, err := client.Do(req)
+					if err != nil {
+						continue
+					}
+
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+					resp.Body.Close()
+
+					if resp.StatusCode == http.StatusNotFound {
+						continue
+					}
+
+					bodyStr = string(body)
+					if evaluatedInBody(p.expect, bodyStr) {
+						usedExpr = expr
+						matched = true
+						break
+					}
 				}
 
-				resp, err := client.Do(req)
-				if err != nil {
+				if !matched {
 					continue
 				}
-
-				body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-				resp.Body.Close()
-
-				if resp.StatusCode == http.StatusNotFound {
-					continue
-				}
-
-				bodyStr := string(body)
-				if !evaluatedInBody(p.expect, bodyStr) {
-					continue
-				}
-
 				// Delta check: fetch the page without injection and count
 				// baseline occurrences. Only flag if the injected response
 				// has MORE occurrences — handles pages that naturally contain
@@ -154,6 +180,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue
 				}
 
+				wafBypassed := usedExpr != p.expr
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebSSTI,
 					Module:   "deep",
@@ -165,21 +192,27 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 							"The payload %q was reflected as %q, indicating the application renders "+
 							"user input through a %s template engine. An attacker can use this to "+
 							"execute arbitrary code on the server.",
-						param, path, p.expr, p.expect, p.engine),
+						param, path, usedExpr, p.expect, p.engine),
 					Asset:    asset,
 					DeepOnly: true,
 					ProofCommand: fmt.Sprintf(
-						`curl -s "https://%s/search?q={{7*7}}" | grep -o '\b49\b'`, asset),
+						`curl -s '%s' | grep -o '\b%s\b'`,
+						base+path+"?"+param+"="+url.QueryEscape(usedExpr), p.expect),
 					Evidence: map[string]any{
-						"url":     u,
-						"path":    path,
-						"param":   param,
-						"payload": p.expr,
-						"expect":  p.expect,
-						"engine":  p.engine,
+						"url":        base + path + "?" + param + "=" + url.QueryEscape(usedExpr),
+						"path":       path,
+						"param":      param,
+						"payload":    usedExpr,
+						"expect":     p.expect,
+						"engine":     p.engine,
+						"waf_bypass": wafBypassed,
 					},
 					DiscoveredAt: time.Now(),
 				})
+
+				// Post-exploitation: attempt RCE + credential harvest
+				postFindings := postExploit(ctx, client, asset, base, path, param, p.engine)
+				findings = append(findings, postFindings...)
 
 				// One finding per path+param combo is enough.
 				break
@@ -206,8 +239,11 @@ func evaluatedInBody(expect, body string) bool {
 }
 
 // isNotFound returns true when the path returns HTTP 404.
+// Uses a dummy query param so the check matches the actual scan request shape —
+// many apps return 404 for bare /path but 200 for /path?q=test.
 func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	testURL := rawURL + "?_beacon_probe=1"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testURL, nil)
 	if err != nil {
 		return false
 	}

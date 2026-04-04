@@ -2,9 +2,9 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
 
 	awscfg "github.com/aws/aws-sdk-go-v2/aws"
@@ -151,9 +151,7 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 			if doc == "" {
 				doc = rawDoc // fallback to raw if unescape fails
 			}
-			hasWildcardAction := strings.Contains(doc, `"Action":"*"`) || strings.Contains(doc, `"Action": "*"`)
-			hasWildcardResource := strings.Contains(doc, `"Resource":"*"`) || strings.Contains(doc, `"Resource": "*"`)
-			if hasWildcardAction && hasWildcardResource {
+			if policyHasWildcard(doc, "Action") && policyHasWildcard(doc, "Resource") {
 				findings = append(findings, finding.Finding{
 					CheckID: finding.CheckCloudAWSIAMPolicyWildcard,
 					Title:   fmt.Sprintf("AWS IAM policy grants * on *: %s", awscfg.ToString(policy.PolicyName)),
@@ -180,4 +178,48 @@ func scanIAM(ctx context.Context, cfg awscfg.Config, accountID, asset string) ([
 	}
 
 	return findings, nil
+}
+
+func policyHasWildcard(doc, field string) bool {
+	type policyStatement struct {
+		Action   json.RawMessage `json:"Action"`
+		Resource json.RawMessage `json:"Resource"`
+	}
+	type policyDoc struct {
+		Statement []policyStatement `json:"Statement"`
+	}
+	var pd policyDoc
+	if err := json.Unmarshal([]byte(doc), &pd); err != nil {
+		return false
+	}
+	for _, stmt := range pd.Statement {
+		var raw json.RawMessage
+		switch field {
+		case "Action":
+			raw = stmt.Action
+		case "Resource":
+			raw = stmt.Resource
+		default:
+			continue
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		var single string
+		if json.Unmarshal(raw, &single) == nil {
+			if single == "*" {
+				return true
+			}
+			continue
+		}
+		var arr []string
+		if json.Unmarshal(raw, &arr) == nil {
+			for _, v := range arr {
+				if v == "*" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

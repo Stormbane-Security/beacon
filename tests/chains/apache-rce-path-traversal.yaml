@@ -1,0 +1,39 @@
+name: chain-apache-rce-path-traversal
+description: >
+  Exploit chain: Apache 2.4.49 CVE-2021-41773 path traversal → file read → RCE.
+  The vulnerable Apache version allows reading /etc/passwd through URL-encoded
+  dot-dot-slash sequences via cgi-bin.
+tags: [chain, postexploit, apache-rce, cve, path-traversal, authorized]
+
+services:
+  apache:
+    image: httpd:2.4.49
+    ports: ["9412:80"]
+    command: >
+      bash -c "
+        sed -i 's/#LoadModule cgid_module/LoadModule cgid_module/' /usr/local/apache2/conf/httpd.conf &&
+        sed -i 's/Require all denied/Require all granted/' /usr/local/apache2/conf/httpd.conf &&
+        httpd-foreground
+      "
+
+ready:
+  cmd: "curl -sf http://localhost:9412/ | grep -q 'It works'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-apache-service
+    type: beacon
+    target: "localhost:9412"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9412"]
+    expect:
+      check_id: port.service_identified
+
+  - name: chain-exploits-path-traversal-rce
+    type: beacon
+    target: "localhost:9412"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9412"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 10m

@@ -508,7 +508,7 @@ func (s *Store) DeleteScanRun(_ context.Context, id string) error {
 	delete(s.assetGraphs, id)
 	delete(s.assetExecutions, id)
 	// Remove correlation findings associated with this run.
-	filtered := s.correlations[:0]
+	filtered := make([]store.CorrelationFinding, 0, len(s.correlations))
 	for _, c := range s.correlations {
 		if c.ScanRunID != id {
 			filtered = append(filtered, c)

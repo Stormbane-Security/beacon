@@ -1,0 +1,30 @@
+name: ssrf-url-fetch
+description: "Flask app with SSRF in ?url= parameter — confirms arbitrary URL fetch works"
+tags: [ssrf, scanner, web, authorized]
+
+# NOTE: The beacon ssrf scanner detects SSRF by checking for cloud metadata
+# signals (AWS IMDS, GCP metadata, etc). Full scanner detection testing
+# requires real cloud infrastructure where metadata services are reachable.
+# This test validates the exploit (arbitrary URL fetch) in Docker only.
+# Cloud-specific SSRF detection will be tested via drydock cloud scenarios.
+
+services:
+  ssrf-app:
+    build:
+      context: ./ssrf
+      dockerfile: Dockerfile
+    ports: ["9220:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9220/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-ssrf-fetches-internal-url
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9220/?url=http://localhost:8080/api/health' | grep -q ok"
+      exit_code: 0
+
+timeout: 5m

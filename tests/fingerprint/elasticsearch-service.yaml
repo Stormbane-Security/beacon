@@ -1,0 +1,32 @@
+name: fingerprint-elasticsearch-service
+description: "Elasticsearch is correctly identified as a backend service"
+tags: [fingerprint, elasticsearch, database]
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    ports: ["9200:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+ready:
+  cmd: "curl -sf http://localhost:9200/ | grep -q tagline"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-elasticsearch-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9200/ | grep -q 'You Know, for Search'"
+      exit_code: 0
+
+  - name: identifies-elasticsearch-service
+    type: classify
+    target: localhost:9200
+    expect:
+      backend_service: Elasticsearch
+
+timeout: 5m

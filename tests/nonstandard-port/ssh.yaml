@@ -1,0 +1,35 @@
+name: ssh-nonstandard-port
+description: "SSH on non-standard port — probe must detect by banner response, not port number"
+tags: [ssh, nonstandard-port]
+
+services:
+  ssh:
+    image: linuxserver/openssh-server:latest
+    ports: ["2299:2222"]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      PASSWORD_ACCESS: "true"
+      USER_PASSWORD: "testpassword"
+      USER_NAME: "testuser"
+
+ready:
+  cmd: "nc -z localhost 2299"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-ssh-banner
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 2299 | grep -qiE '(SSH|OpenSSH)'"
+      exit_code: 0
+
+  - name: detects-ssh-on-nonstandard-port
+    type: beacon
+    target: localhost:2299
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2299"]
+    expect:
+      check_id: port.ssh_exposed
+
+timeout: 5m

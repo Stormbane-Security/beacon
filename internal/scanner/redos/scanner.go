@@ -1,5 +1,4 @@
-// Package redos detects Regular Expression Denial of Service (ReDoS)
-// vulnerabilities by injecting payloads that trigger catastrophic backtracking
+// Package redos detects Regular Expression Denial of Service (ReDoS)// vulnerabilities by injecting payloads that trigger catastrophic backtracking
 // in common server-side regex patterns (email, URL, numeric validators).
 // Deep mode only — sends active payloads to the target.
 package redos
@@ -14,10 +13,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebReDoS, finding.SeverityMedium, finding.ModeDeep),
+	)
+}
 const scannerName = "redos"
 
 // Scanner probes for ReDoS vulnerabilities via timing-based detection.
@@ -118,8 +126,8 @@ func (s *Scanner) isReachable(ctx context.Context, client *http.Client, baseURL 
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
 	return true
 }
 
@@ -144,7 +152,7 @@ func (s *Scanner) testPayload(ctx context.Context, client *http.Client, baseURL,
 	// Send evil payload.
 	evilURL := fmt.Sprintf("%s/?%s=%s", baseURL, param, url.QueryEscape(p.value))
 	evilMs, err := s.measureResponseTime(ctx, client, evilURL)
-	if err != nil {
+	if err != nil && evilMs <= 5000 {
 		return nil
 	}
 
@@ -199,8 +207,8 @@ func (s *Scanner) measureResponseTime(ctx context.Context, client *http.Client, 
 	if err != nil {
 		return elapsed, err
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
 
 	return elapsed, nil
 }

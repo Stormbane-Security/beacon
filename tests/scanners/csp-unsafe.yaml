@@ -1,0 +1,51 @@
+name: csp-unsafe-directives
+description: "nginx with CSP containing unsafe-inline, unsafe-eval, and wildcard sources"
+tags: [csp, security-headers, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9301:80"]
+    volumes:
+      - ./csp-unsafe/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9301/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-csp-contains-unsafe-inline
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9301/ | grep -i 'Content-Security-Policy' | grep -q 'unsafe-inline'"
+      exit_code: 0
+
+  - name: exploit-csp-contains-unsafe-eval
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9301/ | grep -i 'Content-Security-Policy' | grep -q 'unsafe-eval'"
+      exit_code: 0
+
+  - name: detects-csp-unsafe-inline
+    type: beacon
+    target: localhost:9301
+    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: csp.unsafe_inline
+
+  - name: detects-csp-unsafe-eval
+    type: beacon
+    target: localhost:9301
+    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: csp.unsafe_eval
+
+  - name: detects-csp-wildcard-source
+    type: beacon
+    target: localhost:9301
+    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: csp.wildcard_source
+
+timeout: 5m

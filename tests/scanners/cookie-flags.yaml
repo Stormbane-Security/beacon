@@ -1,0 +1,51 @@
+name: cookie-missing-flags
+description: "nginx setting cookies without Secure, HttpOnly, or SameSite flags"
+tags: [cookie, security-headers, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9300:80"]
+    volumes:
+      - ./cookie-flags/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9300/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-cookie-no-secure-flag
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9300/ | grep -i 'Set-Cookie' | grep -qiv 'Secure'"
+      exit_code: 0
+
+  - name: exploit-cookie-no-httponly-flag
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9300/ | grep -i 'Set-Cookie' | grep -qiv 'HttpOnly'"
+      exit_code: 0
+
+  - name: detects-cookie-missing-secure
+    type: beacon
+    target: localhost:9300
+    args: ["--no-enrich", "--scanners", "cookie"]
+    expect:
+      check_id: cookie.missing_secure
+
+  - name: detects-cookie-missing-httponly
+    type: beacon
+    target: localhost:9300
+    args: ["--no-enrich", "--scanners", "cookie"]
+    expect:
+      check_id: cookie.missing_httponly
+
+  - name: detects-cookie-missing-samesite
+    type: beacon
+    target: localhost:9300
+    args: ["--no-enrich", "--scanners", "cookie"]
+    expect:
+      check_id: cookie.missing_samesite
+
+timeout: 5m

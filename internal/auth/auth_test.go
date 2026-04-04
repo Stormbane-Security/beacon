@@ -31,7 +31,7 @@ func TestAuthenticate_Bearer(t *testing.T) {
 	if session.Method != "bearer" {
 		t.Errorf("expected bearer, got %s", session.Method)
 	}
-	client.Get(srv.URL)
+	_, _ = client.Get(srv.URL)
 	if gotHeader != "Bearer mytoken123" {
 		t.Errorf("unexpected Authorization header: %q", gotHeader)
 	}
@@ -58,7 +58,7 @@ func TestAuthenticate_Cookie(t *testing.T) {
 	if err != nil || client == nil {
 		t.Fatalf("err=%v client=%v", err, client)
 	}
-	client.Get(srv.URL)
+	_, _ = client.Get(srv.URL)
 	if gotCookie != "session=abc123" {
 		t.Errorf("unexpected Cookie: %q", gotCookie)
 	}
@@ -163,7 +163,7 @@ func TestAuthenticate_BasicAuth_HeaderFormation(t *testing.T) {
 		t.Errorf("expected label to contain username, got %q", session.Label)
 	}
 
-	client.Get(srv.URL)
+	_, _ = client.Get(srv.URL)
 	if !strings.HasPrefix(gotHeader, "Basic ") {
 		t.Errorf("expected Authorization header to start with 'Basic ', got %q", gotHeader)
 	}
@@ -200,7 +200,7 @@ func TestAuthenticate_OIDC_AllowedIssuers(t *testing.T) {
 	// Set up a fake token endpoint that returns a valid access_token.
 	fakeSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"access_token": "test-oidc-token"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "test-oidc-token"})
 	}))
 	defer fakeSrv.Close()
 

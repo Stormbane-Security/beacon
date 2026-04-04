@@ -21,10 +21,17 @@ import (
 // htmlTagRe matches HTML tags for sanitization of AI response fields.
 var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 
+var htmlEntityRe = regexp.MustCompile(`&#x?[0-9a-fA-F]+;?`)
+
+var jsURIRe = regexp.MustCompile(`(?i)javascript:`)
+
 // sanitizeAIField strips HTML tags from an AI response field to prevent
 // stored XSS when the field is later rendered in HTML reports.
 func sanitizeAIField(s string) string {
-	return htmlTagRe.ReplaceAllString(s, "")
+	s = htmlTagRe.ReplaceAllString(s, "")
+	s = htmlEntityRe.ReplaceAllString(s, "")
+	s = jsURIRe.ReplaceAllString(s, "")
+	return s
 }
 
 //go:embed prompts/finding.tmpl
@@ -484,9 +491,18 @@ func applyContextualResponse(enriched []EnrichedFinding, text string) ([]Enriche
 		if omit && mitigatedBy == "" {
 			omit = false
 		}
+		var validTags []string
+		for _, tag := range f.ComplianceTags {
+			for _, prefix := range []string{"SOC2-", "PCI-", "NIST-", "HIPAA-", "ISO27001-", "CIS-", "GDPR-", "OWASP-"} {
+				if strings.HasPrefix(tag, prefix) {
+					validTags = append(validTags, tag)
+					break
+				}
+			}
+		}
 		index[key{strings.ToLower(f.CheckID), strings.ToLower(strings.TrimRight(f.Asset, "."))}] = update{
 			omit, mitigatedBy, sanitizeAIField(f.CrossAssetNote),
-			sanitizeAIField(f.TechSpecificRemediation), f.ComplianceTags,
+			sanitizeAIField(f.TechSpecificRemediation), validTags,
 		}
 	}
 
@@ -613,7 +629,7 @@ func (c *ClaudeEnricher) callOpenAICompat(ctx context.Context, model, prompt str
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
 	if readErr != nil {
 		return "", fmt.Errorf("reading OpenAI-compat response body: %w", readErr)
@@ -690,7 +706,7 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		if c.apiKey != "" {
 			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
 		}
-		return "", fmt.Errorf("Gemini API HTTP %d: %s", resp.StatusCode, safeBody)
+		return "", fmt.Errorf("gemini API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {
@@ -707,10 +723,10 @@ func (c *ClaudeEnricher) callGemini(ctx context.Context, model, prompt string) (
 		return "", fmt.Errorf("parsing Gemini response: %w", err)
 	}
 	if out.Error != nil {
-		return "", fmt.Errorf("Gemini API error: %s", out.Error.Message)
+		return "", fmt.Errorf("gemini API error: %s", out.Error.Message)
 	}
 	if len(out.Candidates) == 0 || len(out.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("Gemini returned no content")
+		return "", fmt.Errorf("gemini returned no content")
 	}
 	return out.Candidates[0].Content.Parts[0].Text, nil
 }
@@ -736,7 +752,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama request failed (is Ollama running?): %w", err)
+		return "", fmt.Errorf("ollama request failed (is Ollama running?): %w", err)
 	}
 	defer resp.Body.Close()
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256 KiB cap
@@ -748,7 +764,7 @@ func (c *ClaudeEnricher) callOllama(ctx context.Context, model, prompt string) (
 		if c.apiKey != "" {
 			safeBody = strings.ReplaceAll(safeBody, c.apiKey, "[REDACTED]")
 		}
-		return "", fmt.Errorf("Ollama API HTTP %d: %s", resp.StatusCode, safeBody)
+		return "", fmt.Errorf("ollama API HTTP %d: %s", resp.StatusCode, safeBody)
 	}
 
 	var out struct {

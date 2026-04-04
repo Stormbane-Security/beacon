@@ -55,11 +55,11 @@ func (s *smtpServer) serve(l net.Listener) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	for _, resp := range s.responses {
-		fmt.Fprintf(conn, "%s\r\n", resp)
+		_, _ = fmt.Fprintf(conn, "%s\r\n", resp)
 		// Wait for the client to send a line before responding to the next one
 		// (except for the initial banner).
 		scanner := bufio.NewScanner(conn)
@@ -88,7 +88,7 @@ func TestCheckSMTPBannerLeakDetected(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 25 (needs root or capability): %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Send a Postfix banner then reject EHLO gracefully
 	srv := &smtpServer{responses: []string{
@@ -117,7 +117,7 @@ func TestCheckSMTPOpenRelayViaLocalServer(t *testing.T) {
 	if err != nil {
 		t.Skipf("cannot bind port 25: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Simulate an open relay: accepts everything
 	go func() {
@@ -125,29 +125,29 @@ func TestCheckSMTPOpenRelayViaLocalServer(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 		scanner := bufio.NewScanner(conn)
 
 		// Send banner
-		fmt.Fprintf(conn, "220 mail.example.com ESMTP\r\n")
+		_, _ = fmt.Fprintf(conn, "220 mail.example.com ESMTP\r\n")
 
 		// EHLO
 		scanner.Scan()
-		fmt.Fprintf(conn, "250-mail.example.com\r\n250 Ok\r\n")
+		_, _ = fmt.Fprintf(conn, "250-mail.example.com\r\n250 Ok\r\n")
 
 		// MAIL FROM
 		scanner.Scan()
-		fmt.Fprintf(conn, "250 2.1.0 Ok\r\n")
+		_, _ = fmt.Fprintf(conn, "250 2.1.0 Ok\r\n")
 
 		// RCPT TO (external) — accepted = open relay
 		scanner.Scan()
-		fmt.Fprintf(conn, "250 2.1.5 Ok\r\n")
+		_, _ = fmt.Fprintf(conn, "250 2.1.5 Ok\r\n")
 
 		// QUIT
 		scanner.Scan()
-		fmt.Fprintf(conn, "221 Bye\r\n")
+		_, _ = fmt.Fprintf(conn, "221 Bye\r\n")
 	}()
 
 	// We cannot call checkSMTP(ctx, "somedomainwithmx") because it requires

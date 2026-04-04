@@ -26,16 +26,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	return false
 }
 
-func countCheckID(findings []finding.Finding, id finding.CheckID) int {
-	n := 0
-	for _, f := range findings {
-		if f.CheckID == id {
-			n++
-		}
-	}
-	return n
-}
-
 // --------------------------------------------------------------------------
 // Mock NAS server builders
 // --------------------------------------------------------------------------
@@ -159,20 +149,20 @@ func (m *truenasMock) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		switch {
-		case path == "/api/v2.0/system/info":
+		switch path {
+		case "/api/v2.0/system/info":
 			json.NewEncoder(w).Encode(m.SystemInfo)
-		case path == "/api/v2.0/sharing/smb":
+		case "/api/v2.0/sharing/smb":
 			json.NewEncoder(w).Encode(m.SMBShares)
-		case path == "/api/v2.0/sharing/nfs":
+		case "/api/v2.0/sharing/nfs":
 			json.NewEncoder(w).Encode(m.NFSShares)
-		case path == "/api/v2.0/smb":
+		case "/api/v2.0/smb":
 			json.NewEncoder(w).Encode(m.SMBConfig)
-		case path == "/api/v2.0/ssh":
+		case "/api/v2.0/ssh":
 			json.NewEncoder(w).Encode(m.SSHConfig)
-		case path == "/api/v2.0/iscsi/target":
+		case "/api/v2.0/iscsi/target":
 			json.NewEncoder(w).Encode(m.ISCSITargets)
-		case path == "/api/v2.0/pool/snapshottask":
+		case "/api/v2.0/pool/snapshottask":
 			json.NewEncoder(w).Encode(m.SnapshotTasks)
 		default:
 			http.NotFound(w, r)
@@ -195,10 +185,11 @@ func runScanner(t *testing.T, ts *httptest.Server, nasType string) ([]finding.Fi
 }
 
 // --------------------------------------------------------------------------
-// Surface mode: scanner is deep-only
+// Surface mode gating is handled by the on-prem module dispatcher, not by
+// the scanner itself. See internal/modules/onprem/module.go.
 // --------------------------------------------------------------------------
 
-func TestSurfaceMode_ReturnsNil(t *testing.T) {
+func TestSurfaceMode_RunsWhenCalledDirectly(t *testing.T) {
 	mock := defaultSynologyMock()
 	ts := httptest.NewServer(mock.handler())
 	defer ts.Close()
@@ -212,8 +203,10 @@ func TestSurfaceMode_ReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings in surface mode, got %d", len(findings))
+	// Scanner no longer self-gates; it produces findings regardless of scan
+	// type. The on-prem module dispatcher prevents surface-mode invocations.
+	if len(findings) == 0 {
+		t.Error("expected findings when scanner is called directly in surface mode")
 	}
 }
 

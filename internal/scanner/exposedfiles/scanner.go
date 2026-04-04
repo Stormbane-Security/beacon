@@ -14,10 +14,142 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCVEAccellionFTA, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEAirflowDAGRCE, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEApacheHTTPTraversal, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEApacheUnomi, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEBarracudaESG, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEBeyondTrustRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECheckPointFileRead, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVECiscoASARCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECiscoASASSLVPN, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECiscoFMCRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECiscoIOSXEImplant, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECitrixADCInfo, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECitrixADCRCE2023, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECitrixBleed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECitrixBleed2, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEColdFusionFCKEditor, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEConfluenceOGNL, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEConfluenceRestore, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEConfluenceSetup, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECraftCMSRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVECrowdPdkInstall, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEDLinkHNAP, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEDotNetNukeTraversal, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEDrupalgeddon1, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEDrupalgeddon2, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEExchangeProxyLogon, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEExchangeProxyShell, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEExpeditionRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEF5BigIPAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEF5BigIPTMUI, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiManagerJump, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSCredLeak, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSSSLVPN, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSSSOBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSWSAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiWebAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEGitLabRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEGiteaCMDInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEGrafanaPathTraversal, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEHFSRejetto, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEHPEOneViewRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEHarborDefaultCreds, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEHikvisionISAPI, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEIISHTTPSys, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEIvantiCMDInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEIvantiCS2025, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEIvantiConnectSecure, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEIvantiEPMAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEIvantiEPMMRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJBossJMXConsole, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJBossJMXInvoker, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJoomlaObjectInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJuniperJWeb, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJuniperJWeb2024, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVELangflowRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVELiferayRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVELivewireRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEMCPServerExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEMOVEitWebShell, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEMagentoRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEManageEngineADSelfSvc, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEManageEngineDesktopCVE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEManageEngineSAML, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEManageEngineServiceDesk, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEMinIOEnvDisclosure, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEMobileIronRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEN8nRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVENginxUIBackup, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEOXAppSuiteSSRF, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEOpenfire, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEOracleEBS, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEOwnCloudPhpInfo, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEPANGlobalProtect, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEPANGlobalProtectCMD, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEPHPCGIArgInjection, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEPHPCGIArgInjection2012, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEPrimefacesEL, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEPulseSecureVPN, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVERailsXMLRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVERoundcube, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVESAPNetWeaver2025, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEScreenConnectBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESharePointJWT, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEShiroRememberMe, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESolarWindsOrion, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESolarWindsWHD, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESolrAdminExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVESonicWallSMAExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESophosFW, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESpring4Shell, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESpringOAuthSpEL, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEStruts2OGNL, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEStruts2S2066, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVESysAid, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVETeamCityAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVETeamCityDirTraversal, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVETeamCityRPC2, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckCVETelerikRAU, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVETomcatPartialPUT, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckCVEVMwareWorkspaceONE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEWSO2FileUpload, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEWebLogicAsync, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEWebLogicConsole, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEWebLogicWLSWSAT, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEWebSphereConsole, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCVEZabbixSessionForge, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEZimbraAuthBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEpgAdminValidateRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEvBulletin5xRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEvCenterExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckExposureAIModelFile, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckExposureCICDPanel, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckExposureEnvFile, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckExposureGitExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckExposureMonitoringPanel, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckExposureSensitiveFile, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckExposureSpringActuator, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckPortAirflowExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckPortArgoCDExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckPortHarborExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckPortOpenWebUIExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckPortStepCAExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckWebDefaultCredentials, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const scannerName = "exposedfiles"
 
 type sensitiveFile struct {
@@ -36,10 +168,10 @@ type sensitiveFile struct {
 
 var targets = []sensitiveFile{
 	// Critical — credential / secret files
-	{path: "/.env", title: "Exposed .env file", severity: finding.SeverityCritical, bodyContains: "="},
-	{path: "/.env.local", title: "Exposed .env.local file", severity: finding.SeverityCritical, bodyContains: "="},
-	{path: "/.env.production", title: "Exposed .env.production file", severity: finding.SeverityCritical, bodyContains: "="},
-	{path: "/.env.backup", title: "Exposed .env.backup file", severity: finding.SeverityCritical, bodyContains: "="},
+	{path: "/.env", title: "Exposed .env file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
+	{path: "/.env.local", title: "Exposed .env.local file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
+	{path: "/.env.production", title: "Exposed .env.production file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
+	{path: "/.env.backup", title: "Exposed .env.backup file", severity: finding.SeverityCritical, bodyContains: "=", checkID: finding.CheckExposureEnvFile},
 	{path: "/config/database.yml", title: "Exposed database config (Rails)", severity: finding.SeverityCritical, bodyContains: "password"},
 	{path: "/config/secrets.yml", title: "Exposed secrets file (Rails)", severity: finding.SeverityCritical, bodyContains: "secret"},
 	{path: "/app/config/parameters.yml", title: "Exposed Symfony parameters", severity: finding.SeverityCritical, bodyContains: "database"},
@@ -49,8 +181,8 @@ var targets = []sensitiveFile{
 	{path: "/.docker/config.json", title: "Exposed Docker registry credentials", severity: finding.SeverityCritical, bodyContains: "auth"},
 
 	// High — source control exposure
-	{path: "/.git/config", title: "Exposed .git/config (repo metadata)", severity: finding.SeverityHigh, bodyContains: "[core]"},
-	{path: "/.git/HEAD", title: "Exposed .git/HEAD (Git repository)", severity: finding.SeverityHigh, bodyContains: "ref:"},
+	{path: "/.git/config", title: "Exposed .git/config (repo metadata)", severity: finding.SeverityHigh, bodyContains: "[core]", checkID: finding.CheckExposureGitExposed},
+	{path: "/.git/HEAD", title: "Exposed .git/HEAD (Git repository)", severity: finding.SeverityHigh, bodyContains: "ref:", checkID: finding.CheckExposureGitExposed},
 	{path: "/.svn/entries", title: "Exposed Subversion repository", severity: finding.SeverityHigh},
 	{path: "/.hg/hgrc", title: "Exposed Mercurial repository", severity: finding.SeverityHigh},
 
@@ -83,6 +215,99 @@ var targets = []sensitiveFile{
 	{path: "/laravel.log", title: "Exposed Laravel log", severity: finding.SeverityMedium, deepOnly: true, bodyContains: "local.ERROR"},
 	{path: "/storage/logs/laravel.log", title: "Exposed Laravel log", severity: finding.SeverityMedium, deepOnly: true},
 	{path: "/var/log/app.log", title: "Exposed application log", severity: finding.SeverityMedium, deepOnly: true},
+
+	// High — CI/CD and code hosting panels exposed
+	{path: "/api/v1/version", title: "Gitea code hosting panel exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureCICDPanel, bodyContains: "version",
+		description: "A Gitea instance is publicly accessible. Gitea exposes source code repositories, " +
+			"CI/CD pipelines, and user accounts. Public access to a code hosting platform enables " +
+			"reconnaissance of internal code, secrets in commit history, and potential supply chain attacks."},
+	{path: "/api/system/status", title: "SonarQube code quality panel exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureCICDPanel, bodyContains: "UP",
+		description: "A SonarQube instance is publicly accessible. SonarQube exposes code quality analysis " +
+			"results, security vulnerability findings, and project structure for all analyzed repositories. " +
+			"An attacker can use this to identify known vulnerabilities in your codebase."},
+
+	// High — Monitoring panels exposed without authentication
+	{path: "/api/health", title: "Grafana monitoring panel exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureMonitoringPanel, bodyContains: "database",
+		description: "A Grafana monitoring dashboard is publicly accessible without authentication. " +
+			"Monitoring panels expose internal infrastructure topology, service names, database queries, " +
+			"metric data, and alert configurations that map out the entire environment for an attacker."},
+	{path: "/api/dashboards/home", title: "Grafana dashboard API exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureMonitoringPanel, bodyContains: "dashboard",
+		description: "The Grafana dashboard API is accessible without authentication. " +
+			"An attacker can enumerate all dashboards, data sources (often containing database credentials), " +
+			"and alert rules — providing a complete map of the monitored infrastructure."},
+
+	// High — Spring Boot Actuator endpoints
+	{path: "/actuator", title: "Spring Boot Actuator exposed", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureSpringActuator, bodyContains: "_links",
+		description: "Spring Boot Actuator endpoints are publicly accessible. Endpoints like /actuator/env expose " +
+			"environment variables (including database passwords and API keys), /actuator/heapdump leaks a full " +
+			"JVM heap dump containing in-memory secrets, and /actuator/mappings reveals all URL routes. " +
+			"Restrict actuator endpoints to management networks or disable them in production."},
+	{path: "/actuator/env", title: "Spring Boot Actuator /env exposed", severity: finding.SeverityCritical,
+		checkID: finding.CheckExposureSpringActuator, bodyContains: "propertySources",
+		description: "The Spring Boot /actuator/env endpoint is publicly accessible and leaks all environment " +
+			"variables, system properties, and application configuration — including database credentials, " +
+			"API keys, and secrets that Spring tries to mask in the UI."},
+	{path: "/actuator/heapdump", title: "Spring Boot Actuator /heapdump exposed", severity: finding.SeverityCritical,
+		checkID: finding.CheckExposureSpringActuator,
+		description: "The Spring Boot /actuator/heapdump endpoint is publicly accessible. This endpoint serves " +
+			"a full JVM heap dump containing all in-memory objects — passwords, session tokens, encryption keys, " +
+			"and sensitive business data can be extracted from the dump with standard Java tools."},
+
+	// High — AI/ML model files publicly served
+	// Exposed model weights enable model theft, adversarial attack crafting, and reveal
+	// internal ML pipeline details. Large models also indicate significant IP exposure.
+	{path: "/model.onnx", title: "Exposed ONNX model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "An ONNX model file is publicly accessible. ONNX models contain trained neural network " +
+			"weights and architecture that represent significant intellectual property. Exposed models enable " +
+			"theft, adversarial example crafting, and reverse engineering of the ML pipeline."},
+	{path: "/model.safetensors", title: "Exposed SafeTensors model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A SafeTensors model file is publicly accessible. This format stores trained model weights " +
+			"used by Hugging Face Transformers. Exposed model weights enable model theft and adversarial attacks."},
+	{path: "/model.pt", title: "Exposed PyTorch model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A PyTorch model file (.pt) is publicly accessible. PyTorch model files can contain " +
+			"arbitrary Python code via pickle deserialization — loading an untrusted .pt file executes code. " +
+			"Exposure enables model theft and potential supply chain attacks."},
+	{path: "/model.pth", title: "Exposed PyTorch model checkpoint", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A PyTorch model checkpoint (.pth) is publicly accessible. Like .pt files, .pth files " +
+			"use pickle serialization and can execute arbitrary code when loaded."},
+	{path: "/model.h5", title: "Exposed Keras/TensorFlow model file", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A Keras/TensorFlow HDF5 model file is publicly accessible. H5 model files contain " +
+			"trained weights and model architecture — exposing them enables model theft and adversarial research."},
+	{path: "/model.pkl", title: "Exposed pickled model file", severity: finding.SeverityCritical,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A pickled Python model file is publicly accessible. Pickle files execute arbitrary Python " +
+			"code on deserialization — an attacker can replace this with a malicious payload. This is both " +
+			"an IP theft risk and a remote code execution vector if any system loads the file."},
+	{path: "/model.bin", title: "Exposed model binary weights", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A model binary weights file is publicly accessible. The .bin format is used by Hugging Face " +
+			"Transformers and other ML frameworks to store trained model parameters."},
+	{path: "/model.gguf", title: "Exposed GGUF quantized model", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile,
+		description: "A GGUF quantized model file is publicly accessible. GGUF is the format used by llama.cpp " +
+			"and Ollama for quantized LLM inference. Exposed GGUF files reveal the exact model being served."},
+	{path: "/models/model.safetensors", title: "Exposed SafeTensors model in /models/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/weights/model.bin", title: "Exposed model weights in /weights/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/ml/model.onnx", title: "Exposed ONNX model in /ml/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/checkpoints/model.pt", title: "Exposed PyTorch checkpoint in /checkpoints/", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true},
+	{path: "/.cache/huggingface/", title: "Exposed Hugging Face cache directory", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAIModelFile, deepOnly: true,
+		description: "The Hugging Face model cache directory is publicly accessible. This directory contains " +
+			"downloaded model weights, tokenizers, and configuration files for all models used by the application."},
 
 	// Info — fingerprinting / metadata
 	{path: "/server-status", title: "Apache server-status exposed", severity: finding.SeverityMedium, bodyContains: "Apache"},
@@ -232,7 +457,7 @@ var targets = []sensitiveFile{
 		title:        "CVE-2025-68613/2026-21858: n8n workflow automation server exposed",
 		severity:     finding.SeverityCritical,
 		checkID:      finding.CheckCVEN8nRCE,
-		bodyContains: "\"status\"",
+		bodyContains: "n8n",
 		description: "An n8n workflow automation server is internet-accessible (/healthz confirms the instance). " +
 			"CVE-2025-68613 and CVE-2026-21858 cover pre-authentication SSTI and RCE vulnerabilities " +
 			"in n8n's expression evaluation engine. An exposed n8n instance allows an unauthenticated " +
@@ -248,7 +473,7 @@ var targets = []sensitiveFile{
 		title:        "CVE-2026-33017: Langflow AI platform exposed (pre-auth RCE)",
 		severity:     finding.SeverityCritical,
 		checkID:      finding.CheckCVELangflowRCE,
-		bodyContains: "\"status\"",
+		bodyContains: "langflow",
 		description: "A Langflow AI pipeline platform is internet-accessible (/api/v1/health confirms the instance). " +
 			"CVE-2026-33017 (CVSS 10.0, KEV) allows pre-authentication arbitrary Python code execution via " +
 			"the /api/v1/validate/code endpoint, which evaluates Python without requiring credentials. " +
@@ -865,7 +1090,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Title:        t.title,
 			Description:  desc,
 			Asset:        asset,
-			ProofCommand: fmt.Sprintf("curl -s %s | head -50", u),
+			ProofCommand: fmt.Sprintf("curl -s '%s' | head -50", u),
 			Evidence: map[string]any{
 				"url":     u,
 				"path":    t.path,
@@ -1194,6 +1419,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// HashiCorp Vault default dev token:
+	// /v1/sys/health with X-Vault-Token: root checks for default dev mode credentials.
+	if f := probeVaultDefaultToken(ctx, client, base, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
 	// Apache Airflow exposure + CVE-2024-39877 (DAG code execution, CVSS 8.8):
 	// /api/v1/health confirms Airflow; /api/v1/version reveals version < 2.10.0.
 	findings = append(findings, probeApacheAirflow(ctx, client, base, asset)...)
@@ -1319,7 +1550,7 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 		if err != nil {
 			return nil
 		}
-		mResp.Body.Close()
+		_ = mResp.Body.Close()
 		// Tomcat returns 401 Unauthorized with WWW-Authenticate on /manager/html.
 		wwwAuth := strings.ToLower(mResp.Header.Get("WWW-Authenticate"))
 		isTomcat = mResp.StatusCode == http.StatusUnauthorized &&
@@ -1343,7 +1574,7 @@ func probeTomcatPartialPUT(ctx context.Context, client *http.Client, base, asset
 	if err != nil {
 		return nil
 	}
-	putResp.Body.Close()
+	_ = putResp.Body.Close()
 	if putResp.StatusCode != http.StatusCreated {
 		return nil
 	}
@@ -1395,7 +1626,7 @@ func probeTeamCityAuthBypass(ctx context.Context, client *http.Client, base, ass
 		return nil
 	}
 	loginBody, _ := io.ReadAll(io.LimitReader(loginResp.Body, 4096))
-	loginResp.Body.Close()
+	_ = loginResp.Body.Close()
 	if !strings.Contains(strings.ToLower(string(loginBody)), "teamcity") {
 		return nil
 	}
@@ -1743,7 +1974,7 @@ func probeConfluenceSetup(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	bodyStr := strings.ToLower(string(body))
 	isConfluence := strings.Contains(bodyStr, "confluence") ||
 		fingerResp.Header.Get("X-Confluence-Request-Time") != "" ||
@@ -1854,7 +2085,7 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	fbStr := strings.ToLower(string(fb))
 	if !strings.Contains(fbStr, "cisco") && !strings.Contains(fbStr, "ios xe") {
 		return nil
@@ -1883,7 +2114,7 @@ func probeCiscoIOSXEImplant(ctx context.Context, client *http.Client, base, asse
 	}
 	isHex := true
 	for _, c := range body {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			isHex = false
 			break
 		}
@@ -1936,7 +2167,7 @@ func probeIvantiConnectSecure(ctx context.Context, client *http.Client, base, as
 		return nil
 	}
 	fb, _ := io.ReadAll(io.LimitReader(fingerResp.Body, 4096))
-	fingerResp.Body.Close()
+	_ = fingerResp.Body.Close()
 	fbStr := strings.ToLower(string(fb))
 	if !strings.Contains(fbStr, "ivanti") && !strings.Contains(fbStr, "pulse") {
 		return nil
@@ -2591,7 +2822,7 @@ func probeWebLogicConsole(ctx context.Context, client *http.Client, base, asset 
 		bresp, err := client.Do(breq)
 		if err == nil {
 			bb, _ := io.ReadAll(io.LimitReader(bresp.Body, 8192))
-			bresp.Body.Close()
+			_ = bresp.Body.Close()
 			bLower := strings.ToLower(string(bb))
 			if bresp.StatusCode == http.StatusOK && (strings.Contains(bLower, "welcome") ||
 				strings.Contains(bLower, "dashboard") || strings.Contains(bLower, "weblogic")) {
@@ -3779,8 +4010,8 @@ func probeIISHTTPSysRange(ctx context.Context, client *http.Client, base, asset 
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
 
 		server := strings.ToLower(resp.Header.Get("Server"))
 		if !strings.Contains(server, "microsoft-iis") {
@@ -4895,6 +5126,51 @@ func probeJuniperJWeb2024(ctx context.Context, client *http.Client, base, asset 
 		ProofCommand: fmt.Sprintf(
 			"curl -s '%s' | grep -i juniper\n"+
 				"# Exposed J-Web — verify Junos version is >= 23.4R1 to confirm patch", u),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probeVaultDefaultToken checks whether a HashiCorp Vault instance accepts the
+// default dev-mode root token ("root"). Vault in dev mode starts with this token,
+// and if it reaches production it grants full admin access to all secrets.
+func probeVaultDefaultToken(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	u := base + "/v1/sys/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("X-Vault-Token", "root")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	bodyStr := string(body)
+	// Vault health response contains "initialized" and "sealed" keys.
+	if !strings.Contains(bodyStr, "initialized") || !strings.Contains(bodyStr, "sealed") {
+		return nil
+	}
+	return &finding.Finding{
+		CheckID:  finding.CheckWebDefaultCredentials,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Asset:    asset,
+		Title:    fmt.Sprintf("HashiCorp Vault accepts default dev-mode root token on %s", asset),
+		Description: "HashiCorp Vault at " + u + " accepted the default dev-mode root token (\"root\"). " +
+			"This grants unrestricted access to all secrets, auth backends, and Vault configuration. " +
+			"Dev mode should never be used in production. Rotate the root token and redeploy with " +
+			"proper storage backend and auto-unseal configuration.",
+		Evidence: map[string]any{
+			"url":           u,
+			"default_token": "root",
+			"response":      bodyStr[:min(len(bodyStr), 300)],
+		},
+		ProofCommand: fmt.Sprintf("curl -s -H 'X-Vault-Token: root' '%s' | python3 -m json.tool", u),
 		DiscoveredAt: time.Now(),
 	}
 }

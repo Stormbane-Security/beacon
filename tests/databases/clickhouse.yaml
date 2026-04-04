@@ -1,0 +1,41 @@
+name: clickhouse-exposed
+description: "ClickHouse analytics DB with HTTP interface exposed without authentication"
+tags: [clickhouse, database, analytics]
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports: ["8123:8123"]
+
+ready:
+  cmd: "curl -sf http://localhost:8123/ | grep -q Ok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-clickhouse-query
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:8123/?query=SELECT+current_user()' | grep -q default"
+      exit_code: 0
+
+  - name: exploit-clickhouse-show-databases
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:8123/?query=SHOW+DATABASES' | grep -q system"
+      exit_code: 0
+
+  - name: classifies-as-clickhouse
+    type: classify
+    target: localhost:8123
+    expect:
+      path_responds: /play
+
+  - name: detects-clickhouse-exposed
+    type: beacon
+    target: localhost:8123
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8123"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+timeout: 5m

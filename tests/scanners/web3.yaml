@@ -1,0 +1,44 @@
+name: web3-ganache-dapp
+description: "Real Ganache EVM chain with deployed vulnerable smart contract + DApp frontend with ethers.js — beacon web3detect identifies Web3 signals, contractscan detects contract patterns"
+tags: [web3, blockchain, scanner, ganache]
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["9218:8545"]
+    command: ["--host", "0.0.0.0", "--accounts", "10", "--deterministic"]
+
+  # DApp frontend served by nginx
+  dapp:
+    image: nginx:alpine
+    ports: ["9219:80"]
+    volumes:
+      - ./web3/index.html:/usr/share/nginx/html/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9218 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-ganache-jsonrpc-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9218 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_accounts\",\"params\":[],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  - name: exploit-dapp-has-ethers-js
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9219/ | grep -qi 'ethers\\|web3\\|ethereum'"
+      exit_code: 0
+
+  # Test 1: Web3 frontend fingerprinting
+  - name: detects-web3-wallet-lib
+    type: beacon
+    target: localhost:9219
+    args: ["--no-enrich", "--scanners", "web3detect", "--ports", "80"]
+    expect:
+      check_id: web3.wallet_lib_detected
+
+timeout: 10m

@@ -232,7 +232,7 @@ func TestCheckMTASTS_LargePolicyModeTestingAfter512Bytes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(200)
-		w.Write([]byte(policy))
+		_, _ = w.Write([]byte(policy))
 	}))
 	defer srv.Close()
 
@@ -250,6 +250,32 @@ func TestCheckMTASTS_LargePolicyModeTestingAfter512Bytes(t *testing.T) {
 	// and checks strings.Contains(body, "mode: testing"). The body is ~1 KiB.
 	if len(body) > 64*1024 {
 		t.Fatal("policy too large for the scanner's 64 KiB limit reader")
+	}
+}
+
+// ── checkDMARC — NXDOMAIN produces finding ───────────────────────────────
+
+func TestCheckDMARC_NXDOMAIN_EmitsMissingFinding(t *testing.T) {
+	// .invalid is guaranteed by RFC 6761 to never exist — DNS returns NXDOMAIN.
+	_, findings := checkDMARC(context.Background(), "this-domain-does-not-exist.invalid")
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckEmailDMARCMissing {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected dmarc_missing finding for NXDOMAIN domain, got %d findings: %v", len(findings), findings)
+	}
+}
+
+func TestCheckDMARC_ValidRecord_NoMissingFinding(t *testing.T) {
+	// gmail.com has a DMARC record — should not emit missing finding.
+	_, findings := checkDMARC(context.Background(), "gmail.com")
+	for _, f := range findings {
+		if f.CheckID == finding.CheckEmailDMARCMissing {
+			t.Errorf("gmail.com has DMARC, should not emit dmarc_missing, got: %v", f)
+		}
 	}
 }
 
@@ -292,7 +318,7 @@ func TestCheckMTASTS_DetectsTestingModeLargeBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(200)
-		w.Write([]byte(policyBody))
+		_, _ = w.Write([]byte(policyBody))
 	}))
 	defer srv.Close()
 
@@ -308,7 +334,7 @@ func TestCheckMTASTS_DetectsTestingModeLargeBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTP GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read with the same limit the scanner uses.
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))

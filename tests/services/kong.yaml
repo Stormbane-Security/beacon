@@ -1,0 +1,41 @@
+name: kong-admin-exposed
+description: "Kong API Gateway admin API exposed without authentication"
+tags: [kong, gateway, port]
+
+services:
+  kong:
+    image: kong:3.6
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+
+ready:
+  cmd: "curl -sf http://localhost:8001/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-kong-admin-routes
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8001/routes | grep -q data"
+      exit_code: 0
+
+  - name: exploit-kong-admin-services
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8001/services | grep -q data"
+      exit_code: 0
+
+  - name: detects-kong-admin-exposed
+    type: beacon
+    target: localhost:8001
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8001"]
+    expect:
+      check_id: gateway.kong_admin_exposed
+
+timeout: 5m

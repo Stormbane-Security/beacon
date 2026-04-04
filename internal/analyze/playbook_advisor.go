@@ -221,7 +221,7 @@ func (a *PlaybookAdvisor) callPlaybookAdvisor(ctx context.Context, prompt string
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return "", fmt.Errorf("claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 
 	var cr claudeResponse

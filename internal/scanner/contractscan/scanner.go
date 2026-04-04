@@ -29,10 +29,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckContractProxyAdmin, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckContractReentrancy, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContractSelfDestruct, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContractSourceExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckContractUncheckedCall, finding.SeverityHigh, finding.ModeDeep),
+	)
+}
 const scannerName = "contractscan"
 
 // EIP-1967 proxy admin slot: keccak256("eip1967.proxy.admin") - 1

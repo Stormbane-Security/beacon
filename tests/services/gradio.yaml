@@ -1,0 +1,30 @@
+name: gradio-ml-exposed
+description: "Gradio ML demo server exposed without auth — beacon detects unauthenticated ML interface"
+tags: [gradio, ai, ml, portscan]
+
+services:
+  gradio:
+    image: gradio/gradio:latest
+    ports: ["9288:7860"]
+    command: ["python", "-c", "import gradio as gr; gr.Interface(fn=lambda x: x, inputs='text', outputs='text').launch(server_name='0.0.0.0')"]
+
+ready:
+  cmd: "curl -sf http://localhost:9288/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-gradio-web-ui
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9288/ | grep -qiE '(gradio|script)'"
+      exit_code: 0
+
+  - name: detects-gradio-exposed
+    type: beacon
+    target: localhost:9288
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7860"]
+    expect:
+      check_id: port.gradio_exposed
+
+timeout: 5m

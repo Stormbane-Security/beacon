@@ -27,9 +27,9 @@ func upgradeHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
-	bufrw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
-	bufrw.Flush()
+	defer func() { _ = conn.Close() }()
+	_, _ = bufrw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	_ = bufrw.Flush()
 }
 
 func TestWebSocket_VulnerableEndpoint(t *testing.T) {

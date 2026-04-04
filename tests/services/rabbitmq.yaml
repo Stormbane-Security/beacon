@@ -1,0 +1,53 @@
+name: rabbitmq-default-creds
+description: "RabbitMQ 3 with management plugin and default guest/guest credentials"
+tags: [rabbitmq, service, messaging]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+ready:
+  cmd: "curl -sf http://localhost:15672/api/overview -u guest:guest >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-rabbitmq-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:15672/api/overview | grep -q rabbitmq_version"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-list-users
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:15672/api/users | grep -q guest"
+      exit_code: 0
+
+  - name: classifies-as-rabbitmq
+    type: classify
+    target: localhost:15672
+    expect:
+      backend_service: RabbitMQ
+
+  - name: detects-default-credentials
+    type: beacon
+    target: localhost:15672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  - name: detects-management-exposed
+    type: beacon
+    target: localhost:15672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
+    expect:
+      check_id: port.rabbitmq_mgmt_exposed
+
+timeout: 5m

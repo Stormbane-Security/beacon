@@ -22,10 +22,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckSubdomainTakeover, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
 const scannerName = "takeover"
 
 // Scanner detects subdomain takeover vulnerabilities.
@@ -155,7 +164,7 @@ var platforms = []platform{
 	{
 		name:            "Fly.io",
 		cnameSuffixes:   []string{".fly.dev", ".edgeapp.net"},
-		httpFingerprint: "fly.io",
+		httpFingerprint: "is not a registered Fly.io application",
 	},
 	{
 		name:            "Render",

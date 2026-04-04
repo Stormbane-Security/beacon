@@ -84,7 +84,7 @@ func startTCPServer(t *testing.T, handler func(net.Conn)) (net.Listener, func())
 			wg.Add(1)
 			go func(c net.Conn) {
 				defer wg.Done()
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				handler(c)
 			}(conn)
 		}
@@ -92,7 +92,7 @@ func startTCPServer(t *testing.T, handler func(net.Conn)) (net.Listener, func())
 
 	cleanup := func() {
 		cancel()
-		ln.Close()
+		_ = ln.Close()
 		wg.Wait()
 	}
 	return ln, cleanup

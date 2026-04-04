@@ -77,6 +77,7 @@ const (
 	CheckHeadersServerInfoLeak          CheckID = "headers.server_info_leak"
 
 	// Exposure / Misconfiguration
+	CheckExposureAPIVersion       CheckID = "exposure.api_version"
 	CheckExposureHTTPNoRedirect   CheckID = "exposure.http_no_redirect"
 	CheckExposureStagingSubdomain CheckID = "exposure.staging_subdomain"
 	CheckExposureAdminPath        CheckID = "exposure.admin_path"
@@ -90,6 +91,7 @@ const (
 	CheckExposureSpringActuator   CheckID = "exposure.spring_actuator"
 	CheckExposureCloudStorage     CheckID = "exposure.cloud_storage"
 	CheckExposureSensitiveFile    CheckID = "exposure.sensitive_file"
+	CheckExposureAIModelFile     CheckID = "exposure.ai_model_file"    // ML model weights served publicly (.onnx, .pt, .safetensors, etc.)
 
 	// Nuclei-sourced (mapped from template IDs)
 	CheckNucleiS3BucketExposed   CheckID = "nuclei.s3_bucket_exposed"
@@ -97,8 +99,9 @@ const (
 	CheckNucleiStaleTemplates    CheckID = "nuclei.stale_templates" // templates >30 days old
 
 	// Subdomain / Asset Discovery
-	CheckSubdomainTakeover  CheckID = "subdomain.takeover"
-	CheckDomainTyposquat    CheckID = "domain.typosquat" // registered lookalike domain
+	CheckSubdomainTakeover      CheckID = "subdomain.takeover"
+	CheckSubdomainsDiscovered   CheckID = "asset.subdomains_discovered"
+	CheckDomainTyposquat        CheckID = "domain.typosquat" // registered lookalike domain
 
 	// Web Application Security (deep only)
 	CheckWebTechDetected      CheckID = "web.tech_detected"
@@ -113,6 +116,10 @@ const (
 	CheckWebDefaultCredentials     CheckID = "web.default_credentials"
 	CheckWebHTTPRequestSmuggling   CheckID = "web.http_request_smuggling"
 	CheckWebDangerousMethodEnabled CheckID = "web.dangerous_method_enabled"   // PUT/DELETE/TRACE enabled on web server
+	CheckWebVerbTamperAuthBypass   CheckID = "web.verb_tamper_auth_bypass"   // alternate HTTP method bypasses authentication/authorization
+	CheckWebRaceCondition          CheckID = "web.race_condition"            // concurrent requests produce inconsistent state (TOCTOU)
+	CheckWebXSDInjection           CheckID = "web.xsd_injection"            // XML Schema (XSD) injection via remote schema reference
+	CheckWebPDFSSRF                CheckID = "web.pdf_ssrf"                 // SSRF via PDF generation endpoint (HTML→PDF with external refs)
 	CheckSecretInResponseHeader    CheckID = "web.secret_in_response_header"  // API key or token leaked in HTTP response header
 
 	// Asset Intelligence (no API keys — all open services)
@@ -128,6 +135,8 @@ const (
 	CheckWHOISDomainExpiry7d  CheckID = "whois.domain_expiry_7d"   // domain expires within 7 days
 	CheckWHOISDomainExpiry30d CheckID = "whois.domain_expiry_30d"  // domain expires within 30 days
 	CheckWHOISDomainInfo      CheckID = "whois.domain_info"        // registrar, nameservers, creation date
+	CheckWHOISNoPrivacy       CheckID = "whois.no_privacy"         // registrant info exposed (no privacy protection)
+	CheckWHOISRecentRegistration CheckID = "whois.recent_registration" // domain registered within last 90 days (phishing indicator)
 
 	// Cloud Storage Buckets
 	CheckCloudBucketPublic   CheckID = "cloud.bucket_public"   // publicly readable bucket
@@ -144,12 +153,40 @@ const (
 	CheckCSPUnsafeInline     CheckID = "csp.unsafe_inline"
 	CheckCSPUnsafeEval       CheckID = "csp.unsafe_eval"
 	CheckCSPWildcardSource   CheckID = "csp.wildcard_source"
-	CheckWAFNotDetected      CheckID = "waf.not_detected"
-	CheckWAFDetected         CheckID = "waf.detected"           // WAF vendor fingerprinted from headers
-	CheckWAFOriginExposed    CheckID = "waf.origin_exposed"     // origin IP directly accessible, bypassing WAF
-	CheckWAFBypassHeader     CheckID = "waf.bypass_via_header"  // WAF bypassable via spoofed IP header (deep)
-	CheckWAFInsecureMode     CheckID = "waf.insecure_ssl_mode"  // Cloudflare flexible SSL: origin served over plain HTTP
-	CheckIDSDetected         CheckID = "ids.detected"           // IDS/NGFW vendor identified from response patterns
+	CheckWAFNotDetected        CheckID = "waf.not_detected"
+	CheckWAFDetected           CheckID = "waf.detected"              // WAF vendor fingerprinted from headers
+	CheckWAFOriginExposed      CheckID = "waf.origin_exposed"        // origin IP directly accessible, bypassing WAF
+	CheckWAFBypassHeader       CheckID = "waf.bypass_via_header"     // WAF bypassable via spoofed IP header (deep)
+	CheckWAFInsecureMode       CheckID = "waf.insecure_ssl_mode"     // Cloudflare flexible SSL: origin served over plain HTTP
+	CheckWAFBypassPath         CheckID = "waf.bypass_via_path"       // WAF bypassable via path normalization tricks (authorized)
+	CheckWAFBypassMethod       CheckID = "waf.bypass_via_method"     // WAF bypassable via HTTP method override headers (authorized)
+	CheckWAFBypassContentType  CheckID = "waf.bypass_via_ctype"      // WAF body inspection bypassable via Content-Type confusion (authorized)
+	CheckIDSDetected           CheckID = "ids.detected"              // IDS/NGFW vendor identified from response patterns
+
+	// Proxy chain / multi-layer infrastructure detection
+	CheckProxyChainDetected CheckID = "proxy.chain_detected"      // multi-layer proxy/CDN/LB chain detected
+	CheckProxyHopDetected   CheckID = "proxy.hop_detected"        // individual infrastructure hop identified
+	CheckProxyXFFLeak       CheckID = "proxy.xff_leak"            // proxy echoes X-Forwarded-For in response
+	CheckProxyTraceEnabled      CheckID = "proxy.trace_enabled"          // HTTP TRACE method enabled (XST risk)
+	CheckProxyHopByHopAbuse    CheckID = "proxy.hop_by_hop_abuse"      // proxy strips security headers via Connection header injection
+	CheckLBBigIPCookieLeak     CheckID = "lb.bigip_cookie_leak"        // F5 BIG-IP persistence cookie leaks internal IP:port
+	CheckWebH2CSmuggling       CheckID = "web.h2c_smuggling"           // HTTP/2 Cleartext upgrade accepted — bypasses proxy rules
+	CheckMCPToolPoisoning      CheckID = "mcp.tool_poisoning"          // MCP tool schema contains hidden instructions
+	CheckMCPUnauthenticated    CheckID = "mcp.unauthenticated"         // MCP server accepts requests without authentication
+	CheckMCPCommandInjection   CheckID = "mcp.command_injection"       // MCP tool parameter allows OS command injection
+	CheckAIInfraJupyter        CheckID = "ai.jupyter_unauthenticated"  // Jupyter Notebook kernel API accessible without auth
+	CheckAIInfraRay            CheckID = "ai.ray_dashboard_unauthenticated" // Ray dashboard job submission API accessible without auth
+	CheckAIInfraMLflow         CheckID = "ai.mlflow_unauthenticated"   // MLflow tracking server accessible without auth
+	CheckAIInfraGradio         CheckID = "ai.gradio_unauthenticated"   // Gradio ML demo server accessible without auth
+	CheckRPCMethodDangerous    CheckID = "chain.rpc_dangerous_method"  // JSON-RPC endpoint exposes state-changing methods without auth
+
+	// CDN cache intelligence
+	CheckCacheBehaviorDetected CheckID = "cache.behavior_detected"  // CDN/cache layer fingerprinted from headers
+	CheckCachePurgeEnabled     CheckID = "cache.purge_unauthenticated" // cache accepts unauthenticated PURGE requests
+	CheckCacheVaryRisky        CheckID = "cache.vary_risky"         // Vary header includes attacker-controllable headers
+	CheckCachePoisonUnkeyed    CheckID = "cache.poison_unkeyed"     // cache poisoning via unkeyed header reflection (deep)
+	CheckCacheDeception        CheckID = "cache.deception"          // cache deception: dynamic content cached with static extension (deep)
+	CheckCacheHostRouting      CheckID = "cache.host_routing"       // Host header routes to different backend (deep)
 
 	// DLP — data-loss detection in HTTP responses and screenshots
 	// Regex patterns run against the raw page body (complement to webcontent's JS scanning).
@@ -196,6 +233,10 @@ const (
 	CheckPortZooKeeperExposed    CheckID = "port.zookeeper_exposed"             // Apache ZooKeeper exposed
 	CheckPortInfluxDBExposed     CheckID = "port.influxdb_exposed"              // InfluxDB time-series DB exposed
 	CheckPortSplunkMgmtExposed   CheckID = "port.splunk_mgmt_exposed"           // Splunk management API exposed
+	CheckPortVaultExposed        CheckID = "port.vault_exposed"                 // HashiCorp Vault API exposed
+	CheckPortVaultUnsealedNoAuth CheckID = "port.vault_unsealed_no_auth"       // Vault unsealed + secrets readable without auth
+	CheckPortJBossManagementExposed CheckID = "port.jboss_management_exposed"  // JBoss/WildFly management console exposed
+	CheckPortColdFusionAdminExposed CheckID = "port.coldfusion_admin_exposed"  // Adobe ColdFusion administrator panel exposed
 
 	// GraphQL
 	CheckGraphQLIntrospection         CheckID = "graphql.introspection_enabled"      // introspection leaks full schema
@@ -235,6 +276,11 @@ const (
 	// Multi-service per-port discovery — a distinct service found on a non-standard port
 	// warrants its own fingerprint and playbook matching pass.
 	CheckPortServiceDiscovered CheckID = "asset.port_service_discovered"
+
+	// Service identification — probe confirmed a specific service/protocol on a port,
+	// regardless of whether a vulnerability was found. Feeds into the asset graph and
+	// classify evidence so downstream scanners know what's running.
+	CheckPortServiceIdentified CheckID = "port.service_identified"
 
 	// Host header injection — active probe with malicious Host: values → Deep
 	CheckHostHeaderInjection CheckID = "web.host_header_injection"
@@ -370,7 +416,8 @@ const (
 	CheckOAuthTokenLeakReferer CheckID = "oauth.token_leak_referer"  // access token appears in Referer header
 	CheckJWKSExposed          CheckID = "oauth.jwks_exposed"         // JWKS endpoint publicly enumerable
 	CheckOIDCImplicitFlow     CheckID = "oauth.implicit_flow"        // deprecated implicit flow in use
-	CheckOAuthImplicitAccepted CheckID = "oauth.implicit_flow_accepted" // server actively accepts response_type=token (deep)
+	CheckOAuthImplicitAccepted   CheckID = "oauth.implicit_flow_accepted"   // server actively accepts response_type=token (deep)
+	CheckOAuthTokenEndpointNoAuth CheckID = "oauth.token_endpoint_no_auth" // token endpoint accepts unauthenticated requests
 	CheckJWTNoVerification    CheckID = "jwt.no_server_verification" // server accepts tampered/invalid JWT
 
 	// GitHub / CI (Phase 2)
@@ -450,7 +497,11 @@ const (
 	CheckWebHPP               CheckID = "web.http_parameter_pollution" // HTTP parameter pollution
 	CheckWebNginxAliasTraversal CheckID = "web.nginx_alias_traversal" // nginx alias path traversal
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
+	CheckWebIISVersionLeak    CheckID = "web.iis_version_leak"       // IIS detailed version from error pages or debug endpoints
 	CheckWebFileUpload        CheckID = "web.file_upload_bypass"     // file upload MIME/extension bypass
+	CheckWebCmdInjection      CheckID = "web.command_injection"       // OS command injection via timing or OOB callback
+	CheckWebNoSQLi            CheckID = "web.nosql_injection"         // NoSQL/MongoDB operator injection ($ne, $gt, $where)
+	CheckWebCSRFMissing       CheckID = "web.csrf_token_missing"     // POST form missing CSRF token + no SameSite cookie
 	CheckWebAPIFuzz           CheckID = "web.api_fuzz_error"         // API endpoint returns 500 on fuzz input
 	CheckHTTPClickjacking     CheckID = "http.clickjacking"          // missing X-Frame-Options / CSP frame-ancestors
 	CheckWebSocketCSWSH       CheckID = "websocket.cswsh"            // cross-site WebSocket hijacking
@@ -698,6 +749,16 @@ const (
 	CheckPortBGPExposed               CheckID = "port.bgp_exposed"                 // BGP port 179 accessible — routing infrastructure exposed
 	CheckPortKibanaVulnerable         CheckID = "cve.kibana_cve_2025_25015"        // CVE-2025-25015 Kibana 8.15.0–8.17.2 prototype pollution RCE (CVSS 9.9)
 	CheckPortMinIODefaultCreds        CheckID = "port.minio_default_credentials"   // MinIO console (port 9001) accepts minioadmin:minioadmin default credentials
+	CheckPortGrafanaDefaultCreds      CheckID = "port.grafana_default_credentials" // Grafana (port 3000) accepts admin:admin default credentials
+	CheckPortSonarQubeDefaultCreds    CheckID = "port.sonarqube_default_credentials" // SonarQube (port 9000) accepts admin:admin default credentials
+	CheckPortAirflowDefaultCreds      CheckID = "port.airflow_default_credentials" // Apache Airflow (port 8080) accepts airflow:airflow default credentials
+	CheckPortTomcatDefaultCreds       CheckID = "port.tomcat_default_credentials"  // Apache Tomcat manager (port 8080) accepts tomcat:tomcat default credentials
+	CheckPortJenkinsNoAuth            CheckID = "port.jenkins_no_auth"             // Jenkins (port 8080) allows unauthenticated access to script console or job config
+	CheckPortPortainerDefaultCreds    CheckID = "port.portainer_default_credentials" // Portainer (port 9443/9000) initial admin setup still available
+	CheckPortPgAdminDefaultCreds      CheckID = "port.pgadmin_default_credentials" // pgAdmin (port 5050) accepts default admin credentials
+	CheckPortZabbixDefaultCreds       CheckID = "port.zabbix_default_credentials"  // Zabbix (port 80) accepts Admin:zabbix default credentials
+	CheckPortGiteaNoAuth              CheckID = "port.gitea_no_auth"               // Gitea/Forgejo (port 3000) exposes repositories without authentication
+	CheckPortSupersetDefaultCreds     CheckID = "port.superset_default_credentials" // Apache Superset (port 8088) accepts admin:admin default credentials
 	CheckCVENextJSMiddlewareBypass    CheckID = "cve.nextjs_middleware_bypass"      // CVE-2025-29927 Next.js middleware auth bypass via X-Middleware-Subrequest (CVSS 9.1, KEV)
 	CheckCVEViteFileRead              CheckID = "cve.vite_file_read"               // CVE-2025-30208 Vite dev server arbitrary file read via /@fs/ path double-query confusion (CVSS 9.1)
 	CheckCVEIngressNightmare          CheckID = "cve.ingress_nightmare"            // CVE-2025-1974 ingress-nginx admission webhook exposed — pre-auth RCE via annotation injection (CVSS 9.8, KEV)
@@ -854,11 +915,32 @@ const (
 	CheckPortArtifactoryExposed    CheckID = "port.artifactory_exposed"        // JFrog Artifactory repository manager exposed — unauthenticated or default admin:password (port 8081/8082)
 	CheckPortNexusExposed          CheckID = "port.nexus_exposed"              // Sonatype Nexus Repository Manager exposed — unauthenticated or default admin:admin123 (port 8081)
 	CheckPortGRPCReflectionEnabled CheckID = "port.grpc_reflection_enabled"   // gRPC server reflection enabled — lists all services/methods without authentication (port 50051)
+
+	// ── Advanced fingerprinting and discovery ────────────────────────────────
+	CheckExposureVCSExposed       CheckID = "exposure.vcs_exposed"          // Version control metadata (.git, .svn, .hg) web-accessible — source code leak
+	CheckExposureSourceMaps       CheckID = "exposure.source_maps_exposed"  // JavaScript source maps (.map) accessible — reveals unminified source code
+	CheckExposureSecurityTxt      CheckID = "exposure.security_txt"         // security.txt present — responsible disclosure contact (info)
+	CheckExposureSitemapXML       CheckID = "exposure.sitemap_xml"          // sitemap.xml exposed — reveals URL structure and hidden endpoints (info)
+	CheckDNSCHAOSVersion          CheckID = "dns.chaos_version_exposed"     // DNS CHAOS TXT version.bind reveals server software version
+	CheckDNSCAAMissing            CheckID = "dns.caa_missing"               // No CAA records — any CA can issue certificates for this domain
+	CheckDNSProviderDetected      CheckID = "dns.provider_detected"         // DNS hosting provider identified from NS records (info)
+	CheckHTTPMethodTrace          CheckID = "http.trace_enabled"            // HTTP TRACE method enabled — cross-site tracing (XST) risk
+	CheckHTTPMethodUnsafe         CheckID = "http.unsafe_method_enabled"    // HTTP PUT/DELETE method accepted on root path — potential write access
+	CheckWebSocketOpen            CheckID = "websocket.endpoint_open"       // WebSocket endpoint accepts upgrade — potential CSWSH if no origin validation
+	CheckWellKnownOIDC            CheckID = "wellknown.oidc_discovery"      // OIDC discovery document exposed — reveals auth infrastructure (info)
+	CheckWellKnownJWKS            CheckID = "wellknown.jwks_exposed"        // JWKS endpoint exposed — public key enumeration (info)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
 const (
 	CheckAdaptiveReconProfile CheckID = "ai.target_profile" // AI-generated target profile with recommended modules + evasion tips
+)
+
+// Auth probing — autoprobe scanner (Deep only).
+const (
+	CheckAuthUsernameEnumeration CheckID = "auth.username_enumeration"              // login form reveals valid usernames
+	CheckAuthNoLockout           CheckID = "auth.no_lockout"                        // no account lockout after failed attempts
+	CheckAuthNoBruteforceProtect CheckID = "auth.no_bruteforce_protection_signals"  // no rate-limit/CAPTCHA on login
 )
 
 // Dynamic auth flow mutation — authfuzz scanner (Deep only).
@@ -939,6 +1021,7 @@ const (
 
 	// AWS authenticated cloud scanning
 	CheckCloudAWSIAMRootAccessKey CheckID = "cloud.aws.iam_root_access_key"  // root account has active access keys
+	CheckCloudAWSScanError         CheckID = "cloud.aws.scan_error"           // AWS account scan failed
 	CheckCloudAWSIAMRootNoMFA     CheckID = "cloud.aws.iam_root_no_mfa"      // root account MFA not enabled
 	CheckCloudAWSIAMUserNoMFA     CheckID = "cloud.aws.iam_user_no_mfa"      // IAM user with console access has no MFA
 	CheckCloudAWSIAMAccessKeyOld  CheckID = "cloud.aws.iam_access_key_old"   // IAM access key older than 90 days
@@ -1416,6 +1499,105 @@ const (
 	CheckOnpremLibvirtVMRawDisk          CheckID = "onprem.libvirt.vm_raw_disk"             // VM using raw disk format (no snapshot support)
 	CheckOnpremLibvirtNetNoIsolation     CheckID = "onprem.libvirt.net_no_isolation"         // virtual network in default NAT mode without isolation
 	CheckOnpremLibvirtVMNoMemBalloon     CheckID = "onprem.libvirt.vm_no_memballoon"        // VM without memory balloon driver (can't reclaim memory)
+
+	// Meta — internal beacon operational findings
+	CheckMetaDryRunPlan CheckID = "meta.dry_run_plan" // Dry-run scan plan (no scanners executed)
+
+	// ── Cookie Security (expanded) ──────────────────────────────────────
+	CheckCookieNoPrefix       CheckID = "cookie.no_secure_prefix"    // session cookie missing __Host-/__Secure- prefix
+	CheckCookieExcessiveScope CheckID = "cookie.excessive_scope"     // cookie Domain attribute broader than necessary
+
+	// ── Well-Known URIs ─────────────────────────────────────────────────
+	CheckWellKnownSecurityTxt   CheckID = "wellknown.security_txt"        // security.txt found — reveals contact/policy info
+	CheckWellKnownChangePwd     CheckID = "wellknown.change_password"     // /.well-known/change-password endpoint exists
+	CheckWellKnownAppleAppSite  CheckID = "wellknown.apple_app_site"      // apple-app-site-association exposed
+	CheckWellKnownAssetLinks    CheckID = "wellknown.assetlinks"          // assetlinks.json exposed (Android app links)
+	CheckWellKnownNodeInfo      CheckID = "wellknown.nodeinfo"            // nodeinfo endpoint (federated service)
+	CheckWellKnownWebfinger     CheckID = "wellknown.webfinger"           // webfinger endpoint accessible
+	CheckWellKnownMTA           CheckID = "wellknown.mta_sts"             // MTA-STS policy via well-known
+	CheckWellKnownMatrix        CheckID = "wellknown.matrix_server"       // Matrix federation server
+	CheckWellKnownHostMeta      CheckID = "wellknown.host_meta"           // host-meta (XRD/LRDD) exposed
+	CheckWellKnownResourceMissing CheckID = "wellknown.security_txt_missing" // no security.txt — best practice gap
+
+	// ── robots.txt / sitemap.xml ────────────────────────────────────────
+	CheckRobotsSensitivePath    CheckID = "exposure.robots_sensitive_path" // robots.txt Disallow reveals admin/internal paths
+	CheckRobotsCrawlDelay       CheckID = "exposure.robots_crawl_delay"   // robots.txt Crawl-delay hints at resource constraints
+	CheckSitemapSensitiveURL    CheckID = "exposure.sitemap_sensitive_url" // sitemap.xml references internal/admin URLs
+
+	// ── HTTP/2 ──────────────────────────────────────────────────────────
+	CheckHTTP2ContinuationFlood CheckID = "http2.continuation_flood"      // server vulnerable to HTTP/2 CONTINUATION frame DoS (CVE-2024-27316)
+
+	// ── CSP Bypass ──────────────────────────────────────────────────────
+	CheckCSPDataURI            CheckID = "csp.data_uri"             // data: URI in script-src allows XSS bypass
+	CheckCSPBaseURIMissing     CheckID = "csp.base_uri_missing"     // base-uri not set — base tag injection risk
+	CheckCSPFrameAncestors     CheckID = "csp.frame_ancestors_missing" // frame-ancestors not set — clickjacking
+	CheckCSPObjectSrc          CheckID = "csp.object_src_missing"   // object-src not restricted — Flash/plugin injection
+	CheckCSPReportOnly         CheckID = "csp.report_only"          // CSP in report-only mode — not enforced
+
+	// ── NTLM ────────────────────────────────────────────────────────────
+	CheckNTLMInfoLeak          CheckID = "ntlm.info_leak"           // NTLM Type 2 response leaks internal domain/server name
+
+	// ── Subdomain Discovery ─────────────────────────────────────────────
+	CheckSubdomainPermutation  CheckID = "subdomain.permutation_found"  // subdomain discovered via permutation
+	CheckSubdomainBruteforce   CheckID = "subdomain.bruteforce_found"   // subdomain discovered via dictionary brute-force
+
+	// ── API Security ────────────────────────────────────────────────────
+	CheckAPIBOLA               CheckID = "api.bola"                 // broken object-level authorization
+	CheckAPIMassAssignment     CheckID = "api.mass_assignment"      // mass assignment — extra fields accepted
+	CheckAPINoRateLimit        CheckID = "api.no_rate_limit"        // API endpoint has no rate limiting
+
+	// ── IPv6 ────────────────────────────────────────────────────────────
+	CheckIPv6AAAAFound         CheckID = "ipv6.aaaa_record_found"   // AAAA record exists — IPv6 reachable
+	CheckIPv6ServiceOpen       CheckID = "ipv6.service_accessible"  // service accessible over IPv6
+
+	// ── Favicon ─────────────────────────────────────────────────────────
+	CheckFaviconHashMatch      CheckID = "favicon.hash_match"       // favicon hash matches known service signature
+
+	// ── CT Log ──────────────────────────────────────────────────────────
+	CheckCTLogSubdomain        CheckID = "ct.subdomain_found"       // subdomain discovered via Certificate Transparency logs
+
+	// ── ASN/IP Range ────────────────────────────────────────────────────
+	CheckASNRangeDiscovered    CheckID = "asset.asn_range_discovered" // IP range discovered via ASN lookup
+
+	// ── WebSocket (expanded) ────────────────────────────────────────────
+	CheckWebSocketNoAuth       CheckID = "websocket.no_auth"        // WebSocket endpoint requires no authentication
+	CheckWebSocketMsgInjection CheckID = "websocket.message_injection" // WebSocket accepts injected messages without validation
+
+	// ── WAF (expanded) ──────────────────────────────────────────────────
+	CheckWAFProductVersion     CheckID = "waf.product_version"      // WAF product and version fingerprinted
+
+	// ── JS Framework Detection ──────────────────────────────────────────
+	CheckJSFrameworkDetected   CheckID = "js.framework_detected"    // client-side JS framework and version identified
+	CheckJSFrameworkVulnerable CheckID = "js.framework_vulnerable"  // known CVE in detected JS framework version
+
+	// ── Dirbust (expanded) ──────────────────────────────────────────────
+	CheckDirbustTechExtension  CheckID = "dirbust.tech_extension_found" // path found via tech-specific extension probing
+	CheckDirbustRecursive      CheckID = "dirbust.recursive_found"      // path found via recursive directory probing
+
+	// ── Cloud Bucket (expanded) ─────────────────────────────────────────
+	CheckCloudBucketPermutation CheckID = "cloud.bucket_permutation_found" // bucket found via org-name permutation
+
+	// ── OOB Callback ────────────────────────────────────────────────────
+	CheckOOBCallbackReceived   CheckID = "oob.callback_received"   // OOB callback confirmed blind vulnerability
+
+	// ── Exploitation / Post-Exploitation (ScanAuthorized only) ─────────
+	// These findings represent actual exploitation results, not just
+	// vulnerability detection. Emitted only in --authorized mode.
+	CheckExploitCredentialHarvest      CheckID = "exploit.credential_harvest"          // credentials extracted from exploited service (DB passwords, API keys, tokens)
+	CheckExploitCredentialValidated    CheckID = "exploit.credential_validated"        // extracted credential confirmed live via identity endpoint (sts, /user, auth.test)
+	CheckExploitDataExtracted          CheckID = "exploit.data_extracted"              // sensitive data accessed through exploitation chain (PII, financial, secrets)
+	CheckExploitDatasourceExposed      CheckID = "exploit.datasource_exposed"         // backend datasource accessible via exploited management interface
+	CheckExploitSessionHijack          CheckID = "exploit.session_hijack"             // session tokens harvested enabling account takeover
+	CheckExploitLateralMovement        CheckID = "exploit.lateral_movement"           // internal service discovered and accessed via pivot through exploited target
+	CheckExploitInternalNetDiscovered  CheckID = "exploit.internal_network_discovered" // internal network topology mapped through exploited container
+	CheckExploitContainerEscape        CheckID = "exploit.container_escape"           // container escape achieved (Docker socket, privileged mode, kernel exploit)
+	CheckExploitHostAccess             CheckID = "exploit.host_access"                // host-level access obtained from within container
+	CheckExploitCloudMetadataExposed   CheckID = "exploit.cloud_metadata_exposed"     // cloud metadata endpoint reached (GCP/AWS/Azure) yielding IAM credentials
+	CheckExploitPrivilegeEscalation    CheckID = "exploit.privilege_escalation"       // elevated privileges obtained (admin token forged, role escalated)
+	CheckExploitCodeExecution          CheckID = "exploit.code_execution"             // arbitrary code/command execution achieved on exploited target
+
+	// ── Container Runtime Detection (from within exploited containers) ──
+	CheckContainerDockerSocketExposed  CheckID = "container.docker_socket_exposed"    // Docker socket mounted in container — full host escape path
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1543,6 +1725,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckHeadersServerInfoLeak:           {CheckHeadersServerInfoLeak, SeverityLow, ModeSurface},
 
 	// Exposure — GET requests to well-known paths (same as any crawler) → Surface
+	CheckExposureAPIVersion:       {CheckExposureAPIVersion, SeverityLow, ModeSurface},
 	CheckExposureHTTPNoRedirect:   {CheckExposureHTTPNoRedirect, SeverityMedium, ModeSurface},
 	CheckExposureStagingSubdomain: {CheckExposureStagingSubdomain, SeverityHigh, ModeSurface},
 	CheckExposureAdminPath:        {CheckExposureAdminPath, SeverityHigh, ModeSurface},
@@ -1556,14 +1739,16 @@ var Registry = map[CheckID]CheckMeta{
 	CheckExposureSpringActuator:   {CheckExposureSpringActuator, SeverityCritical, ModeSurface},
 	CheckExposureCloudStorage:     {CheckExposureCloudStorage, SeverityCritical, ModeSurface},
 	CheckExposureSensitiveFile:    {CheckExposureSensitiveFile, SeverityHigh, ModeSurface},
+	CheckExposureAIModelFile:     {CheckExposureAIModelFile, SeverityHigh, ModeSurface},
 	CheckNucleiS3BucketExposed:    {CheckNucleiS3BucketExposed, SeverityCritical, ModeSurface},
 	CheckNucleiMisconfiguredCORS:  {CheckNucleiMisconfiguredCORS, SeverityMedium, ModeSurface},
 	CheckNucleiStaleTemplates:     {CheckNucleiStaleTemplates, SeverityMedium, ModeSurface},
 
 	// Subdomain takeover — DNS observation only → Surface
-	CheckSubdomainTakeover: {CheckSubdomainTakeover, SeverityCritical, ModeSurface},
+	CheckSubdomainTakeover:    {CheckSubdomainTakeover, SeverityCritical, ModeSurface},
+	CheckSubdomainsDiscovered: {CheckSubdomainsDiscovered, SeverityInfo, ModeSurface},
 	// Typosquat — DNS lookups only → Surface
-	CheckDomainTyposquat:   {CheckDomainTyposquat, SeverityHigh, ModeSurface},
+	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityHigh, ModeSurface},
 
 	// Web — passive fingerprinting from normal responses → Surface
 	// Active payload injection (XSS/SQLi/SSRF/traversal) and credential
@@ -1580,6 +1765,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebDefaultCredentials:   {CheckWebDefaultCredentials, SeverityCritical, ModeDeep},
 	CheckWebHTTPRequestSmuggling:   {CheckWebHTTPRequestSmuggling, SeverityHigh, ModeDeep},
 	CheckWebDangerousMethodEnabled: {CheckWebDangerousMethodEnabled, SeverityMedium, ModeSurface},
+	CheckWebVerbTamperAuthBypass:   {CheckWebVerbTamperAuthBypass, SeverityHigh, ModeDeep},
+	CheckWebRaceCondition:          {CheckWebRaceCondition, SeverityCritical, ModeDeep},
+	CheckWebXSDInjection:           {CheckWebXSDInjection, SeverityCritical, ModeDeep},
+	CheckWebPDFSSRF:                {CheckWebPDFSSRF, SeverityCritical, ModeDeep},
 	CheckSecretInResponseHeader:    {CheckSecretInResponseHeader, SeverityHigh, ModeSurface},
 
 	// Asset Intelligence — queries external public APIs, no target contact → Surface
@@ -1592,9 +1781,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAssetScreenshot:     {CheckAssetScreenshot, SeverityInfo, ModeSurface},
 
 	// WHOIS / RDAP — queries public registry servers → Surface
-	CheckWHOISDomainExpiry7d:  {CheckWHOISDomainExpiry7d, SeverityCritical, ModeSurface},
-	CheckWHOISDomainExpiry30d: {CheckWHOISDomainExpiry30d, SeverityHigh, ModeSurface},
-	CheckWHOISDomainInfo:      {CheckWHOISDomainInfo, SeverityInfo, ModeSurface},
+	CheckWHOISDomainExpiry7d:     {CheckWHOISDomainExpiry7d, SeverityCritical, ModeSurface},
+	CheckWHOISDomainExpiry30d:    {CheckWHOISDomainExpiry30d, SeverityHigh, ModeSurface},
+	CheckWHOISDomainInfo:         {CheckWHOISDomainInfo, SeverityInfo, ModeSurface},
+	CheckWHOISNoPrivacy:          {CheckWHOISNoPrivacy, SeverityMedium, ModeSurface},
+	CheckWHOISRecentRegistration: {CheckWHOISRecentRegistration, SeverityMedium, ModeSurface},
 
 	// Cloud Buckets — HTTP GET/PUT probes to public cloud storage URLs → Surface
 	CheckCloudBucketPublic:   {CheckCloudBucketPublic, SeverityCritical, ModeSurface},
@@ -1613,10 +1804,38 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCSPWildcardSource:     {CheckCSPWildcardSource, SeverityHigh, ModeSurface},
 	CheckWAFNotDetected:     {CheckWAFNotDetected, SeverityMedium, ModeSurface},
 	CheckWAFDetected:        {CheckWAFDetected, SeverityInfo, ModeSurface},
-	CheckWAFOriginExposed:   {CheckWAFOriginExposed, SeverityCritical, ModeSurface},
-	CheckWAFBypassHeader:    {CheckWAFBypassHeader, SeverityHigh, ModeDeep},
-	CheckWAFInsecureMode:    {CheckWAFInsecureMode, SeverityHigh, ModeSurface},
-	CheckIDSDetected:        {CheckIDSDetected, SeverityInfo, ModeSurface},
+	CheckWAFOriginExposed:      {CheckWAFOriginExposed, SeverityCritical, ModeSurface},
+	CheckWAFBypassHeader:       {CheckWAFBypassHeader, SeverityHigh, ModeDeep},
+	CheckWAFInsecureMode:       {CheckWAFInsecureMode, SeverityHigh, ModeSurface},
+	CheckWAFBypassPath:         {CheckWAFBypassPath, SeverityHigh, ModeDeep},
+	CheckWAFBypassMethod:       {CheckWAFBypassMethod, SeverityMedium, ModeDeep},
+	CheckWAFBypassContentType:  {CheckWAFBypassContentType, SeverityHigh, ModeDeep},
+	CheckIDSDetected:           {CheckIDSDetected, SeverityInfo, ModeSurface},
+
+	// Proxy chain detection — passive header analysis → Surface
+	CheckProxyChainDetected: {CheckProxyChainDetected, SeverityInfo, ModeSurface},
+	CheckProxyHopDetected:   {CheckProxyHopDetected, SeverityInfo, ModeSurface},
+	CheckProxyXFFLeak:       {CheckProxyXFFLeak, SeverityMedium, ModeSurface},
+	CheckProxyTraceEnabled:      {CheckProxyTraceEnabled, SeverityMedium, ModeDeep},
+	CheckProxyHopByHopAbuse:    {CheckProxyHopByHopAbuse, SeverityHigh, ModeDeep},
+	CheckLBBigIPCookieLeak:     {CheckLBBigIPCookieLeak, SeverityMedium, ModeSurface},
+	CheckWebH2CSmuggling:       {CheckWebH2CSmuggling, SeverityHigh, ModeDeep},
+	CheckMCPToolPoisoning:      {CheckMCPToolPoisoning, SeverityHigh, ModeDeep},
+	CheckMCPUnauthenticated:    {CheckMCPUnauthenticated, SeverityCritical, ModeSurface},
+	CheckMCPCommandInjection:   {CheckMCPCommandInjection, SeverityCritical, ModeDeep},
+	CheckAIInfraJupyter:        {CheckAIInfraJupyter, SeverityCritical, ModeSurface},
+	CheckAIInfraRay:            {CheckAIInfraRay, SeverityCritical, ModeSurface},
+	CheckAIInfraMLflow:         {CheckAIInfraMLflow, SeverityHigh, ModeSurface},
+	CheckAIInfraGradio:         {CheckAIInfraGradio, SeverityHigh, ModeSurface},
+	CheckRPCMethodDangerous:    {CheckRPCMethodDangerous, SeverityCritical, ModeDeep},
+
+	// CDN cache intelligence — passive fingerprinting → Surface, active probes → Deep
+	CheckCacheBehaviorDetected: {CheckCacheBehaviorDetected, SeverityInfo, ModeSurface},
+	CheckCachePurgeEnabled:     {CheckCachePurgeEnabled, SeverityMedium, ModeSurface},
+	CheckCacheVaryRisky:        {CheckCacheVaryRisky, SeverityLow, ModeSurface},
+	CheckCachePoisonUnkeyed:    {CheckCachePoisonUnkeyed, SeverityHigh, ModeDeep},
+	CheckCacheDeception:        {CheckCacheDeception, SeverityHigh, ModeDeep},
+	CheckCacheHostRouting:      {CheckCacheHostRouting, SeverityMedium, ModeDeep},
 
 	// DLP — scanning public HTTP responses and screenshots → Surface
 	// All checks observe only what is already publicly accessible.
@@ -1660,6 +1879,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortZooKeeperExposed:    {CheckPortZooKeeperExposed, SeverityHigh, ModeSurface},
 	CheckPortInfluxDBExposed:     {CheckPortInfluxDBExposed, SeverityHigh, ModeSurface},
 	CheckPortSplunkMgmtExposed:   {CheckPortSplunkMgmtExposed, SeverityHigh, ModeSurface},
+	CheckPortVaultExposed:        {CheckPortVaultExposed, SeverityHigh, ModeSurface},
+	CheckPortVaultUnsealedNoAuth: {CheckPortVaultUnsealedNoAuth, SeverityCritical, ModeSurface},
+	CheckPortJBossManagementExposed: {CheckPortJBossManagementExposed, SeverityHigh, ModeSurface},
+	CheckPortColdFusionAdminExposed: {CheckPortColdFusionAdminExposed, SeverityHigh, ModeSurface},
 
 	// GraphQL — Surface: introspection query; Deep: batch + persisted query probes
 	CheckGraphQLIntrospection:        {CheckGraphQLIntrospection, SeverityMedium, ModeSurface},
@@ -1696,7 +1919,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPTRRecord:    {CheckPTRRecord, SeverityInfo, ModeSurface},
 
 	// Multi-service per-port → Surface
-	CheckPortServiceDiscovered: {CheckPortServiceDiscovered, SeverityInfo, ModeSurface},
+	CheckPortServiceDiscovered:  {CheckPortServiceDiscovered, SeverityInfo, ModeSurface},
+	CheckPortServiceIdentified: {CheckPortServiceIdentified, SeverityInfo, ModeSurface},
 
 	// Host header injection → Deep
 	CheckHostHeaderInjection: {CheckHostHeaderInjection, SeverityHigh, ModeDeep},
@@ -1747,7 +1971,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOAuthTokenLeakReferer:  {CheckOAuthTokenLeakReferer, SeverityHigh, ModeDeep},
 	CheckJWKSExposed:            {CheckJWKSExposed, SeverityInfo, ModeSurface},
 	CheckOIDCImplicitFlow:       {CheckOIDCImplicitFlow, SeverityMedium, ModeSurface},
-	CheckOAuthImplicitAccepted:  {CheckOAuthImplicitAccepted, SeverityHigh, ModeDeep},
+	CheckOAuthImplicitAccepted:    {CheckOAuthImplicitAccepted, SeverityHigh, ModeDeep},
+	CheckOAuthTokenEndpointNoAuth: {CheckOAuthTokenEndpointNoAuth, SeverityHigh, ModeSurface},
 	CheckJWTNoVerification:      {CheckJWTNoVerification, SeverityCritical, ModeDeep},
 
 	// GitHub / CI — queries public GitHub API and reads public repo content → Surface
@@ -2172,7 +2397,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebHPP:                {CheckWebHPP, SeverityMedium, ModeDeep},
 	CheckWebNginxAliasTraversal: {CheckWebNginxAliasTraversal, SeverityCritical, ModeDeep},
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
+	CheckWebIISVersionLeak:     {CheckWebIISVersionLeak, SeverityMedium, ModeSurface},
 	CheckWebFileUpload:         {CheckWebFileUpload, SeverityCritical, ModeDeep},
+	CheckWebCmdInjection:      {CheckWebCmdInjection, SeverityCritical, ModeDeep},
+	CheckWebNoSQLi:            {CheckWebNoSQLi, SeverityCritical, ModeDeep},
+	CheckWebCSRFMissing:       {CheckWebCSRFMissing, SeverityMedium, ModeDeep},
 	CheckWebAPIFuzz:            {CheckWebAPIFuzz, SeverityHigh, ModeDeep},
 	CheckHTTPClickjacking:     {CheckHTTPClickjacking, SeverityMedium, ModeSurface},
 	CheckWebSocketCSWSH:       {CheckWebSocketCSWSH, SeverityHigh, ModeDeep},
@@ -2306,6 +2535,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCloudGCPNoAuditLogging:           {CheckCloudGCPNoAuditLogging, SeverityHigh, ModeDeep},
 
 	// AWS authenticated cloud scanning — requires valid AWS credentials
+	CheckCloudAWSScanError:         {CheckCloudAWSScanError, SeverityInfo, ModeDeep},
 	CheckCloudAWSIAMRootAccessKey:  {CheckCloudAWSIAMRootAccessKey, SeverityCritical, ModeDeep},
 	CheckCloudAWSIAMRootNoMFA:      {CheckCloudAWSIAMRootNoMFA, SeverityCritical, ModeDeep},
 	CheckCloudAWSIAMUserNoMFA:      {CheckCloudAWSIAMUserNoMFA, SeverityHigh, ModeDeep},
@@ -2578,10 +2808,25 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortRedisVulnerableCVE2025: {CheckPortRedisVulnerableCVE2025, SeverityCritical, ModeSurface},
 	CheckPortBGPExposed:        {CheckPortBGPExposed, SeverityMedium, ModeSurface},
 	CheckPortKibanaVulnerable:  {CheckPortKibanaVulnerable, SeverityCritical, ModeSurface},
-	CheckPortMinIODefaultCreds: {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortMinIODefaultCreds:     {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortGrafanaDefaultCreds:   {CheckPortGrafanaDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortSonarQubeDefaultCreds: {CheckPortSonarQubeDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortAirflowDefaultCreds:   {CheckPortAirflowDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortTomcatDefaultCreds:    {CheckPortTomcatDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortJenkinsNoAuth:         {CheckPortJenkinsNoAuth, SeverityCritical, ModeSurface},
+	CheckPortPortainerDefaultCreds: {CheckPortPortainerDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortPgAdminDefaultCreds:   {CheckPortPgAdminDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortZabbixDefaultCreds:    {CheckPortZabbixDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortGiteaNoAuth:           {CheckPortGiteaNoAuth, SeverityHigh, ModeSurface},
+	CheckPortSupersetDefaultCreds:  {CheckPortSupersetDefaultCreds, SeverityCritical, ModeDeep},
 
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},
+
+	// Auth probing — Deep (active probing)
+	CheckAuthUsernameEnumeration: {CheckAuthUsernameEnumeration, SeverityMedium, ModeDeep},
+	CheckAuthNoLockout:           {CheckAuthNoLockout, SeverityMedium, ModeDeep},
+	CheckAuthNoBruteforceProtect: {CheckAuthNoBruteforceProtect, SeverityMedium, ModeDeep},
 
 	// Auth fuzzing — Deep (active probing)
 	CheckAuthFuzzStateBypass:      {CheckAuthFuzzStateBypass, SeverityHigh, ModeDeep},
@@ -2824,6 +3069,117 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOnpremLibvirtVMRawDisk:      {CheckOnpremLibvirtVMRawDisk, SeverityLow, ModeDeep},
 	CheckOnpremLibvirtNetNoIsolation: {CheckOnpremLibvirtNetNoIsolation, SeverityMedium, ModeDeep},
 	CheckOnpremLibvirtVMNoMemBalloon: {CheckOnpremLibvirtVMNoMemBalloon, SeverityLow, ModeDeep},
+
+	// Meta — internal operational findings (always surface-safe)
+	CheckMetaDryRunPlan: {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
+
+	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
+	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},
+	CheckExposureSourceMaps:  {CheckExposureSourceMaps, SeverityHigh, ModeSurface},
+	CheckExposureSecurityTxt: {CheckExposureSecurityTxt, SeverityInfo, ModeSurface},
+	CheckExposureSitemapXML:  {CheckExposureSitemapXML, SeverityInfo, ModeSurface},
+	CheckDNSCHAOSVersion:     {CheckDNSCHAOSVersion, SeverityMedium, ModeSurface},
+	CheckDNSCAAMissing:       {CheckDNSCAAMissing, SeverityMedium, ModeSurface},
+	CheckDNSProviderDetected: {CheckDNSProviderDetected, SeverityInfo, ModeSurface},
+	CheckHTTPMethodTrace:     {CheckHTTPMethodTrace, SeverityMedium, ModeSurface},
+	CheckHTTPMethodUnsafe:    {CheckHTTPMethodUnsafe, SeverityHigh, ModeSurface},
+	CheckWebSocketOpen:       {CheckWebSocketOpen, SeverityMedium, ModeSurface},
+	CheckWellKnownOIDC:       {CheckWellKnownOIDC, SeverityInfo, ModeSurface},
+	CheckWellKnownJWKS:       {CheckWellKnownJWKS, SeverityInfo, ModeSurface},
+
+	// Cookie Security (expanded)
+	CheckCookieNoPrefix:       {CheckCookieNoPrefix, SeverityLow, ModeSurface},
+	CheckCookieExcessiveScope: {CheckCookieExcessiveScope, SeverityMedium, ModeSurface},
+
+	// Well-Known URIs
+	CheckWellKnownSecurityTxt:     {CheckWellKnownSecurityTxt, SeverityInfo, ModeSurface},
+	CheckWellKnownChangePwd:       {CheckWellKnownChangePwd, SeverityInfo, ModeSurface},
+	CheckWellKnownAppleAppSite:    {CheckWellKnownAppleAppSite, SeverityInfo, ModeSurface},
+	CheckWellKnownAssetLinks:      {CheckWellKnownAssetLinks, SeverityInfo, ModeSurface},
+	CheckWellKnownNodeInfo:        {CheckWellKnownNodeInfo, SeverityInfo, ModeSurface},
+	CheckWellKnownWebfinger:       {CheckWellKnownWebfinger, SeverityInfo, ModeSurface},
+	CheckWellKnownMTA:             {CheckWellKnownMTA, SeverityInfo, ModeSurface},
+	CheckWellKnownMatrix:          {CheckWellKnownMatrix, SeverityInfo, ModeSurface},
+	CheckWellKnownHostMeta:        {CheckWellKnownHostMeta, SeverityInfo, ModeSurface},
+	CheckWellKnownResourceMissing: {CheckWellKnownResourceMissing, SeverityInfo, ModeSurface},
+
+	// robots.txt / sitemap.xml
+	CheckRobotsSensitivePath:  {CheckRobotsSensitivePath, SeverityMedium, ModeSurface},
+	CheckRobotsCrawlDelay:     {CheckRobotsCrawlDelay, SeverityInfo, ModeSurface},
+	CheckSitemapSensitiveURL:  {CheckSitemapSensitiveURL, SeverityMedium, ModeSurface},
+
+	// HTTP/2
+	CheckHTTP2ContinuationFlood: {CheckHTTP2ContinuationFlood, SeverityHigh, ModeDeep},
+
+	// CSP Bypass
+	CheckCSPDataURI:          {CheckCSPDataURI, SeverityHigh, ModeSurface},
+	CheckCSPBaseURIMissing:   {CheckCSPBaseURIMissing, SeverityMedium, ModeSurface},
+	CheckCSPFrameAncestors:   {CheckCSPFrameAncestors, SeverityMedium, ModeSurface},
+	CheckCSPObjectSrc:        {CheckCSPObjectSrc, SeverityMedium, ModeSurface},
+	CheckCSPReportOnly:       {CheckCSPReportOnly, SeverityMedium, ModeSurface},
+
+	// NTLM
+	CheckNTLMInfoLeak: {CheckNTLMInfoLeak, SeverityMedium, ModeSurface},
+
+	// Subdomain Discovery
+	CheckSubdomainPermutation: {CheckSubdomainPermutation, SeverityInfo, ModeSurface},
+	CheckSubdomainBruteforce:  {CheckSubdomainBruteforce, SeverityInfo, ModeSurface},
+
+	// API Security
+	CheckAPIBOLA:           {CheckAPIBOLA, SeverityCritical, ModeDeep},
+	CheckAPIMassAssignment: {CheckAPIMassAssignment, SeverityHigh, ModeDeep},
+	CheckAPINoRateLimit:    {CheckAPINoRateLimit, SeverityMedium, ModeDeep},
+
+	// IPv6
+	CheckIPv6AAAAFound:   {CheckIPv6AAAAFound, SeverityInfo, ModeSurface},
+	CheckIPv6ServiceOpen: {CheckIPv6ServiceOpen, SeverityInfo, ModeSurface},
+
+	// Favicon
+	CheckFaviconHashMatch: {CheckFaviconHashMatch, SeverityInfo, ModeSurface},
+
+	// CT Log
+	CheckCTLogSubdomain: {CheckCTLogSubdomain, SeverityInfo, ModeSurface},
+
+	// ASN/IP Range
+	CheckASNRangeDiscovered: {CheckASNRangeDiscovered, SeverityInfo, ModeSurface},
+
+	// WebSocket (expanded)
+	CheckWebSocketNoAuth:       {CheckWebSocketNoAuth, SeverityMedium, ModeDeep},
+	CheckWebSocketMsgInjection: {CheckWebSocketMsgInjection, SeverityHigh, ModeDeep},
+
+	// WAF (expanded)
+	CheckWAFProductVersion: {CheckWAFProductVersion, SeverityInfo, ModeSurface},
+
+	// JS Framework Detection
+	CheckJSFrameworkDetected:   {CheckJSFrameworkDetected, SeverityInfo, ModeSurface},
+	CheckJSFrameworkVulnerable: {CheckJSFrameworkVulnerable, SeverityMedium, ModeSurface},
+
+	// Dirbust (expanded)
+	CheckDirbustTechExtension: {CheckDirbustTechExtension, SeverityMedium, ModeDeep},
+	CheckDirbustRecursive:     {CheckDirbustRecursive, SeverityMedium, ModeDeep},
+
+	// Cloud Bucket (expanded)
+	CheckCloudBucketPermutation: {CheckCloudBucketPermutation, SeverityMedium, ModeSurface},
+
+	// OOB Callback
+	CheckOOBCallbackReceived: {CheckOOBCallbackReceived, SeverityCritical, ModeDeep},
+
+	// Exploitation / Post-Exploitation (ScanAuthorized — all Deep)
+	CheckExploitCredentialHarvest:     {CheckExploitCredentialHarvest, SeverityCritical, ModeDeep},
+	CheckExploitCredentialValidated:  {CheckExploitCredentialValidated, SeverityCritical, ModeDeep},
+	CheckExploitDataExtracted:        {CheckExploitDataExtracted, SeverityCritical, ModeDeep},
+	CheckExploitDatasourceExposed:    {CheckExploitDatasourceExposed, SeverityHigh, ModeDeep},
+	CheckExploitSessionHijack:        {CheckExploitSessionHijack, SeverityCritical, ModeDeep},
+	CheckExploitLateralMovement:      {CheckExploitLateralMovement, SeverityCritical, ModeDeep},
+	CheckExploitInternalNetDiscovered: {CheckExploitInternalNetDiscovered, SeverityHigh, ModeDeep},
+	CheckExploitContainerEscape:      {CheckExploitContainerEscape, SeverityCritical, ModeDeep},
+	CheckExploitHostAccess:           {CheckExploitHostAccess, SeverityCritical, ModeDeep},
+	CheckExploitCloudMetadataExposed: {CheckExploitCloudMetadataExposed, SeverityCritical, ModeDeep},
+	CheckExploitPrivilegeEscalation:  {CheckExploitPrivilegeEscalation, SeverityCritical, ModeDeep},
+	CheckExploitCodeExecution:       {CheckExploitCodeExecution, SeverityCritical, ModeDeep},
+
+	// Container Runtime Detection
+	CheckContainerDockerSocketExposed: {CheckContainerDockerSocketExposed, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

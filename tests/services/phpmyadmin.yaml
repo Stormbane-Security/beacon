@@ -1,0 +1,39 @@
+name: phpmyadmin-exposed
+description: "phpMyAdmin database management panel exposed without restricting access"
+tags: [phpmyadmin, database, admin-panel]
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_ALLOW_EMPTY_PASSWORD: "no"
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    ports: ["80:80"]
+    environment:
+      PMA_HOST: mysql
+      PMA_ARBITRARY: "1"
+    depends_on:
+      - mysql
+
+ready:
+  cmd: "curl -sf http://localhost:80/ | grep -qi phpmyadmin"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-phpmyadmin-login-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qi phpmyadmin"
+      exit_code: 0
+
+  - name: classifies-as-phpmyadmin
+    type: classify
+    target: localhost:80
+    expect:
+      title_contains: phpMyAdmin
+
+timeout: 5m

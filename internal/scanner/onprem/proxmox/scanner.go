@@ -192,7 +192,8 @@ func (s *Scanner) curlProof(path string) string {
 	if s.cfg.SkipTLSVerify || strings.HasPrefix(ep, "https") {
 		tlsFlag = "-k "
 	}
-	return fmt.Sprintf("curl %s%s%s -H 'Authorization: %s'", tlsFlag, ep, path, s.authHeader())
+	redactedAuth := fmt.Sprintf("PVEAPIToken=%s=$PROXMOX_TOKEN", s.cfg.TokenID)
+	return fmt.Sprintf("curl %s%s%s -H 'Authorization: %s'", tlsFlag, ep, path, redactedAuth)
 }
 
 // doRequest performs an authenticated GET against the Proxmox API and decodes
@@ -345,18 +346,6 @@ func (s *Scanner) fetchFirewallOptions(ctx context.Context) (map[string]any, err
 		return nil, fmt.Errorf("decode firewall options: %w", err)
 	}
 	return opts, nil
-}
-
-func (s *Scanner) fetchHAStatus(ctx context.Context) ([]map[string]any, error) {
-	var resp pveResponse
-	if err := s.doRequest(ctx, "/api2/json/cluster/ha/status/current", &resp); err != nil {
-		return nil, err
-	}
-	var status []map[string]any
-	if err := json.Unmarshal(resp.Data, &status); err != nil {
-		return nil, fmt.Errorf("decode ha status: %w", err)
-	}
-	return status, nil
 }
 
 // fetchBackedUpVMIDs returns a set of VMID strings that have at least one

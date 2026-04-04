@@ -1,0 +1,34 @@
+name: adminer-exposed
+description: "Adminer database management tool exposed publicly"
+tags: [adminer, database, admin-panel]
+
+services:
+  adminer:
+    image: adminer:latest
+    ports: ["8080:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/ | grep -qi adminer"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-adminer-login-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/ | grep -qi adminer"
+      exit_code: 0
+
+  - name: exploit-adminer-phpinfo
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/?username= | grep -qiE '(adminer|login|server)'"
+      exit_code: 0
+
+  - name: classifies-as-adminer
+    type: classify
+    target: localhost:8080
+    expect:
+      title_contains: Adminer
+
+timeout: 5m

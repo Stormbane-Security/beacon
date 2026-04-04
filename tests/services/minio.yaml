@@ -1,0 +1,47 @@
+name: minio-default-creds
+description: "MinIO with default minioadmin credentials exposes S3-compatible storage"
+tags: [minio, service, storage]
+
+services:
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: ["server", "/data", "--console-address", ":9001"]
+
+ready:
+  cmd: "curl -sf http://localhost:9000/minio/health/live >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-minio-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9000/minio/health/live"
+      exit_code: 0
+
+  - name: exploit-minio-default-login
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:9000/minio/login -H 'Content-Type: application/json' -d '{\"accessKey\":\"minioadmin\",\"secretKey\":\"minioadmin\"}' | grep -q token"
+      exit_code: 0
+
+  - name: classifies-as-minio
+    type: classify
+    target: localhost:9001
+    expect:
+      backend_service: MinIO
+
+  - name: detects-default-credentials
+    type: beacon
+    target: localhost:9000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9000"]
+    expect:
+      check_id: port.minio_default_credentials
+
+timeout: 5m

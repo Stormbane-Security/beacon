@@ -1,0 +1,38 @@
+name: nats-monitoring-exposed
+description: "NATS message broker with monitoring API exposed without auth"
+tags: [nats, messaging, monitoring]
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--http_port", "8222"]
+
+ready:
+  cmd: "curl -sf http://localhost:8222/varz | grep -q server_id"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-nats-varz
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8222/varz | grep -q server_id"
+      exit_code: 0
+
+  - name: exploit-nats-connz
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8222/connz | grep -q num_connections"
+      exit_code: 0
+
+  - name: detects-nats-monitoring-exposed
+    type: beacon
+    target: localhost:8222
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8222"]
+    expect:
+      check_id: port.nats_monitoring_exposed
+
+timeout: 5m

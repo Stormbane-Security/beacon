@@ -75,6 +75,8 @@ var allCheckIDs = []finding.CheckID{
 	finding.CheckWebPathTraversal,
 	finding.CheckWebDefaultCredentials,
 	finding.CheckWebHTTPRequestSmuggling,
+	finding.CheckWebCmdInjection,
+	finding.CheckWebCSRFMissing,
 	finding.CheckAssetReverseIP,
 	finding.CheckAssetOrgDomains,
 	finding.CheckAssetASNRanges,
@@ -325,6 +327,9 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckLDAPInjection:       true,
 		finding.CheckCloudMetadataSSRF:   true,
 		// Web injection / exploitation scanners
+		finding.CheckWebCmdInjection:        true,
+		finding.CheckWebNoSQLi:              true,
+		finding.CheckWebCSRFMissing:         true,
 		finding.CheckWebSSTI:                true,
 		finding.CheckWebCRLFInjection:       true,
 		finding.CheckWebPrototypePollution:  true,
@@ -362,6 +367,7 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudGCPComputeDefaultSA:     true,
 		finding.CheckCloudGCPGKEPublicEndpoint:    true,
 		finding.CheckCloudGCPGKENoBinaryAuth:      true,
+		finding.CheckCloudAWSScanError:         true,
 		finding.CheckCloudAWSIAMRootAccessKey:  true,
 		finding.CheckCloudAWSIAMRootNoMFA:      true,
 		finding.CheckCloudAWSIAMUserNoMFA:      true,
@@ -593,6 +599,10 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckAIDataExfil:           true,
 		finding.CheckAIToolAbuse:           true,
 		finding.CheckAIIndirectInjection:   true,
+		// Auth probing — active probing
+		finding.CheckAuthUsernameEnumeration:   true,
+		finding.CheckAuthNoLockout:             true,
+		finding.CheckAuthNoBruteforceProtect:   true,
 		// Auth fuzzing — active probing
 		finding.CheckAuthFuzzStateBypass:       true,
 		finding.CheckAuthFuzzCodeInterception:  true,
@@ -602,7 +612,15 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckSIWEChainBypass:           true,
 		finding.CheckSIWEReplayAttack:          true,
 		// Port-level active probes
-		finding.CheckPortMinIODefaultCreds: true,
+		finding.CheckPortMinIODefaultCreds:     true,
+		finding.CheckPortGrafanaDefaultCreds:   true,
+		finding.CheckPortSonarQubeDefaultCreds: true,
+		finding.CheckPortAirflowDefaultCreds:   true,
+		finding.CheckPortTomcatDefaultCreds:    true,
+		finding.CheckPortPortainerDefaultCreds: true,
+		finding.CheckPortPgAdminDefaultCreds:   true,
+		finding.CheckPortZabbixDefaultCreds:    true,
+		finding.CheckPortSupersetDefaultCreds:  true,
 		// MFA enforcement — cloud API
 		finding.CheckCloudGCPNo2SV:                    true,
 		finding.CheckCloudAzureNoConditionalAccessMFA: true,
@@ -658,6 +676,40 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCloudOCISecurityListSSHOpen: true,
 		finding.CheckCloudOCINSGAllOpen:          true,
 		finding.CheckSupplyChainRegistryToCluster: true,
+		// WAF bypass (authorized mode uses ModeDeep)
+		finding.CheckWAFBypassPath:        true,
+		finding.CheckWAFBypassMethod:      true,
+		finding.CheckWAFBypassContentType: true,
+		// Proxy chain
+		finding.CheckProxyTraceEnabled:   true,
+		finding.CheckProxyHopByHopAbuse: true,
+		// Load balancer
+		// H2C smuggling
+		finding.CheckWebH2CSmuggling: true,
+		// MCP
+		finding.CheckMCPToolPoisoning:    true,
+		finding.CheckMCPCommandInjection: true,
+		// RPC
+		finding.CheckRPCMethodDangerous: true,
+		// Cache probe
+		finding.CheckCachePoisonUnkeyed: true,
+		finding.CheckCacheDeception:     true,
+		finding.CheckCacheHostRouting:   true,
+		// New scanner gaps — deep mode
+		finding.CheckWebVerbTamperAuthBypass: true,
+		finding.CheckWebRaceCondition:        true,
+		finding.CheckWebXSDInjection:         true,
+		finding.CheckWebPDFSSRF:              true,
+		// Tier 2 scanner gaps — deep mode
+		finding.CheckOOBCallbackReceived:    true,
+		finding.CheckDirbustRecursive:      true,
+		finding.CheckDirbustTechExtension:  true,
+		finding.CheckWebSocketMsgInjection: true,
+		finding.CheckWebSocketNoAuth:        true,
+		finding.CheckHTTP2ContinuationFlood: true,
+		finding.CheckAPINoRateLimit:         true,
+		finding.CheckAPIBOLA:                true,
+		finding.CheckAPIMassAssignment:      true,
 	}
 
 	for id, meta := range finding.Registry {
@@ -665,6 +717,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 			// All onprem.* checks are intentionally deep — they require
 			// local network access (Proxmox API, Docker socket, etc.).
 			if strings.HasPrefix(string(id), "onprem.") {
+				continue
+			}
+			// All exploit.* and container.* checks are intentionally deep —
+			// they require --authorized mode (post-exploitation).
+			if strings.HasPrefix(string(id), "exploit.") || strings.HasPrefix(string(id), "container.") {
 				continue
 			}
 			t.Errorf("CheckID %q is tagged ModeDeep but is not in the known-deep allowlist — review and add it if intentional", id)

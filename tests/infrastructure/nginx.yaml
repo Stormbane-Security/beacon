@@ -1,0 +1,35 @@
+name: nginx-default
+description: "Default nginx 1.25 installation for proxy type classification"
+tags: [nginx, infrastructure, proxy]
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["80:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-nginx-server-version-leaked
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: nginx/'"
+      exit_code: 0
+
+  - name: classifies-as-nginx
+    type: classify
+    target: localhost:80
+    expect:
+      proxy_type: nginx
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: headers.server_info_leak
+
+timeout: 5m

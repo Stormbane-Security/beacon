@@ -1,0 +1,33 @@
+name: saml-endpoint-exposed
+description: "Keycloak SAML IdP with exposed metadata — beacon detects SAML endpoint and metadata exposure"
+tags: [saml, identity, keycloak]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    ports: ["9260:8080"]
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:9260/realms/master/.well-known/openid-configuration >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-saml-metadata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9260/realms/master/protocol/saml/descriptor | grep -qi 'entitydescriptor\\|saml'"
+      exit_code: 0
+
+  - name: detects-saml-metadata
+    type: beacon
+    target: localhost:9260
+    args: ["--no-enrich", "--scanners", "saml", "--deep", "--permission-confirmed", "--ports", "8080"]
+    expect:
+      check_id: saml.endpoint_exposed
+
+timeout: 10m

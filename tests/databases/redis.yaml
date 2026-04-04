@@ -1,0 +1,36 @@
+name: redis-no-auth
+description: "Redis 7 with no authentication requirement exposes unauthenticated access"
+tags: [redis, database, portscan]
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--protected-mode", "no"]
+
+ready:
+  cmd: "nc -z localhost 6379"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-redis-info
+    type: command
+    expect:
+      command: "echo 'INFO server' | nc -w 2 localhost 6379 | grep -q redis_version"
+      exit_code: 0
+
+  - name: exploit-redis-set-get
+    type: command
+    expect:
+      command: "echo -e 'SET drydock_proof hacked\\r\\nGET drydock_proof\\r\\n' | nc -w 2 localhost 6379 | grep -q hacked"
+      exit_code: 0
+
+  - name: detects-unauthenticated-redis
+    type: beacon
+    target: localhost:6379
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "6379"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+timeout: 5m

@@ -1,0 +1,46 @@
+name: autoprobe-no-protection
+description: >
+  Nginx serving a login form with no CAPTCHA, no autocomplete="off",
+  and no rate limiting. Beacon autoprobe scanner should detect missing
+  brute-force protection signals in surface mode.
+tags: [autoprobe, scanner, auth]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9282:80"]
+    volumes:
+      - ./autoprobe-login/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9282/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-login-page-exists
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9282/login | grep -q 'Sign In'"
+      exit_code: 0
+
+  - name: exploit-no-captcha
+    type: command
+    expect:
+      command: "! curl -sf http://localhost:9282/login | grep -qiE 'captcha|recaptcha|hcaptcha'"
+      exit_code: 0
+
+  - name: exploit-no-autocomplete-off
+    type: command
+    expect:
+      command: "! curl -sf http://localhost:9282/login | grep -qi 'autocomplete=\"off\"'"
+      exit_code: 0
+
+  - name: detects-no-bruteforce-protection
+    type: beacon
+    target: localhost:9282
+    args: ["--no-enrich", "--scanners", "autoprobe"]
+    expect:
+      check_id: auth.no_bruteforce_protection_signals
+
+timeout: 5m

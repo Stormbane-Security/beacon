@@ -1,0 +1,31 @@
+name: swagger-exposed
+description: >
+  Spring Boot PetClinic app with Swagger/OpenAPI spec exposed.
+  Beacon should detect exposure.api_docs.
+tags: [swagger, scanner, exposure]
+
+services:
+  petclinic:
+    image: arey/springboot-petclinic:latest
+    ports: ["9256:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9256/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-swagger-ui-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9256/swagger-ui.html -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+      exit_code: 0
+
+  - name: detects-api-docs-exposed
+    type: beacon
+    target: localhost:9256
+    args: ["--no-enrich", "--scanners", "swagger"]
+    expect:
+      check_id: exposure.api_docs
+
+timeout: 10m

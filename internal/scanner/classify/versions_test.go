@@ -242,9 +242,7 @@ Allow: /public/
 	// Should include /admin/, /private/data, /wp-admin
 	want := map[string]bool{"/admin/": true, "/private/data": true, "/wp-admin": true}
 	for _, p := range paths {
-		if _, ok := want[p]; ok {
-			delete(want, p)
-		}
+		delete(want, p)
 	}
 	if len(want) != 0 {
 		t.Errorf("missing paths: %v (got %v)", want, paths)

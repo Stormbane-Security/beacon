@@ -52,6 +52,21 @@ func TestExtractStringField_EmptyValue(t *testing.T) {
 	}
 }
 
+func TestExtractStringField_EscapedQuotes(t *testing.T) {
+	// Value contains escaped quotes: {"name":"John \"Doe\""}
+	got := extractStringField(`{"name":"John \"Doe\""}`, "name")
+	if got != `John "Doe"` {
+		t.Errorf(`expected 'John "Doe"', got %q`, got)
+	}
+}
+
+func TestExtractStringField_EscapedBackslash(t *testing.T) {
+	got := extractStringField(`{"path":"C:\\Users\\test"}`, "path")
+	if got != `C:\Users\test` {
+		t.Errorf(`expected 'C:\Users\test', got %q`, got)
+	}
+}
+
 // --- extractIntField ---
 
 func TestExtractIntField_Present(t *testing.T) {
@@ -538,6 +553,69 @@ func TestRun_EmptyResponse_NoPanic(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	_ = findings // must not panic
+}
+
+// ---------------------------------------------------------------------------
+// checkJWTEncryption: case-insensitive field matching
+// ---------------------------------------------------------------------------
+
+func TestCheckJWTEncryption_CaseInsensitive(t *testing.T) {
+	// Payload has "Email" (capital E) — should still be detected as sensitive.
+	claims := map[string]any{"Email": "user@example.com", "sub": "1"}
+	parts := []string{"header", "payload", "sig"} // 3 parts = non-JWE
+	f := checkJWTEncryption("example.com", parts, claims)
+	if f == nil {
+		t.Fatal("expected encryption-missing finding for uppercase 'Email' field")
+	}
+	if f.CheckID != finding.CheckJWTEncryptionMissing {
+		t.Errorf("expected CheckJWTEncryptionMissing, got %s", f.CheckID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// checkJTIMissing: short-lived tokens should NOT trigger
+// ---------------------------------------------------------------------------
+
+func TestCheckJTIMissing_ShortLived_NoFinding(t *testing.T) {
+	now := float64(time.Now().Unix())
+	claims := map[string]any{
+		"sub": "1",
+		"iat": now,
+		"exp": now + 1800, // 30 minutes — short-lived
+	}
+	f := checkJTIMissing("example.com", claims)
+	if f != nil {
+		t.Error("expected no jti-missing finding for short-lived token (30 min)")
+	}
+}
+
+func TestCheckJTIMissing_LongLived_Finding(t *testing.T) {
+	now := float64(time.Now().Unix())
+	claims := map[string]any{
+		"sub": "1",
+		"iat": now,
+		"exp": now + 86400, // 24 hours — long-lived
+	}
+	f := checkJTIMissing("example.com", claims)
+	if f == nil {
+		t.Fatal("expected jti-missing finding for long-lived token (24 hours)")
+	}
+	if f.CheckID != finding.CheckJWTReplayMissing {
+		t.Errorf("expected CheckJWTReplayMissing, got %s", f.CheckID)
+	}
+}
+
+func TestCheckJTIMissing_HasJTI_NoFinding(t *testing.T) {
+	claims := map[string]any{
+		"sub": "1",
+		"jti": "abc-123",
+		"iat": float64(time.Now().Unix()),
+		"exp": float64(time.Now().Add(24 * time.Hour).Unix()),
+	}
+	f := checkJTIMissing("example.com", claims)
+	if f != nil {
+		t.Error("expected no finding when jti is present")
+	}
 }
 
 // TestOIDC_WeakSigningAlg spins up a mock OIDC discovery document that

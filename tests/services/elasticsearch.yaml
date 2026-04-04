@@ -1,0 +1,46 @@
+name: elasticsearch-no-auth
+description: "Elasticsearch 8.13.0 with security disabled exposes unauthenticated cluster API"
+tags: [elasticsearch, service, database]
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    ports: ["9200:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+
+ready:
+  cmd: "curl -sf http://localhost:9200/_cluster/health >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-elasticsearch-cluster-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9200/ | grep -q cluster_name"
+      exit_code: 0
+
+  - name: exploit-elasticsearch-list-indices
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9200/_cat/indices | grep -qE '(green|yellow|red)' || curl -sf http://localhost:9200/_cat/health | grep -qE '(green|yellow|red)'"
+      exit_code: 0
+
+  - name: classifies-as-elasticsearch
+    type: classify
+    target: localhost:9200
+    expect:
+      backend_service: Elasticsearch
+
+  - name: detects-unauthenticated-elasticsearch
+    type: beacon
+    target: localhost:9200
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9200"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+timeout: 5m

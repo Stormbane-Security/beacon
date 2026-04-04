@@ -1,0 +1,50 @@
+name: airflow-nonstandard-port
+description: "Airflow on non-standard port — probe must detect by response fingerprint, not port number"
+tags: [airflow, nonstandard-port]
+
+services:
+  airflow:
+    image: apache/airflow:2.8.1
+    ports: ["9090:8080"]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "true"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    command: ["standalone"]
+
+ready:
+  cmd: "curl -sf http://localhost:9090/health | grep -q healthy"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-airflow-health
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9090/health | grep -q healthy"
+      exit_code: 0
+
+  - name: exploit-airflow-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:9090/api/v1/dags | grep -q dags || curl -sf http://localhost:9090/login | grep -qi airflow"
+      exit_code: 0
+
+  - name: classifies-airflow-on-nonstandard-port
+    type: classify
+    target: localhost:9090
+    expect:
+      backend_service: Apache Airflow
+
+  - name: detects-airflow-on-nonstandard-port
+    type: beacon
+    target: localhost:9090
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: port.airflow_exposed
+
+timeout: 10m

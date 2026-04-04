@@ -1,0 +1,47 @@
+name: waf-bypass-cmdinj
+description: >
+  Web application behind ModSecurity WAF with command injection in a
+  query parameter. Standard payloads are blocked by the WAF. Beacon
+  should use evasion encodings (IFS, hex, quote-break) to bypass and
+  confirm the command injection.
+
+services:
+  webapp:
+    image: vulnerables/web-dvwa:latest
+    ports: ["8080:80"]
+    environment:
+      MYSQL_HOST: database
+      MYSQL_USER: root
+      MYSQL_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+    depends_on: [database]
+
+  database:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["80:80"]
+    environment:
+      BACKEND: "http://webapp:80"
+      PARANOIA: "1"
+    depends_on: [webapp]
+
+assertions:
+  # WAF blocks standard command injection
+  - name: waf-blocks-standard-cmdinj
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?ip=127.0.0.1;id'"
+      stdout_contains: "403"
+
+  # Beacon with evasion should find the command injection
+  - name: beacon-bypasses-waf-cmdinj
+    type: beacon
+    target: localhost
+    args: ["--authorized", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
+    expect:
+      check_id: web.command_injection

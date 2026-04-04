@@ -1,0 +1,42 @@
+name: consul-dev-mode
+description: "HashiCorp Consul 1.18 in dev mode with no ACLs exposes service catalog"
+tags: [consul, infrastructure, service-discovery]
+
+services:
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["8500:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:8500/v1/status/leader >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-consul-no-acl-services-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8500/v1/catalog/services | grep -q consul"
+      exit_code: 0
+
+  - name: exploit-consul-no-acl-kv-writable
+    type: command
+    expect:
+      command: "curl -sf -X PUT -d 'test' http://localhost:8500/v1/kv/drydock-test && curl -sf http://localhost:8500/v1/kv/drydock-test?raw"
+      exit_code: 0
+
+  - name: classifies-as-consul
+    type: classify
+    target: localhost:8500
+    expect:
+      backend_service: HashiCorp Consul
+
+  - name: detects-consul-no-acl
+    type: beacon
+    target: localhost:8500
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8500"]
+    expect:
+      check_id: port.consul_no_acl
+
+timeout: 5m

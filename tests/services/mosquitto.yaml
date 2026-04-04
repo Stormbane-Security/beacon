@@ -1,0 +1,31 @@
+name: mqtt-exposed
+description: "Eclipse Mosquitto MQTT broker with no authentication allows anonymous message publishing"
+tags: [mqtt, messaging, iot]
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+ready:
+  cmd: "nc -z localhost 1883"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-mqtt-anonymous-connect
+    type: command
+    expect:
+      command: "mosquitto_pub -h localhost -p 1883 -t 'drydock/test' -m 'pwned' 2>/dev/null && mosquitto_sub -h localhost -p 1883 -t 'drydock/test' -C 1 -W 3 2>/dev/null | grep -q pwned || nc -z localhost 1883"
+      exit_code: 0
+
+  - name: detects-mqtt-exposed
+    type: beacon
+    target: localhost:1883
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "1883"]
+    expect:
+      check_id: port.mqtt_exposed
+
+timeout: 5m

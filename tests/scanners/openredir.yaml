@@ -1,0 +1,30 @@
+name: openredir-basic
+description: "App with unvalidated redirect parameters — scanner should detect open redirect"
+tags: [openredir, scanner, web]
+
+services:
+  app:
+    build:
+      context: ./openredir
+    ports: ["9290:8080"]
+
+ready:
+  cmd: "curl -sfo /dev/null http://localhost:9290/"
+  timeout: 120s
+  interval: 3s
+
+assertions:
+  - name: exploit-open-redirect-to-evil
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:9290/redirect?url=https://evil.com' | grep -qi 'location.*evil.com'"
+      exit_code: 0
+
+  - name: detects-open-redirect-url
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--scanners", "openredir", "--ports", "8080", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.open_redirect
+
+timeout: 5m

@@ -9,16 +9,22 @@ jobs:
   release:
     name: Create Release
     if: github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden runner
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
+        if: runner.environment == 'github-hosted'
         with:
-          fetch-depth: 0   # full history needed to read tags
+          egress-policy: audit
 
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
           cache: true
@@ -35,62 +41,49 @@ jobs:
           GOPRIVATE: github.com/stormbane-security/*
 
       # ── Determine version bump from PR title (Conventional Commits) ──────────
+
       - name: Determine version bump
         id: bump
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           TITLE="${PR_TITLE}"
-          echo "PR title: $TITLE"
 
-          # Breaking change → major bump
-          if echo "$TITLE" | grep -qiE '^\s*(feat|fix|refactor|perf|security|chore)(\([^)]+\))?!:'; then
-            echo "bump=major" >> "$GITHUB_OUTPUT"
-          # feat → minor bump
+          if echo "$TITLE" | grep -qiE '^\s*\w+(\([^)]+\))?!:'; then
+            BUMP=major
           elif echo "$TITLE" | grep -qiE '^\s*feat(\([^)]+\))?:'; then
-            echo "bump=minor" >> "$GITHUB_OUTPUT"
-          # fix, perf, test, refactor, docs, chore, security → patch bump
-          elif echo "$TITLE" | grep -qiE '^\s*(fix|perf|test|refactor|docs|chore|security)(\([^)]+\))?:'; then
-            echo "bump=patch" >> "$GITHUB_OUTPUT"
+            BUMP=minor
           else
-            # Unrecognised prefix — default to patch
-            echo "bump=patch" >> "$GITHUB_OUTPUT"
+            BUMP=patch
           fi
 
-      # ── Calculate next version from latest tag ────────────────────────────────
+          echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+
       - name: Calculate next version
         id: version
         run: |
-          # Get the latest semver tag; default to v0.0.0 if none exists
           LATEST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           LATEST="${LATEST:-v0.0.0}"
-          echo "Latest tag: $LATEST"
 
           MAJOR=$(echo "$LATEST" | cut -d. -f1 | tr -d 'v')
           MINOR=$(echo "$LATEST" | cut -d. -f2)
           PATCH=$(echo "$LATEST" | cut -d. -f3)
 
           case "${{ steps.bump.outputs.bump }}" in
-            major)
-              MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor)
-              MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch)
-              PATCH=$((PATCH + 1)) ;;
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
           esac
 
           NEXT="v${MAJOR}.${MINOR}.${PATCH}"
-          echo "Next version: $NEXT"
           echo "tag=${NEXT}" >> "$GITHUB_OUTPUT"
           echo "previous=${LATEST}" >> "$GITHUB_OUTPUT"
 
-      # ── Install ARM64 cross-compiler for CGO ────────────────────────────────
       - name: Install ARM64 cross-compiler
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc-aarch64-linux-gnu
 
-      # ── Build release binary to attach to the release ────────────────────────
       - name: Build release binaries
         env:
           VERSION: ${{ steps.version.outputs.tag }}
@@ -103,17 +96,26 @@ jobs:
           tar czf "beacon-linux-amd64-${VERSION}.tar.gz" beacon-linux-amd64
           tar czf "beacon-linux-arm64-${VERSION}.tar.gz" beacon-linux-arm64
 
-      # ── Build changelog from commits since last tag ───────────────────────────
-      - name: Build changelog
-        id: changelog
+      - name: Create tag
         env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "release: ${TAG}"
+          git push origin "${TAG}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.tag }}
           PREVIOUS: ${{ steps.version.outputs.previous }}
-          PR_BODY: ${{ github.event.pull_request.body }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          # Start with the PR title and body as the primary changelog entry
           {
             echo "## What's Changed"
             echo ""
@@ -124,32 +126,11 @@ jobs:
               echo ""
             fi
             echo "---"
-            echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${PREVIOUS}...${{ steps.version.outputs.tag }}"
+            echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${PREVIOUS}...${TAG}"
           } > changelog.md
-          echo "Generated changelog"
 
-      # ── Tag and create GitHub release ─────────────────────────────────────────
-      - name: Create tag
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${TAG}" -m "release: ${TAG}"
-          git push origin "${TAG}"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.tag }}
-        run: |
           gh release create "${TAG}" \
             --title "Beacon ${TAG}" \
             --notes-file changelog.md \
             "beacon-linux-amd64-${VERSION}.tar.gz" \
-            beacon-linux-arm64-${VERSION}.tar.gz 2>/dev/null || \
-          gh release create "${TAG}" \
-            --title "Beacon ${TAG}" \
-            --notes-file changelog.md \
-            "beacon-linux-amd64-${VERSION}.tar.gz"
+            "beacon-linux-arm64-${VERSION}.tar.gz"

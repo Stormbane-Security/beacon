@@ -1,0 +1,24 @@
+$ORIGIN testdomain.local.
+$TTL 3600
+
+@   IN  SOA ns1.testdomain.local. admin.testdomain.local. (
+        2024040101  ; Serial
+        3600        ; Refresh
+        900         ; Retry
+        604800      ; Expire
+        86400       ; Minimum TTL
+    )
+
+    IN  NS  ns1.testdomain.local.
+    IN  MX  10 mail.testdomain.local.
+    IN  A   127.0.0.1
+
+; Weak SPF record: softfail instead of hardfail, overly broad
+    IN  TXT "v=spf1 +all"
+
+; No DMARC record (intentionally missing _dmarc.testdomain.local TXT)
+; No DKIM record (intentionally missing)
+
+ns1     IN  A   127.0.0.1
+mail    IN  A   127.0.0.1
+www     IN  A   127.0.0.1

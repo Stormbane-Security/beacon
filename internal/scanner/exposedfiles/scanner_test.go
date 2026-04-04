@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -31,7 +32,7 @@ func TestExposedFiles_EnvFileExposed(t *testing.T) {
 		t.Fatal("expected at least 1 finding for exposed .env")
 	}
 	f := findings[0]
-	if f.CheckID != "exposure.sensitive_file" {
+	if f.CheckID != "exposure.env_file_exposed" {
 		t.Errorf("unexpected check ID: %s", f.CheckID)
 	}
 	if f.ProofCommand == "" {
@@ -275,5 +276,321 @@ func TestExposedFiles_ZimbraNotFlaggedOn401(t *testing.T) {
 		if strings.Contains(string(f.CheckID), "zimbra") {
 			t.Errorf("unexpected Zimbra finding when server returns 401: %v", f)
 		}
+	}
+}
+
+// ===========================================================================
+// CI/CD Panel detection (Gitea)
+// ===========================================================================
+
+func TestExposedFiles_GiteaVersionAPIDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/version" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"version":"1.21.4"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.cicd_panel" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected cicd_panel finding for Gitea version API")
+	}
+}
+
+// ===========================================================================
+// Monitoring Panel detection (Grafana)
+// ===========================================================================
+
+func TestExposedFiles_GrafanaHealthDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/health" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"commit":"abc123","database":"ok","version":"10.2.3"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.monitoring_panel" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected monitoring_panel finding for Grafana health API")
+	}
+}
+
+func TestExposedFiles_GrafanaHealthNotFlaggedWithoutDatabaseKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/health" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"status":"ok"}`) // no "database" key
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.CheckID == "exposure.monitoring_panel" && strings.Contains(f.Title, "Grafana") {
+			t.Errorf("should not flag /api/health without 'database' in body, got: %v", f)
+		}
+	}
+}
+
+// ===========================================================================
+// Spring Boot Actuator detection
+// ===========================================================================
+
+func TestExposedFiles_SpringActuatorDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/actuator" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"_links":{"self":{"href":"/actuator"},"health":{"href":"/actuator/health"}}}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.spring_actuator" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected spring_actuator finding for /actuator endpoint")
+	}
+}
+
+func TestExposedFiles_SpringActuatorNotFlaggedWithout_links(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/actuator" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"status":"UP"}`) // no "_links"
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.CheckID == "exposure.spring_actuator" && strings.Contains(f.Title, "Actuator") {
+			t.Errorf("should not flag /actuator without '_links' in body")
+		}
+	}
+}
+
+// ===========================================================================
+// Vault default token detection
+// ===========================================================================
+
+func TestExposedFiles_VaultDefaultTokenDetected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/sys/health" && r.Header.Get("X-Vault-Token") == "root" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"initialized":true,"sealed":false,"standby":false,"version":"1.15.4"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "web.default_credentials" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected default_credentials finding for Vault dev-mode root token")
+	}
+}
+
+func TestExposedFiles_VaultRejectsTokenNotFlagged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/sys/health" {
+			http.Error(w, "permission denied", http.StatusForbidden)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.CheckID == "web.default_credentials" {
+			t.Errorf("should not flag Vault when token is rejected: %v", f)
+		}
+	}
+}
+
+// ===========================================================================
+// AI Model File Exposure
+// ===========================================================================
+
+func TestExposedFiles_AIModelFileONNX(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model.onnx" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("\x08\x07\x12\x04onnx")) // ONNX magic bytes
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.ai_model_file" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected ai_model_file finding for exposed /model.onnx")
+	}
+}
+
+func TestExposedFiles_AIModelFilePickle(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model.pkl" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("\x80\x04\x95")) // Python pickle v4 header
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "exposure.ai_model_file" {
+			found = true
+			if f.Severity != finding.SeverityCritical {
+				t.Errorf("expected critical severity for pickle model file, got %s", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected ai_model_file finding for exposed /model.pkl")
+	}
+}
+
+func TestExposedFiles_AIModelFile404NotFlagged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.CheckID == "exposure.ai_model_file" {
+			t.Errorf("should not flag AI model files when server returns 404: %v", f)
+		}
+	}
+}
+
+func TestExposedFiles_AIModelFileDeepOnlyInDeep(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models/model.safetensors" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("safetensors data"))
+			return
+		}
+		if r.URL.Path == "/model.safetensors" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Write([]byte("safetensors data"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+
+	// Surface mode: should find /model.safetensors but NOT /models/model.safetensors
+	surfaceFindings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range surfaceFindings {
+		if f.CheckID == "exposure.ai_model_file" && strings.Contains(f.Title, "/models/") {
+			t.Error("deepOnly path /models/model.safetensors should not be probed in surface mode")
+		}
+	}
+
+	// Deep mode: should find both
+	deepFindings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundDeep bool
+	for _, f := range deepFindings {
+		if f.CheckID == "exposure.ai_model_file" && strings.Contains(f.Title, "/models/") {
+			foundDeep = true
+		}
+	}
+	if !foundDeep {
+		t.Error("deepOnly path /models/model.safetensors should be probed in deep mode")
 	}
 }

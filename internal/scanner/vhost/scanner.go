@@ -4,8 +4,7 @@
 // requests to the same IP with candidate hostnames, comparing responses to a
 // baseline — sites with materially different content are likely real vhosts.
 //
-// Why this matters: internal apps (admin panels, staging sites, intranet tools)
-// often share an IP with a public site but have separate DNS that isn't
+// Why this matters: internal apps (admin panels, staging sites, intranet tools)// often share an IP with a public site but have separate DNS that isn't
 // publicly listed. Finding them expands the attack surface.
 package vhost
 
@@ -19,10 +18,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckVHostFound, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 const scannerName = "vhost"
 
 // Scanner probes an asset's IP with candidate virtual host names.
@@ -112,6 +120,7 @@ func (s *Scanner) runWithIP(ctx context.Context, asset, ip string, _ module.Scan
 					"or admin interface not visible from public DNS.",
 				ip, candidate, resp.status, resp.bodyLen),
 			Evidence:     map[string]any{"ip": ip, "vhost": candidate, "status": resp.status, "body_length": resp.bodyLen, "title": resp.title},
+			ProofCommand: fmt.Sprintf("curl -sI -H 'Host: %s' 'http://%s/'", candidate, ip),
 			DiscoveredAt: now,
 		})
 	}

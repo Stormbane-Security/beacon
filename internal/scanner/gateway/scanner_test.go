@@ -27,7 +27,7 @@ func noRedirectClient() *http.Client {
 func TestProbeHAProxyStats_StatisticsReport(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/haproxy" && r.URL.RawQuery == "stats" {
-			fmt.Fprint(w, "<html><head><title>Statistics Report</title></head><body>HAProxy version 2.6</body></html>")
+			_, _ = fmt.Fprint(w, "<html><head><title>Statistics Report</title></head><body>HAProxy version 2.6</body></html>")
 			return
 		}
 		http.NotFound(w, r)
@@ -57,7 +57,7 @@ func TestProbeHAProxyStats_NotFound_NoFinding(t *testing.T) {
 
 func TestProbeHAProxyStats_200ButNoHAProxyContent_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "<html><body>Welcome to my website</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Welcome to my website</body></html>")
 	}))
 	defer srv.Close()
 
@@ -73,7 +73,7 @@ func TestProbeNginxStatus_ActiveConnections(t *testing.T) {
 	body := "Active connections: 42\nserver accepts handled requests\n 100 100 250\nReading: 0 Writing: 1 Waiting: 41\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/nginx_status" {
-			fmt.Fprint(w, body)
+			_, _ = fmt.Fprint(w, body)
 			return
 		}
 		http.NotFound(w, r)

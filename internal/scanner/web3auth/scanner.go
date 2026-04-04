@@ -24,8 +24,7 @@
 // Surface mode:
 //   - Auto-detect EVM (SIWE) and Solana (SIWS) signals in page content
 //   - Probe well-known nonce/verify endpoints for both protocols
-//   - Check if auth is accessible over plain HTTP (CheckWeb3SIWEOverHTTP)
-//   - Emit CheckWeb3SIWEEndpoint / CheckWeb3SIWSDEndpoint (Info)
+//   - Check if auth is accessible over plain HTTP (CheckWeb3SIWEOverHTTP)//   - Emit CheckWeb3SIWEEndpoint / CheckWeb3SIWSDEndpoint (Info)
 //
 // Deep mode (requires --permission-confirmed):
 //   - Ephemeral wallet login flow (SIWE and/or SIWS)
@@ -47,10 +46,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWeb3HorizontalEscalation, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEChainMismatch, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEDomainBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEEndpoint, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3SIWENonceReuse, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEOverHTTP, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3SIWEReplay, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWEURIMismatch, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWeb3SIWSDEndpoint, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 const scannerName = "web3auth"
 
 // Scanner implements SIWE + SIWS authentication security testing.
@@ -760,7 +776,7 @@ func looksLikeNonce(body []byte) bool {
 	if len(trimmed) >= 8 && len(trimmed) <= 64 {
 		allAlnum := true
 		for _, c := range trimmed {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 				allAlnum = false
 				break
 			}

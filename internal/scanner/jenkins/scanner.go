@@ -25,10 +25,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCVEJenkinsCLIFileRead, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEJenkinsStaplerRCE, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckExposureCICDPanel, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJenkinsGroovyRCE, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const scannerName = "jenkins"
 
 // probeMarker is embedded in the Groovy output so we can identify our own
@@ -339,8 +351,8 @@ func isJenkinsStaplerRCEVulnerable(ver string) bool {
 		return false
 	}
 	maj, minor := 0, 0
-	fmt.Sscanf(parts[0], "%d", &maj)
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	if maj != 2 {
 		return false
 	}
@@ -350,7 +362,7 @@ func isJenkinsStaplerRCEVulnerable(ver string) bool {
 	}
 	// LTS three-component: ≤ 2.138.3
 	patch := 0
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if minor < 138 {
 		return true
 	}
@@ -370,19 +382,19 @@ func isJenkinsCLIVulnerable(ver string) bool {
 		return false
 	}
 	maj := 0
-	fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
 	if maj != 2 {
 		return false // unexpected major version
 	}
 	minor := 0
-	fmt.Sscanf(parts[1], "%d", &minor)
+	_, _ = fmt.Sscanf(parts[1], "%d", &minor)
 	if len(parts) == 2 {
 		// Mainline: 2.441 < 2.442
 		return minor < 442
 	}
 	// LTS: 2.426.2 < 2.426.3; 2.440.x is mainline-only so LTS check is minor <= 426
 	patch := 0
-	fmt.Sscanf(parts[2], "%d", &patch)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 	if minor < 426 {
 		return true
 	}

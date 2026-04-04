@@ -17,10 +17,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckAPIVersionAuthBypass, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAPIVersionRateLimitBypass, finding.SeverityMedium, finding.ModeDeep),
+	)
+}
 const scannerName = "apiversions"
 
 // versionPaths are candidate API version prefixes to probe.
@@ -159,13 +169,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	var active []activeVersion
 	for r := range resultCh {
-		active = append(active, activeVersion{
-			path:    r.path,
-			version: r.version,
-			status:  r.status,
-			ct:      r.ct,
-			bodyLen: r.bodyLen,
-		})
+		active = append(active, activeVersion(r))
 	}
 
 	if len(active) == 0 {
@@ -236,7 +240,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		findings = append(findings, finding.Finding{
-			CheckID:      "exposure.api_version",
+			CheckID:      finding.CheckExposureAPIVersion,
 			Module:       "surface",
 			Scanner:      scannerName,
 			Severity:     sev,

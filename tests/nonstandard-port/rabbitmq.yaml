@@ -1,0 +1,34 @@
+name: rabbitmq-nonstandard-port
+description: "RabbitMQ AMQP on non-standard port — probe must detect by AMQP protocol handshake, not port number"
+tags: [rabbitmq, nonstandard-port]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "6672:5672"
+      - "16672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+ready:
+  cmd: "curl -sf http://localhost:16672/api/overview -u guest:guest >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-rabbitmq-mgmt-api
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:16672/api/overview | grep -q rabbitmq_version"
+      exit_code: 0
+
+  - name: detects-rabbitmq-amqp-on-nonstandard-port
+    type: beacon
+    target: localhost:6672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "6672"]
+    expect:
+      check_id: port.amqp_exposed
+
+timeout: 5m

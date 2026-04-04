@@ -1,0 +1,31 @@
+name: rate-limit-missing
+description: "API endpoint with no rate limiting — beacon detects missing rate limits"
+tags: [rate-limiting, api, web]
+
+services:
+  app:
+    build:
+      context: ./rate-limiting
+      dockerfile: Dockerfile
+    ports: ["9303:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9303/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-no-rate-limit-rapid-requests
+    type: command
+    expect:
+      command: "for i in $(seq 1 20); do curl -sf -o /dev/null -w '%{http_code}\\n' http://localhost:9303/api/login; done | grep -c 200 | grep -q 20"
+      exit_code: 0
+
+  - name: detects-rate-limit-missing
+    type: beacon
+    target: localhost:9303
+    args: ["--no-enrich", "--scanners", "ratelimit", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: api.rate_limit_missing
+
+timeout: 5m

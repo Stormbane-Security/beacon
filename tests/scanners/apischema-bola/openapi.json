@@ -1,0 +1,43 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vulnerable API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/users/{userId}": {
+      "get": {
+        "summary": "Get user by ID",
+        "parameters": [
+          {"name": "userId", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "User details"}}
+      },
+      "put": {
+        "summary": "Update user",
+        "parameters": [
+          {"name": "userId", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "requestBody": {
+          "content": {"application/json": {"schema": {"type": "object"}}}
+        },
+        "responses": {"200": {"description": "Updated"}}
+      }
+    },
+    "/api/orders/{orderId}": {
+      "get": {
+        "summary": "Get order by ID",
+        "parameters": [
+          {"name": "orderId", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "Order details"}}
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {"200": {"description": "OK"}}
+      }
+    }
+  }
+}

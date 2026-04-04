@@ -21,49 +21,6 @@ import (
 )
 
 // listenTCP binds a listener on an OS-assigned loopback port and returns
-// the port number and a cleanup function. The listener accepts connections
-// but reads nothing — enough to make the port appear "open".
-func listenTCP(t *testing.T) (port string, cleanup func()) {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listenTCP: %v", err)
-	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return // listener closed
-			}
-			conn.Close()
-		}
-	}()
-	addr := l.Addr().String()
-	_, p, _ := net.SplitHostPort(addr)
-	return p, func() { l.Close() }
-}
-
-// listenTCPWithBanner binds a listener that writes a banner on connect.
-func listenTCPWithBanner(t *testing.T, banner string) (port string, cleanup func()) {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listenTCPWithBanner: %v", err)
-	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return
-			}
-			conn.Write([]byte(banner))
-			conn.Close()
-		}
-	}()
-	_, p, _ := net.SplitHostPort(l.Addr().String())
-	return p, func() { l.Close() }
-}
-
 // hostPort builds a "host:port" string for use with the scanner's internal
 // probePort function. Because Run() accepts a hostname (not host:port), we
 // need to test through the public API.
@@ -187,7 +144,8 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -223,7 +181,8 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -268,7 +227,8 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -302,7 +262,10 @@ func TestPrometheusUnauthHTTPMock(t *testing.T) {
 	defer srv.Close()
 
 	s := portscan.New()
-	ctx := context.Background()
+	// Longer timeout: the scanner probes many ports on 127.0.0.1 before
+	// reaching 9090. BGP/MQTT/other probes need time to complete or timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -341,7 +304,8 @@ func TestTelnetExposedFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -407,12 +371,20 @@ func TestPortScan_DefaultConcurrency_IsFive(t *testing.T) {
 	}()
 
 	// Run against 127.0.0.1 with a short context — we only care about concurrency,
-	// not the actual findings. The scanner will try its port list; most ports will
-	// be refused quickly; only our listener port will park connections.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// not the actual findings. Scope to a set of ports around the listener port
+	// so the scan completes quickly (probes on open ports make HTTP requests that
+	// add up when scanning the full port list on a dev machine).
+	listenerPort := l.Addr().(*net.TCPAddr).Port
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	s := portscan.New()
+	// Use 15 ports: the listener port + 14 likely-closed ports to test concurrency.
+	testPorts := make([]int, 0, 15)
+	for p := listenerPort; p < listenerPort+15; p++ {
+		testPorts = append(testPorts, p)
+	}
+	s.Ports = testPorts
 	_, _ = s.Run(ctx, "127.0.0.1", module.ScanSurface)
 
 	mu.Lock()
@@ -474,7 +446,8 @@ func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -520,7 +493,8 @@ func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -564,7 +538,8 @@ func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -604,7 +579,8 @@ func TestSMTPSubmissionGenericBanner(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -642,7 +618,8 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -709,7 +686,8 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -782,7 +760,8 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -836,7 +815,8 @@ func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)

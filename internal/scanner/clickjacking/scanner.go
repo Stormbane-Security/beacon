@@ -10,10 +10,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckHTTPClickjacking, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "clickjacking"
 
 // Scanner checks for missing iframe embedding protections.
@@ -42,7 +51,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		r, err := client.Do(req)
 		if err != nil {
 			if r != nil {
-				r.Body.Close()
+				_ = r.Body.Close()
 			}
 			continue
 		}

@@ -1,0 +1,44 @@
+name: docker-api-exposed
+description: "Docker daemon API exposed via TCP without authentication"
+tags: [docker, container, api]
+
+services:
+  socat:
+    image: alpine/socat:latest
+    ports: ["2375:2375"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["TCP-LISTEN:2375,fork,reuseaddr", "UNIX-CONNECT:/var/run/docker.sock"]
+
+ready:
+  cmd: "curl -sf http://localhost:2375/version | grep -q ApiVersion"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-docker-list-containers
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2375/containers/json | grep -q '\\['"
+      exit_code: 0
+
+  - name: exploit-docker-list-images
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2375/images/json | grep -q '\\['"
+      exit_code: 0
+
+  - name: exploit-docker-version-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2375/version | grep -q ApiVersion"
+      exit_code: 0
+
+  - name: detects-docker-api-exposed
+    type: beacon
+    target: localhost:2375
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2375"]
+    expect:
+      check_id: port.docker_unauthenticated
+
+timeout: 5m

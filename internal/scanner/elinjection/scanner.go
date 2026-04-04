@@ -22,11 +22,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebELInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebOGNLInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebSpELInjection, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "elinjection"
 	maxBodySize = 32 * 1024 // 32 KB
@@ -291,6 +302,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
+		baselineCount := countBaseline49(ctx, client, base+path)
+
 		for _, param := range probeParams {
 			for _, p := range payloads {
 				if ctx.Err() != nil {
@@ -306,6 +319,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				if !containsExpected(p.expect, body) {
 					continue
+				}
+
+				if p.expect == "49" {
+					injectedCount := len(wordBoundary49.FindAllString(body, -1))
+					if injectedCount <= baselineCount {
+						continue
+					}
 				}
 
 				findings = append(findings, finding.Finding{

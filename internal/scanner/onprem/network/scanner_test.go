@@ -43,16 +43,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	return false
 }
 
-func countCheckID(findings []finding.Finding, id finding.CheckID) int {
-	n := 0
-	for _, f := range findings {
-		if f.CheckID == id {
-			n++
-		}
-	}
-	return n
-}
-
 // testDialer maps addresses to mock connections, returning errors for unknown addresses.
 type testDialer struct {
 	mu       sync.Mutex
@@ -255,7 +245,7 @@ func TestUPnP_Detected(t *testing.T) {
 	cfg := network.Config{Targets: []string{ip}}
 	s := network.NewWithDialer(cfg, dialer, failHTTPClient())
 
-	findings, err := s.Run(context.Background(), ip, module.ScanSurface)
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -343,7 +333,7 @@ func TestMDNS_Detected(t *testing.T) {
 	cfg := network.Config{Targets: []string{ip}}
 	s := network.NewWithDialer(cfg, dialer, failHTTPClient())
 
-	findings, err := s.Run(context.Background(), ip, module.ScanSurface)
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -369,7 +359,7 @@ func TestTelnet_Detected(t *testing.T) {
 	cfg := network.Config{Targets: []string{ip}}
 	s := network.NewWithDialer(cfg, dialer, failHTTPClient())
 
-	findings, err := s.Run(context.Background(), ip, module.ScanSurface)
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

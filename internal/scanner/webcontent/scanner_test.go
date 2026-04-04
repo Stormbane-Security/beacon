@@ -898,9 +898,9 @@ func TestGenericPwdValueRe(t *testing.T) {
 			}
 			continue
 		}
-		if sub == nil || len(sub) < 2 || sub[1] != tt.want {
+		if len(sub) < 2 || sub[1] != tt.want {
 			got := ""
-			if sub != nil && len(sub) >= 2 {
+			if len(sub) >= 2 {
 				got = sub[1]
 			}
 			t.Errorf("genericPwdValueRe on %q: got %q, want %q", tt.input, got, tt.want)
@@ -1138,6 +1138,92 @@ func TestExtractJSURLs_NoScheme(t *testing.T) {
 // ===========================================================================
 // CSP wildcard regex — subdomain pattern should NOT be flagged
 // ===========================================================================
+
+// ===========================================================================
+// detectServerInfoLeak
+// ===========================================================================
+
+func TestDetectServerInfoLeak_NginxVersion_FindingEmitted(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set("Server", "nginx/1.25.3")
+
+	f := detectServerInfoLeak("example.com", resp)
+	if f == nil {
+		t.Fatal("expected finding for Server header with version")
+	}
+	if f.CheckID != finding.CheckHeadersServerInfoLeak {
+		t.Errorf("unexpected CheckID: %s", f.CheckID)
+	}
+	if f.Evidence["server"] != "nginx/1.25.3" {
+		t.Errorf("expected server evidence, got: %v", f.Evidence)
+	}
+}
+
+func TestDetectServerInfoLeak_ServerNoVersion_NoFinding(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set("Server", "nginx")
+
+	f := detectServerInfoLeak("example.com", resp)
+	if f != nil {
+		t.Errorf("Server header without version should not emit finding, got: %v", f)
+	}
+}
+
+func TestDetectServerInfoLeak_XPoweredBy_FindingEmitted(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set("X-Powered-By", "Express")
+
+	f := detectServerInfoLeak("example.com", resp)
+	if f == nil {
+		t.Fatal("expected finding for X-Powered-By header")
+	}
+	if f.Evidence["x_powered_by"] != "Express" {
+		t.Errorf("expected x_powered_by evidence, got: %v", f.Evidence)
+	}
+}
+
+func TestDetectServerInfoLeak_AspNetVersion_FindingEmitted(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set("X-AspNet-Version", "4.0.30319")
+
+	f := detectServerInfoLeak("example.com", resp)
+	if f == nil {
+		t.Fatal("expected finding for X-AspNet-Version header")
+	}
+	if f.Evidence["x_aspnet_version"] != "4.0.30319" {
+		t.Errorf("expected x_aspnet_version evidence, got: %v", f.Evidence)
+	}
+}
+
+func TestDetectServerInfoLeak_MultipleHeaders_AllInEvidence(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	resp.Header.Set("Server", "Apache/2.4.51")
+	resp.Header.Set("X-Powered-By", "PHP/8.1.0")
+	resp.Header.Set("X-AspNetMvc-Version", "5.2")
+
+	f := detectServerInfoLeak("example.com", resp)
+	if f == nil {
+		t.Fatal("expected finding for multiple leaking headers")
+	}
+	if f.Evidence["server"] != "Apache/2.4.51" {
+		t.Error("missing server evidence")
+	}
+	if f.Evidence["x_powered_by"] != "PHP/8.1.0" {
+		t.Error("missing x_powered_by evidence")
+	}
+	if f.Evidence["x_aspnetmvc_version"] != "5.2" {
+		t.Error("missing x_aspnetmvc_version evidence")
+	}
+}
+
+func TestDetectServerInfoLeak_NoHeaders_NoFinding(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+
+	f := detectServerInfoLeak("example.com", resp)
+	if f != nil {
+		t.Errorf("no leaking headers should not emit finding, got: %v", f)
+	}
+}
 
 func TestCSPWildcardRe_SubdomainPatternNotFlagged(t *testing.T) {
 	// "*.example.com" is a subdomain wildcard, NOT a bare wildcard.

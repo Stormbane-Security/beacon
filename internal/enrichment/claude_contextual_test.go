@@ -462,7 +462,7 @@ func TestApplyContextualResponseMissingFields(t *testing.T) {
 	}
 
 	// Second finding should handle null compliance_tags gracefully.
-	if out[1].ComplianceTags != nil && len(out[1].ComplianceTags) != 0 {
+	if len(out[1].ComplianceTags) != 0 {
 		t.Errorf("finding[1].ComplianceTags = %v; want nil or empty for null input", out[1].ComplianceTags)
 	}
 	if out[1].CrossAssetNote != "" {

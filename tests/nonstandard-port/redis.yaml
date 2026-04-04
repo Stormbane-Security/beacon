@@ -1,0 +1,29 @@
+name: redis-nonstandard-port
+description: "Redis on non-standard port — probe must detect by protocol response, not port number"
+tags: [redis, nonstandard-port]
+
+services:
+  redis:
+    image: redis:latest
+    ports: ["7777:6379"]
+
+ready:
+  cmd: "nc -z localhost 7777"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-redis-info
+    type: command
+    expect:
+      command: "echo 'INFO server' | nc -w 2 localhost 7777 | grep -q redis_version"
+      exit_code: 0
+
+  - name: detects-redis-on-nonstandard-port
+    type: beacon
+    target: localhost:7777
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7777"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+timeout: 5m

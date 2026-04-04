@@ -1,0 +1,47 @@
+name: traefik-insecure-dashboard
+description: "Traefik v3.0 with insecure API dashboard exposed without authentication"
+tags: [traefik, service, proxy]
+
+services:
+  traefik:
+    image: traefik:v3.0
+    ports:
+      - "80:80"
+      - "8080:8080"
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--entrypoints.web.address=:80"
+
+ready:
+  cmd: "curl -sf http://localhost:8080/api/rawdata >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-traefik-api-rawdata
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/api/rawdata | grep -qE '(routers|services)'"
+      exit_code: 0
+
+  - name: exploit-traefik-api-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/api/version | grep -q Version"
+      exit_code: 0
+
+  - name: classifies-as-traefik
+    type: classify
+    target: localhost:8080
+    expect:
+      proxy_type: traefik
+
+  - name: detects-traefik-api-exposed
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "gateway"]
+    expect:
+      check_id: gateway.traefik_api_exposed
+
+timeout: 5m

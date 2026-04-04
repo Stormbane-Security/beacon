@@ -1,0 +1,32 @@
+name: redos-juice-shop
+description: >
+  OWASP Juice Shop with form validation endpoints that may use
+  vulnerable regex patterns. Beacon ReDoS scanner uses timing-based
+  detection to find catastrophic backtracking.
+tags: [redos, scanner, web]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["9273:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:9273/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-form-endpoints-exist
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9273/api/Products/ | grep -q 'data'"
+      exit_code: 0
+
+  - name: redos-scan-completes
+    type: beacon
+    target: localhost:9273
+    args: ["--no-enrich", "--scanners", "redos", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 0
+
+timeout: 10m

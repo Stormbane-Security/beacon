@@ -1,0 +1,35 @@
+name: chain-log4shell-solr
+description: >
+  Exploit chain: Apache Solr 8.11 with vulnerable Log4j → CVE-2021-44228
+  detection via nuclei → JNDI injection payload delivery.
+  Solr 8.11.x ships with Log4j 2.14 which is vulnerable to Log4Shell.
+  Module fires only after nuclei confirms CVE-2021-44228.
+tags: [chain, postexploit, log4shell, cve, rce, authorized]
+weight: 70
+
+services:
+  solr:
+    image: solr:8.11.0
+    ports: ["9431:8983"]
+    command: ["solr-precreate", "beacon_test"]
+
+ready:
+  cmd: "curl -sf http://localhost:9431/solr/admin/info/system 2>/dev/null | grep -q solr"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: solr-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9431/solr/admin/info/system | grep -q solr"
+      exit_code: 0
+
+  - name: chain-exploits-log4shell
+    type: beacon
+    target: "localhost:9431"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9431"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 10m

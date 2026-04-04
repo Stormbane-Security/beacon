@@ -170,7 +170,7 @@ func (a *PortAdvisor) callClaude(ctx context.Context, prompt string) ([]int, err
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, string(b))
+		return nil, fmt.Errorf("claude API HTTP %d: %s", resp.StatusCode, string(b))
 	}
 
 	var result struct {

@@ -1,0 +1,41 @@
+name: imap-pop3-exposed
+description: "Dovecot IMAP/POP3 server exposed — beacon detects mail protocol exposure"
+tags: [imap, pop3, email, port]
+
+services:
+  mailserver:
+    image: tvial/docker-mailserver:latest
+    ports:
+      - "143:143"
+      - "110:110"
+      - "993:993"
+      - "995:995"
+    environment:
+      ENABLE_SPAMASSASSIN: "0"
+      ENABLE_CLAMAV: "0"
+      ENABLE_FAIL2BAN: "0"
+      ENABLE_POSTGREY: "0"
+      ONE_DIR: "1"
+      DMS_DEBUG: "0"
+      OVERRIDE_HOSTNAME: "mail.example.com"
+
+ready:
+  cmd: "nc -z localhost 143"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: exploit-imap-banner-readable
+    type: command
+    expect:
+      command: "echo '* LOGOUT' | nc -w 3 localhost 143 | grep -qi 'IMAP\\|OK\\|Dovecot'"
+      exit_code: 0
+
+  - name: detects-imap-exposed
+    type: beacon
+    target: localhost:995
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "143"]
+    expect:
+      check_id: port.imap_exposed
+
+timeout: 5m

@@ -1,0 +1,40 @@
+name: h2c-upgrade-smuggling
+description: >
+  Nginx that reflects the Upgrade: h2c header when clients request HTTP/2
+  Cleartext upgrade. This signals that h2c smuggling may be possible, allowing
+  proxy bypass. Beacon h2c scanner should detect the reflected Upgrade header.
+tags: [h2c, scanner, smuggling, proxy-bypass, deep]
+
+services:
+  server:
+    image: nginx:alpine
+    ports: ["9297:80"]
+    volumes:
+      - ./h2c-upgrade/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9297/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-h2c-upgrade-reflected
+    type: command
+    expect:
+      command: "curl -sI -H 'Upgrade: h2c' -H 'Connection: Upgrade, HTTP2-Settings' http://localhost:9297/ | grep -qi 'Upgrade: h2c'"
+      exit_code: 0
+
+  - name: exploit-normal-request-no-upgrade
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9297/ | grep -qi 'Upgrade' && exit 1 || exit 0"
+      exit_code: 0
+
+  - name: detects-h2c-smuggling
+    type: beacon
+    target: localhost:9297
+    args: ["--no-enrich", "--scanners", "h2c", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.h2c_smuggling
+
+timeout: 5m

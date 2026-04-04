@@ -1,0 +1,52 @@
+name: keycloak-default-creds
+description: "Keycloak 24.0 with default admin credentials for OAuth/SAML endpoint detection"
+tags: [keycloak, service, auth, oauth, saml]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    ports: ["8080:8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: ["start-dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-keycloak-oidc-config
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration | grep -q issuer"
+      exit_code: 0
+
+  - name: exploit-keycloak-admin-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:8080/realms/master/protocol/openid-connect/token -d 'client_id=admin-cli&username=admin&password=admin&grant_type=password' | grep -q access_token"
+      exit_code: 0
+
+  - name: classifies-as-keycloak
+    type: classify
+    target: localhost:8080
+    expect:
+      backend_service: Keycloak
+
+  - name: detects-oauth-endpoints
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "oauth"]
+    expect:
+      check_id: oauth.jwks_exposed
+
+  - name: detects-saml-metadata
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--scanners", "saml"]
+    expect:
+      check_id: saml.metadata_exposed
+
+timeout: 5m

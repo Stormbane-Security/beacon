@@ -113,11 +113,9 @@ type datastoreListResponse struct {
 
 // Run executes the VMware vSphere scanner. This scanner requires Deep mode
 // because it authenticates to the vSphere REST API and queries host/VM state.
+// The scan-type gate is enforced by the on-prem module dispatcher; this
+// method assumes deep or authorized mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
-		return nil, nil
-	}
-
 	endpoint := s.cfg.Endpoint
 	if endpoint == "" {
 		endpoint = "https://" + asset

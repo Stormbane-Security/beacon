@@ -1,0 +1,76 @@
+name: dlp-api-keys
+description: "Web server exposing pages with API keys, cloud credentials, and secrets"
+tags: [dlp, api-key, aws, gcp, github, secrets]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./api-keys/html:/usr/share/nginx/html:ro
+      - ./api-keys/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-github-token-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qE 'ghp_|github_pat_'"
+      exit_code: 0
+
+  - name: exploit-env-file-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/.env | grep -qiE 'AWS_ACCESS_KEY|DATABASE_URL|JWT_SECRET'"
+      exit_code: 0
+
+  # Main page patterns (dlpPatterns)
+  - name: detects-github-token-on-page
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.api_key
+      evidence_key: pattern
+      evidence_value: "GitHub token"
+
+  - name: detects-gcp-service-account-on-page
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.api_key
+      evidence_key: pattern
+      evidence_value: "GCP service account key (JSON)"
+
+  # High-value path patterns (apiKeyPatterns via .env)
+  - name: detects-database-url
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.database_url
+
+  - name: detects-aws-access-key
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.api_key
+      evidence_key: pattern
+      evidence_value: "AWS Access Key ID"
+
+  - name: detects-jwt-secret
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.api_key
+      evidence_key: pattern
+      evidence_value: "JWT signing secret"
+
+timeout: 5m

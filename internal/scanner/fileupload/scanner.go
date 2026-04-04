@@ -3,8 +3,7 @@
 //
 // It discovers upload endpoints by looking for multipart/form-data forms in crawled
 // HTML and by probing known upload paths, then attempts to upload files with:
-//   - Double extensions (.php.jpg, .php.png)
-//   - MIME type confusion (image/jpeg content with .php extension)
+//   - Double extensions (.php.jpg, .php.png)//   - MIME type confusion (image/jpeg content with .php extension)
 //   - Null byte injection (file.php%00.jpg)
 //   - Content-type spoofing (claim image/gif, upload PHP)
 //
@@ -23,11 +22,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebFileUpload, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "fileupload"
 	maxBodySize = 32 * 1024
@@ -166,8 +174,8 @@ func discoverUploadEndpoints(ctx context.Context, client *http.Client, base stri
 		if err != nil {
 			continue
 		}
-		fw.Write([]byte("beacon_probe"))
-		mw.Close()
+		_, _ = fw.Write([]byte("beacon_probe"))
+		_ = mw.Close()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 		if err != nil {
@@ -233,8 +241,8 @@ func probeUpload(ctx context.Context, client *http.Client, asset, endpoint strin
 	if err != nil {
 		return nil
 	}
-	fw.Write(m.body)
-	mw.Close()
+	_, _ = fw.Write(m.body)
+	_ = mw.Close()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
 	if err != nil {

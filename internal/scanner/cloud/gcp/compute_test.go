@@ -178,16 +178,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	return false
 }
 
-func countCheckID(findings []finding.Finding, id finding.CheckID) int {
-	n := 0
-	for _, f := range findings {
-		if f.CheckID == id {
-			n++
-		}
-	}
-	return n
-}
-
 func TestCheckInstance_DefaultServiceAccount(t *testing.T) {
 	inst := &computeapi.Instance{
 		Name:   "test-instance",

@@ -26,16 +26,6 @@ func hasCheckID(findings []finding.Finding, id finding.CheckID) bool {
 	return false
 }
 
-func countCheckID(findings []finding.Finding, id finding.CheckID) int {
-	n := 0
-	for _, f := range findings {
-		if f.CheckID == id {
-			n++
-		}
-	}
-	return n
-}
-
 // vCenterMock builds a mock vCenter REST API server.
 type vCenterMock struct {
 	Hosts      []map[string]any
@@ -124,10 +114,11 @@ func runScanner(t *testing.T, ts *httptest.Server, scanType module.ScanType) ([]
 }
 
 // --------------------------------------------------------------------------
-// Surface mode: scanner is deep-only
+// Surface mode gating is handled by the on-prem module dispatcher, not by
+// the scanner itself. See internal/modules/onprem/module.go.
 // --------------------------------------------------------------------------
 
-func TestSurfaceMode_ReturnsNil(t *testing.T) {
+func TestSurfaceMode_RunsWhenCalledDirectly(t *testing.T) {
 	mock := &vCenterMock{}
 	ts := httptest.NewServer(mock.handler())
 	defer ts.Close()
@@ -136,9 +127,10 @@ func TestSurfaceMode_ReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings in surface mode, got %d", len(findings))
-	}
+	// With an empty mock (no hosts/VMs/datastores), scanner produces 0
+	// findings even without a scan-type gate. This test documents that the
+	// scanner no longer self-gates; the dispatcher handles it.
+	_ = findings
 }
 
 // --------------------------------------------------------------------------

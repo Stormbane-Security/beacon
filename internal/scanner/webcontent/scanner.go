@@ -13,10 +13,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCSPUnsafeEval, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPUnsafeInline, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCSPWildcardSource, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingHTTPOnly, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingSameSite, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckCookieMissingSecure, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckHeadersServerInfoLeak, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckJSAPIKeyInSourceMap, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJSAPIKeyInURL, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJSHardcodedSecret, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckJSInternalEndpoint, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJSSourceMapExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSecretInResponseHeader, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWAFNotDetected, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "webcontent"
 
 // secretPatterns matches common hardcoded secrets in JavaScript source.
@@ -173,6 +195,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	// Response header secret detection
 	findings = append(findings, analyzeResponseHeaders(asset, resp)...)
+
+	// Server header info leak detection
+	if f := detectServerInfoLeak(asset, resp); f != nil {
+		findings = append(findings, *f)
+	}
 
 	// WAF detection
 	if wafFinding := detectWAF(asset, resp); wafFinding != nil {
@@ -383,6 +410,62 @@ func analyzeCSP(asset string, resp *http.Response) []finding.Finding {
 	}
 
 	return findings
+}
+
+// serverVersionRe matches a version number like "2.4.58" or "1.25.3" in a header value.
+var serverVersionRe = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
+
+// detectServerInfoLeak checks whether the Server or X-Powered-By headers
+// reveal specific software names and version numbers. Exposing this information
+// lets attackers target known CVEs for the exact version running.
+func detectServerInfoLeak(asset string, resp *http.Response) *finding.Finding {
+	var leaks []string
+	evidence := map[string]any{}
+
+	server := resp.Header.Get("Server")
+	if server != "" && serverVersionRe.MatchString(server) {
+		leaks = append(leaks, "Server: "+server)
+		evidence["server"] = server
+	}
+
+	xpb := resp.Header.Get("X-Powered-By")
+	if xpb != "" {
+		leaks = append(leaks, "X-Powered-By: "+xpb)
+		evidence["x_powered_by"] = xpb
+	}
+
+	xav := resp.Header.Get("X-AspNet-Version")
+	if xav != "" {
+		leaks = append(leaks, "X-AspNet-Version: "+xav)
+		evidence["x_aspnet_version"] = xav
+	}
+
+	xav2 := resp.Header.Get("X-AspNetMvc-Version")
+	if xav2 != "" {
+		leaks = append(leaks, "X-AspNetMvc-Version: "+xav2)
+		evidence["x_aspnetmvc_version"] = xav2
+	}
+
+	if len(leaks) == 0 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckHeadersServerInfoLeak,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityLow,
+		Title:    fmt.Sprintf("Server version information leaked via HTTP headers on %s", asset),
+		Description: fmt.Sprintf(
+			"The following HTTP response headers reveal server software and version information: %s. "+
+				"Attackers use this to identify exact software versions and target known CVEs. "+
+				"Configure your web server to suppress or genericize these headers.",
+			strings.Join(leaks, ", ")),
+		Asset:        asset,
+		Evidence:     evidence,
+		ProofCommand: fmt.Sprintf("curl -sI 'https://%s' | grep -iE 'server:|x-powered-by:|x-aspnet'", asset),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 func detectWAF(asset string, resp *http.Response) *finding.Finding {

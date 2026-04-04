@@ -1,0 +1,50 @@
+name: fingerprint-nginx-grafana-layered
+description: "Grafana behind nginx reverse proxy — both proxy_type and backend_service detected"
+tags: [fingerprint, layered, nginx, grafana]
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./nginx-grafana/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - grafana
+
+ready:
+  cmd: "curl -sf http://localhost:80/api/health >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-grafana-health-through-nginx
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/api/health | grep -q ok"
+      exit_code: 0
+
+  - name: exploit-nginx-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'Server: nginx'"
+      exit_code: 0
+
+  - name: detects-nginx-proxy-layer
+    type: classify
+    target: localhost:80
+    expect:
+      proxy_type: nginx
+
+  - name: detects-grafana-behind-proxy
+    type: classify
+    target: localhost:80
+    expect:
+      backend_service: Grafana
+
+timeout: 3m

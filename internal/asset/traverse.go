@@ -1,5 +1,7 @@
 package asset
 
+import "strings"
+
 // Traverser provides graph traversal and blast radius computation for
 // an AssetGraph. It pre-indexes adjacency lists on construction so
 // repeated queries are O(E) in the worst case but fast in practice.
@@ -131,7 +133,7 @@ func (t *Traverser) BlastRadius(assetID string) BlastRadiusResult {
 	allIDs := append([]string{assetID}, reachable...)
 	for _, id := range allIDs {
 		for _, f := range t.findings[id] {
-			result.SeverityCounts[f.Severity]++
+			result.SeverityCounts[strings.ToLower(f.Severity)]++
 			result.AffectedFindings = append(result.AffectedFindings, f)
 		}
 	}
@@ -239,7 +241,7 @@ func (t *Traverser) ShortestPath(srcID, dstID string) []string {
 // reconstructPath traces parent pointers back from dst to src.
 func reconstructPath(parent map[string]string, src, dst string) []string {
 	var path []string
-	for cur := dst; cur != src; cur = parent[cur] {
+	for cur := dst; cur != src; {
 		path = append(path, cur)
 		next, ok := parent[cur]
 		if !ok {
@@ -248,6 +250,7 @@ func reconstructPath(parent map[string]string, src, dst string) []string {
 		if next == cur {
 			return nil // self-loop — prevent infinite loop
 		}
+		cur = next
 	}
 	path = append(path, src)
 	// Reverse.

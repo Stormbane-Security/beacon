@@ -1,0 +1,31 @@
+name: webmin-exposed
+description: "Webmin server management panel exposed"
+tags: [webmin, management, port]
+
+services:
+  webmin:
+    image: jlndk/webmin:latest
+    ports: ["10000:10000"]
+    environment:
+      WEBMIN_ENABLED: "true"
+
+ready:
+  cmd: "curl -sfk https://localhost:10000 >/dev/null || curl -sf http://localhost:10000 >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: exploit-webmin-login-page
+    type: command
+    expect:
+      command: "curl -sfk https://localhost:10000/ -L | grep -qiE '(webmin|login)' || curl -sf http://localhost:10000/ -L | grep -qiE '(webmin|login)'"
+      exit_code: 0
+
+  - name: detects-webmin-exposed
+    type: beacon
+    target: localhost:10000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "10000"]
+    expect:
+      check_id: port.webmin_exposed
+
+timeout: 5m

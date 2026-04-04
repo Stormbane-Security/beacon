@@ -4,8 +4,7 @@
 // Checks performed:
 //   - Prompt injection: attempts to override system instructions
 //   - System prompt extraction: tries to get the model to reveal its hidden instructions
-//   - SSRF via LLM: asks the model to fetch internal URLs (e.g. AWS metadata)
-//   - Sensitive data exfiltration: asks the model to reveal secrets or training data
+//   - SSRF via LLM: asks the model to fetch internal URLs (e.g. AWS metadata)//   - Sensitive data exfiltration: asks the model to reveal secrets or training data
 //   - Tool/agent abuse: injects tool call syntax to trigger unintended tool execution
 //
 // Findings are only produced when the model's response contains concrete evidence of
@@ -28,11 +27,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckAIDataExfil, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAIPromptInjection, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckAISSRFViaPLLM, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckAISystemLeak, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckAIToolAbuse, finding.SeverityHigh, finding.ModeDeep),
+	)
+}
 const scannerName = "aillm"
 
 // Scanner actively probes LLM endpoints for security vulnerabilities.

@@ -1,0 +1,68 @@
+name: proxychain-multi-hop
+description: >
+  Multi-hop proxy topology: nginx reverse proxy in front of go-httpbin.
+  The proxy adds Via header (RFC 7230), X-Cache header, and echoes
+  X-Forwarded-For back. Beacon proxychain scanner should detect the
+  proxy chain via Via header analysis and XFF echo leak.
+tags: [proxychain, scanner, topology, proxy, multi-service]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  proxy:
+    image: nginx:alpine
+    ports: ["9290:80"]
+    volumes:
+      - ./proxychain-multi/proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+ready:
+  cmd: "curl -sf http://localhost:9290/get >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-via-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9290/get | grep -qi 'Via.*proxy-edge'"
+      exit_code: 0
+
+  - name: exploit-xcache-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9290/get | grep -qi 'X-Cache'"
+      exit_code: 0
+
+  - name: exploit-xff-echoed
+    type: command
+    expect:
+      command: "curl -sI -H 'X-Forwarded-For: 10.0.0.1' http://localhost:9290/get | grep -qi 'X-Debug-XFF.*10.0.0.1'"
+      exit_code: 0
+
+  - name: detects-proxy-chain
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--scanners", "proxychain"]
+    expect:
+      check_id: proxy.chain_detected
+
+  - name: detects-proxy-hop
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--scanners", "proxychain"]
+    expect:
+      check_id: proxy.hop_detected
+
+  - name: detects-xff-leak
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--scanners", "proxychain"]
+    expect:
+      check_id: proxy.xff_leak
+
+timeout: 5m

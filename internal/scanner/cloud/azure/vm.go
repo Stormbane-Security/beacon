@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	armcompute "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
 	armnetwork "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
 
-func scanVMs(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanVMs(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	computeClient, err := armcompute.NewVirtualMachinesClient(subID, cred, nil)
 	if err != nil {
 		return nil, err
@@ -52,12 +52,9 @@ func evaluateVM(ctx context.Context, nicClient *armnetwork.InterfacesClient, nam
 	if props.SecurityProfile != nil && props.SecurityProfile.EncryptionAtHost != nil {
 		encryptionAtHost = *props.SecurityProfile.EncryptionAtHost
 	}
-	hasDiskEncryptionSet := false
-	if props.StorageProfile != nil && props.StorageProfile.OSDisk != nil &&
+	hasDiskEncryptionSet := props.StorageProfile != nil && props.StorageProfile.OSDisk != nil &&
 		props.StorageProfile.OSDisk.ManagedDisk != nil &&
-		props.StorageProfile.OSDisk.ManagedDisk.DiskEncryptionSet != nil {
-		hasDiskEncryptionSet = true
-	}
+		props.StorageProfile.OSDisk.ManagedDisk.DiskEncryptionSet != nil
 	if !encryptionAtHost && !hasDiskEncryptionSet {
 		findings = append(findings, finding.Finding{
 			CheckID: finding.CheckCloudAzureVMNoDiskEncryption,

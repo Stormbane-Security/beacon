@@ -1,0 +1,76 @@
+name: waf-bypass-chain
+description: >
+  Multi-service topology: nginx WAF proxy in front of go-httpbin app.
+  The WAF blocks .php/.asp extensions and SQL keywords. The app is also
+  directly accessible on port 8081 (origin bypass). Tests WAF detection,
+  proxy chain detection, and origin exposure.
+tags: [wafdetect, wafbypass, proxychain, topology, multi-service]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+    ports: ["9289:8080"]
+
+  waf:
+    image: nginx:alpine
+    ports: ["9288:80"]
+    volumes:
+      - ./waf-bypass-chain/waf.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+ready:
+  cmd: "curl -sf http://localhost:9288/get >/dev/null && curl -sf http://localhost:9289/get >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-waf-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9288/get?q=union+select+1' | grep -q '403'"
+      exit_code: 0
+
+  - name: exploit-waf-blocks-php-extension
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9288/test.php | grep -q '403'"
+      exit_code: 0
+
+  - name: exploit-origin-direct-access
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9289/get | grep -q 'Host'"
+      exit_code: 0
+
+  - name: exploit-origin-no-waf-filtering
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9289/get?q=union+select+1' | grep -q '200'"
+      exit_code: 0
+
+  - name: exploit-proxy-chain-headers
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9288/get | grep -qi 'X-WAF-Status\\|CloudProxy'"
+      exit_code: 0
+
+  # WAF detection through the proxy
+  - name: waf-scan-through-proxy
+    type: beacon
+    target: localhost:9288
+    args: ["--no-enrich", "--scanners", "wafdetect"]
+    expect:
+      min_findings: 0
+
+  # Proxy chain detection
+  - name: detects-proxy-chain
+    type: beacon
+    target: localhost:9288
+    args: ["--no-enrich", "--scanners", "proxychain"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

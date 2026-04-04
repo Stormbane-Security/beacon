@@ -1,0 +1,244 @@
+name: e2e-databases
+description: >
+  All database services in one scan. Tests the full chain per service:
+  port identification → postexploit module routing → credential harvest
+  or data extraction. Every assertion targets a specific service port to
+  confirm the correct module fired.
+tags: [e2e, postexploit, databases, authorized]
+weight: 60
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["9600:6379"]
+    command: ["redis-server", "--protected-mode", "no"]
+
+  redis-seed:
+    image: redis:7-alpine
+    depends_on: [redis]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 2
+        redis-cli -h redis SET db_password 'P@ssw0rd!Secret'
+        redis-cli -h redis SET aws_access_key 'AKIAIOSFODNN7EXAMPLE'
+        redis-cli -h redis SET aws_secret_key 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+
+  mongodb:
+    image: mongo:7.0
+    ports: ["9601:27017"]
+
+  mongodb-seed:
+    image: mongo:7.0
+    depends_on: [mongodb]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        mongosh --host mongodb --eval '
+          db.getSiblingDB("secrets").createCollection("credentials");
+          db.getSiblingDB("secrets").credentials.insertOne({
+            service: "production-api",
+            username: "admin",
+            password: "SuperSecretProd123!"
+          });
+        '
+
+  postgres:
+    image: postgres:16-alpine
+    ports: ["9602:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+
+  mysql:
+    image: mysql:8.0
+    ports: ["9603:3306"]
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: production
+
+  mysql-seed:
+    image: mysql:8.0
+    depends_on: [mysql]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 15
+        mysql -h mysql -u root -e "
+          CREATE USER IF NOT EXISTS 'app_user'@'%' IDENTIFIED BY 'AppSecretP@ss!';
+          GRANT ALL ON production.* TO 'app_user'@'%';
+          USE production;
+          CREATE TABLE IF NOT EXISTS api_keys (id INT AUTO_INCREMENT PRIMARY KEY, service VARCHAR(64), api_key VARCHAR(128));
+          INSERT INTO api_keys (service, api_key) VALUES ('stripe', 'sk_live_abc123def456');
+        "
+
+  couchdb:
+    image: couchdb:3
+    ports: ["9604:5984"]
+    environment:
+      COUCHDB_USER: ""
+      COUCHDB_PASSWORD: ""
+
+  couchdb-seed:
+    image: curlimages/curl:latest
+    depends_on: [couchdb]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        curl -sf -X PUT http://couchdb:5984/secrets
+        curl -sf -X PUT http://couchdb:5984/secrets/api-creds -d '{"service":"aws","key":"AKIAIOSFODNN7EXAMPLE","secret":"wJalrXUtnFEMI"}'
+
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    ports: ["9605:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  elasticsearch-seed:
+    image: curlimages/curl:latest
+    depends_on: [elasticsearch]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 15
+        curl -sf -X POST http://elasticsearch:9200/users/_doc -H 'Content-Type: application/json' -d '{"email":"admin@corp.com","password_hash":"$2b$12$abc","role":"superadmin"}'
+
+  memcached:
+    image: memcached:1.6-alpine
+    ports: ["9606:11211"]
+    command: ["memcached", "-m", "64"]
+
+ready:
+  cmd: >
+    redis-cli -h localhost -p 9600 PING 2>/dev/null | grep -q PONG &&
+    curl -sf http://localhost:9605/_cluster/health 2>/dev/null | grep -q status &&
+    curl -sf http://localhost:9604/ 2>/dev/null | grep -q couchdb
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Redis: identify + exploit ---
+  - name: redis-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9600"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: redis-credentials-harvested
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9600"]
+    expect:
+      check_id: exploit.credential_harvest
+
+  # --- MongoDB: identify + exploit ---
+  - name: mongodb-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9601"]
+    expect:
+      check_id: port.service_identified
+
+  - name: mongodb-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9601"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- PostgreSQL: identify + exploit ---
+  - name: postgres-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9602"]
+    expect:
+      check_id: port.service_identified
+
+  - name: postgres-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9602"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- MySQL: identify + exploit ---
+  - name: mysql-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9603"]
+    expect:
+      check_id: port.service_identified
+
+  - name: mysql-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9603"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- CouchDB: identify + exploit ---
+  - name: couchdb-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9604"]
+    expect:
+      check_id: port.service_identified
+
+  - name: couchdb-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9604"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Elasticsearch: identify + exploit ---
+  - name: elasticsearch-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9605"]
+    expect:
+      check_id: port.service_identified
+
+  - name: elasticsearch-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9605"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Memcached: identify + exploit ---
+  - name: memcached-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9606"]
+    expect:
+      check_id: port.service_identified
+
+  - name: memcached-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9606"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Full scan: all databases at once ---
+  - name: full-database-scan-finds-all
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+           "--ports", "9600,9601,9602,9603,9604,9605,9606"]
+    expect:
+      min_findings: 10
+
+timeout: 15m

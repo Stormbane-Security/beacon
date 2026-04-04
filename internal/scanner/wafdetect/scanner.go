@@ -23,10 +23,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckIDSDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWAFBypassContentType, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassHeader, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassMethod, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassPath, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFDetected, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWAFInsecureMode, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWAFOriginExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckWAFProductVersion, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 const scannerName = "wafdetect"
 
 // WAF vendor signatures: map of header name → vendor name.
@@ -116,11 +133,6 @@ var bypassHeaders = []string{
 	"CF-Connecting-IP",
 }
 
-// cloudflareFlexibleIndicators: when these are present together it suggests
-// Flexible SSL mode (Cloudflare terminates TLS but connects to origin over HTTP).
-// Flexible mode means the origin→Cloudflare leg is unencrypted.
-var cloudflareFlexibleIndicators = []string{"cf-ray", "cf-cache-status"}
-
 // Scanner fingerprints WAF/IDS and checks for bypass misconfigurations.
 type Scanner struct{}
 
@@ -168,6 +180,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			Evidence:     map[string]any{"vendor": vendor, "scheme": scheme},
 			DiscoveredAt: time.Now(),
 		})
+
+		// Try to extract WAF product version from headers.
+		version := extractWAFVersion(headers, vendor)
+		if version != "" {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWAFProductVersion,
+				Module:   "surface",
+				Scanner:  scannerName,
+				Severity: finding.SeverityInfo,
+				Asset:    asset,
+				Title:    fmt.Sprintf("WAF version: %s %s", vendor, version),
+				Description: fmt.Sprintf(
+					"%s is running %s version %s. Knowing the exact version helps "+
+						"identify applicable CVEs and bypass techniques.",
+					asset, vendor, version,
+				),
+				Evidence:     map[string]any{"vendor": vendor, "version": version, "scheme": scheme},
+				DiscoveredAt: time.Now(),
+			})
+		}
 	}
 
 	if idsVendor != "" {
@@ -256,7 +288,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// ── Phase 4: IP header bypass (deep mode only) ────────────────────────
 	// Tests whether the WAF can be bypassed by sending forged IP headers.
-	if scanType == module.ScanDeep && vendor != "" {
+	if (scanType == module.ScanDeep || scanType == module.ScanAuthorized) && vendor != "" {
 		if bypassHeader, bypassed := testBypassHeaders(ctx, client, asset, scheme, headers); bypassed {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWAFBypassHeader,
@@ -282,6 +314,25 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				DiscoveredAt: time.Now(),
 			})
 		}
+	}
+
+	// ── Phase 5: Path normalization bypass (authorized mode) ────────────
+	// Tests whether the WAF can be bypassed by abusing path normalization
+	// differences between the WAF and the backend server.
+	if scanType == module.ScanAuthorized && vendor != "" {
+		findings = append(findings, testPathNormalization(ctx, client, asset, scheme, vendor)...)
+	}
+
+	// ── Phase 6: HTTP method override bypass (authorized mode) ──────────
+	// Tests whether WAF rules can be bypassed by using method override headers.
+	if scanType == module.ScanAuthorized && vendor != "" {
+		findings = append(findings, testMethodOverride(ctx, client, asset, scheme, vendor)...)
+	}
+
+	// ── Phase 7: Content-Type confusion bypass (authorized mode) ────────
+	// Tests whether WAF body inspection can be bypassed by changing Content-Type.
+	if scanType == module.ScanAuthorized && vendor != "" {
+		findings = append(findings, testContentTypeBypass(ctx, client, asset, scheme, vendor)...)
 	}
 
 	return findings, nil
@@ -427,10 +478,23 @@ func findOriginIP(ctx context.Context, asset string) string {
 	}
 
 	resolver := &net.Resolver{}
+
+	// Resolve the main asset's IPs (WAF edge IPs) so we can filter them out.
+	// An origin candidate that resolves to the same IP as the WAF edge is not
+	// a real origin exposure.
+	mainAddrs, _ := resolver.LookupHost(ctx, asset)
+	wafIPs := make(map[string]struct{}, len(mainAddrs))
+	for _, a := range mainAddrs {
+		wafIPs[a] = struct{}{}
+	}
+
 	for _, candidate := range candidates {
 		addrs, err := resolver.LookupHost(ctx, candidate)
 		if err != nil || len(addrs) == 0 {
 			continue
+		}
+		if _, isWAF := wafIPs[addrs[0]]; isWAF {
+			continue // same IP as the WAF edge — not a real origin
 		}
 		return addrs[0]
 	}
@@ -559,4 +623,344 @@ func isTwoPartTLD(sld, tld string) bool {
 		return true
 	}
 	return false
+}
+
+// ── Phase 5–7: Authorized-mode bypass techniques ────────────────────────────
+
+// pathNormalizationPayloads are URL path transformations that may bypass WAF rules
+// by exploiting normalization differences between the WAF and the backend server.
+// Example: WAF blocks /admin but not //admin or /./admin — backend still serves it.
+var pathNormalizationPayloads = []struct {
+	name      string
+	transform func(string) string
+}{
+	{"double-slash", func(p string) string { return "/" + p }},                         // //admin
+	{"dot-segment", func(p string) string { return "/./" + p[1:] }},                   // /./admin
+	{"dot-dot-semicolon", func(p string) string { return "/x/..;" + p }},              // /x/..;/admin (Tomcat/Jetty)
+	{"url-encoded-slash", func(p string) string { return "/%2f" + p[1:] }},            // /%2f/admin
+	{"double-url-encoded", func(p string) string { return "/%252f" + p[1:] }},         // /%252f/admin
+	{"null-byte", func(p string) string { return p + "%00" }},                         // /admin%00
+	{"backslash", func(p string) string { return strings.ReplaceAll(p, "/", "\\") }},  // \admin
+	{"tab-injection", func(p string) string { return p[:1] + "%09" + p[1:] }},         // /%09admin
+	{"case-variation", func(p string) string { return strings.ToUpper(p) }},            // /ADMIN
+}
+
+// testPathNormalization probes the WAF with path normalization tricks.
+// It first finds a path that the WAF blocks (403), then tries path transformations
+// to see if any bypass the block while still reaching the backend.
+func testPathNormalization(ctx context.Context, client *http.Client, asset, scheme, vendor string) []finding.Finding {
+	// Paths commonly blocked by WAF rules
+	blockedPaths := []string{"/admin", "/wp-admin", "/phpmyadmin", "/server-status"}
+
+	var findings []finding.Finding
+
+	// Fetch root status once — it doesn't change per path.
+	baseStatus := getStatus(ctx, client, asset, scheme, nil)
+	if baseStatus == 0 {
+		return findings
+	}
+
+	for _, path := range blockedPaths {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Check if this path is actually blocked
+		pathStatus := getStatusPath(ctx, client, asset, scheme, path, nil)
+
+		if pathStatus == 0 {
+			continue
+		}
+		if pathStatus != 403 && pathStatus != 406 && pathStatus != 429 {
+			continue // path not blocked
+		}
+
+		// Try each normalization technique
+		for _, payload := range pathNormalizationPayloads {
+			if ctx.Err() != nil {
+				break
+			}
+
+			transformed := payload.transform(path)
+			status := getStatusPath(ctx, client, asset, scheme, transformed, nil)
+
+			// If the transformed path gets a different (non-blocked) response, it's a bypass
+			if status >= 200 && status < 400 && status != pathStatus {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWAFBypassPath,
+					Module:   "authorized",
+					Scanner:  scannerName,
+					Severity: finding.SeverityHigh,
+					Asset:    asset,
+					Title:    fmt.Sprintf("WAF path normalization bypass: %s technique bypasses block on %s", payload.name, path),
+					Description: fmt.Sprintf(
+						"%s's %s WAF blocks %s (HTTP %d) but the path normalization technique %q "+
+							"transforms it to %s which returns HTTP %d. The WAF and backend server "+
+							"normalize URL paths differently, allowing an attacker to bypass WAF rules. "+
+							"Fix: ensure the WAF normalizes paths the same way as the backend, or "+
+							"implement path normalization before WAF rule evaluation.",
+						asset, vendor, path, pathStatus, payload.name, transformed, status),
+					Evidence: map[string]any{
+						"waf_vendor":     vendor,
+						"blocked_path":   path,
+						"blocked_status": pathStatus,
+						"bypass_path":    transformed,
+						"bypass_status":  status,
+						"technique":      payload.name,
+					},
+					ProofCommand: fmt.Sprintf("curl -sk -o /dev/null -w '%%{http_code}' '%s://%s%s'", scheme, asset, transformed),
+					DiscoveredAt: time.Now(),
+				})
+				break // one bypass per path is enough
+			}
+		}
+	}
+
+	return findings
+}
+
+// testMethodOverride checks if WAF rules can be bypassed by using HTTP method
+// override headers. Many frameworks support X-HTTP-Method-Override to change the
+// effective method — a WAF blocking POST to /admin may still allow GET with the
+// override header set to POST.
+func testMethodOverride(ctx context.Context, client *http.Client, asset, scheme, vendor string) []finding.Finding {
+	overrideHeaders := []struct {
+		name  string
+		value string
+	}{
+		{"X-HTTP-Method-Override", "POST"},
+		{"X-HTTP-Method", "POST"},
+		{"X-Method-Override", "POST"},
+	}
+
+	var findings []finding.Finding
+
+	// Find a path where POST is blocked but GET isn't
+	testPaths := []string{"/", "/api", "/login"}
+
+	for _, path := range testPaths {
+		if ctx.Err() != nil {
+			break
+		}
+
+		getResp := getStatusPath(ctx, client, asset, scheme, path, nil)
+		postResp := getStatusMethod(ctx, client, asset, scheme, path, "POST", nil)
+
+		// POST is blocked but GET isn't
+		if getResp < 200 || getResp >= 400 {
+			continue
+		}
+		if postResp != 403 && postResp != 405 {
+			continue
+		}
+
+		// Try method override headers with GET
+		for _, oh := range overrideHeaders {
+			if ctx.Err() != nil {
+				break
+			}
+
+			status := getStatusPath(ctx, client, asset, scheme, path, map[string]string{
+				oh.name: oh.value,
+			})
+
+			// If override header changes the behavior vs plain GET, the backend processes it
+			if status != getResp && status >= 200 && status < 400 {
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWAFBypassMethod,
+					Module:   "authorized",
+					Scanner:  scannerName,
+					Severity: finding.SeverityMedium,
+					Asset:    asset,
+					Title:    fmt.Sprintf("WAF bypass via %s method override at %s%s", oh.name, asset, path),
+					Description: fmt.Sprintf(
+						"The WAF at %s blocks POST requests to %s (HTTP %d), but sending a GET request "+
+							"with %s: %s header returns HTTP %d. The backend server processes the override "+
+							"header, effectively converting the GET to a POST and bypassing WAF method-based rules. "+
+							"Fix: strip method override headers at the WAF/proxy layer, or include them in WAF rules.",
+						asset, path, postResp, oh.name, oh.value, status),
+					Evidence: map[string]any{
+						"waf_vendor":      vendor,
+						"path":            path,
+						"blocked_method":  "POST",
+						"blocked_status":  postResp,
+						"override_header": oh.name,
+						"override_value":  oh.value,
+						"bypass_status":   status,
+					},
+					ProofCommand: fmt.Sprintf("curl -sk -H '%s: %s' '%s://%s%s'", oh.name, oh.value, scheme, asset, path),
+					DiscoveredAt: time.Now(),
+				})
+				break
+			}
+		}
+	}
+
+	return findings
+}
+
+// testContentTypeBypass checks if WAF body inspection can be bypassed by using
+// unexpected Content-Type headers. Some WAFs only inspect application/x-www-form-urlencoded
+// or application/json but ignore multipart/form-data or text/plain.
+func testContentTypeBypass(ctx context.Context, client *http.Client, asset, scheme, vendor string) []finding.Finding {
+	// First check if any POST endpoint exists and has WAF body inspection
+	testPath := "/"
+	sqliPayload := "' OR 1=1-- -"
+
+	// Test with standard form content type — should be blocked by WAF
+	blockedStatus := postWithContentType(ctx, client, asset, scheme, testPath,
+		"application/x-www-form-urlencoded", "q="+sqliPayload)
+
+	if blockedStatus != 403 && blockedStatus != 406 {
+		return nil // WAF didn't block the payload, nothing to bypass
+	}
+
+	// Test with alternative content types
+	altTypes := []string{
+		"text/plain",
+		"application/xml",
+		"multipart/form-data; boundary=----BeaconTest",
+		"application/x-www-form-urlencoded; charset=ibm500",
+	}
+
+	var findings []finding.Finding
+
+	for _, ct := range altTypes {
+		if ctx.Err() != nil {
+			break
+		}
+
+		status := postWithContentType(ctx, client, asset, scheme, testPath, ct, "q="+sqliPayload)
+		if status != blockedStatus && status >= 200 && status < 500 && status != 403 {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWAFBypassContentType,
+				Module:   "authorized",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Asset:    asset,
+				Title:    fmt.Sprintf("WAF body inspection bypass via Content-Type: %s at %s", ct, asset),
+				Description: fmt.Sprintf(
+					"The WAF at %s blocks malicious payloads in application/x-www-form-urlencoded bodies (HTTP %d), "+
+						"but allows the same payload through with Content-Type: %s (HTTP %d). "+
+						"The WAF only inspects bodies with certain content types, allowing attackers to "+
+						"bypass body-based rules by changing the Content-Type header. "+
+						"Fix: configure WAF body inspection for all content types, not just form-urlencoded and JSON.",
+					asset, blockedStatus, ct, status),
+				Evidence: map[string]any{
+					"waf_vendor":           vendor,
+					"blocked_content_type": "application/x-www-form-urlencoded",
+					"blocked_status":       blockedStatus,
+					"bypass_content_type":  ct,
+					"bypass_status":        status,
+				},
+				DiscoveredAt: time.Now(),
+			})
+			break // one is enough
+		}
+	}
+
+	return findings
+}
+
+// getStatusPath makes a GET request to a specific path and returns the status code.
+func getStatusPath(ctx context.Context, client *http.Client, asset, scheme, path string, extraHeaders map[string]string) int {
+	reqURL := scheme + "://" + asset + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// getStatusMethod makes a request with a specific HTTP method and returns the status code.
+func getStatusMethod(ctx context.Context, client *http.Client, asset, scheme, path, method string, extraHeaders map[string]string) int {
+	reqURL := scheme + "://" + asset + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return 0
+	}
+	req.Method = method
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// extractWAFVersion attempts to determine the WAF product version from
+// response headers. Returns "" if no version information is found.
+func extractWAFVersion(headers map[string]string, vendor string) string {
+	switch vendor {
+	case "Cloudflare":
+		// Cloudflare doesn't expose version, but cf-ray contains datacenter code.
+		return ""
+	case "Imperva Incapsula":
+		if v, ok := headers["x-cdn"]; ok && v != "" {
+			return v
+		}
+	case "Akamai":
+		if v, ok := headers["server"]; ok && strings.Contains(strings.ToLower(v), "akamai") {
+			return v
+		}
+	case "ModSecurity":
+		if v, ok := headers["server"]; ok {
+			lower := strings.ToLower(v)
+			if idx := strings.Index(lower, "mod_security"); idx >= 0 {
+				return v[idx:]
+			}
+			if idx := strings.Index(lower, "modsecurity"); idx >= 0 {
+				return v[idx:]
+			}
+		}
+	case "F5 BIG-IP", "F5 BIG-IP ASM":
+		if v, ok := headers["server"]; ok && strings.Contains(strings.ToLower(v), "big-ip") {
+			return v
+		}
+	}
+
+	// Generic: check Server header for version info.
+	if server, ok := headers["server"]; ok {
+		lower := strings.ToLower(server)
+		for _, kw := range []string{"waf", "firewall", "proxy"} {
+			if strings.Contains(lower, kw) {
+				return server
+			}
+		}
+	}
+
+	return ""
+}
+
+// postWithContentType sends a POST request with the given content type and body.
+func postWithContentType(ctx context.Context, client *http.Client, asset, scheme, path, contentType, body string) int {
+	reqURL := scheme + "://" + asset + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(body))
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("Content-Type", contentType)
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	resp.Body.Close()
+	return resp.StatusCode
 }

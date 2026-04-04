@@ -1,0 +1,57 @@
+name: wordpress-exposed
+description: "WordPress 6.4 with MySQL backend for CMS detection and plugin enumeration"
+tags: [wordpress, service, cms]
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: wppassword
+    ports: ["3306:3306"]
+
+  wordpress:
+    image: wordpress:6.4-apache
+    ports: ["80:80"]
+    environment:
+      WORDPRESS_DB_HOST: mysql:3306
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: wppassword
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - mysql
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-wordpress-xmlrpc
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:80/xmlrpc.php -d '<?xml version=\"1.0\"?><methodCall><methodName>system.listMethods</methodName></methodCall>' | grep -q methodResponse"
+      exit_code: 0
+
+  - name: exploit-wordpress-wp-json
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/wp-json/ | grep -qE '(name|description|routes)'"
+      exit_code: 0
+
+  - name: classifies-as-wordpress
+    type: classify
+    target: localhost:80
+    expect:
+      title_contains: WordPress
+
+  - name: detects-no-waf
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: waf.not_detected
+
+timeout: 5m

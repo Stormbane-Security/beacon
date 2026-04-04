@@ -1,0 +1,29 @@
+name: mongodb-nonstandard-port
+description: "MongoDB on non-standard port — probe must detect by protocol handshake, not port number"
+tags: [mongodb, nonstandard-port]
+
+services:
+  mongodb:
+    image: mongo:latest
+    ports: ["28888:27017"]
+
+ready:
+  cmd: "nc -z localhost 28888"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-mongodb-handshake
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 28888"
+      exit_code: 0
+
+  - name: detects-mongodb-on-nonstandard-port
+    type: beacon
+    target: localhost:28888
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "28888"]
+    expect:
+      check_id: port.database_exposed
+
+timeout: 5m

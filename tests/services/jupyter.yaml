@@ -1,0 +1,42 @@
+name: jupyter-exposed
+description: "Jupyter Notebook server with no token authentication"
+tags: [jupyter, development, ml]
+
+services:
+  jupyter:
+    image: jupyter/base-notebook:latest
+    ports: ["8888:8888"]
+    command: ["start-notebook.py", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+
+ready:
+  cmd: "curl -sf http://localhost:8888/api | grep -q version"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-jupyter-api-noauth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8888/api | grep -q version"
+      exit_code: 0
+
+  - name: exploit-jupyter-kernels
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8888/api/kernelspecs | grep -q kernel"
+      exit_code: 0
+
+  - name: classifies-as-jupyter
+    type: classify
+    target: localhost:8888
+    expect:
+      backend_service: Jupyter
+
+  - name: detects-jupyter-exposed
+    type: beacon
+    target: localhost:8888
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8888"]
+    expect:
+      check_id: port.jupyter_exposed
+
+timeout: 5m

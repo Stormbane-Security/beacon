@@ -1,0 +1,30 @@
+name: mongodb-no-auth
+description: "MongoDB 7 with no authentication exposes unauthenticated database access"
+tags: [mongodb, database, portscan]
+
+services:
+  mongodb:
+    image: mongo:7
+    ports: ["27017:27017"]
+    command: ["mongod", "--bind_ip_all"]
+
+ready:
+  cmd: "nc -z localhost 27017"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-mongodb-list-dbs
+    type: command
+    expect:
+      command: "mongosh --host localhost --port 27017 --quiet --eval 'db.adminCommand({listDatabases:1}).databases.map(d=>d.name).join(\",\")' 2>/dev/null | grep -q admin"
+      exit_code: 0
+
+  - name: detects-exposed-mongodb
+    type: beacon
+    target: localhost:27017
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "27017"]
+    expect:
+      check_id: port.database_exposed
+
+timeout: 5m

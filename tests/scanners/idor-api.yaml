@@ -1,0 +1,54 @@
+name: idor-sequential-api
+description: >
+  Nginx simulating a REST API with sequential numeric IDs on /api/users/
+  and /api/orders/ — no authorization checks. Beacon IDOR scanner should
+  detect sequential ID access (api.idor_sequential_id) and unauthenticated
+  /api/me endpoint (api.bola_horizontal_access).
+tags: [idor, scanner, web, bola, api]
+
+services:
+  api:
+    image: nginx:alpine
+    ports: ["9280:80"]
+    volumes:
+      - ./idor-api/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9280/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-user-1-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9280/api/users/1 | grep -q 'User 1'"
+      exit_code: 0
+
+  - name: exploit-user-2-different-data
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9280/api/users/2 | grep -q 'User 2'"
+      exit_code: 0
+
+  - name: exploit-api-me-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9280/api/me | grep -q 'admin'"
+      exit_code: 0
+
+  - name: detects-idor-sequential-id
+    type: beacon
+    target: localhost:9280
+    args: ["--no-enrich", "--scanners", "idor", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: api.idor_sequential_id
+
+  - name: detects-bola-horizontal-access
+    type: beacon
+    target: localhost:9280
+    args: ["--no-enrich", "--scanners", "idor", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: api.bola_horizontal_access
+
+timeout: 5m

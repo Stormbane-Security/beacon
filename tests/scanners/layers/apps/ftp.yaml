@@ -1,0 +1,5 @@
+image: stilliard/pure-ftpd:latest
+environment:
+  FTP_USER_NAME: anonymous
+  FTP_USER_PASS: anonymous
+  PUBLICHOST: localhost

@@ -94,13 +94,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 
 			// Surface-mode checks.
-			findings = append(findings, s.checkUPnP(ctx, ip)...)
-			findings = append(findings, s.checkMDNS(ctx, ip)...)
-			findings = append(findings, s.checkTelnet(ctx, ip)...)
 			findings = append(findings, s.checkHTTPMgmt(ctx, ip)...)
 
 			// Deep-mode checks.
 			if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+				findings = append(findings, s.checkUPnP(ctx, ip)...)
+				findings = append(findings, s.checkMDNS(ctx, ip)...)
+				findings = append(findings, s.checkTelnet(ctx, ip)...)
 				findings = append(findings, s.checkSNMP(ctx, ip)...)
 			}
 		}
@@ -163,7 +163,7 @@ func (s *Scanner) checkSNMP(ctx context.Context, ip string) []finding.Finding {
 		}
 
 		packet := buildSNMPGetNextPacket(community)
-		conn.SetDeadline(time.Now().Add(3 * time.Second))
+		_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 		_, err = conn.Write(packet)
 		if err != nil {
 			conn.Close()
@@ -267,7 +267,7 @@ func (s *Scanner) checkUPnP(ctx context.Context, ip string) []finding.Finding {
 		return findings
 	}
 
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	_, err = conn.Write([]byte(ssdpDiscover))
 	if err != nil {
 		conn.Close()
@@ -328,7 +328,7 @@ func (s *Scanner) checkMDNS(ctx context.Context, ip string) []finding.Finding {
 	// Build a minimal mDNS query for _services._dns-sd._udp.local.
 	query := buildMDNSQuery("_services._dns-sd._udp.local")
 
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	_, err = conn.Write(query)
 	if err != nil {
 		conn.Close()
@@ -415,7 +415,7 @@ func (s *Scanner) checkTelnet(ctx context.Context, ip string) []finding.Finding 
 	defer conn.Close()
 
 	// Read the banner (if any) with a short timeout.
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	buf := make([]byte, 1024)
 	n, _ := conn.Read(buf)
 

@@ -1,0 +1,42 @@
+name: chain-prometheus-data-harvest
+description: >
+  Exploit chain: Prometheus unauthenticated → target enumeration →
+  internal topology discovery → metric data extraction.
+tags: [chain, postexploit, prometheus, data-harvest, authorized]
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    ports: ["9419:9090"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+
+ready:
+  cmd: "curl -sf http://localhost:9419/api/v1/status/runtimeinfo | grep -q storageRetention"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-prometheus-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9419/api/v1/targets | grep -q success"
+      exit_code: 0
+
+  - name: detects-prometheus-unauth
+    type: beacon
+    target: "localhost:9419"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9419"]
+    expect:
+      check_id: port.prometheus_unauthenticated
+
+  - name: chain-discovers-topology
+    type: beacon
+    target: "localhost:9419"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9419"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 10m

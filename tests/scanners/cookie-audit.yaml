@@ -1,0 +1,31 @@
+name: cookie-audit
+description: "Nginx sets insecure session cookies on root page — beacon detects missing Secure, HttpOnly, SameSite"
+tags: [cookie, scanner, web]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9240:80"]
+    volumes:
+      - ./cookie-audit/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9240/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-cookies-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9240/ | grep -qi 'Set-Cookie'"
+      exit_code: 0
+
+  - name: detects-cookie-issues
+    type: beacon
+    target: localhost:9240
+    args: ["--no-enrich", "--scanners", "cookie"]
+    expect:
+      check_id: cookie.missing_secure
+
+timeout: 3m

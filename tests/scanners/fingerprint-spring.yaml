@@ -1,0 +1,35 @@
+name: fingerprint-spring-actuator
+description: "Real Spring Boot Petclinic with exposed actuator endpoints — beacon exposedfiles scanner detects actuator"
+tags: [fingerprint, classify, discovery, spring]
+
+services:
+  spring-app:
+    image: arey/springboot-petclinic:latest
+    ports: ["9216:8080"]
+    environment:
+      # Expose all actuator endpoints (deliberately insecure for testing)
+      MANAGEMENT_ENDPOINTS_WEB_BASEPATH: "/actuator"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "*"
+      MANAGEMENT_ENDPOINT_ENV_ENABLED: "true"
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+
+ready:
+  cmd: "curl -sf http://localhost:9216/actuator/health >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: exploit-actuator-health-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9216/actuator/health | grep -q status"
+      exit_code: 0
+
+  - name: detects-spring-actuator
+    type: beacon
+    target: localhost:9216
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exposure.spring_actuator
+
+timeout: 8m

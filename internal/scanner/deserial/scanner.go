@@ -17,11 +17,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebDotNetDeserialize, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWebInsecureDeserialize, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "deserial"
 	maxBodySize = 64 * 1024
@@ -459,8 +469,23 @@ func containsPickleMagic(body []byte, bodyStr string) bool {
 		}
 	}
 	for _, prefix := range pickleMagicB64 {
-		if strings.Contains(bodyStr, prefix) {
-			return true
+		idx := 0
+		for {
+			pos := strings.Index(bodyStr[idx:], prefix)
+			if pos < 0 {
+				break
+			}
+			pos += idx
+			end := pos + len(prefix)
+			for end < len(bodyStr) && isBase64Char(bodyStr[end]) {
+				end++
+			}
+			if end-pos >= 8 {
+				if pos == 0 || bodyStr[pos-1] == '"' || bodyStr[pos-1] == ':' || bodyStr[pos-1] == ' ' || bodyStr[pos-1] == ',' || bodyStr[pos-1] == '\'' {
+					return true
+				}
+			}
+			idx = pos + 1
 		}
 	}
 	return false
@@ -584,6 +609,10 @@ func probePythonPickle(ctx context.Context, client *http.Client, asset, base str
 		}
 	}
 	return nil
+}
+
+func isBase64Char(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
 }
 
 func firstLine(s string) string {

@@ -174,7 +174,7 @@ func probeNTP(ctx context.Context, host string) []finding.Finding {
 	// Re-dial so we get a fresh deadline.
 	conn2, err := dialUDP(ctx, host, 123)
 	if err == nil {
-		defer conn2.Close()
+		defer func() { _ = conn2.Close() }()
 		if _, err := conn2.Write(ntpMode7Request[:]); err == nil {
 			monBuf := make([]byte, 512)
 			n2, err := conn2.Read(monBuf)

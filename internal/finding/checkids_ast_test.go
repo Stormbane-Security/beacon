@@ -96,7 +96,7 @@ func TestCheckIDConstants_AST(t *testing.T) {
 
 			// Prefix should be lowercase and contain only [a-z0-9_]
 			for _, r := range prefix {
-				if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+				if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
 					t.Errorf("constant %s = %q has invalid char %q in prefix %q", constName, constValue, string(r), prefix)
 					break
 				}
@@ -137,12 +137,27 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"ai": true, "saml": true, "iam": true, "cve": true,
 		"web3": true, "contract": true, "chain": true, "nmap": true,
 		"intel": true, "gateway": true, "cdn": true, "cms": true,
+		"exploit": true,
 		"api": true, "osint": true, "supply_chain": true,
 		"correlation": true, "terraform": true, "aifp": true,
 		"authfuzz": true, "netdev": true, "wifi": true, "gitlab": true,
 		"teamcity": true, "oidc": true, "http": true, "websocket": true,
 		"bitbucket": true, "container": true, "circleci": true,
-		"onprem": true,
+		"onprem":    true,
+		"meta":      true,
+		"proxy":     true,
+		"cache":     true,
+		"lb":        true,
+		"mcp":       true,
+		"auth":        true,
+		"wellknown":   true,
+		"http2":       true,
+		"ntlm":        true,
+		"ipv6":        true,
+		"favicon":     true,
+		"ct":          true,
+		"oob":         true,
+		"fingerprint": true,
 	}
 
 	for _, decl := range f.Decls {

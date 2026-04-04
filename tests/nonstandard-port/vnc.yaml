@@ -1,0 +1,32 @@
+name: vnc-nonstandard-port
+description: "VNC on non-standard port — probe must detect by RFB handshake, not port number"
+tags: [vnc, nonstandard-port]
+
+services:
+  vnc:
+    image: theasp/novnc:latest
+    ports: ["5999:5900"]
+    environment:
+      DISPLAY_WIDTH: "800"
+      DISPLAY_HEIGHT: "600"
+
+ready:
+  cmd: "nc -z localhost 5999"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-vnc-rfb-handshake
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 5999 | grep -qiE '(RFB|VNC)'"
+      exit_code: 0
+
+  - name: detects-vnc-on-nonstandard-port
+    type: beacon
+    target: localhost:5999
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5999"]
+    expect:
+      check_id: port.vnc_exposed
+
+timeout: 5m

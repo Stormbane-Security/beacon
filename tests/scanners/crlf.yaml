@@ -1,0 +1,31 @@
+name: crlf-injection
+description: "Python app that reflects user input in HTTP headers without sanitization triggers web.crlf_injection"
+tags: [crlf, scanner, web]
+
+services:
+  crlf-app:
+    build:
+      context: ./crlf
+      dockerfile: Dockerfile
+    ports: ["9202:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:9202/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-crlf-header-injection
+    type: command
+    expect:
+      command: "curl -sD- -o/dev/null 'http://localhost:9202/?redirect=https://example.com%0d%0aX-CRLF-Injected:beacon' | grep -qi 'X-CRLF-Injected'"
+      exit_code: 0
+
+  - name: detects-crlf-injection
+    type: beacon
+    target: localhost:9202
+    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.crlf_injection
+
+timeout: 5m

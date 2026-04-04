@@ -1,0 +1,33 @@
+name: elasticsearch-nonstandard-port
+description: "Elasticsearch on non-standard port — probe must detect by HTTP JSON response, not port number"
+tags: [elasticsearch, nonstandard-port]
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    ports: ["9999:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+ready:
+  cmd: "curl -sf http://localhost:9999/ | grep -q cluster_name"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-elasticsearch-cluster-info
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9999/ | grep -q cluster_name"
+      exit_code: 0
+
+  - name: detects-elasticsearch-on-nonstandard-port
+    type: beacon
+    target: localhost:9999
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9999"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+timeout: 5m

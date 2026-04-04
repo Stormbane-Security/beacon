@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork"
@@ -18,7 +18,7 @@ import (
 
 // scanSecurity runs subscription-level security checks that don't fit neatly
 // into a single resource category (NSG flow logs, Defender, Key Vault, App Service, SQL ATP).
-func scanSecurity(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanSecurity(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	var findings []finding.Finding
 
 	// NSG Flow Logs
@@ -56,7 +56,7 @@ func scanSecurity(ctx context.Context, cred *azidentity.DefaultAzureCredential, 
 
 // checkNSGFlowLogs lists all NSGs in the subscription and checks whether
 // flow log configuration exists for each.
-func checkNSGFlowLogs(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func checkNSGFlowLogs(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	nsgClient, err := armnetwork.NewSecurityGroupsClient(subID, cred, nil)
 	if err != nil {
 		return nil, err
@@ -174,7 +174,7 @@ var defenderResourceTypes = []string{
 
 // checkDefender verifies that Microsoft Defender for Cloud is enabled
 // (standard pricing tier) for key resource types.
-func checkDefender(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func checkDefender(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armsecurity.NewPricingsClient(cred, nil)
 	if err != nil {
 		return nil, err
@@ -228,7 +228,7 @@ func checkDefender(ctx context.Context, cred *azidentity.DefaultAzureCredential,
 
 // checkKeyVaults lists all Key Vaults and checks for soft delete and purge
 // protection configuration.
-func checkKeyVaults(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func checkKeyVaults(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armkeyvault.NewVaultsClient(subID, cred, nil)
 	if err != nil {
 		return nil, err
@@ -313,7 +313,7 @@ func evaluateKeyVault(name string, props *armkeyvault.VaultProperties, subID, as
 }
 
 // checkAppServices lists all web apps and checks for HTTPS-only and managed identity.
-func checkAppServices(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func checkAppServices(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armappservice.NewWebAppsClient(subID, cred, nil)
 	if err != nil {
 		return nil, err
@@ -401,7 +401,7 @@ func evaluateAppService(name string, props *armappservice.SiteProperties, identi
 
 // checkSQLATP lists all SQL servers and checks if Advanced Threat Protection
 // is enabled on each.
-func checkSQLATP(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func checkSQLATP(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	serverClient, err := armsql.NewServersClient(subID, cred, nil)
 	if err != nil {
 		return nil, err

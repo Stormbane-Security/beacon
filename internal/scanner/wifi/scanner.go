@@ -2,8 +2,7 @@
 //
 // Surface mode (no root, no monitor mode required):
 //   - Enumerates nearby SSIDs using OS-native tools (airport on macOS,
-//     nmcli/iwlist on Linux)
-//   - Reports insecure configurations: open networks, WEP, WPS-enabled APs,
+//     nmcli/iwlist on Linux)//   - Reports insecure configurations: open networks, WEP, WPS-enabled APs,
 //     WPA2-TKIP-only networks
 //   - Discovers the connected network's default gateway and probes it for
 //     exposed management interfaces using TCP connect probes
@@ -23,15 +22,30 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWiFiGatewayExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiOpenNetwork, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiPMKID, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWiFiWEPNetwork, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiWPA2TKIP, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckWiFiWPSEnabled, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "wifi"
 
 // gatewayProbeTimeout is the per-port TCP connect timeout when probing the
@@ -441,7 +455,7 @@ func probeGateway(ctx context.Context, gateway, asset string) []finding.Finding 
 		addr := fmt.Sprintf("%s:%d", gateway, p.port)
 		conn, err := (&net.Dialer{Timeout: gatewayProbeTimeout}).DialContext(ctx, "tcp", addr)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			open = append(open, fmt.Sprintf("%d/%s", p.port, p.service))
 		}
 	}
@@ -536,7 +550,14 @@ func probeHCXDumpTool(ctx context.Context, hcxPath, asset string) []finding.Find
 
 	// hcxdumptool requires the interface to be in monitor mode.
 	// Run for 30 seconds and check for PMKID output.
-	outFile := "/tmp/beacon-pmkid.pcapng"
+	tmpFile, err := os.CreateTemp("", "beacon-pmkid-*.pcapng")
+	if err != nil {
+		return nil
+	}
+	outFile := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(outFile)
+
 	cmd := exec.CommandContext(ctx, hcxPath,
 		"-i", ifaces[0],
 		"-o", outFile,

@@ -17,10 +17,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCMSPluginFound, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckCMSPluginVulnerable, finding.SeverityHigh, finding.ModeSurface),
+	)
+}
 const scannerName = "cms-plugins"
 
 // Scanner enumerates CMS plugins and checks for known-vulnerable versions.
@@ -34,10 +44,18 @@ func (s *Scanner) Name() string { return scannerName }
 type cmsType int
 
 const (
-	cmsUnknown   cmsType = iota
-	cmsWordPress         // WordPress
-	cmsDrupal            // Drupal
-	cmsJoomla            // Joomla
+	cmsUnknown    cmsType = iota
+	cmsWordPress          // WordPress
+	cmsDrupal             // Drupal
+	cmsJoomla             // Joomla
+	cmsGhost              // Ghost
+	cmsStrapi             // Strapi
+	cmsDirectus           // Directus
+	cmsPrestaShop         // PrestaShop
+	cmsMagento            // Magento / Adobe Commerce
+	cmsTypo3              // TYPO3
+	cmsMoodle             // Moodle
+	cmsCraft              // Craft CMS
 )
 
 // pluginCheck describes a single plugin/module to probe.
@@ -109,6 +127,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return probePlugins(ctx, client, asset, base, "/modules/contrib/", drupalModules), nil
 	case cmsJoomla:
 		return probeJoomla(ctx, client, asset, base, joomlaExtensions), nil
+	case cmsGhost, cmsStrapi, cmsDirectus, cmsPrestaShop, cmsMagento, cmsTypo3, cmsMoodle, cmsCraft:
+		return probeCMSFingerprint(ctx, client, asset, base, cms), nil
 	}
 	return nil, nil
 }
@@ -156,7 +176,59 @@ func detectCMS(ctx context.Context, client *http.Client, base string) cmsType {
 	if probeExists(ctx, client, base+"/administrator/index.php") {
 		return cmsJoomla
 	}
+	// Ghost: /ghost/ admin panel or X-Ghost-Cache header
+	if probeExists(ctx, client, base+"/ghost/") {
+		return cmsGhost
+	}
+	// Strapi: /admin/ with Strapi branding or /_health endpoint
+	if probeBodyContains(ctx, client, base+"/admin/", "strapi") {
+		return cmsStrapi
+	}
+	// Directus: /admin/ with Directus branding or /server/info
+	if probeExists(ctx, client, base+"/server/info") {
+		return cmsDirectus
+	}
+	// PrestaShop: /admin*/login or X-Powered-By: PrestaShop
+	if probeBodyContains(ctx, client, base, "prestashop") {
+		return cmsPrestaShop
+	}
+	// Magento: /admin or Magento cookie (frontend=...)
+	if probeExists(ctx, client, base+"/magento_version") ||
+		probeBodyContains(ctx, client, base, "mage-cache") {
+		return cmsMagento
+	}
+	// TYPO3: /typo3/ admin panel
+	if probeExists(ctx, client, base+"/typo3/") {
+		return cmsTypo3
+	}
+	// Moodle: /login/index.php with Moodle branding
+	if probeBodyContains(ctx, client, base+"/login/index.php", "moodle") {
+		return cmsMoodle
+	}
+	// Craft CMS: /admin/login or X-Powered-By: Craft CMS
+	if probeBodyContains(ctx, client, base+"/admin/login", "craft cms") {
+		return cmsCraft
+	}
 	return cmsUnknown
+}
+
+// probeBodyContains fetches the URL and returns true if the response body
+// contains the given substring (case-insensitive). Returns false on error or non-2xx.
+func probeBodyContains(ctx context.Context, client *http.Client, rawURL, substr string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(body)), strings.ToLower(substr))
 }
 
 // probeExists returns true if the URL returns a 2xx response.
@@ -335,4 +407,185 @@ func versionParts(v string) []int {
 		parts = append(parts, n)
 	}
 	return parts
+}
+
+// cmsNames maps cmsType to human-readable names.
+var cmsNames = map[cmsType]string{
+	cmsGhost:      "Ghost",
+	cmsStrapi:     "Strapi",
+	cmsDirectus:   "Directus",
+	cmsPrestaShop: "PrestaShop",
+	cmsMagento:    "Magento",
+	cmsTypo3:      "TYPO3",
+	cmsMoodle:     "Moodle",
+	cmsCraft:      "Craft CMS",
+}
+
+// cmsAdminPaths are admin panel and sensitive paths to probe per CMS.
+var cmsAdminPaths = map[cmsType][]string{
+	cmsGhost: {
+		"/ghost/",
+		"/ghost/api/v3/admin/",
+		"/ghost/api/v4/admin/",
+		"/ghost/api/admin/",
+		"/content/images/",
+	},
+	cmsStrapi: {
+		"/admin/",
+		"/_health",
+		"/api/content-type-builder/content-types",
+		"/api/users-permissions/roles",
+		"/uploads/",
+	},
+	cmsDirectus: {
+		"/admin/",
+		"/server/info",
+		"/server/health",
+		"/items/",
+		"/files/",
+		"/users/",
+	},
+	cmsPrestaShop: {
+		"/admin/",
+		"/api/",
+		"/modules/",
+		"/install/",
+		"/config/settings.inc.php",
+		"/config/xml/",
+	},
+	cmsMagento: {
+		"/admin/",
+		"/magento_version",
+		"/downloader/",
+		"/rest/V1/store/storeConfigs",
+		"/rest/V1/directory/currency",
+		"/static/version.txt",
+		"/errors/local.xml",
+	},
+	cmsTypo3: {
+		"/typo3/",
+		"/typo3/install.php",
+		"/typo3conf/",
+		"/typo3conf/localconf.php",
+		"/typo3conf/LocalConfiguration.php",
+		"/typo3temp/",
+		"/fileadmin/",
+	},
+	cmsMoodle: {
+		"/login/index.php",
+		"/admin/",
+		"/admin/tool/task/scheduledtasks.php",
+		"/lib/db/upgrade.php",
+		"/theme/",
+		"/config.php",
+	},
+	cmsCraft: {
+		"/admin/login",
+		"/admin/",
+		"/cpresources/",
+		"/actions/",
+		"/index.php/admin",
+	},
+}
+
+// probeCMSFingerprint emits a finding for a detected CMS and probes its admin/sensitive paths.
+func probeCMSFingerprint(ctx context.Context, client *http.Client, asset, base string, cms cmsType) []finding.Finding {
+	name := cmsNames[cms]
+	var findings []finding.Finding
+
+	// Emit CMS detection finding
+	findings = append(findings, finding.Finding{
+		CheckID:  finding.CheckCMSPluginFound,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityInfo,
+		Asset:    asset,
+		Title:    fmt.Sprintf("CMS detected: %s", name),
+		Description: fmt.Sprintf(
+			"%s is running %s. CMS-specific attack vectors should be tested "+
+				"including admin panel exposure, default credentials, known CVEs, "+
+				"and plugin/extension vulnerabilities.",
+			asset, name),
+		Evidence: map[string]any{
+			"cms":   strings.ToLower(name),
+			"asset": asset,
+		},
+		DiscoveredAt: time.Now(),
+	})
+
+	// Probe admin and sensitive paths
+	paths, ok := cmsAdminPaths[cms]
+	if !ok {
+		return findings
+	}
+
+	for _, path := range paths {
+		if ctx.Err() != nil {
+			break
+		}
+
+		fullURL := base + path
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+
+		// Only report accessible paths (2xx)
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			continue
+		}
+
+		// Determine severity based on path sensitivity
+		sev := finding.SeverityLow
+		title := fmt.Sprintf("%s path accessible: %s", name, path)
+		desc := fmt.Sprintf(
+			"The %s path %s on %s returned HTTP %d.",
+			name, path, asset, resp.StatusCode)
+
+		isAdmin := strings.Contains(path, "admin") || strings.Contains(path, "install") ||
+			strings.Contains(path, "config") || strings.Contains(path, "users")
+		isAPI := strings.Contains(path, "/api/") || strings.Contains(path, "/rest/")
+
+		switch {
+		case strings.Contains(path, "install"):
+			sev = finding.SeverityCritical
+			desc += " The installation script is still accessible — an attacker may be able to reinstall or reconfigure the CMS."
+		case strings.Contains(path, "config") && len(body) > 0:
+			sev = finding.SeverityHigh
+			desc += " Configuration files may contain database credentials, API keys, or other secrets."
+		case isAdmin:
+			sev = finding.SeverityMedium
+			desc += " Admin panel exposure allows brute-force attacks and may reveal version information."
+		case isAPI:
+			sev = finding.SeverityMedium
+			desc += " API endpoints may expose internal data structures or allow unauthorized access."
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckCMSPluginFound,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: sev,
+			Asset:    asset,
+			Title:    title,
+			Description: desc,
+			Evidence: map[string]any{
+				"cms":         strings.ToLower(name),
+				"path":        path,
+				"status_code": resp.StatusCode,
+				"body_length": len(body),
+			},
+			ProofCommand: fmt.Sprintf("curl -sI '%s'", fullURL),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	return findings
 }

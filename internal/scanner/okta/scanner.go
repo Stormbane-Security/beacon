@@ -14,9 +14,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls("okta", func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("okta.domain"), cfg.Get("okta.token"))
+	},
+		scan.Check(finding.CheckOktaMFANotEnforced, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckOktaWeakPasswordPolicy, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaNoSessionTimeout, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOktaInactiveAdmin, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOktaAPITokenNoExpiry, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaAPITokenLongLived, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOktaGroupNoMembers, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckOktaNoGroupRules, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckOktaAppPermissiveAccess, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaUserNoMFA, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOktaThreatInsightDisabled, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 
 // Scanner checks Okta org configuration for security misconfigurations.
 type Scanner struct {
@@ -120,6 +139,7 @@ func makeFinding(asset string, checkID finding.CheckID, title, desc string, evid
 		Scanner:      "okta",
 		Module:       "surface",
 		Evidence:     evidence,
+		ProofCommand: fmt.Sprintf("curl -sH 'Authorization: SSWS $OKTA_API_TOKEN' '%s/api/v1/logs?since=2024-01-01T00:00:00Z&limit=5'", asset),
 		DiscoveredAt: time.Now(),
 	}
 }

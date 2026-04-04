@@ -15,10 +15,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebPrototypePollution, finding.SeverityHigh, finding.ModeDeep),
+	)
+}
 const (
 	scannerName  = "protopollution"
 	maxBodySize  = 32 * 1024 // 32 KB
@@ -96,12 +105,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			postResp, err := client.Do(postReq)
 			if err != nil {
 				if postResp != nil {
-					postResp.Body.Close()
+					_ = postResp.Body.Close()
 				}
 				continue
 			}
 			io.Copy(io.Discard, io.LimitReader(postResp.Body, maxBodySize)) //nolint:errcheck
-			postResp.Body.Close()
+			_ = postResp.Body.Close()
 
 			// Only proceed if the endpoint accepted the POST (2xx or 3xx).
 			if postResp.StatusCode < 200 || postResp.StatusCode >= 400 {
@@ -118,12 +127,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			getResp, err := client.Do(getReq)
 			if err != nil {
 				if getResp != nil {
-					getResp.Body.Close()
+					_ = getResp.Body.Close()
 				}
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(getResp.Body, maxBodySize))
-			getResp.Body.Close()
+			_ = getResp.Body.Close()
 
 			if !strings.Contains(string(body), probeMarker) {
 				continue

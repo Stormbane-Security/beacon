@@ -30,10 +30,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCVEKeycloakSAMLBypass, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCloudMetadataSSRF, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckIdentityProviderExposed, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckIdentityRoleEscalation, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckLDAPAuthBypass, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckLDAPBlindInjection, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckLDAPInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckOAuthDeviceFlowExposed, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthDynClientReg, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOAuthIntrospectExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckOIDCUserinfoLeak, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckSCIMExposed, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckSCIMUnauthenticated, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
 const scannerName = "iam"
 
 // Scanner detects exposed IAM/identity management endpoints and active IAM
@@ -317,7 +338,7 @@ func checkOIDCUserinfo(ctx context.Context, client *http.Client, asset, base str
 		return nil
 	}
 	body2, _ := io.ReadAll(io.LimitReader(resp2.Body, 64*1024))
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 
 	if resp2.StatusCode != http.StatusOK {
 		return nil
@@ -657,7 +678,7 @@ func checkLDAPInjection(ctx context.Context, client *http.Client, asset, base st
 			continue
 		}
 		baselineBody, _ := io.ReadAll(io.LimitReader(baselineResp.Body, 64*1024))
-		baselineResp.Body.Close()
+		_ = baselineResp.Body.Close()
 
 		// Only test paths that return a 200 to a baseline query.
 		if baselineResp.StatusCode != http.StatusOK {
@@ -880,8 +901,8 @@ func checkLDAPBlindInjection(ctx context.Context, client *http.Client, asset, ba
 		if err != nil {
 			continue
 		}
-		io.ReadAll(io.LimitReader(baselineResp.Body, 64*1024))
-		baselineResp.Body.Close()
+		_, _ = io.ReadAll(io.LimitReader(baselineResp.Body, 64*1024))
+		_ = baselineResp.Body.Close()
 		baselineDuration := time.Since(baselineStart)
 
 		if baselineResp.StatusCode != http.StatusOK {
@@ -900,8 +921,8 @@ func checkLDAPBlindInjection(ctx context.Context, client *http.Client, asset, ba
 		if err != nil {
 			continue
 		}
-		io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
-		injectedResp.Body.Close()
+		_, _ = io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
+		_ = injectedResp.Body.Close()
 		injectedDuration := time.Since(injectedStart)
 
 		// A blind injection is indicated when the injected payload takes
@@ -981,7 +1002,7 @@ func checkLDAPAuthBypass(ctx context.Context, client *http.Client, asset, base s
 			continue
 		}
 		normalBody, _ := io.ReadAll(io.LimitReader(normalResp.Body, 64*1024))
-		normalResp.Body.Close()
+		_ = normalResp.Body.Close()
 
 		// Only test endpoints that return 401 or 200 with an error body for bad creds.
 		normalStatus := normalResp.StatusCode
@@ -1005,7 +1026,7 @@ func checkLDAPAuthBypass(ctx context.Context, client *http.Client, asset, base s
 				continue
 			}
 			injectedBody, _ := io.ReadAll(io.LimitReader(injectedResp.Body, 64*1024))
-			injectedResp.Body.Close()
+			_ = injectedResp.Body.Close()
 
 			injectedBodyStr := string(injectedBody)
 

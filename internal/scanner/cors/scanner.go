@@ -7,15 +7,29 @@ package cors
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckCORSCredentialedReflection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckCORSMisconfiguration, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckCORSNullOrigin, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckCORSPreflightMisconfig, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 // altPorts are common non-standard ports to probe when the asset is a bare
 // hostname. CORS misconfigurations frequently appear on development/staging
 // servers that run on these ports rather than standard 80/443.
@@ -54,11 +68,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
+	ac := authctx.HTTPClient(ctx)
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       10 * time.Second,
+		Transport:     ac.Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	// Build the list of targets to probe.
@@ -87,6 +101,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				continue
 			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 			resp.Body.Close()
 			targets = append(targets, u)
 		}
@@ -106,6 +121,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				continue
 			}
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 			resp.Body.Close()
 
 			acao := resp.Header.Get("Access-Control-Allow-Origin")
@@ -265,6 +281,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				break
 			}
+			io.Copy(io.Discard, io.LimitReader(cResp.Body, 4096)) //nolint:errcheck
 			cResp.Body.Close()
 			cacao := cResp.Header.Get("Access-Control-Allow-Origin")
 			cacac := strings.ToLower(cResp.Header.Get("Access-Control-Allow-Credentials"))
@@ -285,6 +302,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq.Header.Set("Access-Control-Request-Headers", "Authorization")
 
 				if preResp, err := client.Do(preReq); err == nil {
+					io.Copy(io.Discard, io.LimitReader(preResp.Body, 4096)) //nolint:errcheck
 					preResp.Body.Close()
 
 					preACAO := preResp.Header.Get("Access-Control-Allow-Origin")
@@ -335,6 +353,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq2.Header.Set("Access-Control-Request-Headers", "X-Custom")
 
 				if preResp2, err := client.Do(preReq2); err == nil {
+					io.Copy(io.Discard, io.LimitReader(preResp2.Body, 4096)) //nolint:errcheck
 					preResp2.Body.Close()
 
 					preACAO2 := preResp2.Header.Get("Access-Control-Allow-Origin")
@@ -397,6 +416,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq3.Header.Set("Access-Control-Request-Headers", canaryHeader)
 
 				if preResp3, err := client.Do(preReq3); err == nil {
+					io.Copy(io.Discard, io.LimitReader(preResp3.Body, 4096)) //nolint:errcheck
 					preResp3.Body.Close()
 
 					preACAO3 := preResp3.Header.Get("Access-Control-Allow-Origin")

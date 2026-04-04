@@ -54,7 +54,6 @@ var protocolRules = []store.FingerprintRule{
 	{SignalType: "body", SignalKey: "", SignalValue: "window.ethereum", Field: "auth_system", Value: "web3_wallet", Source: "builtin", Status: "active", Confidence: 0.95},
 	{SignalType: "body", SignalKey: "", SignalValue: "window.solana", Field: "auth_system", Value: "solana_wallet", Source: "builtin", Status: "active", Confidence: 0.95},
 
-	// ── Generic JSON-RPC detection ────────────────────────────────────────
-	{SignalType: "header", SignalKey: "content-type", SignalValue: "application/json", Field: "backend_services", Value: "ethereum-rpc", Source: "builtin", Status: "active", Confidence: 0.3},
+	// ── JSON-RPC detection ────────────────────────────────────────────────
 	{SignalType: "body", SignalKey: "", SignalValue: "\"jsonrpc\"", Field: "backend_services", Value: "jsonrpc", Source: "builtin", Status: "active", Confidence: 0.7},
 }

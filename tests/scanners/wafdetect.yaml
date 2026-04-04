@@ -1,0 +1,31 @@
+name: waf-modsecurity
+description: "Nginx with ModSecurity-style headers triggers waf.detected"
+tags: [waf, scanner, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./wafdetect/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-waf-headers-visible
+    type: command
+    expect:
+      command: "curl -sI http://localhost:80/ | grep -qi 'X-WAF\\|ModSecurity\\|Server'"
+      exit_code: 0
+
+  - name: detects-waf-present
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "wafdetect", "--ports", "80"]
+    expect:
+      check_id: waf.detected
+
+timeout: 5m

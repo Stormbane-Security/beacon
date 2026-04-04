@@ -2,8 +2,7 @@
 // rate limiting. It uses an escalating multi-phase strategy to build
 // confidence before reporting:
 //
-//   Phase 1 — 8-request sanity burst   (500 ms spacing, ~4 s)
-//   Phase 2 — 16-request burst          (200 ms spacing, ~3 s)
+//   Phase 1 — 8-request sanity burst   (500 ms spacing, ~4 s)//   Phase 2 — 16-request burst          (200 ms spacing, ~3 s)
 //   Phase 3 — 32-request rapid burst    (no delay, ~1 s with network latency)
 //   Phase 4 — 20-request sustained      (1 req/sec, ~20 s)
 //
@@ -35,10 +34,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckRateLimitBypass, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckRateLimitMissing, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckRateLimitNoRetryAfter, finding.SeverityInfo, finding.ModeDeep),
+	)
+}
 const (
 	scannerName = "ratelimit"
 
@@ -481,8 +491,12 @@ func signalDetails(sig throttleSignal, r *probeRun) (label, detail string) {
 		return "connection resets mid-burst",
 			fmt.Sprintf("%d connection errors after %d successful responses", r.connErrors, len(r.latencies))
 	case signalLatency:
+		baseline := r.latencies
+		if len(baseline) > 3 {
+			baseline = baseline[:3]
+		}
 		return "response latency spike detected",
-			fmt.Sprintf("baseline: %v, spike observed", medianDuration(r.latencies[:3]))
+			fmt.Sprintf("baseline: %v, spike observed", medianDuration(baseline))
 	case signalChallenge:
 		return "challenge/CAPTCHA page detected", "challenge keywords found in response body"
 	case signalBodyChange:

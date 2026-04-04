@@ -13,10 +13,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWeb3ContractFound, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3RPCEndpointExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3WalletLibDetected, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 const (
 	scannerName  = "web3detect"
 	maxBodySize  = 512 * 1024 // 512 KB per JS file
@@ -56,9 +67,6 @@ var evmAddressRe = regexp.MustCompile(`\b0x[0-9a-fA-F]{40}\b`)
 // rpcEndpointRe matches well-known RPC provider hostnames.
 var rpcEndpointRe = regexp.MustCompile(
 	`https://[a-z0-9.\-]+(\.infura\.io|\.alchemyapi\.io|\.ankr\.com|\.quicknode\.io|\.alchemy\.com)[^\s"'<>]*`)
-
-// wssEthRe matches WebSocket RPC endpoints that appear near Ethereum context.
-var wssEthRe = regexp.MustCompile(`wss://[a-z0-9.\-]+\.[a-z]{2,}[^\s"'<>]*`)
 
 // scriptSrcRe extracts JS file URLs from <script src="..."> tags.
 var scriptSrcRe = regexp.MustCompile(`<script[^>]+src=["']([^"']+\.js[^"']*)["']`)

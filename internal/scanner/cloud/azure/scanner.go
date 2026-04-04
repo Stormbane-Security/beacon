@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/subscription/armsubscription"
 
@@ -76,86 +77,124 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return all, nil
 }
 
-func (s *Scanner) credential() (*azidentity.DefaultAzureCredential, error) {
-	// For service principal, set env vars AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
-	// before calling; DefaultAzureCredential picks them up automatically.
-	// This also works with az login (CLI) and managed identity.
+func (s *Scanner) credential() (azcore.TokenCredential, error) {
+	if s.cfg.TenantID != "" && s.cfg.ClientID != "" && s.cfg.ClientSecret != "" {
+		return azidentity.NewClientSecretCredential(s.cfg.TenantID, s.cfg.ClientID, s.cfg.ClientSecret, nil)
+	}
 	return azidentity.NewDefaultAzureCredential(nil)
 }
 
-func (s *Scanner) scanSubscription(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func (s *Scanner) scanSubscription(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	var findings []finding.Finding
+
+	azureScanError := func(name string, err error) finding.Finding {
+		return finding.Finding{
+			CheckID:      finding.CheckCloudAzureScanError,
+			Title:        fmt.Sprintf("Azure scan partial failure: %s", name),
+			Description:  fmt.Sprintf("Azure %s scan failed: %v", name, err),
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Scanner:      "cloud/azure",
+			DiscoveredAt: time.Now(),
+		}
+	}
 
 	storageFindings, err := scanStorage(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, storageFindings...)
+	} else {
+		findings = append(findings, azureScanError("Storage", err))
 	}
 
 	aksFindings, err := scanAKS(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, aksFindings...)
+	} else {
+		findings = append(findings, azureScanError("AKS", err))
 	}
 
 	rbacFindings, err := scanRBAC(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, rbacFindings...)
+	} else {
+		findings = append(findings, azureScanError("RBAC", err))
 	}
 
 	sqlFindings, err := scanSQL(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, sqlFindings...)
+	} else {
+		findings = append(findings, azureScanError("SQL", err))
 	}
 
 	acrFindings, err := scanACR(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, acrFindings...)
+	} else {
+		findings = append(findings, azureScanError("ACR", err))
 	}
 
 	activityLogFindings, err := scanActivityLog(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, activityLogFindings...)
+	} else {
+		findings = append(findings, azureScanError("ActivityLog", err))
 	}
 
 	// Security checks (NSG flow logs, Defender, Key Vault, App Service, SQL ATP)
 	securityFindings, err := scanSecurity(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, securityFindings...)
+	} else {
+		findings = append(findings, azureScanError("Security", err))
 	}
 
 	vmFindings, err := scanVMs(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, vmFindings...)
+	} else {
+		findings = append(findings, azureScanError("VMs", err))
 	}
 
 	cosmosFindings, err := scanCosmosDB(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, cosmosFindings...)
+	} else {
+		findings = append(findings, azureScanError("CosmosDB", err))
 	}
 
 	functionAppFindings, err := scanFunctionApps(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, functionAppFindings...)
+	} else {
+		findings = append(findings, azureScanError("FunctionApps", err))
 	}
 
 	redisFindings, err := scanRedis(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, redisFindings...)
+	} else {
+		findings = append(findings, azureScanError("Redis", err))
 	}
 
 	postgresFindings, err := scanPostgres(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, postgresFindings...)
+	} else {
+		findings = append(findings, azureScanError("Postgres", err))
 	}
 
 	mfaFindings, err := scanConditionalAccessMFA(ctx, cred, subID, asset)
 	if err == nil {
 		findings = append(findings, mfaFindings...)
+	} else {
+		findings = append(findings, azureScanError("ConditionalAccessMFA", err))
 	}
 
 	return findings, nil
 }
 
-func listSubscriptions(ctx context.Context, cred *azidentity.DefaultAzureCredential) ([]string, error) {
+func listSubscriptions(ctx context.Context, cred azcore.TokenCredential) ([]string, error) {
 	client, err := armsubscription.NewSubscriptionsClient(cred, nil)
 	if err != nil {
 		return nil, err

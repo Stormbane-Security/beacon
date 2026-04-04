@@ -20,10 +20,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckDNSAXFRAllowed, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckDNSDNSSECMissing, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckDNSMissingCAA, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckDNSWildcard, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "dns"
 
 // Scanner checks for DNS misconfigurations.

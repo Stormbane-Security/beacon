@@ -17,8 +17,7 @@
 // Dangerous methods checked:
 //   - PUT     — allows arbitrary file upload / content modification
 //   - DELETE  — allows resource deletion
-//   - TRACE   — echoes request back; enables XST (Cross-Site Tracing)
-//   - PATCH   — allows partial resource modification
+//   - TRACE   — echoes request back; enables XST (Cross-Site Tracing)//   - PATCH   — allows partial resource modification
 //   - CONNECT — can create proxy tunnels (checked via OPTIONS only)
 package httpmethods
 
@@ -29,10 +28,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckWebDangerousMethodEnabled, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "httpmethods"
 
 // Scanner checks for dangerous HTTP methods.
@@ -266,7 +274,7 @@ func confirmMethod(ctx context.Context, client *http.Client, baseURL, method str
 			delReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
 			delResp, err := client.Do(delReq)
 			if err == nil {
-				delResp.Body.Close()
+				_ = delResp.Body.Close()
 			}
 		}
 	}

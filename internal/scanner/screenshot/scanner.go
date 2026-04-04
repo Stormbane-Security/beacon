@@ -14,10 +14,19 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 )
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
+		return New(cfg.Get("gowitness.bin"))
+	},
+		scan.Check(finding.CheckAssetScreenshot, finding.SeverityInfo, finding.ModeSurface),
+	)
+}
 
 const scannerName = "screenshot"
 
@@ -51,7 +60,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	if err != nil {
 		return nil, nil
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	target := "https://" + asset
 	outFile := filepath.Join(tmpDir, "screenshot.png")
@@ -100,13 +109,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	dataURI := "data:image/png;base64," + b64
 
 	return []finding.Finding{{
-		CheckID:     finding.CheckAssetScreenshot,
-		Module:      "surface",
-		Scanner:     scannerName,
-		Severity:    finding.SeverityInfo,
-		Title:       fmt.Sprintf("Screenshot captured for %s", asset),
-		Description: fmt.Sprintf("A screenshot of %s was captured during the scan. This provides visual evidence of what is accessible.", asset),
-		Asset:       asset,
+		CheckID:      finding.CheckAssetScreenshot,
+		Module:       "surface",
+		Scanner:      scannerName,
+		Severity:     finding.SeverityInfo,
+		Title:        fmt.Sprintf("Screenshot captured for %s", asset),
+		Description:  fmt.Sprintf("A screenshot of %s was captured during the scan. This provides visual evidence of what is accessible.", asset),
+		Asset:        asset,
+		ProofCommand: fmt.Sprintf("gowitness single --url '%s'", target),
 		Evidence: map[string]any{
 			"url":       target,
 			"image_b64": dataURI,

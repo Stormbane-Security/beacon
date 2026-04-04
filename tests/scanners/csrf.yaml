@@ -1,0 +1,32 @@
+name: csrf-missing-token
+description: "nginx serving login/register forms without CSRF tokens or SameSite cookies — beacon detects web.csrf_token_missing"
+tags: [csrf, scanner, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9212:80"]
+    volumes:
+      - ./csrf/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./csrf/index.html:/usr/share/nginx/html/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9212/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-csrf-form-no-token
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9212/login | grep -q '<form' && ! curl -sf http://localhost:9212/login | grep -qi 'csrf'"
+      exit_code: 0
+
+  - name: detects-csrf-missing-token
+    type: beacon
+    target: localhost:9212
+    args: ["--no-enrich", "--scanners", "csrf", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.csrf_token_missing
+
+timeout: 5m

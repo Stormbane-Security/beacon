@@ -5,6 +5,7 @@ package email
 import (
 	"bufio"
 	"context"
+	"errors"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -16,10 +17,37 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckEmailBIMIMissing, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDANEMissing, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDKIMMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDKIMWeakKey, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCMissing, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCNoReporting, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCPolicyNone, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckEmailDMARCSubdomainNone, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailMTASTSMissing, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailMTASTSNotEnforced, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailMTASTSPolicyFetchFail, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSMTPBannerLeak, finding.SeverityLow, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSMTPOpenRelay, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFIncludes, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFLookupLimit, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFMissing, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSPFSoftfail, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckEmailSpoofable, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckEmailTLSRPTMissing, finding.SeverityLow, finding.ModeSurface),
+	)
+}
 const scannerName = "email"
 
 // dkimSelectors is the list of common DKIM selectors to probe.
@@ -191,6 +219,22 @@ func checkDMARC(ctx context.Context, domain string) (string, []finding.Finding) 
 	dmarcDomain := "_dmarc." + domain
 	records, err := net.DefaultResolver.LookupTXT(ctx, dmarcDomain)
 	if err != nil {
+		// NXDOMAIN means the record definitively does not exist — DMARC is missing.
+		// Other errors (timeout, SERVFAIL) are inconclusive so we skip.
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			return "", []finding.Finding{{
+				CheckID:      finding.CheckEmailDMARCMissing,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Title:        "Missing DMARC record",
+				Description:  fmt.Sprintf("No DMARC record found at _dmarc.%s. Without DMARC, there is no policy for how mail receivers should handle unauthenticated email from this domain.", domain),
+				Asset:        domain,
+				Evidence:     map[string]any{"dmarc_domain": dmarcDomain},
+				DiscoveredAt: time.Now(),
+			}}
+		}
 		return "", nil
 	}
 
@@ -382,7 +426,7 @@ func checkMTASTS(ctx context.Context, domain string) []finding.Finding {
 		statusCode := 0
 		if resp != nil {
 			statusCode = resp.StatusCode
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return []finding.Finding{{
 			CheckID:      finding.CheckEmailMTASTSPolicyFetchFail,
@@ -396,7 +440,7 @@ func checkMTASTS(ctx context.Context, domain string) []finding.Finding {
 			DiscoveredAt: time.Now(),
 		}}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	body := string(bodyBytes)
@@ -663,7 +707,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	if err != nil {
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
 
 	scanner := bufio.NewScanner(conn)
@@ -706,7 +750,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	// Open relay test: deep mode only — sending MAIL FROM is an active probe
 	// that appears in server logs and may trigger rate limiting on the target.
 	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
-		fmt.Fprintf(conn, "QUIT\r\n") //nolint:errcheck — best-effort cleanup
+		_, _ = fmt.Fprintf(conn, "QUIT\r\n")
 		return findings
 	}
 

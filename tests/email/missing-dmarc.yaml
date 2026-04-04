@@ -1,0 +1,46 @@
+name: email-missing-dmarc
+description: "CoreDNS serving a zone with weak SPF (+all) and no DMARC record triggers email security findings"
+tags: [email, scanner, dns]
+
+services:
+  coredns:
+    image: coredns/coredns:1.11.1
+    ports: ["53:53/udp", "53:53/tcp"]
+    volumes:
+      - ./missing-dmarc/Corefile:/etc/coredns/Corefile:ro
+      - ./missing-dmarc/zones:/etc/coredns/zones:ro
+    command: ["-conf", "/etc/coredns/Corefile"]
+
+ready:
+  cmd: "dig @localhost -p 53 testdomain.local A +short | grep -q 127.0.0.1"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-no-dmarc-record
+    type: command
+    expect:
+      command: "test -z \"$(dig @127.0.0.1 -p 53 _dmarc.testdomain.local TXT +short 2>/dev/null)\""
+      exit_code: 0
+
+  - name: exploit-weak-spf-all
+    type: command
+    expect:
+      command: "dig @127.0.0.1 -p 53 testdomain.local TXT +short | grep -q '+all'"
+      exit_code: 0
+
+  - name: detects-missing-dmarc
+    type: beacon
+    target: testdomain.local
+    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
+    expect:
+      check_id: email.dmarc_missing
+
+  - name: detects-dkim-missing
+    type: beacon
+    target: testdomain.local
+    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
+    expect:
+      check_id: email.dkim_missing
+
+timeout: 5m

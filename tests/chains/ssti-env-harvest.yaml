@@ -1,0 +1,46 @@
+name: chain-ssti-env-harvest
+description: >
+  Exploit chain: SSTI in Jinja2 template → code execution →
+  environment variable credential harvest.
+tags: [chain, postexploit, ssti, credential-harvest, authorized]
+
+services:
+  ssti-app:
+    build:
+      context: ./ssti-env
+      dockerfile: Dockerfile
+    ports: ["9408:8080"]
+    environment:
+      DATABASE_PASSWORD: "ProdDBPass!Secret123"
+      AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
+      AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      API_TOKEN: "tok_live_abc123def456"
+      REDIS_AUTH: "RedisAuthToken!789"
+
+ready:
+  cmd: "curl -sf http://localhost:9408/"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-ssti-code-execution
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9408/greet?name={{7*7}}' | grep -q 49"
+      exit_code: 0
+
+  - name: detects-ssti
+    type: beacon
+    target: "localhost:9408"
+    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
+    expect:
+      check_id: web.ssti
+
+  - name: chain-harvests-env-credentials
+    type: beacon
+    target: "localhost:9408"
+    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 10m

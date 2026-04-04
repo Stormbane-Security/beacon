@@ -5,17 +5,27 @@ package artifactsign
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckSupplyChainUnsignedContainer, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSupplyChainUnsignedNPM, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckSupplyChainUnsignedPyPI, finding.SeverityMedium, finding.ModeSurface),
+	)
+}
 const scannerName = "artifactsign"
 
 // Scanner queries public package registries for signature/provenance status.
@@ -65,11 +75,6 @@ func (s *Scanner) Name() string { return scannerName }
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, //nolint:gosec
-			},
-		},
 	}
 
 	now := time.Now()
@@ -283,7 +288,7 @@ func (s *Scanner) checkContainerRegistry(ctx context.Context, client *http.Clien
 	if err != nil {
 		return nil
 	}
-	sigResp.Body.Close()
+	_ = sigResp.Body.Close()
 
 	// If the signature tag exists, the image is signed.
 	if sigResp.StatusCode == http.StatusOK {

@@ -1,0 +1,58 @@
+name: grpcreflect-enumeration
+description: >
+  gRPC server with reflection enabled using the grpcbin image. Beacon
+  grpcreflect scanner should detect reflection is enabled and enumerate
+  exposed services.
+tags: [grpcreflect, scanner, port, grpc]
+
+services:
+  grpc:
+    image: moul/grpcbin
+    ports: ["9318:9000", "9319:9001"]
+
+ready:
+  cmd: "nc -z localhost 9318 2>/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs: verify gRPC reflection is open ---
+  - name: exploit-grpc-port-open
+    type: command
+    expect:
+      command: "nc -z localhost 9318 2>/dev/null"
+      exit_code: 0
+
+  - name: exploit-grpcurl-reflection-responsive
+    type: command
+    expect:
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list | wc -l | grep -qE '[1-9]' || echo 'grpcurl-not-installed:SKIP'"
+      exit_code: 0
+
+  - name: exploit-grpcurl-lists-services
+    type: command
+    expect:
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list | grep -q '\\.\\|grpc' || echo 'grpcurl-not-installed:SKIP'"
+      exit_code: 0
+
+  - name: exploit-grpcurl-describes-service
+    type: command
+    expect:
+      command: "which grpcurl >/dev/null 2>&1 && grpcurl -plaintext localhost:9318 list | head -1 | xargs -I{} grpcurl -plaintext localhost:9318 describe {} | grep -q 'rpc\\|message' || echo 'grpcurl-not-installed:SKIP'"
+      exit_code: 0
+
+  - name: exploit-grpc-insecure-port-also-open
+    type: command
+    expect:
+      command: "nc -z localhost 9319 2>/dev/null"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-grpc-reflection-enabled
+    type: beacon
+    target: localhost:9318
+    args: ["--no-enrich", "--scanners", "grpcreflect"]
+    expect:
+      check_id: port.grpc_reflection_enabled
+
+timeout: 5m

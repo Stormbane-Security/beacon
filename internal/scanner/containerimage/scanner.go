@@ -6,6 +6,7 @@ package containerimage
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,10 +14,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckContainerImageLatestTag, finding.SeverityLow, finding.ModeDeep),
+		scan.Check(finding.CheckContainerImageUnsigned, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckContainerRegistryAnonymousPush, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContainerRegistryExposed, finding.SeverityCritical, finding.ModeDeep),
+	)
+}
 const scannerName = "containerimage"
 
 // Scanner probes for exposed Docker/OCI container registries.
@@ -50,12 +63,24 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		port   string
 	}
 
-	endpoints := []endpoint{
-		{"https", "5000"},
-		{"https", "443"},
-		{"https", "8080"},
-		{"http", "5000"},
-		{"http", "8080"},
+	// If asset already includes a port (e.g. "localhost:5000"), use it directly
+	// instead of appending our port list.
+	host, explicitPort := splitHostPort(asset)
+	var endpoints []endpoint
+	if explicitPort != "" {
+		endpoints = []endpoint{
+			{"https", explicitPort},
+			{"http", explicitPort},
+		}
+	} else {
+		host = asset
+		endpoints = []endpoint{
+			{"https", "5000"},
+			{"https", "443"},
+			{"https", "8080"},
+			{"http", "5000"},
+			{"http", "8080"},
+		}
 	}
 
 	var mu sync.Mutex
@@ -74,7 +99,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		go func() {
 			defer wg.Done()
 
-			baseURL := fmt.Sprintf("%s://%s:%s", ep.scheme, asset, ep.port)
+			baseURL := fmt.Sprintf("%s://%s:%s", ep.scheme, host, ep.port)
 
 			// Step 1: Check if /v2/ is accessible (registry API root).
 			v2URL := baseURL + "/v2/"
@@ -89,7 +114,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				return
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				return
@@ -174,39 +199,21 @@ func (s *Scanner) probeCatalog(ctx context.Context, client *http.Client, catalog
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	bodyStr := string(body)
 
-	// Parse simple JSON: {"repositories":["repo1","repo2"]}
-	// Use basic string parsing to avoid encoding/json import for a simple list.
-	var repos []string
-	idx := strings.Index(bodyStr, `"repositories"`)
-	if idx < 0 {
+	var catalog struct {
+		Repositories []string `json:"repositories"`
+	}
+	if err := json.Unmarshal(body, &catalog); err != nil {
 		return nil
 	}
-	start := strings.Index(bodyStr[idx:], "[")
-	if start < 0 {
-		return nil
-	}
-	end := strings.Index(bodyStr[idx+start:], "]")
-	if end < 0 {
-		return nil
-	}
-	arrayStr := bodyStr[idx+start+1 : idx+start+end]
-	for _, item := range strings.Split(arrayStr, ",") {
-		item = strings.TrimSpace(item)
-		item = strings.Trim(item, `"`)
-		if item != "" {
-			repos = append(repos, item)
-		}
-	}
-	return repos
+	return catalog.Repositories
 }
 
 // checkRepo checks a single repository for :latest tag usage and missing cosign signatures.
@@ -224,7 +231,7 @@ func (s *Scanner) checkRepo(ctx context.Context, client *http.Client, baseURL, a
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		mu.Lock()
@@ -342,6 +349,15 @@ func (s *Scanner) testAnonymousPush(ctx context.Context, client *http.Client, ba
 		})
 		mu.Unlock()
 	}
+}
+
+// splitHostPort splits "host:port" into host and port. If no port is present,
+// port is empty.
+func splitHostPort(asset string) (string, string) {
+	if i := strings.LastIndex(asset, ":"); i > 0 {
+		return asset[:i], asset[i+1:]
+	}
+	return asset, ""
 }
 
 // truncate limits a string to maxLen characters.

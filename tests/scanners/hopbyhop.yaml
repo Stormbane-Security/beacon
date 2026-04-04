@@ -1,0 +1,47 @@
+name: hopbyhop-proxy-header-stripping
+description: >
+  Real nginx reverse proxy in front of a backend that changes behavior based on
+  X-Forwarded-For. When an attacker sends Connection: X-Forwarded-For, the proxy
+  strips it per RFC 7230, causing the backend to deny access — demonstrating the
+  hop-by-hop header abuse attack. Beacon hopbyhop scanner should detect the
+  response delta.
+tags: [hopbyhop, scanner, proxy, header-stripping, deep]
+
+services:
+  backend:
+    image: nginx:alpine
+    volumes:
+      - ./hopbyhop/backend.conf:/etc/nginx/conf.d/default.conf:ro
+
+  proxy:
+    image: nginx:alpine
+    ports: ["9295:80"]
+    volumes:
+      - ./hopbyhop/proxy.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9295/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-normal-request-gets-200
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9295/"
+      exit_code: 0
+
+  - name: exploit-hopbyhop-strips-xff
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -H 'Connection: keep-alive, X-Forwarded-For' -H 'X-Forwarded-For: 127.0.0.1' http://localhost:9295/ | grep -q '403'"
+      exit_code: 0
+
+  - name: detects-hopbyhop-abuse
+    type: beacon
+    target: localhost:9295
+    args: ["--no-enrich", "--scanners", "hopbyhop", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: proxy.hop_by_hop_abuse
+
+timeout: 5m

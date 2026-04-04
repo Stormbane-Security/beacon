@@ -1,0 +1,419 @@
+name: e2e-infrastructure
+description: >
+  Infrastructure services: service discovery, message brokers, protocol
+  services, secret stores. Tests full chain per service: port identification
+  → postexploit module routing → data extraction or code execution.
+tags: [e2e, postexploit, infrastructure, authorized]
+weight: 40
+
+services:
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["9610:8500"]
+    command: ["agent", "-dev", "-client", "0.0.0.0"]
+
+  consul-seed:
+    image: hashicorp/consul:1.18
+    depends_on: [consul]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        consul kv put -http-addr=http://consul:8500 secrets/db_password 'ProductionDBPass!'
+        consul kv put -http-addr=http://consul:8500 config/api_key 'sk-live-abc123'
+
+  etcd:
+    image: bitnami/etcd:3.5
+    ports: ["9611:2379"]
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: "http://0.0.0.0:2379"
+      ETCD_LISTEN_CLIENT_URLS: "http://0.0.0.0:2379"
+
+  etcd-seed:
+    image: bitnami/etcd:3.5
+    depends_on: [etcd]
+    restart: "no"
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        etcdctl --endpoints=http://etcd:2379 put /registry/secrets/default/db-creds '{"apiVersion":"v1","data":{"password":"UEBzc3cwcmQh","username":"YWRtaW4="}}'
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    ports: ["9612:9090"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "9613:5672"
+      - "9614:15672"
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["9615:1883"]
+    command: ["mosquitto", "-c", "/dev/null", "-p", "1883"]
+
+  mosquitto-seed:
+    image: eclipse-mosquitto:2
+    depends_on: [mosquitto]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        mosquitto_pub -h mosquitto -t 'config/database' -m '{"host":"db.internal","user":"root","password":"RootDbPass!2024"}'
+        mosquitto_pub -h mosquitto -t 'sensors/temperature' -m '{"value":23.5,"unit":"celsius"}'
+
+  ftp:
+    image: delfer/alpine-ftp-server
+    ports: ["9616:21"]
+    environment:
+      USERS: "anonymous|anonymous"
+      ADDRESS: "localhost"
+
+  ssh:
+    image: rastasheep/ubuntu-sshd:18.04
+    ports: ["9617:22"]
+
+  vault:
+    image: hashicorp/vault:1.15
+    ports: ["9618:8200"]
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add: ["IPC_LOCK"]
+    command: ["vault", "server", "-dev"]
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports: ["9619:9000"]
+
+  jupyter:
+    image: jupyter/base-notebook:latest
+    ports: ["9620:8888"]
+    command: ["start-notebook.py", "--IdentityProvider.token=''", "--ServerApp.password=''"]
+
+  ldap:
+    image: osixia/openldap:1.5.0
+    ports: ["9621:389"]
+    environment:
+      - LDAP_ORGANISATION=Beacon Test Corp
+      - LDAP_DOMAIN=beacon.test
+      - LDAP_ADMIN_PASSWORD=admin
+      - LDAP_READONLY_USER=true
+      - LDAP_READONLY_USER_USERNAME=readonly
+      - LDAP_READONLY_USER_PASSWORD=readonly
+
+  smb:
+    image: dperson/samba:latest
+    ports: ["9622:445"]
+    command: ["-p", "-s", "public;/share;yes;no;yes;all;none;;public share", "-u", "guest;guest"]
+
+  snmp:
+    image: polinux/snmpd:alpine
+    ports: ["9623:161/udp"]
+
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["9624:53/udp"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        cat <<'COREFILE' > /tmp/Corefile
+        . {
+          forward . 8.8.8.8 8.8.4.4
+          log
+          cache
+        }
+        COREFILE
+        /coredns -conf /tmp/Corefile
+
+  ntp:
+    image: cturra/ntp:latest
+    ports: ["9625:123/udp"]
+    cap_add: ["SYS_TIME"]
+
+  tftp:
+    image: pghalliday/tftp
+    ports: ["9626:69/udp"]
+
+  docker-api:
+    image: docker:24-dind
+    privileged: true
+    ports: ["9627:2375"]
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+
+ready:
+  cmd: >
+    curl -sf http://localhost:9610/v1/status/leader 2>/dev/null | grep -q ':' &&
+    curl -sf http://localhost:9618/v1/sys/health 2>/dev/null | grep -q initialized &&
+    curl -sf http://localhost:9612/api/v1/status/runtimeinfo 2>/dev/null | grep -q storageRetention &&
+    curl -sf http://localhost:9619/api/status 2>/dev/null | grep -q Version &&
+    nc -z localhost 9617 2>/dev/null &&
+    nc -z localhost 9622 2>/dev/null &&
+    curl -sf http://localhost:9627/version 2>/dev/null | grep -q ApiVersion
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Consul: identify + exploit ---
+  - name: consul-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9610"]
+    expect:
+      check_id: port.service_identified
+
+  - name: consul-secrets-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9610"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- etcd: identify + exploit ---
+  - name: etcd-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9611"]
+    expect:
+      check_id: port.service_identified
+
+  - name: etcd-k8s-secrets-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9611"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Prometheus: identify + exploit ---
+  - name: prometheus-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9612"]
+    expect:
+      check_id: port.service_identified
+
+  - name: prometheus-data-harvested
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9612"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- RabbitMQ: identify + exploit ---
+  - name: rabbitmq-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9614"]
+    expect:
+      check_id: port.service_identified
+
+  - name: rabbitmq-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9614"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- MQTT: identify + exploit ---
+  - name: mqtt-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9615"]
+    expect:
+      check_id: port.service_identified
+
+  - name: mqtt-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9615"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- FTP: identify + exploit ---
+  - name: ftp-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9616"]
+    expect:
+      check_id: port.service_identified
+
+  - name: ftp-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9616"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- SSH: identify + banner grab ---
+  - name: ssh-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9617"]
+    expect:
+      check_id: port.service_identified
+
+  - name: ssh-banner-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9617"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Vault: identify + exploit (root token) ---
+  - name: vault-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9618"]
+    expect:
+      check_id: port.service_identified
+
+  - name: vault-root-token-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9618"]
+    expect:
+      check_id: exploit.code_execution
+
+  # --- Portainer: identify + exploit (uninitialized) ---
+  - name: portainer-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9619"]
+    expect:
+      check_id: port.service_identified
+
+  - name: portainer-uninitialized-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9619"]
+    expect:
+      check_id: exploit.code_execution
+
+  # --- Jupyter: identify + exploit (unauthenticated kernel) ---
+  - name: jupyter-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9620"]
+    expect:
+      check_id: port.service_identified
+
+  - name: jupyter-rce-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9620"]
+    expect:
+      check_id: exploit.code_execution
+
+  # --- LDAP: identify + exploit (anonymous bind, requires ldapsearch on host) ---
+  - name: ldap-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9621"]
+    expect:
+      check_id: port.service_identified
+
+  - name: ldap-anonymous-bind-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9621"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- SMB: identify + exploit (null session, requires smbclient on host) ---
+  - name: smb-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9622"]
+    expect:
+      check_id: port.service_identified
+
+  - name: smb-null-session-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9622"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- SNMP: UDP probing detects SNMP, postexploit chain extracts data ---
+  - name: snmp-udp-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9623"]
+    expect:
+      check_id: port.snmp_public_community
+
+  - name: snmp-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes", "--ports", "9623"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- DNS: UDP open resolver detection + postexploit ---
+  - name: dns-resolver-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9624"]
+    expect:
+      check_id: port.dns_open_resolver
+
+  - name: dns-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes", "--ports", "9624"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- NTP: UDP exposure detection ---
+  - name: ntp-exposed-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9625"]
+    expect:
+      check_id: port.ntp_exposed
+
+  # --- TFTP: UDP anonymous access detection ---
+  - name: tftp-anonymous-detected
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9626"]
+    expect:
+      check_id: port.tftp_anonymous
+
+  # --- Docker API: identify + exploit (unauthenticated container escape) ---
+  - name: docker-api-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9627"]
+    expect:
+      check_id: port.docker_unauthenticated
+
+  - name: docker-container-escape-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes", "--ports", "9627"]
+    expect:
+      check_id: exploit.container_escape
+
+  # --- Full scan: all infrastructure at once ---
+  - name: full-infra-scan-finds-all
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--yes",
+           "--ports", "9610,9611,9612,9613,9614,9615,9616,9617,9618,9619,9620,9621,9622,9627"]
+    expect:
+      min_findings: 17
+
+timeout: 15m

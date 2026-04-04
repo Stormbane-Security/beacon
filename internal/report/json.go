@@ -26,14 +26,18 @@ type jsonReport struct {
 // Findings are sorted by severity (critical first) for consistent output.
 // If graphJSON is non-nil it is decoded and included as the "asset_graph" field.
 func RenderJSON(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, graphJSON []byte) (string, error) {
-	// Sort by severity descending, then by asset name for deterministic output.
-	sorted := make([]enrichment.EnrichedFinding, len(enriched))
-	copy(sorted, enriched)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].Finding.Severity != sorted[j].Finding.Severity {
-			return sorted[i].Finding.Severity > sorted[j].Finding.Severity
+	// Filter omitted findings, then sort by severity descending.
+	filtered := make([]enrichment.EnrichedFinding, 0, len(enriched))
+	for _, ef := range enriched {
+		if !ef.Omit {
+			filtered = append(filtered, ef)
 		}
-		return sorted[i].Finding.Asset < sorted[j].Finding.Asset
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].Finding.Severity != filtered[j].Finding.Severity {
+			return filtered[i].Finding.Severity > filtered[j].Finding.Severity
+		}
+		return filtered[i].Finding.Asset < filtered[j].Finding.Asset
 	})
 	rep := jsonReport{
 		Domain:           run.Domain,
@@ -41,8 +45,8 @@ func RenderJSON(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 		StartedAt:        run.StartedAt,
 		CompletedAt:      run.CompletedAt,
 		ExecutiveSummary: summary,
-		FindingCount:     len(sorted),
-		Findings:         sorted,
+		FindingCount:     len(filtered),
+		Findings:         filtered,
 	}
 	if len(graphJSON) > 0 {
 		var g asset.AssetGraph

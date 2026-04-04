@@ -1,0 +1,58 @@
+name: chain-rce-pivot-internal
+description: >
+  Exploit chain: command injection in web app → internal network discovery →
+  pivot to unauthenticated Redis → credential harvest.
+tags: [chain, postexploit, cmdinj, pivot, lateral-movement, authorized]
+
+services:
+  web:
+    build:
+      context: ./rce-pivot
+      dockerfile: Dockerfile
+    ports: ["9406:8080"]
+    depends_on: [redis-internal]
+
+  redis-internal:
+    image: redis:7-alpine
+    command: ["redis-server", "--protected-mode", "no"]
+    expose: ["6379"]
+
+  seed:
+    image: redis:7-alpine
+    depends_on: [redis-internal]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        redis-cli -h redis-internal SET production_db_password 'Sup3rS3cretPr0d!'
+        redis-cli -h redis-internal SET jwt_signing_key 'HS256-secret-key-do-not-share'
+        redis-cli -h redis-internal SET admin_api_token 'tok_live_abc123xyz789'
+
+ready:
+  cmd: "curl -sf http://localhost:9406/health"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-cmdinj-id
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:9406/ping?host=;id' | grep -q uid"
+      exit_code: 0
+
+  - name: detects-cmdinj
+    type: beacon
+    target: "localhost:9406"
+    args: ["--no-enrich", "--scanners", "cmdinj", "--authorized", "--deep", "--permission-confirmed", "--ports", "9406"]
+    expect:
+      check_id: web.command_injection
+
+  - name: chain-credential-harvest-via-pivot
+    type: beacon
+    target: "localhost:9406"
+    args: ["--no-enrich", "--scanners", "cmdinj", "--authorized", "--deep", "--permission-confirmed", "--ports", "9406"]
+    expect:
+      check_id: exploit.credential_harvest
+
+timeout: 10m

@@ -1,0 +1,48 @@
+name: nosqli-mongodb-bypass
+description: >
+  Nginx simulating a MongoDB-backed API vulnerable to NoSQL injection.
+  /api/login accepts operator payloads ($ne, $gt) and returns auth tokens
+  while rejecting normal credentials. /api/users returns more data with
+  filter operators. /api/search returns MongoDB error for $where operator.
+  Beacon nosqli scanner should detect auth bypass and $where injection.
+tags: [nosqli, scanner, web, mongodb, injection, auth]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9292:80"]
+    volumes:
+      - ./nosqli-mongo/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9292/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-login-rejects-normal-creds
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{\"username\":\"test\",\"password\":\"test\"}' http://localhost:9292/api/login | grep -q '401'"
+      exit_code: 0
+
+  - name: exploit-login-accepts-ne-operator
+    type: command
+    expect:
+      command: "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"username\":{\"$ne\":\"\"},\"password\":{\"$ne\":\"\"}}' http://localhost:9292/api/login | grep -q 'token'"
+      exit_code: 0
+
+  - name: exploit-search-returns-mongo-error
+    type: command
+    expect:
+      command: "curl -s -X POST -H 'Content-Type: application/json' -d '{\"$where\":\"sleep(100)\"}' http://localhost:9292/api/search | grep -q 'MongoServerError'"
+      exit_code: 0
+
+  - name: detects-nosql-auth-bypass
+    type: beacon
+    target: localhost:9292
+    args: ["--no-enrich", "--scanners", "nosqli", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.nosql_injection
+
+timeout: 5m

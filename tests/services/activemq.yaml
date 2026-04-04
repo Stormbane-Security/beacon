@@ -1,0 +1,43 @@
+name: activemq-exposed
+description: "Apache ActiveMQ Classic broker exposed with default admin credentials"
+tags: [activemq, messaging, jms]
+
+services:
+  activemq:
+    image: rmohr/activemq:5.15.9-alpine
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+
+ready:
+  cmd: "curl -sf http://admin:admin@localhost:8161/api/jolokia >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-activemq-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:8161/api/jolokia | grep -q value"
+      exit_code: 0
+
+  - name: exploit-activemq-queues
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin 'http://localhost:8161/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost' | grep -q BrokerName"
+      exit_code: 0
+
+  - name: classifies-as-activemq
+    type: classify
+    target: localhost:8161
+    expect:
+      title_contains: ActiveMQ
+
+  - name: detects-activemq-exposed
+    type: beacon
+    target: localhost:61616
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "61616"]
+    expect:
+      check_id: port.activemq_exposed
+
+timeout: 5m

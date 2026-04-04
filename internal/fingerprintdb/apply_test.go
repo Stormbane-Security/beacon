@@ -165,3 +165,261 @@ func TestSetField_BackendServices_NoDuplicates(t *testing.T) {
 		t.Errorf("duplicate backend_service must not be added, got %d: %v", len(ev.BackendServices), ev.BackendServices)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Body signal matching
+// ---------------------------------------------------------------------------
+
+func TestMatchSignal_Body_Matches(t *testing.T) {
+	ev := &playbook.Evidence{
+		Body512: "<html><head><title>Welcome to nginx!</title></head>",
+	}
+	rule := activeRule("body", "", "welcome to nginx", "proxy_type", "nginx")
+	Apply([]store.FingerprintRule{rule}, ev)
+
+	if ev.ProxyType != "nginx" {
+		t.Errorf("expected body match to set ProxyType=nginx, got %q", ev.ProxyType)
+	}
+}
+
+func TestMatchSignal_Body_NoMatch(t *testing.T) {
+	ev := &playbook.Evidence{
+		Body512: "<html><head><title>Apache HTTP Server</title></head>",
+	}
+	rule := activeRule("body", "", "nginx", "proxy_type", "nginx")
+	Apply([]store.FingerprintRule{rule}, ev)
+
+	if ev.ProxyType != "" {
+		t.Errorf("expected no match for nginx in Apache body, got ProxyType=%q", ev.ProxyType)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Path signal matching
+// ---------------------------------------------------------------------------
+
+func TestMatchSignal_Path_Matches(t *testing.T) {
+	ev := &playbook.Evidence{
+		Headers:         map[string]string{},
+		RespondingPaths: []string{"/.well-known/openid-configuration"},
+	}
+	rule := activeRule("path", "", "/.well-known/openid-configuration", "auth_system", "oidc")
+	Apply([]store.FingerprintRule{rule}, ev)
+
+	if ev.AuthSystem != "oidc" {
+		t.Errorf("expected path match to set AuthSystem=oidc, got %q", ev.AuthSystem)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cookie signal matching
+// ---------------------------------------------------------------------------
+
+func TestMatchSignal_Cookie_Matches(t *testing.T) {
+	ev := &playbook.Evidence{
+		Headers:     map[string]string{},
+		CookieNames: []string{"JSESSIONID", "csrftoken"},
+	}
+	rule := activeRule("cookie", "", "jsessionid", "framework", "java")
+	Apply([]store.FingerprintRule{rule}, ev)
+
+	if ev.Framework != "java" {
+		t.Errorf("expected cookie match to set Framework=java, got %q", ev.Framework)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Title signal matching
+// ---------------------------------------------------------------------------
+
+func TestMatchSignal_Title_Matches(t *testing.T) {
+	ev := &playbook.Evidence{
+		Headers: map[string]string{},
+		Title:   "Grafana",
+	}
+	rule := activeRule("title", "", "grafana", "backend_services", "grafana")
+	Apply([]store.FingerprintRule{rule}, ev)
+
+	found := false
+	for _, s := range ev.BackendServices {
+		if s == "grafana" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected title match to add grafana to BackendServices")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CNAME signal matching
+// ---------------------------------------------------------------------------
+
+func TestMatchSignal_CNAME_Matches(t *testing.T) {
+	ev := &playbook.Evidence{
+		Headers:    map[string]string{},
+		CNAMEChain: []string{"example.com.cdn.cloudflare.net"},
+	}
+	rule := activeRule("cname", "", "cloudflare", "cloud_provider", "cloudflare")
+	Apply([]store.FingerprintRule{rule}, ev)
+
+	if ev.CloudProvider != "cloudflare" {
+		t.Errorf("expected cname match to set CloudProvider=cloudflare, got %q", ev.CloudProvider)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Realistic service fingerprint scenarios (end-to-end classify)
+// ---------------------------------------------------------------------------
+
+func TestFingerprint_NginxProxy(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{"server": "nginx/1.25.3"},
+	}
+	Apply(rules, ev)
+
+	if ev.ProxyType != "nginx" {
+		t.Errorf("nginx server header should set ProxyType=nginx, got %q", ev.ProxyType)
+	}
+}
+
+func TestFingerprint_ApacheProxy(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{"server": "Apache/2.4.58 (Ubuntu)"},
+	}
+	Apply(rules, ev)
+
+	if ev.ProxyType != "apache" {
+		t.Errorf("Apache server header should set ProxyType=apache, got %q", ev.ProxyType)
+	}
+}
+
+func TestFingerprint_CloudflareHeaders(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{
+			"cf-ray": "abc123-LAX",
+			"server": "cloudflare",
+		},
+	}
+	Apply(rules, ev)
+
+	if ev.CloudProvider != "cloudflare" {
+		t.Errorf("cf-ray header should set CloudProvider=cloudflare, got %q", ev.CloudProvider)
+	}
+}
+
+func TestFingerprint_AWSHeaders(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{
+			"x-amzn-requestid": "ABCD1234EFGH5678",
+		},
+	}
+	Apply(rules, ev)
+
+	if ev.CloudProvider != "aws" {
+		t.Errorf("x-amzn-requestid should set CloudProvider=aws, got %q", ev.CloudProvider)
+	}
+}
+
+func TestFingerprint_ExpressFramework(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{
+			"x-powered-by": "Express",
+		},
+	}
+	Apply(rules, ev)
+
+	found := false
+	for _, s := range ev.BackendServices {
+		if s == "express" || s == "node" || s == "nodejs" {
+			found = true
+		}
+	}
+	if ev.Framework == "" && !found {
+		t.Error("Express x-powered-by should set Framework or add to BackendServices")
+	}
+}
+
+func TestFingerprint_PHPFramework(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{
+			"x-powered-by": "PHP/8.2.0",
+		},
+	}
+	Apply(rules, ev)
+
+	if ev.Framework != "php" {
+		t.Errorf("PHP x-powered-by should set Framework=php, got %q", ev.Framework)
+	}
+}
+
+func TestFingerprint_GrafanaPath(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers:         map[string]string{},
+		RespondingPaths: []string{"/api/health"},
+	}
+	Apply(rules, ev)
+
+	found := false
+	for _, s := range ev.BackendServices {
+		if s == "grafana" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Grafana /api/health path should add grafana to BackendServices")
+	}
+}
+
+func TestFingerprint_TeamCityPath(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers:         map[string]string{},
+		RespondingPaths: []string{"/app/rest/server"},
+	}
+	Apply(rules, ev)
+
+	found := false
+	for _, s := range ev.BackendServices {
+		if s == "teamcity" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("TeamCity /app/rest/server path should add teamcity to BackendServices")
+	}
+}
+
+func TestFingerprint_GCPHeaders(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers: map[string]string{
+			"x-goog-request-id": "1234567890",
+		},
+	}
+	Apply(rules, ev)
+
+	if ev.CloudProvider != "gcp" {
+		t.Errorf("x-goog-request-id should set CloudProvider=gcp, got %q", ev.CloudProvider)
+	}
+}
+
+func TestFingerprint_OIDC_Path(t *testing.T) {
+	rules := BuiltinRules()
+	ev := &playbook.Evidence{
+		Headers:         map[string]string{},
+		RespondingPaths: []string{"/.well-known/openid-configuration"},
+	}
+	Apply(rules, ev)
+
+	if ev.AuthSystem != "oidc" {
+		t.Errorf("OIDC well-known path should set AuthSystem=oidc, got %q", ev.AuthSystem)
+	}
+}

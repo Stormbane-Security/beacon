@@ -6,6 +6,7 @@ import "strings"
 // The surface module executes this plan rather than calling scanners directly.
 type RunPlan struct {
 	Scanners         []string // deduplicated scanner names (e.g. "email", "tls")
+	DeepOnlyScanners []string // scanners from Deep config only — skipped in surface mode
 	NucleiTagsSurf   []string // deduplicated Nuclei tags for surface scan
 	NucleiTagsDeep   []string // deduplicated Nuclei tags for deep scan
 	DirbustPaths     []string // deduplicated URL paths to probe in deep mode
@@ -45,11 +46,11 @@ func BuildRunPlan(matched []*Playbook) RunPlan {
 				plan.NucleiTagsDeep = append(plan.NucleiTagsDeep, t)
 			}
 		}
-		// Deep scanners also get added to the unified scanner list
+		// Deep-only scanners are tracked separately so surface scans skip them.
 		for _, s := range p.Deep.Scanners {
 			if !seenScanners[s] {
 				seenScanners[s] = true
-				plan.Scanners = append(plan.Scanners, s)
+				plan.DeepOnlyScanners = append(plan.DeepOnlyScanners, s)
 			}
 		}
 		// Union dirbust paths across all matched playbooks (deep only)

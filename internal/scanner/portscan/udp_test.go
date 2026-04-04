@@ -43,7 +43,7 @@ func TestProbeNTP_ValidResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
 		conn.WriteToUDP(ntpResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	// Patch the default port by dialing the test server directly.
 	// Since probeNTP hardcodes port 123, we test via dialUDP helper used in probeNTP.
@@ -72,7 +72,7 @@ func TestProbeNTP_ValidResponse(t *testing.T) {
 func TestProbeNTP_NoResponse(t *testing.T) {
 	// Server that never replies.
 	srv, port := startUDPServer(t, func(_ *net.UDPConn, _ *net.UDPAddr, _ []byte) {})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	_ = port
 	// No easy way to test runUDP with custom port — verify via dialUDP timeout:
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
@@ -107,7 +107,7 @@ func TestProbeSNMP_ValidResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
 		conn.WriteToUDP(snmpResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestProbeSNMP_WrongTag(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, _ []byte) {
 		conn.WriteToUDP(badResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestProbeTFTP_ErrorResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, _ []byte) {
 		conn.WriteToUDP(tftpError, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestProbeTFTP_DataResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, _ []byte) {
 		conn.WriteToUDP(tftpData, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -251,7 +251,7 @@ func TestProbeSTUN_ValidResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, _ []byte) {
 		conn.WriteToUDP(stunResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -285,7 +285,7 @@ func TestProbeIKE_ValidResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, _ []byte) {
 		conn.WriteToUDP(ikeResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -315,7 +315,7 @@ func TestProbeNTPAmplification_MonlistResponse(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
 		conn.WriteToUDP(monlistResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -414,7 +414,7 @@ func TestProbeDNSResolver_ValidResponseParsing(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
 		conn.WriteToUDP(dnsResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {
@@ -449,7 +449,7 @@ func TestProbeDNSResolver_WrongTransactionID(t *testing.T) {
 	srv, port := startUDPServer(t, func(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
 		conn.WriteToUDP(dnsResponse, addr) //nolint:errcheck
 	})
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	conn, err := net.Dial("udp", "127.0.0.1:"+port)
 	if err != nil {

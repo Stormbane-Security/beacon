@@ -1,0 +1,32 @@
+name: fingerprint-keycloak-auth
+description: "Keycloak is correctly identified via /auth/realms path"
+tags: [fingerprint, keycloak, auth]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    ports: ["8080:8080"]
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-keycloak-oidc-metadata
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration | grep -q issuer"
+      exit_code: 0
+
+  - name: identifies-keycloak-auth-path
+    type: classify
+    target: localhost:8080
+    expect:
+      backend_service: Keycloak
+
+timeout: 5m

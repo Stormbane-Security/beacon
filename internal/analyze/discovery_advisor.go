@@ -252,7 +252,7 @@ func (a *DiscoveryAdvisor) callAdvisor(ctx context.Context, prompt string) (stri
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return "", fmt.Errorf("claude API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 
 	var cr claudeResponse

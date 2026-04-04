@@ -214,24 +214,6 @@ func TestBaseName_SingleLabel(t *testing.T) {
 // Run — end-to-end with mock HTTP servers
 // ---------------------------------------------------------------------------
 
-// runWith creates a Scanner whose HTTP calls go to the provided handler.
-// It substitutes the registry URLs by routing everything through the test server.
-func runWithServers(t *testing.T, assetHandler http.HandlerFunc, registryHandler http.HandlerFunc) ([]finding.Finding, error) {
-	t.Helper()
-
-	// Asset server: serves manifests
-	assetServer := httptest.NewServer(assetHandler)
-	t.Cleanup(assetServer.Close)
-
-	// Registry server: serves npm/PyPI lookup responses
-	registryServer := httptest.NewServer(registryHandler)
-	t.Cleanup(registryServer.Close)
-
-	asset := strings.TrimPrefix(assetServer.URL, "http://")
-	s := NewWithoutOSV()
-	return s.Run(context.Background(), asset, module.ScanSurface)
-}
-
 // TestRun_NPMPackageFoundOnPublicRegistry verifies that when a package.json is
 // exposed and the internal-looking package exists on npm, a Critical finding is emitted.
 //

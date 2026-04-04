@@ -1,0 +1,33 @@
+name: ldap-exposed
+description: "OpenLDAP server allowing anonymous bind and enumeration"
+tags: [ldap, directory, identity]
+
+services:
+  ldap:
+    image: osixia/openldap:1.5.0
+    ports: ["389:389"]
+    environment:
+      LDAP_ORGANISATION: "Test Corp"
+      LDAP_DOMAIN: "test.local"
+      LDAP_ADMIN_PASSWORD: "admin"
+
+ready:
+  cmd: "nc -z localhost 389"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-ldap-anonymous-bind
+    type: command
+    expect:
+      command: "ldapsearch -x -H ldap://localhost:389 -b 'dc=test,dc=local' '(objectclass=*)' 2>/dev/null | grep -q 'dn:'"
+      exit_code: 0
+
+  - name: detects-ldap-exposed
+    type: beacon
+    target: localhost:389
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "389"]
+    expect:
+      check_id: port.ldap_exposed
+
+timeout: 5m

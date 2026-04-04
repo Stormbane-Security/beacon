@@ -1,0 +1,42 @@
+name: aiinfra-jupyter-unauthenticated
+description: >
+  Real Jupyter Notebook server running without authentication token. The
+  /api/contents endpoint is publicly accessible, exposing notebook files and
+  enabling remote code execution via kernel creation. Beacon aiinfra scanner
+  should detect the unauthenticated Jupyter instance.
+tags: [aiinfra, scanner, jupyter, ai, ml, rce]
+
+services:
+  jupyter:
+    image: jupyter/minimal-notebook:latest
+    ports: ["9298:8888"]
+    environment:
+      JUPYTER_TOKEN: ""
+    command: ["start-notebook.sh", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+
+ready:
+  cmd: "curl -sf http://localhost:9298/api/contents >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-jupyter-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9298/api/contents | grep -q 'content'"
+      exit_code: 0
+
+  - name: exploit-jupyter-no-auth-required
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9298/api/contents | grep -q '200'"
+      exit_code: 0
+
+  - name: detects-jupyter-unauthenticated
+    type: beacon
+    target: localhost:9298
+    args: ["--no-enrich", "--scanners", "aiinfra", "--ports", "8888"]
+    expect:
+      check_id: ai.jupyter_unauthenticated
+
+timeout: 10m

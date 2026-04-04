@@ -1,0 +1,63 @@
+name: gitea-unauthenticated-access
+description: >
+  Gitea instance with public repository access enabled. Beacon portscan
+  should detect that repositories are accessible without authentication.
+tags: [gitea, scanner, port, noauth]
+
+services:
+  gitea:
+    image: gitea/gitea:1.21
+    ports: ["9324:3000"]
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__server__ROOT_URL: "http://localhost:9324"
+      GITEA__service__DISABLE_REGISTRATION: "false"
+      GITEA__database__DB_TYPE: sqlite3
+
+ready:
+  cmd: "curl -sf http://localhost:9324/api/v1/version >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs: verify Gitea is accessible without auth ---
+  - name: exploit-gitea-version-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9324/api/v1/version | grep -q 'version'"
+      exit_code: 0
+
+  - name: exploit-gitea-explore-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9324/explore/repos -o /dev/null -w '%{http_code}' | grep -q '200'"
+      exit_code: 0
+
+  - name: exploit-gitea-api-settings-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9324/api/v1/settings/api | grep -q 'max_response_items'"
+      exit_code: 0
+
+  - name: exploit-gitea-users-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9324/api/v1/repos/search?limit=1 -o /dev/null -w '%{http_code}' | grep -q '200'"
+      exit_code: 0
+
+  # --- Negative: admin API requires auth ---
+  - name: negative-admin-api-requires-auth
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9324/api/v1/admin/users); [ \"$STATUS\" = \"401\" ] || [ \"$STATUS\" = \"403\" ]"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-gitea-no-auth
+    type: beacon
+    target: localhost:9324
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9324"]
+    expect:
+      check_id: port.gitea_no_auth
+
+timeout: 5m

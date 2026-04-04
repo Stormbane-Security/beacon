@@ -83,15 +83,3 @@ func Filter(all []enrichment.EnrichedFinding, summary string, suppressed map[str
 	return view
 }
 
-// firstSentence returns the first sentence of a string.
-func firstSentence(s string) string {
-	for i, ch := range s {
-		if ch == '.' || ch == '!' || ch == '?' {
-			return s[:i+1]
-		}
-	}
-	if len(s) > 120 {
-		return s[:120] + "..."
-	}
-	return s
-}

@@ -1,0 +1,39 @@
+name: etcd-no-auth
+description: "etcd 3.5 with no authentication exposes key-value store"
+tags: [etcd, infrastructure, kv-store]
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    ports: ["2379:2379"]
+    command:
+      - etcd
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+
+ready:
+  cmd: "curl -sf http://localhost:2379/version >/dev/null"
+  timeout: 60s
+  interval: 2s
+
+assertions:
+  - name: exploit-etcd-version-unauthenticated
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2379/version | grep -q etcdcluster"
+      exit_code: 0
+
+  - name: exploit-etcd-keys-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:2379/v3/kv/range -X POST -d '{\"key\":\"AA==\"}'"
+      exit_code: 0
+
+  - name: detects-exposed-etcd
+    type: beacon
+    target: localhost:2379
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2379"]
+    expect:
+      check_id: port.etcd_exposed
+
+timeout: 5m

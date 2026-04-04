@@ -66,8 +66,8 @@ deep:
     - cors
     # Rate limit: confirm whether credential-stuffing is rate-limited.
     - ratelimit
-    # Re-run githubactions with deeper analysis of deploy targets.
-    - githubactions
+    # Re-run github.actions with deeper analysis of deploy targets.
+    - github.actions
     # Web content: look for additional secrets in JS bundles.
     - webcontent
     # Exposed files: check for .env, credentials.json, and key files.

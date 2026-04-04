@@ -1,0 +1,47 @@
+name: waf-bypass-ssti
+description: >
+  Web application behind ModSecurity WAF with server-side template injection.
+  Standard SSTI payloads like {{7*7}} are blocked by the WAF. Beacon
+  should use evasion encodings (URL-encoded braces, Jinja2 print directive,
+  comment injection) to bypass and confirm the SSTI vulnerability.
+
+services:
+  webapp:
+    image: vulnerables/web-dvwa:latest
+    ports: ["8080:80"]
+    environment:
+      MYSQL_HOST: database
+      MYSQL_USER: root
+      MYSQL_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+    depends_on: [database]
+
+  database:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["80:80"]
+    environment:
+      BACKEND: "http://webapp:80"
+      PARANOIA: "2"
+    depends_on: [webapp]
+
+assertions:
+  # WAF blocks standard SSTI payloads
+  - name: waf-blocks-standard-ssti
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?q=%7B%7B7*7%7D%7D'"
+      stdout_contains: "403"
+
+  # Beacon with evasion should find the SSTI
+  - name: beacon-bypasses-waf-ssti
+    type: beacon
+    target: localhost
+    args: ["--authorized", "--scanners", "ssti", "--output-json", "/tmp/results.json"]
+    expect:
+      check_id: web.ssti

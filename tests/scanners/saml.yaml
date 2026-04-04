@@ -1,0 +1,82 @@
+name: saml-keycloak
+description: >
+  Keycloak identity provider with SAML metadata and SSO endpoints exposed.
+  Beacon SAML scanner should detect saml.metadata_exposed and
+  saml.endpoint_exposed against a real IdP.
+tags: [saml, scanner, auth, sso, keycloak]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    ports: ["9268:8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: ["start-dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:9268/ -o /dev/null -w '%{http_code}' | grep -qE '200|302|303'"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs: verify SAML endpoints are exposed ---
+  - name: exploit-saml-metadata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9268/realms/master/protocol/saml/descriptor | grep -qi 'EntityDescriptor'"
+      exit_code: 0
+
+  - name: exploit-saml-metadata-contains-certificate
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9268/realms/master/protocol/saml/descriptor | grep -qi 'X509Certificate'"
+      exit_code: 0
+
+  - name: exploit-saml-metadata-contains-sso-endpoint
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9268/realms/master/protocol/saml/descriptor | grep -qi 'SingleSignOnService'"
+      exit_code: 0
+
+  - name: exploit-saml-metadata-contains-signing-key
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9268/realms/master/protocol/saml/descriptor | grep -qi 'KeyDescriptor\\|ds:KeyInfo'"
+      exit_code: 0
+
+  - name: exploit-saml-sso-endpoint-responds
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9268/realms/master/protocol/saml' | grep -qP '200|302|400'"
+      exit_code: 0
+
+  - name: exploit-saml-entityid-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9268/realms/master/protocol/saml/descriptor | grep -oP 'entityID=\"[^\"]+\"' | grep -q 'master'"
+      exit_code: 0
+
+  # --- Negative: SAML ACS POST without valid assertion returns error ---
+  - name: negative-saml-acs-rejects-invalid-assertion
+    type: command
+    expect:
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9268/realms/master/protocol/saml -d 'SAMLResponse=invalid'); [ \"$STATUS\" != \"200\" ]"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-saml-metadata-exposed
+    type: beacon
+    target: localhost:9268
+    args: ["--no-enrich", "--scanners", "saml"]
+    expect:
+      check_id: saml.metadata_exposed
+
+  - name: detects-saml-endpoint-exposed
+    type: beacon
+    target: localhost:9268
+    args: ["--no-enrich", "--scanners", "saml"]
+    expect:
+      check_id: saml.endpoint_exposed
+
+timeout: 10m

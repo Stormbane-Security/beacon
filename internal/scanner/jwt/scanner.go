@@ -20,10 +20,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
+
+func init() {
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return New()
+	},
+		scan.Check(finding.CheckJWKSMissingKID, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWKSWeakKey, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJWTAlgNoneVariant, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTAlgorithmConfusion, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTAudienceMissing, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckJWTEmptySecret, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTEncryptionMissing, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWTIssuerNotValidated, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckJWTKidInjection, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckJWTLongExpiry, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJWTReplayMissing, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckJWTSensitivePayload, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckJWTWeakAlg, finding.SeverityCritical, finding.ModeSurface),
+	)
+}
 const scannerName = "jwt"
 
 // jwtPattern matches the three base64url-encoded segments of a JWT.
@@ -60,14 +82,18 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run fetches the asset root and inspects any JWTs found in the response.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	ac := authctx.HTTPClient(ctx)
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
+		Timeout:   10 * time.Second,
+		Transport: ac.Transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+	if client.Transport == nil {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
 	}
 
 	var resp *http.Response
@@ -107,21 +133,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Set-Cookie headers.
 	for _, cookie := range resp.Header["Set-Cookie"] {
-		for _, m := range jwtPattern.FindAllString(cookie, -1) {
-			candidates = append(candidates, m)
-		}
+		candidates = append(candidates, jwtPattern.FindAllString(cookie, -1)...)
 	}
 
 	// Response body.
-	for _, m := range jwtPattern.FindAllString(bodyStr, -1) {
-		candidates = append(candidates, m)
-	}
+	candidates = append(candidates, jwtPattern.FindAllString(bodyStr, -1)...)
 
 	// Authorization header in response (non-standard but seen in some APIs).
 	if auth := resp.Header.Get("Authorization"); auth != "" {
-		for _, m := range jwtPattern.FindAllString(auth, -1) {
-			candidates = append(candidates, m)
-		}
+		candidates = append(candidates, jwtPattern.FindAllString(auth, -1)...)
 	}
 
 	// Deduplicate by header.payload (ignore signature).
@@ -244,6 +264,9 @@ func analyseToken(asset, token string) []finding.Finding {
 
 	// --- Algorithm checks ---
 
+	headerB64 := parts[0]
+	proofCmd := fmt.Sprintf("echo '%s' | base64 -d", headerB64)
+
 	if strings.EqualFold(alg, "none") {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckJWTWeakAlg,
@@ -255,7 +278,8 @@ func analyseToken(asset, token string) []finding.Finding {
 				"claims by crafting a token and setting alg to 'none'. This completely bypasses " +
 				"authentication and authorization controls. Replace with RS256 or ES256 and reject " +
 				"any token whose header specifies alg:none on the server side.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: proofCmd,
 			Evidence: map[string]any{
 				"algorithm":    alg,
 				"jwt_header":   header,
@@ -276,7 +300,8 @@ func analyseToken(asset, token string) []finding.Finding {
 					"asymmetric algorithm such as RS256 or ES256 so that only the issuer can sign tokens.",
 				alg,
 			),
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: proofCmd,
 			Evidence: map[string]any{
 				"algorithm":    alg,
 				"jwt_header":   header,
@@ -291,6 +316,9 @@ func analyseToken(asset, token string) []finding.Finding {
 	exp, hasExp := extractIntField(payload, "exp")
 	_, hasIat := extractIntField(payload, "iat")
 
+	payloadB64 := parts[1]
+	payloadProof := fmt.Sprintf("echo '%s' | base64 -d", payloadB64)
+
 	if !hasExp {
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckJWTLongExpiry,
@@ -301,7 +329,8 @@ func analyseToken(asset, token string) []finding.Finding {
 			Description: "The token does not contain an exp claim, meaning it never expires. " +
 				"Stolen or leaked tokens remain valid indefinitely. Add a short-lived exp claim " +
 				"(e.g. 15 minutes for access tokens) and implement token refresh.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"has_iat":      hasIat,
 				"jwt_fragment": truncate(token, 80),
@@ -322,7 +351,8 @@ func analyseToken(asset, token string) []finding.Finding {
 					"Reduce token lifetime to 15–60 minutes for access tokens and implement refresh token rotation.",
 				daysValid,
 			),
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"exp":          exp,
 				"days_valid":   daysValid,
@@ -359,7 +389,8 @@ func analyseToken(asset, token string) []finding.Finding {
 				"token – through network eavesdropping, browser storage access, or log files – can decode " +
 				"and read the PII contained within. Move sensitive personal data out of the token payload " +
 				"or use JWE (JSON Web Encryption) to protect the claims.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"sensitive_fields": foundPII,
 				"jwt_fragment":     truncate(token, 80),
@@ -390,7 +421,8 @@ func analyseToken(asset, token string) []finding.Finding {
 				"an attacker to enumerate privilege levels and craft targeted privilege-escalation attacks. " +
 				"Ensure server-side authorization never relies solely on client-supplied token claims without " +
 				"re-validating them against an authoritative store.",
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: payloadProof,
 			Evidence: map[string]any{
 				"role_fields":  foundRole,
 				"jwt_fragment": truncate(token, 80),
@@ -438,11 +470,20 @@ func extractStringField(json, key string) string {
 		return ""
 	}
 	rest = rest[1:]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return ""
+	// Find the closing quote, skipping escaped quotes (e.g. \").
+	var sb strings.Builder
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '\\' && i+1 < len(rest) {
+			sb.WriteByte(rest[i+1])
+			i++ // skip escaped character
+			continue
+		}
+		if rest[i] == '"' {
+			return sb.String()
+		}
+		sb.WriteByte(rest[i])
 	}
-	return rest[:end]
+	return ""
 }
 
 // extractIntField parses a JSON numeric value for the given key.
@@ -506,8 +547,11 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 	}
 	var found []string
 	for _, field := range allSensitiveFields {
-		if _, ok := claims[field]; ok {
-			found = append(found, field)
+		for k := range claims {
+			if strings.EqualFold(k, field) {
+				found = append(found, field)
+				break
+			}
 		}
 	}
 	if len(found) == 0 {
@@ -525,6 +569,7 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 			"with access to the token (via logs, browser storage, or network interception) can decode " +
 			"and read these claims. Consider using JWE to encrypt the token payload, or move sensitive " +
 			"data out of the token entirely.",
+		ProofCommand: fmt.Sprintf("echo '%s' | base64 -d", parts[1]),
 		Evidence: map[string]any{
 			"sensitive_fields": found,
 			"parts":            len(parts),
@@ -541,6 +586,21 @@ func checkJTIMissing(asset string, claims map[string]any) *finding.Finding {
 	if _, ok := claims["jti"]; ok {
 		return nil
 	}
+	// Only flag missing jti when the token has a long lifetime (>1 hour).
+	// Short-lived tokens are replay-resistant by design; flagging every JWT
+	// without jti produces excessive noise.
+	if exp, ok := claims["exp"]; ok {
+		switch v := exp.(type) {
+		case float64:
+			if iat, ok := claims["iat"]; ok {
+				if iatV, ok := iat.(float64); ok {
+					if v-iatV <= 3600 {
+						return nil // token lives ≤1 hour
+					}
+				}
+			}
+		}
+	}
 	return &finding.Finding{
 		CheckID:  finding.CheckJWTReplayMissing,
 		Module:   "surface",
@@ -552,6 +612,7 @@ func checkJTIMissing(asset string, claims map[string]any) *finding.Finding {
 			"identifier the server cannot maintain a token deny-list or detect replay attacks. " +
 			"An attacker who obtains a valid token can reuse it repeatedly until it expires. " +
 			"Add a cryptographically random jti to every issued token and check it server-side.",
+		ProofCommand: fmt.Sprintf("curl -sI https://%s/ | grep -i set-cookie", asset),
 		Evidence:     map[string]any{},
 		DiscoveredAt: time.Now(),
 	}

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -43,10 +44,10 @@ func loginHandlerEnumerable(w http.ResponseWriter, r *http.Request) {
 	// initial discovery probe (probe@example.invalid) → 200 (endpoint is found)
 	if strings.Contains(decoded, "-b@") {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintln(w, `{"error":"user not found"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"user not found"}`)
 	} else {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"error":"wrong password"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"wrong password"}`)
 	}
 }
 
@@ -93,7 +94,7 @@ func TestAutoprobe_NoLockoutDetected(t *testing.T) {
 	}
 	found := false
 	for _, f := range findings {
-		if f.CheckID == "auth.no_lockout" {
+		if f.CheckID == finding.CheckAuthNoLockout {
 			found = true
 			if f.ProofCommand == "" {
 				t.Error("ProofCommand should be set on no_lockout finding")
@@ -121,7 +122,7 @@ func TestAutoprobe_LockoutPresent_NoFinding(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintln(w, `{"error":"invalid credentials"}`)
+		_, _ = fmt.Fprintln(w, `{"error":"invalid credentials"}`)
 	}))
 	defer srv.Close()
 
@@ -131,7 +132,7 @@ func TestAutoprobe_LockoutPresent_NoFinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range findings {
-		if f.CheckID == "auth.no_lockout" {
+		if f.CheckID == finding.CheckAuthNoLockout {
 			t.Error("should not report no_lockout when server returns 429 after 5 attempts")
 		}
 	}
@@ -148,7 +149,7 @@ func TestAutoprobe_UsernameEnumeration(t *testing.T) {
 	}
 	found := false
 	for _, f := range findings {
-		if f.CheckID == "auth.username_enumeration" {
+		if f.CheckID == finding.CheckAuthUsernameEnumeration {
 			found = true
 			if f.ProofCommand == "" {
 				t.Error("ProofCommand should be set on username_enumeration finding")
@@ -180,7 +181,7 @@ func TestAutoprobe_SameResponseNoEnumeration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range findings {
-		if f.CheckID == "auth.username_enumeration" {
+		if f.CheckID == finding.CheckAuthUsernameEnumeration {
 			t.Error("should not report enumeration when responses are identical")
 		}
 	}

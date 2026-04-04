@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
@@ -18,7 +18,7 @@ import (
 // policies or security defaults that enforce MFA. Since the Microsoft Graph SDK for
 // conditional access requires specific permissions, we use a lightweight HTTP probe
 // against the Graph API to check for security defaults and conditional access policies.
-func scanConditionalAccessMFA(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanConditionalAccessMFA(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	// Acquire a token for Microsoft Graph.
 	token, err := cred.GetToken(ctx, policy.TokenRequestOptions{
 		Scopes: []string{"https://graph.microsoft.com/.default"},

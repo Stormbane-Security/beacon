@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -18,7 +18,7 @@ var broadRoles = map[string]bool{
 	"b24988ac-6180-42a0-ab88-20f7382dd24c": true, // Contributor
 }
 
-func scanRBAC(ctx context.Context, cred *azidentity.DefaultAzureCredential, subID, asset string) ([]finding.Finding, error) {
+func scanRBAC(ctx context.Context, cred azcore.TokenCredential, subID, asset string) ([]finding.Finding, error) {
 	client, err := armauthorization.NewRoleAssignmentsClient(subID, cred, nil)
 	if err != nil {
 		return nil, err

@@ -71,8 +71,8 @@ func (s *Scanner) Run(ctx context.Context, target string, _ module.ScanType) ([]
 	// Vulnerability alerts — requires a token; the endpoint returns 403 for
 	// unauthenticated requests even on public repos, which we must not treat
 	// as "disabled" (false positive).
-	vulnAlertsEnabled, _ := s.vulnAlertsEnabled(ctx, owner, repo)
-	if s.token != "" && !vulnAlertsEnabled {
+	vulnAlertsEnabled, vulnAlertsErr := s.vulnAlertsEnabled(ctx, owner, repo)
+	if s.token != "" && !vulnAlertsEnabled && vulnAlertsErr == nil {
 		all = append(all, finding.Finding{
 			CheckID:  finding.CheckGitHubNoVulnAlerts,
 			Module:   "github",
@@ -1437,6 +1437,9 @@ func (s *Scanner) vulnAlertsEnabled(ctx context.Context, owner, repo string) (bo
 		return false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		return false, fmt.Errorf("insufficient permissions to check vulnerability alerts")
+	}
 	return resp.StatusCode == http.StatusNoContent, nil
 }
 

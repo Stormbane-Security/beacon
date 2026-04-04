@@ -1,0 +1,36 @@
+name: jenkins-exposed
+description: "Jenkins LTS with default setup wizard exposes CI/CD panel and management console"
+tags: [jenkins, service, cicd]
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-alpine
+    ports: ["8080:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+ready:
+  cmd: "curl -sf http://localhost:8080/login >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-jenkins-login-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8080/login | grep -qiE '(jenkins|sign in)'"
+      exit_code: 0
+
+  - name: exploit-jenkins-api-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8080/api/json | grep -qE '(200|403)'"
+      exit_code: 0
+
+  - name: classifies-as-jenkins
+    type: classify
+    target: localhost:8080
+    expect:
+      service_version: platform
+
+timeout: 5m

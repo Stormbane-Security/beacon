@@ -1,0 +1,64 @@
+name: dlp-sensitive-data
+description: "Web server exposing page with SSNs, credit cards, PEM keys, and bulk email list"
+tags: [dlp, ssn, credit-card, private-key, email]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./sensitive-data/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-ssn-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qE '[0-9]{3}-[0-9]{2}-[0-9]{4}'"
+      exit_code: 0
+
+  - name: exploit-credit-card-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -qE '[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}'"
+      exit_code: 0
+
+  - name: exploit-private-key-visible-in-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/ | grep -q 'BEGIN RSA PRIVATE KEY\\|BEGIN PRIVATE KEY'"
+      exit_code: 0
+
+  - name: detects-ssn-pattern
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.ssn_pattern
+
+  - name: detects-credit-card
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.credit_card
+
+  - name: detects-private-key
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.private_key
+
+  - name: detects-email-list
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "dlp"]
+    expect:
+      check_id: dlp.email_list
+
+timeout: 5m

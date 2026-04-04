@@ -1,0 +1,31 @@
+name: env-file-exposed
+description: "Web server with .env file accessible at the document root"
+tags: [exposure, env, sensitive-file]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./env-file/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-env-file-read-secrets
+    type: command
+    expect:
+      command: "curl -sf http://localhost:80/.env | grep -qE '(DB_PASSWORD|SECRET_KEY|API_KEY)'"
+      exit_code: 0
+
+  - name: detects-env-file-exposed
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--ports", "80"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+timeout: 5m
