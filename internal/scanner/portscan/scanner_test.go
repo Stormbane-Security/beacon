@@ -42,6 +42,7 @@ func TestBuildPortListSurfaceExcludesExtendedPorts(t *testing.T) {
 // TestRunReturnsNoFindingsForClosedPorts verifies that a port with nothing
 // listening does not produce a finding.
 func TestRunReturnsNoFindingsForClosedPorts(t *testing.T) {
+	t.Parallel()
 	// Bind a listener to take a port, then close it so the port is truly closed.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -67,6 +68,7 @@ func TestRunReturnsNoFindingsForClosedPorts(t *testing.T) {
 // TestRunContextCancellationIsRespected verifies the scanner stops and
 // returns when context is cancelled, without panicking.
 func TestRunContextCancellationIsRespected(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
@@ -119,6 +121,7 @@ func TestElasticsearchUnauthFinding(t *testing.T) {
 // environment the scanner correctly finds real SSH and the assertion would
 // produce a false failure.
 func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
+	t.Parallel()
 	// Bind an SSH server on a port NOT in the scanner's list.
 	l, err := net.Listen("tcp", "127.0.0.1:22222")
 	if err != nil {
@@ -158,6 +161,7 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 // TestProbeRedisUnauthDetection verifies that a Redis PONG response triggers
 // the unauthenticated finding. We bind port 6379 on loopback if available.
 func TestProbeRedisUnauthDetection(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -206,6 +210,7 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 // TestProbeRedisAuthenticatedNoFinding verifies that a Redis -ERR AUTH response
 // (authentication required) does NOT produce an unauthenticated finding.
 func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -245,6 +250,7 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 // on an ephemeral port. The scanner's quickHTTPCheck identifies the service as
 // HTTP even without a banner, then runs the Prometheus probe.
 func TestPrometheusUnauthHTTPMock(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -289,6 +295,7 @@ func TestPrometheusUnauthHTTPMock(t *testing.T) {
 
 // TestTelnetExposedFinding verifies that an open port 23 triggers the telnet finding.
 func TestTelnetExposedFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -334,6 +341,7 @@ func TestTelnetExposedFinding(t *testing.T) {
 // lowered from 10 to 5. Sending 10+ simultaneous SYN packets triggers most
 // stateful IDS port-scan signatures; 5 concurrent stays below common thresholds.
 func TestPortScan_DefaultConcurrency_IsFive(t *testing.T) {
+	t.Parallel()
 	// We can't inspect the internal constant directly (it's unexported in the
 	// portscan package), but we can verify that the scanner does not open more
 	// than 5 simultaneous connections by counting peak concurrency.
@@ -405,6 +413,7 @@ func TestPortScan_DefaultConcurrency_IsFive(t *testing.T) {
 // TestPortScan_ContextCancellation_Respects verifies that the scanner stops
 // promptly when the context is cancelled, even while the delay is in progress.
 func TestPortScan_ContextCancellation_Stops(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	// Cancel before scan starts — the semaphore delay select must drain immediately.
 	cancel()
@@ -433,6 +442,7 @@ func TestPortScan_ContextCancellation_Stops(t *testing.T) {
 // an Exim banner triggers CheckPortExImVulnerable (Critical), not the generic
 // CheckPortSMTPExposed.
 func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -482,6 +492,7 @@ func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
 // TestSMTPGenericBannerProducesGenericFinding verifies that a non-Exim SMTP
 // banner (e.g. Postfix) triggers CheckPortSMTPExposed, not the Exim check.
 func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -529,6 +540,7 @@ func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
 // on port 587 (submission) also triggers CheckPortExImVulnerable. Port 587
 // does not require root privileges on most systems.
 func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -572,6 +584,7 @@ func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
 // TestSMTPSubmissionGenericBanner verifies that a non-Exim banner on port 587
 // triggers the generic CheckPortSMTPExposed finding.
 func TestSMTPSubmissionGenericBanner(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -613,6 +626,7 @@ func TestSMTPSubmissionGenericBanner(t *testing.T) {
 // (connection closed immediately) does NOT produce a finding. The scanner
 // requires a non-empty banner before emitting SMTP findings.
 func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -654,6 +668,7 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 // that accepts the null bind (responds with BindResponse resultCode 0) and
 // returns non-AD rootDSE data triggers CheckPortLDAPExposed.
 func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -729,6 +744,7 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 // TestLDAPNullBindActiveDirectoryProducesADFinding verifies that an LDAP server
 // that responds with DC= attributes in the rootDSE triggers CheckPortActiveDirectoryExposed.
 func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -802,6 +818,7 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 // TestLDAPNullBindRefusedNoFinding verifies that an LDAP server that refuses
 // the null bind (no 0x61 BindResponse with resultCode 0) produces no finding.
 func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

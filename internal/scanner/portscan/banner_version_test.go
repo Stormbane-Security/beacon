@@ -51,6 +51,7 @@ func serveBanner(l net.Listener, banner string) {
 // ── SSH banner version ────────────────────────────────────────────────────────
 
 func TestSSHVersionInFinding(t *testing.T) {
+	t.Parallel()
 	l, port := listenEphemeral(t)
 	defer func() { _ = l.Close() }()
 	serveBanner(l, "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5\r\n")
@@ -82,6 +83,7 @@ func TestSSHVersionInFinding(t *testing.T) {
 }
 
 func TestSSHVersionDropbear(t *testing.T) {
+	t.Parallel()
 	l, port := listenEphemeral(t)
 	defer func() { _ = l.Close() }()
 	serveBanner(l, "SSH-2.0-dropbear_2022.83\r\n")
@@ -101,6 +103,7 @@ func TestSSHVersionDropbear(t *testing.T) {
 }
 
 func TestSSHNoBannerNoSoftwareKey(t *testing.T) {
+	t.Parallel()
 	// When SSH sends no banner, the probe system can't identify the service
 	// by protocol fingerprint alone. On a standard port (22), the port-based
 	// fallback in buildFindings would emit the finding. On an ephemeral port,
@@ -129,6 +132,7 @@ func TestSSHNoBannerNoSoftwareKey(t *testing.T) {
 // ── FTP banner version ────────────────────────────────────────────────────────
 
 func TestFTPVersionInFinding(t *testing.T) {
+	t.Parallel()
 	l, port := listenEphemeral(t)
 	defer func() { _ = l.Close() }()
 	serveBanner(l, "220 ProFTPD 1.3.6 Server (hostname.example.com)\r\n")

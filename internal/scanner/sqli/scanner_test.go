@@ -16,6 +16,7 @@ import (
 )
 
 func TestSQLi_SkipsNonAuthorized(t *testing.T) {
+	t.Parallel()
 	s := New()
 	for _, st := range []module.ScanType{module.ScanSurface, module.ScanDeep} {
 		findings, err := s.Run(context.Background(), "example.com", st)
@@ -29,6 +30,7 @@ func TestSQLi_SkipsNonAuthorized(t *testing.T) {
 }
 
 func TestSQLi_DetectsTimeBased(t *testing.T) {
+	t.Parallel()
 	// Create a server that sleeps when it sees SLEEP in the query parameter
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		param := r.URL.Query().Get("id")
@@ -74,6 +76,7 @@ func TestSQLi_DetectsTimeBased(t *testing.T) {
 }
 
 func TestSQLi_NoFalsePositiveConstantTime(t *testing.T) {
+	t.Parallel()
 	// Server with constant response time — should not trigger
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -97,6 +100,7 @@ func TestSQLi_NoFalsePositiveConstantTime(t *testing.T) {
 }
 
 func TestSQLi_NoFalsePositiveJitter(t *testing.T) {
+	t.Parallel()
 	// Server with random jitter (0-500ms) — should not trigger because
 	// deltas won't consistently reach 2.5s+ and 4.5s+.
 	// Use a 30s context timeout: enough for the scanner to probe a few
@@ -147,6 +151,7 @@ func TestBuildPayload(t *testing.T) {
 }
 
 func TestMeasureBaseline(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -165,6 +170,7 @@ func TestMeasureBaseline(t *testing.T) {
 }
 
 func TestTimeRequest(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(50 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -183,6 +189,7 @@ func TestTimeRequest(t *testing.T) {
 }
 
 func TestSQLi_OOBIntegration(t *testing.T) {
+	t.Parallel()
 	// Verify OOB tokens are generated when server is available and scanner
 	// doesn't panic. Uses a short timeout — we only need to exercise the OOB
 	// code path, not iterate all payloads.
@@ -229,6 +236,7 @@ func TestSQLi_OOBPayloadFormat(t *testing.T) {
 }
 
 func TestDetectScheme(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

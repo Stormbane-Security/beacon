@@ -17,6 +17,7 @@ import (
 // TestReDoS_SkippedInSurfaceMode ensures no requests are sent in surface mode
 // since ReDoS detection requires active payload injection (deep mode only).
 func TestReDoS_SkippedInSurfaceMode(t *testing.T) {
+	t.Parallel()
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
@@ -41,6 +42,7 @@ func TestReDoS_SkippedInSurfaceMode(t *testing.T) {
 // evil payload causes >5s delay while the benign baseline responds instantly,
 // indicating a vulnerable regex.
 func TestReDoS_SlowEvil_FastBaseline_FindingEmitted(t *testing.T) {
+	t.Parallel()
 	// The scanner injects payloads via query parameters (q, search, email, url, input).
 	// For the "email regex" payload the evil input is 30 'a's + '!'.
 	evilSuffix := strings.Repeat("a", 30) + "!"
@@ -105,6 +107,7 @@ func TestReDoS_SlowEvil_FastBaseline_FindingEmitted(t *testing.T) {
 // TestReDoS_FastResponses_NoFinding verifies that when both evil and benign
 // payloads get fast responses, no finding is emitted.
 func TestReDoS_FastResponses_NoFinding(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, "fast response")
 	}))
@@ -126,6 +129,7 @@ func TestReDoS_FastResponses_NoFinding(t *testing.T) {
 // request itself takes >1s, the scanner skips that parameter/payload combo
 // to avoid false positives from generally slow servers.
 func TestReDoS_SlowBaseline_Skipped(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Every request is slow — simulates a slow server.
 		time.Sleep(1200 * time.Millisecond)
@@ -148,6 +152,7 @@ func TestReDoS_SlowBaseline_Skipped(t *testing.T) {
 // TestReDoS_ContextCancelled_NoPanic verifies that a cancelled context does
 // not cause a panic and returns gracefully.
 func TestReDoS_ContextCancelled_NoPanic(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, "ok")
 	}))
@@ -181,6 +186,7 @@ func TestReDoS_UnreachableTarget_NoFindings(t *testing.T) {
 // just under 5000ms does not produce a finding. Only delays on the email
 // regex payload to keep the test runtime reasonable.
 func TestReDoS_EvilJustUnderThreshold_NoFinding(t *testing.T) {
+	t.Parallel()
 	evilSuffix := strings.Repeat("a", 30) + "!"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +225,7 @@ func TestReDoS_Name(t *testing.T) {
 // detect multiple vulnerable regex patterns on the same server. Only the first
 // parameter ("q") is made slow to keep the test runtime reasonable.
 func TestReDoS_MultiplePayloadTypes_FindingsEmitted(t *testing.T) {
+	t.Parallel()
 	emailEvil := strings.Repeat("a", 30) + "!"
 	urlEvil := "http://" + strings.Repeat("a", 30)
 	numericEvil := strings.Repeat("1", 30) + "a"
@@ -266,6 +273,7 @@ func TestReDoS_MultiplePayloadTypes_FindingsEmitted(t *testing.T) {
 // TestReDoS_FindingFields_Complete verifies that all required fields on a
 // ReDoS finding are populated correctly.
 func TestReDoS_FindingFields_Complete(t *testing.T) {
+	t.Parallel()
 	evilSuffix := strings.Repeat("a", 30) + "!"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
