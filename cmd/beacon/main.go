@@ -27,6 +27,7 @@ import (
 	cloudmodule "github.com/stormbane-security/beacon/internal/modules/cloud"
 	githubmodule "github.com/stormbane-security/beacon/internal/modules/github"
 	"github.com/stormbane-security/beacon/internal/modules/surface"
+	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/profiler"
 	"github.com/stormbane-security/beacon/internal/report"
 	"github.com/stormbane-security/beacon/internal/scanlog"
@@ -62,6 +63,7 @@ SCAN FLAGS:
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
+  --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
   --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
@@ -246,6 +248,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		deep                bool
 		permissionConfirmed bool
 		authorized          bool
+		autoApprove         bool
 		outPath             string
 		outputRawPath       string
 		format              string
@@ -294,6 +297,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			permissionConfirmed = true
 		case "--authorized":
 			authorized = true
+		case "--yes":
+			autoApprove = true
 		case "--quiet":
 			quiet = true
 		case "--out":
@@ -476,7 +481,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
 		return
 	}
 
@@ -564,6 +569,11 @@ Type exactly: I have written authorization for %s
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Inject exploit module approval gate for authorized mode.
+	if authorized && !autoApprove {
+		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	}
 
 	// Set up structured logging if --log-file is specified.
 	if logFile != "" {
@@ -1068,7 +1078,7 @@ type assetScanResult struct {
 func cmdScanMultiAsset(
 	cfg *config.Config,
 	targets []string,
-	deep, permissionConfirmed, authorized bool,
+	deep, permissionConfirmed, authorized, autoApproveExploits bool,
 	outPath, outputRawPath, format, severityFlag string,
 	verbose, noTUI, noEnrich bool,
 	extraCIDRs []string,
@@ -1134,6 +1144,11 @@ Type exactly: I have written authorization for all listed targets
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Inject exploit module approval gate for authorized mode.
+	if authorized && !autoApproveExploits {
+		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	}
 
 	// Set up structured logging if --log-file is specified.
 	if logFile != "" {
@@ -1604,4 +1619,21 @@ Type exactly: I have written authorization for all listed targets
 			fmt.Print(dot)
 		}
 	}
+}
+
+// interactiveApproveExploit prompts the user on stderr for each exploit module.
+// Returns true if the user approves (y/Y/enter), false otherwise.
+func interactiveApproveExploit(moduleName string, host string, port int) bool {
+	fmt.Fprintf(os.Stderr, "\nExploit module %q targets %s:%d. Proceed? [Y/n] ", moduleName, host, port)
+
+	// If not a terminal (piped input), auto-deny for safety.
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "n (non-interactive)")
+		return false
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(strings.ToLower(line))
+	return line == "" || line == "y" || line == "yes"
 }

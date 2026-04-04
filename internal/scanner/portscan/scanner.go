@@ -412,6 +412,7 @@ collectResults:
 		if len(openPorts) > 0 {
 			chain := postexploit.NewChain()
 			chain.Timeout = 2 * time.Minute // tighter timeout within portscan context
+			chain.ApproveFunc = postexploit.ApproveFuncFromContext(ctx)
 			fb := &postexploit.FindingBuilder{
 				Module:  "surface",
 				Scanner: scannerName,
@@ -436,6 +437,35 @@ collectResults:
 	if ctx.Err() == nil {
 		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
+
+			// Authorized mode: route UDP-discovered services into postexploit chain.
+			// UDP services (SNMP, DNS, TFTP, etc.) need exploitation too.
+			if scanType == module.ScanAuthorized && ctx.Err() == nil {
+				host, _ := parseAssetPort(asset)
+				if host == "" {
+					host = asset
+				}
+				udpServices := make(map[int]string)
+				for _, f := range udpFs {
+					if svc, ok := f.Evidence["service"].(string); ok {
+						if p, ok := f.Evidence["port"].(int); ok {
+							udpServices[p] = svc
+						}
+					}
+				}
+				if len(udpServices) > 0 {
+					chain := postexploit.NewChain()
+					chain.Timeout = 2 * time.Minute
+					chain.ApproveFunc = postexploit.ApproveFuncFromContext(ctx)
+					fb := &postexploit.FindingBuilder{
+						Module:  "surface",
+						Scanner: scannerName,
+						Asset:   asset,
+					}
+					chainFindings := chain.ProbeHostServices(ctx, host, udpServices, fb)
+					findings = append(findings, chainFindings...)
+				}
+			}
 		}
 	}
 
