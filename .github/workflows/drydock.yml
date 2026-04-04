@@ -1,28 +1,19 @@
-name: Drydock
+name: Drydock Manual
 
 on:
-  push:
-    branches: [dev]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: drydock-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      category:
+        description: "Test category (blank = all)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  ci:
-    uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
-    with:
-      gosec-excludes: G304,G107,G101
-
   drydock:
     name: "E2E: ${{ matrix.category }}"
-    needs: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -48,12 +39,6 @@ jobs:
           - dlp
 
     steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
-        if: runner.environment == 'github-hosted'
-        with:
-          egress-policy: audit
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -68,29 +53,16 @@ jobs:
           cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
           drydock 2>&1 | head -1 || true
 
-      - name: Skip if category is empty
+      - name: Skip if category is empty or filtered
         id: check
         run: |
-          if [ ! -d "tests/${{ matrix.category }}" ]; then
+          FILTER="${{ github.event.inputs.category }}"
+          if [ -n "$FILTER" ] && [ "$FILTER" != "${{ matrix.category }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ ! -d "tests/${{ matrix.category }}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Cache Docker images
-        if: steps.check.outputs.skip != 'true'
-        id: docker-cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: /tmp/docker-cache
-          key: docker-${{ matrix.category }}-${{ hashFiles(format('tests/{0}/**/*.yaml', matrix.category)) }}
-
-      - name: Load cached Docker images
-        if: steps.check.outputs.skip != 'true' && steps.docker-cache.outputs.cache-hit == 'true'
-        run: |
-          if [ -f /tmp/docker-cache/images.tar.zst ]; then
-            echo "Loading cached Docker images..."
-            zstd -d /tmp/docker-cache/images.tar.zst --stdout | docker load
           fi
 
       - name: Run drydock tests
@@ -103,17 +75,6 @@ jobs:
             --fixed-ports \
             --artifacts .drydock/runs 2>&1 | tee drydock-output.log
 
-      - name: Save Docker images to cache
-        if: always() && steps.check.outputs.skip != 'true' && steps.docker-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p /tmp/docker-cache
-          images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>')
-          if [ -n "$images" ]; then
-            echo "Saving Docker images to cache..."
-            echo "$images" | xargs docker save | zstd -T0 -3 -o /tmp/docker-cache/images.tar.zst
-            echo "Cache size: $(du -sh /tmp/docker-cache/images.tar.zst | cut -f1)"
-          fi
-
       - name: Upload test artifacts
         if: always() && steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -123,30 +84,3 @@ jobs:
             .drydock/runs/
             drydock-output.log
           retention-days: 7
-
-  results:
-    name: Drydock Results
-    needs: drydock
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: results
-          pattern: drydock-*
-
-      - name: Summarize results
-        run: |
-          echo "## Drydock Results" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Category | Passed | Failed |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|----------|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
-          for dir in results/drydock-*/; do
-            category=$(basename "$dir" | sed 's/drydock-//')
-            if [ -f "$dir/drydock-output.log" ]; then
-              pass=$(grep -c "PASS" "$dir/drydock-output.log" 2>/dev/null || echo 0)
-              fail=$(grep -c "FAIL" "$dir/drydock-output.log" 2>/dev/null || echo 0)
-              echo "| $category | $pass | $fail |" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          done
