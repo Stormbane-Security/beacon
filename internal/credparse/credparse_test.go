@@ -25,6 +25,21 @@ func TestExtractCredentials_AWSKeys(t *testing.T) {
 	}
 }
 
+func TestExtractCredentials_AWSTemporarySTS(t *testing.T) {
+	data := `{"access_key":"ASIAJEXAMPLETMPCREDS","secret_key":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}`
+	creds := ExtractCredentials(data)
+
+	var found bool
+	for _, c := range creds {
+		if c.Type == "aws_access_key" && c.Value == "ASIAJEXAMPLETMPCREDS" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find AWS temporary STS access key (ASIA prefix)")
+	}
+}
+
 func TestExtractCredentials_GitHubPAT(t *testing.T) {
 	data := `token: ghp_ExampleGitHubPAT0000000000000000000`
 	creds := ExtractCredentials(data)

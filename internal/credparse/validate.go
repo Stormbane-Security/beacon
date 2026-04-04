@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// validationClient is used for all credential validation requests.
+// Unlike http.DefaultClient, it has an explicit transport-level timeout
+// to prevent goroutine leaks on half-open connections.
+var validationClient = &http.Client{Timeout: 15 * time.Second}
+
 // ValidationResult is the outcome of a least-privilege credential check.
 type ValidationResult struct {
 	Valid    bool   // whether the credential is live/active
@@ -57,10 +62,15 @@ func validateAWSKey(ctx context.Context, cred Credential) *ValidationResult {
 	// The access key alone isn't enough — we need the secret key too.
 	// If we only have the access key, we can still report it as found
 	// but can't validate it.
+	// AKIA = long-term IAM, ASIA = temporary STS credentials.
+	keyType := "long-term IAM"
+	if strings.HasPrefix(cred.Value, "ASIA") {
+		keyType = "temporary STS"
+	}
 	return &ValidationResult{
 		Valid:   false,
 		Service: "aws",
-		Detail:  fmt.Sprintf("AWS access key %s...%s found — validation requires secret key pair", cred.Value[:4], cred.Value[len(cred.Value)-4:]),
+		Detail:  fmt.Sprintf("AWS access key (%s) %s...%s found — validation requires secret key pair", keyType, cred.Value[:4], cred.Value[len(cred.Value)-4:]),
 		Error:   "access_key_only",
 	}
 }
@@ -74,7 +84,7 @@ func validateGitHubToken(ctx context.Context, cred Credential) *ValidationResult
 	req.Header.Set("Authorization", "Bearer "+cred.Value)
 	req.Header.Set("User-Agent", "beacon-security-scanner")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := validationClient.Do(req)
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("github api: %v", err)}
 	}
@@ -127,7 +137,7 @@ func validateSlackToken(ctx context.Context, cred Credential) *ValidationResult 
 	req.Header.Set("Authorization", "Bearer "+cred.Value)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := validationClient.Do(req)
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("slack api: %v", err)}
 	}
@@ -168,7 +178,7 @@ func validateGoogleToken(ctx context.Context, cred Credential) *ValidationResult
 		return &ValidationResult{Error: err.Error()}
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := validationClient.Do(req)
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("google api: %v", err)}
 	}
@@ -210,7 +220,7 @@ func validateStripeKey(ctx context.Context, cred Credential) *ValidationResult {
 	}
 	req.SetBasicAuth(cred.Value, "")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := validationClient.Do(req)
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("stripe api: %v", err)}
 	}
@@ -252,7 +262,7 @@ func validateSendGridKey(ctx context.Context, cred Credential) *ValidationResult
 	}
 	req.Header.Set("Authorization", "Bearer "+cred.Value)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := validationClient.Do(req)
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("sendgrid api: %v", err)}
 	}
@@ -277,7 +287,7 @@ func validateGitLabToken(ctx context.Context, cred Credential) *ValidationResult
 	}
 	req.Header.Set("PRIVATE-TOKEN", cred.Value)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := validationClient.Do(req)
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("gitlab api: %v", err)}
 	}

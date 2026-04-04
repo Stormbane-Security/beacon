@@ -164,7 +164,7 @@ var dlpPatterns = []pattern{
 // contain API keys, cloud credentials, and service secrets.
 var apiKeyPatterns = []pattern{
 	// ── AWS ──────────────────────────────────────────────────────────────────
-	{finding.CheckDLPAPIKey, "AWS Access Key ID", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
+	{finding.CheckDLPAPIKey, "AWS Access Key ID", regexp.MustCompile(`(?:AKIA|ASIA)[0-9A-Z]{16}`)},
 	{finding.CheckDLPAPIKey, "AWS Secret Access Key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}['"` + "`" + `\s]*[=:]\s*['"` + "`" + `]?[0-9a-zA-Z/+]{40}`)},
 
 	// ── GitHub ───────────────────────────────────────────────────────────────

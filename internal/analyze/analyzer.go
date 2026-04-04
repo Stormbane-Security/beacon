@@ -1015,7 +1015,7 @@ func (a *Analyzer) callClaude(ctx context.Context, prompt string, tokenBudget in
 			return "", err
 		}
 
-		data, readErr := io.ReadAll(resp.Body)
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 		_ = resp.Body.Close()
 		if readErr != nil {
 			lastErr = readErr
