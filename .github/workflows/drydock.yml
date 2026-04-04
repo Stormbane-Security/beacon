@@ -54,7 +54,7 @@ jobs:
       - name: Install tools
         run: |
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
-          GOFLAGS="-mod=mod" go install github.com/stormbane-security/drydock/cmd/drydock@v0.3.0
+          GOPROXY=direct GONOSUMDB='*' GONOSUMCHECK='*' go install github.com/stormbane-security/drydock/cmd/drydock@v0.3.0
           cp ~/go/bin/drydock /usr/local/bin/drydock
           drydock 2>&1 | head -1 || true
 

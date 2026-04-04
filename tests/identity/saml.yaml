@@ -26,8 +26,8 @@ assertions:
   - name: detects-saml-metadata
     type: beacon
     target: localhost:9260
-    args: ["--no-enrich", "--scanners", "saml", "--deep", "--permission-confirmed", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "saml", "--deep", "--permission-confirmed", "--ports", "9260"]
     expect:
-      check_id: saml.endpoint_exposed
+      check_id: saml.metadata_exposed
 
 timeout: 10m

