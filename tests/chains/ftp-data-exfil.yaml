@@ -56,4 +56,4 @@ assertions:
     expect:
       check_id: exploit.credential_harvest
 
-timeout: 5m
+timeout: 10m

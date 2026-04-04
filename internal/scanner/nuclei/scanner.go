@@ -103,6 +103,22 @@ var nativelyExcluded = []string{
 
 	// CORS — native cors scanner does credentialed + preflight + null origin
 	"cors-misconfig",
+
+	// Tech detection — native fingerprintTech() + fingerprintdb covers 95+
+	// technologies via header/body/cookie analysis. Nuclei tech-detect
+	// duplicates this into findings instead of the Evidence struct where
+	// playbook selection reads it. One authoritative source.
+	"tech-detect",
+	"wappalyzer-detect",
+	"wordpress-detect",
+	"drupal-detect",
+	"joomla-detect",
+	"magento-detect",
+	"shopify-detect",
+
+	// Server version disclosure — native classify/versions.go emits
+	// classify.eol_software for the same version info
+	"server-version-disclosure",
 }
 
 // Scanner wraps the nuclei binary as a subprocess.

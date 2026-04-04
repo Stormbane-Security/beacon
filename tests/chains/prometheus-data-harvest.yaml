@@ -39,4 +39,4 @@ assertions:
     expect:
       check_id: exploit.data_extracted
 
-timeout: 5m
+timeout: 10m

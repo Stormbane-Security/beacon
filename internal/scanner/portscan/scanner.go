@@ -356,6 +356,18 @@ collectResults:
 		openPorts[r.entry.port] = r.entry.service
 		fs := buildFindings(ctx, asset, r.entry, r.banner)
 		findings = append(findings, fs...)
+		// Update service name from probe-identified findings. When --ports
+		// is used, the initial portEntry has service="unknown". The probe
+		// registry identifies the actual service (e.g. "redis") and stores
+		// it in the service_identified finding's evidence. Use that for
+		// accurate post-exploit module routing.
+		for _, f := range fs {
+			if f.CheckID == finding.CheckPortServiceIdentified {
+				if svc, ok := f.Evidence["service"].(string); ok && svc != "" {
+					openPorts[r.entry.port] = svc
+				}
+			}
+		}
 		// Emit a service-discovered hint for web-like services on non-standard ports.
 		// The surface module picks these up to schedule a full per-port classify pass.
 		if hint := EmitPortServiceDiscovered(asset, r.entry.port, r.entry.service, r.banner); hint != nil {
@@ -388,6 +400,30 @@ collectResults:
 		}}, nil
 	}
 
+	// Authorized mode: run post-exploit chain against discovered services.
+	// This runs BEFORE nmap because chain findings (credential harvest,
+	// data extraction, lateral movement) are higher value and faster than
+	// nmap vuln scripts. Nmap is supplementary and can take 5+ minutes.
+	if scanType == module.ScanAuthorized && ctx.Err() == nil {
+		host, _ := parseAssetPort(asset)
+		if host == "" {
+			host = asset
+		}
+		if len(openPorts) > 0 {
+			chain := postexploit.NewChain()
+			chain.Timeout = 2 * time.Minute // tighter timeout within portscan context
+			fb := &postexploit.FindingBuilder{
+				Module:  "surface",
+				Scanner: scannerName,
+				Asset:   asset,
+			}
+			// Pass service map so chain only probes modules matching
+			// identified services, not all 16 modules on non-standard ports.
+			chainFindings := chain.ProbeHostServices(ctx, host, openPorts, fb)
+			findings = append(findings, chainFindings...)
+		}
+	}
+
 	// Run nmap against confirmed open ports for service version + NSE scripts.
 	// Nmap results supplement (not replace) the pure-Go scan findings — Go TCP
 	// findings are always emitted regardless of whether nmap is available.
@@ -400,30 +436,6 @@ collectResults:
 	if ctx.Err() == nil {
 		if udpFs := runUDP(ctx, asset, scanType); len(udpFs) > 0 {
 			findings = append(findings, udpFs...)
-		}
-	}
-
-	// Authorized mode: run post-exploit chain against discovered services.
-	// This triggers credential harvesting, data extraction, and lateral
-	// movement through unauthenticated services found during the port scan.
-	if scanType == module.ScanAuthorized && ctx.Err() == nil {
-		host, _ := parseAssetPort(asset)
-		if host == "" {
-			host = asset
-		}
-		var openPortList []int
-		for p := range openPorts {
-			openPortList = append(openPortList, p)
-		}
-		if len(openPortList) > 0 {
-			chain := postexploit.NewChain()
-			fb := &postexploit.FindingBuilder{
-				Module:  "surface",
-				Scanner: scannerName,
-				Asset:   asset,
-			}
-			chainFindings := chain.ProbeHostPorts(ctx, host, openPortList, fb)
-			findings = append(findings, chainFindings...)
 		}
 	}
 

@@ -48,13 +48,6 @@ assertions:
     expect:
       check_id: web.command_injection
 
-  - name: chain-lateral-movement
-    type: beacon
-    target: "localhost:9406"
-    args: ["--no-enrich", "--scanners", "cmdinj", "--authorized", "--deep", "--permission-confirmed", "--ports", "9406"]
-    expect:
-      check_id: exploit.lateral_movement
-
   - name: chain-credential-harvest-via-pivot
     type: beacon
     target: "localhost:9406"

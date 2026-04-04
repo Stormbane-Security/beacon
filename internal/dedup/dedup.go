@@ -206,6 +206,9 @@ var crossScannerOverlaps = map[[2]string]float64{
 
 	// Subdomain takeover vs dangling CNAME
 	{"subdomain.takeover", "dns.dangling_cname"}: 0.85,
+
+	// Server version: nuclei version disclosure vs native EOL check
+	{"nuclei.server-version-disclosure", "classify.eol_software"}: 0.90,
 }
 
 // flagCrossScannerDuplicates flags findings where different scanners
