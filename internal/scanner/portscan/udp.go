@@ -37,9 +37,11 @@ const udpTimeout = 2 * time.Second
 
 // runUDP runs UDP probes against host and returns any findings.
 // It is called from Scanner.Run() after the TCP connect phase.
+// extraPorts is an optional list of non-standard ports to also probe for
+// known UDP services (e.g. DNS on port 5353 instead of 53).
 // Surface mode runs only NTP, SNMP, and DNS probes (common, high-value services).
 // Deep mode runs all UDP probes including TFTP, SSDP, IKE, NetBIOS, STUN, mDNS, and RADIUS.
-func runUDP(ctx context.Context, host string, scanType module.ScanType) []finding.Finding {
+func runUDP(ctx context.Context, host string, scanType module.ScanType, extraPorts ...int) []finding.Finding {
 	var findings []finding.Finding
 
 	// ── Always run: high-value UDP services ──────────────────────────────────
@@ -51,9 +53,16 @@ func runUDP(ctx context.Context, host string, scanType module.ScanType) []findin
 	if snmpFs := probeSNMPUDP(ctx, host); len(snmpFs) > 0 {
 		findings = append(findings, snmpFs...)
 	}
-	// DNS open resolver
-	if dnsF := probeDNSResolver(ctx, host); dnsF != nil {
+	// DNS open resolver — probe standard port 53 and any extra ports.
+	if dnsF := probeDNSResolver(ctx, host, 53); dnsF != nil {
 		findings = append(findings, *dnsF)
+	}
+	for _, p := range extraPorts {
+		if p != 53 { // avoid duplicate probe
+			if dnsF := probeDNSResolver(ctx, host, p); dnsF != nil {
+				findings = append(findings, *dnsF)
+			}
+		}
 	}
 
 	// ── Deep mode only: extended UDP probes ──────────────────────────────────
@@ -781,10 +790,10 @@ var dnsQueryExample = []byte{
 	0x00, 0x01, // QCLASS: IN
 }
 
-// probeDNSResolver sends a recursive DNS query for example.com to UDP port 53.
+// probeDNSResolver sends a recursive DNS query for example.com to the given UDP port.
 // If the server answers with a valid DNS response, it is an open resolver.
-func probeDNSResolver(ctx context.Context, host string) *finding.Finding {
-	conn, err := dialUDP(ctx, host, 53)
+func probeDNSResolver(ctx context.Context, host string, port int) *finding.Finding {
+	conn, err := dialUDP(ctx, host, port)
 	if err != nil {
 		return nil
 	}
@@ -819,14 +828,14 @@ func probeDNSResolver(ctx context.Context, host string) *finding.Finding {
 		Scanner:  scannerName,
 		Severity: finding.SeverityHigh,
 		Asset:    host,
-		Title:    fmt.Sprintf("DNS open resolver on %s:53/UDP", host),
+		Title:    fmt.Sprintf("DNS open resolver on %s:%d/UDP", host, port),
 		Description: fmt.Sprintf(
-			"The DNS server at %s:53 answers recursive queries for external domains. "+
+			"The DNS server at %s:%d answers recursive queries for external domains. "+
 				"An open resolver can be abused for DNS amplification DDoS attacks "+
 				"and may leak internal DNS data. Restrict recursion to trusted clients.",
-			host),
+			host, port),
 		Evidence: map[string]any{
-			"port":     53,
+			"port":     port,
 			"protocol": "udp",
 			"service":  "dns",
 			"rcode":    int(rcode),

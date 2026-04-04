@@ -73,6 +73,11 @@ var samlPaths = []string{
 	"/idp/",
 	"/sso/idp",
 	"/FederationMetadata/2007-06/FederationMetadata.xml",
+	// Keycloak
+	"/realms/master/protocol/saml/descriptor",
+	"/realms/master/protocol/saml",
+	"/auth/realms/master/protocol/saml/descriptor",
+	"/auth/realms/master/protocol/saml",
 }
 
 // acsGuesses are common ACS (Assertion Consumer Service) endpoint patterns

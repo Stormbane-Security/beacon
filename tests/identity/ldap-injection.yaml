@@ -34,8 +34,8 @@ assertions:
   - name: detects-ldap-injection
     type: beacon
     target: localhost:9261
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    args: ["--no-enrich", "--scanners", "iam", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
-      check_id: iam.ldap_injection
+      check_id: iam.ldap_auth_bypass
 
 timeout: 5m
