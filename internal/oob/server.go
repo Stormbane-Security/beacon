@@ -154,7 +154,12 @@ func (s *Server) GenerateToken(label string) string {
 
 // CallbackURL returns the full URL a payload should call back to.
 func (s *Server) CallbackURL(token string) string {
-	return fmt.Sprintf("http://%s%s/%s", s.domain, s.listenAddr, token)
+	// Extract port from listenAddr (which may be ":8443" or "0.0.0.0:8443").
+	port := s.listenAddr
+	if idx := strings.LastIndex(port, ":"); idx >= 0 {
+		port = port[idx:] // ":8443"
+	}
+	return fmt.Sprintf("http://%s%s/%s", s.domain, port, token)
 }
 
 // DNSHostname returns the DNS name a payload should resolve.
@@ -165,17 +170,14 @@ func (s *Server) DNSHostname(token string) string {
 // WaitForCallback blocks until the token receives a callback or the timeout expires.
 // Returns the callback and true if received, or nil and false on timeout.
 func (s *Server) WaitForCallback(ctx context.Context, token string, timeout time.Duration) (*Callback, bool) {
-	// Check if already received
-	s.mu.RLock()
-	if cb, ok := s.callbacks[token]; ok {
-		s.mu.RUnlock()
-		return cb, true
-	}
-	s.mu.RUnlock()
-
-	// Register a waiter channel
+	// Single lock for check + register to avoid race where a callback arrives
+	// between releasing the read lock and acquiring the write lock.
 	ch := make(chan *Callback, 1)
 	s.mu.Lock()
+	if cb, ok := s.callbacks[token]; ok {
+		s.mu.Unlock()
+		return cb, true
+	}
 	s.waiters[token] = append(s.waiters[token], ch)
 	s.mu.Unlock()
 

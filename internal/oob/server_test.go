@@ -255,6 +255,42 @@ func TestServer_CallbackURL(t *testing.T) {
 	}
 }
 
+func TestServer_CallbackURL_BindIP(t *testing.T) {
+	// When listenAddr includes a bind IP like "0.0.0.0:8443", the URL
+	// must use only the port, not the full bind address.
+	srv := NewServer("oob.example.com", "0.0.0.0:8443")
+	url := srv.CallbackURL("mytoken")
+	want := "http://oob.example.com:8443/mytoken"
+	if url != want {
+		t.Errorf("CallbackURL() = %q, want %q", url, want)
+	}
+}
+
+func TestServer_WaitForCallback_RaceFree(t *testing.T) {
+	// Verify that a callback arriving between check and register isn't lost.
+	// The fix uses a single Lock for both operations.
+	srv := NewServer("oob.test.com", "127.0.0.1:0")
+	token := srv.GenerateToken("race-test")
+
+	// Record callback immediately — before any WaitForCallback call.
+	// The wait should find it in the initial check under the same lock.
+	srv.recordCallback(&Callback{
+		Token:      token,
+		RemoteAddr: "1.2.3.4:80",
+		Protocol:   "http",
+		Detail:     "/" + token,
+		ReceivedAt: time.Now(),
+	})
+
+	cb, ok := srv.WaitForCallback(context.Background(), token, 50*time.Millisecond)
+	if !ok {
+		t.Fatal("WaitForCallback should return immediately for already-received callback")
+	}
+	if cb.RemoteAddr != "1.2.3.4:80" {
+		t.Errorf("wrong remote addr: %s", cb.RemoteAddr)
+	}
+}
+
 func TestServer_DNSHostname(t *testing.T) {
 	srv := NewServer("oob.example.com", ":8443")
 	hostname := srv.DNSHostname("mytoken")

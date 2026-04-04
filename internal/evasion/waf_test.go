@@ -29,10 +29,12 @@ func TestSQLBypass(t *testing.T) {
 	// Case randomization is probabilistic — don't fail on it.
 	_ = hasCaseVariant
 
-	// Whitespace variant should not contain spaces.
-	wsVariant := whitespaceSubstitute(payload)
-	if wsVariant == payload && strings.Contains(payload, " ") {
-		t.Error("whitespaceSubstitute didn't modify payload with spaces")
+	// Whitespace variants should not contain spaces.
+	wsVariants := whitespaceSubstitutes(payload)
+	for _, wsv := range wsVariants {
+		if wsv == payload && strings.Contains(payload, " ") {
+			t.Error("whitespaceSubstitutes produced unmodified variant for payload with spaces")
+		}
 	}
 }
 
@@ -266,6 +268,72 @@ func TestSSRFBypass_NonMetadata(t *testing.T) {
 	}
 	if !hasProto {
 		t.Error("Missing protocol bypass variant for non-metadata URL")
+	}
+}
+
+func TestRandomCase_GuaranteesChange(t *testing.T) {
+	// randomCase must always produce a string different from the input
+	// when the input contains at least one letter.
+	input := "select"
+	for i := 0; i < 50; i++ {
+		result := randomCase(input)
+		if result == input {
+			t.Fatalf("randomCase(%q) returned identical string on iteration %d", input, i)
+		}
+	}
+}
+
+func TestRandomCase_NoLetters(t *testing.T) {
+	// Strings with no letters should be returned as-is (no panic).
+	input := "12345!@#"
+	result := randomCase(input)
+	if result != input {
+		t.Errorf("randomCase(%q) = %q, want unchanged", input, result)
+	}
+}
+
+func TestWhitespaceSubstitutes_AllVariants(t *testing.T) {
+	payload := "UNION SELECT 1"
+	variants := whitespaceSubstitutes(payload)
+	if len(variants) != 4 {
+		t.Fatalf("whitespaceSubstitutes returned %d variants, want 4", len(variants))
+	}
+	// Each variant should replace spaces with a different substitute.
+	expected := []string{"/**/", "%09", "%0a", "%0d"}
+	for i, v := range variants {
+		if !strings.Contains(v, expected[i]) {
+			t.Errorf("variant %d = %q, expected to contain %q", i, v, expected[i])
+		}
+		if strings.Contains(v, " ") {
+			t.Errorf("variant %d still contains spaces: %q", i, v)
+		}
+	}
+}
+
+func TestInlineComments_PreservesCase(t *testing.T) {
+	// inlineComments should not uppercase table/column names.
+	input := "select username from users"
+	result := inlineComments(input)
+	// "username" and "users" should remain lowercase.
+	if strings.Contains(result, "USERNAME") || strings.Contains(result, "USERS") {
+		t.Errorf("inlineComments uppercased non-keyword text: %q", result)
+	}
+	// Should contain /**/ in keyword positions.
+	if !strings.Contains(result, "/**/") {
+		t.Errorf("inlineComments missing /**/ insertions: %q", result)
+	}
+}
+
+func TestDoubleURLEncode_NoPlus(t *testing.T) {
+	// Spaces must be encoded as %20, not + (which QueryEscape would produce).
+	input := "SELECT 1"
+	result := doubleURLEncode(input)
+	if strings.Contains(result, "+") {
+		t.Errorf("doubleURLEncode used + for space: %q", result)
+	}
+	// Should contain double-encoded %25.
+	if !strings.Contains(result, "%25") {
+		t.Errorf("doubleURLEncode missing double-encoded percent: %q", result)
 	}
 }
 
