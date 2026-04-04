@@ -29,6 +29,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Configure private Go modules
+        run: |
+          git config --global url."https://${{ secrets.GOPRIVATE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GOPRIVATE: github.com/stormbane-security/*
+
+      - name: Download dependencies
+        run: go mod download
+        env:
+          GOPRIVATE: github.com/stormbane-security/*
+
+      # ── Determine version bump from PR title (Conventional Commits) ──────────
+
       - name: Determine version bump
         id: bump
         env:
