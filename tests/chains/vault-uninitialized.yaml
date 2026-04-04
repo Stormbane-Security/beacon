@@ -1,0 +1,38 @@
+name: chain-vault-uninitialized
+description: >
+  Exploit chain: HashiCorp Vault dev mode → unauthenticated API access →
+  secret mount enumeration → root token acceptance.
+  Vault in dev mode is unsealed with a known root token and no authentication
+  required for API endpoints.
+tags: [chain, postexploit, vault, credential-harvest, authorized]
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    ports: ["9425:8200"]
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add: ["IPC_LOCK"]
+    command: ["vault", "server", "-dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:9425/v1/sys/health 2>/dev/null | grep -q initialized"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: vault-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9425/v1/sys/health | grep -q initialized"
+      exit_code: 0
+
+  - name: chain-exploits-vault
+    type: beacon
+    target: "localhost:9425"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9425"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 5m

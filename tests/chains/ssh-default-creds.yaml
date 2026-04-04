@@ -1,0 +1,32 @@
+name: chain-ssh-default-creds
+description: >
+  Exploit chain: SSH with default root credentials → banner grab → service
+  identification. ProbeDirect performs TCP banner grab to confirm SSH
+  service. Full credential testing happens through ProbePivot chains.
+tags: [chain, postexploit, ssh, credential-harvest, authorized]
+
+services:
+  ssh:
+    image: rastasheep/ubuntu-sshd:18.04
+    ports: ["9427:22"]
+
+ready:
+  cmd: "nc -z localhost 9427 2>/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: ssh-service-accessible
+    type: command
+    expect:
+      command: "echo | nc -w2 localhost 9427 | grep -qi ssh"
+      exit_code: 0
+
+  - name: chain-detects-ssh
+    type: beacon
+    target: "localhost:9427"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9427"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 5m

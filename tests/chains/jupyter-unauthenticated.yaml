@@ -1,0 +1,33 @@
+name: chain-jupyter-unauthenticated
+description: >
+  Exploit chain: Jupyter Notebook with disabled authentication → kernel
+  enumeration → arbitrary code execution → workspace file access.
+  Jupyter with no token allows anyone to execute code on the server.
+tags: [chain, postexploit, jupyter, code-execution, authorized]
+
+services:
+  jupyter:
+    image: jupyter/base-notebook:latest
+    ports: ["9426:8888"]
+    command: ["start-notebook.py", "--IdentityProvider.token=''", "--ServerApp.password=''"]
+
+ready:
+  cmd: "curl -sf http://localhost:9426/api 2>/dev/null | grep -q version"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: jupyter-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9426/api | grep -q version"
+      exit_code: 0
+
+  - name: chain-exploits-jupyter
+    type: beacon
+    target: "localhost:9426"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9426"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 5m
