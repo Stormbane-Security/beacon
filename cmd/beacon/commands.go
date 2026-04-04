@@ -422,7 +422,7 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	if vreport, verr := v.RunLatest(ctx, runID); verr == nil && len(vreport.CredentialAlerts) > 0 {
 		md.WriteString("## Credential Exposure + Exploit Path Correlation\n\n")
 		for _, alert := range vreport.CredentialAlerts {
-			md.WriteString(fmt.Sprintf("- %s\n", alert))
+			fmt.Fprintf(&md, "- %s\n", alert)
 		}
 		md.WriteString("\n")
 	}
@@ -431,9 +431,9 @@ func cmdAnalyze(cfg *config.Config, args []string) {
 	if len(result.ScanOptimizations) > 0 {
 		md.WriteString("## Scan Optimizations\n\n")
 		for _, o := range result.ScanOptimizations {
-			md.WriteString(fmt.Sprintf("- [%s] **%s**: %s\n", o.Type, o.Scanner, o.Description))
+			fmt.Fprintf(&md, "- [%s] **%s**: %s\n", o.Type, o.Scanner, o.Description)
 			if o.SuggestedChange != "" {
-				md.WriteString(fmt.Sprintf("  > Fix: %s\n", o.SuggestedChange))
+				fmt.Fprintf(&md, "  > Fix: %s\n", o.SuggestedChange)
 			}
 		}
 		md.WriteString("\n")
