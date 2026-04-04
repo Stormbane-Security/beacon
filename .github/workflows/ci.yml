@@ -126,7 +126,7 @@ jobs:
   results:
     name: Drydock Results
     needs: drydock
-    if: always() && (github.event_name == 'push' || github.base_ref == 'main')
+    if: always() && needs.drydock.result != 'skipped' && (github.event_name == 'push' || github.base_ref == 'main')
     runs-on: ubuntu-24.04
     steps:
       - name: Download all artifacts
