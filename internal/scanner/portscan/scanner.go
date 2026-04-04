@@ -316,29 +316,31 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var wg sync.WaitGroup
 
 	for _, entry := range ports {
-		// Stagger goroutine launches before starting each one. Placing the delay
-		// here (not inside the goroutine) ensures SYN packets are spread across
-		// time even when multiple semaphore slots are available simultaneously.
-		// At 50 ms per port with 30 ports this adds ~1.5 s overhead — acceptable
-		// for a scan that would otherwise fire 30 near-simultaneous SYNs.
-		select {
-		case <-ctx.Done():
-			goto collectResults
-		case <-time.After(interConnectDelay):
-		}
-
 		wg.Add(1)
 		go func(e portEntry) {
 			defer wg.Done()
-			sem <- struct{}{}
+
+			// Acquire semaphore with context cancellation support.
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-sem }()
+
+			// Stagger SYN packets inside the goroutine to spread connects
+			// across time even when multiple semaphore slots are available.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(interConnectDelay):
+			}
 
 			open, banner := probePort(ctx, asset, e.port)
 			results <- result{entry: e, open: open, banner: banner}
 		}(entry)
 	}
 
-collectResults:
 	go func() {
 		wg.Wait()
 		close(results)

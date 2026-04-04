@@ -81,41 +81,59 @@ func (s *smtpServer) serve(l net.Listener) {
 // using a locally-started SMTP server on the real port 25 if available.
 
 // TestCheckSMTPBannerLeakDetected tests that a Postfix banner triggers the
-// banner leak finding. This requires binding port 25, which may fail on
-// non-privileged systems — the test is skipped if the port is unavailable.
+// banner leak finding via checkSMTPConn with a mock server on a high port.
 func TestCheckSMTPBannerLeakDetected(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:25")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("cannot bind port 25 (needs root or capability): %v", err)
+		t.Fatalf("cannot start mock SMTP server: %v", err)
 	}
 	defer func() { _ = l.Close() }()
 
-	// Send a Postfix banner then reject EHLO gracefully
-	srv := &smtpServer{responses: []string{
-		"220 mail.test.local ESMTP Postfix (Ubuntu)", // banner — leaks software
-		"250-mail.test.local\r\n250 PIPELINING",      // EHLO response
-		"250 2.1.0 Ok",                               // MAIL FROM response
-		"550 5.7.1 Relaying denied",                  // RCPT TO response — NOT an open relay
-	}}
-	go srv.serve(l)
+	// Postfix banner + EHLO response, then reject relay
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
-	// checkSMTP requires a real MX lookup, so we cannot call it with
-	// "127.0.0.1" — it would try to resolve MX records for "127.0.0.1".
-	// We test the banner detection path via leaksSoftware directly (above),
-	// and verify the full function via the integration path below.
-	t.Log("Full SMTP integration requires MX record injection — covered by leaksSoftware unit tests above")
+		scanner := bufio.NewScanner(conn)
+
+		_, _ = fmt.Fprintf(conn, "220 mail.test.local ESMTP Postfix (Ubuntu)\r\n")
+		scanner.Scan() // EHLO
+		_, _ = fmt.Fprintf(conn, "250 mail.test.local\r\n")
+		scanner.Scan() // QUIT
+		_, _ = fmt.Fprintf(conn, "221 Bye\r\n")
+	}()
+
+	conn, err := net.DialTimeout("tcp", l.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("cannot connect to mock SMTP: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	now := time.Now()
+	findings := checkSMTPConn(conn, "test.local", "mail.test.local", now, module.ScanSurface)
+
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckEmailSMTPBannerLeak {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected banner leak finding for Postfix banner, got %d findings: %+v", len(findings), findings)
+	}
 }
 
-// TestCheckSMTPOpenRelayDetection verifies the open relay detection logic
-// by testing the response parsing directly via the helper functions.
-//
-// The open relay check sends: MAIL FROM → RCPT TO (external domain)
-// An open relay accepts both with "250 Ok".
-// A properly configured server rejects RCPT TO with 550.
+// TestCheckSMTPOpenRelayViaLocalServer verifies the open relay detection logic
+// using checkSMTPConn with a mock server that accepts relay attempts.
 func TestCheckSMTPOpenRelayViaLocalServer(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:25")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Skipf("cannot bind port 25: %v", err)
+		t.Fatalf("cannot start mock SMTP server: %v", err)
 	}
 	defer func() { _ = l.Close() }()
 
@@ -130,29 +148,36 @@ func TestCheckSMTPOpenRelayViaLocalServer(t *testing.T) {
 
 		scanner := bufio.NewScanner(conn)
 
-		// Send banner
 		_, _ = fmt.Fprintf(conn, "220 mail.example.com ESMTP\r\n")
-
-		// EHLO
-		scanner.Scan()
-		_, _ = fmt.Fprintf(conn, "250-mail.example.com\r\n250 Ok\r\n")
-
-		// MAIL FROM
-		scanner.Scan()
+		scanner.Scan() // EHLO
+		_, _ = fmt.Fprintf(conn, "250 mail.example.com\r\n")
+		scanner.Scan() // MAIL FROM
 		_, _ = fmt.Fprintf(conn, "250 2.1.0 Ok\r\n")
-
-		// RCPT TO (external) — accepted = open relay
-		scanner.Scan()
+		scanner.Scan() // RCPT TO
 		_, _ = fmt.Fprintf(conn, "250 2.1.5 Ok\r\n")
-
-		// QUIT
-		scanner.Scan()
+		scanner.Scan() // QUIT
 		_, _ = fmt.Fprintf(conn, "221 Bye\r\n")
 	}()
 
-	// We cannot call checkSMTP(ctx, "somedomainwithmx") because it requires
-	// a real DNS MX lookup pointing to 127.0.0.1. Log and skip.
-	t.Log("Open relay detection confirmed via protocol analysis; full integration requires MX DNS mock")
+	conn, err := net.DialTimeout("tcp", l.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("cannot connect to mock SMTP: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	now := time.Now()
+	findings := checkSMTPConn(conn, "example.com", "mail.example.com", now, module.ScanDeep)
+
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckEmailSMTPOpenRelay {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected open relay finding, got %d findings: %+v", len(findings), findings)
+	}
 }
 
 // TestLeaksSoftware_CaseSensitivity verifies the check is case-insensitive.

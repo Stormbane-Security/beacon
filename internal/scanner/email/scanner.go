@@ -710,6 +710,13 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
 
+	return checkSMTPConn(conn, domain, mx, now, scanType)
+}
+
+// checkSMTPConn runs the SMTP protocol checks on an established connection.
+// Separated from checkSMTP so tests can inject a mock connection without
+// needing port 25 or real MX records.
+func checkSMTPConn(conn net.Conn, domain, mx string, now time.Time, scanType module.ScanType) []finding.Finding {
 	scanner := bufio.NewScanner(conn)
 
 	// Read greeting banner
@@ -741,10 +748,11 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	}
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Consume EHLO response (multi-line 250-)
-		if !strings.HasPrefix(line, "250-") && !strings.HasPrefix(line, "250 ") {
-			break
+		// Multi-line EHLO: continuation lines use "250-", final line uses "250 ".
+		if strings.HasPrefix(line, "250-") {
+			continue // more lines coming
 		}
+		break // final "250 ..." line or error — done with EHLO
 	}
 
 	// Open relay test: deep mode only — sending MAIL FROM is an active probe

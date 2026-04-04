@@ -760,13 +760,21 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// Unconfirmed IPs still get a surface scan (unsolicited observation is
 	// always safe) but are flagged for the operator to review before a deep
 	// scan is allowed.
+	// Cap BGP-discovered assets to prevent ASN enumeration from producing
+	// thousands of targets that overwhelm the scan pipeline.
+	const maxBGPAssets = 200
+	bgpAdded := 0
 	for _, f := range bgpFindings {
+		if bgpAdded >= maxBGPAssets {
+			break
+		}
 		switch f.CheckID {
 		case finding.CheckASNIPService:
 			if ip, ok := f.Evidence["ip"].(string); ok && ip != "" {
 				if _, alreadySeen := seen[ip]; !alreadySeen {
 					seen[ip] = struct{}{}
 					assets = append(assets, ip) // surface scan always runs
+					bgpAdded++
 					ownership := checkAssetOwnership(ctx, ip, rootDomain)
 					if ownership.Confidence >= AssetConfirmed {
 						assetSource[ip] = "bgp"
@@ -788,6 +796,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 				if _, alreadySeen := seen[hostname]; !alreadySeen {
 					seen[hostname] = struct{}{}
 					assets = append(assets, hostname) // surface scan always runs
+					bgpAdded++
 					if ipBelongsToDomain(hostname, rootDomain) {
 						assetSource[hostname] = "bgp_ptr"
 					} else {
@@ -1281,12 +1290,14 @@ func deduplicateFindings(findings []finding.Finding) []finding.Finding {
 	type dedupKey struct {
 		checkID string
 		asset   string
+		port    int
 	}
 	seen := make(map[dedupKey]int, len(findings)) // key → index in result
 	result := make([]finding.Finding, 0, len(findings))
 
 	for _, f := range findings {
-		key := dedupKey{f.CheckID, f.Asset}
+		port, _ := f.Evidence["port"].(int)
+		key := dedupKey{f.CheckID, f.Asset, port}
 		if idx, exists := seen[key]; exists {
 			// Prefer native scanner over nuclei.
 			if result[idx].Scanner == "nuclei" && f.Scanner != "nuclei" {
@@ -1405,7 +1416,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
 	// base http.Client to inject credentials into all scanner requests.
-	httpClient := &http.Client{}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 	if len(m.authCfgs) > 0 {
 		if authedClient, session, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
 			// Log but don't abort — fall back to unauthenticated scan.

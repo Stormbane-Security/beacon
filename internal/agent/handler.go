@@ -175,6 +175,22 @@ func (h *Handler) handleConnection(conn net.Conn) {
 		return
 	}
 
+	// Validate token: must be non-empty, reasonable length, and not overwrite
+	// an existing active session (prevents hijacking).
+	if len(hello.Token) < 16 || len(hello.Token) > 256 {
+		_ = conn.Close()
+		return
+	}
+
+	h.mu.Lock()
+	if existing, ok := h.sessions[hello.Token]; ok {
+		h.mu.Unlock()
+		// Reject connection that would overwrite an active session.
+		_ = existing.conn.Close() // force-close stale connection if any
+		_ = conn.Close()
+		return
+	}
+
 	session := &Session{
 		Token:       hello.Token,
 		RemoteAddr:  conn.RemoteAddr().String(),
@@ -183,8 +199,6 @@ func (h *Handler) handleConnection(conn net.Conn) {
 		encoder:     encoder,
 		decoder:     decoder,
 	}
-
-	h.mu.Lock()
 	h.sessions[session.Token] = session
 	h.mu.Unlock()
 
@@ -193,7 +207,11 @@ func (h *Handler) handleConnection(conn net.Conn) {
 	}
 
 	// Read messages until the agent disconnects.
+	// Set a read deadline to prevent slow-read attacks from keeping goroutines
+	// alive indefinitely. Reset after each successful message.
+	const idleTimeout = 5 * time.Minute
 	for {
+		_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
 		var msg Message
 		if err := decoder.Decode(&msg); err != nil {
 			break

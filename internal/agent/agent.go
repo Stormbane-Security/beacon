@@ -422,9 +422,9 @@ var sensitiveFiles = []string{
 	// Application secrets
 	"/proc/self/environ",
 	"/proc/self/cmdline",
-	".env",
-	"../.env",
-	"../../.env",
+	"/app/.env",
+	"/opt/.env",
+	"/srv/.env",
 
 	// Kubernetes
 	"/var/run/secrets/kubernetes.io/serviceaccount/token",
