@@ -113,13 +113,23 @@ services:
       - LDAP_READONLY_USER_USERNAME=readonly
       - LDAP_READONLY_USER_PASSWORD=readonly
 
+  smb:
+    image: dperson/samba:latest
+    ports: ["9622:445"]
+    command: ["-p", "-s", "public;/share;yes;no;yes;all;none;;public share", "-u", "guest;guest"]
+
+  snmp:
+    image: polinux/snmpd:alpine
+    ports: ["9623:161/udp"]
+
 ready:
   cmd: >
     curl -sf http://localhost:9610/v1/status/leader 2>/dev/null | grep -q ':' &&
     curl -sf http://localhost:9618/v1/sys/health 2>/dev/null | grep -q initialized &&
     curl -sf http://localhost:9612/api/v1/status/runtimeinfo 2>/dev/null | grep -q storageRetention &&
     curl -sf http://localhost:9619/api/status 2>/dev/null | grep -q Version &&
-    nc -z localhost 9617 2>/dev/null
+    nc -z localhost 9617 2>/dev/null &&
+    nc -z localhost 9622 2>/dev/null
   timeout: 120s
   interval: 5s
 
@@ -289,12 +299,40 @@ assertions:
     expect:
       check_id: exploit.data_extracted
 
+  # --- SMB: identify + exploit (null session, requires smbclient on host) ---
+  - name: smb-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9622"]
+    expect:
+      check_id: port.service_identified
+
+  - name: smb-null-session-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9622"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- SNMP: UDP-only, beacon portscan is TCP so we test at command level ---
+  - name: snmp-community-public
+    type: command
+    expect:
+      command: "snmpget -v2c -c public localhost:9623 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING"
+      exit_code: 0
+
+  - name: snmp-walk-system
+    type: command
+    expect:
+      command: "snmpwalk -v2c -c public localhost:9623 1.3.6.1.2.1.1 2>/dev/null | grep -q STRING"
+      exit_code: 0
+
   # --- Full scan: all infrastructure at once ---
   - name: full-infra-scan-finds-all
     type: beacon
     target: "localhost"
     args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
-           "--ports", "9610,9611,9612,9613,9614,9615,9616,9617,9618,9619,9620,9621"]
+           "--ports", "9610,9611,9612,9613,9614,9615,9616,9617,9618,9619,9620,9621,9622"]
     expect:
       min_findings: 15
 
