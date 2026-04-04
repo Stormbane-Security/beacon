@@ -5,6 +5,7 @@ description: >
   The post-exploit chain detects this, executes a proof-of-concept Groovy script,
   and extracts credentials from the credential store.
 tags: [chain, postexploit, jenkins, rce, credential-harvest, authorized]
+weight: 70
 
 services:
   jenkins:

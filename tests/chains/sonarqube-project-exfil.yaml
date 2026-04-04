@@ -3,6 +3,7 @@ description: >
   Exploit chain: SonarQube default credentials (admin/admin) → project enumeration
   → security hotspot extraction.
 tags: [chain, postexploit, sonarqube, data-exfil, authorized]
+weight: 60
 
 services:
   sonarqube:

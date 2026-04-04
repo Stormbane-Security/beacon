@@ -4,6 +4,7 @@ description: >
   repository credential extraction → cluster lateral movement.
   Argo CD with disabled auth exposes Kubernetes deployments and Git credentials.
 tags: [chain, postexploit, argocd, credential-harvest, lateral-movement, authorized]
+weight: 50
 
 services:
   argocd:

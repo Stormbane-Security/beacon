@@ -4,6 +4,7 @@ description: >
   TeamCity with guest access enabled exposes build configurations, agents,
   and VCS root credentials.
 tags: [chain, postexploit, teamcity, credential-harvest, authorized]
+weight: 80
 
 services:
   teamcity:

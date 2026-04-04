@@ -4,6 +4,7 @@ description: >
   Apache Airflow with default airflow/airflow credentials exposes all
   connection configurations (database passwords, API keys) and variables.
 tags: [chain, postexploit, airflow, credential-harvest, authorized]
+weight: 60
 
 services:
   airflow:

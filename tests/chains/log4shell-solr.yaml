@@ -5,6 +5,7 @@ description: >
   Solr 8.11.x ships with Log4j 2.14 which is vulnerable to Log4Shell.
   Module fires only after nuclei confirms CVE-2021-44228.
 tags: [chain, postexploit, log4shell, cve, rce, authorized]
+weight: 70
 
 services:
   solr:

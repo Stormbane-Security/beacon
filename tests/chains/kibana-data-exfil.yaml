@@ -3,6 +3,7 @@ description: >
   Exploit chain: Kibana unauthenticated → Elasticsearch backend discovery →
   index enumeration → data extraction.
 tags: [chain, postexploit, kibana, data-exfil, authorized]
+weight: 50
 
 services:
   elasticsearch:

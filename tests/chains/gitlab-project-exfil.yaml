@@ -4,6 +4,7 @@ description: >
   GitLab CE with default settings exposes public projects and may expose
   CI/CD variables to unauthenticated users.
 tags: [chain, postexploit, gitlab, data-extraction, authorized]
+weight: 100
 
 services:
   gitlab:

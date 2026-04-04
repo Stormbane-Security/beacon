@@ -4,6 +4,7 @@ description: >
   enumeration → arbitrary code execution → workspace file access.
   Jupyter with no token allows anyone to execute code on the server.
 tags: [chain, postexploit, jupyter, code-execution, authorized]
+weight: 40
 
 services:
   jupyter:

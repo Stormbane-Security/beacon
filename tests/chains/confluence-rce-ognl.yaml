@@ -4,6 +4,7 @@ description: >
   CVE-2023-22515 admin creation bypass. Confluence with default setup
   exposes OGNL injection and setup wizard endpoints.
 tags: [chain, postexploit, confluence-rce, cve, rce, authorized]
+weight: 100
 
 services:
   confluence:
