@@ -23,11 +23,10 @@ const token = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 </table>
 
 <h2>Phone Numbers and IDs</h2>
-<p>US phone format: 555-12-3456 is not a valid phone number.</p>
-<p>Order number: 000-00-0000 (invalid SSN format)</p>
-<p>Employee badge: 666-45-1234 (invalid SSN area code)</p>
-<p>Ticket reference: 987-00-5432 (invalid SSN group)</p>
-<p>Serial number: 123-45-0000 (invalid SSN serial)</p>
+<p>Order number: 000-00-0000 (invalid SSN area code 000)</p>
+<p>Employee badge: 666-45-1234 (invalid SSN area code 666)</p>
+<p>Ticket reference: 987-00-5432 (invalid SSN group 00)</p>
+<p>Serial number: 123-45-0000 (invalid SSN serial 0000)</p>
 
 <h2>Example GCP Configuration</h2>
 <pre>
@@ -54,9 +53,9 @@ ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
 
 <h2>Database Configuration</h2>
 <pre>
-# Example connection string format (replace with real values)
+# Example connection string format (replace with real values):
 # postgresql://username:password@hostname:5432/database
-DATABASE_URL=postgresql://localhost/myapp_development
+# Note: always use environment variables, never hardcode credentials
 </pre>
 
 </body>
