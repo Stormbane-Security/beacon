@@ -1,20 +1,30 @@
-name: Drydock Baseline
+name: Drydock
 
 on:
   push:
     branches: [dev]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: drydock-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  ci:
+    uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
+    with:
+      gosec-excludes: G304,G107,G101
+
+  drydock:
     name: "E2E: ${{ matrix.category }}"
+    needs: ci
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # continue-on-error removed — failures should be visible
     strategy:
       fail-fast: false
       matrix:
@@ -115,8 +125,8 @@ jobs:
           retention-days: 7
 
   results:
-    name: Baseline Results
-    needs: test
+    name: Drydock Results
+    needs: drydock
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -128,7 +138,7 @@ jobs:
 
       - name: Summarize results
         run: |
-          echo "## Drydock Baseline Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Drydock Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Category | Passed | Failed |" >> "$GITHUB_STEP_SUMMARY"
           echo "|----------|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
