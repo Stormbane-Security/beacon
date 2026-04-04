@@ -698,6 +698,9 @@ func isVulnerableRedis(version string) bool {
 		return patch < 4
 	case major == 8 && minor == 2:
 		return patch < 2
+	case major == 8:
+		// 8.1, 8.3, etc. — no patch listed for these minor versions
+		return true
 	default:
 		return false
 	}
@@ -718,6 +721,7 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -755,6 +759,7 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for security probe
 		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -787,6 +792,7 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -812,7 +818,7 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 	}
 	s := string(b)
 	if strings.Contains(s, "AdmissionReview") || strings.Contains(s, "admission.k8s.io") ||
-		strings.Contains(s, "admission") && strings.Contains(s, "ingress") {
+		(strings.Contains(s, "admission") && strings.Contains(s, "ingress")) {
 		return s
 	}
 	return ""
@@ -843,6 +849,7 @@ func probeJupyter(ctx context.Context, host string, port int) bool {
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -937,7 +944,16 @@ func probeMQTT(ctx context.Context, host string, port int, useTLS bool) bool {
 	var err error
 	if useTLS {
 		tlsCfg := &tls.Config{InsecureSkipVerify: true} //nolint:gosec
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsCfg)
+		rawConn, dialErr := dialer.DialContext(ctx, "tcp", addr)
+		if dialErr != nil {
+			return false
+		}
+		tlsConn := tls.Client(rawConn, tlsCfg)
+		if err = tlsConn.HandshakeContext(ctx); err != nil {
+			rawConn.Close()
+			return false
+		}
+		conn = tlsConn
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
 	}
@@ -2289,6 +2305,7 @@ func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bo
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -2959,6 +2976,7 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Timeout: httpTimeout, Transport: transport}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(""))
 	if err != nil {

@@ -431,6 +431,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 								"A pattern matching a %s was found at %s, discovered during web crawl.",
 								strings.ToLower(p.label), u),
 							Asset:        asset,
+							ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE '%s'", u, p.re.String()),
 							Evidence:     map[string]any{"url": u, "pattern": p.label, "sample_redacted": redact(match)},
 							DiscoveredAt: now,
 						})
@@ -490,6 +491,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 					"This data should not be publicly accessible.",
 				strings.ToLower(p.label), url),
 			Asset:        asset,
+			ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE '%s'", url, p.re.String()),
 			Evidence:     map[string]any{"url": url, "pattern": p.label, "sample_redacted": redacted},
 			DiscoveredAt: now,
 		})
@@ -521,7 +523,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 				"%d unique email addresses were found in the HTTP response from %s. "+
 					"This may indicate an exposed user list or data export.",
 				len(unique), url),
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE '[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.-]+' | sort -u | wc -l", url),
 			Evidence: map[string]any{
 				"url":    url,
 				"count":  len(unique),
@@ -634,7 +637,8 @@ func scanPath(ctx context.Context, client *http.Client, asset, url string, alrea
 					"This endpoint is publicly accessible and is returning sensitive configuration data. "+
 					"Restrict access to this endpoint immediately and rotate any exposed credentials.",
 				strings.ToLower(p.label), url),
-			Asset: asset,
+			Asset:        asset,
+			ProofCommand: fmt.Sprintf("curl -s '%s' | grep -oE '%s'", url, p.re.String()),
 			Evidence: map[string]any{
 				"url":             url,
 				"pattern":         p.label,

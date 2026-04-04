@@ -164,7 +164,7 @@ var platforms = []platform{
 	{
 		name:            "Fly.io",
 		cnameSuffixes:   []string{".fly.dev", ".edgeapp.net"},
-		httpFingerprint: "fly.io",
+		httpFingerprint: "is not a registered Fly.io application",
 	},
 	{
 		name:            "Render",

@@ -97,7 +97,7 @@ var frameworks = []frameworkPattern{
 	},
 	{
 		name:      "jQuery",
-		htmlMatch: "jquery",
+		htmlMatch: "jquery-",
 		versionRe: regexp.MustCompile(`jquery[.-](\d+\.\d+\.\d+)`),
 		vulnVersions: map[string]string{
 			"1.":    "jQuery 1.x — multiple XSS (CVE-2020-11022, CVE-2020-11023)",

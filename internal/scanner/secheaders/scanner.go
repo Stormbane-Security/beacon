@@ -208,7 +208,7 @@ func fetchHeaders(ctx context.Context, client *http.Client, asset string) (schem
 			err = doErr
 			continue
 		}
-		io.Copy(io.Discard, resp.Body) //nolint:errcheck
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024)) //nolint:errcheck
 		resp.Body.Close()
 		return s, resp.Header, nil
 	}

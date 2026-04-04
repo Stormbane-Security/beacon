@@ -144,7 +144,8 @@ func TestPortScannerDoesNotProbeUnknownPorts(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -180,7 +181,8 @@ func TestProbeRedisUnauthDetection(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -225,7 +227,8 @@ func TestProbeRedisAuthenticatedNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -259,7 +262,10 @@ func TestPrometheusUnauthHTTPMock(t *testing.T) {
 	defer srv.Close()
 
 	s := portscan.New()
-	ctx := context.Background()
+	// Longer timeout: the scanner probes many ports on 127.0.0.1 before
+	// reaching 9090. BGP/MQTT/other probes need time to complete or timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -298,7 +304,8 @@ func TestTelnetExposedFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -439,7 +446,8 @@ func TestSMTPExImBannerProducesExImFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -485,7 +493,8 @@ func TestSMTPGenericBannerProducesGenericFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -529,7 +538,8 @@ func TestSMTPSubmissionExImBannerProducesExImFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -569,7 +579,8 @@ func TestSMTPSubmissionGenericBanner(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -607,7 +618,8 @@ func TestSMTPNoBannerProducesNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -674,7 +686,8 @@ func TestLDAPNullBindSuccessProducesLDAPFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -747,7 +760,8 @@ func TestLDAPNullBindActiveDirectoryProducesADFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -801,7 +815,8 @@ func TestLDAPNullBindRefusedNoFinding(t *testing.T) {
 	}()
 
 	s := portscan.New()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	findings, err := s.Run(ctx, "127.0.0.1", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)

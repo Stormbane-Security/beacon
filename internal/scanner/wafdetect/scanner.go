@@ -478,10 +478,23 @@ func findOriginIP(ctx context.Context, asset string) string {
 	}
 
 	resolver := &net.Resolver{}
+
+	// Resolve the main asset's IPs (WAF edge IPs) so we can filter them out.
+	// An origin candidate that resolves to the same IP as the WAF edge is not
+	// a real origin exposure.
+	mainAddrs, _ := resolver.LookupHost(ctx, asset)
+	wafIPs := make(map[string]struct{}, len(mainAddrs))
+	for _, a := range mainAddrs {
+		wafIPs[a] = struct{}{}
+	}
+
 	for _, candidate := range candidates {
 		addrs, err := resolver.LookupHost(ctx, candidate)
 		if err != nil || len(addrs) == 0 {
 			continue
+		}
+		if _, isWAF := wafIPs[addrs[0]]; isWAF {
+			continue // same IP as the WAF edge — not a real origin
 		}
 		return addrs[0]
 	}
@@ -641,17 +654,21 @@ func testPathNormalization(ctx context.Context, client *http.Client, asset, sche
 
 	var findings []finding.Finding
 
+	// Fetch root status once — it doesn't change per path.
+	baseStatus := getStatus(ctx, client, asset, scheme, nil)
+	if baseStatus == 0 {
+		return findings
+	}
+
 	for _, path := range blockedPaths {
 		if ctx.Err() != nil {
 			break
 		}
 
 		// Check if this path is actually blocked
-		baseStatus := getStatus(ctx, client, asset, scheme, nil)
 		pathStatus := getStatusPath(ctx, client, asset, scheme, path, nil)
 
-		// We need the path to be blocked (403) while root is accessible
-		if baseStatus == 0 || pathStatus == 0 {
+		if pathStatus == 0 {
 			continue
 		}
 		if pathStatus != 403 && pathStatus != 406 && pathStatus != 429 {
