@@ -5,15 +5,16 @@ on:
     branches: [main, dev]
 
 jobs:
-  # Unit tests, vet, build — fast gate on all PRs.
+  # Build, vet, lint, test, govulncheck, gosec — fast gate on all PRs.
   ci:
     uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
     with:
       gosec-excludes: G304,G107,G101
 
-  # Drydock e2e tests — required gate on dev → main PRs.
+  # Drydock e2e tests — only on dev → main PRs, after CI passes.
   drydock:
     name: "E2E: ${{ matrix.category }}"
+    needs: ci
     if: github.base_ref == 'main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -91,7 +92,7 @@ jobs:
             drydock-output.log
           retention-days: 7
 
-  # Gate job — required status check for branch protection.
+  # Gate job — single required status check for branch protection.
   drydock-gate:
     name: Drydock Gate
     needs: drydock
