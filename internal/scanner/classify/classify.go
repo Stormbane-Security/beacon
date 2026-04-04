@@ -1539,6 +1539,8 @@ func fingerprintTech(e *playbook.Evidence) {
 		e.Framework = "drupal"
 	case strings.Contains(body, "joomla") || strings.Contains(body, "/media/jui/"):
 		e.Framework = "joomla"
+	case strings.Contains(xpbLower, "php"):
+		e.Framework = "php"
 	}
 
 	// ── Platform detection from body (products not captured by Framework) ────
