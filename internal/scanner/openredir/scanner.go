@@ -81,7 +81,7 @@ var payloads = []struct {
 	{"https://" + canaryDomain + "/%2f..", "path-traversal bypass"},
 	{"///" + canaryDomain, "triple-slash bypass"},
 	{"/\\" + canaryDomain, "backslash bypass"},
-	{"https://" + canaryDomain + "@legitimate.com", "at-sign bypass"},
+	{"https://legitimate.com@" + canaryDomain, "at-sign bypass"},
 }
 
 // Scanner checks for open redirect vulnerabilities.

@@ -50,11 +50,19 @@ type crawlFeedCloserKeyType struct{}
 // deferred safety-net closer also fires.
 var CrawlFeedCloserKey = crawlFeedCloserKeyType{}
 
-// RequiresDeepMode returns true if the given scan type is below deep mode.
-// Scanners that only run in deep or authorized mode should use this at the
-// top of their Run method instead of duplicating the comparison inline.
-func RequiresDeepMode(scanType ScanType) bool {
+// IsSurfaceOnly returns true if the given scan type is surface (passive) only,
+// meaning the scanner should NOT run active probes. Scanners that require deep
+// or authorized mode should use this at the top of their Run method:
+//
+//	if module.IsSurfaceOnly(scanType) { return nil, nil }
+func IsSurfaceOnly(scanType ScanType) bool {
 	return scanType != ScanDeep && scanType != ScanAuthorized
+}
+
+// RequiresDeepMode is a deprecated alias for IsSurfaceOnly.
+// Deprecated: Use IsSurfaceOnly instead — the name is clearer.
+func RequiresDeepMode(scanType ScanType) bool {
+	return IsSurfaceOnly(scanType)
 }
 
 // Module is the interface every scan module must implement.

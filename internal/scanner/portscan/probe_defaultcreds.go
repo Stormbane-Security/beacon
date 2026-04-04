@@ -118,9 +118,11 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 	if err != nil {
 		return nil
 	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Timeout: httpTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+		Transport:     transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil

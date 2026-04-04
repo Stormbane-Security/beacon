@@ -32,6 +32,7 @@ type Builder struct {
 	relationships []Relationship
 	findingRefs   []FindingRef
 	iacRefs       []IaCReference
+	findingSeq    int // monotonic counter for unique FindingRef IDs
 	// ipIndex maps external IP → asset ID for cross-referencing
 	ipIndex map[string]string
 	// cnameChains maps domain ID → ordered CNAME chain for cross-referencing
@@ -212,15 +213,16 @@ func (b *Builder) AddRelationship(r Relationship) {
 func (b *Builder) AddFindings(scanFindings []finding.Finding) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i, f := range scanFindings {
+	for _, f := range scanFindings {
 		assetID := fmt.Sprintf("domain:%s", f.Asset)
 		if f.Module == "cloud" || f.Module == "github" || strings.Contains(f.Asset, ":") {
 			assetID = f.Asset
 		}
 		// If this asset exists as a cloud asset (via alias), prefer that ID.
 		tags := finding.ComplianceTags(f.CheckID)
+		b.findingSeq++
 		b.findingRefs = append(b.findingRefs, FindingRef{
-			FindingID:      fmt.Sprintf("%s-%d", f.Scanner, i),
+			FindingID:      fmt.Sprintf("%s-%d", f.Scanner, b.findingSeq),
 			AssetID:        assetID,
 			CheckID:        string(f.CheckID),
 			Severity:       f.Severity.String(),

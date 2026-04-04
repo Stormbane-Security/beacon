@@ -121,15 +121,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		results := make([]result, concurrency)
 		var wg sync.WaitGroup
-		var gate sync.Mutex
-		gate.Lock() // Hold gate closed until all goroutines are ready.
+		gate := make(chan struct{}) // Closed to release all goroutines simultaneously.
 
 		for i := range concurrency {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
-				gate.Lock()   // Wait for gate to open.
-				gate.Unlock() // All goroutines read-unlock simultaneously.
+				<-gate // Block until gate is closed (broadcast release).
 
 				req, err := http.NewRequestWithContext(ctx, target.method, url,
 					bytes.NewBufferString(target.body))
@@ -150,7 +148,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		// Small delay to let goroutines reach the gate, then release all at once.
 		time.Sleep(10 * time.Millisecond)
-		gate.Unlock()
+		close(gate)
 		wg.Wait()
 
 		// Step 3: Analyze results. If all concurrent requests got 2xx when

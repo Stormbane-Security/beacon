@@ -126,6 +126,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			resp.Body.Close()
 
 			// 2xx response on an alternate method when GET was 401/403 = bypass.
+			// Exclude OPTIONS — many servers return 200 for CORS preflight on any path.
+			if method == http.MethodOptions && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				hasACHeaders := resp.Header.Get("Access-Control-Allow-Methods") != "" ||
+					resp.Header.Get("Access-Control-Allow-Origin") != "" ||
+					resp.Header.Get("Allow") != ""
+				if hasACHeaders {
+					continue // standard CORS/OPTIONS behavior, not a bypass
+				}
+			}
+			// Exclude HEAD with empty body — some servers route HEAD differently
+			// without actually serving the protected resource.
+			if method == http.MethodHead && resp.StatusCode >= 200 && resp.StatusCode < 300 && len(body) == 0 {
+				continue
+			}
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebVerbTamperAuthBypass,

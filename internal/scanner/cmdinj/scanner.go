@@ -414,7 +414,13 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 }
 
 func buildPayload(p payload, seconds int) string {
-	sleep := fmt.Sprintf(p.sleepFn, seconds)
+	s := seconds
+	// Windows ping -n N sends N packets with 1-second intervals between them,
+	// so it takes N-1 seconds. Add 1 to compensate.
+	if p.os == "windows" && strings.Contains(p.prefix, "ping") {
+		s++
+	}
+	sleep := fmt.Sprintf(p.sleepFn, s)
 	return p.prefix + sleep + p.suffix
 }
 

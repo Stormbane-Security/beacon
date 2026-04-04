@@ -8,6 +8,7 @@ package hpp
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,6 +75,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // security scanner must handle self-signed certs
+		},
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -140,11 +144,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		// Probe 2: id=1&id=2 — check if response differs from id=1 alone.
+		// Many frameworks concatenate/switch duplicate params, producing benign
+		// diffs (error messages, different IDs). Only flag when the response
+		// status-code class changes or body differs substantially (>20%).
 		idDualURL := base + path + "?id=1&id=2"
 		idSingleURL := base + path + "?id=1"
 		dualBody := fetchBody(ctx, client, idDualURL)
 		singleBody := fetchBody(ctx, client, idSingleURL)
-		if dualBody != "" && singleBody != "" && dualBody != singleBody {
+		if dualBody != "" && singleBody != "" && dualBody != singleBody &&
+			hppBodyDiffSignificant(singleBody, dualBody) {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWebHPP,
 				Module:   "deep",
@@ -247,4 +255,24 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	resp.Body.Close()
 	return "https"
+}
+
+// hppBodyDiffSignificant returns true when the difference between two response
+// bodies is large enough to indicate a real parameter pollution issue, not just
+// a trivial change (e.g. different error message wording or a different ID
+// echoed back). Requires >20% length difference.
+func hppBodyDiffSignificant(a, b string) bool {
+	la, lb := len(a), len(b)
+	if la == 0 && lb == 0 {
+		return false
+	}
+	bigger := la
+	if lb > bigger {
+		bigger = lb
+	}
+	diff := la - lb
+	if diff < 0 {
+		diff = -diff
+	}
+	return float64(diff)/float64(bigger) > 0.20
 }

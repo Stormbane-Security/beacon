@@ -198,11 +198,17 @@ func probeSAMLPath(ctx context.Context, client *http.Client, asset, base, path s
 	hasEntityDescriptor := strings.Contains(bodyStr, "<EntityDescriptor") ||
 		strings.Contains(bodyStr, "<md:EntityDescriptor")
 
-	hasSAMLKeyword := strings.Contains(strings.ToLower(bodyStr), "saml") ||
-		strings.Contains(strings.ToLower(bodyStr), "sso") ||
-		strings.Contains(strings.ToLower(bodyStr), "federation")
+	bodyLower := strings.ToLower(bodyStr)
+	// Require "saml" specifically, not generic words like "sso" or "federation"
+	// that appear on non-SAML pages (e.g. documentation mentioning single sign-on).
+	hasSAMLKeyword := strings.Contains(bodyLower, "saml") ||
+		(strings.Contains(bodyLower, "sso") && strings.Contains(bodyLower, "samlrequest")) ||
+		(strings.Contains(bodyLower, "federation") && strings.Contains(bodyLower, "metadata"))
 
-	if !hasEntityDescriptor && !hasSAMLKeyword && resp.StatusCode != http.StatusOK {
+	if !hasEntityDescriptor && !hasSAMLKeyword {
+		return nil, ""
+	}
+	if !hasEntityDescriptor && resp.StatusCode != http.StatusOK {
 		return nil, ""
 	}
 

@@ -416,7 +416,8 @@ const (
 	CheckOAuthTokenLeakReferer CheckID = "oauth.token_leak_referer"  // access token appears in Referer header
 	CheckJWKSExposed          CheckID = "oauth.jwks_exposed"         // JWKS endpoint publicly enumerable
 	CheckOIDCImplicitFlow     CheckID = "oauth.implicit_flow"        // deprecated implicit flow in use
-	CheckOAuthImplicitAccepted CheckID = "oauth.implicit_flow_accepted" // server actively accepts response_type=token (deep)
+	CheckOAuthImplicitAccepted   CheckID = "oauth.implicit_flow_accepted"   // server actively accepts response_type=token (deep)
+	CheckOAuthTokenEndpointNoAuth CheckID = "oauth.token_endpoint_no_auth" // token endpoint accepts unauthenticated requests
 	CheckJWTNoVerification    CheckID = "jwt.no_server_verification" // server accepts tampered/invalid JWT
 
 	// GitHub / CI (Phase 2)
@@ -1963,7 +1964,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOAuthTokenLeakReferer:  {CheckOAuthTokenLeakReferer, SeverityHigh, ModeDeep},
 	CheckJWKSExposed:            {CheckJWKSExposed, SeverityInfo, ModeSurface},
 	CheckOIDCImplicitFlow:       {CheckOIDCImplicitFlow, SeverityMedium, ModeSurface},
-	CheckOAuthImplicitAccepted:  {CheckOAuthImplicitAccepted, SeverityHigh, ModeDeep},
+	CheckOAuthImplicitAccepted:    {CheckOAuthImplicitAccepted, SeverityHigh, ModeDeep},
+	CheckOAuthTokenEndpointNoAuth: {CheckOAuthTokenEndpointNoAuth, SeverityHigh, ModeSurface},
 	CheckJWTNoVerification:      {CheckJWTNoVerification, SeverityCritical, ModeDeep},
 
 	// GitHub / CI — queries public GitHub API and reads public repo content → Surface

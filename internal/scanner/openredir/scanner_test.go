@@ -221,6 +221,35 @@ func TestDeduplicatePerParam(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// At-sign bypass — canary must be in the host position, not userinfo
+// ---------------------------------------------------------------------------
+
+func TestAtSignBypassPayload(t *testing.T) {
+	findings := run(t, func(w http.ResponseWriter, r *http.Request) {
+		if u := r.URL.Query().Get("url"); u != "" {
+			w.Header().Set("Location", u)
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebOpenRedirect {
+			if ev, ok := f.Evidence["technique"].(string); ok && ev == "at-sign bypass" {
+				// Verify the payload has canary in the HOST position (after @),
+				// not in the userinfo position (before @).
+				if loc, ok := f.Evidence["location"].(string); ok {
+					if strings.Contains(loc, "evil-redirect-target.example.com@") {
+						t.Error("at-sign payload has canary in userinfo (before @), should be after @")
+					}
+				}
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // 200 response (not a redirect) — no findings even with Location header
 // ---------------------------------------------------------------------------
 

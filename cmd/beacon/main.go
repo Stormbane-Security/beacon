@@ -403,6 +403,11 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				logLevel = args[i]
 			}
+		default:
+			if strings.HasPrefix(args[i], "--") {
+				fmt.Fprintf(os.Stderr, "beacon: unknown flag %q\n", args[i])
+				os.Exit(2)
+			}
 		}
 	}
 

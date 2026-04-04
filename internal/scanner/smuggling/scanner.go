@@ -457,7 +457,7 @@ func dialConn(ctx context.Context, host, port string, useTLS bool) (net.Conn, er
 	}
 	tlsCfg := &tls.Config{
 		ServerName:         host,
-		InsecureSkipVerify: false, //nolint:gosec // We want real TLS validation here
+		InsecureSkipVerify: true, //nolint:gosec // security scanner must handle self-signed/expired certs
 	}
 	rawConn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {

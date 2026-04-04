@@ -470,11 +470,20 @@ func extractStringField(json, key string) string {
 		return ""
 	}
 	rest = rest[1:]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return ""
+	// Find the closing quote, skipping escaped quotes (e.g. \").
+	var sb strings.Builder
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '\\' && i+1 < len(rest) {
+			sb.WriteByte(rest[i+1])
+			i++ // skip escaped character
+			continue
+		}
+		if rest[i] == '"' {
+			return sb.String()
+		}
+		sb.WriteByte(rest[i])
 	}
-	return rest[:end]
+	return ""
 }
 
 // extractIntField parses a JSON numeric value for the given key.
@@ -538,8 +547,11 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 	}
 	var found []string
 	for _, field := range allSensitiveFields {
-		if _, ok := claims[field]; ok {
-			found = append(found, field)
+		for k := range claims {
+			if strings.EqualFold(k, field) {
+				found = append(found, field)
+				break
+			}
 		}
 	}
 	if len(found) == 0 {
@@ -573,6 +585,21 @@ func checkJWTEncryption(asset string, parts []string, claims map[string]any) *fi
 func checkJTIMissing(asset string, claims map[string]any) *finding.Finding {
 	if _, ok := claims["jti"]; ok {
 		return nil
+	}
+	// Only flag missing jti when the token has a long lifetime (>1 hour).
+	// Short-lived tokens are replay-resistant by design; flagging every JWT
+	// without jti produces excessive noise.
+	if exp, ok := claims["exp"]; ok {
+		switch v := exp.(type) {
+		case float64:
+			if iat, ok := claims["iat"]; ok {
+				if iatV, ok := iat.(float64); ok {
+					if v-iatV <= 3600 {
+						return nil // token lives ≤1 hour
+					}
+				}
+			}
+		}
 	}
 	return &finding.Finding{
 		CheckID:  finding.CheckJWTReplayMissing,

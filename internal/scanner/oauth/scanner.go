@@ -437,7 +437,7 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 				strings.Contains(bodyLower, "oauth"))
 		if resp.StatusCode == http.StatusOK || is400Misconfig {
 			return &finding.Finding{
-				CheckID:  finding.CheckOAuthMissingState, // reuse closest check; ideally a dedicated ID
+				CheckID:  finding.CheckOAuthTokenEndpointNoAuth,
 				Module:   "surface",
 				Scanner:  scannerName,
 				Severity: finding.SeverityHigh,

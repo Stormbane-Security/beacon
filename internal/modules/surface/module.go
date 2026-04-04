@@ -1199,7 +1199,11 @@ assetLoop:
 				var addWg sync.WaitGroup
 				for targetAsset, scannerNames := range result.AdditionalScans {
 					targetAsset, scannerNames := targetAsset, scannerNames
-					addSem <- struct{}{}
+					select {
+					case addSem <- struct{}{}:
+					case <-ctx.Done():
+						continue
+					}
 					addWg.Add(1)
 					go func() {
 						defer addWg.Done()
@@ -1244,6 +1248,19 @@ assetLoop:
 				addWg.Wait()
 			}
 		}
+	}
+
+	// Second safety gate: cross-asset AI analysis and its additional scanners
+	// may have injected ModeDeep findings after the first gate.
+	if scanType == module.ScanSurface {
+		filtered := allFindings[:0]
+		for _, f := range allFindings {
+			if finding.Meta(f.CheckID).Mode == finding.ModeDeep {
+				continue
+			}
+			filtered = append(filtered, f)
+		}
+		allFindings = filtered
 	}
 
 	return allFindings, nil
@@ -1416,6 +1433,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Build unified RunPlan
 	plan := playbook.BuildRunPlan(matched)
+
+	// Merge deep-only scanners into the plan when the scan mode permits active probing.
+	if scanType != module.ScanSurface && len(plan.DeepOnlyScanners) > 0 {
+		plan.Scanners = append(plan.Scanners, plan.DeepOnlyScanners...)
+	}
 
 	// AI-powered scanner suggestions — augment the plan with scanners the
 	// playbook system did not match but the AI considers relevant to the
@@ -2382,10 +2404,6 @@ func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 	}
 
 	probe := func(ip string) {
-		defer wg.Done()
-		sem <- struct{}{}
-		defer func() { <-sem }()
-
 		for _, scheme := range []string{"https", "http"} {
 			url := scheme + "://" + ip
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -2426,8 +2444,18 @@ outer:
 			}
 			total++
 			ipStr := ip.String()
+			// Acquire semaphore before spawning to bound goroutine count.
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				break outer
+			}
 			wg.Add(1)
-			go probe(ipStr)
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				probe(ipStr)
+			}()
 			incrementNetIP(ip)
 		}
 	}
