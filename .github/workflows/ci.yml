@@ -19,6 +19,15 @@ jobs:
     uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
     with:
       test-timeout: 10m
+      test-race: false
+      gosec-excludes: G304,G107,G101
+
+  # ── Race detector: runs in parallel with CI ───────────────────────────
+  race:
+    uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
+    with:
+      test-timeout: 15m
+      test-race: true
       gosec-excludes: G304,G107,G101
 
   # ── Drydock E2E: runs after CI passes ─────────────────────────────────

@@ -71,6 +71,7 @@ var searchDoneResp = []byte{
 // and returning a non-AD rootDSE produces a result with null_bind=true,
 // is_active_directory=false.
 func TestProbeLDAP_NullBindSuccess(t *testing.T) {
+	t.Parallel()
 	port, cleanup := serveLDAP(t, func(c net.Conn) {
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
@@ -98,6 +99,7 @@ func TestProbeLDAP_NullBindSuccess(t *testing.T) {
 // TestProbeLDAP_ActiveDirectoryDetection verifies that "DC=" in the rootDSE
 // response sets is_active_directory=true and captures the domain.
 func TestProbeLDAP_ActiveDirectoryDetection(t *testing.T) {
+	t.Parallel()
 	port, cleanup := serveLDAP(t, func(c net.Conn) {
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
@@ -129,6 +131,7 @@ func TestProbeLDAP_ActiveDirectoryDetection(t *testing.T) {
 // TestProbeLDAP_NullBindRefused verifies that a server returning resultCode 49
 // (invalidCredentials) causes probeLDAP to return nil.
 func TestProbeLDAP_NullBindRefused(t *testing.T) {
+	t.Parallel()
 	port, cleanup := serveLDAP(t, func(c net.Conn) {
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
@@ -156,6 +159,7 @@ func TestProbeLDAP_NullBindRefused(t *testing.T) {
 // TestProbeLDAP_ClosedPort verifies that probeLDAP returns nil when nothing
 // is listening (connection refused).
 func TestProbeLDAP_ClosedPort(t *testing.T) {
+	t.Parallel()
 	// Bind then close to get a port we know is free.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -211,6 +215,7 @@ func serveEPMD(t *testing.T, handler func(net.Conn)) (port int, cleanup func()) 
 // TestProbeEPMD_NodesListed verifies that a proper EPMD NAMES response returns
 // the node names and nothing is missed.
 func TestProbeEPMD_NodesListed(t *testing.T) {
+	t.Parallel()
 	port, cleanup := serveEPMD(t, func(c net.Conn) {
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
@@ -242,6 +247,7 @@ func TestProbeEPMD_NodesListed(t *testing.T) {
 // TestProbeEPMD_EmptyNodeList verifies that a response with no "name " lines
 // returns nil (no nodes to report).
 func TestProbeEPMD_EmptyNodeList(t *testing.T) {
+	t.Parallel()
 	port, cleanup := serveEPMD(t, func(c net.Conn) {
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
@@ -262,6 +268,7 @@ func TestProbeEPMD_EmptyNodeList(t *testing.T) {
 // TestProbeEPMD_TruncatedResponse verifies that a response shorter than 5 bytes
 // returns nil.
 func TestProbeEPMD_TruncatedResponse(t *testing.T) {
+	t.Parallel()
 	port, cleanup := serveEPMD(t, func(c net.Conn) {
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(2 * time.Second))
@@ -283,6 +290,7 @@ func TestProbeEPMD_TruncatedResponse(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParseAssetPort_HostAndPort(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("localhost:9122")
 	if host != "localhost" || port != 9122 {
 		t.Errorf("got (%q, %d); want (localhost, 9122)", host, port)
@@ -290,6 +298,7 @@ func TestParseAssetPort_HostAndPort(t *testing.T) {
 }
 
 func TestParseAssetPort_IPAndPort(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("10.0.0.1:8123")
 	if host != "10.0.0.1" || port != 8123 {
 		t.Errorf("got (%q, %d); want (10.0.0.1, 8123)", host, port)
@@ -297,6 +306,7 @@ func TestParseAssetPort_IPAndPort(t *testing.T) {
 }
 
 func TestParseAssetPort_BareHost(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("example.com")
 	if host != "" || port != 0 {
 		t.Errorf("bare host should return empty; got (%q, %d)", host, port)
@@ -304,6 +314,7 @@ func TestParseAssetPort_BareHost(t *testing.T) {
 }
 
 func TestParseAssetPort_BareDomain(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("sub.example.com")
 	if host != "" || port != 0 {
 		t.Errorf("bare domain should return empty; got (%q, %d)", host, port)
@@ -311,6 +322,7 @@ func TestParseAssetPort_BareDomain(t *testing.T) {
 }
 
 func TestParseAssetPort_IPv6WithPort(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("[::1]:8080")
 	if host != "::1" || port != 8080 {
 		t.Errorf("got (%q, %d); want (::1, 8080)", host, port)
@@ -318,6 +330,7 @@ func TestParseAssetPort_IPv6WithPort(t *testing.T) {
 }
 
 func TestParseAssetPort_InvalidPort(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("host:abc")
 	if host != "" || port != 0 {
 		t.Errorf("invalid port should return empty; got (%q, %d)", host, port)
@@ -325,6 +338,7 @@ func TestParseAssetPort_InvalidPort(t *testing.T) {
 }
 
 func TestParseAssetPort_PortZero(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("host:0")
 	if host != "" || port != 0 {
 		t.Errorf("port 0 should return empty; got (%q, %d)", host, port)
@@ -332,6 +346,7 @@ func TestParseAssetPort_PortZero(t *testing.T) {
 }
 
 func TestParseAssetPort_PortTooHigh(t *testing.T) {
+	t.Parallel()
 	host, port := parseAssetPort("host:99999")
 	if host != "" || port != 0 {
 		t.Errorf("port >65535 should return empty; got (%q, %d)", host, port)
@@ -343,6 +358,7 @@ func TestParseAssetPort_PortTooHigh(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestScanner_PortsOverride(t *testing.T) {
+	t.Parallel()
 	s := &Scanner{Ports: []int{8123, 6379}}
 	// Can't call Run (needs real network), but verify the port list construction
 	// by checking the Ports field is set and would be used.
@@ -355,6 +371,7 @@ func TestScanner_PortsOverride(t *testing.T) {
 }
 
 func TestScanner_EmptyPortsUsesDefault(t *testing.T) {
+	t.Parallel()
 	s := &Scanner{}
 	if len(s.Ports) != 0 {
 		t.Fatalf("default scanner should have empty Ports, got %v", s.Ports)
@@ -371,54 +388,63 @@ func TestScanner_EmptyPortsUsesDefault(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBannerProtocol_SMTP(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("220 mail.example.com ESMTP Postfix"); got != "smtp" {
 		t.Errorf("bannerProtocol(SMTP) = %q; want smtp", got)
 	}
 }
 
 func TestBannerProtocol_SSH(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("SSH-2.0-OpenSSH_8.9p1"); got != "ssh" {
 		t.Errorf("bannerProtocol(SSH) = %q; want ssh", got)
 	}
 }
 
 func TestBannerProtocol_Redis(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("-ERR wrong number of arguments"); got != "redis" {
 		t.Errorf("bannerProtocol(Redis) = %q; want redis", got)
 	}
 }
 
 func TestBannerProtocol_FTP(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("220 Welcome to FTP server"); got != "ftp" {
 		t.Errorf("bannerProtocol(FTP) = %q; want ftp", got)
 	}
 }
 
 func TestBannerProtocol_POP3(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("+OK Dovecot ready."); got != "pop3" {
 		t.Errorf("bannerProtocol(POP3) = %q; want pop3", got)
 	}
 }
 
 func TestBannerProtocol_IMAP(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("* OK [CAPABILITY IMAP4rev1] Dovecot ready"); got != "imap" {
 		t.Errorf("bannerProtocol(IMAP) = %q; want imap", got)
 	}
 }
 
 func TestBannerProtocol_Empty(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol(""); got != "" {
 		t.Errorf("bannerProtocol(empty) = %q; want empty", got)
 	}
 }
 
 func TestBannerProtocol_Unknown(t *testing.T) {
+	t.Parallel()
 	if got := bannerProtocol("some random binary data"); got != "" {
 		t.Errorf("bannerProtocol(unknown) = %q; want empty", got)
 	}
 }
 
 func TestParseAssetPort_PortAlreadyInList(t *testing.T) {
+	t.Parallel()
 	// Port 6379 (Redis) is already in criticalPorts — verify buildPortList
 	// doesn't duplicate it when the target specifies it.
 	host, port := parseAssetPort("myhost:6379")
@@ -442,6 +468,7 @@ func TestParseAssetPort_PortAlreadyInList(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIsMySQLGreeting_Valid8x(t *testing.T) {
+	t.Parallel()
 	// Simulate MySQL 8.0 greeting: 74-byte payload, seq=0, protocol=10.
 	banner := make([]byte, 80)
 	banner[0] = 0x4a // payload length low byte (74)
@@ -456,6 +483,7 @@ func TestIsMySQLGreeting_Valid8x(t *testing.T) {
 }
 
 func TestIsMySQLGreeting_Valid5x(t *testing.T) {
+	t.Parallel()
 	// MySQL 5.7: shorter greeting, same protocol structure.
 	banner := make([]byte, 60)
 	banner[0] = 0x38 // 56 bytes payload
@@ -470,12 +498,14 @@ func TestIsMySQLGreeting_Valid5x(t *testing.T) {
 }
 
 func TestIsMySQLGreeting_TooShort(t *testing.T) {
+	t.Parallel()
 	if isMySQLGreeting("abc") {
 		t.Error("expected isMySQLGreeting to return false for short input")
 	}
 }
 
 func TestIsMySQLGreeting_NonMySQLBinary(t *testing.T) {
+	t.Parallel()
 	// Random binary data that doesn't match the pattern.
 	banner := "\x10\x20\x30\x01\x0b" // seq=1 (not 0)
 	if isMySQLGreeting(banner) {
@@ -484,6 +514,7 @@ func TestIsMySQLGreeting_NonMySQLBinary(t *testing.T) {
 }
 
 func TestIsMySQLGreeting_SMBNegotiate(t *testing.T) {
+	t.Parallel()
 	// SMB negotiate starts with NetBIOS header — should not match.
 	banner := "\x00\x00\x00\x54\xff\x53\x4d\x42"
 	if isMySQLGreeting(banner) {
@@ -496,6 +527,7 @@ func TestIsMySQLGreeting_SMBNegotiate(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBannerProtocol_MySQL8(t *testing.T) {
+	t.Parallel()
 	// MySQL 8.0 greeting: the word "mysql" doesn't appear in the version
 	// string, so detection must rely on isMySQLGreeting wire format.
 	banner := make([]byte, 80)
@@ -511,6 +543,7 @@ func TestBannerProtocol_MySQL8(t *testing.T) {
 }
 
 func TestBannerProtocol_MySQLKeyword(t *testing.T) {
+	t.Parallel()
 	// Banner that contains the literal word MYSQL (older builds).
 	if got := bannerProtocol("5.5.62-0ubuntu0.14.04.1-MySQL Community Server"); got != "mysql" {
 		t.Errorf("bannerProtocol(MySQL keyword) = %q; want mysql", got)
@@ -522,6 +555,7 @@ func TestBannerProtocol_MySQLKeyword(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDetectTelnet_NoFalsePositiveOnMySQL(t *testing.T) {
+	t.Parallel()
 	// MySQL 8.0 greeting contains 0xFF bytes in capability flags.
 	// detectTelnet must NOT match on bare 0xFF without IAC command bytes.
 	banner := make([]byte, 80)
@@ -548,6 +582,7 @@ func TestDetectTelnet_NoFalsePositiveOnMySQL(t *testing.T) {
 }
 
 func TestDetectTelnet_RealIACSequence(t *testing.T) {
+	t.Parallel()
 	// Real telnet IAC: \xFF\xFB\x01 (WILL ECHO)
 	banner := "\xFF\xFB\x01\xFF\xFB\x03"
 	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
@@ -566,6 +601,7 @@ func TestDetectTelnet_RealIACSequence(t *testing.T) {
 }
 
 func TestDetectTelnet_LoginPrompt(t *testing.T) {
+	t.Parallel()
 	banner := "Welcome to MyRouter\r\nlogin: "
 	makeF := func(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
 		return finding.Finding{CheckID: checkID}
@@ -587,6 +623,7 @@ func TestDetectTelnet_LoginPrompt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDetectSMB_NoFalsePositiveOnNonSMBPort(t *testing.T) {
+	t.Parallel()
 	// Start a TCP server that speaks MySQL (not SMB).
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -625,6 +662,7 @@ func TestDetectSMB_NoFalsePositiveOnNonSMBPort(t *testing.T) {
 }
 
 func TestDetectSMB_ClosedPort(t *testing.T) {
+	t.Parallel()
 	// Get a port that nothing is listening on.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -644,6 +682,7 @@ func TestDetectSMB_ClosedPort(t *testing.T) {
 }
 
 func TestDetectSMB_RealSMBServer(t *testing.T) {
+	t.Parallel()
 	// Simulate a minimal SMB server that responds to negotiate with \xfeSMB (SMBv2).
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -701,6 +740,7 @@ func TestDetectSMB_RealSMBServer(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunProbes_MySQLBannerSkipsProtocolProbes(t *testing.T) {
+	t.Parallel()
 	// When the banner identifies as MySQL, protocol-category probes (SMB,
 	// telnet, etc.) should be skipped entirely.
 	banner := make([]byte, 80)
@@ -726,6 +766,7 @@ func TestRunProbes_MySQLBannerSkipsProtocolProbes(t *testing.T) {
 }
 
 func TestRunProbes_MySQLBannerRunsMySQLProbe(t *testing.T) {
+	t.Parallel()
 	// Verify that the probe filter allows the relational DB probe (which
 	// contains "mysql" in its name) to run when the banner identifies MySQL.
 	// Start a fake MySQL server that sends a greeting and accepts auth.
@@ -792,6 +833,7 @@ func TestRunProbes_MySQLBannerRunsMySQLProbe(t *testing.T) {
 }
 
 func TestRunProbes_EmitsServiceIdentified(t *testing.T) {
+	t.Parallel()
 	// When a probe matches, runProbes should emit a port.service_identified
 	// finding alongside the probe's own findings.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -862,6 +904,7 @@ func TestRunProbes_EmitsServiceIdentified(t *testing.T) {
 }
 
 func TestProbeSMBOnPort_ClosedPort(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -876,6 +919,7 @@ func TestProbeSMBOnPort_ClosedPort(t *testing.T) {
 }
 
 func TestProbeSMBOnPort_NonSMBServer(t *testing.T) {
+	t.Parallel()
 	// TCP server that sends "hello" instead of SMB.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -904,6 +948,7 @@ func TestProbeSMBOnPort_NonSMBServer(t *testing.T) {
 }
 
 func TestProbeSMBOnPort_SMBv2Server(t *testing.T) {
+	t.Parallel()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
