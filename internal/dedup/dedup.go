@@ -167,12 +167,40 @@ func sameBaseDomain(a, b string) bool {
 	return baseDomain(a) == baseDomain(b)
 }
 
-// baseDomain extracts the last two labels of a hostname.
+// knownMultiPartTLDs lists well-known country-code TLD suffixes that require
+// three labels for a registrable domain (e.g., example.co.uk).
+var knownMultiPartTLDs = map[string]bool{
+	"co.uk": true, "org.uk": true, "ac.uk": true, "gov.uk": true,
+	"co.jp": true, "or.jp": true, "ne.jp": true, "ac.jp": true,
+	"co.kr": true, "or.kr": true,
+	"co.nz": true, "net.nz": true, "org.nz": true,
+	"co.za": true, "org.za": true, "net.za": true,
+	"com.au": true, "net.au": true, "org.au": true,
+	"com.br": true, "net.br": true, "org.br": true,
+	"co.in": true, "net.in": true, "org.in": true,
+	"com.cn": true, "net.cn": true, "org.cn": true,
+	"com.mx": true, "org.mx": true,
+	"com.ar": true, "org.ar": true,
+	"co.il": true, "org.il": true,
+	"com.tw": true, "org.tw": true,
+	"com.sg": true, "org.sg": true,
+	"com.hk": true, "org.hk": true,
+}
+
+// baseDomain extracts the registrable domain from a hostname.
+// Handles multi-part TLDs like .co.uk correctly.
 func baseDomain(host string) string {
 	host = strings.TrimPrefix(host, "*.")
 	parts := strings.Split(host, ".")
 	if len(parts) <= 2 {
 		return host
+	}
+	// Check for known multi-part TLDs (last 2 labels).
+	if len(parts) >= 3 {
+		suffix := parts[len(parts)-2] + "." + parts[len(parts)-1]
+		if knownMultiPartTLDs[suffix] {
+			return strings.Join(parts[len(parts)-3:], ".")
+		}
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
 }

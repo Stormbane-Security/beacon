@@ -61,9 +61,11 @@ func TestBaseDomain(t *testing.T) {
 		// so IPs with 4 octets return the last two joined. This is a known
 		// limitation; the function is designed for domain names.
 		{"192.168.1.1", "1.1"},
-		// ccTLD — baseDomain is a simple last-two-labels heuristic, so
-		// "example.co.uk" returns "co.uk" (known limitation).
-		{"example.co.uk", "co.uk"},
+		// ccTLD — baseDomain handles known multi-part TLDs correctly.
+		{"example.co.uk", "example.co.uk"},
+		{"sub.example.co.uk", "example.co.uk"},
+		{"deep.sub.example.co.uk", "example.co.uk"},
+		{"example.com.au", "example.com.au"},
 	}
 	for _, tt := range tests {
 		got := baseDomain(tt.input)

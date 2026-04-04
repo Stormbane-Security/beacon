@@ -320,18 +320,24 @@ func filterByScanType(templates []*Template, scanType module.ScanType) []*Templa
 		return safe
 	}
 
-	// ScanDeep — allow everything except active exploitation
+	// ScanDeep — allow active probing but block exploitation-class templates.
+	// CVE templates are exploitation-class: they send specific exploit payloads
+	// targeting known vulnerabilities and should require Authorized mode.
+	deepBlockedTags := map[string]bool{
+		"exploit": true,
+		"rce":     true,
+		"cve":     true,
+	}
 	var filtered []*Template
 	for _, t := range templates {
-		hasExploit := false
+		blocked := false
 		for _, tag := range t.TagList() {
-			tl := strings.ToLower(tag)
-			if tl == "exploit" || tl == "rce" {
-				hasExploit = true
+			if deepBlockedTags[strings.ToLower(tag)] {
+				blocked = true
 				break
 			}
 		}
-		if !hasExploit {
+		if !blocked {
 			filtered = append(filtered, t)
 		}
 	}
