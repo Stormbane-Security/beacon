@@ -1,0 +1,256 @@
+name: chain-full-network-scan
+description: >
+  End-to-end network scan across 15 services. Validates that beacon's
+  portscan correctly identifies each service, routes to the right postexploit
+  module, and produces findings. This is the integration test for the full
+  service detection → exploitation pipeline.
+tags: [chain, postexploit, e2e, full-scan, authorized]
+weight: 100
+
+services:
+  # --- Databases ---
+  redis:
+    image: redis:7-alpine
+    ports: ["9500:6379"]
+    command: ["redis-server", "--protected-mode", "no"]
+
+  redis-seed:
+    image: redis:7-alpine
+    depends_on: [redis]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 2
+        redis-cli -h redis SET db_password 'P@ssw0rd!Secret'
+        redis-cli -h redis SET aws_access_key 'AKIAIOSFODNN7EXAMPLE'
+
+  mongodb:
+    image: mongo:7.0
+    ports: ["9501:27017"]
+
+  mongodb-seed:
+    image: mongo:7.0
+    depends_on: [mongodb]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 5
+        mongosh --host mongodb --eval '
+          db.getSiblingDB("secrets").createCollection("credentials");
+          db.getSiblingDB("secrets").credentials.insertOne({
+            service: "production-api",
+            username: "admin",
+            password: "SuperSecretProd123!"
+          });
+        '
+
+  postgres:
+    image: postgres:16-alpine
+    ports: ["9502:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+
+  couchdb:
+    image: couchdb:3
+    ports: ["9503:5984"]
+    environment:
+      COUCHDB_USER: ""
+      COUCHDB_PASSWORD: ""
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    ports: ["9504:9200"]
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+
+  # --- Infrastructure ---
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["9505:8500"]
+    command: ["agent", "-dev", "-client", "0.0.0.0"]
+
+  consul-seed:
+    image: hashicorp/consul:1.18
+    depends_on: [consul]
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep 3
+        consul kv put -http-addr=http://consul:8500 secrets/db_password 'ProductionDBPass!'
+        consul kv put -http-addr=http://consul:8500 config/api_key 'sk-live-abc123'
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.12
+    ports: ["9506:2379"]
+    command:
+      - etcd
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+
+  memcached:
+    image: memcached:1.6-alpine
+    ports: ["9507:11211"]
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    ports: ["9508:9090"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "9509:5672"
+      - "9510:15672"
+
+  # --- Applications ---
+  grafana:
+    image: grafana/grafana:8.3.0
+    ports: ["9511:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+  vault:
+    image: hashicorp/vault:1.15
+    ports: ["9512:8200"]
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add: ["IPC_LOCK"]
+    command: ["vault", "server", "-dev"]
+
+  minio:
+    image: minio/minio:latest
+    ports: ["9513:9000"]
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: ["server", "/data"]
+
+ready:
+  cmd: >
+    curl -sf http://localhost:9511/api/org -u admin:admin 2>/dev/null | grep -q id &&
+    curl -sf http://localhost:9512/v1/sys/health 2>/dev/null | grep -q initialized &&
+    curl -sf http://localhost:9504/_cluster/health 2>/dev/null | grep -q status &&
+    redis-cli -h localhost -p 9500 PING 2>/dev/null | grep -q PONG
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # === Service Identification ===
+  # Verify portscan correctly identifies each service type.
+  - name: identifies-redis
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9500"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: identifies-mongodb
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9501"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-postgresql
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9502"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-couchdb
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9503"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-elasticsearch
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9504"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-consul
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9505"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-etcd
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9506"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-prometheus
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9508"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-grafana
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9511"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-vault
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9512"]
+    expect:
+      check_id: port.service_identified
+
+  - name: identifies-minio
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9513"]
+    expect:
+      check_id: port.service_identified
+
+  # === Full Network Scan ===
+  # Single scan across ALL ports — tests the service routing logic.
+  - name: full-scan-exploits-redis
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+           "--ports", "9500,9501,9502,9503,9504,9505,9506,9507,9508,9509,9510,9511,9512,9513"]
+    expect:
+      check_id: exploit.credential_harvest
+
+  - name: full-scan-exploits-consul
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+           "--ports", "9500,9501,9502,9503,9504,9505,9506,9507,9508,9509,9510,9511,9512,9513"]
+    expect:
+      check_id: exploit.data_extracted
+
+  - name: full-scan-exploits-vault
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+           "--ports", "9500,9501,9502,9503,9504,9505,9506,9507,9508,9509,9510,9511,9512,9513"]
+    expect:
+      check_id: exploit.code_execution
+
+timeout: 20m
