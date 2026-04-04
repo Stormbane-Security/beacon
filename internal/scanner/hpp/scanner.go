@@ -225,7 +225,7 @@ func fetchBody(ctx context.Context, client *http.Client, rawURL string) string {
 		return ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return string(body)
 }
 
@@ -239,7 +239,7 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusNotFound
 }
 
@@ -253,7 +253,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }
 

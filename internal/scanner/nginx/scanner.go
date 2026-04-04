@@ -110,7 +110,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				}
 
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-				resp.Body.Close()
+				_ = resp.Body.Close()
 
 				bodyStr := string(body)
 				signal := passwdSignalFound(bodyStr)
@@ -154,7 +154,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
 		resp, err := client.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			serverHeader := resp.Header.Get("Server")
 			if resp.StatusCode == http.StatusBadRequest && isIISServer(serverHeader) {
 				findings = append(findings, finding.Finding{
@@ -217,6 +217,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

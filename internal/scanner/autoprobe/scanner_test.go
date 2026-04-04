@@ -21,10 +21,10 @@ func loginHandlerSafe(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	io.Copy(io.Discard, r.Body) //nolint:errcheck
+	_, _ = io.Copy(io.Discard, r.Body) //nolint:errcheck
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	fmt.Fprintln(w, `{"error":"invalid credentials"}`)
+	_, _ = fmt.Fprintln(w, `{"error":"invalid credentials"}`)
 }
 
 // loginHandlerEnumerable leaks username existence via status code difference.
@@ -115,7 +115,7 @@ func TestAutoprobe_LockoutPresent_NoFinding(t *testing.T) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		io.Copy(io.Discard, r.Body) //nolint:errcheck
+		_, _ = io.Copy(io.Discard, r.Body) //nolint:errcheck
 		n := atomic.AddInt32(&attemptCount, 1)
 		if n >= 5 {
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -168,10 +168,10 @@ func TestAutoprobe_SameResponseNoEnumeration(t *testing.T) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		io.Copy(io.Discard, r.Body) //nolint:errcheck
+		_, _ = io.Copy(io.Discard, r.Body) //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintln(w, `{"error":"invalid credentials","code":401}`)
+		_, _ = fmt.Fprintln(w, `{"error":"invalid credentials","code":401}`)
 	}))
 	defer srv.Close()
 

@@ -74,7 +74,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		allCookies = append(allCookies, resp.Cookies()...)
 	}
 

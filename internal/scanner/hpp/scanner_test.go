@@ -23,13 +23,13 @@ func TestHPP_SecondValueUsed(t *testing.T) {
 			// Use the last role value — simulating the vulnerable behaviour.
 			lastRole := roles[len(roles)-1]
 			if lastRole == "admin" {
-				fmt.Fprintln(w, "Welcome, admin user!")
+				_, _ = fmt.Fprintln(w, "Welcome, admin user!")
 				return
 			}
-			fmt.Fprintln(w, "Welcome, regular user!")
+			_, _ = fmt.Fprintln(w, "Welcome, regular user!")
 			return
 		}
-		fmt.Fprintln(w, "Hello!")
+		_, _ = fmt.Fprintln(w, "Hello!")
 	}))
 	defer srv.Close()
 
@@ -63,7 +63,7 @@ func TestHPP_SecondValueUsed(t *testing.T) {
 func TestHPP_BothIgnored(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Server ignores all query parameters — always returns the same response.
-		fmt.Fprintln(w, "Standard response: id=1 result here.")
+		_, _ = fmt.Fprintln(w, "Standard response: id=1 result here.")
 	}))
 	defer srv.Close()
 
@@ -89,7 +89,7 @@ func TestHPP_SmallBodyDiff_NoFinding(t *testing.T) {
 			_, _ = fmt.Fprintf(w, "Result for id=%s", strings.Join(ids, ","))
 			return
 		}
-		fmt.Fprintln(w, "No id provided")
+		_, _ = fmt.Fprintln(w, "No id provided")
 	}))
 	defer srv.Close()
 
@@ -130,7 +130,7 @@ func TestHPP_DeepModeOnly(t *testing.T) {
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
-		fmt.Fprintln(w, "hello")
+		_, _ = fmt.Fprintln(w, "hello")
 	}))
 	defer srv.Close()
 

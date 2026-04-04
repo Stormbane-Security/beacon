@@ -38,7 +38,7 @@ func TestHIBP_Subdomain_IsSkipped(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(200)
-		w.Write([]byte(`[]`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer srv.Close()
 
@@ -66,7 +66,7 @@ func TestHIBP_Breaches_ProducesFinding(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(200)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer srv.Close()
 
@@ -118,7 +118,7 @@ func TestHIBP_APIError_ReturnsEmpty(t *testing.T) {
 	// 401 = bad API key — should not panic, should return empty.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
-		w.Write([]byte(`{"statusCode":401,"message":"Unauthorised"}`))
+		_, _ = w.Write([]byte(`{"statusCode":401,"message":"Unauthorised"}`))
 	}))
 	defer srv.Close()
 

@@ -383,7 +383,7 @@ func TestDeepMode_CatalogManyRepos_LimitsChecks(t *testing.T) {
 		for i, r := range repoNames {
 			quoted[i] = fmt.Sprintf("%q", r)
 		}
-		fmt.Fprintf(w, `{"repositories":[%s]}`, strings.Join(quoted, ","))
+		_, _ = fmt.Fprintf(w, `{"repositories":[%s]}`, strings.Join(quoted, ","))
 	})
 
 	// All repos: :latest tag returns 404 (no :latest)
@@ -447,7 +447,7 @@ func TestDeepMode_RegistryExposed_EvidenceFields(t *testing.T) {
 	mux.HandleFunc("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"version":"2.0"}`)
+			_, _ = fmt.Fprint(w, `{"version":"2.0"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -587,7 +587,7 @@ func TestDeepMode_EmptyCatalog_NoCatalogFinding(t *testing.T) {
 	mux.HandleFunc("/v2/_catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"repositories":[]}`)
+		_, _ = fmt.Fprint(w, `{"repositories":[]}`)
 	})
 
 	// Reject push

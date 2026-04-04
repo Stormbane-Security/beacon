@@ -189,7 +189,7 @@ func probeEthRPC(ctx context.Context, client *http.Client, host, port string) []
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	var rpcResp struct {
 		Result string `json:"result"`
@@ -270,7 +270,7 @@ func getEthPeerCount(ctx context.Context, client *http.Client, base string) int 
 		return -1
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	var rpcResp struct {
 		Result string `json:"result"`
@@ -279,7 +279,7 @@ func getEthPeerCount(ctx context.Context, client *http.Client, base string) int 
 		return -1
 	}
 	var count int
-	fmt.Sscanf(rpcResp.Result, "0x%x", &count)
+	_, _ = fmt.Sscanf(rpcResp.Result, "0x%x", &count)
 	return count
 }
 
@@ -294,7 +294,7 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, base, as
 		req.Header.Set("Content-Type", "application/json")
 		if resp, err := client.Do(req); err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			var rpc struct{ Result bool `json:"result"` }
 			if json.Unmarshal(body, &rpc) == nil && rpc.Result {
 				findings = append(findings, finding.Finding{
@@ -323,7 +323,7 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, base, as
 		req2.Header.Set("Content-Type", "application/json")
 		if resp, err := client.Do(req2); err == nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			var rpc struct {
 				Result []string `json:"result"`
 			}
@@ -380,7 +380,7 @@ func probeEthSensitiveMethods(ctx context.Context, client *http.Client, base, as
 			continue
 		}
 		bodyD, _ := io.ReadAll(io.LimitReader(respD.Body, 2048))
-		respD.Body.Close()
+		_ = respD.Body.Close()
 
 		// "Method not found" means it's disabled — safe.
 		// Any other response (including parameter errors) means it's available.
@@ -437,7 +437,7 @@ func probeBeaconNode(ctx context.Context, client *http.Client, host, port, asset
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -484,7 +484,7 @@ func probeBitcoinRPC(ctx context.Context, client *http.Client, host, asset strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Bitcoin RPC returns 401 without credentials — that still confirms the port is a BTC node.
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -543,7 +543,7 @@ func probeSolanaRPC(ctx context.Context, client *http.Client, host, asset string
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -587,7 +587,7 @@ func probeCosmosRPC(ctx context.Context, client *http.Client, host, asset string
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -630,7 +630,7 @@ func probeMetrics(ctx context.Context, client *http.Client, host, port, nodeDesc
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -671,7 +671,7 @@ func wsUpgradeConfirmed(ctx context.Context, host, port string) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(time.Now().Add(dialTimeout)) //nolint:errcheck
 
 	// Minimal WebSocket upgrade handshake (RFC 6455).

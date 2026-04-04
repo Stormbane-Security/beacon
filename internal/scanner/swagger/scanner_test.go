@@ -60,7 +60,7 @@ func TestRun_SwaggerExposed_EmitsExposureFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -118,7 +118,7 @@ func TestRun_NoSpecEndpoint_ReturnsNil(t *testing.T) {
 func TestRun_HTMLContentType_Skipped(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>"paths"</body></html>`))
+		_, _ = w.Write([]byte(`<html><body>"paths"</body></html>`))
 	}))
 	defer ts.Close()
 
@@ -139,7 +139,7 @@ func TestRun_HTMLContentType_Skipped(t *testing.T) {
 func TestRun_NoPaths_InBody_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"info": {"title": "test"}}`))
+		_, _ = w.Write([]byte(`{"info": {"title": "test"}}`))
 	}))
 	defer ts.Close()
 
@@ -164,7 +164,7 @@ func TestRun_MalformedJSON_ExposureStillEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(malformed))
+			_, _ = w.Write([]byte(malformed))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -200,7 +200,7 @@ func TestRun_SurfaceMode_NoFuzzing(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		// Return 500 on any other endpoint to verify fuzzing is not happening.
@@ -237,12 +237,12 @@ func TestRun_DeepMode_EmptyInput500_EmitsFuzzFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		// Simulate unhandled validation error.
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"NullPointerException"}`))
+		_, _ = w.Write([]byte(`{"error":"NullPointerException"}`))
 	}))
 	defer ts.Close()
 
@@ -279,12 +279,12 @@ func TestRun_DeepMode_ProperValidation400_NoFuzzFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		// Proper validation response.
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"missing required field: name"}`))
+		_, _ = w.Write([]byte(`{"error":"missing required field: name"}`))
 	}))
 	defer ts.Close()
 
@@ -318,12 +318,12 @@ func TestRun_DeepMode_TypeFuzz_SQLError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		// Simulate SQL error on type-fuzz payload.
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"syntax error at or near \"beacon\" - pg_query failed"}`))
+		_, _ = w.Write([]byte(`{"error":"syntax error at or near \"beacon\" - pg_query failed"}`))
 	}))
 	defer ts.Close()
 
@@ -362,7 +362,7 @@ func TestRun_DeepMode_SkipsHEADAndOPTIONS(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		// If we get a HEAD or OPTIONS probe, the scanner violated the skip rule.
@@ -396,7 +396,7 @@ func TestRun_SpecAtAlternativePath(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/openapi.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -424,7 +424,7 @@ func TestRun_SpecAtAlternativePath(t *testing.T) {
 func TestRun_CancelledContext_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"paths":{}}`))
+		_, _ = w.Write([]byte(`{"paths":{}}`))
 	}))
 	defer ts.Close()
 
@@ -457,7 +457,7 @@ func TestRun_ContextDeadline_DuringDeepScan(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		// Simulate a slow endpoint.
@@ -531,7 +531,7 @@ func TestRun_DeepMode_EmptyPaths_NoFuzzFindings(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -567,7 +567,7 @@ func TestRun_AuthorizedMode_FuzzesEndpoints(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -602,7 +602,7 @@ func TestRun_DeepMode_PathParamsReplaced(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/swagger.json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(spec)
+			_, _ = w.Write(spec)
 			return
 		}
 		probed = r.URL.Path

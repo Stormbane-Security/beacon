@@ -111,7 +111,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := string(body)
 
@@ -202,7 +202,7 @@ func looksLikeIIS(ctx context.Context, client *http.Client, base string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	server := strings.ToLower(resp.Header.Get("Server"))
 	if strings.Contains(server, "iis") || strings.Contains(server, "microsoft") {

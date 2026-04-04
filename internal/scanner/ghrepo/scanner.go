@@ -1389,7 +1389,7 @@ func (s *Scanner) apiGetRetry(ctx context.Context, urlStr string, retryOnRateLim
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Handle GitHub API rate limiting: 403 with X-RateLimit-Remaining: 0.
 	if resp.StatusCode == http.StatusForbidden && retryOnRateLimit {
@@ -1436,7 +1436,7 @@ func (s *Scanner) vulnAlertsEnabled(ctx context.Context, owner, repo string) (bo
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusForbidden {
 		return false, fmt.Errorf("insufficient permissions to check vulnerability alerts")
 	}

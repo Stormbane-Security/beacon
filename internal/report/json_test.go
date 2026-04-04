@@ -30,7 +30,7 @@ func TestRenderJSON_ContainsDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if m["domain"] != "example.com" {
 		t.Errorf("expected domain 'example.com', got %v", m["domain"])
 	}
@@ -47,7 +47,7 @@ func TestRenderJSON_FindingCountMatchesSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if int(m["finding_count"].(float64)) != 3 {
 		t.Errorf("expected finding_count 3, got %v", m["finding_count"])
 	}
@@ -59,7 +59,7 @@ func TestRenderJSON_ExecutiveSummaryIncluded(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if m["executive_summary"] != "Top-level risk: SQL injection" {
 		t.Errorf("expected summary in JSON, got %v", m["executive_summary"])
 	}
@@ -71,7 +71,7 @@ func TestRenderJSON_EmptyExecutiveSummaryOmitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if _, ok := m["executive_summary"]; ok {
 		t.Error("empty executive_summary should be omitted from JSON")
 	}
@@ -83,7 +83,7 @@ func TestRenderJSON_CompletedAtPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if m["completed_at"] == nil {
 		t.Error("expected completed_at in JSON")
 	}
@@ -95,7 +95,7 @@ func TestRenderJSON_NoFindings_EmptyArray(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	arr, ok := m["findings"].([]any)
 	if !ok {
 		t.Fatal("expected 'findings' to be an array")
@@ -234,7 +234,7 @@ func TestRenderJSON_SortedBySeverityDescending(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	arr := m["findings"].([]any)
 	// First finding should be critical (highest severity).
 	first := arr[0].(map[string]any)
@@ -255,7 +255,7 @@ func TestRenderJSON_WithValidGraphJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if m["asset_graph"] == nil {
 		t.Error("expected asset_graph to be present when valid graphJSON provided")
 	}
@@ -267,7 +267,7 @@ func TestRenderJSON_WithInvalidGraphJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	// Invalid graphJSON should be silently ignored (no asset_graph key).
 	if m["asset_graph"] != nil {
 		t.Error("expected asset_graph to be absent when graphJSON is invalid")
@@ -281,7 +281,7 @@ func TestRenderJSON_WithEmptyGraphJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	if m["asset_graph"] != nil {
 		t.Error("expected asset_graph to be absent when graph has no assets")
 	}
@@ -299,7 +299,7 @@ func TestRenderJSON_NilCompletedAt(t *testing.T) {
 		t.Fatalf("RenderJSON with nil CompletedAt: %v", err)
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(out), &m)
+	_ = json.Unmarshal([]byte(out), &m)
 	// completed_at should be absent (omitempty).
 	if _, ok := m["completed_at"]; ok {
 		t.Error("expected completed_at to be omitted when nil")

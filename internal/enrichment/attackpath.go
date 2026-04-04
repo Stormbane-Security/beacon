@@ -35,14 +35,14 @@ func (c *ClaudeEnricher) AnalyzeAttackPaths(ctx context.Context, enriched []Enri
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "You are a senior penetration tester analyzing scan results for the domain: %s\n\n", sanitize(domain, 256))
+	_, _ = fmt.Fprintf(&sb, "You are a senior penetration tester analyzing scan results for the domain: %s\n\n", sanitize(domain, 256))
 	sb.WriteString("Below are all security findings grouped by scan module.\n\n")
 
 	for mod, findings := range byModule {
-		fmt.Fprintf(&sb, "=== Module: %s ===\n", sanitize(strings.ToUpper(mod), 64))
+		_, _ = fmt.Fprintf(&sb, "=== Module: %s ===\n", sanitize(strings.ToUpper(mod), 64))
 		for _, ef := range findings {
 			f := ef.Finding
-			fmt.Fprintf(&sb, "  - [%s] %s | severity: %s | asset: %s\n",
+			_, _ = fmt.Fprintf(&sb, "  - [%s] %s | severity: %s | asset: %s\n",
 				string(f.CheckID), sanitize(f.Title, 256), f.Severity.String(), sanitize(f.Asset, 256))
 
 			// Surface any cloud context embedded in evidence.
@@ -50,7 +50,7 @@ func (c *ClaudeEnricher) AnalyzeAttackPaths(ctx context.Context, enriched []Enri
 				cloudFields := []string{"instance_id", "project_id", "external_ip", "public_ips"}
 				for _, key := range cloudFields {
 					if val, ok := f.Evidence[key]; ok && val != nil {
-						fmt.Fprintf(&sb, "      %s: %s\n", key, sanitize(fmt.Sprint(val), 256))
+						_, _ = fmt.Fprintf(&sb, "      %s: %s\n", key, sanitize(fmt.Sprint(val), 256))
 					}
 				}
 			}
@@ -88,7 +88,7 @@ Be concise and specific. Focus on realistic, actionable attack paths — not the
 // On any JSON parse error the function returns nil, nil (non-fatal).
 func (c *ClaudeEnricher) GenerateFollowUpProbes(ctx context.Context, enriched []EnrichedFinding, domain string) ([]FollowUpProbe, error) {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "You are a security scanner assistant for the domain: %s\n\n", sanitize(domain, 256))
+	_, _ = fmt.Fprintf(&sb, "You are a security scanner assistant for the domain: %s\n\n", sanitize(domain, 256))
 	sb.WriteString("Current findings (asset, check_id):\n")
 
 	// Track assets that appear directly in findings.
@@ -96,7 +96,7 @@ func (c *ClaudeEnricher) GenerateFollowUpProbes(ctx context.Context, enriched []
 	for _, ef := range enriched {
 		f := ef.Finding
 		knownAssets[f.Asset] = true
-		fmt.Fprintf(&sb, "  - asset: %s | check_id: %s | severity: %s\n",
+		_, _ = fmt.Fprintf(&sb, "  - asset: %s | check_id: %s | severity: %s\n",
 			sanitize(f.Asset, 256), string(f.CheckID), f.Severity.String())
 	}
 	sb.WriteString("\n")
@@ -135,7 +135,7 @@ func (c *ClaudeEnricher) GenerateFollowUpProbes(ctx context.Context, enriched []
 	if len(unseenIPs) > 0 {
 		sb.WriteString("Cloud instance IPs found in evidence but NOT yet directly scanned:\n")
 		for _, ip := range unseenIPs {
-			fmt.Fprintf(&sb, "  - %s\n", ip)
+			_, _ = fmt.Fprintf(&sb, "  - %s\n", ip)
 		}
 		sb.WriteString("\n")
 	}

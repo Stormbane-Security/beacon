@@ -91,7 +91,7 @@ func Profile(ctx context.Context, apiKey, model string, ev *playbook.Evidence) (
 	if err != nil {
 		return nil, fmt.Errorf("profiler: API call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
 	if err != nil {
@@ -303,7 +303,7 @@ func FillGaps(ctx context.Context, apiKey, model string, ev *playbook.Evidence, 
 	if err != nil {
 		return fmt.Errorf("profiler: gap API call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 	if err != nil {

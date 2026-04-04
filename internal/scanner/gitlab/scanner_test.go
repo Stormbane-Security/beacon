@@ -14,7 +14,7 @@ func TestCheckPublicRegistration_Enabled(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/users/sign_up" {
 			w.WriteHeader(200)
-			w.Write([]byte(`<html><body><h1>Sign up</h1><form>Register here</form></body></html>`))
+			_, _ = w.Write([]byte(`<html><body><h1>Sign up</h1><form>Register here</form></body></html>`))
 			return
 		}
 		w.WriteHeader(404)
@@ -48,7 +48,7 @@ func TestCheckPrometheusExposed(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/-/metrics" {
 			w.WriteHeader(200)
-			w.Write([]byte("# HELP gitlab_transaction_duration_seconds\n# TYPE gitlab_transaction_duration_seconds histogram\n"))
+			_, _ = w.Write([]byte("# HELP gitlab_transaction_duration_seconds\n# TYPE gitlab_transaction_duration_seconds histogram\n"))
 			return
 		}
 		w.WriteHeader(404)
@@ -68,7 +68,7 @@ func TestCheckPrometheusExposed(t *testing.T) {
 func TestCheckAPIUnauth_Returns401(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)
-		w.Write([]byte(`{"message":"401 Unauthorized"}`))
+		_, _ = w.Write([]byte(`{"message":"401 Unauthorized"}`))
 	}))
 	defer ts.Close()
 
@@ -82,7 +82,7 @@ func TestCheckAPIUnauth_Returns401(t *testing.T) {
 func TestCheckAPIUnauth_ReturnsProjects(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte(`[{"id":1,"path_with_namespace":"org/project"}]`))
+		_, _ = w.Write([]byte(`[{"id":1,"path_with_namespace":"org/project"}]`))
 	}))
 	defer ts.Close()
 

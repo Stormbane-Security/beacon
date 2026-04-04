@@ -200,7 +200,7 @@ func TestFetchFaviconHash_Non200BodyClosedImmediately(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "image/x-icon")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("\x00\x00\x01\x00")) // minimal ICO header bytes
+		_, _ = w.Write([]byte("\x00\x00\x01\x00")) // minimal ICO header bytes
 	}))
 	defer ts.Close()
 
@@ -229,7 +229,7 @@ func TestFetchFaviconHash_200ReturnsHash(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")
 		w.WriteHeader(http.StatusOK)
-		w.Write(faviconData)
+		_, _ = w.Write(faviconData)
 	}))
 	defer ts.Close()
 

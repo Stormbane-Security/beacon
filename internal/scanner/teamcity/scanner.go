@@ -81,7 +81,7 @@ func (s *Scanner) getJSON(ctx context.Context, url string) (*http.Response, []by
 		return nil, nil, err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp, body, nil
 }
 

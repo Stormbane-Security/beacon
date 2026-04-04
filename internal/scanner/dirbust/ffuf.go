@@ -135,7 +135,7 @@ func probeScheme(ctx context.Context, asset string) string {
 	if err == nil {
 		resp, err := client.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return "https"
 		}
 	}

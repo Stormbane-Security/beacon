@@ -141,7 +141,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			// A redirect is NOT SSRF — it's an open redirect at best. SSRF requires
 			// the server to fetch the URL itself and return the fetched content.
@@ -206,8 +206,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if err != nil {
 				continue
 			}
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+			_ = resp.Body.Close()
 
 			if resp.StatusCode < 300 || resp.StatusCode >= 400 {
 				continue
@@ -272,7 +272,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			continue
@@ -336,7 +336,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 				continue
@@ -424,7 +424,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return "https"
 }

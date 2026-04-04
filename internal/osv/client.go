@@ -217,7 +217,7 @@ func (c *Client) queryChunk(ctx context.Context, queries []PackageQuery) ([][]Vu
 	if err != nil {
 		return nil, fmt.Errorf("osv: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

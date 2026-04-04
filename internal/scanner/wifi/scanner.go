@@ -555,8 +555,8 @@ func probeHCXDumpTool(ctx context.Context, hcxPath, asset string) []finding.Find
 		return nil
 	}
 	outFile := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(outFile)
+	_ = tmpFile.Close()
+	defer func() { _ = os.Remove(outFile) }()
 
 	cmd := exec.CommandContext(ctx, hcxPath,
 		"-i", ifaces[0],

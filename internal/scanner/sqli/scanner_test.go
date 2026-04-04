@@ -38,7 +38,7 @@ func TestSQLi_DetectsTimeBased(t *testing.T) {
 			time.Sleep(5 * time.Second)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
@@ -77,7 +77,7 @@ func TestSQLi_NoFalsePositiveConstantTime(t *testing.T) {
 	// Server with constant response time — should not trigger
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
@@ -105,7 +105,7 @@ func TestSQLi_NoFalsePositiveJitter(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(time.Duration(rand.IntN(500)) * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 

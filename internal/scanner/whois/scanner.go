@@ -84,10 +84,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		return nil, nil
 	}
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {

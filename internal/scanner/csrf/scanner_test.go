@@ -23,7 +23,7 @@ func TestCSRF_SkipsSurface(t *testing.T) {
 func TestCSRF_DetectsMissingToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="POST" action="/submit">
 				<input type="text" name="username">
 				<input type="password" name="password">
@@ -57,7 +57,7 @@ func TestCSRF_DetectsMissingToken(t *testing.T) {
 func TestCSRF_SkipsFormWithToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="POST" action="/submit">
 				<input type="hidden" name="csrf_token" value="abc123">
 				<input type="text" name="username">
@@ -87,7 +87,7 @@ func TestCSRF_SkipsFormWithSameSiteCookie(t *testing.T) {
 			SameSite: http.SameSiteStrictMode,
 		})
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="POST" action="/submit">
 				<input type="text" name="username">
 				<button type="submit">Login</button>
@@ -111,7 +111,7 @@ func TestCSRF_SkipsFormWithSameSiteCookie(t *testing.T) {
 func TestCSRF_SkipsGETForms(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="GET" action="/search">
 				<input type="text" name="q">
 				<button type="submit">Search</button>
@@ -135,7 +135,7 @@ func TestCSRF_SkipsGETForms(t *testing.T) {
 func TestCSRF_DetectsRailsToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="POST" action="/users">
 				<input type="hidden" name="authenticity_token" value="xyz789">
 				<input type="text" name="name">
@@ -160,7 +160,7 @@ func TestCSRF_DetectsRailsToken(t *testing.T) {
 func TestCSRF_DetectsDjangoToken(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="POST" action="/api/data">
 				<input type="hidden" name="csrfmiddlewaretoken" value="abc">
 				<input type="text" name="data">
@@ -191,7 +191,7 @@ func TestCSRF_MultipleForms(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form method="POST" action="/login">
 				<input type="text" name="user">
 			</form>

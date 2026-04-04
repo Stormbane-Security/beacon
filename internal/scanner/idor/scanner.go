@@ -240,7 +240,7 @@ func fetch(ctx context.Context, client *http.Client, rawURL string) (int, string
 	}
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode, string(body)
 }

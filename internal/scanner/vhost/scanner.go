@@ -151,7 +151,7 @@ func probeHost(ctx context.Context, client *http.Client, ip, hostname string) *h
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		return &hostResponse{
 			status:  resp.StatusCode,

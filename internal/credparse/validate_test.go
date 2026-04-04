@@ -34,7 +34,7 @@ func TestValidateGitHubToken_Invalid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/user" {
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"message":"Bad credentials"}`))
+			_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

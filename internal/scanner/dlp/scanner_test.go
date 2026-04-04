@@ -181,7 +181,7 @@ func TestSeedPhrase_LabelledPhraseFinds(t *testing.T) {
 func runScannerOnBody(t *testing.T, body string) []finding.Finding {
 	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer ts.Close()
 
@@ -246,9 +246,9 @@ func makeEmailBody(count int, unique bool) string {
 	var sb strings.Builder
 	for i := 0; i < count; i++ {
 		if unique {
-			fmt.Fprintf(&sb, "user%d@example.com ", i)
+			_, _ = fmt.Fprintf(&sb, "user%d@example.com ", i)
 		} else {
-			fmt.Fprint(&sb, "same@example.com ")
+			_, _ = fmt.Fprint(&sb, "same@example.com ")
 		}
 	}
 	return sb.String()
@@ -413,7 +413,7 @@ func TestSSN_InvalidSerial0000Filtered(t *testing.T) {
 
 func TestRun_CancelledContext(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "4111111111111111") // would produce a finding if reached
+		_, _ = fmt.Fprint(w, "4111111111111111") // would produce a finding if reached
 	}))
 	defer ts.Close()
 

@@ -147,7 +147,7 @@ func analyzeImage(ctx context.Context, asset, dataURI, apiKey string) ([]finding
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
@@ -305,7 +305,7 @@ func IdentifyServiceFromScreenshot(ctx context.Context, asset string, scanFindin
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil

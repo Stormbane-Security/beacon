@@ -205,7 +205,7 @@ func checkIntrospection(ctx context.Context, client *http.Client, url string) (b
 	if err != nil {
 		return false, ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return false, ""
@@ -242,7 +242,7 @@ func isGraphQLEndpoint(ctx context.Context, client *http.Client, url string) boo
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}
@@ -274,7 +274,7 @@ func checkBatchQuery(ctx context.Context, client *http.Client, asset, url string
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -362,7 +362,7 @@ func checkPersistedQueryBypass(ctx context.Context, client *http.Client, asset, 
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -431,7 +431,7 @@ func checkGraphQLGET(ctx context.Context, client *http.Client, asset, endpoint s
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -476,7 +476,7 @@ func checkAliasDos(ctx context.Context, client *http.Client, asset, endpoint str
 		if i > 0 {
 			sb.WriteString(", ")
 		}
-		fmt.Fprintf(&sb, "a%d: __typename", i)
+		_, _ = fmt.Fprintf(&sb, "a%d: __typename", i)
 	}
 	sb.WriteString(` }"}`)
 
@@ -492,7 +492,7 @@ func checkAliasDos(ctx context.Context, client *http.Client, asset, endpoint str
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -562,9 +562,9 @@ func checkFragmentDos(ctx context.Context, client *http.Client, asset, endpoint 
 	var sb strings.Builder
 	sb.WriteString(`{"query":"`)
 	for i := range depth - 1 {
-		fmt.Fprintf(&sb, "fragment f%d on Query { ...f%d } ", i, i+1)
+		_, _ = fmt.Fprintf(&sb, "fragment f%d on Query { ...f%d } ", i, i+1)
 	}
-	fmt.Fprintf(&sb, "fragment f%d on Query { __typename } ", depth-1)
+	_, _ = fmt.Fprintf(&sb, "fragment f%d on Query { __typename } ", depth-1)
 	sb.WriteString(`query { ...f0 }")`)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
@@ -579,7 +579,7 @@ func checkFragmentDos(ctx context.Context, client *http.Client, asset, endpoint 
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -652,7 +652,7 @@ func checkDeepNesting(ctx context.Context, client *http.Client, asset, endpoint 
 	var sb strings.Builder
 	sb.WriteString(`{"query":"{ `)
 	for i := range depth {
-		fmt.Fprintf(&sb, "d%d: __typename ", i)
+		_, _ = fmt.Fprintf(&sb, "d%d: __typename ", i)
 		if i < depth-1 {
 			sb.WriteString("... on Query { ")
 		}
@@ -675,7 +675,7 @@ func checkDeepNesting(ctx context.Context, client *http.Client, asset, endpoint 
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}

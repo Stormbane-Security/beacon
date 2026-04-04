@@ -71,7 +71,7 @@ func TestProbeEthRPC_ValidResponse_EmitsFindings(t *testing.T) {
 			})
 		case "net_peerCount":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  "0x19", // 25 peers
@@ -128,7 +128,7 @@ func TestProbeEthRPC_ValidResponse_EmitsFindings(t *testing.T) {
 func TestProbeEthRPC_ErrorResponse_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"error":   map[string]any{"code": -32601, "message": "Method not found"},
@@ -153,7 +153,7 @@ func TestProbeEthRPC_ErrorResponse_ReturnsNil(t *testing.T) {
 func TestProbeEthRPC_EmptyResult_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  "",
@@ -178,7 +178,7 @@ func TestProbeEthRPC_EmptyResult_ReturnsNil(t *testing.T) {
 func TestProbeEthRPC_MalformedJSON_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{invalid json}`))
+		_, _ = w.Write([]byte(`{invalid json}`))
 	}))
 	defer ts.Close()
 
@@ -212,7 +212,7 @@ func TestProbeBeaconNode_ValidResponse_EmitsFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/eth/v1/node/syncing" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"data":{"head_slot":"12345","is_syncing":false}}`))
+			_, _ = w.Write([]byte(`{"data":{"head_slot":"12345","is_syncing":false}}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -245,7 +245,7 @@ func TestProbeBeaconNode_ValidResponse_EmitsFinding(t *testing.T) {
 func TestProbeBeaconNode_NonBeaconResponse_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer ts.Close()
 
@@ -303,7 +303,7 @@ func TestProbeBitcoinRPC_AuthRequired_EmitsFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Verify the 401 detection logic matches what probeBitcoinRPC does.
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -333,7 +333,7 @@ func TestProbeBitcoinRPC_AuthRequired_EmitsFinding(t *testing.T) {
 func TestProbeBitcoinRPC_Unauthenticated_EmitsCritical(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"result":{"chain":"main","blocks":800000},"error":null,"id":1}`))
+		_, _ = w.Write([]byte(`{"result":{"chain":"main","blocks":800000},"error":null,"id":1}`))
 	}))
 	defer ts.Close()
 
@@ -349,7 +349,7 @@ func TestProbeBitcoinRPC_Unauthenticated_EmitsCritical(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// The response contains "chain" and "blocks", so probeBitcoinRPC would emit Critical.
 	if resp.StatusCode != http.StatusOK {
@@ -367,7 +367,7 @@ func TestProbeBitcoinRPC_Unauthenticated_EmitsCritical(t *testing.T) {
 func TestProbeSolanaRPC_ValidResponse_EmitsFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"jsonrpc":"2.0","result":"ok","id":1}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":"ok","id":1}`))
 	}))
 	defer ts.Close()
 
@@ -385,7 +385,7 @@ func TestProbeSolanaRPC_ValidResponse_EmitsFinding(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -426,7 +426,7 @@ func TestProbeSolanaRPC_Non200_ReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
 		t.Error("expected non-200 from test server")
 	}
@@ -440,7 +440,7 @@ func TestProbeCosmosRPC_ValidResponse_EmitsFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/status" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"result":{"node_info":{"id":"abc123"},"sync_info":{"latest_block_height":"1000"}}}`))
+			_, _ = w.Write([]byte(`{"result":{"node_info":{"id":"abc123"},"sync_info":{"latest_block_height":"1000"}}}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -458,7 +458,7 @@ func TestProbeCosmosRPC_ValidResponse_EmitsFinding(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -476,7 +476,7 @@ func TestProbeMetrics_ValidResponse_EmitsFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte("# HELP beacon_head_slot Current head slot\n# TYPE beacon_head_slot gauge\nbeacon_head_slot 12345\n"))
+			_, _ = w.Write([]byte("# HELP beacon_head_slot Current head slot\n# TYPE beacon_head_slot gauge\nbeacon_head_slot 12345\n"))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -509,7 +509,7 @@ func TestProbeMetrics_ValidResponse_EmitsFinding(t *testing.T) {
 func TestProbeMetrics_NonPrometheus_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("just some plain text without metrics"))
+		_, _ = w.Write([]byte("just some plain text without metrics"))
 	}))
 	defer ts.Close()
 
@@ -660,7 +660,7 @@ func TestProbeEthSensitiveMethods_NotMining_NoAccounts(t *testing.T) {
 				"result":  false,
 			})
 		case "eth_accounts":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  []string{},
@@ -695,8 +695,8 @@ func TestProbeEthSensitiveMethods_NotMining_NoAccounts(t *testing.T) {
 	var accountsResp struct {
 		Result []string `json:"result"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&accountsResp)
-	resp2.Body.Close()
+	_ = json.NewDecoder(resp2.Body).Decode(&accountsResp)
+	_ = resp2.Body.Close()
 	if len(accountsResp.Result) != 0 {
 		t.Errorf("expected 0 accounts, got %d", len(accountsResp.Result))
 	}
@@ -792,7 +792,7 @@ func TestRun_StripPort_FromAsset(t *testing.T) {
 func TestGetEthPeerCount_Valid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  "0xa", // 10 peers
@@ -814,7 +814,7 @@ func TestGetEthPeerCount_Valid(t *testing.T) {
 func TestGetEthPeerCount_EmptyResult(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  "",
@@ -835,7 +835,7 @@ func TestGetEthPeerCount_EmptyResult(t *testing.T) {
 
 func TestGetEthPeerCount_MalformedJSON(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`not json`))
+		_, _ = w.Write([]byte(`not json`))
 	}))
 	defer ts.Close()
 

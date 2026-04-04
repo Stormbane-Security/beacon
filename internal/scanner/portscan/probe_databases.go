@@ -281,7 +281,7 @@ func detectNeo4j(ctx context.Context, host string, port int, banner string, make
 		return nil
 	}
 	lb := strings.ToLower(body)
-	if !strings.Contains(lb, "neo4j") && !(strings.Contains(lb, "bolt") && strings.Contains(lb, "transaction")) {
+	if !strings.Contains(lb, "neo4j") && (!strings.Contains(lb, "bolt") || !strings.Contains(lb, "transaction")) {
 		return nil
 	}
 	return []finding.Finding{makeF(

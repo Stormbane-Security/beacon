@@ -238,7 +238,7 @@ func (s *Scanner) doUnauthRequest(ctx context.Context, path string) (int, error)
 		return 0, fmt.Errorf("http request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	return resp.StatusCode, nil
 }
 

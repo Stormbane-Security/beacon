@@ -52,7 +52,7 @@ func TestAIDetect_UnauthenticatedChatEndpoint(t *testing.T) {
 				},
 				"model": "gpt-3.5-turbo",
 			}
-			json.NewEncoder(w).Encode(resp) //nolint:errcheck
+			_ = json.NewEncoder(w).Encode(resp) //nolint:errcheck
 			return
 		}
 		http.NotFound(w, r)

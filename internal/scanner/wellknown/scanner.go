@@ -158,7 +158,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			continue

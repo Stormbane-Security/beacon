@@ -19,7 +19,7 @@ func TestVerbTamperBypass(t *testing.T) {
 			}
 			if r.Method == http.MethodPost {
 				w.WriteHeader(200)
-				w.Write([]byte(`{"admin": true}`))
+				_, _ = w.Write([]byte(`{"admin": true}`))
 				return
 			}
 		}

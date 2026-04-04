@@ -113,7 +113,7 @@ func TestWordPressDetection_PluginFound(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/wp-content/plugins/elementor/readme.txt"):
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, readmeBody)
+			_, _ = fmt.Fprint(w, readmeBody)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -149,7 +149,7 @@ func TestWordPressDetection_VulnerablePlugin(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/wp-content/plugins/elementor/readme.txt"):
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, readmeBody)
+			_, _ = fmt.Fprint(w, readmeBody)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -187,7 +187,7 @@ func TestWordPressDetection_PluginAtThreshold_Vulnerable(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/wp-content/plugins/elementor/readme.txt"):
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, readmeBody)
+			_, _ = fmt.Fprint(w, readmeBody)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -222,7 +222,7 @@ func TestWordPressDetection_PluginAboveThreshold_InfoOnly(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/wp-content/plugins/elementor/readme.txt"):
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, readmeBody)
+			_, _ = fmt.Fprint(w, readmeBody)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -256,7 +256,7 @@ func TestDrupalDetection_ViaHeader(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case strings.Contains(r.URL.Path, "/modules/contrib/webform/webform.info.yml"):
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "version: 5.0.0\n")
+			_, _ = fmt.Fprint(w, "version: 5.0.0\n")
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -290,10 +290,10 @@ func TestGhostDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/ghost/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "<html><title>Ghost Admin</title></html>")
+			_, _ = fmt.Fprint(w, "<html><title>Ghost Admin</title></html>")
 		case "/ghost/api/v3/admin/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"meta":{"version":"5.0"}}`)
+			_, _ = fmt.Fprint(w, `{"meta":{"version":"5.0"}}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -328,10 +328,10 @@ func TestStrapiDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/admin/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `<html><title>Strapi Admin</title><script src="/admin/strapi.js"></script></html>`)
+			_, _ = fmt.Fprint(w, `<html><title>Strapi Admin</title><script src="/admin/strapi.js"></script></html>`)
 		case "/_health":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"status":"ok"}`)
+			_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -366,10 +366,10 @@ func TestDirectusDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/server/info":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"project":{"project_name":"My Project"}}`)
+			_, _ = fmt.Fprint(w, `{"project":{"project_name":"My Project"}}`)
 		case "/server/health":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"status":"ok"}`)
+			_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -404,7 +404,7 @@ func TestPrestaShopDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `<html><meta name="generator" content="PrestaShop"/></html>`)
+			_, _ = fmt.Fprint(w, `<html><meta name="generator" content="PrestaShop"/></html>`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -439,10 +439,10 @@ func TestMagentoDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/magento_version":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "Magento/2.4 (Community)")
+			_, _ = fmt.Fprint(w, "Magento/2.4 (Community)")
 		case "/rest/V1/store/storeConfigs":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `[{"id":1}]`)
+			_, _ = fmt.Fprint(w, `[{"id":1}]`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -477,10 +477,10 @@ func TestTypo3Detection(t *testing.T) {
 		switch r.URL.Path {
 		case "/typo3/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "<html><title>TYPO3 Login</title></html>")
+			_, _ = fmt.Fprint(w, "<html><title>TYPO3 Login</title></html>")
 		case "/typo3conf/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "<html>Directory listing</html>")
+			_, _ = fmt.Fprint(w, "<html>Directory listing</html>")
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -515,7 +515,7 @@ func TestMoodleDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/login/index.php":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `<html><body class="moodle-login">Welcome to Moodle</body></html>`)
+			_, _ = fmt.Fprint(w, `<html><body class="moodle-login">Welcome to Moodle</body></html>`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -550,7 +550,7 @@ func TestCraftCMSDetection(t *testing.T) {
 		switch r.URL.Path {
 		case "/admin/login":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `<html><title>Craft CMS - Login</title></html>`)
+			_, _ = fmt.Fprint(w, `<html><title>Craft CMS - Login</title></html>`)
 		case "/cpresources/":
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -587,13 +587,13 @@ func TestGhostDetection_AdminPathProbed(t *testing.T) {
 		switch r.URL.Path {
 		case "/ghost/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "<html>Ghost Admin</html>")
+			_, _ = fmt.Fprint(w, "<html>Ghost Admin</html>")
 		case "/ghost/api/v3/admin/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"meta":{}}`)
+			_, _ = fmt.Fprint(w, `{"meta":{}}`)
 		case "/content/images/":
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "<html>Directory listing</html>")
+			_, _ = fmt.Fprint(w, "<html>Directory listing</html>")
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

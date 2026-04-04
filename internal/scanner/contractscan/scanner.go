@@ -121,7 +121,7 @@ func analyseSource(ctx context.Context, client *http.Client, address, apiKey str
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	var ethResp struct {
 		Status  string `json:"status"`
@@ -285,7 +285,7 @@ func checkProxyAdmin(ctx context.Context, client *http.Client, address, rpcURL s
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	var rpcResp struct {
 		Result string `json:"result"`
@@ -353,7 +353,7 @@ func probeRPCMethods(ctx context.Context, client *http.Client, address, rpcURL s
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		var rpcResp struct {
 			Result json.RawMessage `json:"result"`

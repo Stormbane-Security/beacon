@@ -128,7 +128,7 @@ func TestXFFEchoDetection(t *testing.T) {
 		xff := r.Header.Get("X-Forwarded-For")
 		w.Header().Set("Server", "nginx")
 		w.WriteHeader(200)
-		w.Write([]byte("Client IP: " + xff))
+		_, _ = w.Write([]byte("Client IP: " + xff))
 	}))
 	defer srv.Close()
 
@@ -155,7 +155,7 @@ func TestTraceDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "TRACE" {
 			w.WriteHeader(200)
-			w.Write([]byte("TRACE / HTTP/1.1\r\nHost: " + r.Host))
+			_, _ = w.Write([]byte("TRACE / HTTP/1.1\r\nHost: " + r.Host))
 			return
 		}
 		w.Header().Set("Server", "nginx")

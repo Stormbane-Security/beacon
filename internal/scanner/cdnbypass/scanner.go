@@ -368,7 +368,7 @@ func fetchPath(ctx context.Context, client *http.Client, target, path, hostHeade
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return string(body), resp.StatusCode
 	}
 	return "", 0
@@ -527,7 +527,7 @@ func detectCDNFromHeaders(ctx context.Context, client *http.Client, asset string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		for _, sig := range cdnHeaderSignatures {
 			val := resp.Header.Get(sig.header)
@@ -691,7 +691,7 @@ func certTransparencyIPs(ctx context.Context, client *http.Client, domain string
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}

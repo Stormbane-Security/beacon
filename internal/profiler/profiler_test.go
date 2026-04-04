@@ -102,7 +102,7 @@ func TestProfile_NoAPIKey_ReturnsError(t *testing.T) {
 func TestProfile_APIError_ReturnsError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"invalid_api_key"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_api_key"}`))
 	}))
 	defer ts.Close()
 

@@ -282,7 +282,7 @@ func (s *Scanner) checkSignature(ctx context.Context, client *http.Client, baseU
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// If the signature tag does not exist (404), the image is unsigned.
 	if resp.StatusCode == http.StatusNotFound {
@@ -324,7 +324,7 @@ func (s *Scanner) testAnonymousPush(ctx context.Context, client *http.Client, ba
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// 202 Accepted means the registry is willing to accept blob uploads without auth.
 	if resp.StatusCode == http.StatusAccepted {

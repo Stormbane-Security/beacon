@@ -191,7 +191,7 @@ func reverseIPLookup(ctx context.Context, client *http.Client, asset, ip string)
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10)) // 64KB
 	if err != nil {
@@ -274,10 +274,10 @@ func certOrgSearch(ctx context.Context, client *http.Client, asset string) *find
 		return nil
 	}
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256KB
 	if err != nil {
@@ -347,10 +347,10 @@ func resolveCertOrg(ctx context.Context, client *http.Client, asset string) stri
 		return ""
 	}
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
@@ -387,10 +387,10 @@ func shodanLookup(ctx context.Context, client *http.Client, asset, ip, apiKey st
 		return nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256KB
 	if err != nil {
@@ -603,11 +603,11 @@ func virusTotalLookup(ctx context.Context, client *http.Client, asset, apiKey st
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
 		return nil
@@ -661,11 +661,11 @@ func censysLookup(ctx context.Context, client *http.Client, asset, ip, apiID, ap
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 128<<10))
 	if err != nil {
 		return nil
@@ -719,11 +719,11 @@ func greyNoiseLookup(ctx context.Context, client *http.Client, asset, ip, apiKey
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
 	if err != nil {
 		return nil
@@ -790,11 +790,11 @@ func securityTrailsLookup(ctx context.Context, client *http.Client, asset, apiKe
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 128<<10))
 	if err != nil {
 		return nil

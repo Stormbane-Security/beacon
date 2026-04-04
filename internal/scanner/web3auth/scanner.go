@@ -566,7 +566,7 @@ func discoverBase(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode < 500 {
 			return u
 		}
@@ -584,7 +584,7 @@ func fetchBody(ctx context.Context, client *http.Client, url string, maxBytes in
 		return ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return string(body)
 }
 
@@ -600,7 +600,7 @@ func discoverSIWEEndpoints(ctx context.Context, client *http.Client, baseURL str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == 200 && looksLikeNonce(body) {
 			nonceURL = path
 			break
@@ -616,7 +616,7 @@ func discoverSIWEEndpoints(ctx context.Context, client *http.Client, baseURL str
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
 			verifyURL = path
 			break
@@ -638,7 +638,7 @@ func fetchFreshNonce(ctx context.Context, client *http.Client, nonceURL string) 
 		return ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return parseNonce(body)
 }
 
@@ -683,8 +683,8 @@ func doVerifyGetCookie(ctx context.Context, client *http.Client, verifyURL, mess
 	if err != nil {
 		return ""
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ""
 	}
@@ -718,8 +718,8 @@ func submitVerify(ctx context.Context, client *http.Client, verifyURL, message, 
 	if err != nil {
 		return false, 0
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 300, resp.StatusCode
 }
 
@@ -757,8 +757,8 @@ func getWithSession(ctx context.Context, client *http.Client, url, cookie string
 	if err != nil {
 		return 0
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	return resp.StatusCode
 }
 
@@ -799,7 +799,7 @@ func parseNonce(body []byte) string {
 	if len(trimmed) >= 8 && len(trimmed) <= 64 {
 		allAlnum := true
 		for _, c := range trimmed {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 				allAlnum = false
 				break
 			}

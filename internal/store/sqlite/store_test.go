@@ -26,7 +26,7 @@ func openTestStore(t *testing.T) *sqlite.Store {
 	if err != nil {
 		t.Fatalf("failed to open test store: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -50,13 +50,13 @@ func TestOpen_IdempotentMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first open: %v", err)
 	}
-	s1.Close()
+	_ = s1.Close()
 
 	s2, err := sqlite.Open(path)
 	if err != nil {
 		t.Fatalf("second open (re-migration): %v", err)
 	}
-	s2.Close()
+	_ = s2.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -123,9 +123,9 @@ func TestListTargets_ReturnsAll(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	s.UpsertTarget(ctx, "a.com")
-	s.UpsertTarget(ctx, "b.com")
-	s.UpsertTarget(ctx, "c.com")
+	_, _ = s.UpsertTarget(ctx, "a.com")
+	_, _ = s.UpsertTarget(ctx, "b.com")
+	_, _ = s.UpsertTarget(ctx, "c.com")
 
 	targets, err := s.ListTargets(ctx)
 	if err != nil {
@@ -185,7 +185,7 @@ func TestGetScanRun_Roundtrip(t *testing.T) {
 
 	run := makeScanRun("example.com")
 	run.Modules = []string{"surface", "github"}
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	got, err := s.GetScanRun(ctx, run.ID)
 	if err != nil {
@@ -217,7 +217,7 @@ func TestUpdateScanRun(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	now := time.Now().UTC()
 	run.Status = store.StatusCompleted
@@ -249,9 +249,9 @@ func TestListScanRuns_ByDomain(t *testing.T) {
 	r1 := makeScanRun("a.com")
 	r2 := makeScanRun("a.com")
 	r3 := makeScanRun("b.com")
-	s.CreateScanRun(ctx, r1)
-	s.CreateScanRun(ctx, r2)
-	s.CreateScanRun(ctx, r3)
+	_ = s.CreateScanRun(ctx, r1)
+	_ = s.CreateScanRun(ctx, r2)
+	_ = s.CreateScanRun(ctx, r3)
 
 	runs, err := s.ListScanRuns(ctx, "a.com")
 	if err != nil {
@@ -282,12 +282,12 @@ func TestListRecentScanRuns(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		r := makeScanRun("example.com")
 		r.StartedAt = time.Now().UTC().Add(time.Duration(i) * time.Second)
-		s.CreateScanRun(ctx, r)
+		_ = s.CreateScanRun(ctx, r)
 		// Simulate completion — UpdateScanRun persists completed_at.
 		r.Status = store.StatusCompleted
 		completedAt := r.StartedAt.Add(time.Second)
 		r.CompletedAt = &completedAt
-		s.UpdateScanRun(ctx, r)
+		_ = s.UpdateScanRun(ctx, r)
 	}
 
 	runs, err := s.ListRecentScanRuns(ctx, 3)
@@ -311,14 +311,14 @@ func TestDeleteScanRun(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	// Add associated data
-	s.SaveFindings(ctx, run.ID, []finding.Finding{
+	_ = s.SaveFindings(ctx, run.ID, []finding.Finding{
 		{CheckID: "test.check", Module: "surface", Scanner: "test", Severity: finding.SeverityHigh,
 			Title: "t", Description: "d", Asset: "a.com", DiscoveredAt: time.Now().UTC()},
 	})
-	s.SaveReport(ctx, &store.Report{ScanRunID: run.ID, Domain: "example.com", HTMLContent: "<h1>test</h1>"})
+	_ = s.SaveReport(ctx, &store.Report{ScanRunID: run.ID, Domain: "example.com", HTMLContent: "<h1>test</h1>"})
 
 	if err := s.DeleteScanRun(ctx, run.ID); err != nil {
 		t.Fatalf("DeleteScanRun: %v", err)
@@ -352,17 +352,17 @@ func TestPurgeOrphanedRuns_DeletesFailedOldRuns(t *testing.T) {
 	old := makeScanRun("example.com")
 	old.Status = store.StatusFailed
 	old.StartedAt = time.Now().UTC().Add(-48 * time.Hour)
-	s.CreateScanRun(ctx, old)
+	_ = s.CreateScanRun(ctx, old)
 
 	recent := makeScanRun("example.com")
 	recent.Status = store.StatusFailed
 	recent.StartedAt = time.Now().UTC()
-	s.CreateScanRun(ctx, recent)
+	_ = s.CreateScanRun(ctx, recent)
 
 	completed := makeScanRun("example.com")
 	completed.Status = store.StatusCompleted
 	completed.StartedAt = time.Now().UTC().Add(-48 * time.Hour)
-	s.CreateScanRun(ctx, completed)
+	_ = s.CreateScanRun(ctx, completed)
 
 	purged, err := s.PurgeOrphanedRuns(ctx, time.Now().UTC().Add(-24*time.Hour))
 	if err != nil {
@@ -387,7 +387,7 @@ func TestPurgeOrphanedRuns_DeletesOrphanedRunning(t *testing.T) {
 	orphan := makeScanRun("example.com")
 	orphan.Status = store.StatusRunning
 	orphan.StartedAt = time.Now().UTC().Add(-5 * time.Hour)
-	s.CreateScanRun(ctx, orphan)
+	_ = s.CreateScanRun(ctx, orphan)
 
 	// olderThan = 1 hour ago, orphan threshold = 3 hours ago
 	purged, err := s.PurgeOrphanedRuns(ctx, time.Now().UTC().Add(-1*time.Hour))
@@ -450,7 +450,7 @@ func TestSaveFindings_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	input := makeFindings(3)
 	if err := s.SaveFindings(ctx, run.ID, input); err != nil {
@@ -483,7 +483,7 @@ func TestSaveFindings_DedupByIndex(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	f := finding.Finding{
 		CheckID: "test.dup", Module: "surface", Scanner: "test",
@@ -492,8 +492,8 @@ func TestSaveFindings_DedupByIndex(t *testing.T) {
 	}
 
 	// Save the same finding twice — should be deduplicated by the UNIQUE index.
-	s.SaveFindings(ctx, run.ID, []finding.Finding{f})
-	s.SaveFindings(ctx, run.ID, []finding.Finding{f})
+	_ = s.SaveFindings(ctx, run.ID, []finding.Finding{f})
+	_ = s.SaveFindings(ctx, run.ID, []finding.Finding{f})
 
 	got, _ := s.GetFindings(ctx, run.ID)
 	if len(got) != 1 {
@@ -519,7 +519,7 @@ func TestSaveFindings_DeepOnlyFlag(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	f := finding.Finding{
 		CheckID: "test.deep", Module: "surface", Scanner: "test",
@@ -527,7 +527,7 @@ func TestSaveFindings_DeepOnlyFlag(t *testing.T) {
 		Description: "d", Asset: "a.com", DeepOnly: true,
 		DiscoveredAt: time.Now().UTC(),
 	}
-	s.SaveFindings(ctx, run.ID, []finding.Finding{f})
+	_ = s.SaveFindings(ctx, run.ID, []finding.Finding{f})
 
 	got, _ := s.GetFindings(ctx, run.ID)
 	if len(got) != 1 || !got[0].DeepOnly {
@@ -553,7 +553,7 @@ func TestSaveEnrichedFindings_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	efs := []enrichment.EnrichedFinding{
 		{
@@ -596,7 +596,7 @@ func TestSaveEnrichedFindings_IdempotentOverwrite(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	ef := enrichment.EnrichedFinding{
 		Finding: finding.Finding{
@@ -608,9 +608,9 @@ func TestSaveEnrichedFindings_IdempotentOverwrite(t *testing.T) {
 		Explanation: "v1",
 	}
 
-	s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{ef})
+	_ = s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{ef})
 	ef.Explanation = "v2"
-	s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{ef})
+	_ = s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{ef})
 
 	got, _ := s.GetEnrichedFindings(ctx, run.ID)
 	if len(got) != 1 {
@@ -644,16 +644,16 @@ func TestGetPreviousEnrichedFindings_ReturnsPrevious(t *testing.T) {
 	prev.StartedAt = time.Now().UTC().Add(-2 * time.Hour)
 	completedTime := time.Now().UTC().Add(-1 * time.Hour)
 	prev.CompletedAt = &completedTime
-	s.CreateScanRun(ctx, prev)
+	_ = s.CreateScanRun(ctx, prev)
 
 	current := makeScanRun("example.com")
 	current.Status = store.StatusCompleted
 	currentComplete := time.Now().UTC()
 	current.CompletedAt = &currentComplete
-	s.CreateScanRun(ctx, current)
+	_ = s.CreateScanRun(ctx, current)
 
 	// Enrich previous run
-	s.SaveEnrichedFindings(ctx, prev.ID, []enrichment.EnrichedFinding{
+	_ = s.SaveEnrichedFindings(ctx, prev.ID, []enrichment.EnrichedFinding{
 		{
 			Finding: finding.Finding{
 				CheckID: "test.prev", Module: "surface", Scanner: "test",
@@ -685,7 +685,7 @@ func TestSaveReport_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	rpt := &store.Report{
 		ScanRunID:   run.ID,
@@ -717,13 +717,13 @@ func TestSaveReport_UpsertOnConflict(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	rpt := &store.Report{ScanRunID: run.ID, Domain: "example.com", HTMLContent: "v1"}
-	s.SaveReport(ctx, rpt)
+	_ = s.SaveReport(ctx, rpt)
 
 	rpt2 := &store.Report{ScanRunID: run.ID, Domain: "example.com", HTMLContent: "v2", Summary: "updated"}
-	s.SaveReport(ctx, rpt2)
+	_ = s.SaveReport(ctx, rpt2)
 
 	got, _ := s.GetReport(ctx, run.ID)
 	if got.HTMLContent != "v2" {
@@ -736,7 +736,7 @@ func TestSaveReport_WithEmailFields(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	emailedAt := time.Now().UTC()
 	rpt := &store.Report{
@@ -746,7 +746,7 @@ func TestSaveReport_WithEmailFields(t *testing.T) {
 		EmailedTo:   "user@example.com",
 		EmailedAt:   &emailedAt,
 	}
-	s.SaveReport(ctx, rpt)
+	_ = s.SaveReport(ctx, rpt)
 
 	got, _ := s.GetReport(ctx, run.ID)
 	if got.EmailedTo != "user@example.com" {
@@ -776,7 +776,7 @@ func TestSaveAssetExecution_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	exec := &store.AssetExecution{
 		ScanRunID:        run.ID,
@@ -874,8 +874,8 @@ func TestSaveUnmatchedAsset_DuplicateFingerprint(t *testing.T) {
 
 	u1 := &store.UnmatchedAsset{ScanRunID: "run-1", Fingerprint: "fp-dup", Asset: "a.com"}
 	u2 := &store.UnmatchedAsset{ScanRunID: "run-2", Fingerprint: "fp-dup", Asset: "b.com"}
-	s.SaveUnmatchedAsset(ctx, u1)
-	s.SaveUnmatchedAsset(ctx, u2)
+	_ = s.SaveUnmatchedAsset(ctx, u1)
+	_ = s.SaveUnmatchedAsset(ctx, u2)
 
 	got, _ := s.ListUnmatchedAssets(ctx)
 	if len(got) != 1 {
@@ -895,7 +895,7 @@ func TestFingerprintExists(t *testing.T) {
 		t.Error("expected false for nonexistent fingerprint")
 	}
 
-	s.SaveUnmatchedAsset(ctx, &store.UnmatchedAsset{
+	_ = s.SaveUnmatchedAsset(ctx, &store.UnmatchedAsset{
 		ScanRunID: "run-1", Fingerprint: "fp-yes", Asset: "a.com",
 	})
 	exists, _ = s.FingerprintExists(ctx, "fp-yes")
@@ -969,8 +969,8 @@ func TestListPlaybookSuggestions_FilterByStatus(t *testing.T) {
 
 	sg1 := &store.PlaybookSuggestion{Type: "new", TargetPlaybook: "a", Status: "pending"}
 	sg2 := &store.PlaybookSuggestion{Type: "new", TargetPlaybook: "b", Status: "merged"}
-	s.SavePlaybookSuggestion(ctx, sg1)
-	s.SavePlaybookSuggestion(ctx, sg2)
+	_ = s.SavePlaybookSuggestion(ctx, sg1)
+	_ = s.SavePlaybookSuggestion(ctx, sg2)
 
 	pending, _ := s.ListPlaybookSuggestions(ctx, "pending")
 	if len(pending) != 1 {
@@ -991,7 +991,7 @@ func TestUpdatePlaybookSuggestion(t *testing.T) {
 	ctx := context.Background()
 
 	sg := &store.PlaybookSuggestion{Type: "new", TargetPlaybook: "x"}
-	s.SavePlaybookSuggestion(ctx, sg)
+	_ = s.SavePlaybookSuggestion(ctx, sg)
 
 	sg.Status = "merged"
 	sg.PRURL = "https://github.com/org/repo/pull/42"
@@ -1048,8 +1048,8 @@ func TestEnrichmentCache_Upsert(t *testing.T) {
 	ctx := context.Background()
 
 	checkID := finding.CheckID("test.cache")
-	s.SaveEnrichmentCache(ctx, checkID, "v1", "v1", "v1")
-	s.SaveEnrichmentCache(ctx, checkID, "v2", "v2", "v2")
+	_ = s.SaveEnrichmentCache(ctx, checkID, "v1", "v1", "v1")
+	_ = s.SaveEnrichmentCache(ctx, checkID, "v2", "v2", "v2")
 
 	exp, _, _, found := s.GetEnrichmentCache(ctx, checkID)
 	if !found {
@@ -1078,7 +1078,7 @@ func TestSaveCorrelationFindings_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	cfs := []store.CorrelationFinding{
 		{
@@ -1172,14 +1172,14 @@ func TestUpsertSuppression_UpdateExisting(t *testing.T) {
 		Domain: "example.com", CheckID: "tls.weak", Asset: "",
 		Status: store.SuppressionAcceptedRisk, Note: "planned fix",
 	}
-	s.UpsertSuppression(ctx, sup)
+	_ = s.UpsertSuppression(ctx, sup)
 
 	// Upsert with same (domain, check_id, asset) key but different status
 	sup2 := &store.FindingSuppression{
 		Domain: "example.com", CheckID: "tls.weak", Asset: "",
 		Status: store.SuppressionWontFix, Note: "deprecated system",
 	}
-	s.UpsertSuppression(ctx, sup2)
+	_ = s.UpsertSuppression(ctx, sup2)
 
 	got, _ := s.ListSuppressions(ctx, "example.com")
 	if len(got) != 1 {
@@ -1201,7 +1201,7 @@ func TestDeleteSuppression(t *testing.T) {
 		Domain: "example.com", CheckID: "test.check", Asset: "",
 		Status: store.SuppressionFalsePositive,
 	}
-	s.UpsertSuppression(ctx, sup)
+	_ = s.UpsertSuppression(ctx, sup)
 
 	got, _ := s.ListSuppressions(ctx, "example.com")
 	if len(got) != 1 {
@@ -1240,7 +1240,7 @@ func TestSaveScannerMetric_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	m := &store.ScannerMetric{
 		ScanRunID:        run.ID,
@@ -1288,7 +1288,7 @@ func TestSaveScannerMetric_SkippedFlag(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	m := &store.ScannerMetric{
 		ScanRunID:   run.ID,
@@ -1298,7 +1298,7 @@ func TestSaveScannerMetric_SkippedFlag(t *testing.T) {
 		SkipReason:  "no auth endpoints",
 		CreatedAt:   time.Now().UTC(),
 	}
-	s.SaveScannerMetric(ctx, m)
+	_ = s.SaveScannerMetric(ctx, m)
 
 	got, _ := s.ListScannerMetrics(ctx, run.ID)
 	if len(got) != 1 {
@@ -1317,7 +1317,7 @@ func TestSaveScannerMetric_ErrorMessage(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	m := &store.ScannerMetric{
 		ScanRunID:    run.ID,
@@ -1327,7 +1327,7 @@ func TestSaveScannerMetric_ErrorMessage(t *testing.T) {
 		ErrorMessage: "TLS handshake timeout",
 		CreatedAt:    time.Now().UTC(),
 	}
-	s.SaveScannerMetric(ctx, m)
+	_ = s.SaveScannerMetric(ctx, m)
 
 	got, _ := s.ListScannerMetrics(ctx, run.ID)
 	if got[0].ErrorMessage != "TLS handshake timeout" {
@@ -1358,7 +1358,7 @@ func TestGetScannerROI(t *testing.T) {
 
 	run := makeScanRun("example.com")
 	run.Status = store.StatusCompleted
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	for _, name := range []string{"cors", "cors", "jwt"} {
 		m := &store.ScannerMetric{
@@ -1369,7 +1369,7 @@ func TestGetScannerROI(t *testing.T) {
 			FindingsHigh: 1,
 			CreatedAt:   time.Now().UTC(),
 		}
-		s.SaveScannerMetric(ctx, m)
+		_ = s.SaveScannerMetric(ctx, m)
 	}
 
 	got, err := s.GetScannerROI(ctx, "example.com")
@@ -1417,7 +1417,7 @@ func TestSaveDiscoveryAudit_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	audits := []store.DiscoveryAudit{
 		{ID: "da-1", ScanRunID: run.ID, Asset: "api.example.com", Source: "subdomain", CreatedAt: time.Now().UTC()},
@@ -1455,14 +1455,14 @@ func TestGetDiscoverySourceSummary(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	audits := []store.DiscoveryAudit{
 		{ID: "da-1", ScanRunID: run.ID, Asset: "a.example.com", Source: "subdomain", CreatedAt: time.Now().UTC()},
 		{ID: "da-2", ScanRunID: run.ID, Asset: "b.example.com", Source: "subdomain", CreatedAt: time.Now().UTC()},
 		{ID: "da-3", ScanRunID: run.ID, Asset: "c.example.com", Source: "passive", CreatedAt: time.Now().UTC()},
 	}
-	s.SaveDiscoveryAudit(ctx, audits)
+	_ = s.SaveDiscoveryAudit(ctx, audits)
 
 	got, err := s.GetDiscoverySourceSummary(ctx, "example.com")
 	if err != nil {
@@ -1515,7 +1515,7 @@ func TestGetFalsePositivePatterns_DetectsPattern(t *testing.T) {
 	run.Status = store.StatusCompleted
 	completedAt := time.Now().UTC()
 	run.CompletedAt = &completedAt
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	// Save a finding
 	f := finding.Finding{
@@ -1523,14 +1523,14 @@ func TestGetFalsePositivePatterns_DetectsPattern(t *testing.T) {
 		Severity: finding.SeverityLow, Title: "SPF Missing",
 		Description: "d", Asset: "example.com", DiscoveredAt: time.Now().UTC(),
 	}
-	s.SaveFindings(ctx, run.ID, []finding.Finding{f})
+	_ = s.SaveFindings(ctx, run.ID, []finding.Finding{f})
 
 	// Save enriched finding with false positive language
 	ef := enrichment.EnrichedFinding{
 		Finding:     f,
 		Explanation: "This is a false positive - the domain has a delegated SPF.",
 	}
-	s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{ef})
+	_ = s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{ef})
 
 	got, err := s.GetFalsePositivePatterns(ctx, "example.com")
 	if err != nil {
@@ -1662,8 +1662,8 @@ func TestUpsertFingerprintRule_IncrementsSeen(t *testing.T) {
 		Field: "proxy_type", Value: "apache",
 		Source: "ai", Status: "active", Confidence: 0.9, SeenCount: 1,
 	}
-	s.UpsertFingerprintRule(ctx, r)
-	s.UpsertFingerprintRule(ctx, r) // second upsert increments seen_count
+	_ = s.UpsertFingerprintRule(ctx, r)
+	_ = s.UpsertFingerprintRule(ctx, r) // second upsert increments seen_count
 
 	got, _ := s.GetFingerprintRules(ctx, "active")
 	if len(got) != 1 {
@@ -1688,8 +1688,8 @@ func TestGetFingerprintRules_FilterByStatus(t *testing.T) {
 		Field: "framework", Value: "wordpress",
 		Source: "ai", Status: "pending", Confidence: 0.7, SeenCount: 1,
 	}
-	s.UpsertFingerprintRule(ctx, active)
-	s.UpsertFingerprintRule(ctx, pending)
+	_ = s.UpsertFingerprintRule(ctx, active)
+	_ = s.UpsertFingerprintRule(ctx, pending)
 
 	// Empty status defaults to active
 	activeRules, _ := s.GetFingerprintRules(ctx, "")
@@ -1712,7 +1712,7 @@ func TestDeleteFingerprintRule(t *testing.T) {
 		Field: "cloud_provider", Value: "aws",
 		Source: "builtin", Status: "active", Confidence: 1.0, SeenCount: 1,
 	}
-	s.UpsertFingerprintRule(ctx, r)
+	_ = s.UpsertFingerprintRule(ctx, r)
 
 	rules, _ := s.GetFingerprintRules(ctx, "active")
 	if len(rules) != 1 {
@@ -1738,13 +1738,13 @@ func TestIncrementFingerprintRuleSeen(t *testing.T) {
 		Field: "framework", Value: "grafana",
 		Source: "builtin", Status: "active", Confidence: 1.0, SeenCount: 1,
 	}
-	s.UpsertFingerprintRule(ctx, r)
+	_ = s.UpsertFingerprintRule(ctx, r)
 
 	rules, _ := s.GetFingerprintRules(ctx, "active")
 	id := rules[0].ID
 
-	s.IncrementFingerprintRuleSeen(ctx, id)
-	s.IncrementFingerprintRuleSeen(ctx, id)
+	_ = s.IncrementFingerprintRuleSeen(ctx, id)
+	_ = s.IncrementFingerprintRuleSeen(ctx, id)
 
 	rules, _ = s.GetFingerprintRules(ctx, "active")
 	if rules[0].SeenCount != 3 {
@@ -1761,21 +1761,21 @@ func TestDeleteScanRun_CascadesAllTables(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	// Populate all child tables
-	s.SaveFindings(ctx, run.ID, makeFindings(2))
-	s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{
+	_ = s.SaveFindings(ctx, run.ID, makeFindings(2))
+	_ = s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{
 		{Finding: finding.Finding{CheckID: "test.a", Asset: "a.com", DiscoveredAt: time.Now().UTC()}, Explanation: "e"},
 	})
-	s.SaveReport(ctx, &store.Report{ScanRunID: run.ID, Domain: "example.com", HTMLContent: "<h1>x</h1>"})
-	s.SaveAssetExecution(ctx, &store.AssetExecution{ScanRunID: run.ID, Asset: "a.com"})
-	s.SaveUnmatchedAsset(ctx, &store.UnmatchedAsset{ScanRunID: run.ID, Fingerprint: "fp-cascade", Asset: "b.com"})
-	s.SaveScannerMetric(ctx, &store.ScannerMetric{ScanRunID: run.ID, Asset: "a.com", ScannerName: "cors", CreatedAt: time.Now().UTC()})
-	s.SaveDiscoveryAudit(ctx, []store.DiscoveryAudit{
+	_ = s.SaveReport(ctx, &store.Report{ScanRunID: run.ID, Domain: "example.com", HTMLContent: "<h1>x</h1>"})
+	_ = s.SaveAssetExecution(ctx, &store.AssetExecution{ScanRunID: run.ID, Asset: "a.com"})
+	_ = s.SaveUnmatchedAsset(ctx, &store.UnmatchedAsset{ScanRunID: run.ID, Fingerprint: "fp-cascade", Asset: "b.com"})
+	_ = s.SaveScannerMetric(ctx, &store.ScannerMetric{ScanRunID: run.ID, Asset: "a.com", ScannerName: "cors", CreatedAt: time.Now().UTC()})
+	_ = s.SaveDiscoveryAudit(ctx, []store.DiscoveryAudit{
 		{ID: "da-c", ScanRunID: run.ID, Asset: "a.com", Source: "subdomain", CreatedAt: time.Now().UTC()},
 	})
-	s.SaveCorrelationFindings(ctx, []store.CorrelationFinding{
+	_ = s.SaveCorrelationFindings(ctx, []store.CorrelationFinding{
 		{ScanRunID: run.ID, Domain: "example.com", Title: "chain", Severity: finding.SeverityHigh},
 	})
 
@@ -1857,7 +1857,7 @@ func TestSaveFindings_DuplicateIDs(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	// Save the same finding multiple times in the same batch — should be deduplicated.
 	f := finding.Finding{
@@ -1865,7 +1865,7 @@ func TestSaveFindings_DuplicateIDs(t *testing.T) {
 		Severity: finding.SeverityLow, Title: "Dup Finding",
 		Description: "d", Asset: "a.com", DiscoveredAt: time.Now().UTC(),
 	}
-	s.SaveFindings(ctx, run.ID, []finding.Finding{f, f, f})
+	_ = s.SaveFindings(ctx, run.ID, []finding.Finding{f, f, f})
 
 	got, _ := s.GetFindings(ctx, run.ID)
 	if len(got) != 1 {
@@ -1911,8 +1911,8 @@ func TestGetPreviousEnrichedFindings_OnlyOneRun(t *testing.T) {
 	run.Status = store.StatusCompleted
 	now := time.Now().UTC()
 	run.CompletedAt = &now
-	s.CreateScanRun(ctx, run)
-	s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{
+	_ = s.CreateScanRun(ctx, run)
+	_ = s.SaveEnrichedFindings(ctx, run.ID, []enrichment.EnrichedFinding{
 		{Finding: finding.Finding{CheckID: "test.a", Asset: "a.com", DiscoveredAt: now}, Explanation: "self"},
 	})
 
@@ -1930,8 +1930,8 @@ func TestDeleteScanRun_CascadesToAssetGraphs(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
-	s.SaveAssetGraph(ctx, run.ID, []byte(`{"nodes":[]}`))
+	_ = s.CreateScanRun(ctx, run)
+	_ = s.SaveAssetGraph(ctx, run.ID, []byte(`{"nodes":[]}`))
 
 	if err := s.DeleteScanRun(ctx, run.ID); err != nil {
 		t.Fatalf("DeleteScanRun: %v", err)
@@ -1948,7 +1948,7 @@ func TestSaveAssetGraph_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	data := []byte(`{"nodes":[{"id":"api.example.com"}],"edges":[]}`)
 	if err := s.SaveAssetGraph(ctx, run.ID, data); err != nil {
@@ -1969,10 +1969,10 @@ func TestSaveAssetGraph_Upsert(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
-	s.SaveAssetGraph(ctx, run.ID, []byte(`{"v":1}`))
-	s.SaveAssetGraph(ctx, run.ID, []byte(`{"v":2}`))
+	_ = s.SaveAssetGraph(ctx, run.ID, []byte(`{"v":1}`))
+	_ = s.SaveAssetGraph(ctx, run.ID, []byte(`{"v":2}`))
 
 	got, _ := s.GetAssetGraph(ctx, run.ID)
 	if string(got) != `{"v":2}` {
@@ -1998,7 +1998,7 @@ func TestSaveCorrelationFindings_AssignsDefaults(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	// No ID or CreatedAt -- should be auto-assigned.
 	cfs := []store.CorrelationFinding{
@@ -2028,14 +2028,14 @@ func TestPurgeOrphanedRuns_AlsoPurgesOrphanedRunning(t *testing.T) {
 	orphan := makeScanRun("example.com")
 	orphan.Status = store.StatusRunning
 	orphan.StartedAt = time.Now().UTC().Add(-5 * time.Hour)
-	s.CreateScanRun(ctx, orphan)
-	s.SaveAssetGraph(ctx, orphan.ID, []byte(`{}`))
+	_ = s.CreateScanRun(ctx, orphan)
+	_ = s.SaveAssetGraph(ctx, orphan.ID, []byte(`{}`))
 
 	// Recent running run (1 hour old) -- NOT orphaned.
 	recent := makeScanRun("example.com")
 	recent.Status = store.StatusRunning
 	recent.StartedAt = time.Now().UTC().Add(-1 * time.Hour)
-	s.CreateScanRun(ctx, recent)
+	_ = s.CreateScanRun(ctx, recent)
 
 	// olderThan = 2 hours ago, orphanThreshold = 4 hours ago.
 	purged, err := s.PurgeOrphanedRuns(ctx, time.Now().UTC().Add(-2*time.Hour))
@@ -2071,7 +2071,7 @@ func TestListRecentScanRuns_NegativeLimit(t *testing.T) {
 		r.Status = store.StatusCompleted
 		completedAt := r.StartedAt.Add(time.Second)
 		r.CompletedAt = &completedAt
-		s.CreateScanRun(ctx, r)
+		_ = s.CreateScanRun(ctx, r)
 	}
 
 	// In SQLite, LIMIT -1 returns all rows (no limit).
@@ -2089,18 +2089,18 @@ func TestDeleteScanRun_DoesNotAffectOtherRuns(t *testing.T) {
 	ctx := context.Background()
 
 	run1 := makeScanRun("a.com")
-	s.CreateScanRun(ctx, run1)
+	_ = s.CreateScanRun(ctx, run1)
 	run2 := makeScanRun("b.com")
-	s.CreateScanRun(ctx, run2)
+	_ = s.CreateScanRun(ctx, run2)
 
-	s.SaveFindings(ctx, run1.ID, makeFindings(1))
-	s.SaveFindings(ctx, run2.ID, makeFindings(1))
-	s.SaveReport(ctx, &store.Report{ScanRunID: run1.ID, Domain: "a.com", HTMLContent: "r1"})
-	s.SaveReport(ctx, &store.Report{ScanRunID: run2.ID, Domain: "b.com", HTMLContent: "r2"})
-	s.SaveAssetGraph(ctx, run1.ID, []byte(`{"r":"1"}`))
-	s.SaveAssetGraph(ctx, run2.ID, []byte(`{"r":"2"}`))
+	_ = s.SaveFindings(ctx, run1.ID, makeFindings(1))
+	_ = s.SaveFindings(ctx, run2.ID, makeFindings(1))
+	_ = s.SaveReport(ctx, &store.Report{ScanRunID: run1.ID, Domain: "a.com", HTMLContent: "r1"})
+	_ = s.SaveReport(ctx, &store.Report{ScanRunID: run2.ID, Domain: "b.com", HTMLContent: "r2"})
+	_ = s.SaveAssetGraph(ctx, run1.ID, []byte(`{"r":"1"}`))
+	_ = s.SaveAssetGraph(ctx, run2.ID, []byte(`{"r":"2"}`))
 
-	s.DeleteScanRun(ctx, run1.ID)
+	_ = s.DeleteScanRun(ctx, run1.ID)
 
 	// run2 should be unaffected.
 	if _, err := s.GetScanRun(ctx, run2.ID); err != nil {
@@ -2136,8 +2136,8 @@ func TestUpsertSuppression_EmptyAssetMeansAllAssets(t *testing.T) {
 		Domain: "example.com", CheckID: "cors.wildcard", Asset: "",
 		Status: store.SuppressionAcceptedRisk,
 	}
-	s.UpsertSuppression(ctx, sup1)
-	s.UpsertSuppression(ctx, sup2)
+	_ = s.UpsertSuppression(ctx, sup1)
+	_ = s.UpsertSuppression(ctx, sup2)
 
 	got, _ := s.ListSuppressions(ctx, "example.com")
 	if len(got) != 2 {
@@ -2192,14 +2192,14 @@ func TestSaveReport_AssignsIDAndTimestamp(t *testing.T) {
 	ctx := context.Background()
 
 	run := makeScanRun("example.com")
-	s.CreateScanRun(ctx, run)
+	_ = s.CreateScanRun(ctx, run)
 
 	rpt := &store.Report{
 		ScanRunID:   run.ID,
 		Domain:      "example.com",
 		HTMLContent: "<h1>test</h1>",
 	}
-	s.SaveReport(ctx, rpt)
+	_ = s.SaveReport(ctx, rpt)
 
 	if rpt.ID == "" {
 		t.Error("expected auto-assigned report ID")
@@ -2215,7 +2215,7 @@ func TestSavePlaybookSuggestion_DefaultStatus(t *testing.T) {
 
 	// Status not set -- should default to "pending".
 	sg := &store.PlaybookSuggestion{Type: "new", TargetPlaybook: "test"}
-	s.SavePlaybookSuggestion(ctx, sg)
+	_ = s.SavePlaybookSuggestion(ctx, sg)
 
 	if sg.Status != "pending" {
 		t.Errorf("status = %q; want %q (default)", sg.Status, "pending")
@@ -2241,8 +2241,8 @@ func TestListAllScanRuns_ReturnsAllDomains(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	s.UpsertTarget(ctx, "a.com")
-	s.UpsertTarget(ctx, "b.com")
+	_, _ = s.UpsertTarget(ctx, "a.com")
+	_, _ = s.UpsertTarget(ctx, "b.com")
 
 	for _, d := range []string{"a.com", "b.com", "a.com"} {
 		tgt, _ := s.GetTarget(ctx, d)
@@ -2253,7 +2253,7 @@ func TestListAllScanRuns_ReturnsAllDomains(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: time.Now(),
 		}
-		s.CreateScanRun(ctx, run)
+		_ = s.CreateScanRun(ctx, run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx, 50)
@@ -2269,7 +2269,7 @@ func TestListAllScanRuns_SortedDesc(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	s.UpsertTarget(ctx, "x.com")
+	_, _ = s.UpsertTarget(ctx, "x.com")
 	tgt, _ := s.GetTarget(ctx, "x.com")
 
 	now := time.Now()
@@ -2281,7 +2281,7 @@ func TestListAllScanRuns_SortedDesc(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: now.Add(time.Duration(i) * time.Minute),
 		}
-		s.CreateScanRun(ctx, run)
+		_ = s.CreateScanRun(ctx, run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx, 50)
@@ -2299,7 +2299,7 @@ func TestListAllScanRuns_RespectsLimit(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	s.UpsertTarget(ctx, "x.com")
+	_, _ = s.UpsertTarget(ctx, "x.com")
 	tgt, _ := s.GetTarget(ctx, "x.com")
 
 	for i := 0; i < 10; i++ {
@@ -2310,7 +2310,7 @@ func TestListAllScanRuns_RespectsLimit(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		s.CreateScanRun(ctx, run)
+		_ = s.CreateScanRun(ctx, run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx, 3)
@@ -2326,7 +2326,7 @@ func TestListAllScanRuns_LimitZeroDefaultsTo50(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	s.UpsertTarget(ctx, "x.com")
+	_, _ = s.UpsertTarget(ctx, "x.com")
 	tgt, _ := s.GetTarget(ctx, "x.com")
 
 	for i := 0; i < 60; i++ {
@@ -2337,7 +2337,7 @@ func TestListAllScanRuns_LimitZeroDefaultsTo50(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		s.CreateScanRun(ctx, run)
+		_ = s.CreateScanRun(ctx, run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx, 0)
@@ -2353,7 +2353,7 @@ func TestListAllScanRuns_NegativeLimit(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	s.UpsertTarget(ctx, "x.com")
+	_, _ = s.UpsertTarget(ctx, "x.com")
 	tgt, _ := s.GetTarget(ctx, "x.com")
 
 	for i := 0; i < 55; i++ {
@@ -2364,7 +2364,7 @@ func TestListAllScanRuns_NegativeLimit(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		s.CreateScanRun(ctx, run)
+		_ = s.CreateScanRun(ctx, run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx, -1)

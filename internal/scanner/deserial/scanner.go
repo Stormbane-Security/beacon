@@ -152,7 +152,7 @@ func scanResponsesForMagicBytes(ctx context.Context, client *http.Client, asset,
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := string(body)
 		detected := ""
@@ -221,7 +221,7 @@ func probeJavaDeserialization(ctx context.Context, client *http.Client, asset, b
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := string(body)
 		// Java deserialization exceptions expose the stack trace or class name.
@@ -293,7 +293,7 @@ func probeDotNetDeserialize(ctx context.Context, client *http.Client, asset, bas
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == http.StatusNotFound {
 			continue
@@ -393,7 +393,7 @@ func probeJavaVersionGadget(ctx context.Context, client *http.Client, asset, bas
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := string(body)
 		if bytes.Contains(body, javaMagic) || strings.Contains(bodyStr, javaMagicB64) {
@@ -411,8 +411,8 @@ func probeJavaVersionGadget(ctx context.Context, client *http.Client, asset, bas
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	server := resp.Header.Get("Server")
 	poweredBy := resp.Header.Get("X-Powered-By")
@@ -525,7 +525,7 @@ func probePythonPickle(ctx context.Context, client *http.Client, asset, base str
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		bodyStr := string(body)
 		// Python pickle errors that indicate deserialization was attempted.

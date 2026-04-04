@@ -153,7 +153,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					}
 
 					body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-					resp.Body.Close()
+					_ = resp.Body.Close()
 
 					if resp.StatusCode == http.StatusNotFound {
 						continue
@@ -251,8 +251,8 @@ func isNotFound(ctx context.Context, client *http.Client, rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusNotFound
 }
 
@@ -269,7 +269,7 @@ func baselineOccurrences(ctx context.Context, client *http.Client, rawURL, expec
 		return 0
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return countOccurrences(expect, string(body))
 }
 
@@ -297,7 +297,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+	_ = resp.Body.Close()
 	return "https"
 }

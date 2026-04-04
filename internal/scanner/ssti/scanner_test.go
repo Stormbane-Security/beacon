@@ -19,10 +19,10 @@ func TestSSTI_Jinja2Detected(t *testing.T) {
 		q := r.URL.Query().Get("q")
 		// Simulate Jinja2-style template evaluation.
 		if strings.Contains(q, "{{7*7}}") {
-			fmt.Fprintln(w, "Result: 49")
+			_, _ = fmt.Fprintln(w, "Result: 49")
 			return
 		}
-		fmt.Fprintln(w, "Search results")
+		_, _ = fmt.Fprintln(w, "Search results")
 	}))
 	defer srv.Close()
 
@@ -54,10 +54,10 @@ func TestSSTI_FreeMarkerDetected(t *testing.T) {
 		q := r.URL.Query().Get("q")
 		// Simulate FreeMarker/EL evaluation.
 		if strings.Contains(q, "${7*7}") {
-			fmt.Fprintln(w, "Output: 49")
+			_, _ = fmt.Fprintln(w, "Output: 49")
 			return
 		}
-		fmt.Fprintln(w, "No results")
+		_, _ = fmt.Fprintln(w, "No results")
 	}))
 	defer srv.Close()
 
@@ -107,7 +107,7 @@ func TestSSTI_SkippedInSurfaceMode(t *testing.T) {
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
-		fmt.Fprintln(w, "hello")
+		_, _ = fmt.Fprintln(w, "hello")
 	}))
 	defer srv.Close()
 
@@ -152,7 +152,7 @@ func TestSSTI_BaselineContains49_NoFalsePositive(t *testing.T) {
 	// Server that always returns "49" in the body regardless of input.
 	// The delta check should suppress this because the baseline also has "49".
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Showing 49 results for your query")
+		_, _ = fmt.Fprintln(w, "Showing 49 results for your query")
 	}))
 	defer srv.Close()
 
@@ -176,7 +176,7 @@ func TestSSTI_SkippedInDeepMode(t *testing.T) {
 	probed := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		probed = true
-		fmt.Fprintln(w, "hello")
+		_, _ = fmt.Fprintln(w, "hello")
 	}))
 	defer srv.Close()
 
@@ -201,10 +201,10 @@ func TestSSTI_Jinja2StringRepeat_Detected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "{{7*'7'}}") {
-			fmt.Fprintln(w, "Result: 7777777")
+			_, _ = fmt.Fprintln(w, "Result: 7777777")
 			return
 		}
-		fmt.Fprintln(w, "Search results")
+		_, _ = fmt.Fprintln(w, "Search results")
 	}))
 	defer srv.Close()
 

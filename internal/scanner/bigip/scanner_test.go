@@ -55,7 +55,7 @@ func TestBigIPCookieDetection(t *testing.T) {
 			Value: "167772161.20480.0000",
 		})
 		w.WriteHeader(200)
-		fmt.Fprint(w, "OK")
+		_, _ = fmt.Fprint(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -83,7 +83,7 @@ func TestBigIPCookieDetection(t *testing.T) {
 func TestNoBigIPCookie(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		fmt.Fprint(w, "OK")
+		_, _ = fmt.Fprint(w, "OK")
 	}))
 	defer srv.Close()
 

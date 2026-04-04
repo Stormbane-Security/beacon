@@ -348,8 +348,8 @@ func detectNetdata(ctx context.Context, host string, port int, banner string, ma
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
-	if !strings.Contains(bodyLow, "netdata") && !(strings.Contains(bodyLow, "hostname") &&
-		strings.Contains(bodyLow, "os_name")) {
+	if !strings.Contains(bodyLow, "netdata") && (!strings.Contains(bodyLow, "hostname") ||
+		!strings.Contains(bodyLow, "os_name")) {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -527,8 +527,8 @@ func detectVLLM(ctx context.Context, host string, port int, banner string, makeF
 		return nil
 	}
 	bodyLow := strings.ToLower(vbody)
-	if !strings.Contains(bodyLow, "vllm") && !(strings.Contains(bodyLow, `"owned_by"`) &&
-		strings.Contains(bodyLow, "data") && strings.Contains(bodyLow, "model")) {
+	if !strings.Contains(bodyLow, "vllm") && (!strings.Contains(bodyLow, `"owned_by"`) ||
+		!strings.Contains(bodyLow, "data") || !strings.Contains(bodyLow, "model")) {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -575,8 +575,8 @@ func detectAdGuardHome(ctx context.Context, host string, port int, banner string
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
-	if !strings.Contains(bodyLow, "dns_addresses") && !(strings.Contains(bodyLow, "running") &&
-		strings.Contains(bodyLow, "version")) {
+	if !strings.Contains(bodyLow, "dns_addresses") && (!strings.Contains(bodyLow, "running") ||
+		!strings.Contains(bodyLow, "version")) {
 		return nil
 	}
 	return []finding.Finding{makeF(

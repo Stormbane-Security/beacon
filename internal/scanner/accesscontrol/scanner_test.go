@@ -48,7 +48,7 @@ func TestSurfaceMode_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return an admin page that would normally trigger a finding.
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><title>Admin Dashboard</title><body>Management Settings Users Control Panel</body></html>"))
+		_, _ = w.Write([]byte("<html><title>Admin Dashboard</title><body>Management Settings Users Control Panel</body></html>"))
 	}))
 	defer ts.Close()
 
@@ -70,7 +70,7 @@ func TestAdminPath_200WithAdminContent_CriticalFinding(t *testing.T) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusOK)
 			// Body with 2+ admin signals to pass looksLikeAdminPage.
-			w.Write([]byte("<html><title>Admin Dashboard</title><body>User Management Settings</body></html>"))
+			_, _ = w.Write([]byte("<html><title>Admin Dashboard</title><body>User Management Settings</body></html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -94,7 +94,7 @@ func TestAdminPath_200WithAdminContent_EvidenceFields(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><title>Admin Dashboard</title><body>System Configuration Users</body></html>"))
+			_, _ = w.Write([]byte("<html><title>Admin Dashboard</title><body>System Configuration Users</body></html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -133,7 +133,7 @@ func TestAdminPath_200WithGenericContent_NoFinding(t *testing.T) {
 	// Server returns 200 but body has fewer than 2 admin signals.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Welcome to our website</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Welcome to our website</body></html>"))
 	}))
 	defer ts.Close()
 
@@ -172,12 +172,12 @@ func TestMethodBypass_GET403_POST200_HighFinding(t *testing.T) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			if r.Method == http.MethodGet {
 				w.WriteHeader(http.StatusForbidden)
-				w.Write([]byte("Forbidden"))
+				_, _ = w.Write([]byte("Forbidden"))
 				return
 			}
 			// POST (and other methods) bypass the auth check.
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Admin panel content"))
+			_, _ = w.Write([]byte("Admin panel content"))
 			return
 		}
 		http.NotFound(w, r)
@@ -205,7 +205,7 @@ func TestMethodBypass_EvidenceFields(t *testing.T) {
 				return
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Bypassed"))
+			_, _ = w.Write([]byte("Bypassed"))
 			return
 		}
 		http.NotFound(w, r)
@@ -248,7 +248,7 @@ func TestMethodBypass_GET403_AllMethods403_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Forbidden"))
+			_, _ = w.Write([]byte("Forbidden"))
 			return
 		}
 		http.NotFound(w, r)
@@ -270,7 +270,7 @@ func TestMethodBypass_GET200_NoMethodProbing(t *testing.T) {
 	// if the body looks like admin content, or nothing happens if it doesn't).
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer ts.Close()
 
@@ -322,7 +322,7 @@ func TestPathTraversalBypass_GET403_VariantReturns200_HighFinding(t *testing.T) 
 		for _, blocked := range []string{"/admin", "/admin/", "/dashboard", "/console"} {
 			if path == blocked {
 				w.WriteHeader(http.StatusForbidden)
-				w.Write([]byte("Forbidden"))
+				_, _ = w.Write([]byte("Forbidden"))
 				return
 			}
 		}
@@ -330,7 +330,7 @@ func TestPathTraversalBypass_GET403_VariantReturns200_HighFinding(t *testing.T) 
 		// Path variant using uppercase bypasses the naive auth middleware.
 		if strings.EqualFold(path, "/admin") || strings.EqualFold(path, "/dashboard") {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Admin bypass content"))
+			_, _ = w.Write([]byte("Admin bypass content"))
 			return
 		}
 
@@ -361,7 +361,7 @@ func TestPathTraversalBypass_EvidenceFields(t *testing.T) {
 		// Trailing dot variant bypasses auth.
 		if path == "/admin/." {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Bypassed via trailing dot"))
+			_, _ = w.Write([]byte("Bypassed via trailing dot"))
 			return
 		}
 		http.NotFound(w, r)
@@ -408,13 +408,13 @@ func TestPathTraversalBypass_GET401_VariantReturns200_HighFinding(t *testing.T) 
 		path := r.URL.Path
 		if path == "/admin" || path == "/admin/" {
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("Unauthorized"))
+			_, _ = w.Write([]byte("Unauthorized"))
 			return
 		}
 		// Case variation bypasses auth.
 		if strings.EqualFold(path, "/admin") {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Admin bypass content"))
+			_, _ = w.Write([]byte("Admin bypass content"))
 			return
 		}
 		http.NotFound(w, r)
@@ -436,7 +436,7 @@ func TestPathTraversalBypass_GET403_AllVariants403_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Block everything under admin paths regardless of variant.
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("Forbidden"))
+		_, _ = w.Write([]byte("Forbidden"))
 	}))
 	defer ts.Close()
 
@@ -458,12 +458,12 @@ func TestPathTraversalBypass_VariantReturnsSameBodyAs403_NoFinding(t *testing.T)
 		path := r.URL.Path
 		if path == "/admin" || path == "/admin/" {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(forbiddenBody))
+			_, _ = w.Write([]byte(forbiddenBody))
 			return
 		}
 		// Variant returns 200 but identical body.
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(forbiddenBody))
+		_, _ = w.Write([]byte(forbiddenBody))
 	}))
 	defer ts.Close()
 
@@ -485,7 +485,7 @@ func TestAuthorizedMode_FindingsEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><title>Admin</title><body>Dashboard Management System Users</body></html>"))
+			_, _ = w.Write([]byte("<html><title>Admin</title><body>Dashboard Management System Users</body></html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -510,7 +510,7 @@ func TestProofCommand_ContainsActualURL(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html>Admin Dashboard Management System Users Settings</html>"))
+			_, _ = w.Write([]byte("<html>Admin Dashboard Management System Users Settings</html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -564,7 +564,7 @@ func TestUnreachableServer_NoFindingsNoPanic(t *testing.T) {
 func TestContextCancelled_NoPanic(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html>Admin Dashboard Management System</html>"))
+		_, _ = w.Write([]byte("<html>Admin Dashboard Management System</html>"))
 	}))
 	defer ts.Close()
 
@@ -592,7 +592,7 @@ func TestMultipleAdminPaths_FindingsPerPath(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if adminPages[r.URL.Path] {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html>Admin Dashboard Users Management Settings Configuration</html>"))
+			_, _ = w.Write([]byte("<html>Admin Dashboard Users Management Settings Configuration</html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -631,7 +631,7 @@ func TestMethodBypass_OnlyOnePerPath(t *testing.T) {
 			}
 			// All non-GET methods succeed.
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Bypassed"))
+			_, _ = w.Write([]byte("Bypassed"))
 			return
 		}
 		http.NotFound(w, r)
@@ -666,12 +666,12 @@ func TestPathTraversalBypass_OnlyOnePerPath(t *testing.T) {
 		path := r.URL.Path
 		if path == "/admin" || path == "/admin/" {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Forbidden"))
+			_, _ = w.Write([]byte("Forbidden"))
 			return
 		}
 		// Multiple path variants would bypass auth.
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Different content from the forbidden page"))
+		_, _ = w.Write([]byte("Different content from the forbidden page"))
 	}))
 	defer ts.Close()
 
@@ -701,7 +701,7 @@ func TestAdminPath_200WithOnlyOneSignal_NoFinding(t *testing.T) {
 	// Body has only one admin signal ("admin") — should not trigger.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Contact the admin for help</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Contact the admin for help</body></html>"))
 	}))
 	defer ts.Close()
 
@@ -720,7 +720,7 @@ func TestAdminPath_200WithTwoSignals_Finding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html><body>Dashboard - Users list</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Dashboard - Users list</body></html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -746,7 +746,7 @@ func TestAdminAccess_SkipsMethodAndTraversalChecks(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" || r.URL.Path == "/admin/" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("<html>Admin Dashboard Management System Users Settings</html>"))
+			_, _ = w.Write([]byte("<html>Admin Dashboard Management System Users Settings</html>"))
 			return
 		}
 		http.NotFound(w, r)
@@ -786,7 +786,7 @@ func TestAllFindings_ModuleAndScannerSet(t *testing.T) {
 				return
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Bypassed"))
+			_, _ = w.Write([]byte("Bypassed"))
 			return
 		}
 		http.NotFound(w, r)

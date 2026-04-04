@@ -237,7 +237,7 @@ func detectPulsarAdmin(ctx context.Context, host string, port int, banner string
 	}
 	bodyLow := strings.ToLower(body)
 	if !strings.Contains(bodyLow, "standalone") && !strings.Contains(bodyLow, "pulsar") &&
-		!(strings.HasPrefix(strings.TrimSpace(body), "[") && strings.Contains(body, `"`)) {
+		(!strings.HasPrefix(strings.TrimSpace(body), "[") || !strings.Contains(body, `"`)) {
 		return nil
 	}
 	return []finding.Finding{makeF(

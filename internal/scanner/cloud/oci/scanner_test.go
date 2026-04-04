@@ -1055,7 +1055,7 @@ func TestScanObjectStorage_PublicBucketAndNoCMEK(t *testing.T) {
 	mux.HandleFunc("/n/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/n/" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode("testnamespace")
+			_ = json.NewEncoder(w).Encode("testnamespace")
 			return
 		}
 		// Bucket detail endpoint: /n/{namespace}/b/{name}/
@@ -1082,7 +1082,7 @@ func TestScanObjectStorage_PublicBucketAndNoCMEK(t *testing.T) {
 				}
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(detail)
+			_ = json.NewEncoder(w).Encode(detail)
 			return
 		}
 		// Bucket list endpoint: /n/{namespace}/b/?compartmentId=...
@@ -1092,7 +1092,7 @@ func TestScanObjectStorage_PublicBucketAndNoCMEK(t *testing.T) {
 				{Name: "secure-bucket", Namespace: "testnamespace", CompartmentID: "ocid1.compartment.oc1..test"},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(buckets)
+			_ = json.NewEncoder(w).Encode(buckets)
 			return
 		}
 		http.NotFound(w, r)
@@ -1130,7 +1130,7 @@ func TestScanObjectStorage_AllSecure_NoFindings(t *testing.T) {
 	mux.HandleFunc("/n/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/n/" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode("testns")
+			_ = json.NewEncoder(w).Encode("testns")
 			return
 		}
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -1143,7 +1143,7 @@ func TestScanObjectStorage_AllSecure_NoFindings(t *testing.T) {
 				KmsKeyID:         "ocid1.key.oc1..aaa",
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(detail)
+			_ = json.NewEncoder(w).Encode(detail)
 			return
 		}
 		if len(parts) == 3 && parts[0] == "n" && parts[2] == "b" {
@@ -1151,7 +1151,7 @@ func TestScanObjectStorage_AllSecure_NoFindings(t *testing.T) {
 				{Name: "good-bucket", Namespace: "testns", CompartmentID: "ocid1.compartment.oc1..test"},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(buckets)
+			_ = json.NewEncoder(w).Encode(buckets)
 			return
 		}
 		http.NotFound(w, r)
@@ -1177,7 +1177,7 @@ func TestScanObjectStorage_NamespaceAPIFailure(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/n/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"code":"InternalServerError","message":"service unavailable"}`))
+		_, _ = w.Write([]byte(`{"code":"InternalServerError","message":"service unavailable"}`))
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1201,7 +1201,7 @@ func TestScanNetwork_SecurityListAllOpen(t *testing.T) {
 			{ID: "ocid1.vcn.oc1..test", DisplayName: "test-vcn", CompartmentID: "ocid1.compartment.oc1..test"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(vcns)
+		_ = json.NewEncoder(w).Encode(vcns)
 	})
 
 	// Security lists.
@@ -1217,13 +1217,13 @@ func TestScanNetwork_SecurityListAllOpen(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sls)
+		_ = json.NewEncoder(w).Encode(sls)
 	})
 
 	// NSGs (empty).
 	mux.HandleFunc("/20160918/networkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]nsgSummary{})
+		_ = json.NewEncoder(w).Encode([]nsgSummary{})
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1248,12 +1248,12 @@ func TestScanNetwork_NSGAllOpen(t *testing.T) {
 			{ID: "ocid1.vcn.oc1..test", DisplayName: "test-vcn", CompartmentID: "ocid1.compartment.oc1..test"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(vcns)
+		_ = json.NewEncoder(w).Encode(vcns)
 	})
 
 	mux.HandleFunc("/20160918/securityLists", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]securityList{})
+		_ = json.NewEncoder(w).Encode([]securityList{})
 	})
 
 	// NSG rules endpoint (more specific path, must be registered first).
@@ -1262,7 +1262,7 @@ func TestScanNetwork_NSGAllOpen(t *testing.T) {
 			{ID: "rule1", Direction: "INGRESS", Protocol: "all", Source: "0.0.0.0/0", SourceType: "CIDR_BLOCK"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rules)
+		_ = json.NewEncoder(w).Encode(rules)
 	})
 
 	// NSG list endpoint.
@@ -1271,7 +1271,7 @@ func TestScanNetwork_NSGAllOpen(t *testing.T) {
 			{ID: "ocid1.nsg.oc1..test", DisplayName: "bad-nsg", VcnID: "ocid1.vcn.oc1..test"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(nsgs)
+		_ = json.NewEncoder(w).Encode(nsgs)
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1293,7 +1293,7 @@ func TestScanNetwork_AllSecure_NoFindings(t *testing.T) {
 			{ID: "ocid1.vcn.oc1..test", DisplayName: "test-vcn", CompartmentID: "ocid1.compartment.oc1..test"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(vcns)
+		_ = json.NewEncoder(w).Encode(vcns)
 	})
 
 	mux.HandleFunc("/20160918/securityLists", func(w http.ResponseWriter, r *http.Request) {
@@ -1315,7 +1315,7 @@ func TestScanNetwork_AllSecure_NoFindings(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sls)
+		_ = json.NewEncoder(w).Encode(sls)
 	})
 
 	mux.HandleFunc("/20160918/networkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
@@ -1333,14 +1333,14 @@ func TestScanNetwork_AllSecure_NoFindings(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(rules)
+			_ = json.NewEncoder(w).Encode(rules)
 			return
 		}
 		nsgs := []nsgSummary{
 			{ID: "ocid1.nsg.oc1..test", DisplayName: "good-nsg", VcnID: "ocid1.vcn.oc1..test"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(nsgs)
+		_ = json.NewEncoder(w).Encode(nsgs)
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1363,7 +1363,7 @@ func TestScanNetwork_VCNListAPIFailure(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/20160918/vcns", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"code":"NotAuthorized","message":"not authorized"}`))
+		_, _ = w.Write([]byte(`{"code":"NotAuthorized","message":"not authorized"}`))
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1393,7 +1393,7 @@ func TestScanVault_KeyNoRotation(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(vaults)
+		_ = json.NewEncoder(w).Encode(vaults)
 	})
 
 	// Key detail endpoint (more specific, must be registered before the list).
@@ -1407,7 +1407,7 @@ func TestScanVault_KeyNoRotation(t *testing.T) {
 			AutoKeyRotationDetails: nil,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(detail)
+		_ = json.NewEncoder(w).Encode(detail)
 	})
 
 	// Key list endpoint.
@@ -1421,7 +1421,7 @@ func TestScanVault_KeyNoRotation(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(keys)
+		_ = json.NewEncoder(w).Encode(keys)
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1452,7 +1452,7 @@ func TestScanVault_InactiveVaultsSkipped(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(vaults)
+		_ = json.NewEncoder(w).Encode(vaults)
 	})
 
 	ts := httptest.NewServer(mux)
@@ -1472,7 +1472,7 @@ func TestScanVault_APIFailure(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/20180608/vaults", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"code":"InternalServerError"}`))
+		_, _ = w.Write([]byte(`{"code":"InternalServerError"}`))
 	})
 
 	ts := httptest.NewServer(mux)

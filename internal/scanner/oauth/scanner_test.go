@@ -26,7 +26,7 @@ func TestOAuth_JWKSExposed(t *testing.T) {
 		case "/.well-known/jwks.json":
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"keys":[{"kty":"RSA","n":"abc","e":"AQAB"}]}`))
+			_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","n":"abc","e":"AQAB"}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -69,7 +69,7 @@ func TestOAuth_JWKS_200WithoutKeysField_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/jwks.json" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"certificates":[]}`))
+			_, _ = w.Write([]byte(`{"certificates":[]}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -174,7 +174,7 @@ func TestOAuth_OIDCDiscovery_ParsedAndChecked(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-configuration" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(oidcDoc(t, doc))
+			_, _ = w.Write(oidcDoc(t, doc))
 			return
 		}
 		http.NotFound(w, r)
@@ -205,7 +205,7 @@ func TestOAuth_TokenEndpoint_CorrectlyRejects_NoFinding(t *testing.T) {
 		if r.URL.Path == "/oauth/token" && r.Method == http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"invalid_client","error_description":"Client authentication failed"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"Client authentication failed"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -223,7 +223,7 @@ func TestOAuth_TokenEndpoint_400WithInvalidRequest_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oauth/token" {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error":"invalid_request"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid_request"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -243,7 +243,7 @@ func TestOAuth_TokenEndpoint_Returns200_FindingEmitted(t *testing.T) {
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token":"eyJhbGciOiJIUzI1NiJ9.test.test","token_type":"bearer"}`))
+			_, _ = w.Write([]byte(`{"access_token":"eyJhbGciOiJIUzI1NiJ9.test.test","token_type":"bearer"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -262,7 +262,7 @@ func TestOAuth_TokenEndpoint_Returns200_FindingEmitted(t *testing.T) {
 func TestOAuth_MissingState_ServerRejectsWithStateError_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid_request","error_description":"state parameter is required"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"state parameter is required"}`))
 	}))
 	defer srv.Close()
 
@@ -294,7 +294,7 @@ func TestOAuth_MissingState_InvalidClientRejection_NoFinding(t *testing.T) {
 	// Server rejects the probe due to unknown client_id — can't conclude anything.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid_client","error_description":"client not found"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"client not found"}`))
 	}))
 	defer srv.Close()
 
@@ -310,7 +310,7 @@ func TestOAuth_MissingState_InvalidClientRejection_NoFinding(t *testing.T) {
 func TestOAuth_MissingPKCE_ServerEnforces_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid_request","error_description":"code_challenge is required"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"code_challenge is required"}`))
 	}))
 	defer srv.Close()
 
@@ -382,7 +382,7 @@ func TestOAuth_OpenRedirect_Rejected_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Server validates redirect_uri and rejects unknown domains.
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid_request","error_description":"redirect_uri not registered"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"redirect_uri not registered"}`))
 	}))
 	defer srv.Close()
 
@@ -442,7 +442,7 @@ func TestOAuth_JWTNoVerification_200WithFakeJWT_CriticalFinding(t *testing.T) {
 			// Accepts JWT without verifying signature.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"id":1,"email":"admin@example.com","admin":true}`))
+			_, _ = w.Write([]byte(`{"id":1,"email":"admin@example.com","admin":true}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -466,7 +466,7 @@ func TestOAuth_JWTNoVerification_401WithFakeJWT_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Server properly validates JWT and rejects invalid signature.
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"invalid_token","error_description":"Signature verification failed"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid_token","error_description":"Signature verification failed"}`))
 	}))
 	defer srv.Close()
 
@@ -482,7 +482,7 @@ func TestOAuth_JWTNoVerification_200WithErrorBody_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/me" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"error":"invalid token provided"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid token provided"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -506,7 +506,7 @@ func TestOAuth_TokenEndpoint_BlockchainAPI400NonOAuthBody_NoFinding(t *testing.T
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			// No grant_type, access_token, token_type, "error":, client_id, oauth — pure API error.
-			w.Write([]byte(`{"status":"0","message":"NOTOK","result":"Max rate limit reached, please use API Key for higher rate limit"}`))
+			_, _ = w.Write([]byte(`{"status":"0","message":"NOTOK","result":"Max rate limit reached, please use API Key for higher rate limit"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -527,7 +527,7 @@ func TestOAuth_TokenEndpoint_400WithGrantTypeButNoProperRejection_FindingEmitted
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"message":"Unknown grant_type","code":400}`))
+			_, _ = w.Write([]byte(`{"message":"Unknown grant_type","code":400}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -551,7 +551,7 @@ func TestOAuth_TokenEndpoint_400WithInvalidScope_FindingEmitted(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			// "invalid_scope" means server accepted the client but rejected the scope.
-			w.Write([]byte(`{"error":"invalid_scope","error_description":"requested scope is invalid","grant_type":"client_credentials"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid_scope","error_description":"requested scope is invalid","grant_type":"client_credentials"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -572,7 +572,7 @@ func TestOAuth_TokenEndpoint_400WithInvalidToken_FindingEmitted(t *testing.T) {
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error":"invalid_token","error_description":"The access token is invalid","oauth":"2.0"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid_token","error_description":"The access token is invalid","oauth":"2.0"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -677,7 +677,7 @@ func TestOAuth_TokenLongExpiry_Exactly86400_NoBoundaryFinding(t *testing.T) {
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token":"abc","expires_in":86400}`))
+			_, _ = w.Write([]byte(`{"access_token":"abc","expires_in":86400}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -696,7 +696,7 @@ func TestOAuth_TokenLongExpiry_Over24h_FindingEmitted(t *testing.T) {
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token":"abc","expires_in":90000}`)) // 25 hours
+			_, _ = w.Write([]byte(`{"access_token":"abc","expires_in":90000}`)) // 25 hours
 			return
 		}
 		http.NotFound(w, r)
@@ -722,7 +722,7 @@ func TestOAuth_TokenLongExpiry_NonJSONBody_NoFinding(t *testing.T) {
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<html><body>Error: maintenance mode</body></html>`))
+			_, _ = w.Write([]byte(`<html><body>Error: maintenance mode</body></html>`))
 			return
 		}
 		http.NotFound(w, r)
@@ -744,7 +744,7 @@ func TestOAuth_RefreshNotRotated_NoRefreshTokenInResponse_Skipped(t *testing.T) 
 		if r.URL.Path == "/oauth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token":"abc","token_type":"bearer"}`))
+			_, _ = w.Write([]byte(`{"access_token":"abc","token_type":"bearer"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -772,7 +772,7 @@ func TestOAuth_RefreshNotRotated_SecondUseRejected_NoFinding(t *testing.T) {
 			// First call (client_credentials): return a refresh token.
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"access_token":"at1","refresh_token":"rt1","token_type":"bearer"}`))
+			_, _ = w.Write([]byte(`{"access_token":"at1","refresh_token":"rt1","token_type":"bearer"}`))
 			return
 		}
 		if r.FormValue("grant_type") == "refresh_token" {
@@ -780,12 +780,12 @@ func TestOAuth_RefreshNotRotated_SecondUseRejected_NoFinding(t *testing.T) {
 				// First refresh use: accepted.
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"access_token":"at2","token_type":"bearer"}`))
+				_, _ = w.Write([]byte(`{"access_token":"at2","token_type":"bearer"}`))
 				return
 			}
 			// Second refresh use: rejected (token rotated/invalidated).
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"invalid_grant"}`))
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -822,7 +822,7 @@ func TestOAuth_ScanAuthorized_RunsDeepChecks(t *testing.T) {
 			}
 			b, _ := json.Marshal(doc)
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(b)
+			_, _ = w.Write(b)
 		case "/authorize":
 			// Accept the authorization request without checking state — vulnerable.
 			w.Header().Set("Location", "https://example.com/callback?code=abc123")
@@ -880,7 +880,7 @@ func TestOAuthTokenEndpointTruncatedJSON(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			// Truncated JSON: missing closing brace and value.
-			w.Write([]byte(`{"access_token":`))
+			_, _ = w.Write([]byte(`{"access_token":`))
 			return
 		}
 		http.NotFound(w, r)

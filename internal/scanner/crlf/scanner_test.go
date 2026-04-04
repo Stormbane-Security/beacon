@@ -103,7 +103,7 @@ func TestCRLF_NoRedirectParams(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Server completely ignores redirect params and returns a plain page.
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Home</body></html>")) //nolint:errcheck
+		_, _ = w.Write([]byte("<html><body>Home</body></html>")) //nolint:errcheck
 	}))
 	defer srv.Close()
 

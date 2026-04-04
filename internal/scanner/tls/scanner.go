@@ -96,7 +96,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	if err != nil {
 		return nil, nil // host not reachable over TLS — skip silently
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	if len(chain) == 0 {
 		return nil, nil
@@ -470,7 +470,7 @@ func checkOCSPRevocation(ctx context.Context, leaf *x509.Certificate, chain []*x
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil
@@ -546,8 +546,8 @@ func checkHSTS(ctx context.Context, asset string, now time.Time) []finding.Findi
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	hsts := resp.Header.Get("Strict-Transport-Security")
 	if hsts == "" {
@@ -654,7 +654,7 @@ func tlsHandshake(ctx context.Context, host, port string, cfg *tls.Config) (*tls
 	tlsConn := tls.Client(netConn, cfg)
 	_ = tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
-		netConn.Close()
+		_ = netConn.Close()
 		return nil, tls.ConnectionState{}, nil, err
 	}
 
@@ -706,7 +706,7 @@ func rawTLSProbeAccepted(ctx context.Context, host, port string, version uint16)
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	// Build a minimal TLS ClientHello.
@@ -816,7 +816,7 @@ func supportsTLS13(ctx context.Context, host, port string) bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 

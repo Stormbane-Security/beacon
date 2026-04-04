@@ -34,18 +34,18 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 	b.WriteString(thick + "\n")
 	b.WriteString(center("BEACON SECURITY REPORT", textWidth) + "\n")
 	b.WriteString(thick + "\n")
-	fmt.Fprintf(&b, "  Domain:     %s\n", run.Domain)
-	fmt.Fprintf(&b, "  Scan type:  %s\n", run.ScanType)
-	fmt.Fprintf(&b, "  Started:    %s\n", run.StartedAt.Format("2006-01-02 15:04"))
+	_, _ = fmt.Fprintf(&b, "  Domain:     %s\n", run.Domain)
+	_, _ = fmt.Fprintf(&b, "  Scan type:  %s\n", run.ScanType)
+	_, _ = fmt.Fprintf(&b, "  Started:    %s\n", run.StartedAt.Format("2006-01-02 15:04"))
 	if run.CompletedAt != nil {
-		fmt.Fprintf(&b, "  Completed:  %s\n", run.CompletedAt.Format("2006-01-02 15:04"))
+		_, _ = fmt.Fprintf(&b, "  Completed:  %s\n", run.CompletedAt.Format("2006-01-02 15:04"))
 	}
 	b.WriteString(sep + "\n")
 
 	// Severity counts
 	counts := countSeverities(enriched)
 	b.WriteString("\nSUMMARY\n")
-	fmt.Fprintf(&b, "  Critical %-4d  High %-4d  Medium %-4d  Low %-4d  Info %-4d  Total %d\n\n",
+	_, _ = fmt.Fprintf(&b, "  Critical %-4d  High %-4d  Medium %-4d  Low %-4d  Info %-4d  Total %d\n\n",
 		counts[finding.SeverityCritical],
 		counts[finding.SeverityHigh],
 		counts[finding.SeverityMedium],
@@ -72,7 +72,7 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 			}
 		}
 		b.WriteString("\n" + sep + "\n")
-		fmt.Fprintf(&b, "\nASSET INVENTORY (%d assets, %d clean)\n", len(inv), clean)
+		_, _ = fmt.Fprintf(&b, "\nASSET INVENTORY (%d assets, %d clean)\n", len(inv), clean)
 		b.WriteString(sep + "\n\n")
 		techW := 0
 		for _, e := range inv {
@@ -83,7 +83,7 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 		if techW < 4 {
 			techW = 4
 		}
-		fmt.Fprintf(&b, "  %-45s  %-*s  findings\n", "Asset", techW, "Tech")
+		_, _ = fmt.Fprintf(&b, "  %-45s  %-*s  findings\n", "Asset", techW, "Tech")
 		b.WriteString("  " + strings.Repeat("─", 45) + "  " + strings.Repeat("─", techW) + "  ─────────\n")
 		for _, e := range inv {
 			var parts []string
@@ -106,7 +106,7 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 					findStr += "  (" + strings.Join(parts, " ") + ")"
 				}
 			}
-			fmt.Fprintf(&b, "  %-45s  %-*s  %s\n", e.asset, techW, e.tech, findStr)
+			_, _ = fmt.Fprintf(&b, "  %-45s  %-*s  %s\n", e.asset, techW, e.tech, findStr)
 		}
 	}
 
@@ -128,7 +128,7 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 
 	// Findings grouped by severity (descending)
 	b.WriteString("\n" + sep + "\n")
-	fmt.Fprintf(&b, "\nFINDINGS (%d)\n", len(enriched))
+	_, _ = fmt.Fprintf(&b, "\nFINDINGS (%d)\n", len(enriched))
 	b.WriteString(sep + "\n")
 
 	order := []finding.Severity{
@@ -144,14 +144,14 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 				continue
 			}
 			label := strings.ToUpper(SeverityLabel(ef.Finding.Severity))
-			fmt.Fprintf(&b, "\n[%s]  %s\n", label, ef.Finding.Title)
-			fmt.Fprintf(&b, "  Asset:  %s\n", ef.Finding.Asset)
-			fmt.Fprintf(&b, "  Check:  %s\n", ef.Finding.CheckID)
+			_, _ = fmt.Fprintf(&b, "\n[%s]  %s\n", label, ef.Finding.Title)
+			_, _ = fmt.Fprintf(&b, "  Asset:  %s\n", ef.Finding.Asset)
+			_, _ = fmt.Fprintf(&b, "  Check:  %s\n", ef.Finding.CheckID)
 			if ef.Finding.DiscoveredAt != (time.Time{}) {
-				fmt.Fprintf(&b, "  Found:  %s\n", ef.Finding.DiscoveredAt.Format("2006-01-02 15:04"))
+				_, _ = fmt.Fprintf(&b, "  Found:  %s\n", ef.Finding.DiscoveredAt.Format("2006-01-02 15:04"))
 			}
 			if ef.DeltaStatus != "" {
-				fmt.Fprintf(&b, "  Status: %s\n", ef.DeltaStatus)
+				_, _ = fmt.Fprintf(&b, "  Status: %s\n", ef.DeltaStatus)
 			}
 			if ef.Explanation != "" {
 				b.WriteString("\n")
@@ -174,7 +174,7 @@ func RenderText(run store.ScanRun, enriched []enrichment.EnrichedFinding, summar
 				b.WriteString("\n")
 			}
 			if len(ef.ComplianceTags) > 0 {
-				fmt.Fprintf(&b, "\n  Compliance: %s\n", strings.Join(ef.ComplianceTags, ", "))
+				_, _ = fmt.Fprintf(&b, "\n  Compliance: %s\n", strings.Join(ef.ComplianceTags, ", "))
 			}
 			proofCmd := ef.Finding.ProofCommand
 			if proofCmd == "" {

@@ -14,11 +14,11 @@ func TestStackTraceDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, "<html><body>OK</body></html>")
+			_, _ = fmt.Fprint(w, "<html><body>OK</body></html>")
 			return
 		}
 		w.WriteHeader(500)
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 <h1>Internal Server Error</h1>
 <pre>
 Traceback (most recent call last):
@@ -57,7 +57,7 @@ func TestDebugEndpointDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/debug/pprof/" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, `<html>
+			_, _ = fmt.Fprint(w, `<html>
 <body>
 <h1>pprof</h1>
 goroutines: 42
@@ -68,7 +68,7 @@ cmdline: /app/server
 			return
 		}
 		w.WriteHeader(404)
-		fmt.Fprint(w, "not found")
+		_, _ = fmt.Fprint(w, "not found")
 	}))
 	defer srv.Close()
 
@@ -97,11 +97,11 @@ func TestNoFalsePositiveOnCleanServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, "<html><body>Welcome</body></html>")
+			_, _ = fmt.Fprint(w, "<html><body>Welcome</body></html>")
 			return
 		}
 		w.WriteHeader(404)
-		fmt.Fprint(w, `{"error":"not found"}`)
+		_, _ = fmt.Fprint(w, `{"error":"not found"}`)
 	}))
 	defer srv.Close()
 
@@ -123,7 +123,7 @@ func TestJavaStackTrace(t *testing.T) {
 			return
 		}
 		w.WriteHeader(500)
-		fmt.Fprint(w, `java.lang.NullPointerException
+		_, _ = fmt.Fprint(w, `java.lang.NullPointerException
 	at com.example.app.UserService.getUser(UserService.java:42)
 	at com.example.app.Controller.handle(Controller.java:15)
 	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)`)
@@ -148,7 +148,7 @@ func TestDotNetStackTrace(t *testing.T) {
 			return
 		}
 		w.WriteHeader(500)
-		fmt.Fprint(w, `Server Error in '/' Application.
+		_, _ = fmt.Fprint(w, `Server Error in '/' Application.
 System.NullReferenceException: Object reference not set to an instance of an object.
    at MyApp.Controllers.HomeController.Index() in C:\Projects\MyApp\Controllers\HomeController.cs:15`)
 	}))
@@ -172,7 +172,7 @@ func TestDjangoDebugMode(t *testing.T) {
 			return
 		}
 		w.WriteHeader(500)
-		fmt.Fprint(w, `<!DOCTYPE html>
+		_, _ = fmt.Fprint(w, `<!DOCTYPE html>
 <html><head><title>Page not found at /test</title></head>
 <body>
 <div id="info">

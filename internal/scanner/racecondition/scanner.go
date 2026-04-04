@@ -106,8 +106,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, probeResp.Body)
-		probeResp.Body.Close()
+		_, _ = io.Copy(io.Discard, probeResp.Body)
+		_ = probeResp.Body.Close()
 
 		// Skip endpoints that don't exist or aren't accepting requests.
 		if probeResp.StatusCode == 404 || probeResp.StatusCode == 405 {
@@ -141,7 +141,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					return
 				}
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				results[idx] = result{status: resp.StatusCode, body: string(body)}
 			}(i)
 		}

@@ -92,7 +92,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	if err != nil {
 		return nil, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 404 means no breaches found — not an error.
 	if resp.StatusCode == http.StatusNotFound {

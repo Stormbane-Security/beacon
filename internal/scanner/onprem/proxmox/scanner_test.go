@@ -54,7 +54,7 @@ func (a *pveAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // jsonResponse writes v as JSON with status 200.
 func jsonResponse(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(v) //nolint:errcheck
 }
 
 // pveData wraps a value in the standard Proxmox {"data": ...} envelope.
@@ -839,7 +839,7 @@ func TestVersionAPIError_ScanError(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error")) //nolint:errcheck
+		_, _ = w.Write([]byte("internal error")) //nolint:errcheck
 	}
 	api := &pveAPI{handlers: handlers}
 	ts := httptest.NewServer(api)

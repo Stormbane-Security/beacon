@@ -46,7 +46,7 @@ func TestRun_DeepMode_JavaMagicBytesInResponse_FindingEmitted(t *testing.T) {
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.WriteHeader(http.StatusOK)
 			// Write Java magic bytes: 0xACED0005
-			w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73, 0x72})
+			_, _ = w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73, 0x72})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -80,7 +80,7 @@ func TestRun_DeepMode_JavaExceptionOnPost_CriticalFinding(t *testing.T) {
 			ct := r.Header.Get("Content-Type")
 			if strings.Contains(ct, "java-serialized-object") {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("java.io.InvalidClassException: ClassNotFoundException: com.example.Gadget\n\tat java.io.ObjectStreamClass.initNonProxy"))
+				_, _ = w.Write([]byte("java.io.InvalidClassException: ClassNotFoundException: com.example.Gadget\n\tat java.io.ObjectStreamClass.initNonProxy"))
 				return
 			}
 		}
@@ -110,7 +110,7 @@ func TestRun_DeepMode_NormalJSONResponse_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","data":[]}`))
+		_, _ = w.Write([]byte(`{"status":"ok","data":[]}`))
 	}))
 	defer ts.Close()
 
@@ -151,7 +151,7 @@ func TestScanResponsesForMagicBytes_PHPSerializedObject_FindingEmitted(t *testin
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`O:4:"User":2:{s:4:"name";s:5:"admin";s:4:"role";s:5:"admin";}`))
+			_, _ = w.Write([]byte(`O:4:"User":2:{s:4:"name";s:5:"admin";s:4:"role";s:5:"admin";}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -183,7 +183,7 @@ func TestScanResponsesForMagicBytes_PHPNamespacedClass_FindingEmitted(t *testing
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/session" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`O:22:"App\Models\UserSession":3:{s:2:"id";i:1;s:4:"name";s:3:"bob";s:5:"admin";b:0;}`))
+			_, _ = w.Write([]byte(`O:22:"App\Models\UserSession":3:{s:2:"id";i:1;s:4:"name";s:3:"bob";s:5:"admin";b:0;}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -205,7 +205,7 @@ func TestScanResponsesForMagicBytes_NotPHP_ColonInJSON_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"type":"O:thing","count":42}`))
+		_, _ = w.Write([]byte(`{"type":"O:thing","count":42}`))
 	}))
 	defer ts.Close()
 
@@ -227,7 +227,7 @@ func TestScanResponsesForMagicBytes_Base64JavaMagic_FindingEmitted(t *testing.T)
 			w.WriteHeader(http.StatusOK)
 			// "rO0AB" is the base64 encoding of 0xACED0005 — the scanner checks
 			// for this string when raw bytes are not present.
-			w.Write([]byte(`{"token":"rO0ABXNyABRqYXZhLnV0aWwuSGFzaE1hcA"}`))
+			_, _ = w.Write([]byte(`{"token":"rO0ABXNyABRqYXZhLnV0aWwuSGFzaE1hcA"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -252,7 +252,7 @@ func TestScanResponsesForMagicBytes_Base64NoMagic_NoFinding(t *testing.T) {
 	// A response containing a base64 string that does NOT start with rO0AB.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"token":"dGhpcyBpcyBub3QgamF2YQ=="}`))
+		_, _ = w.Write([]byte(`{"token":"dGhpcyBpcyBub3QgamF2YQ=="}`))
 	}))
 	defer ts.Close()
 
@@ -272,7 +272,7 @@ func TestProbeDotNetDeserialize_ViewStateOnly_FindingEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<html><body>
+			_, _ = w.Write([]byte(`<html><body>
 				<form method="post">
 				<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="dDwxNTQzOTQ0NjAx" />
 				<input type="submit" value="Login" />
@@ -312,7 +312,7 @@ func TestProbeDotNetDeserialize_ViewStateAndEventValidation_FindingEmitted(t *te
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<html><body>
+			_, _ = w.Write([]byte(`<html><body>
 				<form method="post">
 				<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="dDwxNTQzOTQ0NjAx" />
 				<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="dGVzdHZhbGlk" />
@@ -350,7 +350,7 @@ func TestProbeDotNetDeserialize_UnencryptedViewState_CriticalSeverity(t *testing
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<html><body>
+			_, _ = w.Write([]byte(`<html><body>
 				<form method="post">
 				<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="/wEPDwUKMTI2NTAzNjQ3MQ9kFgI=" />
 				<input type="submit" value="Submit" />
@@ -382,7 +382,7 @@ func TestProbeDotNetDeserialize_NoViewState_NoFinding(t *testing.T) {
 	// Normal HTML page without any ASP.NET markers.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<html><body><h1>Welcome</h1></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><h1>Welcome</h1></body></html>`))
 	}))
 	defer ts.Close()
 
@@ -398,7 +398,7 @@ func TestProbeDotNetDeserialize_404Page_NoFinding(t *testing.T) {
 	// coincidentally contains __VIEWSTATE text.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`<html><input type="hidden" name="__VIEWSTATE" value="abc123" /></html>`))
+		_, _ = w.Write([]byte(`<html><input type="hidden" name="__VIEWSTATE" value="abc123" /></html>`))
 	}))
 	defer ts.Close()
 
@@ -414,7 +414,7 @@ func TestProbeDotNetDeserialize_LoginAspx_FindingEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login.aspx" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<form><input type="hidden" name="__VIEWSTATE" value="abc123def" /></form>`))
+			_, _ = w.Write([]byte(`<form><input type="hidden" name="__VIEWSTATE" value="abc123def" /></form>`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -445,7 +445,7 @@ func TestProbeJavaVersionGadget_Java8WithDeserialEndpoint_CriticalFinding(t *tes
 		if r.URL.Path == "/api" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
 			// Return Java serialized magic bytes to mark this as a deser endpoint.
-			w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73, 0x72})
+			_, _ = w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73, 0x72})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -479,7 +479,7 @@ func TestProbeJavaVersionGadget_Tomcat9WithDeserialEndpoint_CriticalFinding(t *t
 
 		if r.URL.Path == "/rpc" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x00, 0x00})
+			_, _ = w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x00, 0x00})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -504,7 +504,7 @@ func TestProbeJavaVersionGadget_NoDeserialEndpoint_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Powered-By", "Java/1.8.0_301")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer ts.Close()
 
@@ -522,7 +522,7 @@ func TestProbeJavaVersionGadget_NoJavaHeaders_NoFinding(t *testing.T) {
 
 		if r.URL.Path == "/api" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73, 0x72})
+			_, _ = w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73, 0x72})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -543,7 +543,7 @@ func TestProbeJavaVersionGadget_JBossWithDeserialEndpoint_CriticalFinding(t *tes
 
 		if r.URL.Path == "/invoke" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73})
+			_, _ = w.Write([]byte{0xAC, 0xED, 0x00, 0x05, 0x73})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -572,7 +572,7 @@ func TestProbeJavaVersionGadget_Base64MagicOnProbePath_FindingEmitted(t *testing
 
 		if r.URL.Path == "/execute" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`rO0ABXNyABRqYXZhLnV0aWwuSGFzaE1hcA==`))
+			_, _ = w.Write([]byte(`rO0ABXNyABRqYXZhLnV0aWwuSGFzaE1hcA==`))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -604,7 +604,7 @@ func TestProbeJavaDeserialization_StreamCorruptedException_FindingEmitted(t *tes
 			ct := r.Header.Get("Content-Type")
 			if strings.Contains(ct, "java-serialized-object") {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("java.io.StreamCorruptedException: invalid stream header: 72303041"))
+				_, _ = w.Write([]byte("java.io.StreamCorruptedException: invalid stream header: 72303041"))
 				return
 			}
 		}
@@ -628,7 +628,7 @@ func TestProbeJavaDeserialization_200OK_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("java.io.StreamCorruptedException: this is just documentation"))
+			_, _ = w.Write([]byte("java.io.StreamCorruptedException: this is just documentation"))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -650,7 +650,7 @@ func TestRun_DeepMode_PHPObjectInResponse_FindingEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/session" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`O:7:"Session":1:{s:4:"data";s:6:"foobar";}`))
+			_, _ = w.Write([]byte(`O:7:"Session":1:{s:4:"data";s:6:"foobar";}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -682,7 +682,7 @@ func TestRun_DeepMode_DotNetViewState_FindingEmitted(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/default.aspx" && r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<html><form><input type="hidden" name="__VIEWSTATE" value="/wEPDwUKMTI=" /></form></html>`))
+			_, _ = w.Write([]byte(`<html><form><input type="hidden" name="__VIEWSTATE" value="/wEPDwUKMTI=" /></form></html>`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

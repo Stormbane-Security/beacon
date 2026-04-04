@@ -25,13 +25,13 @@ func mockSIWEServer(t *testing.T, rejectNonceReuse bool, rejectWrongDomain bool)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body><button id="connectWallet">Sign In With Ethereum</button></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><button id="connectWallet">Sign In With Ethereum</button></body></html>`))
 	})
 
 	mux.HandleFunc("/api/auth/nonce", func(w http.ResponseWriter, r *http.Request) {
 		n := nonceCounter.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"nonce":"testNonce%d"}`, n)
+		_, _ = fmt.Fprintf(w, `{"nonce":"testNonce%d"}`, n)
 	})
 
 	mux.HandleFunc("/api/auth/verify", func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func mockSIWEServer(t *testing.T, rejectNonceReuse bool, rejectWrongDomain bool)
 		usedNonces[nonce] = true
 		http.SetCookie(w, &http.Cookie{Name: "session", Value: "mock-session-token"})
 		w.WriteHeader(200)
-		w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
 	return httptest.NewServer(mux)
@@ -139,7 +139,7 @@ func TestSIWE_SurfaceDetectsEndpoint(t *testing.T) {
 // TestSIWE_PageSignalDetected verifies SIWE detection via page content (no nonce endpoint).
 func TestSIWE_PageSignalDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><body><script>if (window.ethereum) connectWallet();</script></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><script>if (window.ethereum) connectWallet();</script></body></html>`))
 	}))
 	defer srv.Close()
 
@@ -256,7 +256,7 @@ func TestSIWE_NonceReuseNotFlaggedWhenRejected(t *testing.T) {
 func TestSIWE_NoFindingsOnPlainServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			w.Write([]byte(`<html><body><p>Hello world</p></body></html>`))
+			_, _ = w.Write([]byte(`<html><body><p>Hello world</p></body></html>`))
 			return
 		}
 		http.NotFound(w, r)
@@ -354,7 +354,7 @@ func TestSIWS_BuildMessageContainsFields(t *testing.T) {
 // TestWeb3Auth_DetectsEVMAndSolanaSignals verifies both protocol signals are detected.
 func TestWeb3Auth_DetectsEVMAndSolanaSignals(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<script>if (window.ethereum) connectEVM();</script>
 			<script>if (window.solana) connectPhantom();</script>
 		</body></html>`))
@@ -479,7 +479,7 @@ func TestSIWE_SIWEOverHTTP_FlaggedWhenHTTPAndEVMSignals(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "text/html")
-			w.Write([]byte(`<html><body><script>if (window.ethereum) { connectWallet(); }</script></body></html>`))
+			_, _ = w.Write([]byte(`<html><body><script>if (window.ethereum) { connectWallet(); }</script></body></html>`))
 			return
 		}
 		http.NotFound(w, r)
@@ -537,11 +537,11 @@ func TestSIWE_ChainMismatchNotFlaggedWhenEnforced(t *testing.T) {
 	var nonceCounter atomic.Int64
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><body>Sign In With Ethereum</body></html>`))
+		_, _ = w.Write([]byte(`<html><body>Sign In With Ethereum</body></html>`))
 	})
 	mux.HandleFunc("/api/auth/nonce", func(w http.ResponseWriter, r *http.Request) {
 		n := nonceCounter.Add(1)
-		fmt.Fprintf(w, `{"nonce":"chainTestNonce%d"}`, n)
+		_, _ = fmt.Fprintf(w, `{"nonce":"chainTestNonce%d"}`, n)
 	})
 	mux.HandleFunc("/api/auth/verify", func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
@@ -584,11 +584,11 @@ func TestSIWE_URIMismatchNotFlaggedWhenEnforced(t *testing.T) {
 	var nonceCounter atomic.Int64
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html><body>Sign In With Ethereum</body></html>`))
+		_, _ = w.Write([]byte(`<html><body>Sign In With Ethereum</body></html>`))
 	})
 	mux.HandleFunc("/api/auth/nonce", func(w http.ResponseWriter, r *http.Request) {
 		n := nonceCounter.Add(1)
-		fmt.Fprintf(w, `{"nonce":"uriTestNonce%d"}`, n)
+		_, _ = fmt.Fprintf(w, `{"nonce":"uriTestNonce%d"}`, n)
 	})
 	mux.HandleFunc("/api/auth/verify", func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {

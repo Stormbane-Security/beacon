@@ -67,7 +67,7 @@ func scanRDS(ctx context.Context, cfg awscfg.Config, accountID, region, asset st
 					addr := net.JoinHostPort(awscfg.ToString(db.Endpoint.Address), fmt.Sprintf("%d", awscfg.ToInt32(db.Endpoint.Port)))
 					conn, dialErr := net.DialTimeout("tcp", addr, 5*time.Second)
 					if dialErr == nil {
-						conn.Close()
+						_ = conn.Close()
 						findings = append(findings, finding.Finding{
 							CheckID: finding.CheckCloudAWSRDSPublicReachable,
 							Title:   fmt.Sprintf("RDS instance is publicly reachable via TCP: %s", dbID),

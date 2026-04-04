@@ -410,7 +410,7 @@ func (v *Verifier) callClaude(ctx context.Context, prompt string) (string, error
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB cap
 	if err != nil {
@@ -548,40 +548,40 @@ func CorrelateCredentials(verdicts []FindingVerdict) []string {
 // copying into a conversation or saving to a file.
 func (r *Report) FormatMarkdown() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Beacon Verify Report\n\n")
-	fmt.Fprintf(&b, "**Run ID:** %s  \n", r.RunID)
-	fmt.Fprintf(&b, "**Domain:** %s  \n", r.Domain)
-	fmt.Fprintf(&b, "**Generated:** %s  \n", r.GeneratedAt.Format(time.RFC3339))
-	fmt.Fprintf(&b, "**Findings reviewed:** %d  \n", r.TotalCount)
-	fmt.Fprintf(&b, "**Findings with issues:** %d  \n\n", r.IssueCount)
+	_, _ = fmt.Fprintf(&b, "# Beacon Verify Report\n\n")
+	_, _ = fmt.Fprintf(&b, "**Run ID:** %s  \n", r.RunID)
+	_, _ = fmt.Fprintf(&b, "**Domain:** %s  \n", r.Domain)
+	_, _ = fmt.Fprintf(&b, "**Generated:** %s  \n", r.GeneratedAt.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(&b, "**Findings reviewed:** %d  \n", r.TotalCount)
+	_, _ = fmt.Fprintf(&b, "**Findings with issues:** %d  \n\n", r.IssueCount)
 
 	if len(r.CredentialAlerts) > 0 {
-		fmt.Fprintf(&b, "## Credential Exposure + Exploit Path Correlation\n\n")
+		_, _ = fmt.Fprintf(&b, "## Credential Exposure + Exploit Path Correlation\n\n")
 		for _, alert := range r.CredentialAlerts {
-			fmt.Fprintf(&b, "- %s\n", alert)
+			_, _ = fmt.Fprintf(&b, "- %s\n", alert)
 		}
-		fmt.Fprintf(&b, "\n")
+		_, _ = fmt.Fprintf(&b, "\n")
 	}
 
 	if r.IssueCount == 0 && len(r.CredentialAlerts) == 0 {
-		fmt.Fprintf(&b, "✓ No accuracy issues detected.\n")
+		_, _ = fmt.Fprintf(&b, "✓ No accuracy issues detected.\n")
 		return b.String()
 	}
 	if r.IssueCount == 0 {
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "---\n\n")
+	_, _ = fmt.Fprintf(&b, "---\n\n")
 
 	for _, v := range r.Verdicts {
 		if !v.HasIssues() {
 			continue
 		}
 		f := v.Finding
-		fmt.Fprintf(&b, "## [%s] %s\n\n", f.Severity.String(), f.Title)
-		fmt.Fprintf(&b, "- **Asset:** %s\n", f.Asset)
-		fmt.Fprintf(&b, "- **Check:** %s\n", f.CheckID)
-		fmt.Fprintf(&b, "- **Scanner:** %s\n\n", f.Scanner)
+		_, _ = fmt.Fprintf(&b, "## [%s] %s\n\n", f.Severity.String(), f.Title)
+		_, _ = fmt.Fprintf(&b, "- **Asset:** %s\n", f.Asset)
+		_, _ = fmt.Fprintf(&b, "- **Check:** %s\n", f.CheckID)
+		_, _ = fmt.Fprintf(&b, "- **Scanner:** %s\n\n", f.Scanner)
 
 		for _, iss := range v.Issues {
 			icon := "⚠️"
@@ -590,35 +590,35 @@ func (r *Report) FormatMarkdown() string {
 			} else if iss.Severity == "critical" {
 				icon = "🔴"
 			}
-			fmt.Fprintf(&b, "%s **%s**: %s\n\n", icon, strings.ReplaceAll(iss.Kind, "_", " "), iss.Description)
+			_, _ = fmt.Fprintf(&b, "%s **%s**: %s\n\n", icon, strings.ReplaceAll(iss.Kind, "_", " "), iss.Description)
 			if iss.Suggestion != "" {
-				fmt.Fprintf(&b, "  > Fix: %s\n\n", iss.Suggestion)
+				_, _ = fmt.Fprintf(&b, "  > Fix: %s\n\n", iss.Suggestion)
 			}
 		}
 
 		if v.AIAnalysis != "" {
-			fmt.Fprintf(&b, "**AI Analysis:**\n\n%s\n\n", v.AIAnalysis)
+			_, _ = fmt.Fprintf(&b, "**AI Analysis:**\n\n%s\n\n", v.AIAnalysis)
 		}
 
-		fmt.Fprintf(&b, "---\n\n")
+		_, _ = fmt.Fprintf(&b, "---\n\n")
 	}
 
 	// Append a fix prompt the user can paste to Claude Code
-	fmt.Fprintf(&b, "## Fix Prompt\n\n")
-	fmt.Fprintf(&b, "Paste this into Claude Code to fix all flagged issues:\n\n")
-	fmt.Fprintf(&b, "```\n")
-	fmt.Fprintf(&b, "Fix the following scanner accuracy issues in the Beacon codebase:\n\n")
+	_, _ = fmt.Fprintf(&b, "## Fix Prompt\n\n")
+	_, _ = fmt.Fprintf(&b, "Paste this into Claude Code to fix all flagged issues:\n\n")
+	_, _ = fmt.Fprintf(&b, "```\n")
+	_, _ = fmt.Fprintf(&b, "Fix the following scanner accuracy issues in the Beacon codebase:\n\n")
 	for _, v := range r.Verdicts {
 		if !v.HasIssues() {
 			continue
 		}
 		for _, iss := range v.Issues {
-			fmt.Fprintf(&b, "- [%s] %s (scanner: %s, check: %s)\n  Fix: %s\n",
+			_, _ = fmt.Fprintf(&b, "- [%s] %s (scanner: %s, check: %s)\n  Fix: %s\n",
 				iss.Kind, iss.Description[:min(len(iss.Description), 120)],
 				v.Finding.Scanner, v.Finding.CheckID, iss.Suggestion)
 		}
 	}
-	fmt.Fprintf(&b, "```\n")
+	_, _ = fmt.Fprintf(&b, "```\n")
 
 	return b.String()
 }

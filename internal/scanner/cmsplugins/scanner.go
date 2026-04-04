@@ -145,7 +145,7 @@ func baseURL(ctx context.Context, client *http.Client, asset string) string {
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode < 500 {
 			return u
 		}
@@ -163,7 +163,7 @@ func detectCMS(ctx context.Context, client *http.Client, base string) cmsType {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
 	if err == nil {
 		if resp, err := client.Do(req); err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.Header.Get("X-Drupal-Cache") != "" || resp.Header.Get("X-Drupal-Dynamic-Cache") != "" {
 				return cmsDrupal
 			}
@@ -224,7 +224,7 @@ func probeBodyContains(ctx context.Context, client *http.Client, rawURL, substr 
 		return false
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return false
 	}
@@ -241,7 +241,7 @@ func probeExists(ctx context.Context, client *http.Client, url string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
@@ -260,11 +260,11 @@ func probePlugins(ctx context.Context, client *http.Client, asset, base, prefix 
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<10)) // 8KB
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			continue
 		}
@@ -336,11 +336,11 @@ func probeJoomla(ctx context.Context, client *http.Client, asset, base string, e
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			continue
 		}
@@ -403,7 +403,7 @@ func versionParts(v string) []int {
 	var parts []int
 	for _, seg := range strings.Split(v, ".") {
 		n := 0
-		fmt.Sscanf(seg, "%d", &n)
+		_, _ = fmt.Sscanf(seg, "%d", &n)
 		parts = append(parts, n)
 	}
 	return parts
@@ -535,7 +535,7 @@ func probeCMSFingerprint(ctx context.Context, client *http.Client, asset, base s
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Only report accessible paths (2xx)
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {

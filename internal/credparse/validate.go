@@ -78,7 +78,7 @@ func validateGitHubToken(ctx context.Context, cred Credential) *ValidationResult
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("github api: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -131,7 +131,7 @@ func validateSlackToken(ctx context.Context, cred Credential) *ValidationResult 
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("slack api: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	var result struct {
@@ -172,7 +172,7 @@ func validateGoogleToken(ctx context.Context, cred Credential) *ValidationResult
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("google api: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	if resp.StatusCode != http.StatusOK {
@@ -214,7 +214,7 @@ func validateStripeKey(ctx context.Context, cred Credential) *ValidationResult {
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("stripe api: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -256,7 +256,7 @@ func validateSendGridKey(ctx context.Context, cred Credential) *ValidationResult
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("sendgrid api: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return &ValidationResult{Valid: false, Service: "sendgrid", Detail: "SendGrid key is invalid"}
@@ -281,7 +281,7 @@ func validateGitLabToken(ctx context.Context, cred Credential) *ValidationResult
 	if err != nil {
 		return &ValidationResult{Error: fmt.Sprintf("gitlab api: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
 	if resp.StatusCode == http.StatusUnauthorized {

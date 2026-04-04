@@ -50,7 +50,7 @@ func TestRun_DeepMode_XXEDetected(t *testing.T) {
 				// Simulate XXE: return /etc/passwd-like content
 				w.Header().Set("Content-Type", "application/xml")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`<response><data>root:x:0:0:root:/root:/bin/bash</data></response>`))
+				_, _ = w.Write([]byte(`<response><data>root:x:0:0:root:/root:/bin/bash</data></response>`))
 				return
 			}
 		}
@@ -89,7 +89,7 @@ func TestRun_DeepMode_XMLEndpointExists_NoXXE_NoFinding(t *testing.T) {
 			if strings.HasPrefix(ct, "application/xml") {
 				w.Header().Set("Content-Type", "application/xml")
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`<response><status>ok</status></response>`))
+				_, _ = w.Write([]byte(`<response><status>ok</status></response>`))
 				return
 			}
 		}
@@ -116,7 +116,7 @@ func TestRun_DeepMode_ProofCommandHasActualURL(t *testing.T) {
 			ct := r.Header.Get("Content-Type")
 			if strings.HasPrefix(ct, "application/xml") {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`root:x:0:0:root:/root:/bin/bash`))
+				_, _ = w.Write([]byte(`root:x:0:0:root:/root:/bin/bash`))
 				return
 			}
 		}

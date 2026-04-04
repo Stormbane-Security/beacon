@@ -81,7 +81,7 @@ func (d *testDialer) addUDPHandler(logicalAddr string, handler func(conn net.Pac
 	d.listenAddrs[logicalAddr] = actualAddr
 	d.mu.Unlock()
 	go func() {
-		defer pc.Close()
+		defer func() { _ = pc.Close() }()
 		handler(pc)
 	}()
 	return actualAddr
@@ -98,14 +98,14 @@ func (d *testDialer) addTCPHandler(logicalAddr string, handler func(conn net.Con
 	d.listenAddrs[logicalAddr] = actualAddr
 	d.mu.Unlock()
 	go func() {
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				handler(c)
 			}(conn)
 		}
@@ -142,7 +142,7 @@ func TestSNMPDefaultCommunity_Detected(t *testing.T) {
 			0x06, 0x08, 0x2b, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00, // OID
 			0x05, 0x00, // NULL
 		}
-		pc.WriteTo(response, addr)
+		_, _ = pc.WriteTo(response, addr)
 	})
 
 	cfg := network.Config{Targets: []string{ip}}
@@ -174,7 +174,7 @@ func TestSNMPNoResponse_NoFinding(t *testing.T) {
 	// Mock SNMP that reads but does not respond.
 	dialer.addUDPHandler(ip+":161", func(pc net.PacketConn) {
 		buf := make([]byte, 4096)
-		pc.ReadFrom(buf) // read and discard
+		_, _, _ = pc.ReadFrom(buf) // read and discard
 	})
 
 	cfg := network.Config{Targets: []string{ip}}
@@ -205,7 +205,7 @@ func TestSNMP_SurfaceMode_NoProbeSent(t *testing.T) {
 			probed = true
 			// Respond anyway.
 			resp := []byte{0x30, 0x03, 0x02, 0x01, 0x01}
-			pc.WriteTo(resp, addr)
+			_, _ = pc.WriteTo(resp, addr)
 		}
 	})
 
@@ -239,7 +239,7 @@ func TestUPnP_Detected(t *testing.T) {
 			"SERVER: Linux/4.4 UPnP/1.1 MiniUPnPd/2.1\r\n" +
 			"ST: upnp:rootdevice\r\n" +
 			"\r\n"
-		pc.WriteTo([]byte(response), addr)
+		_, _ = pc.WriteTo([]byte(response), addr)
 	})
 
 	cfg := network.Config{Targets: []string{ip}}
@@ -273,7 +273,7 @@ func TestUPnP_NoResponse_NoFinding(t *testing.T) {
 
 	dialer.addUDPHandler(ip+":1900", func(pc net.PacketConn) {
 		buf := make([]byte, 4096)
-		pc.ReadFrom(buf) // read and discard
+		_, _, _ = pc.ReadFrom(buf) // read and discard
 	})
 
 	cfg := network.Config{Targets: []string{ip}}
@@ -327,7 +327,7 @@ func TestMDNS_Detected(t *testing.T) {
 		}
 		response = append(response, answer...)
 		response = append(response, answer...) // second answer
-		pc.WriteTo(response, addr)
+		_, _ = pc.WriteTo(response, addr)
 	})
 
 	cfg := network.Config{Targets: []string{ip}}
@@ -351,9 +351,9 @@ func TestTelnet_Detected(t *testing.T) {
 	ip := "192.168.1.30"
 
 	dialer.addTCPHandler(ip+":23", func(conn net.Conn) {
-		conn.Write([]byte("Welcome to MikroTik Router\r\nLogin: "))
+		_, _ = conn.Write([]byte("Welcome to MikroTik Router\r\nLogin: "))
 		// Read and discard any input.
-		io.Copy(io.Discard, conn)
+		_, _ = io.Copy(io.Discard, conn)
 	})
 
 	cfg := network.Config{Targets: []string{ip}}
@@ -404,7 +404,7 @@ func TestHTTPMgmt_Detected(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "lighttpd/1.4.35")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><head><title>Router Admin</title></head><body>Login</body></html>"))
+		_, _ = w.Write([]byte("<html><head><title>Router Admin</title></head><body>Login</body></html>"))
 	}))
 	defer ts.Close()
 
@@ -458,7 +458,7 @@ func TestAllFindings_HaveProofCommandAndEvidence(t *testing.T) {
 
 	// Set up a Telnet mock to produce at least one finding.
 	dialer.addTCPHandler(ip+":23", func(conn net.Conn) {
-		conn.Write([]byte("Login: "))
+		_, _ = conn.Write([]byte("Login: "))
 	})
 
 	cfg := network.Config{Targets: []string{ip}}

@@ -16,10 +16,10 @@ func NewStdout() *StdoutMailer { return &StdoutMailer{} }
 
 func (m *StdoutMailer) Send(report *store.Report) error {
 	sep := strings.Repeat("─", 72)
-	fmt.Fprintf(os.Stdout, "\n%s\n", sep)
-	fmt.Fprintf(os.Stdout, "  Beacon Security Report — %s\n", report.Domain)
-	fmt.Fprintf(os.Stdout, "%s\n\n", sep)
-	fmt.Fprint(os.Stdout, report.HTMLContent)
-	fmt.Fprintf(os.Stdout, "\n%s\n", sep)
+	_, _ = fmt.Fprintf(os.Stdout, "\n%s\n", sep)
+	_, _ = fmt.Fprintf(os.Stdout, "  Beacon Security Report — %s\n", report.Domain)
+	_, _ = fmt.Fprintf(os.Stdout, "%s\n\n", sep)
+	_, _ = fmt.Fprint(os.Stdout, report.HTMLContent)
+	_, _ = fmt.Fprintf(os.Stdout, "\n%s\n", sep)
 	return nil
 }

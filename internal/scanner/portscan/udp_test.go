@@ -53,7 +53,7 @@ func TestProbeNTP_ValidResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, _ = conn.Write(ntpMode3Request[:])
 	buf := make([]byte, 128)
@@ -79,7 +79,7 @@ func TestProbeNTP_NoResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 	_, _ = conn.Write(ntpMode3Request[:])
 	buf := make([]byte, 128)
@@ -113,7 +113,7 @@ func TestProbeSNMP_ValidResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(snmpPublicGetRequest)
@@ -152,7 +152,7 @@ func TestProbeSNMP_WrongTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(snmpPublicGetRequest)
@@ -186,7 +186,7 @@ func TestProbeTFTP_ErrorResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(tftpRRQ)
@@ -220,7 +220,7 @@ func TestProbeTFTP_DataResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(tftpRRQ)
@@ -257,7 +257,7 @@ func TestProbeSTUN_ValidResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(stunBindingRequest[:])
@@ -291,7 +291,7 @@ func TestProbeIKE_ValidResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(ikeV2SAInit[:])
@@ -321,7 +321,7 @@ func TestProbeNTPAmplification_MonlistResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(ntpMode7Request[:])
@@ -420,7 +420,7 @@ func TestProbeDNSResolver_ValidResponseParsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(dnsQueryExample)
@@ -455,7 +455,7 @@ func TestProbeDNSResolver_WrongTransactionID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetDeadline(fastDeadline()) //nolint:errcheck
 
 	_, _ = conn.Write(dnsQueryExample)

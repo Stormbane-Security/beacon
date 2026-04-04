@@ -42,7 +42,7 @@ func TestHTTPClient_AuthTransportUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401 without auth, got %d", resp.StatusCode)
 	}
@@ -56,7 +56,7 @@ func TestHTTPClient_AuthTransportUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 with auth, got %d", resp.StatusCode)
 	}

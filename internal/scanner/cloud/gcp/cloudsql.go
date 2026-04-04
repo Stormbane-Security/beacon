@@ -93,7 +93,7 @@ func checkCloudSQLInstance(inst *sqladmin.DatabaseInstance, projectID, asset str
 						addr := net.JoinHostPort(ipAddr.IpAddress, fmt.Sprintf("%d", port))
 						conn, dialErr := net.DialTimeout("tcp", addr, 5*time.Second)
 						if dialErr == nil {
-							conn.Close()
+							_ = conn.Close()
 							findings = append(findings, finding.Finding{
 								CheckID: finding.CheckCloudGCPCloudSQLReachable,
 								Title:   fmt.Sprintf("Cloud SQL instance is publicly reachable via TCP: %s", instanceName),

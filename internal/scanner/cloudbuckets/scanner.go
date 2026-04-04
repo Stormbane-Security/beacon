@@ -242,7 +242,7 @@ func fetchPageText(ctx context.Context, client *http.Client, asset string) strin
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == 200 {
 			return string(body)
 		}
@@ -265,7 +265,7 @@ func probeURL(ctx context.Context, client *http.Client, asset, url, provider, bu
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case 200:
@@ -381,7 +381,7 @@ func probeWrite(ctx context.Context, client *http.Client, asset, baseURL, provid
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return nil

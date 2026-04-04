@@ -113,7 +113,7 @@ func discoverAuthEndpoint(ctx context.Context, client *http.Client, base string)
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -143,7 +143,7 @@ func discoverAuthEndpoint(ctx context.Context, client *http.Client, base string)
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		// 302 → likely a real auth endpoint; 400/401 → may also be real
 		if resp.StatusCode == http.StatusFound ||
 			resp.StatusCode == http.StatusBadRequest ||
@@ -188,7 +188,7 @@ func checkRedirectURIAbuse(ctx context.Context, client *http.Client, asset, auth
 			continue
 		}
 		loc := resp.Header.Get("Location")
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// A 302 redirect to our mutated URI indicates redirect_uri is not validated.
 		mutatedHost := extractHost(m.uri)
@@ -239,7 +239,7 @@ func checkTokenSubstitution(ctx context.Context, client *http.Client, asset, bas
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			protectedPath = path
 			break
@@ -264,7 +264,7 @@ func checkTokenSubstitution(ctx context.Context, client *http.Client, asset, bas
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// If the server returns 200 with our alg:none token, it's not validating signatures.
 	if resp.StatusCode != http.StatusOK {
@@ -333,7 +333,7 @@ func checkCodeReuse(ctx context.Context, client *http.Client, asset, authEndpoin
 			return 0, ""
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return resp.StatusCode, string(body)
 	}
 

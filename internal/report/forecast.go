@@ -89,11 +89,11 @@ func SendToForecast(forecastURL, apiKey string, run store.ScanRun, enriched []en
 	if err != nil {
 		return fmt.Errorf("sending to Forecast: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
-		return fmt.Errorf("Forecast API HTTP %d: %s", resp.StatusCode, string(data))
+		return fmt.Errorf("forecast API HTTP %d: %s", resp.StatusCode, string(data))
 	}
 	return nil
 }

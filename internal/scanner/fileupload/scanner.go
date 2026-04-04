@@ -188,7 +188,7 @@ func discoverUploadEndpoints(ctx context.Context, client *http.Client, base stri
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Skip definitive "not found" and "not allowed" responses.
 		if resp.StatusCode == http.StatusNotFound ||
@@ -255,7 +255,7 @@ func probeUpload(ctx context.Context, client *http.Client, asset, endpoint strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := string(body)
 

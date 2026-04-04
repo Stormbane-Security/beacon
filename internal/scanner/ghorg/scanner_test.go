@@ -64,7 +64,7 @@ func fakeGitHubAPI(meta *ghOrgMeta, actions *ghOrgActionsPermissions, workflow *
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(meta)
+		_ = json.NewEncoder(w).Encode(meta)
 	})
 
 	mux.HandleFunc("/orgs/test-org/actions/permissions/workflow", func(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +73,7 @@ func fakeGitHubAPI(meta *ghOrgMeta, actions *ghOrgActionsPermissions, workflow *
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(workflow)
+		_ = json.NewEncoder(w).Encode(workflow)
 	})
 
 	mux.HandleFunc("/orgs/test-org/actions/permissions", func(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +82,7 @@ func fakeGitHubAPI(meta *ghOrgMeta, actions *ghOrgActionsPermissions, workflow *
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(actions)
+		_ = json.NewEncoder(w).Encode(actions)
 	})
 
 	return httptest.NewServer(mux)
@@ -527,7 +527,7 @@ func TestAuthorizationHeaderSent(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ghOrgMeta{TwoFactorRequirementEnabled: true})
+		_ = json.NewEncoder(w).Encode(ghOrgMeta{TwoFactorRequirementEnabled: true})
 	}))
 	defer ts.Close()
 
@@ -552,7 +552,7 @@ func TestNoToken_NoAuthorizationHeader(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ghOrgMeta{TwoFactorRequirementEnabled: true})
+		_ = json.NewEncoder(w).Encode(ghOrgMeta{TwoFactorRequirementEnabled: true})
 	}))
 	defer ts.Close()
 
@@ -782,7 +782,7 @@ func TestAPIRequestHeaders(t *testing.T) {
 		gotAccept = r.Header.Get("Accept")
 		gotAPIVersion = r.Header.Get("X-GitHub-Api-Version")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ghOrgMeta{TwoFactorRequirementEnabled: true})
+		_ = json.NewEncoder(w).Encode(ghOrgMeta{TwoFactorRequirementEnabled: true})
 	}))
 	defer ts.Close()
 

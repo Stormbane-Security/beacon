@@ -222,7 +222,7 @@ func checkAssetOwnership(ctx context.Context, ip, rootDomain string) OwnershipRe
 			if herr == nil {
 				res.HTTPStatus = resp.StatusCode
 				res.ServerHeader = resp.Header.Get("Server")
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				switch {
 				case resp.StatusCode >= 200 && resp.StatusCode < 400:
 					res.Evidence = append(res.Evidence, fmt.Sprintf("HTTP Host probe: %d (server recognises domain)", resp.StatusCode))

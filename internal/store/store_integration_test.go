@@ -36,7 +36,7 @@ func factories(t *testing.T) []storeFactory {
 				if err != nil {
 					t.Fatalf("open sqlite: %v", err)
 				}
-				t.Cleanup(func() { s.Close() })
+				t.Cleanup(func() { _ = s.Close() })
 				return s
 			},
 		},
@@ -46,7 +46,7 @@ func factories(t *testing.T) []storeFactory {
 func seedRuns(t *testing.T, s store.Store, domain string, count int) []*store.ScanRun {
 	t.Helper()
 	ctx := context.Background()
-	s.UpsertTarget(ctx, domain)
+	_, _ = s.UpsertTarget(ctx, domain)
 
 	var runs []*store.ScanRun
 	now := time.Now()
@@ -317,7 +317,7 @@ func TestCrossImpl_PurgeOrphanedRuns(t *testing.T) {
 			ctx := context.Background()
 			s := f.new(t)
 
-			s.UpsertTarget(ctx, "purge.example.com")
+			_, _ = s.UpsertTarget(ctx, "purge.example.com")
 
 			// Create runs with different statuses and ages.
 			old := time.Now().Add(-48 * time.Hour)
@@ -340,7 +340,7 @@ func TestCrossImpl_PurgeOrphanedRuns(t *testing.T) {
 					Status:    r.status,
 					StartedAt: r.startedAt,
 				}
-				s.CreateScanRun(ctx, run)
+				_ = s.CreateScanRun(ctx, run)
 				runs[i].status = r.status // keep reference
 			}
 
@@ -395,7 +395,7 @@ func TestCrossImpl_SaveFindings_Appends(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			ctx := context.Background()
 			s := f.new(t)
-			s.UpsertTarget(ctx, "append.example.com")
+			_, _ = s.UpsertTarget(ctx, "append.example.com")
 
 			run := &store.ScanRun{
 				Domain:    "append.example.com",
@@ -403,7 +403,7 @@ func TestCrossImpl_SaveFindings_Appends(t *testing.T) {
 				Status:    store.StatusRunning,
 				StartedAt: time.Now(),
 			}
-			s.CreateScanRun(ctx, run)
+			_ = s.CreateScanRun(ctx, run)
 
 			batch1 := []finding.Finding{
 				{CheckID: "a.1", Title: "First"},
@@ -413,8 +413,8 @@ func TestCrossImpl_SaveFindings_Appends(t *testing.T) {
 				{CheckID: "a.3", Title: "Third"},
 			}
 
-			s.SaveFindings(ctx, run.ID, batch1)
-			s.SaveFindings(ctx, run.ID, batch2)
+			_ = s.SaveFindings(ctx, run.ID, batch1)
+			_ = s.SaveFindings(ctx, run.ID, batch2)
 
 			got, err := s.GetFindings(ctx, run.ID)
 			if err != nil {
@@ -505,7 +505,7 @@ func TestCrossImpl_CorrelationFindings(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			ctx := context.Background()
 			s := f.new(t)
-			s.UpsertTarget(ctx, "corr.example.com")
+			_, _ = s.UpsertTarget(ctx, "corr.example.com")
 
 			run := &store.ScanRun{
 				Domain:    "corr.example.com",
@@ -513,7 +513,7 @@ func TestCrossImpl_CorrelationFindings(t *testing.T) {
 				Status:    store.StatusRunning,
 				StartedAt: time.Now(),
 			}
-			s.CreateScanRun(ctx, run)
+			_ = s.CreateScanRun(ctx, run)
 
 			corrs := []store.CorrelationFinding{
 				{
@@ -546,7 +546,7 @@ func TestCrossImpl_ScanRunStatusTransitions(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			ctx := context.Background()
 			s := f.new(t)
-			s.UpsertTarget(ctx, "status.example.com")
+			_, _ = s.UpsertTarget(ctx, "status.example.com")
 
 			run := &store.ScanRun{
 				Domain:    "status.example.com",
@@ -554,11 +554,11 @@ func TestCrossImpl_ScanRunStatusTransitions(t *testing.T) {
 				Status:    store.StatusPending,
 				StartedAt: time.Now(),
 			}
-			s.CreateScanRun(ctx, run)
+			_ = s.CreateScanRun(ctx, run)
 
 			// pending → running
 			run.Status = store.StatusRunning
-			s.UpdateScanRun(ctx, run)
+			_ = s.UpdateScanRun(ctx, run)
 
 			got, _ := s.GetScanRun(ctx, run.ID)
 			if got.Status != store.StatusRunning {
@@ -568,7 +568,7 @@ func TestCrossImpl_ScanRunStatusTransitions(t *testing.T) {
 			// running → stopped
 			run.Status = store.StatusStopped
 			run.Error = "user stopped"
-			s.UpdateScanRun(ctx, run)
+			_ = s.UpdateScanRun(ctx, run)
 
 			got, _ = s.GetScanRun(ctx, run.ID)
 			if got.Status != store.StatusStopped {
@@ -611,14 +611,14 @@ func TestCrossImpl_ListAllScanRuns_ManyDomains(t *testing.T) {
 
 			for i := 0; i < 20; i++ {
 				domain := fmt.Sprintf("domain-%d.example.com", i)
-				s.UpsertTarget(ctx, domain)
+				_, _ = s.UpsertTarget(ctx, domain)
 				run := &store.ScanRun{
 					Domain:    domain,
 					ScanType:  module.ScanSurface,
 					Status:    store.StatusCompleted,
 					StartedAt: time.Now().Add(time.Duration(i) * time.Second),
 				}
-				s.CreateScanRun(ctx, run)
+				_ = s.CreateScanRun(ctx, run)
 			}
 
 			runs, err := s.ListAllScanRuns(ctx, 10)

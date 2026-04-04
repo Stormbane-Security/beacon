@@ -14,7 +14,7 @@ import (
 func TestDetectJQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><head>
+		_, _ = w.Write([]byte(`<html><head>
 			<script src="/js/jquery-3.3.1.min.js"></script>
 		</head><body>jQuery page</body></html>`))
 	}))
@@ -51,7 +51,7 @@ func TestDetectJQuery(t *testing.T) {
 func TestDetectAngularJS(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html ng-app="myApp"><head>
+		_, _ = w.Write([]byte(`<html ng-app="myApp"><head>
 			<script src="/js/angular-1.8.2.min.js"></script>
 		</head><body></body></html>`))
 	}))
@@ -78,7 +78,7 @@ func TestDetectAngularJS(t *testing.T) {
 func TestDetectReact(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><head></head><body><div id="root" data-reactroot></div></body></html>`))
+		_, _ = w.Write([]byte(`<html><head></head><body><div id="root" data-reactroot></div></body></html>`))
 	}))
 	defer srv.Close()
 
@@ -103,7 +103,7 @@ func TestDetectReact(t *testing.T) {
 func TestNoFramework(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><head></head><body>Plain HTML</body></html>`))
+		_, _ = w.Write([]byte(`<html><head></head><body>Plain HTML</body></html>`))
 	}))
 	defer srv.Close()
 

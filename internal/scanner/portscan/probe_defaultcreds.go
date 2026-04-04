@@ -127,7 +127,7 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return []finding.Finding{makeF(
@@ -183,7 +183,7 @@ func detectPgAdminDefaultCreds(ctx context.Context, host string, port int, _ str
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
 	if resp.StatusCode == http.StatusOK && strings.Contains(string(b), "Authentication") {
@@ -225,7 +225,7 @@ func detectZabbixDefaultCreds(ctx context.Context, host string, port int, _ stri
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
 	var rpcResp struct {
@@ -293,10 +293,10 @@ func detectGiteaNoAuth(ctx context.Context, host string, port int, _ string, mak
 func detectSupersetDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
 	// Superset is already detected by probe_cloud.go's detectSuperset.
 	// This probe focuses specifically on default credentials.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/api/v1/security/login")
+	_, ok := probeHTTPBody(ctx, host, port, false, "/api/v1/security/login")
 	if !ok {
 		// Check if it's Superset by looking at the login page.
-		body, ok = probeHTTPBody(ctx, host, port, false, "/login/")
+		body, ok := probeHTTPBody(ctx, host, port, false, "/login/")
 		if !ok || !strings.Contains(strings.ToLower(body), "superset") {
 			return nil
 		}
@@ -315,7 +315,7 @@ func detectSupersetDefaultCreds(ctx context.Context, host string, port int, _ st
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 
 	if resp.StatusCode == http.StatusOK && strings.Contains(string(b), "access_token") {

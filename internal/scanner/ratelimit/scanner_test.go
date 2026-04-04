@@ -105,7 +105,7 @@ func TestBurstProbe_RateLimitHeadersRecorded(t *testing.T) {
 func TestBurstProbe_ChallengeKeywordDetected(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<html><body>Please solve the CAPTCHA challenge to continue.</body></html>`))
+		_, _ = w.Write([]byte(`<html><body>Please solve the CAPTCHA challenge to continue.</body></html>`))
 	}))
 	defer ts.Close()
 

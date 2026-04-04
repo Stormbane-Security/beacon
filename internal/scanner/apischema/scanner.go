@@ -74,7 +74,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != 200 {
 				continue
@@ -232,61 +232,58 @@ func (s *Scanner) testRateLimiting(ctx context.Context, client *http.Client, ass
 	var findings []finding.Finding
 
 	for _, path := range testPaths {
-		for _, scheme := range []string{"https", "http"} {
-			url := scheme + "://" + asset + path
+		url := "https://" + asset + path
 
-			// Send 20 rapid requests and check for rate limit headers.
-			hasRateLimit := false
-			for i := 0; i < 20; i++ {
-				req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-				if err != nil {
-					break
-				}
-				resp, err := client.Do(req)
-				if err != nil {
-					break
-				}
-				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
-				resp.Body.Close()
-
-				// Check for rate limit indicators.
-				if resp.StatusCode == 429 {
-					hasRateLimit = true
-					break
-				}
-				if resp.Header.Get("X-RateLimit-Limit") != "" ||
-					resp.Header.Get("X-Rate-Limit-Limit") != "" ||
-					resp.Header.Get("RateLimit-Limit") != "" ||
-					resp.Header.Get("Retry-After") != "" {
-					hasRateLimit = true
-					break
-				}
+		// Send 20 rapid requests and check for rate limit headers.
+		hasRateLimit := false
+		for i := 0; i < 20; i++ {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if err != nil {
+				break
 			}
-
-			if !hasRateLimit {
-				findings = append(findings, finding.Finding{
-					CheckID:  finding.CheckAPINoRateLimit,
-					Module:   "deep",
-					Scanner:  scannerName,
-					Severity: finding.SeverityMedium,
-					Asset:    asset,
-					Title:    fmt.Sprintf("No rate limiting on API endpoint %s", path),
-					Description: fmt.Sprintf(
-						"The API endpoint %s on %s accepted 20 rapid requests without rate limiting "+
-							"(no 429 response, no rate limit headers). This enables brute-force attacks, "+
-							"credential stuffing, and API abuse.",
-						path, asset,
-					),
-					Evidence: map[string]any{
-						"path":       path,
-						"requests":   20,
-						"url":        url,
-					},
-					ProofCommand: fmt.Sprintf("for i in $(seq 1 20); do curl -s -o /dev/null -w '%%{http_code}\\n' '%s'; done", url),
-					DiscoveredAt: time.Now(),
-				})
+			resp, err := client.Do(req)
+			if err != nil {
+				break
 			}
-			break // One scheme is enough.
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+			_ = resp.Body.Close()
+
+			// Check for rate limit indicators.
+			if resp.StatusCode == 429 {
+				hasRateLimit = true
+				break
+			}
+			if resp.Header.Get("X-RateLimit-Limit") != "" ||
+				resp.Header.Get("X-Rate-Limit-Limit") != "" ||
+				resp.Header.Get("RateLimit-Limit") != "" ||
+				resp.Header.Get("Retry-After") != "" {
+				hasRateLimit = true
+				break
+			}
+		}
+
+		if !hasRateLimit {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckAPINoRateLimit,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityMedium,
+				Asset:    asset,
+				Title:    fmt.Sprintf("No rate limiting on API endpoint %s", path),
+				Description: fmt.Sprintf(
+					"The API endpoint %s on %s accepted 20 rapid requests without rate limiting "+
+						"(no 429 response, no rate limit headers). This enables brute-force attacks, "+
+						"credential stuffing, and API abuse.",
+					path, asset,
+				),
+				Evidence: map[string]any{
+					"path":       path,
+					"requests":   20,
+					"url":        url,
+				},
+				ProofCommand: fmt.Sprintf("for i in $(seq 1 20); do curl -s -o /dev/null -w '%%{http_code}\\n' '%s'; done", url),
+				DiscoveredAt: time.Now(),
+			})
 		}
 	}
 

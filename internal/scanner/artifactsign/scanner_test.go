@@ -92,7 +92,7 @@ func TestNPM_UnsignedPackage_EmitsFinding(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return a package with no provenance indicators.
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","version":"1.0.0","description":"a package"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","version":"1.0.0","description":"a package"}`)
 	}))
 	defer npm.Close()
 
@@ -134,7 +134,7 @@ func TestNPM_UnsignedPackage_EmitsFinding(t *testing.T) {
 func TestNPM_PackageWithProvenance_NoFinding(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","version":"2.0.0","publishConfig":{"provenance":true}}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","version":"2.0.0","publishConfig":{"provenance":true}}`)
 	}))
 	defer npm.Close()
 
@@ -156,7 +156,7 @@ func TestNPM_PackageWithProvenance_NoFinding(t *testing.T) {
 func TestNPM_PackageWithAttestations_NoFinding(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","attestations":{"url":"https://example.com"}}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","attestations":{"url":"https://example.com"}}`)
 	}))
 	defer npm.Close()
 
@@ -178,7 +178,7 @@ func TestNPM_PackageWithAttestations_NoFinding(t *testing.T) {
 func TestNPM_PackageWithTransparency_NoFinding(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","transparency":"log-entry-url"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","transparency":"log-entry-url"}`)
 	}))
 	defer npm.Close()
 
@@ -223,7 +223,7 @@ func TestNPM_ScopedPackageAlsoChecked(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPaths = append(requestedPaths, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"test"}`)
+		_, _ = fmt.Fprint(w, `{"name":"test"}`)
 	}))
 	defer npm.Close()
 
@@ -258,7 +258,7 @@ func TestNPM_ScopedPackageAlsoChecked(t *testing.T) {
 func TestNPM_EvidenceFields(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","version":"1.0.0"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","version":"1.0.0"}`)
 	}))
 	defer npm.Close()
 
@@ -297,7 +297,7 @@ func TestNPM_EvidenceFields(t *testing.T) {
 func TestPyPI_UnsignedPackage_EmitsFinding(t *testing.T) {
 	pypi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"info":{"name":"acme","version":"1.0.0"},"urls":[]}`)
+		_, _ = fmt.Fprint(w, `{"info":{"name":"acme","version":"1.0.0"},"urls":[]}`)
 	}))
 	defer pypi.Close()
 
@@ -338,7 +338,7 @@ func TestPyPI_UnsignedPackage_EmitsFinding(t *testing.T) {
 func TestPyPI_PackageWithSigstore_NoFinding(t *testing.T) {
 	pypi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"info":{"name":"acme"},"urls":[{"filename":"acme-1.0.0.tar.gz.sigstore"}]}`)
+		_, _ = fmt.Fprint(w, `{"info":{"name":"acme"},"urls":[{"filename":"acme-1.0.0.tar.gz.sigstore"}]}`)
 	}))
 	defer pypi.Close()
 
@@ -360,7 +360,7 @@ func TestPyPI_PackageWithSigstore_NoFinding(t *testing.T) {
 func TestPyPI_PackageWithAttestation_NoFinding(t *testing.T) {
 	pypi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"info":{"name":"acme"},"attestation":{"digest":"sha256:abc"}}`)
+		_, _ = fmt.Fprint(w, `{"info":{"name":"acme"},"attestation":{"digest":"sha256:abc"}}`)
 	}))
 	defer pypi.Close()
 
@@ -382,7 +382,7 @@ func TestPyPI_PackageWithAttestation_NoFinding(t *testing.T) {
 func TestPyPI_PackageWithProvenanceURL_NoFinding(t *testing.T) {
 	pypi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"info":{"name":"acme"},"provenance_url":"https://rekor.sigstore.dev/api/v1/log/entries/abc"}`)
+		_, _ = fmt.Fprint(w, `{"info":{"name":"acme"},"provenance_url":"https://rekor.sigstore.dev/api/v1/log/entries/abc"}`)
 	}))
 	defer pypi.Close()
 
@@ -664,13 +664,13 @@ func TestContainerGHCR_SignedImage_NoFinding(t *testing.T) {
 func TestAllRegistries_UnsignedEverywhere_EmitsAllFindings(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","version":"1.0.0"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","version":"1.0.0"}`)
 	}))
 	defer npm.Close()
 
 	pypi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"info":{"name":"acme"}}`)
+		_, _ = fmt.Fprint(w, `{"info":{"name":"acme"}}`)
 	}))
 	defer pypi.Close()
 
@@ -712,13 +712,13 @@ func TestAllRegistries_UnsignedEverywhere_EmitsAllFindings(t *testing.T) {
 func TestAllRegistries_SignedEverywhere_NoFindings(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","attestations":{"url":"https://tlog.sigstore.dev"}}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","attestations":{"url":"https://tlog.sigstore.dev"}}`)
 	}))
 	defer npm.Close()
 
 	pypi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"info":{"name":"acme"},"urls":[{"filename":"acme-1.0.tar.gz.sigstore"}]}`)
+		_, _ = fmt.Fprint(w, `{"info":{"name":"acme"},"urls":[{"filename":"acme-1.0.tar.gz.sigstore"}]}`)
 	}))
 	defer pypi.Close()
 
@@ -841,7 +841,7 @@ func TestSubdomain_UsesSecondLevelLabel(t *testing.T) {
 func TestContextCancelled_NoPanic(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme"}`)
 	}))
 	defer npm.Close()
 
@@ -878,7 +878,7 @@ func TestUnreachableRegistries_NoFindingsNoPanic(t *testing.T) {
 func TestSurfaceMode_Works(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme","version":"1.0.0"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme","version":"1.0.0"}`)
 	}))
 	defer npm.Close()
 
@@ -1016,7 +1016,7 @@ func TestContainerUnsigned_EvidenceIncludesSigStatus(t *testing.T) {
 func TestNPM_BothScopedAndUnscoped_EmitsMultipleFindings(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"test","version":"1.0.0"}`)
+		_, _ = fmt.Fprint(w, `{"name":"test","version":"1.0.0"}`)
 	}))
 	defer npm.Close()
 
@@ -1042,11 +1042,11 @@ func TestNPM_UnscopedSigned_ScopedUnsigned(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/acme" {
 			// Unscoped package has provenance.
-			fmt.Fprint(w, `{"name":"acme","attestations":{"url":"https://example.com"}}`)
+			_, _ = fmt.Fprint(w, `{"name":"acme","attestations":{"url":"https://example.com"}}`)
 			return
 		}
 		// Scoped package has no provenance.
-		fmt.Fprint(w, `{"name":"@acme/acme","version":"1.0.0"}`)
+		_, _ = fmt.Fprint(w, `{"name":"@acme/acme","version":"1.0.0"}`)
 	}))
 	defer npm.Close()
 
@@ -1098,7 +1098,7 @@ func TestEmptySecondLevelLabel_NoFindings(t *testing.T) {
 func TestFinding_DiscoveredAtIsSet(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"acme"}`)
+		_, _ = fmt.Fprint(w, `{"name":"acme"}`)
 	}))
 	defer npm.Close()
 

@@ -113,7 +113,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 				continue
 			}
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckIPv6ServiceOpen,

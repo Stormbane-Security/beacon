@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -173,7 +172,7 @@ func probeContinuationFlood(ctx context.Context, asset string) (bool, error) {
 
 	// Try to read response — if we get data back, the server accepted all frames.
 	buf := make([]byte, 256)
-	_ = conn.(net.Conn).SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, err := conn.Read(buf)
 	if err != nil {
 		// Timeout or close — check if we got a GOAWAY.

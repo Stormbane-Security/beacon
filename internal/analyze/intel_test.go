@@ -28,7 +28,7 @@ func kevServer(t *testing.T, entries []map[string]any) *httptest.Server {
 	body, _ := json.Marshal(map[string]any{"vulnerabilities": entries})
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(body) //nolint:errcheck
+		_, _ = w.Write(body) //nolint:errcheck
 	}))
 }
 
@@ -37,7 +37,7 @@ func nvdServer(t *testing.T, vulns []map[string]any) *httptest.Server {
 	body, _ := json.Marshal(map[string]any{"vulnerabilities": vulns})
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(body) //nolint:errcheck
+		_, _ = w.Write(body) //nolint:errcheck
 	}))
 }
 
@@ -355,7 +355,7 @@ func TestNVDRequestIncludesDateRange(t *testing.T) {
 	var capturedURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedURL = r.URL.String()
-		fmt.Fprintf(w, `{"vulnerabilities":[]}`)
+		_, _ = fmt.Fprintf(w, `{"vulnerabilities":[]}`)
 	}))
 	defer srv.Close()
 

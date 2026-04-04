@@ -11,12 +11,12 @@ import (
 // Serves files from /app/public but does NOT sanitize "../" in the path.
 func main() {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "OK")
+		_, _ = fmt.Fprint(w, "OK")
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			fmt.Fprint(w, "<html><body><h1>File Viewer</h1><a href='/files?name=readme.txt'>View readme</a></body></html>")
+			_, _ = fmt.Fprint(w, "<html><body><h1>File Viewer</h1><a href='/files?name=readme.txt'>View readme</a></body></html>")
 			return
 		}
 		http.NotFound(w, r)
@@ -35,9 +35,9 @@ func main() {
 			http.Error(w, "File not found", 404)
 			return
 		}
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 
 	fmt.Println("Path traversal vulnerable server listening on :8080")
-	http.ListenAndServe(":8080", nil)
+	_ = http.ListenAndServe(":8080", nil)
 }

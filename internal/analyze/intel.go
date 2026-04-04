@@ -172,7 +172,7 @@ func fetchKEV(ctx context.Context, client *http.Client, url string, since time.T
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
@@ -271,7 +271,7 @@ func fetchNVD(ctx context.Context, client *http.Client, baseURL string, since ti
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
@@ -384,7 +384,7 @@ func fetchOSV(ctx context.Context, client *http.Client, baseURL string) ([]OSVEn
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OSV status %d", resp.StatusCode)
@@ -461,24 +461,24 @@ func (ti ThreatIntel) AppendToPrompt(b *strings.Builder) {
 	b.WriteString("## Current threat intelligence\n\n")
 
 	if len(ti.KEV) > 0 {
-		b.WriteString(fmt.Sprintf("### CISA Known Exploited Vulnerabilities — added in the last %d days\n", kevWindowDays))
+		_, _ = fmt.Fprintf(b, "### CISA Known Exploited Vulnerabilities — added in the last %d days\n", kevWindowDays)
 		b.WriteString("These are confirmed to be actively exploited in the wild right now.\n\n")
 		for _, e := range ti.KEV {
 			ransomFlag := ""
 			if e.Ransomware {
 				ransomFlag = " [RANSOMWARE]"
 			}
-			b.WriteString(fmt.Sprintf("  %s  %s / %s  \"%s\"  added=%s%s\n",
-				e.CVEID, e.Vendor, e.Product, e.Name, e.DateAdded, ransomFlag))
+			_, _ = fmt.Fprintf(b, "  %s  %s / %s  \"%s\"  added=%s%s\n",
+				e.CVEID, e.Vendor, e.Product, e.Name, e.DateAdded, ransomFlag)
 		}
 		b.WriteString("\n")
 	}
 
 	if len(ti.RecentCVEs) > 0 {
-		b.WriteString(fmt.Sprintf("### Recent high/critical CVEs (last %d days, CVSS ≥ %.0f)\n\n", nvdLookbackDays, nvdMinCVSS))
+		_, _ = fmt.Fprintf(b, "### Recent high/critical CVEs (last %d days, CVSS ≥ %.0f)\n\n", nvdLookbackDays, nvdMinCVSS)
 		for _, e := range ti.RecentCVEs {
-			b.WriteString(fmt.Sprintf("  %s  CVSS=%.1f/%s  %s\n",
-				e.ID, e.Score, e.Severity, e.Description))
+			_, _ = fmt.Fprintf(b, "  %s  CVSS=%.1f/%s  %s\n",
+				e.ID, e.Score, e.Severity, e.Description)
 		}
 		b.WriteString("\n")
 	}
@@ -491,8 +491,8 @@ func (ti ThreatIntel) AppendToPrompt(b *strings.Builder) {
 			if r := []rune(pkgs); len(r) > 80 {
 				pkgs = string(r[:77]) + "..."
 			}
-			b.WriteString(fmt.Sprintf("  %s  severity=%s  packages=[%s]  %s\n",
-				e.ID, e.Severity, pkgs, e.Summary))
+			_, _ = fmt.Fprintf(b, "  %s  severity=%s  packages=[%s]  %s\n",
+				e.ID, e.Severity, pkgs, e.Summary)
 		}
 		b.WriteString("\n")
 	}

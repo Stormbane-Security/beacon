@@ -70,7 +70,7 @@ func (r *k8sRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // writeJSON is a test helper that serializes v as JSON into the response.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // defaultNamespaceHandler returns a handler that serves a namespace list with
@@ -1303,7 +1303,7 @@ func TestScanError_WhenNamespacesFail(t *testing.T) {
 	})
 	router.handle("/api/v1/namespaces", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("forbidden"))
+		_, _ = w.Write([]byte("forbidden"))
 	})
 
 	ts := httptest.NewServer(router)

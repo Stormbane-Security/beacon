@@ -18,7 +18,7 @@ func TestCacheBehaviorDetection(t *testing.T) {
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		w.Header().Set("CF-Cache-Status", "HIT")
 		w.WriteHeader(200)
-		w.Write([]byte("<html><body>Hello</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Hello</body></html>"))
 	}))
 	defer srv.Close()
 
@@ -48,7 +48,7 @@ func TestPurgeDetection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PURGE" {
 			w.WriteHeader(200)
-			w.Write([]byte("purge OK"))
+			_, _ = w.Write([]byte("purge OK"))
 			return
 		}
 		w.WriteHeader(200)
@@ -161,7 +161,7 @@ func TestUnkeyedHeaderPoisoning(t *testing.T) {
 			cachedBody = "<html><base href='http://example.com/'></html>"
 		}
 		// Always serve the cached body (simulating a real CDN cache)
-		w.Write([]byte(cachedBody))
+		_, _ = w.Write([]byte(cachedBody))
 	}))
 	defer srv.Close()
 
@@ -203,12 +203,12 @@ func TestHostHeaderRouting(t *testing.T) {
 		if r.Host == "localhost" || strings.HasPrefix(r.Host, "127.0.0.1") {
 			w.Header().Set("Server", "Apache/2.4 (Internal)")
 			w.WriteHeader(200)
-			w.Write([]byte("<html><body>Internal Admin Panel</body></html>"))
+			_, _ = w.Write([]byte("<html><body>Internal Admin Panel</body></html>"))
 			return
 		}
 		w.Header().Set("Server", "nginx/1.24")
 		w.WriteHeader(200)
-		w.Write([]byte("<html><body>Public Website Content Here</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Public Website Content Here</body></html>"))
 	}))
 	defer srv.Close()
 
@@ -237,7 +237,7 @@ func TestNoCacheHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nginx")
 		w.WriteHeader(200)
-		w.Write([]byte("hello"))
+		_, _ = w.Write([]byte("hello"))
 	}))
 	defer srv.Close()
 

@@ -70,7 +70,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Check for 101 Switching Protocols — confirms h2c upgrade accepted.
 	if resp.StatusCode == http.StatusSwitchingProtocols {

@@ -151,7 +151,7 @@ func TestCreateScanRun_PreservesExplicitID(t *testing.T) {
 func TestCreateScanRun_StoresIndependentCopy(t *testing.T) {
 	s := newStore()
 	run := memory.NewScanRun("example.com", module.ScanSurface)
-	s.CreateScanRun(ctx(), run)
+	_ = s.CreateScanRun(ctx(), run)
 
 	// Mutate the original — stored copy must not change.
 	origID := run.ID
@@ -237,9 +237,9 @@ func TestListScanRuns_SortedByStartedAtDesc(t *testing.T) {
 	r1 := &store.ScanRun{ID: "r1", Domain: "x.com", StartedAt: time.Now().Add(-2 * time.Hour)}
 	r2 := &store.ScanRun{ID: "r2", Domain: "x.com", StartedAt: time.Now().Add(-1 * time.Hour)}
 	r3 := &store.ScanRun{ID: "r3", Domain: "x.com", StartedAt: time.Now()}
-	s.CreateScanRun(ctx(), r1)
-	s.CreateScanRun(ctx(), r2)
-	s.CreateScanRun(ctx(), r3)
+	_ = s.CreateScanRun(ctx(), r1)
+	_ = s.CreateScanRun(ctx(), r2)
+	_ = s.CreateScanRun(ctx(), r3)
 
 	runs, _ := s.ListScanRuns(ctx(), "x.com")
 	if len(runs) != 3 {
@@ -266,9 +266,9 @@ func TestDeleteScanRun_RemovesRunAndAssociatedData(t *testing.T) {
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
 	findings := []finding.Finding{{CheckID: "test.check", Asset: "example.com"}}
-	s.SaveFindings(ctx(), run.ID, findings)
+	_ = s.SaveFindings(ctx(), run.ID, findings)
 	enriched := []enrichment.EnrichedFinding{{Finding: findings[0], Explanation: "test"}}
-	s.SaveEnrichedFindings(ctx(), run.ID, enriched)
+	_ = s.SaveEnrichedFindings(ctx(), run.ID, enriched)
 
 	if err := s.DeleteScanRun(ctx(), run.ID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -313,8 +313,8 @@ func TestSaveFindings_DedupBySameCheckIDAssetTitle(t *testing.T) {
 	f2 := f1 // exact same CheckID + Asset + Title
 
 	// Save the same finding twice in separate batches.
-	s.SaveFindings(ctx(), run.ID, []finding.Finding{f1})
-	s.SaveFindings(ctx(), run.ID, []finding.Finding{f2})
+	_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{f1})
+	_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{f2})
 
 	got, err := s.GetFindings(ctx(), run.ID)
 	if err != nil {
@@ -344,7 +344,7 @@ func TestSaveFindings_DifferentCheckIDsNotDeduped(t *testing.T) {
 		Module:  "surface",
 	}
 
-	s.SaveFindings(ctx(), run.ID, []finding.Finding{f1, f2})
+	_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{f1, f2})
 
 	got, err := s.GetFindings(ctx(), run.ID)
 	if err != nil {
@@ -374,7 +374,7 @@ func TestSaveFindings_SameCheckIDDifferentAssetNotDeduped(t *testing.T) {
 		Module:  "surface",
 	}
 
-	s.SaveFindings(ctx(), run.ID, []finding.Finding{f1, f2})
+	_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{f1, f2})
 
 	got, err := s.GetFindings(ctx(), run.ID)
 	if err != nil {
@@ -391,8 +391,8 @@ func TestSaveFindings_AppendsBatches(t *testing.T) {
 
 	batch1 := []finding.Finding{{CheckID: "a.check", Asset: "a.example.com"}}
 	batch2 := []finding.Finding{{CheckID: "b.check", Asset: "b.example.com"}}
-	s.SaveFindings(ctx(), run.ID, batch1)
-	s.SaveFindings(ctx(), run.ID, batch2)
+	_ = s.SaveFindings(ctx(), run.ID, batch1)
+	_ = s.SaveFindings(ctx(), run.ID, batch2)
 
 	got, err := s.GetFindings(ctx(), run.ID)
 	if err != nil {
@@ -446,8 +446,8 @@ func TestSaveEnrichedFindings_OverwritesPreviousBatch(t *testing.T) {
 
 	ef1 := []enrichment.EnrichedFinding{{Finding: finding.Finding{CheckID: "a"}, Explanation: "first"}}
 	ef2 := []enrichment.EnrichedFinding{{Finding: finding.Finding{CheckID: "b"}, Explanation: "second"}}
-	s.SaveEnrichedFindings(ctx(), run.ID, ef1)
-	s.SaveEnrichedFindings(ctx(), run.ID, ef2)
+	_ = s.SaveEnrichedFindings(ctx(), run.ID, ef1)
+	_ = s.SaveEnrichedFindings(ctx(), run.ID, ef2)
 
 	got, _ := s.GetEnrichedFindings(ctx(), run.ID)
 	if len(got) != 1 {
@@ -491,14 +491,14 @@ func TestGetPreviousEnrichedFindings_FindsMostRecentCompletedRun(t *testing.T) {
 	old := &store.ScanRun{ID: "old", Domain: "example.com", Status: store.StatusCompleted, StartedAt: time.Now().Add(-2 * time.Hour)}
 	oldComplete := time.Now().Add(-90 * time.Minute)
 	old.CompletedAt = &oldComplete
-	s.CreateScanRun(ctx(), old)
-	s.SaveEnrichedFindings(ctx(), "old", []enrichment.EnrichedFinding{{Explanation: "old-finding"}})
+	_ = s.CreateScanRun(ctx(), old)
+	_ = s.SaveEnrichedFindings(ctx(), "old", []enrichment.EnrichedFinding{{Explanation: "old-finding"}})
 
 	recent := &store.ScanRun{ID: "recent", Domain: "example.com", Status: store.StatusCompleted, StartedAt: time.Now().Add(-1 * time.Hour)}
 	recentComplete := time.Now().Add(-30 * time.Minute)
 	recent.CompletedAt = &recentComplete
-	s.CreateScanRun(ctx(), recent)
-	s.SaveEnrichedFindings(ctx(), "recent", []enrichment.EnrichedFinding{{Explanation: "recent-finding"}})
+	_ = s.CreateScanRun(ctx(), recent)
+	_ = s.SaveEnrichedFindings(ctx(), "recent", []enrichment.EnrichedFinding{{Explanation: "recent-finding"}})
 
 	// Current run (not yet completed).
 	current := mustCreateRun(t, s, "example.com", module.ScanSurface)
@@ -521,8 +521,8 @@ func TestGetPreviousEnrichedFindings_IgnoresOtherDomains(t *testing.T) {
 	other := &store.ScanRun{ID: "other", Domain: "other.com", Status: store.StatusCompleted, StartedAt: time.Now().Add(-1 * time.Hour)}
 	otherComplete := time.Now().Add(-30 * time.Minute)
 	other.CompletedAt = &otherComplete
-	s.CreateScanRun(ctx(), other)
-	s.SaveEnrichedFindings(ctx(), "other", []enrichment.EnrichedFinding{{Explanation: "other-domain"}})
+	_ = s.CreateScanRun(ctx(), other)
+	_ = s.SaveEnrichedFindings(ctx(), "other", []enrichment.EnrichedFinding{{Explanation: "other-domain"}})
 
 	current := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
@@ -539,8 +539,8 @@ func TestGetPreviousEnrichedFindings_ExcludesCurrentRun(t *testing.T) {
 	run := &store.ScanRun{ID: "current", Domain: "example.com", Status: store.StatusCompleted, StartedAt: time.Now()}
 	now := time.Now()
 	run.CompletedAt = &now
-	s.CreateScanRun(ctx(), run)
-	s.SaveEnrichedFindings(ctx(), "current", []enrichment.EnrichedFinding{{Explanation: "self"}})
+	_ = s.CreateScanRun(ctx(), run)
+	_ = s.SaveEnrichedFindings(ctx(), "current", []enrichment.EnrichedFinding{{Explanation: "self"}})
 
 	got, _ := s.GetPreviousEnrichedFindings(ctx(), "example.com", "current")
 	if got != nil {
@@ -581,7 +581,7 @@ func TestSaveAndGetReport(t *testing.T) {
 func TestGetReport_ReturnsCopy(t *testing.T) {
 	s := newStore()
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
-	s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "original"})
+	_ = s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "original"})
 
 	got, _ := s.GetReport(ctx(), run.ID)
 	got.Summary = "mutated"
@@ -615,9 +615,9 @@ func TestSavePlaybookSuggestion_AssignsIDIfEmpty(t *testing.T) {
 
 func TestListPlaybookSuggestions_FiltersByStatus(t *testing.T) {
 	s := newStore()
-	s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "pending"})
-	s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "merged"})
-	s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "pending"})
+	_ = s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "pending"})
+	_ = s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "merged"})
+	_ = s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "pending"})
 
 	tests := []struct {
 		status string
@@ -642,7 +642,7 @@ func TestListPlaybookSuggestions_FiltersByStatus(t *testing.T) {
 func TestUpdatePlaybookSuggestion_UpdatesInPlace(t *testing.T) {
 	s := newStore()
 	sg := &store.PlaybookSuggestion{Status: "pending"}
-	s.SavePlaybookSuggestion(ctx(), sg)
+	_ = s.SavePlaybookSuggestion(ctx(), sg)
 
 	sg.Status = "merged"
 	if err := s.UpdatePlaybookSuggestion(ctx(), sg); err != nil {
@@ -698,8 +698,8 @@ func TestEnrichmentCache_NotFoundForMissing(t *testing.T) {
 func TestEnrichmentCache_OverwritesOnSecondSave(t *testing.T) {
 	s := newStore()
 	checkID := finding.CheckID("overwrite.check")
-	s.SaveEnrichmentCache(ctx(), checkID, "v1", "v1", "v1")
-	s.SaveEnrichmentCache(ctx(), checkID, "v2", "v2", "v2")
+	_ = s.SaveEnrichmentCache(ctx(), checkID, "v1", "v1", "v1")
+	_ = s.SaveEnrichmentCache(ctx(), checkID, "v2", "v2", "v2")
 
 	exp, _, _, found := s.GetEnrichmentCache(ctx(), checkID)
 	if !found {
@@ -738,7 +738,7 @@ func TestSaveCorrelationFindings_PreservesExplicitID(t *testing.T) {
 	cf := []store.CorrelationFinding{
 		{ID: "my-id", Domain: "example.com", Title: "Chain"},
 	}
-	s.SaveCorrelationFindings(ctx(), cf)
+	_ = s.SaveCorrelationFindings(ctx(), cf)
 
 	got, _ := s.ListCorrelationFindings(ctx(), "example.com")
 	if got[0].ID != "my-id" {
@@ -748,7 +748,7 @@ func TestSaveCorrelationFindings_PreservesExplicitID(t *testing.T) {
 
 func TestListCorrelationFindings_FiltersByDomain(t *testing.T) {
 	s := newStore()
-	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+	_ = s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
 		{Domain: "a.com", Title: "Chain A"},
 		{Domain: "b.com", Title: "Chain B"},
 		{Domain: "a.com", Title: "Chain A2"},
@@ -777,9 +777,9 @@ func TestListRecentScanRuns_OnlyCompleted(t *testing.T) {
 	completed := &store.ScanRun{ID: "c1", Domain: "a.com", Status: store.StatusCompleted, StartedAt: now, CompletedAt: &now}
 	pending := &store.ScanRun{ID: "p1", Domain: "a.com", Status: store.StatusPending, StartedAt: now}
 	running := &store.ScanRun{ID: "r1", Domain: "a.com", Status: store.StatusRunning, StartedAt: now}
-	s.CreateScanRun(ctx(), completed)
-	s.CreateScanRun(ctx(), pending)
-	s.CreateScanRun(ctx(), running)
+	_ = s.CreateScanRun(ctx(), completed)
+	_ = s.CreateScanRun(ctx(), pending)
+	_ = s.CreateScanRun(ctx(), running)
 
 	got, err := s.ListRecentScanRuns(ctx(), 10)
 	if err != nil {
@@ -801,7 +801,7 @@ func TestListRecentScanRuns_RespectsLimit(t *testing.T) {
 			StartedAt:   t1,
 			CompletedAt: &t1,
 		}
-		s.CreateScanRun(ctx(), run)
+		_ = s.CreateScanRun(ctx(), run)
 	}
 
 	got, _ := s.ListRecentScanRuns(ctx(), 3)
@@ -816,9 +816,9 @@ func TestListRecentScanRuns_SortedByCompletedAtDesc(t *testing.T) {
 	t2 := time.Now().Add(-2 * time.Hour)
 	t3 := time.Now().Add(-1 * time.Hour)
 
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "oldest", Domain: "a.com", Status: store.StatusCompleted, StartedAt: t1, CompletedAt: &t1})
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "newest", Domain: "a.com", Status: store.StatusCompleted, StartedAt: t3, CompletedAt: &t3})
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "middle", Domain: "a.com", Status: store.StatusCompleted, StartedAt: t2, CompletedAt: &t2})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "oldest", Domain: "a.com", Status: store.StatusCompleted, StartedAt: t1, CompletedAt: &t1})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "newest", Domain: "a.com", Status: store.StatusCompleted, StartedAt: t3, CompletedAt: &t3})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "middle", Domain: "a.com", Status: store.StatusCompleted, StartedAt: t2, CompletedAt: &t2})
 
 	got, _ := s.ListRecentScanRuns(ctx(), 10)
 	if len(got) != 3 {
@@ -833,7 +833,7 @@ func TestListRecentScanRuns_ZeroLimitReturnsAll(t *testing.T) {
 	s := newStore()
 	for i := 0; i < 3; i++ {
 		t1 := time.Now().Add(time.Duration(i) * time.Minute)
-		s.CreateScanRun(ctx(), &store.ScanRun{
+		_ = s.CreateScanRun(ctx(), &store.ScanRun{
 			ID: fmt.Sprintf("r%d", i), Domain: "x.com",
 			Status: store.StatusCompleted, StartedAt: t1, CompletedAt: &t1,
 		})
@@ -884,7 +884,7 @@ func TestUpsertSuppression_ReplacesExistingWithSameKey(t *testing.T) {
 		Status:  store.SuppressionFalsePositive,
 		Note:    "first",
 	}
-	s.UpsertSuppression(ctx(), sup1)
+	_ = s.UpsertSuppression(ctx(), sup1)
 
 	sup2 := &store.FindingSuppression{
 		Domain:  "example.com",
@@ -893,7 +893,7 @@ func TestUpsertSuppression_ReplacesExistingWithSameKey(t *testing.T) {
 		Status:  store.SuppressionAcceptedRisk,
 		Note:    "updated",
 	}
-	s.UpsertSuppression(ctx(), sup2)
+	_ = s.UpsertSuppression(ctx(), sup2)
 
 	got, _ := s.ListSuppressions(ctx(), "example.com")
 	if len(got) != 1 {
@@ -909,9 +909,9 @@ func TestUpsertSuppression_ReplacesExistingWithSameKey(t *testing.T) {
 
 func TestUpsertSuppression_DifferentKeysCoexist(t *testing.T) {
 	s := newStore()
-	s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "example.com", CheckID: "a.check", Asset: "x.com"})
-	s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "example.com", CheckID: "b.check", Asset: "x.com"})
-	s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "example.com", CheckID: "a.check", Asset: "y.com"})
+	_ = s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "example.com", CheckID: "a.check", Asset: "x.com"})
+	_ = s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "example.com", CheckID: "b.check", Asset: "x.com"})
+	_ = s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "example.com", CheckID: "a.check", Asset: "y.com"})
 
 	got, _ := s.ListSuppressions(ctx(), "example.com")
 	if len(got) != 3 {
@@ -921,8 +921,8 @@ func TestUpsertSuppression_DifferentKeysCoexist(t *testing.T) {
 
 func TestListSuppressions_FiltersByDomain(t *testing.T) {
 	s := newStore()
-	s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "a.com", CheckID: "x"})
-	s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "b.com", CheckID: "y"})
+	_ = s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "a.com", CheckID: "x"})
+	_ = s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: "b.com", CheckID: "y"})
 
 	got, _ := s.ListSuppressions(ctx(), "a.com")
 	if len(got) != 1 {
@@ -941,7 +941,7 @@ func TestListSuppressions_EmptyForUnknownDomain(t *testing.T) {
 func TestDeleteSuppression(t *testing.T) {
 	s := newStore()
 	sup := &store.FindingSuppression{Domain: "example.com", CheckID: "test.check"}
-	s.UpsertSuppression(ctx(), sup)
+	_ = s.UpsertSuppression(ctx(), sup)
 
 	if err := s.DeleteSuppression(ctx(), sup.ID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -968,26 +968,26 @@ func TestPurgeOrphanedRuns_DeletesFailedAndStoppedOlderThanThreshold(t *testing.
 	// orphanThreshold = threshold - 2h = -3h from now
 
 	// Old failed run, 2h ago (should be purged — failed + older than threshold).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-failed", Domain: "a.com", Status: store.StatusFailed, StartedAt: time.Now().Add(-2 * time.Hour)})
-	s.SaveFindings(ctx(), "old-failed", []finding.Finding{{CheckID: "x"}})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-failed", Domain: "a.com", Status: store.StatusFailed, StartedAt: time.Now().Add(-2 * time.Hour)})
+	_ = s.SaveFindings(ctx(), "old-failed", []finding.Finding{{CheckID: "x"}})
 
 	// Old stopped run, 3h ago (should be purged — stopped + older than threshold).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-stopped", Domain: "a.com", Status: store.StatusStopped, StartedAt: time.Now().Add(-3 * time.Hour)})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-stopped", Domain: "a.com", Status: store.StatusStopped, StartedAt: time.Now().Add(-3 * time.Hour)})
 
 	// Old completed run, 4h ago (should NOT be purged — completed runs are never purged).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-completed", Domain: "a.com", Status: store.StatusCompleted, StartedAt: time.Now().Add(-4 * time.Hour)})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-completed", Domain: "a.com", Status: store.StatusCompleted, StartedAt: time.Now().Add(-4 * time.Hour)})
 
 	// Old running run, 5h ago (SHOULD be purged — orphaned running, older than orphanThreshold -3h).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-running", Domain: "a.com", Status: store.StatusRunning, StartedAt: time.Now().Add(-5 * time.Hour)})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-running", Domain: "a.com", Status: store.StatusRunning, StartedAt: time.Now().Add(-5 * time.Hour)})
 
 	// Old pending run, 6h ago (SHOULD be purged — orphaned pending, older than orphanThreshold -3h).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-pending", Domain: "a.com", Status: store.StatusPending, StartedAt: time.Now().Add(-6 * time.Hour)})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "old-pending", Domain: "a.com", Status: store.StatusPending, StartedAt: time.Now().Add(-6 * time.Hour)})
 
 	// Recent running run, 2h ago (should NOT be purged — newer than orphanThreshold).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "recent-running", Domain: "a.com", Status: store.StatusRunning, StartedAt: time.Now().Add(-2 * time.Hour)})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "recent-running", Domain: "a.com", Status: store.StatusRunning, StartedAt: time.Now().Add(-2 * time.Hour)})
 
 	// Recent failed run (should NOT be purged — newer than threshold).
-	s.CreateScanRun(ctx(), &store.ScanRun{ID: "new-failed", Domain: "a.com", Status: store.StatusFailed, StartedAt: time.Now()})
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{ID: "new-failed", Domain: "a.com", Status: store.StatusFailed, StartedAt: time.Now()})
 
 	deleted, err := s.PurgeOrphanedRuns(ctx(), threshold)
 	if err != nil {
@@ -1222,9 +1222,9 @@ func TestConcurrentReadWrites_Targets(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			domain := fmt.Sprintf("domain-%d.com", n)
-			s.UpsertTarget(ctx(), domain)
-			s.GetTarget(ctx(), domain)
-			s.ListTargets(ctx())
+			_, _ = s.UpsertTarget(ctx(), domain)
+			_, _ = s.GetTarget(ctx(), domain)
+			_, _ = s.ListTargets(ctx())
 		}(i)
 	}
 	wg.Wait()
@@ -1247,7 +1247,7 @@ func TestConcurrentReadWrites_ScanRuns(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			run := memory.NewScanRun("concurrent.com", module.ScanSurface)
-			s.CreateScanRun(ctx(), run)
+			_ = s.CreateScanRun(ctx(), run)
 			ids[n] = run.ID
 		}(i)
 	}
@@ -1258,8 +1258,8 @@ func TestConcurrentReadWrites_ScanRuns(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			s.GetScanRun(ctx(), ids[n])
-			s.ListScanRuns(ctx(), "concurrent.com")
+			_, _ = s.GetScanRun(ctx(), ids[n])
+			_, _ = s.ListScanRuns(ctx(), "concurrent.com")
 		}(i)
 	}
 	wg.Wait()
@@ -1282,8 +1282,8 @@ func TestConcurrentReadWrites_Findings(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			f := []finding.Finding{{CheckID: finding.CheckID(fmt.Sprintf("check.%d", n)), Asset: "example.com"}}
-			s.SaveFindings(ctx(), run.ID, f)
-			s.GetFindings(ctx(), run.ID)
+			_ = s.SaveFindings(ctx(), run.ID, f)
+			_, _ = s.GetFindings(ctx(), run.ID)
 		}(i)
 	}
 	wg.Wait()
@@ -1305,7 +1305,7 @@ func TestConcurrentReadWrites_EnrichmentCache(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			checkID := finding.CheckID(fmt.Sprintf("cache.%d", n))
-			s.SaveEnrichmentCache(ctx(), checkID, "exp", "imp", "rem")
+			_ = s.SaveEnrichmentCache(ctx(), checkID, "exp", "imp", "rem")
 			s.GetEnrichmentCache(ctx(), checkID)
 		}(i)
 	}
@@ -1337,8 +1337,8 @@ func TestConcurrentReadWrites_Suppressions(t *testing.T) {
 				Asset:   "asset.com",
 				Status:  store.SuppressionFalsePositive,
 			}
-			s.UpsertSuppression(ctx(), sup)
-			s.ListSuppressions(ctx(), "concurrent.com")
+			_ = s.UpsertSuppression(ctx(), sup)
+			_, _ = s.ListSuppressions(ctx(), "concurrent.com")
 		}(i)
 	}
 	wg.Wait()
@@ -1360,22 +1360,22 @@ func TestConcurrentReadWrites_MixedOperations(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			domain := fmt.Sprintf("mixed-%d.com", n)
-			s.UpsertTarget(ctx(), domain)
+			_, _ = s.UpsertTarget(ctx(), domain)
 			run := memory.NewScanRun(domain, module.ScanSurface)
-			s.CreateScanRun(ctx(), run)
-			s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: "m.check"}})
-			s.SaveEnrichedFindings(ctx(), run.ID, []enrichment.EnrichedFinding{{Explanation: "e"}})
-			s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "s"})
-			s.SaveEnrichmentCache(ctx(), finding.CheckID(fmt.Sprintf("m.%d", n)), "a", "b", "c")
-			s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{{Domain: domain, Title: "chain"}})
-			s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "pending"})
-			s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: domain, CheckID: "x"})
-			s.ListTargets(ctx())
-			s.ListScanRuns(ctx(), domain)
-			s.GetFindings(ctx(), run.ID)
-			s.GetEnrichedFindings(ctx(), run.ID)
-			s.ListCorrelationFindings(ctx(), domain)
-			s.ListSuppressions(ctx(), domain)
+			_ = s.CreateScanRun(ctx(), run)
+			_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: "m.check"}})
+			_ = s.SaveEnrichedFindings(ctx(), run.ID, []enrichment.EnrichedFinding{{Explanation: "e"}})
+			_ = s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "s"})
+			_ = s.SaveEnrichmentCache(ctx(), finding.CheckID(fmt.Sprintf("m.%d", n)), "a", "b", "c")
+			_ = s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{{Domain: domain, Title: "chain"}})
+			_ = s.SavePlaybookSuggestion(ctx(), &store.PlaybookSuggestion{Status: "pending"})
+			_ = s.UpsertSuppression(ctx(), &store.FindingSuppression{Domain: domain, CheckID: "x"})
+			_, _ = s.ListTargets(ctx())
+			_, _ = s.ListScanRuns(ctx(), domain)
+			_, _ = s.GetFindings(ctx(), run.ID)
+			_, _ = s.GetEnrichedFindings(ctx(), run.ID)
+			_, _ = s.ListCorrelationFindings(ctx(), domain)
+			_, _ = s.ListSuppressions(ctx(), domain)
 		}(i)
 	}
 	wg.Wait()
@@ -1414,7 +1414,7 @@ func TestSaveFindings_CallerMutationDoesNotCorrupt(t *testing.T) {
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
 	findings := []finding.Finding{{CheckID: "orig.check", Asset: "example.com"}}
-	s.SaveFindings(ctx(), run.ID, findings)
+	_ = s.SaveFindings(ctx(), run.ID, findings)
 
 	// Mutate the caller's slice after saving.
 	findings[0].CheckID = "mutated.check"
@@ -1432,7 +1432,7 @@ func TestGetFindings_ReturnedSliceMutationDoesNotCorrupt(t *testing.T) {
 	s := newStore()
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
-	s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: "a.check", Asset: "a.com"}})
+	_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: "a.check", Asset: "a.com"}})
 
 	got, _ := s.GetFindings(ctx(), run.ID)
 	got[0].CheckID = "mutated"
@@ -1520,7 +1520,7 @@ func TestConcurrentWriteRead(t *testing.T) {
 					Asset:   "example.com",
 					Title:   fmt.Sprintf("Finding %d from writer %d", f, writerN),
 				}}
-				s.SaveFindings(ctx(), run.ID, findings)
+				_ = s.SaveFindings(ctx(), run.ID, findings)
 			}
 		}(w)
 	}
@@ -1571,7 +1571,7 @@ func TestDedupCaseSensitivity(t *testing.T) {
 		Title:   "Wildcard CORS",
 	}
 
-	s.SaveFindings(ctx(), run.ID, []finding.Finding{lower, upper})
+	_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{lower, upper})
 
 	got, err := s.GetFindings(ctx(), run.ID)
 	if err != nil {
@@ -1605,7 +1605,7 @@ func TestSaveEnrichedFindings_CallerMutationDoesNotCorrupt(t *testing.T) {
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
 	ef := []enrichment.EnrichedFinding{{Explanation: "original"}}
-	s.SaveEnrichedFindings(ctx(), run.ID, ef)
+	_ = s.SaveEnrichedFindings(ctx(), run.ID, ef)
 
 	ef[0].Explanation = "mutated"
 
@@ -1619,7 +1619,7 @@ func TestGetEnrichedFindings_ReturnedSliceMutationDoesNotCorrupt(t *testing.T) {
 	s := newStore()
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
-	s.SaveEnrichedFindings(ctx(), run.ID, []enrichment.EnrichedFinding{{Explanation: "original"}})
+	_ = s.SaveEnrichedFindings(ctx(), run.ID, []enrichment.EnrichedFinding{{Explanation: "original"}})
 
 	got, _ := s.GetEnrichedFindings(ctx(), run.ID)
 	got[0].Explanation = "mutated"
@@ -1634,11 +1634,11 @@ func TestDeleteScanRun_CleansReportsAndCorrelations(t *testing.T) {
 	s := newStore()
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
-	s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "test"})
-	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+	_ = s.SaveReport(ctx(), &store.Report{ScanRunID: run.ID, Summary: "test"})
+	_ = s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
 		{ScanRunID: run.ID, Domain: "example.com", Title: "chain"},
 	})
-	s.SaveAssetGraph(ctx(), run.ID, []byte(`{"nodes":[]}`))
+	_ = s.SaveAssetGraph(ctx(), run.ID, []byte(`{"nodes":[]}`))
 
 	if err := s.DeleteScanRun(ctx(), run.ID); err != nil {
 		t.Fatalf("DeleteScanRun: %v", err)
@@ -1666,12 +1666,12 @@ func TestPurgeOrphanedRuns_CleansReportsAndCorrelations(t *testing.T) {
 	s := newStore()
 	threshold := time.Now().Add(-1 * time.Hour)
 
-	s.CreateScanRun(ctx(), &store.ScanRun{
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{
 		ID: "purge-me", Domain: "a.com", Status: store.StatusFailed,
 		StartedAt: time.Now().Add(-2 * time.Hour),
 	})
-	s.SaveReport(ctx(), &store.Report{ScanRunID: "purge-me", Summary: "test"})
-	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+	_ = s.SaveReport(ctx(), &store.Report{ScanRunID: "purge-me", Summary: "test"})
+	_ = s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
 		{ScanRunID: "purge-me", Domain: "a.com", Title: "chain"},
 	})
 
@@ -1699,13 +1699,13 @@ func TestPurgeOrphanedRuns_OrphanedRunningRuns(t *testing.T) {
 	// orphanThreshold = threshold - 2h = -3h from now
 
 	// Running run from 4 hours ago — orphaned.
-	s.CreateScanRun(ctx(), &store.ScanRun{
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{
 		ID: "orphan-run", Domain: "a.com", Status: store.StatusRunning,
 		StartedAt: time.Now().Add(-4 * time.Hour),
 	})
 
 	// Running run from 2 hours ago — not yet orphaned.
-	s.CreateScanRun(ctx(), &store.ScanRun{
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{
 		ID: "active-run", Domain: "a.com", Status: store.StatusRunning,
 		StartedAt: time.Now().Add(-2 * time.Hour),
 	})
@@ -1730,12 +1730,12 @@ func TestGetPreviousEnrichedFindings_SkipsCompletedRunsWithNilCompletedAt(t *tes
 	s := newStore()
 
 	// Completed run without CompletedAt (malformed) — should be skipped.
-	s.CreateScanRun(ctx(), &store.ScanRun{
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{
 		ID: "no-completed-at", Domain: "example.com", Status: store.StatusCompleted,
 		StartedAt: time.Now().Add(-1 * time.Hour),
 		// CompletedAt intentionally nil
 	})
-	s.SaveEnrichedFindings(ctx(), "no-completed-at", []enrichment.EnrichedFinding{{Explanation: "malformed"}})
+	_ = s.SaveEnrichedFindings(ctx(), "no-completed-at", []enrichment.EnrichedFinding{{Explanation: "malformed"}})
 
 	current := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
@@ -1768,23 +1768,23 @@ func TestGetPreviousEnrichedFindings_AllRunsNilCompletedAt(t *testing.T) {
 	s := newStore()
 
 	// Create two completed runs, both with nil CompletedAt (malformed).
-	s.CreateScanRun(ctx(), &store.ScanRun{
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{
 		ID:        "run-nil-1",
 		Domain:    "example.com",
 		Status:    store.StatusCompleted,
 		StartedAt: time.Now().Add(-2 * time.Hour),
 		// CompletedAt intentionally nil
 	})
-	s.SaveEnrichedFindings(ctx(), "run-nil-1", []enrichment.EnrichedFinding{{Explanation: "first"}})
+	_ = s.SaveEnrichedFindings(ctx(), "run-nil-1", []enrichment.EnrichedFinding{{Explanation: "first"}})
 
-	s.CreateScanRun(ctx(), &store.ScanRun{
+	_ = s.CreateScanRun(ctx(), &store.ScanRun{
 		ID:        "run-nil-2",
 		Domain:    "example.com",
 		Status:    store.StatusCompleted,
 		StartedAt: time.Now().Add(-1 * time.Hour),
 		// CompletedAt intentionally nil
 	})
-	s.SaveEnrichedFindings(ctx(), "run-nil-2", []enrichment.EnrichedFinding{{Explanation: "second"}})
+	_ = s.SaveEnrichedFindings(ctx(), "run-nil-2", []enrichment.EnrichedFinding{{Explanation: "second"}})
 
 	current := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
@@ -1831,7 +1831,7 @@ func TestAssetGraph_CallerMutationDoesNotCorrupt(t *testing.T) {
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
 	data := []byte(`{"nodes":[]}`)
-	s.SaveAssetGraph(ctx(), run.ID, data)
+	_ = s.SaveAssetGraph(ctx(), run.ID, data)
 
 	// Mutate the original slice.
 	data[0] = 'X'
@@ -1866,18 +1866,18 @@ func TestDeleteScanRun_DoesNotAffectOtherRuns(t *testing.T) {
 	run1 := mustCreateRun(t, s, "a.com", module.ScanSurface)
 	run2 := mustCreateRun(t, s, "b.com", module.ScanSurface)
 
-	s.SaveFindings(ctx(), run1.ID, []finding.Finding{{CheckID: "f1", Asset: "a.com"}})
-	s.SaveFindings(ctx(), run2.ID, []finding.Finding{{CheckID: "f2", Asset: "b.com"}})
-	s.SaveEnrichedFindings(ctx(), run1.ID, []enrichment.EnrichedFinding{{Explanation: "e1"}})
-	s.SaveEnrichedFindings(ctx(), run2.ID, []enrichment.EnrichedFinding{{Explanation: "e2"}})
-	s.SaveReport(ctx(), &store.Report{ScanRunID: run1.ID, Summary: "r1"})
-	s.SaveReport(ctx(), &store.Report{ScanRunID: run2.ID, Summary: "r2"})
-	s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
+	_ = s.SaveFindings(ctx(), run1.ID, []finding.Finding{{CheckID: "f1", Asset: "a.com"}})
+	_ = s.SaveFindings(ctx(), run2.ID, []finding.Finding{{CheckID: "f2", Asset: "b.com"}})
+	_ = s.SaveEnrichedFindings(ctx(), run1.ID, []enrichment.EnrichedFinding{{Explanation: "e1"}})
+	_ = s.SaveEnrichedFindings(ctx(), run2.ID, []enrichment.EnrichedFinding{{Explanation: "e2"}})
+	_ = s.SaveReport(ctx(), &store.Report{ScanRunID: run1.ID, Summary: "r1"})
+	_ = s.SaveReport(ctx(), &store.Report{ScanRunID: run2.ID, Summary: "r2"})
+	_ = s.SaveCorrelationFindings(ctx(), []store.CorrelationFinding{
 		{ScanRunID: run1.ID, Domain: "a.com", Title: "c1"},
 		{ScanRunID: run2.ID, Domain: "b.com", Title: "c2"},
 	})
 
-	s.DeleteScanRun(ctx(), run1.ID)
+	_ = s.DeleteScanRun(ctx(), run1.ID)
 
 	// run2 should be unaffected.
 	if _, err := s.GetScanRun(ctx(), run2.ID); err != nil {
@@ -1917,8 +1917,8 @@ func TestConcurrentDeleteAndRead(t *testing.T) {
 			Status:  store.StatusFailed,
 			StartedAt: time.Now(),
 		}
-		s.CreateScanRun(ctx(), run)
-		s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: finding.CheckID(fmt.Sprintf("c.%d", i))}})
+		_ = s.CreateScanRun(ctx(), run)
+		_ = s.SaveFindings(ctx(), run.ID, []finding.Finding{{CheckID: finding.CheckID(fmt.Sprintf("c.%d", i))}})
 	}
 
 	// Concurrently delete and read.
@@ -1926,12 +1926,12 @@ func TestConcurrentDeleteAndRead(t *testing.T) {
 		wg.Add(2)
 		go func(n int) {
 			defer wg.Done()
-			s.DeleteScanRun(ctx(), fmt.Sprintf("run-%d", n))
+			_ = s.DeleteScanRun(ctx(), fmt.Sprintf("run-%d", n))
 		}(i)
 		go func(n int) {
 			defer wg.Done()
-			s.GetFindings(ctx(), fmt.Sprintf("run-%d", n))
-			s.ListScanRuns(ctx(), "concurrent.com")
+			_, _ = s.GetFindings(ctx(), fmt.Sprintf("run-%d", n))
+			_, _ = s.ListScanRuns(ctx(), "concurrent.com")
 		}(i)
 	}
 	wg.Wait()
@@ -1981,7 +1981,7 @@ func TestListAllScanRuns_SortedByStartedAtDesc(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: now.Add(time.Duration(i) * time.Minute),
 		}
-		s.CreateScanRun(ctx(), run)
+		_ = s.CreateScanRun(ctx(), run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx(), 50)
@@ -2023,7 +2023,7 @@ func TestListAllScanRuns_LimitZeroDefaultsTo50(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		s.CreateScanRun(ctx(), run)
+		_ = s.CreateScanRun(ctx(), run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx(), 0)
@@ -2046,7 +2046,7 @@ func TestListAllScanRuns_NegativeLimitDefaultsTo50(t *testing.T) {
 			Status:    store.StatusCompleted,
 			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
 		}
-		s.CreateScanRun(ctx(), run)
+		_ = s.CreateScanRun(ctx(), run)
 	}
 
 	runs, err := s.ListAllScanRuns(ctx(), -1)
@@ -2128,7 +2128,7 @@ func TestSaveAssetExecution_MultiplePerRun(t *testing.T) {
 			ScanRunID: run.ID,
 			Asset:     fmt.Sprintf("sub%d.example.com", i),
 		}
-		s.SaveAssetExecution(ctx(), exec)
+		_ = s.SaveAssetExecution(ctx(), exec)
 	}
 
 	execs, err := s.ListAssetExecutions(ctx(), run.ID)
@@ -2147,9 +2147,9 @@ func TestSaveAssetExecution_IsolatedBetweenRuns(t *testing.T) {
 	runA := mustCreateRun(t, s, "a.com", module.ScanSurface)
 	runB := mustCreateRun(t, s, "b.com", module.ScanSurface)
 
-	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e1", ScanRunID: runA.ID, Asset: "x"})
-	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e2", ScanRunID: runB.ID, Asset: "y"})
-	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e3", ScanRunID: runB.ID, Asset: "z"})
+	_ = s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e1", ScanRunID: runA.ID, Asset: "x"})
+	_ = s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e2", ScanRunID: runB.ID, Asset: "y"})
+	_ = s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e3", ScanRunID: runB.ID, Asset: "z"})
 
 	execsA, _ := s.ListAssetExecutions(ctx(), runA.ID)
 	execsB, _ := s.ListAssetExecutions(ctx(), runB.ID)
@@ -2172,7 +2172,7 @@ func TestSaveAssetExecution_MutationIsolation(t *testing.T) {
 		ScanRunID: run.ID,
 		Asset:     "original",
 	}
-	s.SaveAssetExecution(ctx(), exec)
+	_ = s.SaveAssetExecution(ctx(), exec)
 
 	// Mutate the original after saving — should not affect stored copy.
 	exec.Asset = "mutated"
@@ -2214,7 +2214,7 @@ func TestGetAssetGraph_ReturnsNilForMissing(t *testing.T) {
 func TestSaveAssetGraph_MutationIsolation(t *testing.T) {
 	s := newStore()
 	data := []byte(`{"original":true}`)
-	s.SaveAssetGraph(ctx(), "run-1", data)
+	_ = s.SaveAssetGraph(ctx(), "run-1", data)
 
 	// Mutate the input slice after saving.
 	data[0] = '!'
@@ -2230,8 +2230,8 @@ func TestDeleteScanRun_CleansUpAssetExecutionsAndGraphs(t *testing.T) {
 	mustUpsertTarget(t, s, "example.com")
 	run := mustCreateRun(t, s, "example.com", module.ScanSurface)
 
-	s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e1", ScanRunID: run.ID, Asset: "x"})
-	s.SaveAssetGraph(ctx(), run.ID, []byte(`{}`))
+	_ = s.SaveAssetExecution(ctx(), &store.AssetExecution{ID: "e1", ScanRunID: run.ID, Asset: "x"})
+	_ = s.SaveAssetGraph(ctx(), run.ID, []byte(`{}`))
 
 	if err := s.DeleteScanRun(ctx(), run.ID); err != nil {
 		t.Fatalf("DeleteScanRun: %v", err)
@@ -2262,7 +2262,7 @@ func TestListAllScanRuns_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.ListAllScanRuns(ctx(), 10)
+			_, _ = s.ListAllScanRuns(ctx(), 10)
 		}()
 	}
 	wg.Wait()
@@ -2278,7 +2278,7 @@ func TestAssetExecution_ConcurrentReadWrite(t *testing.T) {
 		wg.Add(2)
 		go func(n int) {
 			defer wg.Done()
-			s.SaveAssetExecution(ctx(), &store.AssetExecution{
+			_ = s.SaveAssetExecution(ctx(), &store.AssetExecution{
 				ID:        fmt.Sprintf("exec-%d", n),
 				ScanRunID: run.ID,
 				Asset:     fmt.Sprintf("asset-%d", n),
@@ -2286,7 +2286,7 @@ func TestAssetExecution_ConcurrentReadWrite(t *testing.T) {
 		}(i)
 		go func(n int) {
 			defer wg.Done()
-			s.ListAssetExecutions(ctx(), run.ID)
+			_, _ = s.ListAssetExecutions(ctx(), run.ID)
 		}(i)
 	}
 	wg.Wait()

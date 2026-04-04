@@ -317,7 +317,7 @@ func probeEndpoint(ctx context.Context, client *http.Client, url, method string)
 		return nil
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Skip 404, 405 — endpoint does not exist or method wrong.
 	if resp.StatusCode == 404 || resp.StatusCode == 405 {
@@ -408,7 +408,7 @@ func checkKeyLeak(ctx context.Context, client *http.Client, base, asset string) 
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Look for key-like values in headers that should never be echoed.
 	sensitiveHeaders := []string{
@@ -479,7 +479,7 @@ func checkJSProviderLeak(ctx context.Context, client *http.Client, base, asset s
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024)) // 256 KB cap
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	bodyStr := string(body)
 	var findings []finding.Finding
@@ -557,6 +557,6 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	if err != nil {
 		return "http"
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return "https"
 }

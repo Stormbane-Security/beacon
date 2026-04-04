@@ -202,7 +202,7 @@ func (s *Scanner) probeErrorPath(ctx context.Context, client *http.Client, base,
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, int64(maxBodyRead)))
 	bodyStr := string(body)
@@ -281,7 +281,7 @@ func (s *Scanner) probeDebugPath(ctx context.Context, client *http.Client, base,
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Debug endpoints should not return 200 on production systems.
 	if resp.StatusCode != http.StatusOK {

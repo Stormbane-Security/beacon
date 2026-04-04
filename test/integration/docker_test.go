@@ -212,7 +212,7 @@ func waitForReady(ctx context.Context, hostPort, path, expectBody string) error 
 				continue
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode < 500 {
 				if expectBody == "" || strings.Contains(strings.ToLower(string(body)), strings.ToLower(expectBody)) {
 					return nil

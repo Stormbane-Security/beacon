@@ -86,15 +86,15 @@ func cmdClassify(cfg *config.Config, args []string) {
 	// Apply fingerprint database rules to fill gaps left by deterministic detection.
 	db, err := sqlitestore.Open(cfg.Store.Path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "beacon: warning: could not open store for fingerprint rules: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: warning: could not open store for fingerprint rules: %v\n", err)
 	} else {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 		if seedErr := fingerprintdb.Seed(ctx, db); seedErr != nil {
-			fmt.Fprintf(os.Stderr, "beacon: warning: fingerprint seed failed: %v\n", seedErr)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: warning: fingerprint seed failed: %v\n", seedErr)
 		}
 		rules, rulesErr := db.GetFingerprintRules(ctx, "active")
 		if rulesErr != nil {
-			fmt.Fprintf(os.Stderr, "beacon: warning: could not load fingerprint rules: %v\n", rulesErr)
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: warning: could not load fingerprint rules: %v\n", rulesErr)
 		} else {
 			fingerprintdb.Apply(rules, &ev)
 		}

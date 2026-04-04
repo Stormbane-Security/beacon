@@ -116,7 +116,7 @@ func probePDFEndpoint(ctx context.Context, client *http.Client, base, path, meth
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	// Accept POST-only endpoints (405) and normal responses.
 	if resp.StatusCode == 404 {
 		return nil
@@ -191,7 +191,7 @@ func probePDFEndpoint(ctx context.Context, client *http.Client, base, path, meth
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Indicators that the endpoint processed our HTML and attempted rendering:
 		// 1. Response is a PDF (Content-Type: application/pdf or %PDF magic bytes)

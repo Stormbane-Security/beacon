@@ -107,7 +107,7 @@ func TestProbeTraefikAPI_RoutersAndServices(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/rawdata" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"routers":{"myapp@docker":{"name":"myapp"}},"services":{"myapp@docker":{}}}`)
+			_, _ = fmt.Fprint(w, `{"routers":{"myapp@docker":{"name":"myapp"}},"services":{"myapp@docker":{}}}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -139,7 +139,7 @@ func TestProbeTraefikAPI_200ButNoRouterKeys_NoFinding(t *testing.T) {
 	// Server returns 200 with valid JSON but no "routers" or "services" keys
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"message":"hello","status":"ok"}`)
+		_, _ = fmt.Fprint(w, `{"message":"hello","status":"ok"}`)
 	}))
 	defer srv.Close()
 
@@ -155,7 +155,7 @@ func TestProbeEnvoyAdmin_ConfigDump(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/config_dump" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"configs":[{"@type":"type.googleapis.com/envoy.admin.v3.BootstrapConfigDump","bootstrap":{}}]}`)
+			_, _ = fmt.Fprint(w, `{"configs":[{"@type":"type.googleapis.com/envoy.admin.v3.BootstrapConfigDump","bootstrap":{}}]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -178,7 +178,7 @@ func TestProbeEnvoyAdmin_NoEnvoyInBody_NoFinding(t *testing.T) {
 	// Returns @type but no "envoy" substring — must not trigger
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"@type":"type.googleapis.com/something.else","data":{}}`)
+		_, _ = fmt.Fprint(w, `{"@type":"type.googleapis.com/something.else","data":{}}`)
 	}))
 	defer srv.Close()
 
@@ -194,10 +194,10 @@ func TestProbeVarnishDebug_PurgeAccepted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PURGE" {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "purged")
+			_, _ = fmt.Fprint(w, "purged")
 			return
 		}
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -219,7 +219,7 @@ func TestProbeVarnishDebug_Purge405_NoFinding(t *testing.T) {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -240,7 +240,7 @@ func TestProbeAkamaiDebug_CacheKeyHeader(t *testing.T) {
 			w.Header().Set("X-Cache-Key", "/L/1234/56/example.com/")
 			w.Header().Set("X-Check-Cacheable", "YES")
 		}
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -255,7 +255,7 @@ func TestProbeAkamaiDebug_CacheKeyHeader(t *testing.T) {
 
 func TestProbeAkamaiDebug_NoDebugHeaders_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	}))
 	defer srv.Close()
 
@@ -271,7 +271,7 @@ func TestProbeTykDashboard_ApisEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/apis" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"apis":[{"tyk_api_definition":{"id":"myapi"}}],"node_id":"abc-123"}`)
+			_, _ = fmt.Fprint(w, `{"apis":[{"tyk_api_definition":{"id":"myapi"}}],"node_id":"abc-123"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -305,7 +305,7 @@ func TestProbeLinkerdViz_StatAPI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/stat" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"ok":{"statTables":[{"meshedPodCount":3,"linkerd":"ok"}]}}`)
+			_, _ = fmt.Fprint(w, `{"ok":{"statTables":[{"meshedPodCount":3,"linkerd":"ok"}]}}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -328,7 +328,7 @@ func TestScanner_RunSurfaceMode_EmitsFindings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/nginx_status":
-			fmt.Fprint(w, "Active connections: 10\nserver accepts handled requests\n 50 50 100\nReading: 0 Writing: 1 Waiting: 9\n")
+			_, _ = fmt.Fprint(w, "Active connections: 10\nserver accepts handled requests\n 50 50 100\nReading: 0 Writing: 1 Waiting: 9\n")
 		default:
 			http.NotFound(w, r)
 		}

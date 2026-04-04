@@ -17,7 +17,7 @@ func TestLDAPInjectionDetected(t *testing.T) {
 			username := r.URL.Query().Get("username")
 			if strings.Contains(username, "*") || strings.Contains(username, "(") {
 				w.WriteHeader(500)
-				w.Write([]byte("Error: LDAP_SEARCH failed: bad search filter"))
+				_, _ = w.Write([]byte("Error: LDAP_SEARCH failed: bad search filter"))
 				return
 			}
 			w.WriteHeader(200)
@@ -48,7 +48,7 @@ func TestLDAPInjectionDetected(t *testing.T) {
 func TestLDAPNoInjection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer srv.Close()
 
@@ -69,7 +69,7 @@ func TestLDAPNoInjection(t *testing.T) {
 func TestLDAPSurfaceModeSkips(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
-		w.Write([]byte("LDAP error"))
+		_, _ = w.Write([]byte("LDAP error"))
 	}))
 	defer srv.Close()
 

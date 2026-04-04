@@ -1016,7 +1016,7 @@ func (a *Analyzer) callClaude(ctx context.Context, prompt string, tokenBudget in
 		}
 
 		data, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if readErr != nil {
 			lastErr = readErr
 			a.emit(fmt.Sprintf("claude read error after %d bytes (attempt %d/%d): %v",

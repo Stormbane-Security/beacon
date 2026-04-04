@@ -166,7 +166,7 @@ func (a *PortAdvisor) callClaude(ctx context.Context, prompt string) ([]int, err
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))

@@ -43,7 +43,7 @@ func scanConditionalAccessMFA(ctx context.Context, cred azcore.TokenCredential, 
 		return nil, nil
 	}
 	secBody, _ := io.ReadAll(io.LimitReader(secResp.Body, 16384))
-	secResp.Body.Close()
+	_ = secResp.Body.Close()
 
 	secDefaultsEnabled := false
 	if secResp.StatusCode == 200 {
@@ -71,7 +71,7 @@ func scanConditionalAccessMFA(ctx context.Context, cred azcore.TokenCredential, 
 		return nil, nil
 	}
 	caBody, _ := io.ReadAll(io.LimitReader(caResp.Body, 65536))
-	caResp.Body.Close()
+	_ = caResp.Body.Close()
 
 	hasMFAPolicy := false
 	if caResp.StatusCode == 200 {

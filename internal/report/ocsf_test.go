@@ -43,7 +43,7 @@ func TestRenderOCSF_EnvelopeClassUID5001(t *testing.T) {
 		t.Fatal("expected at least one line")
 	}
 	var m map[string]any
-	json.Unmarshal([]byte(lines[0]), &m)
+	_ = json.Unmarshal([]byte(lines[0]), &m)
 	if int(m["class_uid"].(float64)) != 5001 {
 		t.Errorf("envelope should have class_uid 5001, got %v", m["class_uid"])
 	}
@@ -63,7 +63,7 @@ func TestRenderOCSF_FindingEventClassUID5001(t *testing.T) {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	// Second line is the finding event.
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	if int(m["class_uid"].(float64)) != 5001 {
 		t.Errorf("finding event should have class_uid 5001, got %v", m["class_uid"])
 	}
@@ -79,7 +79,7 @@ func TestRenderOCSF_CategoryIsDiscovery(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	if int(m["category_uid"].(float64)) != 5 {
 		t.Errorf("expected category_uid 5 (Discovery), got %v", m["category_uid"])
 	}
@@ -98,7 +98,7 @@ func TestRenderOCSF_MetadataVersion(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	meta := m["metadata"].(map[string]any)
 	if meta["version"] != "1.3.0" {
 		t.Errorf("expected metadata version '1.3.0', got %v", meta["version"])
@@ -130,7 +130,7 @@ func TestRenderOCSF_FindingInfoFields(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 
 	fi := m["finding_info"].(map[string]any)
 	if fi["uid"] != "tls.weak_cipher" {
@@ -171,7 +171,7 @@ func TestRenderOCSF_CVEParsedIntoVulnerabilities(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 
 	vulns, ok := m["vulnerabilities"].([]any)
 	if !ok || len(vulns) == 0 {
@@ -213,7 +213,7 @@ func TestRenderOCSF_SeverityMappedCorrectly(t *testing.T) {
 		}
 		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 		var m map[string]any
-		json.Unmarshal([]byte(lines[1]), &m)
+		_ = json.Unmarshal([]byte(lines[1]), &m)
 		if m["severity_id"] != tc.wantID {
 			t.Errorf("severity %v: want severity_id %v, got %v", tc.sev, tc.wantID, m["severity_id"])
 		}
@@ -247,7 +247,7 @@ func TestRenderOCSF_ResourceContainsAsset(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	resource := m["resource"].(map[string]any)
 	if resource["name"] != "192.168.1.1" {
 		t.Errorf("expected resource.name '192.168.1.1', got %v", resource["name"])
@@ -268,7 +268,7 @@ func TestRenderOCSF_ActivityAndStatusFields(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	if int(m["activity_id"].(float64)) != 1 {
 		t.Errorf("expected activity_id 1 (Create), got %v", m["activity_id"])
 	}
@@ -300,7 +300,7 @@ func TestRenderOCSF_TimeIsEpochMs(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	expectedMs := float64(ts.UnixMilli())
 	if m["time"] != expectedMs {
 		t.Errorf("expected time %v (epoch ms), got %v", expectedMs, m["time"])
@@ -323,7 +323,7 @@ func TestRenderOCSF_RemediationIncluded(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	rem := m["remediation"].(map[string]any)
 	if rem["desc"] != "Apply the security patch immediately." {
 		t.Errorf("expected remediation desc, got %v", rem["desc"])
@@ -345,7 +345,7 @@ func TestRenderOCSF_NoRemediationOmitted(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	if m["remediation"] != nil {
 		t.Error("expected remediation to be omitted when empty")
 	}
@@ -450,7 +450,7 @@ func TestRenderOCSF_ZeroDiscoveredAtUsesNow(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[1]), &m)
+	_ = json.Unmarshal([]byte(lines[1]), &m)
 	ts := int64(m["time"].(float64))
 	if ts <= 0 {
 		t.Error("zero DiscoveredAt should fall back to a positive timestamp (now)")
@@ -499,7 +499,7 @@ func TestRenderOCSF_NilCompletedAt(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var m map[string]any
-	json.Unmarshal([]byte(lines[0]), &m)
+	_ = json.Unmarshal([]byte(lines[0]), &m)
 	unmapped := m["unmapped"].(map[string]any)
 	// completed_at should be empty string when CompletedAt is nil.
 	if unmapped["completed_at"].(string) != "" {

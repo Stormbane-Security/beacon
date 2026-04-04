@@ -789,7 +789,7 @@ func checkSMTP(ctx context.Context, domain string, now time.Time, scanType modul
 	}
 
 	// Always issue QUIT cleanly — best-effort, ignore write error
-	fmt.Fprintf(conn, "QUIT\r\n") //nolint:errcheck
+	_, _ = fmt.Fprintf(conn, "QUIT\r\n") //nolint:errcheck
 	return findings
 }
 

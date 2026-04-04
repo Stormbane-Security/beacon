@@ -82,7 +82,7 @@ func (m *synologyMock) handler() http.HandlerFunc {
 		switch {
 		// Detection endpoint.
 		case strings.Contains(r.URL.Path, "query.cgi") && q.Get("method") == "query":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"data":    map[string]any{"SYNO.API.Auth": map[string]any{"path": "auth.cgi"}},
 				"success": true,
 			})
@@ -90,26 +90,26 @@ func (m *synologyMock) handler() http.HandlerFunc {
 		// Auth endpoint.
 		case strings.Contains(r.URL.Path, "auth.cgi") && api == "SYNO.API.Auth":
 			if m.AuthSuccess {
-				json.NewEncoder(w).Encode(map[string]any{"success": true})
+				_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 			} else {
-				json.NewEncoder(w).Encode(map[string]any{"success": false})
+				_ = json.NewEncoder(w).Encode(map[string]any{"success": false})
 			}
 
 		// DSM info.
 		case api == "SYNO.DSM.Info":
-			json.NewEncoder(w).Encode(m.DSMInfo)
+			_ = json.NewEncoder(w).Encode(m.DSMInfo)
 
 		// Shares.
 		case api == "SYNO.FileStation.List":
-			json.NewEncoder(w).Encode(m.Shares)
+			_ = json.NewEncoder(w).Encode(m.Shares)
 
 		// Snapshots.
 		case api == "SYNO.Snapshot.Replication.List":
-			json.NewEncoder(w).Encode(m.Snapshots)
+			_ = json.NewEncoder(w).Encode(m.Snapshots)
 
 		// iSCSI.
 		case api == "SYNO.ISCSIServer.Target.List":
-			json.NewEncoder(w).Encode(m.ISCSITargets)
+			_ = json.NewEncoder(w).Encode(m.ISCSITargets)
 
 		default:
 			http.NotFound(w, r)
@@ -151,19 +151,19 @@ func (m *truenasMock) handler() http.HandlerFunc {
 
 		switch path {
 		case "/api/v2.0/system/info":
-			json.NewEncoder(w).Encode(m.SystemInfo)
+			_ = json.NewEncoder(w).Encode(m.SystemInfo)
 		case "/api/v2.0/sharing/smb":
-			json.NewEncoder(w).Encode(m.SMBShares)
+			_ = json.NewEncoder(w).Encode(m.SMBShares)
 		case "/api/v2.0/sharing/nfs":
-			json.NewEncoder(w).Encode(m.NFSShares)
+			_ = json.NewEncoder(w).Encode(m.NFSShares)
 		case "/api/v2.0/smb":
-			json.NewEncoder(w).Encode(m.SMBConfig)
+			_ = json.NewEncoder(w).Encode(m.SMBConfig)
 		case "/api/v2.0/ssh":
-			json.NewEncoder(w).Encode(m.SSHConfig)
+			_ = json.NewEncoder(w).Encode(m.SSHConfig)
 		case "/api/v2.0/iscsi/target":
-			json.NewEncoder(w).Encode(m.ISCSITargets)
+			_ = json.NewEncoder(w).Encode(m.ISCSITargets)
 		case "/api/v2.0/pool/snapshottask":
-			json.NewEncoder(w).Encode(m.SnapshotTasks)
+			_ = json.NewEncoder(w).Encode(m.SnapshotTasks)
 		default:
 			http.NotFound(w, r)
 		}
@@ -572,13 +572,13 @@ func TestQNAP_OutdatedFirmware_Detected(t *testing.T) {
 		case strings.Contains(r.URL.Path, "authLogin.cgi"):
 			// Detection + auth endpoint.
 			if r.URL.Query().Get("user") != "" {
-				w.Write([]byte(`<QDocRoot><authPassed>0</authPassed></QDocRoot>`))
+				_, _ = w.Write([]byte(`<QDocRoot><authPassed>0</authPassed></QDocRoot>`))
 			} else {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`<QDocRoot></QDocRoot>`))
+				_, _ = w.Write([]byte(`<QDocRoot></QDocRoot>`))
 			}
 		case strings.Contains(r.URL.Path, "manaRequest.cgi"):
-			w.Write([]byte(`<QDocRoot><version>4.5.4</version><modelName>TS-453D</modelName></QDocRoot>`))
+			_, _ = w.Write([]byte(`<QDocRoot><version>4.5.4</version><modelName>TS-453D</modelName></QDocRoot>`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -603,9 +603,9 @@ func TestQNAP_SMBv1_Detected(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "authLogin.cgi"):
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`<QDocRoot></QDocRoot>`))
+			_, _ = w.Write([]byte(`<QDocRoot></QDocRoot>`))
 		case strings.Contains(r.URL.Path, "manaRequest.cgi"):
-			w.Write([]byte(`<QDocRoot><version>5.1.0</version><modelName>TS-464</modelName><samba_smb1>1</samba_smb1></QDocRoot>`))
+			_, _ = w.Write([]byte(`<QDocRoot><version>5.1.0</version><modelName>TS-464</modelName><samba_smb1>1</samba_smb1></QDocRoot>`))
 		default:
 			http.NotFound(w, r)
 		}

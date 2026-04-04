@@ -23,7 +23,7 @@ func TestELInjection_SkippedInSurfaceMode(t *testing.T) {
 		probed = true
 		w.Header().Set("Server", "Apache-Coyote/1.1")
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "abc123"})
-		fmt.Fprintln(w, "hello")
+		_, _ = fmt.Fprintln(w, "hello")
 	}))
 	defer srv.Close()
 
@@ -50,12 +50,12 @@ func TestELInjection_NonJavaTarget_Skipped(t *testing.T) {
 		// Root request for Java detection — return generic headers.
 		if r.URL.Path == "/" && r.URL.RawQuery == "" {
 			w.Header().Set("Server", "nginx/1.24.0")
-			fmt.Fprintln(w, "Welcome")
+			_, _ = fmt.Fprintln(w, "Welcome")
 			return
 		}
 		// Any other request means the scanner went past the Java gate.
 		injectionProbed = true
-		fmt.Fprintln(w, "should not reach here")
+		_, _ = fmt.Fprintln(w, "should not reach here")
 	}))
 	defer srv.Close()
 
@@ -81,10 +81,10 @@ func TestELInjection_JavaDetected_JSESSIONID(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "abc123"})
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "${7*7}") || strings.Contains(q, "#{7*7}") {
-			fmt.Fprintln(w, "Result: 49")
+			_, _ = fmt.Fprintln(w, "Result: 49")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -107,10 +107,10 @@ func TestELInjection_JavaDetected_ServerHeader(t *testing.T) {
 		w.Header().Set("Server", "Apache-Coyote/1.1")
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "${7*7}") || strings.Contains(q, "#{7*7}") {
-			fmt.Fprintln(w, "Eval: 49")
+			_, _ = fmt.Fprintln(w, "Eval: 49")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -133,10 +133,10 @@ func TestELInjection_SpEL_QueryParam_Detected(t *testing.T) {
 		w.Header().Set("Server", "Apache-Coyote/1.1")
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "${7*7}") {
-			fmt.Fprintln(w, "Result: 49")
+			_, _ = fmt.Fprintln(w, "Result: 49")
 			return
 		}
-		fmt.Fprintln(w, "Search results")
+		_, _ = fmt.Fprintln(w, "Search results")
 	}))
 	defer srv.Close()
 
@@ -175,10 +175,10 @@ func TestELInjection_OGNL_QueryParam_Detected(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "abc"})
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "%{7*7}") {
-			fmt.Fprintln(w, "Output: 49")
+			_, _ = fmt.Fprintln(w, "Output: 49")
 			return
 		}
-		fmt.Fprintln(w, "Welcome")
+		_, _ = fmt.Fprintln(w, "Welcome")
 	}))
 	defer srv.Close()
 
@@ -214,10 +214,10 @@ func TestELInjection_HeaderInjection_Detected(t *testing.T) {
 		w.Header().Set("Server", "Apache-Coyote/1.1")
 		ua := r.Header.Get("User-Agent")
 		if strings.Contains(ua, "${7*7}") {
-			fmt.Fprintln(w, "User agent eval: 49")
+			_, _ = fmt.Fprintln(w, "User agent eval: 49")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -251,12 +251,12 @@ func TestELInjection_POSTInjection_Detected(t *testing.T) {
 			if err := r.ParseForm(); err == nil {
 				q := r.FormValue("q")
 				if strings.Contains(q, "${7*7}") {
-					fmt.Fprintln(w, "POST result: 49")
+					_, _ = fmt.Fprintln(w, "POST result: 49")
 					return
 				}
 			}
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -286,7 +286,7 @@ func TestELInjection_POSTInjection_Detected(t *testing.T) {
 func TestELInjection_SafeResponse_NoFindings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Apache-Coyote/1.1")
-		fmt.Fprintln(w, "Welcome to the application")
+		_, _ = fmt.Fprintln(w, "Welcome to the application")
 	}))
 	defer srv.Close()
 
@@ -315,10 +315,10 @@ func TestELInjection_BaselineContains49_NoFalsePositive(t *testing.T) {
 		// delta check should suppress findings. POST requests bypass delta checking
 		// in the scanner, so restrict this test to GET-based vectors.
 		if r.Method == http.MethodPost {
-			fmt.Fprintln(w, "OK")
+			_, _ = fmt.Fprintln(w, "OK")
 			return
 		}
-		fmt.Fprintln(w, "Showing 49 results for your query")
+		_, _ = fmt.Fprintln(w, "Showing 49 results for your query")
 	}))
 	defer srv.Close()
 
@@ -353,7 +353,7 @@ func TestELInjection_404Skipped(t *testing.T) {
 		if r.URL.Path == "/" && r.URL.RawQuery == "" && !rootHit {
 			rootHit = true
 			w.Header().Set("Server", "Apache-Coyote/1.1")
-			fmt.Fprintln(w, "OK")
+			_, _ = fmt.Fprintln(w, "OK")
 			return
 		}
 		// All other requests return 404.
@@ -409,10 +409,10 @@ func TestELInjection_RunsInDeepMode(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "test"})
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "${7*7}") {
-			fmt.Fprintln(w, "value: 49")
+			_, _ = fmt.Fprintln(w, "value: 49")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -435,10 +435,10 @@ func TestELInjection_RunsInAuthorizedMode(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "test"})
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "${7*7}") {
-			fmt.Fprintln(w, "value: 49")
+			_, _ = fmt.Fprintln(w, "value: 49")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -471,7 +471,7 @@ func TestELInjection_EchoesPayloadLiterally_NoFinding(t *testing.T) {
 			_, _ = fmt.Fprintf(w, "You searched for: %s\n", q)
 			return
 		}
-		fmt.Fprintln(w, "Welcome")
+		_, _ = fmt.Fprintln(w, "Welcome")
 	}))
 	defer srv.Close()
 
@@ -505,10 +505,10 @@ func TestELInjection_OGNLContext_Detected(t *testing.T) {
 		w.Header().Set("Server", "Apache-Coyote/1.1")
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "#context") {
-			fmt.Fprintln(w, "Debug: OgnlContext{values=[]}")
+			_, _ = fmt.Fprintln(w, "Debug: OgnlContext{values=[]}")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -538,10 +538,10 @@ func TestELInjection_SpEL_RuntimeReflection_Detected(t *testing.T) {
 		w.Header().Set("Server", "Apache-Coyote/1.1")
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "java.lang.Runtime") {
-			fmt.Fprintln(w, "class java.lang.Runtime")
+			_, _ = fmt.Fprintln(w, "class java.lang.Runtime")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 
@@ -571,10 +571,10 @@ func TestELInjection_FindingFields(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "sess"})
 		q := r.URL.Query().Get("q")
 		if strings.Contains(q, "${7*7}") || strings.Contains(q, "#{7*7}") {
-			fmt.Fprintln(w, "Answer: 49")
+			_, _ = fmt.Fprintln(w, "Answer: 49")
 			return
 		}
-		fmt.Fprintln(w, "OK")
+		_, _ = fmt.Fprintln(w, "OK")
 	}))
 	defer srv.Close()
 

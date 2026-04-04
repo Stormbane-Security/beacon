@@ -50,7 +50,7 @@ func TestSurfaceMode_ReturnsNil(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve a vulnerable response that would trigger findings in deep mode.
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"user_id": %s, "email": "user@example.com"}`, r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:])
+		_, _ = fmt.Fprintf(w, `{"user_id": %s, "email": "user@example.com"}`, r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:])
 	}))
 	defer ts.Close()
 
@@ -84,7 +84,7 @@ func TestSequentialID_DifferentContent_EmitsFinding(t *testing.T) {
 		if strings.HasPrefix(path, "/api/") && id != "" && id[0] >= '0' && id[0] <= '9' {
 			w.Header().Set("Content-Type", "application/json")
 			// Return different body per ID so the scanner detects IDOR.
-			fmt.Fprintf(w, `{"id": %s, "name": "user_%s", "email": "user%s@example.com"}`, id, id, id)
+			_, _ = fmt.Fprintf(w, `{"id": %s, "name": "user_%s", "email": "user%s@example.com"}`, id, id, id)
 			return
 		}
 		http.NotFound(w, r)
@@ -115,7 +115,7 @@ func TestSequentialID_SameContent_NoFinding(t *testing.T) {
 		// response or error page, not a real per-object resource.
 		if strings.HasPrefix(path, "/api/") {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"status": "ok", "message": "welcome"}`)
+			_, _ = fmt.Fprint(w, `{"status": "ok", "message": "welcome"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -149,7 +149,7 @@ func TestSequentialID_AdjacentNotFound_NoFinding(t *testing.T) {
 		// Only ID "1" returns 200; all others return 404.
 		if strings.HasPrefix(path, "/api/") && id == "1" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"id": 1, "name": "only_one"}`)
+			_, _ = fmt.Fprint(w, `{"id": 1, "name": "only_one"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -174,7 +174,7 @@ func TestNonAPIEndpoint_NoFalsePositive(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve HTML on all paths -- this is a regular website, not an API.
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<html><body>Welcome</body></html>")
+		_, _ = fmt.Fprint(w, "<html><body>Welcome</body></html>")
 	}))
 	defer ts.Close()
 
@@ -200,7 +200,7 @@ func TestBOLA_UnauthenticatedUserData_EmitsFinding(t *testing.T) {
 			r.URL.Path == "/api/user" || r.URL.Path == "/api/v1/user" ||
 			r.URL.Path == "/api/account" || r.URL.Path == "/api/v1/account" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"username": "admin", "email": "admin@example.com", "phone": "+1234567890"}`)
+			_, _ = fmt.Fprint(w, `{"username": "admin", "email": "admin@example.com", "phone": "+1234567890"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -229,7 +229,7 @@ func TestBOLA_NoUserDataSignals_NoFinding(t *testing.T) {
 		// /api/me returns a generic JSON without any user data fields.
 		if r.URL.Path == "/api/me" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"status": "healthy", "version": "1.0"}`)
+			_, _ = fmt.Fprint(w, `{"status": "healthy", "version": "1.0"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -254,7 +254,7 @@ func TestBOLA_Unauthorized_NoFinding(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/me" || r.URL.Path == "/api/v1/me" {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, `{"error": "unauthorized"}`)
+			_, _ = fmt.Fprint(w, `{"error": "unauthorized"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -312,7 +312,7 @@ func TestAuthorizedMode_AlsoRuns(t *testing.T) {
 
 		if strings.HasPrefix(path, "/api/") && id != "" && id[0] >= '0' && id[0] <= '9' {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"id": %s, "secret": "data_%s"}`, id, id)
+			_, _ = fmt.Fprintf(w, `{"id": %s, "secret": "data_%s"}`, id, id)
 			return
 		}
 		http.NotFound(w, r)
@@ -345,7 +345,7 @@ func TestSequentialID_FindingMetadata(t *testing.T) {
 
 		if strings.HasPrefix(path, "/api/") && id != "" && id[0] >= '0' && id[0] <= '9' {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"id": %s, "record": "item_%s"}`, id, id)
+			_, _ = fmt.Fprintf(w, `{"id": %s, "record": "item_%s"}`, id, id)
 			return
 		}
 		http.NotFound(w, r)
@@ -403,7 +403,7 @@ func TestBOLA_FindingMetadata(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/me" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"username": "alice", "email": "alice@example.com"}`)
+			_, _ = fmt.Fprint(w, `{"username": "alice", "email": "alice@example.com"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -464,7 +464,7 @@ func TestSequentialID_OneFindingPerPrefix(t *testing.T) {
 
 		if strings.HasPrefix(path, "/api/") && id != "" && id[0] >= '0' && id[0] <= '9' {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"id": %s, "data": "resource_%s"}`, id, id)
+			_, _ = fmt.Fprintf(w, `{"id": %s, "data": "resource_%s"}`, id, id)
 			return
 		}
 		http.NotFound(w, r)
@@ -519,7 +519,7 @@ func TestContextCancelled_NoPanic(t *testing.T) {
 			id := path[lastSlash+1:]
 			if id != "" && id[0] >= '0' && id[0] <= '9' {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"id": %s}`, id)
+				_, _ = fmt.Fprintf(w, `{"id": %s}`, id)
 				return
 			}
 		}
@@ -591,7 +591,7 @@ func TestBOLA_OnlyOneFinding(t *testing.T) {
 		}
 		if bolaEndpoints[r.URL.Path] {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"username": "admin", "email": "admin@corp.com", "address": "123 Main St"}`)
+			_, _ = fmt.Fprint(w, `{"username": "admin", "email": "admin@corp.com", "address": "123 Main St"}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -625,7 +625,7 @@ func TestCombined_IDORAndBOLA(t *testing.T) {
 		// BOLA: /api/me leaks user data without auth.
 		if path == "/api/me" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"username": "bob", "email": "bob@example.com"}`)
+			_, _ = fmt.Fprint(w, `{"username": "bob", "email": "bob@example.com"}`)
 			return
 		}
 
@@ -635,7 +635,7 @@ func TestCombined_IDORAndBOLA(t *testing.T) {
 			id := path[lastSlash+1:]
 			if strings.HasPrefix(path, "/api/") && id != "" && id[0] >= '0' && id[0] <= '9' {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"id": %s, "name": "user_%s"}`, id, id)
+				_, _ = fmt.Fprintf(w, `{"id": %s, "name": "user_%s"}`, id, id)
 				return
 			}
 		}

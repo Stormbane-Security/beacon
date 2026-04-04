@@ -15,7 +15,7 @@ func TestPDFSSRFDetected(t *testing.T) {
 		if r.URL.Path == "/api/pdf" {
 			if r.Method == http.MethodPost {
 				w.Header().Set("Content-Type", "application/pdf")
-				w.Write([]byte("%PDF-1.4 fake pdf content"))
+				_, _ = w.Write([]byte("%PDF-1.4 fake pdf content"))
 				return
 			}
 			// GET/HEAD → 405 (POST-only endpoint)

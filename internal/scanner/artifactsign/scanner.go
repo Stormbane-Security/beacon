@@ -136,7 +136,7 @@ func (s *Scanner) checkNPM(ctx context.Context, client *http.Client, asset, pkg 
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -194,7 +194,7 @@ func (s *Scanner) checkPyPI(ctx context.Context, client *http.Client, asset, pkg
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil
@@ -263,7 +263,7 @@ func (s *Scanner) checkContainerRegistry(ctx context.Context, client *http.Clien
 	if err != nil {
 		return nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil

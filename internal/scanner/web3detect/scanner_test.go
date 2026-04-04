@@ -17,7 +17,7 @@ import (
 func TestWeb3Detect_WalletLibInHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintln(w, `<html><body>
+		_, _ = fmt.Fprintln(w, `<html><body>
 <script>
 if (typeof window.ethereum !== 'undefined') {
   connectWallet();
@@ -70,10 +70,10 @@ func TestWeb3Detect_RPCEndpointInJS(t *testing.T) {
 		switch r.URL.Path {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintln(w, `<html><head><script src="/app.js"></script></head><body></body></html>`)
+			_, _ = fmt.Fprintln(w, `<html><head><script src="/app.js"></script></head><body></body></html>`)
 		case "/app.js":
 			w.Header().Set("Content-Type", "application/javascript")
-			fmt.Fprintf(w, `const provider = new ethers.providers.JsonRpcProvider("%s");`, rpcURL)
+			_, _ = fmt.Fprintf(w, `const provider = new ethers.providers.JsonRpcProvider("%s");`, rpcURL)
 		default:
 			http.NotFound(w, r)
 		}
@@ -115,7 +115,7 @@ func TestWeb3Detect_ContractAddressFound(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<html><body>
+		_, _ = fmt.Fprintf(w, `<html><body>
 <script>
 const CONTRACT_ADDRESS = "%s";
 </script>
@@ -156,7 +156,7 @@ const CONTRACT_ADDRESS = "%s";
 func TestWeb3Detect_NoWeb3Signals(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintln(w, `<html><body><h1>Welcome to my website</h1></body></html>`)
+		_, _ = fmt.Fprintln(w, `<html><body><h1>Welcome to my website</h1></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -176,7 +176,7 @@ func TestWeb3Detect_DeduplicatesFindings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		// Three distinct contract addresses on the same page.
-		fmt.Fprintln(w, `<html><body><script>
+		_, _ = fmt.Fprintln(w, `<html><body><script>
 const USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const DAI  = "0x6B175474E89094C44Da98b954EedeAC495271d0F";

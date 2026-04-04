@@ -163,8 +163,8 @@ func fingerprintCache(ctx context.Context, client *http.Client, scheme, asset st
 		if err != nil {
 			return nil
 		}
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
 
 		if i == 1 {
 			cacheHeaders = extractCacheHeaders(resp)
@@ -289,7 +289,7 @@ func testPurge(ctx context.Context, client *http.Client, scheme, asset string) *
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Successful PURGE (200, 204) without authentication = vulnerability
 	if resp.StatusCode == 200 || resp.StatusCode == 204 {
@@ -336,8 +336,8 @@ func analyzeVary(ctx context.Context, client *http.Client, scheme, asset string)
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	vary := resp.Header.Get("Vary")
 	if vary == "" || vary == "*" {
@@ -407,7 +407,7 @@ func testUnkeyedHeader(ctx context.Context, client *http.Client, scheme, asset, 
 		return nil
 	}
 	poisonBody, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Check if the marker appears in the response body (even in the poisoning request)
 	if !strings.Contains(string(poisonBody), marker) {
@@ -428,7 +428,7 @@ func testUnkeyedHeader(ctx context.Context, client *http.Client, scheme, asset, 
 		return nil
 	}
 	cleanBody, _ := io.ReadAll(io.LimitReader(resp2.Body, 128*1024))
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 
 	// If marker STILL appears in the clean response → the cache served the poisoned version
 	if strings.Contains(string(cleanBody), marker) {
@@ -477,7 +477,7 @@ func testCacheDeception(ctx context.Context, client *http.Client, scheme, asset 
 		return nil
 	}
 	baseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	baseCC := resp.Header.Get("Cache-Control")
 
 	// If the base response is already publicly cacheable (no no-store/private),
@@ -506,7 +506,7 @@ func testCacheDeception(ctx context.Context, client *http.Client, scheme, asset 
 			continue
 		}
 		deceptBody, _ := io.ReadAll(io.LimitReader(resp2.Body, 64*1024))
-		resp2.Body.Close()
+		_ = resp2.Body.Close()
 
 		// If the deceptive URL returns the same content as the base page
 		// AND has different caching headers (cacheable), it's a cache deception vuln
@@ -568,7 +568,7 @@ func testHostRouting(ctx context.Context, client *http.Client, scheme, asset str
 		return nil
 	}
 	baseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	baseStatus := resp.StatusCode
 	baseServer := resp.Header.Get("Server")
 
@@ -597,7 +597,7 @@ func testHostRouting(ctx context.Context, client *http.Client, scheme, asset str
 			continue
 		}
 		altBody, _ := io.ReadAll(io.LimitReader(resp2.Body, 32*1024))
-		resp2.Body.Close()
+		_ = resp2.Body.Close()
 
 		altServer := resp2.Header.Get("Server")
 
@@ -705,7 +705,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return scheme
 	}
 	return ""

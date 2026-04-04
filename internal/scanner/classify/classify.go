@@ -246,10 +246,10 @@ func lookupASN(ctx context.Context, ip string, e *playbook.Evidence) {
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	s := string(body)
@@ -273,7 +273,7 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 		if err != nil {
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		e.StatusCode = resp.StatusCode
 
@@ -827,7 +827,7 @@ func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string
 		if err != nil {
 			return nil, 0
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
 		return b, resp.StatusCode
 	}
@@ -968,7 +968,7 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 		if resp, err2 := checkClient.Do(testReq); err2 != nil {
 			scheme = "http"
 		} else {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 
@@ -1008,7 +1008,7 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 			// Reject 404 (not found) and 5xx (server error / not this product).
 			sc := resp.StatusCode
 			if sc == http.StatusNotFound || sc >= 500 {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				return
 			}
 
@@ -1017,12 +1017,12 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 			// catch-all sites from matching service-specific paths.
 			if needsBody && sc == http.StatusOK {
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				if !strings.Contains(strings.ToLower(string(body)), requiredBody) {
 					return
 				}
 			} else {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 
 			mu.Lock()
@@ -1052,11 +1052,11 @@ func probeRobotsTxt(ctx context.Context, hostname string) []string {
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		for _, p := range parseRobotsTxtBody(string(body)) {
 			if !seen[p] {
 				seen[p] = true
@@ -1103,11 +1103,11 @@ func fetchFaviconHash(ctx context.Context, hostname string) string {
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			continue
 		}
 		data, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024)) // 100 KB max
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil || len(data) == 0 {
 			continue
 		}

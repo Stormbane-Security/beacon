@@ -81,7 +81,7 @@ func evaluateCosmosDBAccount(name string, props *armcosmos.DatabaseAccountGetPro
 				}
 				conn, dialErr := net.DialTimeout("tcp", host, 5*time.Second)
 				if dialErr == nil {
-					conn.Close()
+					_ = conn.Close()
 					findings = append(findings, finding.Finding{
 						CheckID: finding.CheckCloudAzureCosmosDBReachable,
 						Title:   fmt.Sprintf("Cosmos DB account is publicly reachable via TCP: %s", name),

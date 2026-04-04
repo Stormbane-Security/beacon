@@ -139,7 +139,7 @@ func readRequest(conn net.Conn) string {
 // large body so sendRaw returns nil.
 func normalHandler(conn net.Conn) {
 	readRequest(conn)
-	conn.Write([]byte(normalHTTPResponse())) //nolint:errcheck
+	_, _ = conn.Write([]byte(normalHTTPResponse())) //nolint:errcheck
 }
 
 // hangHandler reads the incoming request, then holds the connection open
@@ -159,7 +159,7 @@ func hangHandler(conn net.Conn) {
 func vulnerableHandler(conn net.Conn) {
 	reqLine := readRequest(conn)
 	if strings.HasPrefix(reqLine, "GET") {
-		conn.Write([]byte(normalHTTPResponse())) //nolint:errcheck
+		_, _ = conn.Write([]byte(normalHTTPResponse())) //nolint:errcheck
 		return
 	}
 	// POST probe — hang to simulate smuggling vulnerability.
@@ -764,15 +764,15 @@ func TestSendRaw_LargeResponse_CappedAt64KB(t *testing.T) {
 		// Read request.
 		buf := make([]byte, 4096)
 		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)) //nolint:errcheck
-		conn.Read(buf)                                                //nolint:errcheck
+		_, _ = conn.Read(buf)                                                //nolint:errcheck
 
 		// Send a large response exceeding 64 KB.
 		header := "HTTP/1.1 200 OK\r\nContent-Length: 131072\r\n\r\n"
-		conn.Write([]byte(header)) //nolint:errcheck
+		_, _ = conn.Write([]byte(header)) //nolint:errcheck
 		// Write lines of data past the 64 KB cap.
 		line := strings.Repeat("X", 1023) + "\n"
 		for i := 0; i < 200; i++ {
-			conn.Write([]byte(line)) //nolint:errcheck
+			_, _ = conn.Write([]byte(line)) //nolint:errcheck
 		}
 	})
 	defer cleanup()
@@ -882,7 +882,7 @@ func capturingHandler(captured *[]byte, mu *sync.Mutex) func(net.Conn) {
 		mu.Lock()
 		*captured = append(*captured, buf...)
 		mu.Unlock()
-		conn.Write([]byte(normalHTTPResponse())) //nolint:errcheck
+		_, _ = conn.Write([]byte(normalHTTPResponse())) //nolint:errcheck
 	}
 }
 

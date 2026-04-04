@@ -349,7 +349,7 @@ func httpProbe(ctx context.Context, asset string) (string, int) {
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return string(body), resp.StatusCode
 	}
 	return "", 0

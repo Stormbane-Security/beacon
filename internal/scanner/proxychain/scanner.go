@@ -249,8 +249,8 @@ func analyzeViaHeaders(ctx context.Context, client *http.Client, scheme, asset s
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	via := resp.Header.Get("Via")
 	if via == "" {
@@ -313,8 +313,8 @@ func detectCacheLayer(ctx context.Context, client *http.Client, scheme, asset st
 		if err != nil {
 			return nil
 		}
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+		_ = resp.Body.Close()
 
 		// Only process second response (more likely to show cache HIT)
 		if i == 0 {
@@ -403,8 +403,8 @@ func detectMultiPOP(ctx context.Context, client *http.Client, scheme, asset stri
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	xServedBy := resp.Header.Get("X-Served-By")
 	if xServedBy == "" {
@@ -462,8 +462,8 @@ func detectServerInconsistency(ctx context.Context, client *http.Client, scheme,
 		if err != nil {
 			continue
 		}
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-		resp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+		_ = resp.Body.Close()
 
 		srv := resp.Header.Get("Server")
 		if srv != "" {
@@ -516,8 +516,8 @@ func detectProtocolLayers(ctx context.Context, client *http.Client, scheme, asse
 	if err != nil {
 		return nil
 	}
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
+	_ = resp.Body.Close()
 
 	var hops []hopInfo
 
@@ -545,7 +545,7 @@ func detectProtocolLayers(ctx context.Context, client *http.Client, scheme, asse
 		})
 		if err == nil {
 			negotiated := conn.ConnectionState().NegotiatedProtocol
-			conn.Close()
+			_ = conn.Close()
 			if negotiated == "h2" {
 				// H2 support at the edge but backend might be H1 — this is a
 				// proxy layer indicator (most app servers don't do H2 natively)
@@ -578,7 +578,7 @@ func detectXFFEcho(ctx context.Context, client *http.Client, scheme, asset strin
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Check if our marker appears in response body or headers
 	bodyStr := string(body)
@@ -610,7 +610,7 @@ func probeTrace(ctx context.Context, client *http.Client, scheme, asset string) 
 		return nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// TRACE should echo back the request — if it does, TRACE is enabled
 	if resp.StatusCode == 200 && strings.Contains(string(body), "TRACE") {
@@ -729,7 +729,7 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return scheme
 	}
 	return ""
