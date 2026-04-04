@@ -16,6 +16,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/config"
 	"encoding/json"
 	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/exploit"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/modules/surface"
@@ -165,6 +166,12 @@ type browseState struct {
 	// copyFlash is set to a short status message when 'y' is pressed.
 	// Shown in the detail header for one render cycle, then cleared.
 	copyFlash string
+
+	// Exploit action state.
+	actionList   []exploit.Action  // actions available for selected finding
+	actionCursor int               // selected action index
+	actionResult *exploit.ActionResult // result of last action run
+	actionRunning bool             // true while an action is executing
 
 	// Asset detail scroll state.
 	assetDetailOff      int  // scroll offset for the full evidence/findings lines view
@@ -774,12 +781,41 @@ func browseInteractive(cfg *config.Config) browseResult {
 			if isEsc || b[0] == 'b' {
 				bs.mode = browseModeFinds
 				bs.selectedFinding = nil
+				bs.actionList = nil
+				bs.actionResult = nil
+				bs.actionCursor = 0
 			}
-			if isDown && bs.detailOff < bs.detailMaxOff {
-				bs.detailOff++
+			if isDown {
+				if len(bs.actionList) > 0 && bs.actionCursor < len(bs.actionList)-1 {
+					bs.actionCursor++
+				}
+				if bs.detailOff < bs.detailMaxOff {
+					bs.detailOff++
+				}
 			}
-			if isUp && bs.detailOff > 0 {
-				bs.detailOff--
+			if isUp {
+				if len(bs.actionList) > 0 && bs.actionCursor > 0 {
+					bs.actionCursor--
+				}
+				if bs.detailOff > 0 {
+					bs.detailOff--
+				}
+			}
+			if b[0] == 'x' && len(bs.actionList) > 0 && !bs.actionRunning {
+				bs.actionRunning = true
+				bs.actionResult = nil
+				actionIdx := bs.actionCursor
+				actionFinding := bs.selectedFinding.Finding
+				go func() {
+					actionCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					result, err := bs.actionList[actionIdx].Run(actionCtx, actionFinding)
+					if err != nil {
+						result = &exploit.ActionResult{Success: false, Output: fmt.Sprintf("Error: %v", err)}
+					}
+					bs.actionResult = result
+					bs.actionRunning = false
+				}()
 			}
 			if b[0] == 'y' && bs.selectedFinding != nil {
 				bf := &bs.selectedFinding.Finding
@@ -1343,15 +1379,57 @@ func browseRenderDetail(buf *strings.Builder, bs *browseState, termW, termH int)
 		lines = append(lines, "")
 	}
 
-	browseProofCmd := f.ProofCommand
-	if browseProofCmd == "" {
-		browseProofCmd = report.VerifyCmd(f.CheckID, f.Asset)
-	}
-	if browseProofCmd != "" {
-		lines = append(lines, "\x1b[1;34mProof Command\x1b[0m  \x1b[90m([y] to copy)\x1b[0m")
-		for _, cmdLine := range wordWrapAtShellBoundaries(browseProofCmd, termW-4) {
-			lines = append(lines, "  \x1b[36m"+cmdLine+"\x1b[0m")
+	// Populate actions list for this finding (once, when entering detail view).
+	if bs.actionList == nil {
+		// Add verify command as fallback proof action.
+		proofF := f
+		if proofF.ProofCommand == "" {
+			proofF.ProofCommand = report.VerifyCmd(f.CheckID, f.Asset)
 		}
+		bs.actionList = exploit.ActionsForFinding(proofF)
+		bs.actionCursor = 0
+		bs.actionResult = nil
+	}
+
+	if len(bs.actionList) > 0 {
+		lines = append(lines, "\x1b[1;34mActions\x1b[0m  \x1b[90m([x] run · [↑↓] select · [y] copy proof)\x1b[0m")
+		for i, a := range bs.actionList {
+			cursor := "  "
+			if i == bs.actionCursor {
+				cursor = "\x1b[1;33m▸ \x1b[0m"
+			}
+			lines = append(lines, fmt.Sprintf("%s\x1b[36m%s\x1b[0m \x1b[90m— %s\x1b[0m", cursor, a.Name, a.Description))
+		}
+		lines = append(lines, "")
+	} else {
+		browseProofCmd := f.ProofCommand
+		if browseProofCmd == "" {
+			browseProofCmd = report.VerifyCmd(f.CheckID, f.Asset)
+		}
+		if browseProofCmd != "" {
+			lines = append(lines, "\x1b[1;34mProof Command\x1b[0m  \x1b[90m([y] to copy)\x1b[0m")
+			for _, cmdLine := range wordWrapAtShellBoundaries(browseProofCmd, termW-4) {
+				lines = append(lines, "  \x1b[36m"+cmdLine+"\x1b[0m")
+			}
+			lines = append(lines, "")
+		}
+	}
+
+	// Show action result if present.
+	if bs.actionResult != nil {
+		status := "\x1b[1;32m✓ Success\x1b[0m"
+		if !bs.actionResult.Success {
+			status = "\x1b[1;31m✗ Failed\x1b[0m"
+		}
+		lines = append(lines, fmt.Sprintf("\x1b[1mResult\x1b[0m  %s", status))
+		for _, line := range strings.Split(bs.actionResult.Output, "\n") {
+			lines = append(lines, "  "+line)
+		}
+		lines = append(lines, "")
+	}
+
+	if bs.actionRunning {
+		lines = append(lines, "\x1b[1;33m⠋ Running action...\x1b[0m")
 		lines = append(lines, "")
 	}
 
