@@ -1,4 +1,4 @@
-name: mega-e2e-full-pipeline
+name: e2e-web-scanner-matrix
 description: >
   Full end-to-end pipeline test: multiple vulnerable services on a shared docker
   network exercising discovery, fingerprinting, and scanning across all scanner

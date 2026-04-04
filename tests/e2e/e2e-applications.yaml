@@ -1,0 +1,199 @@
+name: e2e-applications
+description: >
+  Web applications, dashboards, and lightweight CI/CD tools. Tests the
+  full chain per service: port identification → postexploit module routing
+  → credential harvest, data extraction, or code execution.
+tags: [e2e, postexploit, applications, authorized]
+weight: 50
+
+services:
+  grafana:
+    image: grafana/grafana:8.3.0
+    ports: ["9630:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+  minio:
+    image: minio/minio:latest
+    ports: ["9631:9000"]
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: ["server", "/data"]
+
+  gitea:
+    image: gitea/gitea:1.19
+    ports: ["9632:3000"]
+    environment:
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__server__ROOT_URL=http://localhost:3000
+
+  drone:
+    image: drone/drone:2
+    ports: ["9633:80"]
+    environment:
+      - DRONE_SERVER_HOST=localhost:9633
+      - DRONE_SERVER_PROTO=http
+      - DRONE_OPEN=true
+      - DRONE_ADMIN=admin
+      - DRONE_USER_CREATE=username:admin,admin:true
+
+  kibana:
+    image: kibana:8.12.0
+    ports: ["9634:5601"]
+    environment:
+      ELASTICSEARCH_HOSTS: "http://kibana-es:9200"
+    depends_on: [kibana-es]
+
+  kibana-es:
+    image: elasticsearch:8.12.0
+    ports: ["9635:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  apache:
+    image: httpd:2.4.49
+    ports: ["9636:80"]
+    command: >
+      bash -c "
+        sed -i 's/#LoadModule cgid_module/LoadModule cgid_module/' /usr/local/apache2/conf/httpd.conf &&
+        sed -i 's/Require all denied/Require all granted/' /usr/local/apache2/conf/httpd.conf &&
+        httpd-foreground
+      "
+
+  activemq:
+    image: apache/activemq-classic:5.15.15
+    ports:
+      - "9637:61616"
+      - "9638:8161"
+
+ready:
+  cmd: >
+    curl -sf -u admin:admin http://localhost:9630/api/org 2>/dev/null | grep -q id &&
+    curl -sf http://localhost:9631/minio/health/live 2>/dev/null &&
+    curl -sf http://localhost:9632/api/v1/version 2>/dev/null | grep -q version &&
+    curl -sf http://localhost:9636/ 2>/dev/null | grep -q 'It works' &&
+    curl -sf http://localhost:9634/api/status 2>/dev/null | grep -q status
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # --- Grafana: identify + exploit (default creds) ---
+  - name: grafana-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9630"]
+    expect:
+      check_id: port.service_identified
+
+  - name: grafana-default-creds-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9630"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- MinIO: identify + exploit (default creds) ---
+  - name: minio-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9631"]
+    expect:
+      check_id: port.service_identified
+
+  - name: minio-default-creds-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9631"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Gitea: identify + exploit (unauthenticated API) ---
+  - name: gitea-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9632"]
+    expect:
+      check_id: port.service_identified
+
+  - name: gitea-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9632"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Drone: identify + exploit (unauthenticated CI) ---
+  - name: drone-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9633"]
+    expect:
+      check_id: port.service_identified
+
+  - name: drone-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9633"]
+    expect:
+      check_id: exploit.code_execution
+
+  # --- Kibana: identify + exploit (unauthenticated dashboard) ---
+  - name: kibana-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9634"]
+    expect:
+      check_id: port.service_identified
+
+  - name: kibana-data-extracted
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9634"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- Apache 2.4.49: identify + exploit (CVE-2021-41773 path traversal) ---
+  - name: apache-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9636"]
+    expect:
+      check_id: port.service_identified
+
+  - name: apache-rce-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9636"]
+    expect:
+      check_id: exploit.code_execution
+
+  # --- ActiveMQ: identify (CVE-gated, needs nuclei for exploit) ---
+  - name: activemq-identified
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9637"]
+    expect:
+      check_id: port.service_identified
+
+  - name: activemq-console-exploited
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9637,9638"]
+    expect:
+      check_id: exploit.code_execution
+
+  # --- Full scan: all applications at once ---
+  - name: full-app-scan-finds-all
+    type: beacon
+    target: "localhost"
+    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+           "--ports", "9630,9631,9632,9633,9634,9635,9636,9637,9638"]
+    expect:
+      min_findings: 10
+
+timeout: 20m

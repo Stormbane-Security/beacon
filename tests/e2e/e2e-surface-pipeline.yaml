@@ -1,4 +1,4 @@
-name: full-pipeline-surface
+name: e2e-surface-pipeline
 description: >
   End-to-end pipeline test: asset classify, playbook matching, multi-scanner
   execution, and dedup all run without --scanners. Validates that the full
