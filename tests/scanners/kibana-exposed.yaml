@@ -62,6 +62,6 @@ assertions:
     target: localhost:15610
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "15610"]
     expect:
-      absent_check_id: cve.kibana_cve_2025_25015
+      not_check_id: cve.kibana_cve_2025_25015
 
 timeout: 10m

@@ -55,8 +55,8 @@ assertions:
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--format", "json"]
     expect:
       check_id: port.elasticsearch_unauthenticated
-      evidence_contains:
-        version: "7.10.1"
+      evidence_key: version
+      evidence_value: "7.10.1"
 
   # --- Old ES: exploit chain fires ---
   - name: es-old-exploit-chain
@@ -80,7 +80,7 @@ assertions:
     target: localhost:19521
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19521"]
     expect:
-      absent_check_id: cve.elasticsearch_groovy_rce
+      not_check_id: cve.elasticsearch_groovy_rce
 
   # --- Old ES: also NOT flagged for Groovy RCE (7.10.1 > 1.5.x) ---
   - name: negative-es-old-no-groovy-rce
@@ -88,6 +88,6 @@ assertions:
     target: localhost:19520
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520"]
     expect:
-      absent_check_id: cve.elasticsearch_groovy_rce
+      not_check_id: cve.elasticsearch_groovy_rce
 
 timeout: 10m

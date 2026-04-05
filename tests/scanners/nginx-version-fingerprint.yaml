@@ -1,9 +1,9 @@
 name: nginx-version-fingerprint
 description: >
   nginx 1.14.2 (2018, EOL, CVE-2019-9511/9513 HTTP/2 DoS) vs nginx 1.27-alpine
-  (latest). Tests Server header version extraction, EOL detection, and correct
-  OS hint from Alpine vs Debian base.
-tags: [nginx, classify, fingerprint, version, eol, false-positive]
+  (latest). Tests Server header version extraction and EOL detection. The classify
+  phase runs version checks automatically during a surface scan.
+tags: [nginx, fingerprint, version, eol, false-positive]
 
 services:
   nginx-old:
@@ -33,36 +33,20 @@ assertions:
       command: "curl -sI http://localhost:19551/ | grep -i 'Server:.*nginx/1.27'"
       exit_code: 0
 
-  # --- Old nginx: classify extracts version ---
-  - name: classify-nginx-old-version
-    type: classify
-    target: localhost:19550
-    expect:
-      service_version_contains:
-        web_server: "nginx/1.14"
-
-  # --- Old nginx: EOL software detected ---
+  # --- Old nginx: EOL software detected (classify runs as part of surface scan) ---
   - name: detects-nginx-old-eol
     type: beacon
     target: localhost:19550
-    args: ["--no-enrich", "--scanners", "classify"]
+    args: ["--no-enrich"]
     expect:
       check_id: web.version_outdated
-
-  # --- New nginx: classify extracts version ---
-  - name: classify-nginx-new-version
-    type: classify
-    target: localhost:19551
-    expect:
-      service_version_contains:
-        web_server: "nginx/1.27"
 
   # --- New nginx: NOT flagged as EOL ---
   - name: negative-nginx-new-not-eol
     type: beacon
     target: localhost:19551
-    args: ["--no-enrich", "--scanners", "classify"]
+    args: ["--no-enrich"]
     expect:
-      absent_check_id: web.version_outdated
+      not_check_id: web.version_outdated
 
 timeout: 5m

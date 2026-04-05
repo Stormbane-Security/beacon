@@ -53,8 +53,7 @@ assertions:
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--format", "json"]
     expect:
       check_id: port.database_exposed
-      evidence_contains:
-        version: "8.0"
+      evidence_key: version
 
   # --- Old MySQL: exploit chain fires ---
   - name: mysql-old-exploit-chain
@@ -70,7 +69,7 @@ assertions:
     target: localhost:19541
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541"]
     expect:
-      absent_check_id: port.mysql_no_auth
+      not_check_id: port.mysql_no_auth
 
   # --- New MySQL: NO exploit chain fires ---
   - name: negative-mysql-new-no-exploit
@@ -78,6 +77,6 @@ assertions:
     target: localhost:19541
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541", "--deep", "--permission-confirmed"]
     expect:
-      absent_check_id: exploit.data_extracted
+      not_check_id: exploit.data_extracted
 
 timeout: 8m

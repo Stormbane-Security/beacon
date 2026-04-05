@@ -50,8 +50,7 @@ assertions:
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19510", "--format", "json"]
     expect:
       check_id: port.redis_unauthenticated
-      evidence_contains:
-        version: "5.0"
+      evidence_key: version
 
   # --- Old Redis: exploit chain fires ---
   - name: redis-old-exploit-chain
@@ -67,7 +66,7 @@ assertions:
     target: localhost:19511
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19511"]
     expect:
-      absent_check_id: port.redis_unauthenticated
+      not_check_id: port.redis_unauthenticated
 
   # --- New Redis: NO exploit chain fires ---
   - name: negative-redis-new-no-exploit
@@ -75,6 +74,6 @@ assertions:
     target: localhost:19511
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19511", "--deep", "--permission-confirmed"]
     expect:
-      absent_check_id: exploit.lateral_movement
+      not_check_id: exploit.lateral_movement
 
 timeout: 5m

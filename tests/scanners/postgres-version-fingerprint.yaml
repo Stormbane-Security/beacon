@@ -53,7 +53,7 @@ assertions:
     target: localhost:19531
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19531"]
     expect:
-      absent_check_id: port.postgresql_trust_auth
+      not_check_id: port.postgresql_trust_auth
 
   # --- New PG: NO exploit chain (auth required) ---
   - name: negative-postgres-new-no-exploit
@@ -61,6 +61,6 @@ assertions:
     target: localhost:19531
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19531", "--deep", "--permission-confirmed"]
     expect:
-      absent_check_id: exploit.data_extracted
+      not_check_id: exploit.data_extracted
 
 timeout: 5m
