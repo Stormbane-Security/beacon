@@ -194,8 +194,15 @@ type browseResult struct {
 // cmdBrowse opens the interactive scan history browser.
 // Loops so the user can launch new scans and return to browse without restarting.
 func cmdBrowse(cfg *config.Config) {
+	cmdBrowseWithAttach(cfg, "")
+}
+
+// cmdBrowseWithAttach opens the browser and, if attachRunID is non-empty,
+// immediately attaches to that scan's live view instead of showing the list.
+func cmdBrowseWithAttach(cfg *config.Config, attachRunID string) {
 	for {
-		res := browseInteractive(cfg)
+		res := browseInteractive(cfg, attachRunID)
+		attachRunID = "" // only auto-attach on the first iteration
 		if res.exportID != "" {
 			format := res.exportFormat
 			if format == "" {
@@ -349,7 +356,9 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 
 // browseInteractive runs the raw-terminal TUI and returns a scan run ID if the
 // user pressed 'r' to export a report, or "" to simply exit.
-func browseInteractive(cfg *config.Config) browseResult {
+// If attachRunID is non-empty, the browser immediately attaches to that scan's
+// live view so the user lands inside the scan they just detached from.
+func browseInteractive(cfg *config.Config, attachRunID string) browseResult {
 	ctx := context.Background()
 	st, err := sqlitestore.Open(cfg.Store.Path)
 	if err != nil {
@@ -375,6 +384,22 @@ func browseInteractive(cfg *config.Config) browseResult {
 	defer func() { _, _ = fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l") }()
 
 	bs := &browseState{scans: scans}
+
+	// If we were launched from a detached scan, auto-attach to it so the user
+	// lands back inside the scan they just left rather than the scan list.
+	if attachRunID != "" {
+		if job, ok := getLiveJob(attachRunID); ok {
+			// Position cursor on the matching scan in the list.
+			for i, r := range bs.scans {
+				if r.ID == attachRunID {
+					bs.scanCursor = i
+					break
+				}
+			}
+			attachJob(bs, job)
+		}
+	}
+
 	browseRender(bs)
 
 	// Read stdin in a goroutine so the main loop can also respond to ticks.

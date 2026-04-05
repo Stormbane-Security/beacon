@@ -1102,8 +1102,7 @@ func (s *Store) ListRecentScanRuns(ctx context.Context, limit int) ([]store.Scan
 		       started_at, completed_at, finding_count, error,
 		       discovery_duration_ms, scan_duration_ms, asset_count, discovery_sources
 		FROM scan_runs
-		WHERE status = 'completed'
-		ORDER BY completed_at DESC LIMIT ?`, limit)
+		ORDER BY started_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}

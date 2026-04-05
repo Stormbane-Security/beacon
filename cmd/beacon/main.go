@@ -780,7 +780,7 @@ Type exactly: I have written authorization for %s
 			done:     scanDone,
 		}
 		registerJob(lj)
-		cmdBrowse(cfg) // blocks until user quits the browser
+		cmdBrowseWithAttach(cfg, run.ID) // blocks until user quits the browser
 		// User quit browse — exit beacon. The scan goroutine is cancelled via
 		// the signal context (Ctrl+C) or will be cleaned up on process exit.
 		// Mark the run as stopped so it doesn't stay "running" in history.
