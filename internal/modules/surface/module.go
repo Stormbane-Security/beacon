@@ -2963,6 +2963,14 @@ func enrichEvidenceFromFindings(ev *playbook.Evidence, findings []finding.Findin
 					}
 				}
 			}
+
+		// External service references from JS bundles → ExternalServices
+		case f.CheckID == finding.CheckJSExternalServiceRef:
+			if svc, ok := f.Evidence["service"].(string); ok && svc != "" {
+				if !containsStr(ev.ExternalServices, svc) {
+					ev.ExternalServices = append(ev.ExternalServices, svc)
+				}
+			}
 		}
 	}
 }

@@ -234,4 +234,10 @@ type Evidence struct {
 
 	// WebSocketEndpoints lists paths where WebSocket upgrade was accepted.
 	WebSocketEndpoints []string
+
+	// ExternalServices lists named external API/SaaS dependencies discovered
+	// in JavaScript bundles (e.g. "Stripe API", "Helius RPC (Solana)", "Auth0").
+	// Populated by the webcontent scanner via enrichEvidenceFromFindings.
+	// Other scanners can use this to target service-specific attack patterns.
+	ExternalServices []string
 }

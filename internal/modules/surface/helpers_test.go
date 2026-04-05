@@ -6,6 +6,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/playbook"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 )
 
@@ -269,4 +270,67 @@ func TestSaveScanMetricEmptyRunIDNoOp(t *testing.T) {
 	m := &Module{st: nil}
 	// scanRunID="" should be a no-op even if store were set
 	m.saveScanMetricElapsed(context.TODO(), "" /*scanRunID*/, "asset", "scanner", 0, nil, nil)
+}
+
+// ── enrichEvidenceFromFindings ───────────────────────────────────────────────
+
+func TestEnrichEvidenceFromFindings_ExternalServices(t *testing.T) {
+	ev := &playbook.Evidence{}
+	findings := []finding.Finding{
+		{
+			CheckID:  finding.CheckJSExternalServiceRef,
+			Evidence: map[string]any{"service": "Stripe API", "category": "payments"},
+		},
+		{
+			CheckID:  finding.CheckJSExternalServiceRef,
+			Evidence: map[string]any{"service": "Helius RPC (Solana)", "category": "blockchain"},
+		},
+		// Duplicate — should not appear twice
+		{
+			CheckID:  finding.CheckJSExternalServiceRef,
+			Evidence: map[string]any{"service": "Stripe API", "category": "payments"},
+		},
+	}
+
+	enrichEvidenceFromFindings(ev, findings)
+
+	if len(ev.ExternalServices) != 2 {
+		t.Fatalf("expected 2 external services, got %d: %v", len(ev.ExternalServices), ev.ExternalServices)
+	}
+	want := map[string]bool{"Stripe API": true, "Helius RPC (Solana)": true}
+	for _, svc := range ev.ExternalServices {
+		if !want[svc] {
+			t.Errorf("unexpected service: %s", svc)
+		}
+	}
+}
+
+func TestEnrichEvidenceFromFindings_MixedCheckIDs(t *testing.T) {
+	ev := &playbook.Evidence{}
+	findings := []finding.Finding{
+		{
+			CheckID:  finding.CheckJSExternalServiceRef,
+			Evidence: map[string]any{"service": "Auth0", "category": "auth"},
+		},
+		{
+			CheckID:  finding.CheckPortGRPCReflectionEnabled,
+			Evidence: map[string]any{},
+		},
+		{
+			CheckID:  finding.CheckJSFrameworkDetected,
+			Evidence: map[string]any{"framework": "nextjs"},
+		},
+	}
+
+	enrichEvidenceFromFindings(ev, findings)
+
+	if len(ev.ExternalServices) != 1 || ev.ExternalServices[0] != "Auth0" {
+		t.Errorf("expected [Auth0], got %v", ev.ExternalServices)
+	}
+	if !ev.GRPCReflection {
+		t.Error("expected GRPCReflection=true")
+	}
+	if ev.Framework != "nextjs" {
+		t.Errorf("expected framework=nextjs, got %s", ev.Framework)
+	}
 }
