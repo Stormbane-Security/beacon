@@ -70,6 +70,12 @@ func detectElasticsearch(ctx context.Context, host string, port int, banner stri
 	if !ok {
 		return nil
 	}
+	// Require ES/OpenSearch-specific JSON fields in root response.
+	// ES returns: {"name":"...","cluster_name":"...","cluster_uuid":"...","version":{...},...}
+	bodyLower := strings.ToLower(body)
+	if !strings.Contains(bodyLower, "cluster_name") && !strings.Contains(bodyLower, "cluster_uuid") {
+		return nil
+	}
 	// Distinguish OpenSearch from Elasticsearch via the root response.
 	serviceName := "Elasticsearch"
 	serviceLabel := "Unauthenticated Elasticsearch"

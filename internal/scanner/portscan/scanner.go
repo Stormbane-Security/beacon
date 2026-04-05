@@ -3275,6 +3275,10 @@ func probeJetDirect(ctx context.Context, host string, port int) bool {
 	buf := make([]byte, 256)
 	n, _ := conn.Read(buf)
 	resp := string(buf[:n])
+	// Exclude Redis/other services that echo back our probe in error messages.
+	if strings.Contains(resp, "-ERR") || strings.Contains(resp, "unknown command") {
+		return false
+	}
 	return strings.Contains(resp, "@PJL") || strings.Contains(resp, "INFO ID")
 }
 

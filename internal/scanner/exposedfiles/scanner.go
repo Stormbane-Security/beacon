@@ -3036,18 +3036,23 @@ func probeSpringOAuthSpEL(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	bodyLower := strings.ToLower(string(b))
-	// Spring OAuth2 error responses are JSON {"error":"...","error_description":"..."}
-	// or Spring Whitelabel Error Page containing "oauth" context.
-	// Require both the endpoint to be reachable AND Spring/OAuth-specific content.
-	isSpringOAuth := (strings.Contains(bodyLower, `"error"`) && strings.Contains(bodyLower, "oauth")) ||
-		strings.Contains(bodyLower, "whitelabel error") ||
+	// Elasticsearch and other API servers echo the path in error messages —
+	// seeing "oauth" in a generic error like "Incorrect HTTP method for uri [/oauth/...]"
+	// is not a Spring OAuth indicator. Require Spring-specific content, not just path echo.
+	isSpringOAuth := strings.Contains(bodyLower, "whitelabel error") ||
 		strings.Contains(bodyLower, "x-application-context") ||
-		strings.Contains(bodyLower, "spring security oauth")
+		strings.Contains(bodyLower, "spring security oauth") ||
+		(strings.Contains(bodyLower, "error_description") && strings.Contains(bodyLower, "oauth"))
 	if !isSpringOAuth {
 		// Also check for the X-Application-Context header (Spring Boot specific).
 		if resp.Header.Get("X-Application-Context") == "" {
 			return nil
 		}
+	}
+	// Exclude Elasticsearch/OpenSearch which echo paths in error messages.
+	if strings.Contains(bodyLower, "elasticsearch") || strings.Contains(bodyLower, "opensearch") ||
+		strings.Contains(bodyLower, "incorrect http method for uri") {
+		return nil
 	}
 	return &finding.Finding{
 		CheckID:  finding.CheckCVESpringOAuthSpEL,
@@ -3097,9 +3102,16 @@ func probeSpring4Shell(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	bodyLower := strings.ToLower(string(b))
-	// Spring returns a Whitelabel Error Page or JSON error mentioning "classLoader" or "data binding"
-	if !strings.Contains(bodyLower, "classloader") &&
-		!strings.Contains(bodyLower, "data binding") &&
+	// Exclude servers that just echo back unrecognized parameters (Elasticsearch, etc.).
+	if strings.Contains(bodyLower, "unrecognized parameter") ||
+		strings.Contains(bodyLower, "elasticsearch") ||
+		strings.Contains(bodyLower, "opensearch") {
+		return nil
+	}
+	// Spring returns a Whitelabel Error Page or JSON error mentioning data binding.
+	// Don't match on "classloader" alone — the probe URL contains it, so any server
+	// that echoes the parameter back would match.
+	if !strings.Contains(bodyLower, "data binding") &&
 		!strings.Contains(bodyLower, "spring") &&
 		!strings.Contains(bodyLower, "whitelabel") {
 		return nil
@@ -3424,10 +3436,7 @@ func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset strin
 	bLower := strings.ToLower(string(b))
 	if !strings.Contains(bLower, "telerik") && !strings.Contains(bLower, "radupload") &&
 		!strings.Contains(bLower, "fileinfo") && !strings.Contains(bLower, "raupostback") {
-		// Also check for 200 with empty JSON body (some versions return {"fileInfo":{}})
-		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), "{") {
-			return nil
-		}
+		return nil
 	}
 	return &finding.Finding{
 		CheckID:  finding.CheckCVETelerikRAU,
