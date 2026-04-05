@@ -263,7 +263,12 @@ func confirmMethod(ctx context.Context, client *http.Client, baseURL, method str
 	_ = resp.Body.Close()
 
 	code := resp.StatusCode
-	if code == http.StatusMethodNotAllowed || code == http.StatusNotImplemented {
+	// 405/501 = method explicitly not allowed/not implemented.
+	// 404 = resource not found on probe path — doesn't prove the method is
+	//       dangerous (any REST API returns 404 for non-existent resources).
+	// 5xx = server error — not actionable proof.
+	if code == http.StatusMethodNotAllowed || code == http.StatusNotImplemented ||
+		code == http.StatusNotFound || code >= 500 {
 		return false, code
 	}
 

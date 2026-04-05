@@ -679,6 +679,28 @@ const (
 	CheckNmapFTPAnonymous   CheckID = "nmap.ftp_anonymous"
 	CheckNmapSSHAlgorithms  CheckID = "nmap.ssh_weak_algorithms"
 
+	// Nmap — fingerprinting (surface)
+	CheckNmapSMBOSDiscovery  CheckID = "nmap.smb_os_discovery"      // SMB OS/domain/hostname via smb-os-discovery
+	CheckNmapSSLCertInfo     CheckID = "nmap.ssl_cert_info"          // SSL certificate details (expiry, CN, issuer)
+	CheckNmapSSLCertExpired  CheckID = "nmap.ssl_cert_expired"       // SSL certificate expired or expiring soon
+	CheckNmapHTTPTitle       CheckID = "nmap.http_title"             // HTTP page title for asset identification
+	CheckNmapHTTPRobots      CheckID = "nmap.http_robots"            // robots.txt disallowed paths discovered
+	CheckNmapNetBIOSInfo     CheckID = "nmap.netbios_info"           // NetBIOS name/domain/MAC via nbstat
+	CheckNmapSMTPCommands    CheckID = "nmap.smtp_commands"          // SMTP VRFY/EXPN user enumeration enabled
+	CheckNmapVNCInfo         CheckID = "nmap.vnc_no_auth"            // VNC with no authentication required
+	CheckNmapRDPEncryption   CheckID = "nmap.rdp_weak_encryption"    // RDP weak encryption (NLA disabled)
+	CheckNmapTelnetEncrypt   CheckID = "nmap.telnet_no_encryption"   // Telnet without encryption
+
+	// Nmap — vulnerability detection (surface)
+	CheckNmapSMBSigningOff   CheckID = "nmap.smb_signing_disabled"   // SMB signing not required (relay attacks)
+	CheckNmapHTTPMethods     CheckID = "nmap.http_unsafe_methods"    // Dangerous HTTP methods (PUT/DELETE/TRACE)
+	CheckNmapNTPMonlist      CheckID = "nmap.ntp_monlist"            // NTP monlist DDoS amplification
+
+	// Nmap — vulnerability detection (deep)
+	CheckNmapSMTPOpenRelay   CheckID = "nmap.smtp_open_relay"        // Open mail relay
+	CheckNmapMySQLNoPassword CheckID = "nmap.mysql_no_password"      // MySQL root with no password
+	CheckNmapIPMICipherZero  CheckID = "nmap.ipmi_cipher_zero"       // IPMI cipher 0 auth bypass
+
 	// External intelligence APIs (all optional — keys required)
 	CheckVirusTotalReputation CheckID = "intel.virustotal_reputation"
 	CheckCensysHostData       CheckID = "intel.censys_host"
