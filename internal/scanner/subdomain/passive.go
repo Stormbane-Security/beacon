@@ -373,9 +373,17 @@ func runSubfinder(ctx context.Context, bin, domain string, active bool) ([]strin
 	var subs []string
 	scanner := bufio.NewScanner(&stdout)
 	for scanner.Scan() {
-		if line := strings.TrimSpace(scanner.Text()); line != "" {
-			subs = append(subs, strings.ToLower(line))
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
 		}
+		line = strings.ToLower(line)
+		// Subfinder may print warnings/errors to stdout (e.g. config file
+		// permission errors). Only accept lines that are valid hostnames.
+		if !isValidHostname(line) {
+			continue
+		}
+		subs = append(subs, line)
 	}
 	return subs, scanner.Err()
 }
@@ -407,9 +415,15 @@ func runAmass(ctx context.Context, bin, domain string, active bool) ([]string, e
 	var subs []string
 	scanner := bufio.NewScanner(&stdout)
 	for scanner.Scan() {
-		if line := strings.TrimSpace(scanner.Text()); line != "" {
-			subs = append(subs, strings.ToLower(line))
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
 		}
+		line = strings.ToLower(line)
+		if !isValidHostname(line) {
+			continue
+		}
+		subs = append(subs, line)
 	}
 	return subs, scanner.Err()
 }

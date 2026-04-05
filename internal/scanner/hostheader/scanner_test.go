@@ -132,42 +132,40 @@ func TestCheckReflection_EmptyResponse_NotReflected(t *testing.T) {
 	}
 }
 
-// --- baseline ---
+// --- HTTP→HTTPS redirect injection ---
 
-func TestBaseline_HTTPSServer_SchemeDetermined(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", "https://example.com/")
+func TestRun_DeepMode_HTTPRedirect_HostReflectedInLocation(t *testing.T) {
+	// Simulates a CDN/reverse proxy (Varnish, Fastly, Nginx) that redirects
+	// HTTP→HTTPS and reflects the Host header in the Location header.
+	// This is the exact pattern that was missed when the scanner only tested
+	// the HTTPS scheme.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Redirect to HTTPS using the Host header — this is the vulnerability.
+		w.Header().Set("Location", "https://"+r.Host+"/")
 		w.WriteHeader(http.StatusMovedPermanently)
 	}))
 	defer srv.Close()
 
-	// Use the TLS-trusting client from the server.
-	client := srv.Client()
-	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-
-	host := strings.TrimPrefix(srv.URL, "https://")
-	scheme, status, location, _, _, err := baseline(context.Background(), client, host)
+	s := New()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanDeep)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Run() returned error: %v", err)
 	}
-	if scheme != "https" {
-		t.Errorf("expected scheme https, got %q", scheme)
-	}
-	if status != http.StatusMovedPermanently {
-		t.Errorf("expected 301, got %d", status)
-	}
-	if location != "https://example.com/" {
-		t.Errorf("unexpected Location: %q", location)
-	}
-}
 
-func TestBaseline_UnreachableHost_ReturnsError(t *testing.T) {
-	client := &http.Client{}
-	_, _, _, _, _, err := baseline(context.Background(), client, "127.0.0.1:19999")
-	if err == nil {
-		t.Error("expected error for unreachable host")
+	// The baseline GET to this server returns Location: https://127.0.0.1:<port>/
+	// The injected GET returns Location: https://evil-beacon-probe.example.com/
+	// The probe value is NOT in the baseline → should be flagged.
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckHostHeaderInjection &&
+			strings.Contains(f.Title, "Location header") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected host header injection finding for HTTP redirect reflecting Host in Location")
 	}
 }
 

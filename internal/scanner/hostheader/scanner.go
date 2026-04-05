@@ -62,13 +62,37 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Determine which scheme works for this asset.
-	scheme, _, baseLocation, baseCookie, baseBody, err := baseline(ctx, client, asset)
-	if err != nil || scheme == "" {
-		return nil, nil // asset unreachable – nothing to report
+	// Test BOTH HTTP and HTTPS independently. A common host header injection
+	// vector is HTTP→HTTPS redirects where the server reflects the Host header
+	// in the Location header. If we only test the first scheme that works
+	// (usually HTTPS), we miss this entirely because HTTPS serves a 200 OK
+	// with no redirect.
+	var findings []finding.Finding
+	for _, scheme := range []string{"https", "http"} {
+		schemeFindings := s.probeScheme(ctx, client, asset, scheme)
+		findings = append(findings, schemeFindings...)
 	}
 
+	return findings, nil
+}
+
+// probeScheme tests host header injection against a single scheme (http or https).
+func (s *Scanner) probeScheme(ctx context.Context, client *http.Client, asset, scheme string) []finding.Finding {
 	url := scheme + "://" + asset + baselinePath
+
+	// Baseline request to get normal response values.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	baseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+	baseLocation := resp.Header.Get("Location")
+	baseCookie := resp.Header.Get("Set-Cookie")
 
 	// Header injection combos: name → how to apply it to the request.
 	type probe struct {
@@ -85,33 +109,33 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var findings []finding.Finding
 
 	for _, p := range probes {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		probeReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			continue
 		}
 
 		if p.header == "" {
 			// Replace the Host field directly.
-			req.Host = probeValue
+			probeReq.Host = probeValue
 		} else {
-			req.Header.Set(p.header, probeValue)
+			probeReq.Header.Set(p.header, probeValue)
 		}
 
-		resp, err := client.Do(req)
+		probeResp, err := client.Do(probeReq)
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		_ = resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(probeResp.Body, 4096))
+		_ = probeResp.Body.Close()
 
-		location := resp.Header.Get("Location")
-		setCookie := resp.Header.Get("Set-Cookie")
+		location := probeResp.Header.Get("Location")
+		setCookie := probeResp.Header.Get("Set-Cookie")
 
 		reflected, where := checkReflection(
 			probeValue,
-			baseLocation, baseCookie, baseBody,
+			baseLocation, baseCookie, string(baseBody),
 			location, setCookie, string(body),
-			resp.StatusCode,
+			probeResp.StatusCode,
 		)
 		if !reflected {
 			continue
@@ -119,11 +143,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		// Check whether the poisoned response was served from cache — if so
 		// this is confirmed cache poisoning (Critical), not just a theoretical risk.
-		cached := strings.EqualFold(resp.Header.Get("X-Cache"), "HIT") ||
-			strings.EqualFold(resp.Header.Get("CF-Cache-Status"), "HIT")
+		cached := strings.EqualFold(probeResp.Header.Get("X-Cache"), "HIT") ||
+			strings.EqualFold(probeResp.Header.Get("CF-Cache-Status"), "HIT")
 
 		sev := finding.SeverityHigh
-		title := fmt.Sprintf("Host header injection: %s reflected in %s", p.name, where)
+		title := fmt.Sprintf("Host header injection: %s reflected in %s (%s)", p.name, where, scheme)
 		desc := "The application reflects the injected host header value in its response. " +
 			"This can be exploited for cache poisoning attacks (serving malicious content to other users " +
 			"via a shared cache) and password-reset poisoning (sending password-reset emails containing " +
@@ -131,7 +155,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			"Host header can redirect sensitive tokens and links to infrastructure they control."
 		if cached {
 			sev = finding.SeverityCritical
-			title = fmt.Sprintf("Host header cache poisoning: %s reflected in %s (cached)", p.name, where)
+			title = fmt.Sprintf("Host header cache poisoning: %s reflected in %s (cached, %s)", p.name, where, scheme)
 			desc = "The poisoned response was served from cache (X-Cache: HIT). Real users are being " +
 				"redirected to the injected domain. This is confirmed cache poisoning — the attacker does " +
 				"not need to be on-path. Anyone requesting this URL receives the poisoned response until " +
@@ -143,6 +167,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			"injected_value":  probeValue,
 			"reflected_in":    where,
 			"url":             url,
+			"scheme":          scheme,
 		}
 		if cached {
 			evidence["cached"] = "true"
@@ -164,18 +189,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// ── Absolute URL with mismatched Host header ──────────────────────────
-	// HTTP/1.1 allows an absolute Request-URI (RFC 7230 §5.3.2). When the
-	// request line contains the real host but the Host header says evil.com,
-	// some servers use the Host header for application logic (redirects,
-	// links, cache keys) while routing is based on the absolute URI. This
-	// bypasses naive "Host must match the target" checks in some WAFs.
 	absReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err == nil {
 		absReq.Host = probeValue
-		// Force the request line to use an absolute URL by setting the URL
-		// explicitly — Go's http.Client normally strips scheme+host from
-		// the request line, but the Host header override is what matters
-		// for application-level injection.
 		absResp, absErr := client.Do(absReq)
 		if absErr == nil {
 			absBody, _ := io.ReadAll(io.LimitReader(absResp.Body, 4096))
@@ -186,7 +202,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 			reflected, where := checkReflection(
 				probeValue,
-				baseLocation, baseCookie, baseBody,
+				baseLocation, baseCookie, string(baseBody),
 				absLocation, absSetCookie, string(absBody),
 				absResp.StatusCode,
 			)
@@ -196,7 +212,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					Module:       "deep",
 					Scanner:      scannerName,
 					Severity:     finding.SeverityHigh,
-					Title:        fmt.Sprintf("Host header injection via absolute URL: Host reflected in %s", where),
+					Title:        fmt.Sprintf("Host header injection via absolute URL: Host reflected in %s (%s)", where, scheme),
 					Description: "The application reflects the Host header value even when the request uses an " +
 						"absolute URL pointing to the real host. This technique bypasses WAFs and reverse proxies " +
 						"that validate the Host header against the request target, because the routing layer uses " +
@@ -208,6 +224,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 						"injected_value":  probeValue,
 						"reflected_in":    where,
 						"url":             url,
+						"scheme":          scheme,
 					},
 					ProofCommand: fmt.Sprintf(
 						"curl -si --request-target '%s' -H 'Host: %s' '%s' | grep -iE 'location|set-cookie'",
@@ -218,44 +235,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	return findings, nil
+	return findings
 }
 
-// baseline performs a plain GET to determine the working scheme and collect
-// baseline response values (Location, Set-Cookie domain, body snippet).
-func baseline(ctx context.Context, client *http.Client, asset string) (
-	scheme string,
-	statusCode int,
-	location, setCookie, body string,
-	err error,
-) {
-	for _, s := range []string{"https", "http"} {
-		url := s + "://" + asset + baselinePath
-		var req *http.Request
-		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			continue
-		}
-
-		var resp *http.Response
-		resp, err = client.Do(req)
-		if err != nil {
-			continue
-		}
-
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		_ = resp.Body.Close()
-
-		scheme = s
-		statusCode = resp.StatusCode
-		location = resp.Header.Get("Location")
-		setCookie = resp.Header.Get("Set-Cookie")
-		body = string(b)
-		err = nil
-		return
-	}
-	return
-}
 
 // checkReflection returns whether the probe value appears in the injected
 // response at a location that was not already present in the baseline.

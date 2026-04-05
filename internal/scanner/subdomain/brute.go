@@ -79,6 +79,12 @@ var commonPrefixes = []string{
 	"exchange", "owa", "outlook", "webmail",
 	"extranet", "partner", "vendor",
 
+	// Business / customer-facing
+	"loyalty", "rewards", "referral", "affiliate",
+	"billing", "invoice", "payments", "pay",
+	"onboarding", "signup", "register",
+	"events", "community", "social",
+
 	// Security
 	"security", "siem", "splunk", "waf",
 
