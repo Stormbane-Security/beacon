@@ -1,0 +1,49 @@
+name: adminer-exposed
+description: >
+  Adminer database administration tool exposed without authentication.
+  Beacon should fingerprint Adminer from body content, detect the exposed
+  admin panel, and flag it as a database administration interface that
+  could be used to access backend databases.
+tags: [adminer, scanner, fingerprint, exposed, database-admin]
+
+services:
+  adminer:
+    image: adminer:latest
+    ports: ["18075:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:18075/ | grep -qi adminer"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Classification: beacon identifies Adminer
+  - name: classify-detects-adminer
+    type: classify
+    target: localhost:18075
+    expect:
+      service: Adminer
+
+  # Classification: detects PHP
+  - name: classify-detects-php
+    type: classify
+    target: localhost:18075
+    expect:
+      framework: php
+
+  # Pre-flight: Adminer login page accessible
+  - name: adminer-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18075/ | grep -qi 'login'"
+      exit_code: 0
+
+  # Scanner: detect exposed database admin
+  - name: detects-adminer-exposed
+    type: beacon
+    target: localhost:18075
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: exposure.cicd_panel
+
+timeout: 5m

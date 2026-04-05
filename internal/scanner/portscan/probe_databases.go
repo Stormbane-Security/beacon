@@ -238,24 +238,47 @@ func detectMemcached(ctx context.Context, host string, port int, banner string, 
 }
 
 func detectCouchDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/_all_dbs")
-	if !unauth {
+	// Check unauthenticated access: /_all_dbs returns JSON array without credentials.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/_all_dbs")
+	if ok && strings.HasPrefix(strings.TrimSpace(body), "[") {
+		return []finding.Finding{makeF(
+			finding.CheckPortCouchDBUnauth,
+			finding.SeverityCritical,
+			fmt.Sprintf("Unauthenticated CouchDB exposed on port %d", port),
+			"A CouchDB instance is accessible without authentication. "+
+				"All databases and their documents can be read, modified, or deleted.",
+			map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner},
+		)}
+	}
+	// Fallback: CouchDB root / returns {"couchdb":"Welcome",...} even with auth enabled.
+	rootBody, rootOk := probeHTTPBody(ctx, host, port, false, "/")
+	if !rootOk {
+		return nil
+	}
+	if !strings.Contains(rootBody, `"couchdb"`) {
 		return nil
 	}
 	return []finding.Finding{makeF(
-		finding.CheckPortCouchDBUnauth,
-		finding.SeverityCritical,
-		fmt.Sprintf("Unauthenticated CouchDB exposed on port %d", port),
-		"A CouchDB instance is accessible without authentication. "+
-			"All databases and their documents can be read, modified, or deleted.",
-		map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner},
+		finding.CheckPortDatabaseExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("CouchDB exposed on port %d", port),
+		"A CouchDB database is publicly accessible. Although authentication may be configured, "+
+			"the CouchDB service is reachable from the network and may be subject to brute-force or "+
+			"exploitation of known CouchDB vulnerabilities. Restrict to trusted networks.",
+		map[string]any{"port": port, "service": "couchdb", "banner": banner},
 	)}
 }
 
 func detectInfluxDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/ping")
-	if !unauth {
+	// InfluxDB /ping returns 204 No Content. If the response has HTML body content,
+	// it's a SPA returning its shell, not InfluxDB.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/ping")
+	if !ok {
 		return nil
+	}
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "<!") {
+		return nil // HTML response — not InfluxDB
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortInfluxDBExposed,
@@ -303,8 +326,13 @@ func detectNeo4j(ctx context.Context, host string, port int, banner string, make
 }
 
 func detectSplunkMgmt(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, true, "/services/server/info")
-	if !unauth {
+	// Splunk /services/server/info returns XML with <entry> elements and "server-info".
+	body, ok := probeHTTPBody(ctx, host, port, true, "/services/server/info")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	if !strings.Contains(bodyLow, "server-info") && !strings.Contains(bodyLow, "splunk") {
 		return nil
 	}
 	return []finding.Finding{makeF(

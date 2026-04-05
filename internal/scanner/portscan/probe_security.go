@@ -111,8 +111,10 @@ func detectKubernetesAPI(ctx context.Context, host string, port int, banner stri
 }
 
 func detectDockerDaemon(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/v1.24/version")
-	if !unauth {
+	// Validate response contains Docker version JSON (e.g. "ApiVersion").
+	// Prevents false positives from SPAs that return HTML for any path.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/v1.24/version")
+	if !ok || !strings.Contains(body, "ApiVersion") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -126,8 +128,9 @@ func detectDockerDaemon(ctx context.Context, host string, port int, banner strin
 }
 
 func detectKubelet(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, true, "/pods")
-	if !unauth {
+	// Kubelet /pods returns JSON with "kind":"PodList". Validate body to avoid SPA FPs.
+	body, ok := probeHTTPBody(ctx, host, port, true, "/pods")
+	if !ok || !strings.Contains(body, "PodList") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -141,8 +144,10 @@ func detectKubelet(ctx context.Context, host string, port int, banner string, ma
 }
 
 func detectKubeletReadOnly(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/pods")
-	if !unauth {
+	// Validate response contains Kubernetes pod list JSON (e.g. "PodList" kind).
+	// Prevents false positives from SPAs that return HTML for any path.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/pods")
+	if !ok || !strings.Contains(body, "PodList") {
 		return nil
 	}
 	return []finding.Finding{makeF(

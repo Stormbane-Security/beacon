@@ -196,8 +196,10 @@ func detectJupyter(ctx context.Context, host string, port int, banner string, ma
 }
 
 func detectPrometheus(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/api/v1/targets")
-	if !unauth {
+	// Prometheus /api/v1/targets returns JSON with "status":"success" and "activeTargets".
+	// Reject HTML responses (SPAs return 200 with HTML for any path).
+	body, ok := probeHTTPBody(ctx, host, port, false, "/api/v1/targets")
+	if !ok || !strings.Contains(body, "activeTargets") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -340,7 +342,13 @@ func detectEtcd(ctx context.Context, host string, port int, banner string, makeF
 }
 
 func detectWebmin(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	if !probeHTTP(ctx, host, port, true, "/session_login.cgi") {
+	// Webmin login page contains form with action="/session_login.cgi" and "Webmin" branding.
+	body, ok := probeHTTPBody(ctx, host, port, true, "/session_login.cgi")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	if !strings.Contains(bodyLow, "webmin") && !strings.Contains(bodyLow, "session_login") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -458,7 +466,8 @@ func detectWebLogic(ctx context.Context, host string, port int, banner string, m
 		return nil
 	}
 	lb := strings.ToLower(body)
-	if !strings.Contains(lb, "weblogic") && !strings.Contains(lb, "oracle") {
+	// Require "weblogic" specifically — "oracle" alone matches database admin tools like Adminer.
+	if !strings.Contains(lb, "weblogic") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -689,7 +698,9 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 }
 
 func detectViteDev(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	if !probeHTTP(ctx, host, port, false, "/__vite_ping") {
+	// Vite's /__vite_ping returns a tiny non-HTML response. SPAs return HTML for any path.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/__vite_ping")
+	if !ok || strings.HasPrefix(strings.TrimSpace(body), "<") {
 		return nil
 	}
 	now := time.Now()
@@ -1011,7 +1022,8 @@ func detectColdFusion(ctx context.Context, host string, port int, banner string,
 			continue
 		}
 		lb := strings.ToLower(body)
-		if strings.Contains(lb, "lucee") || strings.Contains(lb, "password") && strings.Contains(lb, "login") {
+		// Require "lucee" specifically — "password" + "login" matches any login page.
+		if strings.Contains(lb, "lucee") {
 			ev["service"] = "lucee"
 			return []finding.Finding{makeF(
 				finding.CheckPortColdFusionAdminExposed,
@@ -1034,8 +1046,27 @@ func detectApacheTika(ctx context.Context, host string, port int, banner string,
 	if !ok {
 		return nil
 	}
+	// Tika /version returns plain-text like "Apache Tika 1.17" or just "1.17".
+	// Many other services expose /version as JSON or HTML — reject those.
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "{") ||
+		strings.HasPrefix(trimmed, "[") || len(trimmed) > 100 {
+		return nil
+	}
+	// Positive match: must contain "tika" or look like a bare semver (digits and dots only).
+	lowerTrimmed := strings.ToLower(trimmed)
+	isTika := strings.Contains(lowerTrimmed, "tika")
+	if !isTika {
+		// Check for bare semver like "1.17" or "2.9.1" — no spaces, no letters except dots.
+		clean := strings.ReplaceAll(trimmed, ".", "")
+		for _, c := range clean {
+			if c < '0' || c > '9' {
+				return nil // Contains non-digit/dot characters — not a Tika version
+			}
+		}
+	}
 	ev := map[string]any{"port": port, "service": "tika", "banner": banner}
-	tikaVer := strings.TrimSpace(body)
+	tikaVer := trimmed
 	if strings.HasPrefix(strings.ToLower(tikaVer), "apache tika ") {
 		tikaVer = tikaVer[len("apache tika "):]
 	}

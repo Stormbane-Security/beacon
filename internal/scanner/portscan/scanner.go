@@ -1483,6 +1483,12 @@ func probeK8sVersion(ctx context.Context, host string, port int) string {
 			return ""
 		}
 	}
+	// K8s /version returns JSON like {"major":"1","minor":"28","gitVersion":"v1.28.2",...}.
+	// Reject HTML responses (SPAs embed JS that may contain "gitVersion" as a string).
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") || !strings.HasPrefix(trimmed, "{") {
+		return ""
+	}
 	ver := parseJSONStringField(body, "gitVersion")
 	return strings.TrimPrefix(ver, "v")
 }
@@ -3073,8 +3079,30 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode == 401 || resp.StatusCode == 200 || resp.StatusCode == 415
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+	_ = resp.Body.Close()
+	// WinRM 401 responses include WWW-Authenticate with Negotiate/NTLM/Kerberos.
+	if resp.StatusCode == 401 {
+		authHeader := resp.Header.Get("WWW-Authenticate")
+		return strings.Contains(authHeader, "Negotiate") || strings.Contains(authHeader, "NTLM") ||
+			strings.Contains(authHeader, "Kerberos")
+	}
+	// WinRM 415 (Unsupported Media Type) is characteristic — web apps rarely return this.
+	if resp.StatusCode == 415 {
+		return true
+	}
+	// WinRM 200 returns SOAP/XML, not HTML. Check Content-Type and body structure.
+	bodyStr := string(body)
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "soap") || strings.Contains(ct, "xml") {
+		return true
+	}
+	// Reject HTML responses — web apps return HTML for any path.
+	trimmed := strings.TrimSpace(bodyStr)
+	if strings.HasPrefix(trimmed, "<!") || strings.HasPrefix(strings.ToLower(trimmed), "<html") {
+		return false
+	}
+	return strings.Contains(bodyStr, "schemas.dmtf.org") || strings.Contains(bodyStr, "xmlsoap.org")
 }
 
 // probeZooKeeper sends "ruok" and checks for "imok".
