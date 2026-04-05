@@ -316,6 +316,9 @@ func checkDataExfiltration(ctx context.Context, client *http.Client, asset, base
 }
 
 // checkWhereInjection tests for $where operator JavaScript injection.
+// Confirmation requires either MongoDB error strings in the response OR
+// a boolean-based differential: $where:"1==1" returns data while
+// $where:"1==0" returns empty/different data, proving server-side execution.
 func checkWhereInjection(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
 	var findings []finding.Finding
 
@@ -329,8 +332,9 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 
 		endpoint := base + path
 
-		// $where with sleep-like JS to test for server-side execution
-		payloads := []struct {
+		// Phase 1: Error-based detection — send $where with JS and look for
+		// MongoDB error messages that confirm the operator was parsed.
+		errorPayloads := []struct {
 			name string
 			body map[string]any
 		}{
@@ -348,7 +352,7 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 			},
 		}
 
-		for _, p := range payloads {
+		for _, p := range errorPayloads {
 			status, body := postJSON(ctx, client, endpoint, p.body)
 			if status == 0 || status == 404 || status == 405 {
 				continue
@@ -356,9 +360,9 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 
 			// Look for MongoDB error messages indicating $where was processed
 			mongoErrors := []string{
-				"MongoError", "MongoServerError", "$where",
-				"SyntaxError", "ReferenceError", "not allowed",
-				"disabled", "sleep is not defined",
+				"MongoError", "MongoServerError",
+				"SyntaxError", "ReferenceError",
+				"sleep is not defined",
 			}
 
 			for _, errStr := range mongoErrors {
@@ -391,9 +395,26 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 					goto nextPath
 				}
 			}
+		}
 
-			// If $where returned 200 with data (not error), that's also bad
-			if status == 200 && len(body) > 50 && strings.Contains(body, "{") {
+		// Phase 2: Boolean-based differential — $where:"1==1" should return
+		// data while $where:"1==0" should return empty/fewer results.
+		// This is the only reliable way to confirm execution without errors.
+		{
+			trueStatus, trueBody := postJSON(ctx, client, endpoint, map[string]any{
+				"$where": "1==1",
+			})
+			if trueStatus == 0 || trueStatus == 404 || trueStatus == 405 {
+				continue
+			}
+			falseStatus, falseBody := postJSON(ctx, client, endpoint, map[string]any{
+				"$where": "1==0",
+			})
+
+			// Confirmed: true condition returns data, false returns empty or
+			// substantially less data. Both must be 200 (server accepted the query).
+			if trueStatus == 200 && falseStatus == 200 &&
+				len(trueBody) > 50 && len(falseBody) < len(trueBody)/2 {
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebNoSQLi,
 					Module:   "deep",
@@ -401,24 +422,24 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 					Severity: finding.SeverityCritical,
 					Title:    fmt.Sprintf("NoSQL $where JavaScript execution at %s", path),
 					Description: fmt.Sprintf(
-						"The endpoint %s accepted a $where operator with JavaScript code and returned "+
-							"data (HTTP 200, %d bytes). This confirms server-side JavaScript execution "+
-							"in MongoDB queries, enabling full database access and potential RCE.",
-						endpoint, len(body)),
+						"The endpoint %s executes MongoDB $where JavaScript. Boolean differential "+
+							"confirmed: $where:\"1==1\" returned %d bytes, $where:\"1==0\" returned %d bytes. "+
+							"This enables full database access and potential RCE.",
+						endpoint, len(trueBody), len(falseBody)),
 					Asset:    asset,
 					DeepOnly: true,
 					ProofCommand: fmt.Sprintf(
-						`curl -s -X POST -H 'Content-Type: application/json' -d '%s' '%s'`,
-						mustMarshal(p.body), endpoint),
+						`curl -s -X POST -H 'Content-Type: application/json' -d '{"$where":"1==1"}' '%s'`,
+						endpoint),
 					Evidence: map[string]any{
-						"endpoint":      endpoint,
-						"payload":       p.name,
-						"status":        status,
-						"response_size": len(body),
+						"endpoint":       endpoint,
+						"payload":        "$where boolean differential",
+						"true_bytes":     len(trueBody),
+						"false_bytes":    len(falseBody),
+						"status":         trueStatus,
 					},
 					DiscoveredAt: time.Now(),
 				})
-				goto nextPath
 			}
 		}
 	nextPath:

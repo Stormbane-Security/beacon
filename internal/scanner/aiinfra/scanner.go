@@ -37,18 +37,20 @@ const scannerName = "aiinfra"
 
 // probe defines an endpoint to check for exposed AI infrastructure.
 type probe struct {
-	path     string
-	checkID  finding.CheckID
-	keywords []string // response must contain at least one
-	title    string
-	desc     string
+	path       string
+	checkID    finding.CheckID
+	keywords   []string // response must contain keywords
+	minMatches int      // minimum keyword matches required (0 = 1)
+	title      string
+	desc       string
 }
 
 var probes = []probe{
 	{
-		path:    "/api/kernels",
-		checkID: finding.CheckAIInfraJupyter,
-		keywords: []string{"kernel_id", "execution_state", "last_activity"},
+		path:       "/api/kernels",
+		checkID:    finding.CheckAIInfraJupyter,
+		keywords:   []string{"kernel_id", "execution_state", "last_activity"},
+		minMatches: 2,
 		title:   "Jupyter Notebook kernel API exposed without authentication",
 		desc: "The Jupyter Notebook kernel API at %s is accessible without authentication. " +
 			"An attacker can create and execute code in kernels, achieving remote code " +
@@ -58,7 +60,11 @@ var probes = []probe{
 	{
 		path:    "/api/contents",
 		checkID: finding.CheckAIInfraJupyter,
-		keywords: []string{"content", "type", "notebook", "mimetype"},
+		// Require Jupyter-specific fields — generic "content"/"type" match
+		// any JSON API (e.g. Nuxt status pages). "writable" and "format"
+		// alongside "mimetype" are unique to Jupyter's contents API.
+		keywords:   []string{"writable", "mimetype", "last_modified", ".ipynb"},
+		minMatches: 2,
 		title:   "Jupyter Notebook contents API exposed without authentication",
 		desc: "The Jupyter Notebook contents API at %s is accessible without authentication. " +
 			"An attacker can read and write notebook files, potentially accessing " +
@@ -156,14 +162,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		bodyLower := strings.ToLower(string(body))
-		matched := false
+		matchCount := 0
 		for _, kw := range p.keywords {
 			if strings.Contains(bodyLower, kw) {
-				matched = true
-				break
+				matchCount++
 			}
 		}
-		if !matched {
+		minRequired := p.minMatches
+		if minRequired <= 0 {
+			minRequired = 1
+		}
+		if matchCount < minRequired {
 			continue
 		}
 
