@@ -107,28 +107,21 @@ func TestRun_BinaryNotFound(t *testing.T) {
 // ── Test: empty bin defaults to "theHarvester" ──────────────────────────────
 
 func TestRun_EmptyBinDefaultsToTheHarvester(t *testing.T) {
-	// With empty bin, the scanner should try "theHarvester" from PATH.
-	// Since theHarvester is unlikely to be installed in CI, we expect the
-	// unavailable finding.
 	s := harvester.New("")
+	if s.Name() != "harvester" {
+		t.Errorf("Name() = %q; want %q", s.Name(), "harvester")
+	}
+
+	// Verify the default-bin path produces the unavailable finding (not a
+	// silent skip) by setting PATH to empty so LookPath always fails and
+	// toolinstall does NOT attempt apt-get/brew installation.
+	t.Setenv("PATH", "")
 	findings, err := s.Run(context.Background(), "example.com", module.ScanSurface)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// Either nil (if toolinstall works) or unavailable info finding
-	if len(findings) > 0 {
-		if !hasCheckID(findings, finding.CheckHarvesterUnavailable) {
-			// If theHarvester happens to be installed, we might get real findings.
-			// In that case, just verify they have valid check IDs.
-			for _, f := range findings {
-				if f.CheckID != finding.CheckHarvesterEmails &&
-					f.CheckID != finding.CheckHarvesterSubdomains &&
-					f.CheckID != finding.CheckHarvesterUnavailable {
-					t.Errorf("unexpected check ID: %s", f.CheckID)
-				}
-			}
-		}
+	if !hasCheckID(findings, finding.CheckHarvesterUnavailable) {
+		t.Error("expected harvester_unavailable finding when default bin is not on PATH")
 	}
 }
 

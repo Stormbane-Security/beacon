@@ -2,6 +2,8 @@ package dirbust_test
 
 import (
 	"context"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +20,7 @@ import (
 // speaks plain HTTP we need it to speak HTTPS or we need to work around the
 // scheme.  In these tests we use a plain-HTTP httptest server and strip "http://"
 // — the scanner will try HTTPS first, fail, and the tests would break.  Instead
-// we create a TLS httptest server (httptest.NewTLSServer) so the scanner's HTTPS
+// we create a TLS httptest server (quietTLSServer) so the scanner's HTTPS
 // attempt succeeds.
 //
 // For tests that do NOT need TLS (e.g. context cancellation), we supply a custom
@@ -31,6 +33,16 @@ func tlsAsset(ts *httptest.Server) string {
 func newTLSScanner(ts *httptest.Server) *dirbust.Scanner {
 	s := dirbust.NewWithClient(ts.Client())
 	return s
+}
+
+// quietTLSServer creates an httptest TLS server that suppresses TLS handshake
+// error logs. The dirbust scanner's concurrent probes race against server
+// shutdown, producing harmless "TLS handshake error" noise in test output.
+func quietTLSServer(handler http.Handler) *httptest.Server {
+	ts := httptest.NewUnstartedServer(handler)
+	ts.Config.ErrorLog = log.New(io.Discard, "", 0)
+	ts.StartTLS()
+	return ts
 }
 
 func findingsByCheckID(findings []finding.Finding, id finding.CheckID) []finding.Finding {
@@ -53,7 +65,7 @@ func findingsByCheckID(findings []finding.Finding, id finding.CheckID) []finding
 func TestRateLimit_BackoffAndNoFinding(t *testing.T) {
 	var requestCount atomic.Int64
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount.Add(1)
 		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -95,7 +107,7 @@ func TestRateLimit_BackoffAndNoFinding(t *testing.T) {
 // probe() checks isWAFResponse() before checking interestingCodes, so WAF-blocked
 // 403s are never counted as interesting path discoveries.
 func TestWAF_BlockedEmitsWAFFindingNotPathFindings(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-WAF-Status", "blocked")
 		w.WriteHeader(http.StatusForbidden)
 	}))
@@ -127,7 +139,7 @@ func TestWAF_BlockedEmitsWAFFindingNotPathFindings(t *testing.T) {
 // TestInterestingPaths_200Found verifies that a 200 response produces a finding
 // and a 404 does not.
 func TestInterestingPaths_200Found(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -151,7 +163,7 @@ func TestInterestingPaths_200Found(t *testing.T) {
 // TestAllNotFound_NoFindings verifies that a server returning 404 for every path
 // produces zero findings.
 func TestAllNotFound_NoFindings(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
@@ -169,7 +181,7 @@ func TestAllNotFound_NoFindings(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUnauthorized_FindingWithMediumSeverity(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer ts.Close()
@@ -193,7 +205,7 @@ func TestUnauthorized_FindingWithMediumSeverity(t *testing.T) {
 // TestContextCancellation verifies that cancelling the context before Run is called
 // produces no findings and no panic.
 func TestContextCancellation_NoPanic(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK) // would produce a finding if reached
 	}))
 	defer ts.Close()
@@ -215,7 +227,7 @@ func TestContextCancellationDuringRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var requestCount atomic.Int64
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requestCount.Add(1) == 1 {
 			// Cancel after first request is received
 			cancel()
@@ -259,7 +271,7 @@ func TestEmptyPaths_ReturnsNil(t *testing.T) {
 func TestDirBustRateLimitOnCanary(t *testing.T) {
 	var requestCount atomic.Int64
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := requestCount.Add(1)
 		// First 3 requests are canary probes — return 429 for all of them.
 		// After canaries, the /admin probe should also get 429.
@@ -294,7 +306,7 @@ func TestDirBustRateLimitOnCanary(t *testing.T) {
 
 func TestDirBustConnectionReset(t *testing.T) {
 	// Create a server that immediately closes the connection for the probed path.
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin" {
 			// Hijack the connection and close it to simulate a TCP reset.
 			hj, ok := w.(http.Hijacker)
@@ -388,7 +400,7 @@ func TestExpandWithExtensions_NoFramework(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRecurse_FindsSubPaths(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/admin", "/admin/backup", "/admin/config":
 			w.WriteHeader(http.StatusOK)
@@ -414,7 +426,7 @@ func TestRecurse_FindsSubPaths(t *testing.T) {
 }
 
 func TestRecurse_Disabled_NoSubPaths(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/admin", "/admin/backup":
 			w.WriteHeader(http.StatusOK)
@@ -436,7 +448,7 @@ func TestRecurse_Disabled_NoSubPaths(t *testing.T) {
 }
 
 func TestFrameworkExtension_FindsPHPPaths(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin.php" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("PHP admin"))
