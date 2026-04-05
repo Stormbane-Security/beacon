@@ -391,6 +391,24 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 				e.Web3Signals = append(e.Web3Signals, wl.label)
 			}
 		}
+		// RPC provider references — signal blockchain infrastructure usage.
+		rpcProviders := []struct{ pattern, label string }{
+			{"infura.io", "infura"},
+			{"alchemy.com", "alchemy"},
+			{"alchemyapi.io", "alchemy"},
+			{"ankr.com/rpc", "ankr"},
+			{"quicknode.io", "quicknode"},
+			{"chainnodes.org", "chainnodes"},
+			{"moralis.io", "moralis"},
+			{"getblock.io", "getblock"},
+		}
+		for _, rp := range rpcProviders {
+			if strings.Contains(fullBodyLower, rp.pattern) && !seenWalletLabel[rp.label] {
+				seenWalletLabel[rp.label] = true
+				e.Web3Signals = append(e.Web3Signals, rp.label)
+			}
+		}
+
 		seen := map[string]bool{}
 		// EVM contract addresses — scan the full body for 0x-prefixed 40-hex addresses.
 		for _, m := range contractAddrRe.FindAllStringSubmatch(fullBody, -1) {
