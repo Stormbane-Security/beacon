@@ -178,6 +178,24 @@ func init() {
 		DefaultPorts: []int{8500, 8888},
 		Detect:       detectColdFusion,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "jaeger",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{16686},
+		Detect:       detectJaeger,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "adminer",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080},
+		Detect:       detectAdminer,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "tomcat",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 8443},
+		Detect:       detectTomcat,
+	})
 }
 
 func detectJupyter(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -1092,6 +1110,83 @@ func detectApacheTika(ctx context.Context, host string, port int, banner string,
 		"An Apache Tika Server REST API is internet-accessible without authentication. "+
 			"Tika Server is a document parsing service not designed for direct internet exposure. "+
 			"Verify the version is ≥ 1.18 (CVE-2018-1335 command injection) and restrict to internal networks.",
+		ev,
+	)}
+}
+
+func detectJaeger(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Jaeger /api/services returns JSON with service list.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/api/services")
+	if !ok {
+		return nil
+	}
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "{") || !strings.Contains(body, "data") {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortJaegerExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Jaeger distributed tracing UI exposed without authentication on port %d", port),
+		"Jaeger distributed tracing is publicly accessible without authentication. "+
+			"Trace data reveals internal service architecture, request/response payloads, "+
+			"error messages with stack traces, and HTTP headers which may contain auth tokens. "+
+			"Restrict to internal networks and enable authentication.",
+		map[string]any{"port": port, "service": "jaeger", "banner": banner},
+	)}
+}
+
+func detectAdminer(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, false, "/")
+	if !ok {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(body), "adminer") {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortAdminerExposed,
+		finding.SeverityCritical,
+		fmt.Sprintf("Adminer database admin panel exposed on port %d", port),
+		"Adminer is a full-featured PHP database management tool accessible without authentication. "+
+			"It supports MySQL, PostgreSQL, SQLite, MSSQL, Oracle, and other databases. "+
+			"CVE-2021-21311 (Adminer < 4.7.9) allows SSRF to exfiltrate MySQL credentials. "+
+			"Adminer should never be publicly accessible.",
+		map[string]any{"port": port, "service": "adminer", "banner": banner},
+	)}
+}
+
+func detectTomcat(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Tomcat may return 200 (default webapp) or 404 (no default webapp) on root.
+	// Both responses contain "Apache Tomcat" in the body. Use probeHTTPAny to
+	// get the body regardless of status code.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/")
+	if !ok {
+		// Try non-existent path — Tomcat's 404 page has "Apache Tomcat/VERSION".
+		body, ok = probeHTTPAnyBody(ctx, host, port, false, "/nonexistent-beacon-probe")
+		if !ok {
+			return nil
+		}
+	}
+	lb := strings.ToLower(body)
+	if !strings.Contains(lb, "tomcat") && !strings.Contains(lb, "apache-coyote") {
+		return nil
+	}
+	ev := map[string]any{"port": port, "service": "tomcat", "banner": banner}
+	// Extract version from "Apache Tomcat/9.0.117" pattern.
+	if idx := strings.Index(body, "Apache Tomcat/"); idx >= 0 {
+		snippet := body[idx+len("Apache Tomcat/"):]
+		if end := strings.IndexAny(snippet, "<\" \n\r"); end > 0 {
+			ev["tomcat_version"] = snippet[:end]
+		}
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortTomcatExposed,
+		finding.SeverityMedium,
+		fmt.Sprintf("Apache Tomcat exposed on port %d", port),
+		"An Apache Tomcat server is publicly accessible. If the Manager application "+
+			"is enabled with default credentials (tomcat:tomcat), attackers can deploy "+
+			"malicious WAR files for remote code execution.",
 		ev,
 	)}
 }

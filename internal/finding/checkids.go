@@ -777,6 +777,9 @@ const (
 	CheckPortSonarQubeDefaultCreds    CheckID = "port.sonarqube_default_credentials" // SonarQube (port 9000) accepts admin:admin default credentials
 	CheckPortAirflowDefaultCreds      CheckID = "port.airflow_default_credentials" // Apache Airflow (port 8080) accepts airflow:airflow default credentials
 	CheckPortTomcatDefaultCreds       CheckID = "port.tomcat_default_credentials"  // Apache Tomcat manager (port 8080) accepts tomcat:tomcat default credentials
+	CheckPortTomcatExposed            CheckID = "port.tomcat_exposed"              // Apache Tomcat default page exposed (port 8080)
+	CheckPortJaegerExposed            CheckID = "port.jaeger_exposed"              // Jaeger distributed tracing UI exposed (port 16686)
+	CheckPortAdminerExposed           CheckID = "port.adminer_exposed"             // Adminer database admin panel exposed (port 8080)
 	CheckPortJenkinsNoAuth            CheckID = "port.jenkins_no_auth"             // Jenkins (port 8080) allows unauthenticated access to script console or job config
 	CheckPortPortainerDefaultCreds    CheckID = "port.portainer_default_credentials" // Portainer (port 9443/9000) initial admin setup still available
 	CheckPortPgAdminDefaultCreds      CheckID = "port.pgadmin_default_credentials" // pgAdmin (port 5050) accepts default admin credentials
@@ -2864,6 +2867,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortSonarQubeDefaultCreds: {CheckPortSonarQubeDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortAirflowDefaultCreds:   {CheckPortAirflowDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortTomcatDefaultCreds:    {CheckPortTomcatDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortTomcatExposed:        {CheckPortTomcatExposed, SeverityMedium, ModeSurface},
+	CheckPortJaegerExposed:        {CheckPortJaegerExposed, SeverityHigh, ModeSurface},
+	CheckPortAdminerExposed:       {CheckPortAdminerExposed, SeverityCritical, ModeSurface},
 	CheckPortJenkinsNoAuth:         {CheckPortJenkinsNoAuth, SeverityCritical, ModeSurface},
 	CheckPortPortainerDefaultCreds: {CheckPortPortainerDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortPgAdminDefaultCreds:   {CheckPortPgAdminDefaultCreds, SeverityCritical, ModeDeep},
