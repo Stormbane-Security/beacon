@@ -457,11 +457,22 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 			if tickCount%4 == 0 {
-				// Reload statuses for any scan that is still "running" or "pending".
-				for i, r := range bs.scans {
-					if r.Status == store.StatusRunning || r.Status == store.StatusPending {
-						if updated, err := st.GetScanRun(ctx, r.ID); err == nil {
-							bs.scans[i] = *updated
+				// Reload the full scan list so new scans started from
+				// other terminals appear without restarting browse.
+				if updated, err := st.ListRecentScanRuns(ctx, 200); err == nil {
+					// Preserve cursor position by matching the currently
+					// selected scan ID after the refresh.
+					var selectedID string
+					if bs.scanCursor < len(bs.scans) {
+						selectedID = bs.scans[bs.scanCursor].ID
+					}
+					bs.scans = updated
+					if selectedID != "" {
+						for i, r := range bs.scans {
+							if r.ID == selectedID {
+								bs.scanCursor = i
+								break
+							}
 						}
 					}
 				}
