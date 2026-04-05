@@ -629,7 +629,7 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 						"The owning team for %s should be notified.",
 					label, jsURL, asset, asset, jsHost)
 			}
-			ev := map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted}
+			ev := map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted, "match_full": match}
 			if crossOrigin {
 				ev["loaded_by"] = asset
 				ev["hosted_on"] = jsHost
