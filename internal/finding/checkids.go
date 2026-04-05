@@ -2071,6 +2071,28 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNmapFTPAnonymous:   {CheckNmapFTPAnonymous, SeverityHigh, ModeSurface},
 	CheckNmapSSHAlgorithms:  {CheckNmapSSHAlgorithms, SeverityMedium, ModeSurface},
 
+	// nmap — fingerprinting (surface)
+	CheckNmapSMBOSDiscovery:  {CheckNmapSMBOSDiscovery, SeverityInfo, ModeSurface},
+	CheckNmapSSLCertInfo:     {CheckNmapSSLCertInfo, SeverityInfo, ModeSurface},
+	CheckNmapSSLCertExpired:  {CheckNmapSSLCertExpired, SeverityHigh, ModeSurface},
+	CheckNmapHTTPTitle:       {CheckNmapHTTPTitle, SeverityInfo, ModeSurface},
+	CheckNmapHTTPRobots:      {CheckNmapHTTPRobots, SeverityInfo, ModeSurface},
+	CheckNmapNetBIOSInfo:     {CheckNmapNetBIOSInfo, SeverityInfo, ModeSurface},
+	CheckNmapSMTPCommands:    {CheckNmapSMTPCommands, SeverityMedium, ModeSurface},
+	CheckNmapVNCInfo:         {CheckNmapVNCInfo, SeverityHigh, ModeSurface},
+	CheckNmapRDPEncryption:   {CheckNmapRDPEncryption, SeverityMedium, ModeSurface},
+	CheckNmapTelnetEncrypt:   {CheckNmapTelnetEncrypt, SeverityMedium, ModeSurface},
+
+	// nmap — vulnerability detection (surface)
+	CheckNmapSMBSigningOff:   {CheckNmapSMBSigningOff, SeverityHigh, ModeSurface},
+	CheckNmapHTTPMethods:     {CheckNmapHTTPMethods, SeverityMedium, ModeSurface},
+	CheckNmapNTPMonlist:      {CheckNmapNTPMonlist, SeverityHigh, ModeSurface},
+
+	// nmap — vulnerability detection (deep)
+	CheckNmapSMTPOpenRelay:   {CheckNmapSMTPOpenRelay, SeverityCritical, ModeDeep},
+	CheckNmapMySQLNoPassword: {CheckNmapMySQLNoPassword, SeverityCritical, ModeDeep},
+	CheckNmapIPMICipherZero:  {CheckNmapIPMICipherZero, SeverityCritical, ModeDeep},
+
 	// Non-HTTP protocol exposure
 	CheckPortMQTTExposed:    {CheckPortMQTTExposed, SeverityHigh, ModeSurface},
 	CheckPortSIPExposed:     {CheckPortSIPExposed, SeverityMedium, ModeSurface},

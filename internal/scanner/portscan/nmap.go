@@ -101,12 +101,27 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	// Surface mode: add targeted NSE scripts for common misconfigs.
 	// Scripts used are information-gathering only (no exploitation).
 	surfaceScripts := []string{
+		// Existing
 		"ssh-auth-methods",
 		"ssh2-enum-algos",
 		"dns-recursion",
 		"ftp-anon",
 		"snmp-info",
 		"banner",
+		// Fingerprinting
+		"smb-os-discovery",  // OS, domain, hostname from SMB
+		"ssl-cert",          // TLS certificate details (expiry, CN, issuer)
+		"http-title",        // HTML page title
+		"http-robots.txt",   // robots.txt disallowed paths
+		"nbstat",            // NetBIOS name/domain/MAC
+		"smtp-commands",     // SMTP VRFY/EXPN enumeration
+		"vnc-info",          // VNC auth type (none = open desktop)
+		"rdp-enum-encryption", // RDP encryption level (NLA check)
+		"telnet-encryption", // Telnet without encryption
+		// Vulnerability detection
+		"smb-security-mode", // SMB signing not required
+		"http-methods",      // Dangerous methods (PUT/DELETE/TRACE)
+		"ntp-monlist",       // NTP amplification (DDoS)
 	}
 	args = append(args, "--script", strings.Join(surfaceScripts, ","))
 
@@ -120,8 +135,12 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 			"ssl-drown",
 			"ssl-poodle",
 			"smb-vuln-ms17-010",
-			"smb-vuln-ms08-067", // CVE-2008-4250 Windows Server Service RCE (Conficker)
+			"smb-vuln-ms08-067",
 			"http-shellshock",
+			// Deep-only probes
+			"smtp-open-relay",      // Open mail relay test
+			"mysql-empty-password", // MySQL root no password
+			"ipmi-cipher-zero",     // IPMI cipher 0 auth bypass
 		}
 		args = append(args, "--script", strings.Join(vulnScripts, ","))
 
@@ -474,6 +493,310 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 			}}
 		}
 
+	// ── Fingerprinting scripts (surface) ─────────────────────────────────
+
+	case "smb-os-discovery":
+		// Output: "OS: Windows 10 ...; NetBIOS name: HOST; Domain: CORP; ..."
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapSMBOSDiscovery,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("SMB OS discovery on port %d", port),
+			Description:  fmt.Sprintf("SMB OS discovery revealed system information: %s", truncate(output, 300)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "ssl-cert":
+		ev := map[string]any{"port": port, "script": script.ID, "output": truncate(output, 500)}
+		// Check for expired or soon-expiring certificates
+		if strings.Contains(lower, "not valid after") || strings.Contains(lower, "expired") {
+			// Parse common name for a better title
+			cn := extractField(output, "commonName=")
+			title := fmt.Sprintf("SSL certificate details on port %d", port)
+			if cn != "" {
+				title = fmt.Sprintf("SSL certificate: %s on port %d", cn, port)
+			}
+			ev["common_name"] = cn
+
+			if strings.Contains(lower, "expired") || strings.Contains(lower, "has expired") {
+				return []finding.Finding{{
+					CheckID:      finding.CheckNmapSSLCertExpired,
+					Module:       "surface",
+					Scanner:      scannerName,
+					Severity:     finding.SeverityHigh,
+					Asset:        asset,
+					Title:        fmt.Sprintf("SSL certificate expired or expiring on port %d", port),
+					Description:  fmt.Sprintf("The TLS certificate has expired or is close to expiry. Expired certificates cause browser warnings and break client trust. Details: %s", truncate(output, 200)),
+					Evidence:     ev,
+					ProofCommand: proofCmd,
+					DiscoveredAt: now,
+				}}
+			}
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapSSLCertInfo,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityInfo,
+				Asset:        asset,
+				Title:        title,
+				Description:  fmt.Sprintf("TLS certificate information from nmap ssl-cert script: %s", truncate(output, 300)),
+				Evidence:     ev,
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapSSLCertInfo,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("SSL certificate details on port %d", port),
+			Description:  fmt.Sprintf("TLS certificate information: %s", truncate(output, 300)),
+			Evidence:     ev,
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "http-title":
+		title := strings.TrimSpace(output)
+		if title == "" || strings.Contains(lower, "did not follow redirect") {
+			return nil
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapHTTPTitle,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("HTTP title on port %d: %s", port, truncate(title, 80)),
+			Description:  fmt.Sprintf("The web server on port %d has page title: %s", port, title),
+			Evidence:     map[string]any{"port": port, "title": title, "script": script.ID},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "http-robots.txt":
+		if !strings.Contains(lower, "disallow") {
+			return nil
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapHTTPRobots,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("robots.txt disallowed paths on port %d", port),
+			Description:  fmt.Sprintf("The robots.txt file reveals paths the operator wants hidden from crawlers. These often point to admin panels, API routes, or internal tooling: %s", truncate(output, 300)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "nbstat":
+		if !strings.Contains(lower, "netbios") && !strings.Contains(lower, "name:") {
+			return nil
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapNetBIOSInfo,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("NetBIOS information on port %d", port),
+			Description:  fmt.Sprintf("NetBIOS name service revealed hostname, domain, and MAC address: %s", truncate(output, 300)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "smtp-commands":
+		// Flag if VRFY or EXPN are enabled — user enumeration risk
+		if strings.Contains(lower, "vrfy") || strings.Contains(lower, "expn") {
+			var methods []string
+			if strings.Contains(lower, "vrfy") {
+				methods = append(methods, "VRFY")
+			}
+			if strings.Contains(lower, "expn") {
+				methods = append(methods, "EXPN")
+			}
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapSMTPCommands,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Asset:        asset,
+				Title:        fmt.Sprintf("SMTP user enumeration enabled on port %d (%s)", port, strings.Join(methods, ", ")),
+				Description:  fmt.Sprintf("The SMTP server supports %s commands which allow attackers to verify whether email addresses exist, enabling targeted phishing and credential attacks.", strings.Join(methods, "/")),
+				Evidence:     map[string]any{"port": port, "script": script.ID, "methods": methods, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "vnc-info":
+		if strings.Contains(lower, "no authentication") || strings.Contains(lower, "none") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapVNCInfo,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Title:        fmt.Sprintf("VNC requires no authentication on port %d", port),
+				Description:  "The VNC server accepts connections without any authentication. Anyone with network access can view and control the remote desktop.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 200)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "rdp-enum-encryption":
+		// Flag if NLA (Network Level Authentication) is not required
+		if strings.Contains(lower, "security layer") && !strings.Contains(lower, "credssp") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapRDPEncryption,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Asset:        asset,
+				Title:        fmt.Sprintf("RDP weak encryption on port %d (NLA not required)", port),
+				Description:  "The RDP server does not require Network Level Authentication (NLA/CredSSP). Without NLA, attackers can reach the RDP login screen without pre-authentication, enabling brute-force and BlueKeep-style exploits.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "telnet-encryption":
+		if strings.Contains(lower, "not supported") || strings.Contains(lower, "rejected") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapTelnetEncrypt,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Asset:        asset,
+				Title:        fmt.Sprintf("Telnet has no encryption on port %d", port),
+				Description:  "The Telnet service does not support encryption. All traffic including credentials is transmitted in plaintext, vulnerable to network sniffing.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 200)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	// ── Vulnerability detection scripts (surface) ────────────────────────
+
+	case "smb-security-mode":
+		if strings.Contains(lower, "message_signing: disabled") || strings.Contains(lower, "message signing disabled") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapSMBSigningOff,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Title:        fmt.Sprintf("SMB signing disabled on port %d", port),
+				Description:  "SMB message signing is not required. This allows man-in-the-middle attacks and SMB relay attacks where an attacker intercepts authentication and relays it to another host to gain unauthorized access.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "http-methods":
+		dangerousMethods := []string{"PUT", "DELETE", "TRACE", "CONNECT"}
+		var found []string
+		for _, m := range dangerousMethods {
+			if strings.Contains(strings.ToUpper(output), m) {
+				found = append(found, m)
+			}
+		}
+		if len(found) > 0 {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapHTTPMethods,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityMedium,
+				Asset:        asset,
+				Title:        fmt.Sprintf("Potentially risky HTTP methods on port %d: %s", port, strings.Join(found, ", ")),
+				Description:  fmt.Sprintf("The web server advertises potentially dangerous HTTP methods: %s. PUT allows file upload, DELETE allows resource removal, TRACE enables XST attacks.", strings.Join(found, ", ")),
+				Evidence:     map[string]any{"port": port, "script": script.ID, "methods": found, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "ntp-monlist":
+		if strings.Contains(lower, "target is a clock") || strings.Contains(lower, "monlist") || len(output) > 50 {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapNTPMonlist,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Title:        fmt.Sprintf("NTP monlist enabled on port %d (DDoS amplification)", port),
+				Description:  "The NTP server responds to monlist requests, which return a list of recent clients. Attackers abuse this for DDoS amplification — a small request generates a large response that can be directed at a victim via IP spoofing.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	// ── Deep-mode vulnerability scripts ──────────────────────────────────
+
+	case "smtp-open-relay":
+		if strings.Contains(lower, "open relay") || strings.Contains(lower, "server is an open relay") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapSMTPOpenRelay,
+				Module:       "deep",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityCritical,
+				Asset:        asset,
+				Title:        fmt.Sprintf("SMTP open relay on port %d", port),
+				Description:  "The SMTP server accepts and relays email for arbitrary domains. Open relays are abused for spam, phishing, and email spoofing. This can lead to IP blacklisting and domain reputation damage.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DeepOnly:     true,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "mysql-empty-password":
+		if strings.Contains(lower, "root account has empty password") || strings.Contains(lower, "empty password") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapMySQLNoPassword,
+				Module:       "deep",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityCritical,
+				Asset:        asset,
+				Title:        fmt.Sprintf("MySQL root has no password on port %d", port),
+				Description:  "The MySQL root account has an empty password. Anyone with network access can connect as root and read, modify, or delete all databases.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 200)},
+				ProofCommand: proofCmd,
+				DeepOnly:     true,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "ipmi-cipher-zero":
+		if strings.Contains(lower, "vulnerable") || strings.Contains(lower, "cipher 0") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapIPMICipherZero,
+				Module:       "deep",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityCritical,
+				Asset:        asset,
+				Title:        fmt.Sprintf("IPMI cipher 0 authentication bypass on port %d", port),
+				Description:  "The IPMI service accepts cipher suite 0 which uses no authentication. An attacker can gain full out-of-band management access (power cycle, console, BIOS) to the physical server.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 200)},
+				ProofCommand: proofCmd,
+				DeepOnly:     true,
+				DiscoveredAt: now,
+			}}
+		}
+
 	default:
 		// For generic vuln script hits, emit a high-severity finding with the raw output
 		if strings.Contains(lower, "vulnerable") && !strings.Contains(lower, "not vulnerable") {
@@ -509,4 +832,20 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+// extractField pulls a value from "key=value" or "key: value" patterns in
+// multi-line nmap script output. Returns "" if not found.
+func extractField(output, prefix string) string {
+	idx := strings.Index(output, prefix)
+	if idx == -1 {
+		return ""
+	}
+	rest := output[idx+len(prefix):]
+	// Value ends at newline, slash, or semicolon
+	end := strings.IndexAny(rest, "\n/;")
+	if end == -1 {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(rest[:end])
 }

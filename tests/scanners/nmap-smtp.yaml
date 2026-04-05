@@ -1,0 +1,28 @@
+name: nmap-smtp-commands
+description: >
+  Postfix SMTP server with VRFY enabled — nmap smtp-commands NSE script
+  should detect VRFY/EXPN user enumeration capability.
+tags: [nmap, smtp, portscan, fingerprint]
+
+services:
+  smtp:
+    image: boky/postfix
+    ports: ["10025:25"]
+    environment:
+      ALLOWED_SENDER_DOMAINS: "example.com"
+      DISABLE_SMTP_VRFY: ""
+
+ready:
+  cmd: "nc -z localhost 10025"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: nmap-smtp-vrfy
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "10025"]
+    expect:
+      check_id: nmap.smtp_vrfy_expn
+
+timeout: 5m

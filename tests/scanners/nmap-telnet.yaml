@@ -1,0 +1,26 @@
+name: nmap-telnet-noencryption
+description: >
+  Telnet server without encryption — nmap telnet-encryption NSE script
+  should detect that encryption is not supported.
+tags: [nmap, telnet, portscan, fingerprint]
+
+services:
+  telnet:
+    image: alpine:3.19
+    ports: ["10023:23"]
+    command: ["sh", "-c", "apk add --no-cache busybox-extras && busybox telnetd -F -l /bin/sh -p 23"]
+
+ready:
+  cmd: "nc -z localhost 10023"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: nmap-telnet-no-encryption
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "10023"]
+    expect:
+      check_id: nmap.telnet_no_encryption
+
+timeout: 5m

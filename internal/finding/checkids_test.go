@@ -710,6 +710,10 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckAPINoRateLimit:         true,
 		finding.CheckAPIBOLA:                true,
 		finding.CheckAPIMassAssignment:      true,
+		// Nmap deep-mode NSE scripts
+		finding.CheckNmapSMTPOpenRelay:   true,
+		finding.CheckNmapMySQLNoPassword: true,
+		finding.CheckNmapIPMICipherZero:  true,
 	}
 
 	for id, meta := range finding.Registry {
