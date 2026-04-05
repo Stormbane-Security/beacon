@@ -452,19 +452,15 @@ func browseInteractive(cfg *config.Config, attachRunID string) browseResult {
 
 			if bs.attachedJob != nil {
 				job := bs.attachedJob
-				// Detect detach: renderer closed its detached channel, or scan finished.
+				// Detect detach: only when the user explicitly pressed 'b' to
+				// close the detached channel. Do NOT auto-detach when the scan
+				// finishes — keep showing the final state so the user can review
+				// findings. They navigate back manually with 'b'.
 				detachNow := false
 				select {
 				case <-job.renderer.detached:
 					detachNow = true
 				default:
-				}
-				if !detachNow {
-					select {
-					case <-job.done:
-						detachNow = true
-					default:
-					}
 				}
 				if detachNow {
 					bs.attachedJob = nil
