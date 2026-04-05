@@ -9,6 +9,7 @@ package aiinfra
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,8 +40,9 @@ const scannerName = "aiinfra"
 type probe struct {
 	path       string
 	checkID    finding.CheckID
-	keywords   []string // response must contain keywords
-	minMatches int      // minimum keyword matches required (0 = 1)
+	jsonKeys   []string // JSON field names that must appear as keys (not in values)
+	minMatches int      // minimum key matches required (0 = 1)
+	confirm    string   // optional confirmation path — must also return JSON 200
 	title      string
 	desc       string
 }
@@ -49,7 +51,7 @@ var probes = []probe{
 	{
 		path:       "/api/kernels",
 		checkID:    finding.CheckAIInfraJupyter,
-		keywords:   []string{"kernel_id", "execution_state", "last_activity"},
+		jsonKeys:   []string{"kernel_id", "execution_state", "last_activity"},
 		minMatches: 2,
 		title:   "Jupyter Notebook kernel API exposed without authentication",
 		desc: "The Jupyter Notebook kernel API at %s is accessible without authentication. " +
@@ -60,11 +62,10 @@ var probes = []probe{
 	{
 		path:    "/api/contents",
 		checkID: finding.CheckAIInfraJupyter,
-		// Require Jupyter-specific fields — generic "content"/"type" match
-		// any JSON API (e.g. Nuxt status pages). "writable" and "format"
-		// alongside "mimetype" are unique to Jupyter's contents API.
-		keywords:   []string{"writable", "mimetype", "last_modified", ".ipynb"},
-		minMatches: 2,
+		// Jupyter contents API returns objects with "writable", "mimetype",
+		// "last_modified", "format" — all unique to Jupyter's contents model.
+		jsonKeys:   []string{"writable", "mimetype", "last_modified", "format"},
+		minMatches: 3,
 		title:   "Jupyter Notebook contents API exposed without authentication",
 		desc: "The Jupyter Notebook contents API at %s is accessible without authentication. " +
 			"An attacker can read and write notebook files, potentially accessing " +
@@ -73,7 +74,11 @@ var probes = []probe{
 	{
 		path:    "/api/jobs/",
 		checkID: finding.CheckAIInfraRay,
-		keywords: []string{"submission_id", "entrypoint", "job_id", "ray"},
+		// Ray job API returns objects with these specific fields.
+		// "submission_id" and "runtime_env" are Ray-unique.
+		jsonKeys:   []string{"submission_id", "entrypoint", "runtime_env", "driver_info", "job_id"},
+		minMatches: 3,
+		confirm:    "/api/version", // Ray version endpoint — must contain "ray_version"
 		title:   "Ray dashboard job submission API exposed without authentication",
 		desc: "The Ray distributed computing dashboard at %s exposes its job submission " +
 			"API without authentication. An attacker can submit arbitrary Python jobs " +
@@ -82,7 +87,8 @@ var probes = []probe{
 	{
 		path:    "/api/2.0/mlflow/experiments/list",
 		checkID: finding.CheckAIInfraMLflow,
-		keywords: []string{"experiments", "experiment_id", "artifact_location"},
+		jsonKeys: []string{"experiments", "experiment_id", "artifact_location"},
+		minMatches: 2,
 		title:   "MLflow experiment tracking server exposed without authentication",
 		desc: "The MLflow tracking server at %s is accessible without authentication. " +
 			"An attacker can access experiment data, model artifacts, and potentially " +
@@ -92,7 +98,8 @@ var probes = []probe{
 	{
 		path:    "/info",
 		checkID: finding.CheckAIInfraGradio,
-		keywords: []string{"gradio", "version", "api_prefix"},
+		jsonKeys: []string{"gradio_version", "api_prefix", "named_endpoints"},
+		minMatches: 2,
 		title:   "Gradio ML demo server exposed without authentication",
 		desc: "A Gradio ML application at %s is publicly accessible. Gradio apps expose " +
 			"file upload functionality and direct model interaction. Unrestricted access " +
@@ -101,7 +108,9 @@ var probes = []probe{
 	{
 		path:    "/api/predict",
 		checkID: finding.CheckAIInfraGradio,
-		keywords: []string{"data", "duration", "average_duration"},
+		jsonKeys: []string{"average_duration", "fn_index"},
+		minMatches: 2,
+		confirm: "/info", // confirm it's actually Gradio
 		title:   "Gradio prediction API exposed without authentication",
 		desc: "The Gradio prediction API at %s is accessible without authentication. " +
 			"An attacker can interact directly with the underlying ML model.",
@@ -143,28 +152,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		url := base + p.path
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner)")
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		_ = resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
+		body, status, err := fetchJSON(ctx, client, url)
+		if err != nil || status != http.StatusOK {
 			continue
 		}
 
-		bodyLower := strings.ToLower(string(body))
+		// Extract all JSON keys from the response to match against.
+		keys := collectJSONKeys(body)
 		matchCount := 0
-		for _, kw := range p.keywords {
-			if strings.Contains(bodyLower, kw) {
+		for _, k := range p.jsonKeys {
+			if keys[k] {
 				matchCount++
 			}
 		}
@@ -174,6 +171,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		if matchCount < minRequired {
 			continue
+		}
+
+		// If a confirmation path is set, it must also return JSON 200.
+		if p.confirm != "" {
+			confirmURL := base + p.confirm
+			_, confirmStatus, confirmErr := fetchJSON(ctx, client, confirmURL)
+			if confirmErr != nil || confirmStatus != http.StatusOK {
+				continue
+			}
 		}
 
 		seen[p.checkID] = true
@@ -188,12 +194,72 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			ProofCommand: fmt.Sprintf("curl -si '%s'", url),
 			Evidence: map[string]any{
 				"url":           url,
-				"status":        resp.StatusCode,
+				"status":        status,
 				"response_size": len(body),
+				"matched_keys":  matchCount,
 			},
 			DiscoveredAt: time.Now(),
 		})
 	}
 
 	return findings, nil
+}
+
+// fetchJSON sends a GET request and returns the raw body only if the response
+// is JSON (Content-Type contains "json" and body parses as JSON).
+func fetchJSON(ctx context.Context, client *http.Client, url string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner)")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	_ = resp.Body.Close()
+
+	// Must actually be JSON — reject HTML pages, plaintext, etc.
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "json") {
+		return nil, resp.StatusCode, fmt.Errorf("not json: %s", ct)
+	}
+
+	// Must parse as valid JSON.
+	if !json.Valid(body) {
+		return nil, resp.StatusCode, fmt.Errorf("invalid json")
+	}
+
+	return body, resp.StatusCode, nil
+}
+
+// collectJSONKeys recursively collects all key names from a JSON document.
+// This lets us check for field presence without substring matching against
+// values, which eliminates false positives from keywords appearing in text
+// content rather than as API field names.
+func collectJSONKeys(data []byte) map[string]bool {
+	keys := make(map[string]bool)
+	var walk func(v any)
+	walk = func(v any) {
+		switch val := v.(type) {
+		case map[string]any:
+			for k, child := range val {
+				keys[k] = true
+				walk(child)
+			}
+		case []any:
+			for _, child := range val {
+				walk(child)
+			}
+		}
+	}
+
+	var parsed any
+	if err := json.Unmarshal(data, &parsed); err == nil {
+		walk(parsed)
+	}
+	return keys
 }
