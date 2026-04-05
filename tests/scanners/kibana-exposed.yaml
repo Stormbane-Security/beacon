@@ -1,0 +1,67 @@
+name: kibana-exposed
+description: >
+  Kibana 7.17.0 (non-CVE-vulnerable version) with unauthenticated access.
+  Beacon should detect the exposed dashboard (port.kibana_exposed) and
+  correctly fingerprint Kibana from kbn-name headers even when the root
+  path returns a 302 redirect.
+tags: [kibana, scanner, port, fingerprint, exposed]
+
+services:
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    ports: ["19210:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  kibana:
+    image: kibana:7.17.0
+    ports: ["15610:5601"]
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+
+ready:
+  cmd: "curl -sf http://localhost:15610/api/status | grep -q number"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # Pre-flight: Kibana is accessible
+  - name: kibana-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:15610/api/status | grep -q '7.17.0'"
+      exit_code: 0
+
+  # Fingerprint: kbn-name header present on 302
+  - name: kibana-kbn-name-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:15610/ | grep -qi kbn-name"
+      exit_code: 0
+
+  # Classification: beacon identify Kibana service
+  - name: classify-detects-kibana
+    type: classify
+    target: localhost:15610
+    expect:
+      service: Kibana
+
+  # Scanner: beacon detects exposed dashboard
+  - name: detects-kibana-exposed
+    type: beacon
+    target: localhost:15610
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15610"]
+    expect:
+      check_id: port.kibana_exposed
+
+  # Negative: not flagged as CVE-vulnerable (7.17.0 is outside CVE range)
+  - name: negative-no-cve-2025-25015
+    type: beacon
+    target: localhost:15610
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15610"]
+    expect:
+      absent_check_id: cve.kibana_cve_2025_25015
+
+timeout: 10m

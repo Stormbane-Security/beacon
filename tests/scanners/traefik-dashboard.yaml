@@ -1,0 +1,44 @@
+name: traefik-dashboard-exposed
+description: >
+  Traefik v2 with insecure API dashboard enabled. Beacon should detect
+  the exposed API (gateway.traefik_api_exposed) and classify should
+  identify Traefik as the proxy type.
+tags: [traefik, scanner, gateway, fingerprint, exposed]
+
+services:
+  traefik:
+    image: traefik:v2.10
+    ports: ["18080:8080"]
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+
+ready:
+  cmd: "curl -sf http://localhost:18080/api/overview | grep -q http"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Pre-flight: Traefik dashboard is accessible
+  - name: traefik-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18080/api/overview | grep -q http"
+      exit_code: 0
+
+  # Classification: beacon identifies Traefik
+  - name: classify-detects-traefik
+    type: classify
+    target: localhost:18080
+    expect:
+      proxy_type: traefik
+
+  # Scanner: gateway scanner detects exposed Traefik API
+  - name: detects-traefik-api-exposed
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--scanners", "gateway"]
+    expect:
+      check_id: gateway.traefik_api_exposed
+
+timeout: 5m
