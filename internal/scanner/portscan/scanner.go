@@ -220,6 +220,9 @@ var extendedPorts = []portEntry{
 	{8843, "unifi-portal-tls", false},   // Ubiquiti UniFi HTTPS guest captive portal
 	{4343, "aruba-instant", false},      // Aruba Instant Access Point HTTPS management
 	{8043, "omada-alt", false},          // TP-Link Omada controller (alternate port)
+	// ── CI/CD & Container Management ────────────────────────────────────────
+	{8111, "teamcity", false},           // JetBrains TeamCity server — CVE-2023-42793 pre-auth admin token (CVSS 9.8, KEV)
+	{9443, "portainer", false},          // Portainer CE/EE container management UI (HTTPS default)
 }
 
 // Scanner is a pure-Go TCP connect port scanner.

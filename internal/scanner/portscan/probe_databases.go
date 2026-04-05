@@ -78,7 +78,7 @@ func detectElasticsearch(ctx context.Context, host string, port int, banner stri
 	if !strings.Contains(bodyLower, "cluster_name") {
 		return nil
 	}
-	if !strings.Contains(bodyLower, "cluster_uuid") && !(strings.Contains(bodyLower, `"version"`) && strings.Contains(bodyLower, `"number"`)) {
+	if !strings.Contains(bodyLower, "cluster_uuid") && (!strings.Contains(bodyLower, `"version"`) || !strings.Contains(bodyLower, `"number"`)) {
 		return nil
 	}
 	// Distinguish OpenSearch from Elasticsearch via the root response.
