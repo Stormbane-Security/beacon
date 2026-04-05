@@ -189,7 +189,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// ── Protocol detection ────────────────────────────────────────────────────
-	nonceURL, verifyURL := discoverSIWEEndpoints(ctx, client, baseURL)
+	nonceURL, verifyURL := DiscoverSIWEEndpoints(ctx, client, baseURL)
 	pageBody := fetchBody(ctx, client, baseURL, 64*1024)
 	pageLower := strings.ToLower(pageBody)
 
@@ -259,7 +259,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	if hasEVMSignals {
-		wallet, err := newEphemeralWallet()
+		wallet, err := NewEphemeralWallet()
 		if err == nil {
 			evmFindings := runEVMProbes(ctx, client, asset, baseURL, verifyFull, nonceFull, wallet, domain, uri, now)
 			findings = append(findings, evmFindings...)
@@ -267,7 +267,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	if hasSolanaSignals {
-		solWallet, err := newEphemeralSolanaWallet()
+		solWallet, err := NewEphemeralSolanaWallet()
 		if err == nil {
 			solFindings := runSolanaProbes(ctx, client, asset, baseURL, verifyFull, nonceFull, solWallet, domain, uri, now)
 			findings = append(findings, solFindings...)
@@ -282,18 +282,18 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 	var findings []finding.Finding
 
 	// Login: establish baseline and capture the nonce that gets consumed.
-	loginNonce, sessionCookie := doEVMLogin(ctx, client, nonceURL, verifyURL, w, domain, uri)
+	loginNonce, sessionCookie := DoEVMLogin(ctx, client, nonceURL, verifyURL, w, domain, uri)
 	loginSucceeded := sessionCookie != ""
 
 	// ── Probe: Domain binding bypass ─────────────────────────────────────────
 	{
-		probeNonce := fetchFreshNonce(ctx, client, nonceURL)
+		probeNonce := FetchFreshNonce(ctx, client, nonceURL)
 		if probeNonce == "" {
-			probeNonce = randomNonce()
+			probeNonce = RandomNonce()
 		}
 		wrongDomain := "attacker.beacon-scanner.invalid"
-		msg := buildSIWEMessage(wrongDomain, w.Address, probeNonce, "https://"+wrongDomain)
-		sig := w.personalSign(msg)
+		msg := BuildSIWEMessage(wrongDomain, w.Address, probeNonce, "https://"+wrongDomain)
+		sig := w.PersonalSign(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEDomainBypass,
@@ -318,9 +318,9 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 	// Accepting a message for chain 137 (Polygon) on an Ethereum mainnet app allows
 	// cross-chain replay attacks.
 	{
-		probeNonce := fetchFreshNonce(ctx, client, nonceURL)
+		probeNonce := FetchFreshNonce(ctx, client, nonceURL)
 		if probeNonce == "" {
-			probeNonce = randomNonce()
+			probeNonce = RandomNonce()
 		}
 		// Build message manually with a different chain ID (Polygon mainnet = 137).
 		issuedAt := time.Now().UTC().Format(time.RFC3339)
@@ -330,7 +330,7 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 				"URI: %s\nVersion: 1\nChain ID: 137\nNonce: %s\nIssued At: %s",
 			domain, w.Address, uri, probeNonce, issuedAt,
 		)
-		sig := w.personalSign(wrongChainMsg)
+		sig := w.PersonalSign(wrongChainMsg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, wrongChainMsg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEChainMismatch,
@@ -351,13 +351,13 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 
 	// ── Probe: URI mismatch ───────────────────────────────────────────────────
 	{
-		probeNonce := fetchFreshNonce(ctx, client, nonceURL)
+		probeNonce := FetchFreshNonce(ctx, client, nonceURL)
 		if probeNonce == "" {
-			probeNonce = randomNonce()
+			probeNonce = RandomNonce()
 		}
 		wrongURI := "https://attacker.beacon-scanner.invalid"
-		msg := buildSIWEMessage(domain, w.Address, probeNonce, wrongURI)
-		sig := w.personalSign(msg)
+		msg := BuildSIWEMessage(domain, w.Address, probeNonce, wrongURI)
+		sig := w.PersonalSign(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEURIMismatch,
@@ -377,8 +377,8 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 
 	// ── Probe: Nonce reuse ────────────────────────────────────────────────────
 	if loginNonce != "" {
-		msg := buildSIWEMessage(domain, w.Address, loginNonce, uri)
-		sig := w.personalSign(msg)
+		msg := BuildSIWEMessage(domain, w.Address, loginNonce, uri)
+		sig := w.PersonalSign(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWENonceReuse,
@@ -397,7 +397,7 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 
 	// ── Probe: Replay (backdated timestamp) ───────────────────────────────────
 	{
-		oldNonce := randomNonce()
+		oldNonce := RandomNonce()
 		oldTime := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
 		msg := fmt.Sprintf(
 			"%s wants you to sign in with your Ethereum account:\n%s\n\n"+
@@ -405,7 +405,7 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 				"URI: %s\nVersion: 1\nChain ID: 1\nNonce: %s\nIssued At: %s",
 			domain, w.Address, uri, oldNonce, oldTime,
 		)
-		sig := w.personalSign(msg)
+		sig := w.PersonalSign(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEReplay,
@@ -424,7 +424,7 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 
 	// ── Probe: Horizontal escalation ─────────────────────────────────────────
 	if loginSucceeded {
-		other, err := newEphemeralWallet()
+		other, err := NewEphemeralWallet()
 		if err == nil && probeHorizontalEscalation(ctx, client, baseURL, sessionCookie, w.Address, other.Address) {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3HorizontalEscalation,
@@ -453,17 +453,17 @@ func runEVMProbes(ctx context.Context, client *http.Client, asset, baseURL, veri
 func runSolanaProbes(ctx context.Context, client *http.Client, asset, baseURL, verifyURL, nonceURL string, w *SolanaWallet, domain, uri string, now time.Time) []finding.Finding {
 	var findings []finding.Finding
 
-	loginNonce, _ := doSolanaLogin(ctx, client, nonceURL, verifyURL, w, domain, uri)
+	loginNonce, _ := DoSolanaLogin(ctx, client, nonceURL, verifyURL, w, domain, uri)
 
 	// ── Probe: Domain bypass ──────────────────────────────────────────────────
 	{
-		probeNonce := fetchFreshNonce(ctx, client, nonceURL)
+		probeNonce := FetchFreshNonce(ctx, client, nonceURL)
 		if probeNonce == "" {
-			probeNonce = randomNonce()
+			probeNonce = RandomNonce()
 		}
 		wrongDomain := "attacker.beacon-scanner.invalid"
-		msg := buildSIWSMessage(wrongDomain, w.Address, probeNonce, "https://"+wrongDomain)
-		sig := w.signBase58(msg)
+		msg := BuildSIWSMessage(wrongDomain, w.Address, probeNonce, "https://"+wrongDomain)
+		sig := w.SignBase58(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEDomainBypass,
@@ -483,13 +483,13 @@ func runSolanaProbes(ctx context.Context, client *http.Client, asset, baseURL, v
 
 	// ── Probe: URI mismatch ───────────────────────────────────────────────────
 	{
-		probeNonce := fetchFreshNonce(ctx, client, nonceURL)
+		probeNonce := FetchFreshNonce(ctx, client, nonceURL)
 		if probeNonce == "" {
-			probeNonce = randomNonce()
+			probeNonce = RandomNonce()
 		}
 		wrongURI := "https://attacker.beacon-scanner.invalid"
-		msg := buildSIWSMessage(domain, w.Address, probeNonce, wrongURI)
-		sig := w.signBase58(msg)
+		msg := BuildSIWSMessage(domain, w.Address, probeNonce, wrongURI)
+		sig := w.SignBase58(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEURIMismatch,
@@ -507,8 +507,8 @@ func runSolanaProbes(ctx context.Context, client *http.Client, asset, baseURL, v
 
 	// ── Probe: Nonce reuse ────────────────────────────────────────────────────
 	if loginNonce != "" {
-		msg := buildSIWSMessage(domain, w.Address, loginNonce, uri)
-		sig := w.signBase58(msg)
+		msg := BuildSIWSMessage(domain, w.Address, loginNonce, uri)
+		sig := w.SignBase58(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWENonceReuse,
@@ -526,7 +526,7 @@ func runSolanaProbes(ctx context.Context, client *http.Client, asset, baseURL, v
 
 	// ── Probe: Replay ─────────────────────────────────────────────────────────
 	{
-		oldNonce := randomNonce()
+		oldNonce := RandomNonce()
 		oldTime := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
 		msg := fmt.Sprintf(
 			"%s wants you to sign in with your Solana account:\n%s\n\n"+
@@ -534,7 +534,7 @@ func runSolanaProbes(ctx context.Context, client *http.Client, asset, baseURL, v
 				"URI: %s\nVersion: 1\nChain ID: solana:mainnet\nNonce: %s\nIssued At: %s",
 			domain, w.Address, uri, oldNonce, oldTime,
 		)
-		sig := w.signBase58(msg)
+		sig := w.SignBase58(msg)
 		if accepted, code := submitVerify(ctx, client, verifyURL, msg, sig, w.Address); accepted {
 			findings = append(findings, finding.Finding{
 				CheckID:  finding.CheckWeb3SIWEReplay,
@@ -588,7 +588,7 @@ func fetchBody(ctx context.Context, client *http.Client, url string, maxBytes in
 	return string(body)
 }
 
-func discoverSIWEEndpoints(ctx context.Context, client *http.Client, baseURL string) (nonceURL, verifyURL string) {
+func DiscoverSIWEEndpoints(ctx context.Context, client *http.Client, baseURL string) (nonceURL, verifyURL string) {
 	base := strings.TrimSuffix(baseURL, "/")
 	for _, path := range nonceEndpoints {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
@@ -625,7 +625,7 @@ func discoverSIWEEndpoints(ctx context.Context, client *http.Client, baseURL str
 	return
 }
 
-func fetchFreshNonce(ctx context.Context, client *http.Client, nonceURL string) string {
+func FetchFreshNonce(ctx context.Context, client *http.Client, nonceURL string) string {
 	if nonceURL == "" {
 		return ""
 	}
@@ -644,31 +644,31 @@ func fetchFreshNonce(ctx context.Context, client *http.Client, nonceURL string) 
 
 // doEVMLogin performs a single SIWE login, consuming one nonce.
 // Returns the nonce used (for the nonce-reuse probe) and session cookie.
-func doEVMLogin(ctx context.Context, client *http.Client, nonceURL, verifyURL string, w *Wallet, domain, uri string) (string, string) {
-	nonce := fetchFreshNonce(ctx, client, nonceURL)
+func DoEVMLogin(ctx context.Context, client *http.Client, nonceURL, verifyURL string, w *Wallet, domain, uri string) (string, string) {
+	nonce := FetchFreshNonce(ctx, client, nonceURL)
 	if nonce == "" {
-		nonce = randomNonce()
+		nonce = RandomNonce()
 	}
-	msg := buildSIWEMessage(domain, w.Address, nonce, uri)
-	sig := w.personalSign(msg)
-	cookie := doVerifyGetCookie(ctx, client, verifyURL, msg, sig, w.Address)
+	msg := BuildSIWEMessage(domain, w.Address, nonce, uri)
+	sig := w.PersonalSign(msg)
+	cookie := DoVerifyGetCookie(ctx, client, verifyURL, msg, sig, w.Address)
 	return nonce, cookie
 }
 
 // doSolanaLogin performs a single SIWS login, consuming one nonce.
-func doSolanaLogin(ctx context.Context, client *http.Client, nonceURL, verifyURL string, w *SolanaWallet, domain, uri string) (string, string) {
-	nonce := fetchFreshNonce(ctx, client, nonceURL)
+func DoSolanaLogin(ctx context.Context, client *http.Client, nonceURL, verifyURL string, w *SolanaWallet, domain, uri string) (string, string) {
+	nonce := FetchFreshNonce(ctx, client, nonceURL)
 	if nonce == "" {
-		nonce = randomNonce()
+		nonce = RandomNonce()
 	}
-	msg := buildSIWSMessage(domain, w.Address, nonce, uri)
-	sig := w.signBase58(msg)
-	cookie := doVerifyGetCookie(ctx, client, verifyURL, msg, sig, w.Address)
+	msg := BuildSIWSMessage(domain, w.Address, nonce, uri)
+	sig := w.SignBase58(msg)
+	cookie := DoVerifyGetCookie(ctx, client, verifyURL, msg, sig, w.Address)
 	return nonce, cookie
 }
 
 // doVerifyGetCookie sends a single verify POST and returns the session cookie (or "authenticated" if 2xx but no cookie).
-func doVerifyGetCookie(ctx context.Context, client *http.Client, verifyURL, message, signature, address string) string {
+func DoVerifyGetCookie(ctx context.Context, client *http.Client, verifyURL, message, signature, address string) string {
 	payload := map[string]string{"message": message, "signature": signature, "address": address}
 	body, err := json.Marshal(payload)
 	if err != nil {

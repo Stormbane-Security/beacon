@@ -1,0 +1,26 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Beacon Test API",
+    "version": "2.1.0",
+    "description": "Internal API for testing authenticated scanning"
+  },
+  "paths": {
+    "/api/v1/users": {
+      "get": {
+        "summary": "List users",
+        "responses": {
+          "200": { "description": "User list" }
+        }
+      }
+    },
+    "/api/v1/admin": {
+      "get": {
+        "summary": "Admin panel",
+        "responses": {
+          "200": { "description": "Admin data" }
+        }
+      }
+    }
+  }
+}

@@ -19,13 +19,15 @@ type AuthConfig struct {
 	Asset string `yaml:"asset"`
 
 	// Method selects the auth mechanism:
-	//   bearer   — static bearer token (Authorization: Bearer <token>)
-	//   api_key  — API key header (default header: X-API-Key, override with Header field)
-	//   cookie   — raw cookie string injected as Cookie header
-	//   basic    — HTTP Basic Auth (Username + Password)
-	//   oidc     — OAuth2 client_credentials flow (ClientID + ClientSecret + TokenURL)
-	//   web3_evm — SIWE login (EVMPrivateKey hex, or ephemeral if empty)
-	//   web3_sol — SIWS login (SolanaPrivateKey base58, or ephemeral if empty)
+	//   bearer    — static bearer token (Authorization: Bearer <token>)
+	//   api_key   — API key header (default header: X-API-Key, override with Header field)
+	//   cookie    — raw cookie string injected as Cookie header
+	//   basic     — HTTP Basic Auth (Username + Password)
+	//   form      — POST to LoginURL with Username + Password, capture session cookie
+	//   oidc      — OAuth2 client_credentials flow (ClientID + ClientSecret + TokenURL)
+	//   oidc_code — OAuth2 authorization_code flow (ClientID + ClientSecret + AuthURL + TokenURL)
+	//   web3_evm  — SIWE login (EVMPrivateKey hex, or ephemeral if empty)
+	//   web3_sol  — SIWS login (SolanaPrivateKey base58, or ephemeral if empty)
 	Method string `yaml:"method"`
 
 	// bearer / api_key
@@ -39,11 +41,21 @@ type AuthConfig struct {
 	// cookie — raw value of the Cookie header, e.g. "session=abc; csrf=xyz"
 	Cookie string `yaml:"cookie"`
 
+	// form — POST login URL, field names for username/password
+	LoginURL      string `yaml:"login_url"`       // POST endpoint (e.g. "https://app.example.com/login")
+	UsernameField string `yaml:"username_field"`   // form field name (default: "username")
+	PasswordField string `yaml:"password_field"`   // form field name (default: "password")
+	ExtraFields   map[string]string `yaml:"extra_fields"` // additional form fields (e.g. csrf_token)
+
 	// oidc / oauth2 client_credentials
 	ClientID     string   `yaml:"client_id"`
 	ClientSecret string   `yaml:"client_secret"`
 	TokenURL     string   `yaml:"token_url"`
 	Scopes       []string `yaml:"scopes"`
+
+	// oidc_code — OAuth2 authorization_code flow (headless)
+	AuthURL     string `yaml:"auth_url"`      // authorization endpoint
+	RedirectURI string `yaml:"redirect_uri"`  // redirect URI (default: "http://localhost:0/callback")
 
 	// web3_evm — hex-encoded secp256k1 private key (leave empty for ephemeral)
 	EVMPrivateKey string `yaml:"evm_private_key"`
@@ -331,14 +343,15 @@ func (c *Config) Redacted() Config {
 func (c *Config) Validate() error {
 	validAuthMethods := map[string]bool{
 		"bearer": true, "api_key": true, "cookie": true, "basic": true,
-		"oidc": true, "web3_evm": true, "web3_sol": true,
+		"form": true, "oidc": true, "oidc_code": true,
+		"web3_evm": true, "web3_sol": true,
 	}
 	for i, a := range c.Auth {
 		if a.Method == "" {
 			return fmt.Errorf("auth[%d]: method is required", i)
 		}
 		if !validAuthMethods[a.Method] {
-			return fmt.Errorf("auth[%d]: unknown method %q (valid: bearer, api_key, cookie, basic, oidc, web3_evm, web3_sol)", i, a.Method)
+			return fmt.Errorf("auth[%d]: unknown method %q (valid: bearer, api_key, cookie, basic, form, oidc, oidc_code, web3_evm, web3_sol)", i, a.Method)
 		}
 		if a.Asset == "" {
 			return fmt.Errorf("auth[%d]: asset is required (use \"*\" for all assets)", i)

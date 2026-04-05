@@ -53,7 +53,7 @@ type SolanaWallet struct {
 // newEphemeralSolanaWallet generates a fresh Ed25519 key pair.
 // The address is the base58-encoded public key, identical to how Phantom
 // and all Solana wallets derive their public address.
-func newEphemeralSolanaWallet() (*SolanaWallet, error) {
+func NewEphemeralSolanaWallet() (*SolanaWallet, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("web3auth: solana keygen: %w", err)
@@ -68,7 +68,7 @@ func newEphemeralSolanaWallet() (*SolanaWallet, error) {
 // buildSIWSMessage constructs a Sign In With Solana message in the SIWE-compatible
 // format used by Phantom and most Solana dApps. The message is then signed with
 // Ed25519.
-func buildSIWSMessage(domain, address, nonce, uri string) string {
+func BuildSIWSMessage(domain, address, nonce, uri string) string {
 	issuedAt := time.Now().UTC().Format(time.RFC3339)
 	return fmt.Sprintf(
 		"%s wants you to sign in with your Solana account:\n"+
@@ -94,7 +94,7 @@ func (w *SolanaWallet) sign(message string) string {
 
 // signBase58 returns the signature as a base58-encoded string (the format most
 // Solana backends expect, e.g., Phantom's sendTransaction response).
-func (w *SolanaWallet) signBase58(message string) string {
+func (w *SolanaWallet) SignBase58(message string) string {
 	sig := ed25519.Sign(w.privateKey, []byte(message))
 	return base58Encode(sig)
 }

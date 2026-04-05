@@ -164,7 +164,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 }
 
 func TestValidate_ValidAuth(t *testing.T) {
-	methods := []string{"bearer", "api_key", "cookie", "basic", "oidc", "web3_evm", "web3_sol"}
+	methods := []string{"bearer", "api_key", "cookie", "basic", "form", "oidc", "oidc_code", "web3_evm", "web3_sol"}
 	for _, m := range methods {
 		t.Run(m, func(t *testing.T) {
 			cfg := defaults()

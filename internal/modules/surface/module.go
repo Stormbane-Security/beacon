@@ -1428,6 +1428,36 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 	ctx = authctx.WithHTTPClient(ctx, httpClient)
 
+	// Post-auth re-classify: if we authenticated, re-fingerprint the asset with
+	// the authenticated client. Many apps show a login page to unauthenticated
+	// users but redirect to a dashboard after auth — the second classify captures
+	// the real application surface (different title, headers, frameworks, status code).
+	if len(m.authCfgs) > 0 && httpClient != nil {
+		authEv := classify.Collect(ctx, asset)
+		// Merge authenticated evidence into the original — keep DNS/TLS from
+		// the first pass (those don't change with auth) but update HTTP-derived
+		// fields that may differ.
+		if authEv.StatusCode > 0 && authEv.StatusCode != ev.StatusCode {
+			ev.StatusCode = authEv.StatusCode
+		}
+		if authEv.Title != "" && authEv.Title != ev.Title {
+			ev.Title = authEv.Title
+		}
+		if authEv.AuthSystem == "" && ev.AuthSystem != "" {
+			// Keep the original auth system detection
+		} else if authEv.AuthSystem != "" {
+			ev.AuthSystem = authEv.AuthSystem
+		}
+		// Merge headers — authenticated response may expose new headers.
+		for k, v := range authEv.Headers {
+			ev.Headers[k] = v
+		}
+		// Merge service versions discovered behind auth.
+		for k, v := range authEv.ServiceVersions {
+			ev.ServiceVersions[k] = v
+		}
+	}
+
 	// Inject ScanContext — provides typed accessors (asset, scanType, HTTP client,
 	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
 	// for backward compatibility.
