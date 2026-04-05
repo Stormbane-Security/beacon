@@ -28,7 +28,7 @@ assertions:
   - name: detects-llm-endpoint
     type: beacon
     target: localhost:9217
-    args: ["--no-enrich", "--scanners", "aidetect", "--ports", "11434"]
+    args: ["--no-enrich", "--scanners", "aidetect", "--ports", "9217"]
     expect:
       check_id: ai.endpoint_exposed
 

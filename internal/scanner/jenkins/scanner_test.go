@@ -1,6 +1,7 @@
 package jenkins
 
 import (
+	"context"
 	"testing"
 )
 
@@ -199,7 +200,7 @@ func TestScriptEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := scriptEndpoint(tt.asset)
+			got := scriptEndpoint(context.Background(), tt.asset)
 			if got != tt.want {
 				t.Errorf("scriptEndpoint(%q) = %q; want %q", tt.asset, got, tt.want)
 			}

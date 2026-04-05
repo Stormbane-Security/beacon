@@ -1,0 +1,39 @@
+name: secheaders-complete-no-finding
+description: >
+  nginx with all recommended security headers properly configured.
+  Beacon security headers scanner must NOT flag a complete header set.
+tags: [secheaders, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9463:80"]
+    volumes:
+      - ./secheaders-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9463/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: setup-hsts-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9463/ | grep -qi 'strict-transport-security'"
+      exit_code: 0
+
+  - name: setup-csp-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9463/ | grep -qi 'content-security-policy'"
+      exit_code: 0
+
+  - name: no-missing-headers-finding
+    type: beacon
+    target: localhost:9463
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      no_check_id: http.missing_security_headers
+
+timeout: 3m

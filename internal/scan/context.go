@@ -83,6 +83,20 @@ func (sc *ScanContext) HTTPClient() *http.Client {
 // if not yet available.
 func (sc *ScanContext) Evidence() *playbook.Evidence { return sc.evidence }
 
+// Scheme returns the HTTP scheme ("https" or "http") discovered during
+// classification. Falls back to "https" if evidence is unavailable.
+func (sc *ScanContext) Scheme() string {
+	if sc.evidence != nil && sc.evidence.Scheme != "" {
+		return sc.evidence.Scheme
+	}
+	return "https"
+}
+
+// BaseURL returns scheme + "://" + asset using the classified scheme.
+func (sc *ScanContext) BaseURL(asset string) string {
+	return sc.Scheme() + "://" + asset
+}
+
 // IsDeep returns true for ScanDeep and ScanAuthorized.
 func (sc *ScanContext) IsDeep() bool {
 	return sc.scanType == module.ScanDeep || sc.scanType == module.ScanAuthorized

@@ -62,7 +62,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	target := "https://" + asset
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	target := scheme + "://" + asset
 	outFile := filepath.Join(tmpDir, "screenshot.png")
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)

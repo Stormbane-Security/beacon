@@ -81,7 +81,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Confirm /script is accessible before sending the Groovy payload.
 	// A redirect (3xx) to /login means auth is required — not vulnerable.
-	scriptURL := scriptEndpoint(asset)
+	scriptURL := scriptEndpoint(ctx, asset)
 	if !scriptAccessible(ctx, client, scriptURL) {
 		return nil, nil
 	}
@@ -142,8 +142,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 // scriptEndpoint returns the /script URL for the asset over HTTPS (falls back
 // to HTTP only in probing — the actual access check uses both schemes).
-func scriptEndpoint(asset string) string {
-	return "https://" + asset + "/script"
+func scriptEndpoint(ctx context.Context, asset string) string {
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	return scheme + "://" + asset + "/script"
 }
 
 // scriptAccessible returns true if /script responds with 200 AND the response

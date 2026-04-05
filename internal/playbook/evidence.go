@@ -31,6 +31,7 @@ type Evidence struct {
 	DNSSuffix   string   // last part of hostname, e.g. ".cloudfront.net"
 
 	// HTTP
+	Scheme     string            // "https" or "http" — whichever succeeded during classify probe
 	Headers   map[string]string // lower-case header names → values
 	Title     string            // <title> content
 	Body512   string            // first 512 bytes of response body (for quick pattern match)

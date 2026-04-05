@@ -34,4 +34,4 @@ assertions:
     target: localhost
     args: ["--deep", "--scanners", "crlf", "--output-json", "/tmp/results.json"]
     expect:
-      min_findings: 0
+      min_findings: 1

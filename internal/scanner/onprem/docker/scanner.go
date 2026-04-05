@@ -111,7 +111,13 @@ type containerInspect struct {
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	endpoint := s.cfg.Endpoint
 	if endpoint == "" {
-		endpoint = "http://" + asset + ":2375"
+		// Docker API defaults to HTTP on port 2375, but respect the asset's port
+		// if one was provided by portscan (e.g. asset = "host:2376").
+		host := asset
+		if !strings.Contains(asset, ":") {
+			host = asset + ":2375"
+		}
+		endpoint = "http://" + host
 	}
 
 	var findings []finding.Finding

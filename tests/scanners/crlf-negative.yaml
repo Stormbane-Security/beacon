@@ -1,0 +1,33 @@
+name: crlf-secure-no-finding
+description: >
+  nginx with no user-controlled redirect parameters. The redirect is
+  hardcoded to a fixed URL. Beacon CRLF scanner must NOT flag this.
+tags: [crlf, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9464:80"]
+    volumes:
+      - ./crlf-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9464/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: setup-no-crlf-possible
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:9464/?url=http://evil.com%0d%0aX-Injected:true' | grep -ci 'X-Injected'"
+      stdout_contains: "0"
+
+  - name: no-crlf-false-positive
+    type: beacon
+    target: localhost:9464
+    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
+    expect:
+      no_check_id: web.crlf_injection
+
+timeout: 3m

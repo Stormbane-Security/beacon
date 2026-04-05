@@ -33,10 +33,13 @@ assertions:
   - name: honeypot-detection
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9400,9401,9402,9403,9404,9405,9406,9407,9408,9409,9410,9411"]
     expect:
       # Should detect the honeypot/transparent proxy pattern
-      # and suppress individual false-positive port findings
+      # and suppress individual false-positive port findings.
+      # Returns exactly 1 finding (the honeypot detection) instead of 12 individual port findings.
+      check_id: asset.port_service_discovered
       min_findings: 1
+      max_findings: 2
 
 timeout: 3m

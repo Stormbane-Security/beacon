@@ -275,6 +275,7 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 
+		e.Scheme = scheme
 		e.StatusCode = resp.StatusCode
 
 		// Collect headers (lower-case keys)

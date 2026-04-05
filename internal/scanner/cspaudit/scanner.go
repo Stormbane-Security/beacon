@@ -51,13 +51,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		},
 	}
 
-	url := "https://" + asset + "/"
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	url := scheme + "://" + asset + "/"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, nil
 	}
 	resp, err := client.Do(req)
-	if err != nil {
+	if err != nil && scheme == "https" {
 		url = "http://" + asset + "/"
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
@@ -67,6 +71,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		if err != nil {
 			return nil, nil
 		}
+	} else if err != nil {
+		return nil, nil
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 	_ = resp.Body.Close()

@@ -80,11 +80,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Step 1: confirm Next.js. We require /_next/static/chunks/main.js to
 	// return 200 — this path is unique to Next.js and virtually never present
 	// on non-Next.js servers.
-	base := "https://" + asset
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	base := scheme + "://" + asset
 	if !isNextJS(ctx, client, base) {
-		// Try HTTP for dev/staging environments.
-		base = "http://" + asset
-		if !isNextJS(ctx, client, base) {
+		if scheme == "https" {
+			base = "http://" + asset
+			if !isNextJS(ctx, client, base) {
+				return nil, nil
+			}
+		} else {
 			return nil, nil
 		}
 	}

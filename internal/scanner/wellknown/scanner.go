@@ -131,11 +131,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		},
 	}
 
+	// Use scheme from evidence when available, avoiding a wasted probe.
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+
 	var findings []finding.Finding
 	now := time.Now()
 
 	for _, p := range probes {
-		url := "https://" + asset + p.path
+		url := scheme + "://" + asset + p.path
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			continue
@@ -143,7 +149,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
 
 		resp, err := client.Do(req)
-		if err != nil {
+		if err != nil && scheme == "https" {
 			// Try HTTP fallback.
 			url = "http://" + asset + p.path
 			req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -155,6 +161,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			if err != nil {
 				continue
 			}
+		} else if err != nil {
+			continue
 		}
 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))

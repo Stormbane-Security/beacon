@@ -143,6 +143,112 @@ func TestBuildMutations_ContainsDangerousFilenames(t *testing.T) {
 	}
 }
 
+// TestRun_DeepMode_GIFMagicBytesBypass verifies that a server accepting
+// a file with GIF magic bytes + .php extension triggers a finding.
+func TestRun_DeepMode_GIFMagicBytesBypass(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload") {
+			ct := r.Header.Get("Content-Type")
+			if strings.HasPrefix(ct, "multipart/form-data") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"url":"/uploads/beacon_test.php","filename":"beacon_test.php"}`))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s := New()
+	host := strings.TrimPrefix(ts.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebFileUpload {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected file upload finding for GIF magic bytes + .php extension bypass")
+	}
+}
+
+// TestRun_DeepMode_SVGUploadAccepted verifies that SVG upload to an image
+// endpoint triggers a finding (potential XSS via SVG).
+func TestRun_DeepMode_SVGUploadAccepted(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload") {
+			ct := r.Header.Get("Content-Type")
+			if strings.HasPrefix(ct, "multipart/form-data") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"url":"/uploads/beacon_test.svg","filename":"beacon_test.svg"}`))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s := New()
+	host := strings.TrimPrefix(ts.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebFileUpload {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected file upload finding for SVG upload acceptance")
+	}
+}
+
+// TestRun_DeepMode_NullByteBypass verifies detection of null byte injection
+// in uploaded filenames (e.g. .php%00.jpg treated as .php by backend).
+func TestRun_DeepMode_NullByteBypass(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload") {
+			ct := r.Header.Get("Content-Type")
+			if strings.HasPrefix(ct, "multipart/form-data") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				// Server accepts the null-byte filename and strips %00.jpg
+				_, _ = w.Write([]byte(`{"url":"/uploads/beacon_test.php","filename":"beacon_test.php"}`))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	s := New()
+	host := strings.TrimPrefix(ts.URL, "http://")
+	findings, err := s.Run(context.Background(), host, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebFileUpload {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected file upload finding for null byte bypass")
+	}
+}
+
 func TestRun_ContextCancelled_NoPanic(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

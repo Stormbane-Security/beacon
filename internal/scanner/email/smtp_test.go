@@ -44,41 +44,7 @@ func TestLeaksSoftware_RecognisedServers(t *testing.T) {
 
 // ─── Mock SMTP server ─────────────────────────────────────────────────────────
 
-// smtpScript drives an SMTP conversation via a channel of scripted responses.
-// Each element is sent in sequence as the scanner reads lines.
-type smtpServer struct {
-	responses []string
-}
-
-func (s *smtpServer) serve(l net.Listener) {
-	conn, err := l.Accept()
-	if err != nil {
-		return
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-
-	for _, resp := range s.responses {
-		_, _ = fmt.Fprintf(conn, "%s\r\n", resp)
-		// Wait for the client to send a line before responding to the next one
-		// (except for the initial banner).
-		scanner := bufio.NewScanner(conn)
-		if !scanner.Scan() {
-			return
-		}
-	}
-}
-
-// newMockSMTP starts a mock SMTP server on a random loopback port. The domain
-// is a fake that resolves to 127.0.0.1 via the checkSMTP code path — since
-// checkSMTP does a real MX lookup, we can't intercept it without a custom
-// resolver. Instead we test checkSMTP by injecting a connection directly.
-//
-// Since checkSMTP is a standalone function (not a method), we test by calling
-// checkSMTPConn directly with a net.Conn — which requires a small refactor to
-// make the conn injectable. Since we can't do that without modifying source,
-// we test the next-best thing: the banner detection and the open relay logic
-// using a locally-started SMTP server on the real port 25 if available.
+// ─── SMTP connection-level tests ────────────────────────────────────────────
 
 // TestCheckSMTPBannerLeakDetected tests that a Postfix banner triggers the
 // banner leak finding via checkSMTPConn with a mock server on a high port.

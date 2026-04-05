@@ -166,9 +166,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// JWKS key analysis — runs in both surface and deep mode.
-	base := "https://" + asset
+	jwksScheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		jwksScheme = sctx.Scheme()
+	}
+	base := jwksScheme + "://" + asset
 	jwksFindings := checkJWKSKeys(ctx, client, asset, base)
-	if len(jwksFindings) == 0 {
+	if len(jwksFindings) == 0 && jwksScheme == "https" {
 		base = "http://" + asset
 		jwksFindings = checkJWKSKeys(ctx, client, asset, base)
 	}

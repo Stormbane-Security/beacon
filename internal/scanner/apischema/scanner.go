@@ -231,8 +231,12 @@ func (s *Scanner) testRateLimiting(ctx context.Context, client *http.Client, ass
 
 	var findings []finding.Finding
 
+	apiScheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		apiScheme = sctx.Scheme()
+	}
 	for _, path := range testPaths {
-		url := "https://" + asset + path
+		url := apiScheme + "://" + asset + path
 
 		// Send 20 rapid requests and check for rate limit headers.
 		hasRateLimit := false
