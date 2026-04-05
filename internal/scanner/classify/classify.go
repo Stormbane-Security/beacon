@@ -848,6 +848,13 @@ var fingerprintPaths = []string{
 // A wildcard domain returns a valid A record for any random subdomain query, making
 // probeFingerprintPaths unreliable (every path would appear to respond).
 func isWildcardDomain(ctx context.Context, hostname string) bool {
+	// Skip wildcard check for localhost / loopback — *.localhost always resolves
+	// to 127.0.0.1 on many systems, which would falsely disable path probing.
+	lower := strings.ToLower(hostname)
+	if lower == "localhost" || lower == "127.0.0.1" || lower == "::1" ||
+		strings.HasSuffix(lower, ".localhost") {
+		return false
+	}
 	// Probe a nonsense subdomain — if it resolves, wildcard DNS is in use.
 	probe := "beacon-wc-probe-xqzjmkpv." + hostname
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -989,6 +996,8 @@ var pathBodySignatures = map[string]string{
 	"/app/rest/server": `"version"`,
 	// CouchDB
 	"/_all_dbs": `"_replicator"`,
+	// Etcd
+	"/version": `"etcdserver"`,
 	// Neo4j
 	"/db/neo4j/tx": `"neo4j"`,
 	// MinIO
@@ -1084,10 +1093,15 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 				return
 			}
 
-			// For paths with a required body signature, only accept HTTP 200
-			// and verify the body contains the expected content. This prevents
-			// catch-all sites from matching service-specific paths.
-			if needsBody && sc == http.StatusOK {
+			// For paths with a required body signature, require HTTP 200 and
+			// verify the body contains the expected content. Non-200 responses
+			// (redirects, auth challenges) for body-signature paths are rejected
+			// because they don't prove the expected service is running.
+			if needsBody {
+				if sc != http.StatusOK {
+					_ = resp.Body.Close()
+					return
+				}
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 				_ = resp.Body.Close()
 				if !strings.Contains(strings.ToLower(string(body)), requiredBody) {
@@ -1705,6 +1719,18 @@ func fingerprintTech(e *playbook.Evidence) {
 			e.ServiceVersions["platform"] = "mongo-express"
 		case strings.Contains(body, "sonarqube"):
 			e.ServiceVersions["platform"] = "sonarqube"
+		// ── Message queues ───────────────────────────────────────────────
+		case strings.Contains(body, "nats.io") || strings.Contains(body, "nats-io"):
+			e.ServiceVersions["platform"] = "nats"
+		// ── Password managers ────────────────────────────────────────────
+		case strings.Contains(body, "bitwarden") || strings.Contains(body, "vaultwarden"):
+			e.ServiceVersions["platform"] = "vaultwarden"
+		// ── Web servers ──────────────────────────────────────────────────
+		case strings.Contains(body, "apache tomcat/") || strings.Contains(body, "apache tomcat"):
+			e.ServiceVersions["platform"] = "tomcat"
+		// ── Database admin ───────────────────────────────────────────────
+		case strings.Contains(body, "adminer") && strings.Contains(body, "login"):
+			e.ServiceVersions["platform"] = "adminer"
 		}
 	}
 	// Jenkins also exposes an X-Jenkins header — detect regardless of body.
@@ -1722,6 +1748,28 @@ func fingerprintTech(e *playbook.Evidence) {
 	// CouchDB exposes Server: CouchDB.
 	if strings.Contains(serverLower, "couchdb") && e.ServiceVersions["platform"] == "" {
 		e.ServiceVersions["platform"] = "couchdb"
+	}
+	// Jaeger distributed tracing exposes Traceresponse header.
+	if h["traceresponse"] != "" && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "jaeger"
+	}
+	// Etcd KV store: platform is set from /version path probe (body-checked for
+	// "etcdserver"), confirmed via RespondingPaths → pathServiceMap.
+	// Apache Tomcat often doesn't set a Server header but error pages include version.
+	if strings.Contains(serverLower, "apache-coyote") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "tomcat"
+	}
+	// Tomcat default error pages use "HTTP Status NNN" title pattern with Tahoma font.
+	titleLower := strings.ToLower(e.Title)
+	if strings.HasPrefix(titleLower, "http status ") &&
+		strings.Contains(body, "tahoma") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "tomcat"
+	}
+	// Vaultwarden/Bitwarden behind Server: Rocket with duosecurity in CSP.
+	if strings.Contains(serverLower, "rocket") &&
+		strings.Contains(strings.ToLower(h["content-security-policy"]), "duosecurity.com") &&
+		e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "vaultwarden"
 	}
 	// Harbor registry exposes x-harbor-csrf-token.
 	if h["x-harbor-csrf-token"] != "" && e.ServiceVersions["platform"] == "" {
@@ -1879,6 +1927,20 @@ func fingerprintTech(e *playbook.Evidence) {
 	// (e.g. SoftNotFound sites like ClickHouse that return 200 for all paths).
 	e.BackendServices = inferBackendFromRoot(e.BackendServices, body, strings.ToLower(e.Title), serverLower)
 
+	// If platform was not set from body/headers but we inferred a backend service
+	// from path probing (e.g. Etcd via /version), set platform from the first
+	// single backend service. Only when there's exactly one — if there are multiple,
+	// this is a proxy/gateway with multiple backends, not a single platform.
+	if e.ServiceVersions["platform"] == "" && len(e.BackendServices) == 1 {
+		// Reverse-map canonical service name to lowercase platform key.
+		svcLower := strings.ToLower(e.BackendServices[0])
+		// Remove common prefixes for matching (e.g. "Apache Tomcat" → "tomcat")
+		for _, prefix := range []string{"apache ", "hashicorp "} {
+			svcLower = strings.TrimPrefix(svcLower, prefix)
+		}
+		e.ServiceVersions["platform"] = svcLower
+	}
+
 	// Ensure platform detection is reflected in BackendServices. Some products
 	// are only detected via headers (e.g. Kibana kbn-name on a 302 redirect)
 	// and may not appear in path probing or root body signals.
@@ -2002,6 +2064,8 @@ var pathServiceMap = []struct {
 	{"/redoc", "FastAPI"},
 	// Sentry self-hosted
 	{"/api/0/internal/health", "Sentry"},
+	// Etcd (body-checked for "etcdserver")
+	{"/version", "Etcd"},
 }
 
 // inferBackendServices returns a deduplicated list of named backend services
@@ -2044,6 +2108,9 @@ var rootServiceSignatures = []struct {
 	{"title", "rabbitmq", "RabbitMQ"},
 	{"server", "couchdb", "CouchDB"},
 	{"server", "minio", "MinIO"},
+	{"title", "adminer", "Adminer"},
+	{"body", "nats.io", "NATS"},
+	{"body", "apache tomcat", "Apache Tomcat"},
 	// API servers with soft-404 (return 200 for all paths, skipping path probing)
 	{"body", "lucene_version", "Elasticsearch"},
 	{"title", "consul", "HashiCorp Consul"},
@@ -2098,6 +2165,14 @@ func platformServiceName(platform string) string {
 		"harbor":        "Harbor",
 		"ipfs":          "IPFS",
 		"openstack":     "OpenStack",
+		"jaeger":        "Jaeger",
+		"nats":          "NATS",
+		"vaultwarden":   "Vaultwarden",
+		"tomcat":        "Apache Tomcat",
+		"adminer":       "Adminer",
+		"etcd":          "Etcd",
+		"portainer":     "Portainer",
+		"consul":        "HashiCorp Consul",
 	}
 	if n, ok := names[platform]; ok {
 		return n

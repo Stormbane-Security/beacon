@@ -145,7 +145,7 @@ func TestParseFillGapsResponse_ConfidenceClampedZero(t *testing.T) {
 		"proposed_rules": [{
 			"signal_type": "body",
 			"signal_key": "pattern",
-			"signal_value": "django",
+			"signal_value": "powered by django",
 			"field": "framework",
 			"value": "django",
 			"confidence": 0,
@@ -359,7 +359,12 @@ func TestParseFillGapsResponse_MixedValidAndInvalid(t *testing.T) {
 func TestParseFillGapsResponse_AllSignalTypes(t *testing.T) {
 	validTypes := []string{"header", "body", "server", "cookie", "path", "cname"}
 	for _, st := range validTypes {
-		input := `{"proposed_rules": [{"signal_type": "` + st + `", "signal_key": "k", "signal_value": "v", "field": "framework", "value": "x", "confidence": 0.8, "reasoning": "test"}], "missed_technologies": []}`
+		// Body signals need ≥10 chars and must not be generic; use a specific value.
+		sv := "v"
+		if st == "body" {
+			sv = "powered by express"
+		}
+		input := `{"proposed_rules": [{"signal_type": "` + st + `", "signal_key": "k", "signal_value": "` + sv + `", "field": "framework", "value": "x", "confidence": 0.8, "reasoning": "test"}], "missed_technologies": []}`
 		result, err := parseFillGapsResponse(input)
 		if err != nil {
 			t.Fatalf("signal_type %q: unexpected error: %v", st, err)
@@ -412,6 +417,75 @@ func TestParseFillGapsResponse_ValuesLowercased(t *testing.T) {
 	}
 	if result.ProposedRules[0].Value != "express" {
 		t.Errorf("expected value lowercased to 'express', got %q", result.ProposedRules[0].Value)
+	}
+}
+
+func TestParseFillGapsResponse_GenericBodySignalRejected(t *testing.T) {
+	input := `{
+		"proposed_rules": [{
+			"signal_type": "body",
+			"signal_key": "",
+			"signal_value": "404 page not found",
+			"field": "proxy_type",
+			"value": "traefik",
+			"confidence": 0.92,
+			"reasoning": "looks like Traefik"
+		}],
+		"missed_technologies": []
+	}`
+
+	result, err := parseFillGapsResponse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ProposedRules) != 0 {
+		t.Errorf("expected generic body signal to be rejected, got %d rules", len(result.ProposedRules))
+	}
+}
+
+func TestParseFillGapsResponse_ShortBodySignalRejected(t *testing.T) {
+	input := `{
+		"proposed_rules": [{
+			"signal_type": "body",
+			"signal_key": "",
+			"signal_value": "OK",
+			"field": "framework",
+			"value": "express",
+			"confidence": 0.8,
+			"reasoning": "short body"
+		}],
+		"missed_technologies": []
+	}`
+
+	result, err := parseFillGapsResponse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ProposedRules) != 0 {
+		t.Errorf("expected short body signal to be rejected, got %d rules", len(result.ProposedRules))
+	}
+}
+
+func TestParseFillGapsResponse_SpecificBodySignalAccepted(t *testing.T) {
+	input := `{
+		"proposed_rules": [{
+			"signal_type": "body",
+			"signal_key": "",
+			"signal_value": "powered by traefik",
+			"field": "proxy_type",
+			"value": "traefik",
+			"confidence": 0.95,
+			"reasoning": "Traefik branding in body"
+		}],
+		"missed_technologies": []
+	}`
+
+	result, err := parseFillGapsResponse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ProposedRules) != 1 {
+		t.Errorf("expected specific body signal to be accepted, got %d rules", len(result.ProposedRules))
 	}
 }
 
