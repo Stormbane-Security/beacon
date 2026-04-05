@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -768,6 +769,9 @@ Type exactly: I have written authorization for %s
 		pr.mu.Lock()
 		pr.headless = true
 		pr.detached = make(chan struct{}) // reset for potential re-attach
+		pr.stop = make(chan struct{})
+		pr.stopOnce = sync.Once{}
+		pr.detachOnce = sync.Once{}
 		pr.drawn = false
 		pr.drawnLines = 0
 		pr.mu.Unlock()
