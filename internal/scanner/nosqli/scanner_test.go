@@ -149,6 +149,73 @@ func TestWhereInjection(t *testing.T) {
 	}
 }
 
+func TestNoFalsePositiveOnCatchAllServer(t *testing.T) {
+	// Simulates a Vercel/SPA catch-all: returns 200 with similar-sized JSON
+	// for ANY POST to ANY path. This previously generated 15+ CRITICAL
+	// $where findings per host.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Return a consistent-ish response regardless of body content
+		_, _ = w.Write([]byte(`{"status":"ok","page":"` + r.URL.Path + `","data":{"items":[1,2,3,4,5],"total":5,"message":"Welcome to our API"}}`))
+	}))
+	defer srv.Close()
+
+	s := New()
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := s.Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebNoSQLi {
+			t.Errorf("false positive on catch-all server: %s", f.Title)
+		}
+	}
+}
+
+func TestWhereMaxOnePerHost(t *testing.T) {
+	// Even a genuinely vulnerable server should produce at most ONE $where finding.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, ok := body["$where"]; ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":"MongoServerError: bad query"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	s := New()
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := s.Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	whereCount := 0
+	for _, f := range findings {
+		if strings.Contains(f.Title, "$where") {
+			whereCount++
+		}
+	}
+	if whereCount > 1 {
+		t.Errorf("expected at most 1 $where finding, got %d", whereCount)
+	}
+}
+
 func TestSurfaceModeSkips(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

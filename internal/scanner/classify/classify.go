@@ -834,8 +834,10 @@ func isWildcardDomain(ctx context.Context, hostname string) bool {
 }
 
 // detectSoftNotFound probes two distinct canary paths and compares their
-// SHA-256 body hashes. If both return 200 and have identical hashes, the site
-// is a catch-all / SPA that returns the same page for every URL.
+// responses. If both return 200 and the bodies are similar (>80% overlap
+// by length, or identical hashes), the site is a catch-all / SPA.
+// Fuzzy comparison catches SPAs that embed the URL path or a nonce in the
+// response, which defeats exact hash matching.
 func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string) (bool, [32]byte) {
 	fetch := func(u string) ([]byte, int) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -857,10 +859,25 @@ func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string
 	}
 	hashA := sha256.Sum256(bodyA)
 	hashB := sha256.Sum256(bodyB)
-	if hashA != hashB {
-		return false, [32]byte{}
+	// Exact match — classic catch-all
+	if hashA == hashB {
+		return true, hashA
 	}
-	return true, hashA
+	// Fuzzy match — bodies are similar in size (within 10%) and both
+	// are substantial (>1KB). This catches SPAs that embed the URL path
+	// or a per-request nonce in the response.
+	if len(bodyA) > 1024 && len(bodyB) > 1024 {
+		big, small := len(bodyA), len(bodyB)
+		if big < small {
+			big, small = small, big
+		}
+		// Within 10% size means the content is structurally the same
+		// with minor per-request variation.
+		if float64(small)/float64(big) > 0.90 {
+			return true, hashA
+		}
+	}
+	return false, [32]byte{}
 }
 
 // probeFingerprintPaths probes each path in fingerprintPaths concurrently and
@@ -873,7 +890,7 @@ func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string
 // listed; all other paths fall back to pure status-code matching.
 var pathBodySignatures = map[string]string{
 	// Spring Boot Actuator
-	"/actuator/health":    `"status"`,
+	"/actuator/health":    `"diskspace"`,
 	"/actuator/env":       `"activeProfiles"`,
 	"/actuator/mappings":  `"mappings"`,
 	// HashiCorp Vault
@@ -901,42 +918,42 @@ var pathBodySignatures = map[string]string{
 	"/api/v1/health": `"metadatabase"`,
 	"/api/v1/dags":   `"dags"`,
 	// Jupyter
-	"/api/kernels":   `"id"`,
-	"/api/contents":  `"type"`,
+	"/api/kernels":   `"execution_state"`,
+	"/api/contents":  `"writable"`,
 	// Hasura
-	"/v1/graphql":  `"data"`,
-	"/v1/metadata": `"version"`,
+	"/v1/graphql":  `__schema`,
+	"/v1/metadata": `"resource_version"`,
 	// Traefik
 	"/api/overview":    `"http"`,
 	"/api/entrypoints": `"name"`,
 	// Kafka REST
-	"/topics":      `[`,
+	"/topics":      `"partitions"`,
 	"/v3/clusters": `"cluster_id"`,
 	// WordPress
-	"/wp-json": `"name"`,
+	"/wp-json": `"wp:`,
 	// OIDC / OAuth
 	"/oauth/authorize":  `response_type`,
 	"/oauth2/authorize": `response_type`,
 	// AI / LLM
-	"/v1/models": `"data"`,
+	"/v1/models": `"owned_by"`,
 	// Langflow
-	"/api/v1/version": `"version"`,
-	"/api/v1/flows":   `"id"`,
+	"/api/v1/version": `"langflow"`,
+	"/api/v1/flows":   `"endpoint_name"`,
 	// Veeam
-	"/api/v1/serverInfo": `"version"`,
+	"/api/v1/serverInfo": `"veeam"`,
 	// Wazuh
-	"/api/v2/manager/info": `"title"`,
+	"/api/v2/manager/info": `"wazuh"`,
 	// OpenStack Keystone
-	"/identity/v3": `"version"`,
+	"/identity/v3": `"media-types"`,
 	// Proxmox VE
-	"/api2/json/version": `"version"`,
+	"/api2/json/version": `"pveversion"`,
 	// Ansible AWX/Tower
 	"/api/v2/ping": `"ha"`,
 	// Jaeger — /api/traces response contains "traceID" key (Jaeger format)
 	"/api/traces":   `"traceID"`,
-	"/api/services": `"data"`,
+	"/api/services": `"total"`,
 	// Loki
-	"/loki/api/v1/labels": `"data"`,
+	"/loki/api/v1/labels": `"values"`,
 	// Tempo — /tempo/api/traces is Tempo-specific; body contains "rootServiceName"
 	"/tempo/api/traces": `"rootServiceName"`,
 	// VictoriaMetrics
@@ -944,11 +961,11 @@ var pathBodySignatures = map[string]string{
 	// Harbor
 	"/api/v2.0/systeminfo": `"harbor_version"`,
 	// ArgoCD
-	"/api/v1/applications": `"items"`,
+	"/api/v1/applications": `"metadata"`,
 	// TeamCity
 	"/app/rest/server": `"version"`,
 	// CouchDB
-	"/_all_dbs": `[`,
+	"/_all_dbs": `"_replicator"`,
 	// Neo4j
 	"/db/neo4j/tx": `"neo4j"`,
 	// MinIO
@@ -957,11 +974,11 @@ var pathBodySignatures = map[string]string{
 	"/api/v0/id": `"ID"`,
 	// SonarQube
 	"/api/system/status": `"status"`,
-	// FastAPI
-	"/docs":  `swagger`,
-	"/redoc": `redoc`,
+	// FastAPI — require swagger-ui specific content, not just the word "swagger"
+	"/docs":  `swagger-ui`,
+	"/redoc": `redoc-container`,
 	// Sentry
-	"/api/0/internal/health": `ok`,
+	"/api/0/internal/health": `"healthy"`,
 }
 
 func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evidence) []string {
@@ -994,10 +1011,11 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 	base := scheme + "://" + hostname
 
 	var (
-		mu      sync.Mutex
-		found   []string
-		wg      sync.WaitGroup
-		sem     = make(chan struct{}, 10) // max 10 concurrent probes
+		mu       sync.Mutex
+		found    []string
+		ok200    int // count of paths that returned HTTP 200
+		wg       sync.WaitGroup
+		sem      = make(chan struct{}, 10) // max 10 concurrent probes
 	)
 
 	for _, path := range fingerprintPaths {
@@ -1046,10 +1064,25 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 
 			mu.Lock()
 			found = append(found, p)
+			if sc == http.StatusOK {
+				ok200++
+			}
 			mu.Unlock()
 		}(path)
 	}
 	wg.Wait()
+
+	// Sanity check: if an implausible number of paths returned HTTP 200
+	// (even after body signature checks), the site is a catch-all/SPA that
+	// slipped past detectSoftNotFound (e.g. the SPA embeds the URL or a
+	// nonce, so the canary hashes differ). No legitimate server runs 15+
+	// distinct backend technologies. Discard all results and mark
+	// SoftNotFound so downstream scanners are aware.
+	if ok200 > 15 {
+		e.SoftNotFound = true
+		return nil
+	}
+
 	return found
 }
 
