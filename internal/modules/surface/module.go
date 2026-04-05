@@ -2389,6 +2389,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 
+		// Enrich evidence from Phase B findings so downstream consumers
+		// (reports, AI enrichment, TUI asset detail) see the full picture.
+		enrichEvidenceFromFindings(&ev, findings)
+
 		_ = m.st.SaveAssetExecution(ctx, &store.AssetExecution{
 			ScanRunID:         scanRunID,
 			Asset:             asset,
@@ -2880,6 +2884,96 @@ func extractAIEndpoints(findings []finding.Finding) []string {
 		}
 	}
 	return eps
+}
+
+// enrichEvidenceFromFindings scans all scanner findings and backfills Evidence
+// fields that classify couldn't know at fingerprint time. This ensures the
+// stored Evidence (used by reports, TUI asset detail, AI enrichment) reflects
+// everything discovered during the scan, not just initial fingerprinting.
+func enrichEvidenceFromFindings(ev *playbook.Evidence, findings []finding.Finding) {
+	for _, f := range findings {
+		switch {
+		// OAuth / OIDC → auth system
+		case strings.HasPrefix(string(f.CheckID), "oauth.") || strings.HasPrefix(string(f.CheckID), "iam."):
+			if ev.AuthSystem == "" {
+				provider, _ := f.Evidence["provider"].(string)
+				if provider != "" {
+					ev.AuthSystem = provider
+				} else {
+					ev.AuthSystem = "oauth"
+				}
+			}
+
+		// SAML → auth system
+		case strings.HasPrefix(string(f.CheckID), "saml."):
+			if ev.AuthSystem == "" {
+				ev.AuthSystem = "saml"
+			}
+
+		// gRPC reflection
+		case f.CheckID == finding.CheckPortGRPCReflectionEnabled:
+			ev.GRPCReflection = true
+
+		// WebSocket endpoints
+		case f.CheckID == finding.CheckWebSocketOpen || f.CheckID == finding.CheckWebSocketCSWSH ||
+			f.CheckID == finding.CheckWebSocketNoAuth:
+			if endpoint, ok := f.Evidence["endpoint"].(string); ok && endpoint != "" {
+				found := false
+				for _, ws := range ev.WebSocketEndpoints {
+					if ws == endpoint {
+						found = true
+						break
+					}
+				}
+				if !found {
+					ev.WebSocketEndpoints = append(ev.WebSocketEndpoints, endpoint)
+				}
+			}
+
+		// JS framework detection
+		case f.CheckID == finding.CheckJSFrameworkDetected:
+			if ev.Framework == "" {
+				if fw, ok := f.Evidence["framework"].(string); ok && fw != "" {
+					ev.Framework = fw
+				}
+			}
+
+		// Web3 signals from web3detect (RPC providers, wallet libs, contracts)
+		case f.CheckID == finding.CheckWeb3RPCProviderDetected:
+			if providers, ok := f.Evidence["providers"].([]string); ok {
+				for _, p := range providers {
+					if !containsStr(ev.Web3Signals, p) {
+						ev.Web3Signals = append(ev.Web3Signals, p)
+					}
+				}
+			}
+		case f.CheckID == finding.CheckWeb3WalletLibDetected:
+			if libs, ok := f.Evidence["libraries"].([]string); ok {
+				for _, lib := range libs {
+					if !containsStr(ev.Web3Signals, lib) {
+						ev.Web3Signals = append(ev.Web3Signals, lib)
+					}
+				}
+			}
+		case f.CheckID == finding.CheckWeb3ContractFound:
+			if addrs, ok := f.Evidence["addresses"].([]string); ok {
+				for _, addr := range addrs {
+					if !containsStr(ev.ContractAddresses, addr) {
+						ev.ContractAddresses = append(ev.ContractAddresses, addr)
+					}
+				}
+			}
+		}
+	}
+}
+
+func containsStr(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // scannerSkipReason returns a non-empty human-readable reason if the named
