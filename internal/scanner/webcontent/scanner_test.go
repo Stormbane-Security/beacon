@@ -1688,6 +1688,42 @@ func TestNextJSChunks_ServiceRefsInChunks(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// checkAPIKeyInURLs — public key domain exclusions
+// ---------------------------------------------------------------------------
+
+func TestCheckAPIKeyInURLs_SentryDSN_Excluded(t *testing.T) {
+	src := `Sentry.init({ dsn: "https://o447951.ingest.sentry.io/api/450?key=dfb07d783ad5325c245c1fd3725390" });`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 0 {
+		t.Errorf("Sentry DSN should be excluded from API key check, got %d matches: %v", len(matches), matches)
+	}
+}
+
+func TestCheckAPIKeyInURLs_SentryLegacy_Excluded(t *testing.T) {
+	src := `fetch("https://sentry.io/api/123/store/?sentry_key=abc123def456");`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 0 {
+		t.Errorf("Sentry legacy DSN should be excluded, got %d matches", len(matches))
+	}
+}
+
+func TestCheckAPIKeyInURLs_RealAPIKey_StillDetected(t *testing.T) {
+	src := `fetch("https://api.example.com/v1/data?api_key=sk_live_1234567890abcdef");`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match for real API key, got %d", len(matches))
+	}
+}
+
+func TestCheckAPIKeyInURLs_AlgoliaSearch_Excluded(t *testing.T) {
+	src := `fetch("https://APPID.algolia.net/1/indexes?key=searchOnlyKey123");`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 0 {
+		t.Errorf("Algolia search key should be excluded, got %d matches", len(matches))
+	}
+}
+
 func strContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

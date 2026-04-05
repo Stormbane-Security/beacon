@@ -105,6 +105,20 @@ type apiKeyMatch struct {
 	paramName string
 }
 
+// publicKeyDomains lists domains where API keys in URLs are intentionally
+// public client-side identifiers, not secrets. These are designed to be
+// embedded in browser JS and only grant write/ingest access, not read access.
+var publicKeyDomains = []string{
+	".ingest.sentry.io",   // Sentry DSN — public error reporting key
+	"sentry.io/api/",      // Sentry legacy DSN format
+	"browser-intake-",     // Datadog RUM — public client token
+	"plausible.io/api/",   // Plausible analytics — public site ID
+	"cdn.segment.com",     // Segment analytics.js — public write key
+	".posthog.com/capture", // PostHog — public project key
+	".algolia.net",        // Algolia search — public search-only key
+	".typesense.org",      // Typesense search — public search-only key
+}
+
 // checkAPIKeyInURLs scans JS content for URL query parameters containing API keys.
 func checkAPIKeyInURLs(body string) []apiKeyMatch {
 	matches := apiKeyURLParamRe.FindAllStringSubmatch(body, -1)
@@ -119,6 +133,19 @@ func checkAPIKeyInURLs(body string) []apiKeyMatch {
 			continue
 		}
 		seen[fullURL] = struct{}{}
+
+		// Skip URLs on domains where keys are intentionally public.
+		urlLower := strings.ToLower(fullURL)
+		isPublic := false
+		for _, domain := range publicKeyDomains {
+			if strings.Contains(urlLower, domain) {
+				isPublic = true
+				break
+			}
+		}
+		if isPublic {
+			continue
+		}
 
 		// Extract the parameter name.
 		paramMatch := apiKeyParamNameRe.FindStringSubmatch(fullURL)
@@ -1050,6 +1077,7 @@ var knownServices = []serviceRef{
 	{domain: "api.mixpanel.com", service: "Mixpanel", category: "analytics"},
 	{domain: "api.amplitude.com", service: "Amplitude", category: "analytics"},
 	{domain: ".sentry.io/api", service: "Sentry", category: "monitoring"},
+	{domain: ".ingest.sentry.io", service: "Sentry", category: "monitoring"},
 	{domain: "api.datadoghq.com", service: "Datadog", category: "monitoring"},
 
 	// Messaging / Communication
