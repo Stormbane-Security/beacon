@@ -94,7 +94,6 @@ func TestSecretProofKeyword(t *testing.T) {
 		{"Private Key", "PRIVATE KEY"},
 		{"OpenAI API Key", "sk-[A-Za-z0-9]"},
 		{"Anthropic API Key", "sk-ant-"},
-		{"Firebase API Key", "AIzaSy"},
 		{"Mailgun API Key", "key-[a-f0-9]"},
 	}
 
@@ -820,19 +819,48 @@ func TestSecretPatterns_OpenAIKey(t *testing.T) {
 	}
 }
 
-func TestSecretPatterns_FirebaseAPIKey(t *testing.T) {
-	tests := []struct {
-		input string
-		match bool
-	}{
-		{"AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ12345678", true},
-		{"AIzaSy-_abcdefghijklmnopqrstuvwxyz12345", true},
-		{"AIzaNotFirebase", false}, // AIza but not AIzaSy
+func TestFirebaseAPIKey_ExcludedFromSecretPatterns(t *testing.T) {
+	// Firebase API keys are intentionally client-side, domain-restricted identifiers.
+	// They should NOT be in secretPatterns (which triggers CRITICAL js.hardcoded_secret).
+	if _, ok := secretPatterns["Firebase API Key"]; ok {
+		t.Error("Firebase API Key should not be in secretPatterns — it's a public client-side identifier, not a secret")
 	}
-	re := secretPatterns["Firebase API Key"]
-	for _, tt := range tests {
-		if got := re.MatchString(tt.input); got != tt.match {
-			t.Errorf("Firebase API Key pattern on %q: got %v, want %v", tt.input, got, tt.match)
+}
+
+func TestFirebaseAPIKey_ExcludedFromGoogleAPIKeyDetection(t *testing.T) {
+	// Firebase keys (AIzaSy...) match the broader Google API Key pattern (AIza...).
+	// The firebaseKeyRe exclusion should prevent them from being reported.
+	firebaseKey := "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ12345678"
+	if !firebaseKeyRe.MatchString(firebaseKey) {
+		t.Error("firebaseKeyRe should match Firebase API key pattern")
+	}
+	if !secretPatterns["Google API Key"].MatchString(firebaseKey) {
+		t.Error("Google API Key pattern should match Firebase key — dedup in analyzeJS excludes it")
+	}
+	// A non-Firebase Google API key should NOT match firebaseKeyRe.
+	nonFirebaseKey := "AIzaXXABCDEFGHIJKLMNOPQRSTUVWXYZ12345678"
+	if firebaseKeyRe.MatchString(nonFirebaseKey) {
+		t.Error("firebaseKeyRe should NOT match non-Firebase Google API key (AIzaXX...)")
+	}
+}
+
+func TestFirebaseAPIKey_NoHardcodedSecretFinding(t *testing.T) {
+	// Firebase API key in JS should NOT produce a js.hardcoded_secret finding.
+	js := `var firebaseConfig = {apiKey: "AIzaSyDqPgLl3UvJ98rKfE3aBcDeFgHiJkLmUf0U"};`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = fmt.Fprint(w, js)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	findings := analyzeJS(ctx, &http.Client{Timeout: 2 * time.Second}, "example.com", ts.URL)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJSHardcodedSecret {
+			label, _ := f.Evidence["pattern"].(string)
+			t.Errorf("Firebase key should not produce hardcoded secret finding, got: pattern=%q title=%q", label, f.Title)
 		}
 	}
 }
@@ -908,6 +936,81 @@ func TestGenericPwdValueRe(t *testing.T) {
 			}
 			t.Errorf("genericPwdValueRe on %q: got %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+// ===========================================================================
+// OAuth Client Secret false positive filtering
+// ===========================================================================
+
+func TestOAuthSecretIdentifierRe(t *testing.T) {
+	tests := []struct {
+		input string
+		match bool
+	}{
+		{"twitter_clientsecret", true},   // snake_case config key name
+		{"google_client_secret", true},   // snake_case config key name
+		{"facebook-client-secret", true}, // kebab-case config key name
+		{"my_oauth_secret", true},        // snake_case with "secret"
+		{"app-config-value", true},       // kebab-case identifier
+		{"aB3xKz9mNp2qR4sT7uV", false},  // random secret — not snake/kebab case
+		{"dGhlIHF1aWNrIGJyb3du", false},  // base64-like — not snake/kebab case
+		{"TWITTER_CLIENT", false},        // uppercase — not matched (different pattern)
+		{"x", false},                     // too short, no separator
+	}
+	for _, tt := range tests {
+		if got := oauthSecretIdentifierRe.MatchString(tt.input); got != tt.match {
+			t.Errorf("oauthSecretIdentifierRe on %q: got %v, want %v", tt.input, got, tt.match)
+		}
+	}
+}
+
+func TestOAuthClientSecret_ConfigKeyNameRejected(t *testing.T) {
+	// The OAuth Client Secret pattern should NOT flag values that are config key names.
+	// e.g. clientsecret:"twitter_clientsecret" — the value is a label, not a secret.
+	js := `var config = {clientsecret:"twitter_clientsecret"};`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = fmt.Fprint(w, js)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	findings := analyzeJS(ctx, &http.Client{Timeout: 2 * time.Second}, "example.com", ts.URL)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJSHardcodedSecret {
+			if label, _ := f.Evidence["pattern"].(string); label == "OAuth Client Secret" {
+				t.Errorf("should not flag OAuth Client Secret for config key name value, got: %s", f.Title)
+			}
+		}
+	}
+}
+
+func TestOAuthClientSecret_RealSecretDetected(t *testing.T) {
+	// A real OAuth client secret (random alphanumeric string) should be detected.
+	js := `var config = {client_secret: "aB3xKz9mNp2qR4sT7uVwX"};`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = fmt.Fprint(w, js)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	findings := analyzeJS(ctx, &http.Client{Timeout: 2 * time.Second}, "example.com", ts.URL)
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJSHardcodedSecret {
+			if label, _ := f.Evidence["pattern"].(string); label == "OAuth Client Secret" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected OAuth Client Secret finding for real secret value, got none")
 	}
 }
 
@@ -1027,18 +1130,15 @@ func TestScannerName(t *testing.T) {
 // but the Google API Key pattern should be suppressed in favor of Firebase.
 // ===========================================================================
 
-func TestFirebaseKeyMatchesBothGoogleAndFirebase(t *testing.T) {
-	// A Firebase key (AIzaSy...) should match both Firebase API Key and Google API Key patterns
+func TestFirebaseKeyExcludedFromGoogleViaFirebaseKeyRe(t *testing.T) {
+	// Firebase key matches Google API Key regex but should be excluded via firebaseKeyRe
 	key := "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ12345678"
 
-	firebaseMatch := secretPatterns["Firebase API Key"].MatchString(key)
-	googleMatch := secretPatterns["Google API Key"].MatchString(key)
-
-	if !firebaseMatch {
-		t.Error("expected Firebase API Key pattern to match AIzaSy... key")
+	if !secretPatterns["Google API Key"].MatchString(key) {
+		t.Error("expected Google API Key pattern to match AIzaSy... key")
 	}
-	if !googleMatch {
-		t.Error("expected Google API Key pattern to match AIzaSy... key (dedup is done in analyzeJS)")
+	if !firebaseKeyRe.MatchString(key) {
+		t.Error("expected firebaseKeyRe to match — this key should be excluded from detection")
 	}
 }
 

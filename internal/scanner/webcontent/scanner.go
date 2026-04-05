@@ -70,6 +70,16 @@ var genericPwdFalsePositives = map[string]bool{
 // real credentials: %word%, {word}, <word>, {{word}}, $VAR_NAME style tokens.
 var genericPwdPlaceholderRe = regexp.MustCompile(`^(%[^%]+%|\{[^}]+\}|<[^>]+>|\$[A-Z_]+|YOUR_|EXAMPLE|REPLACE|CHANGEME|TODO|FIXME|REDACTED|FILTERED)`)
 
+// firebaseKeyRe matches Firebase API keys (AIzaSy...) which are intentionally
+// public client-side identifiers, not secrets. Used to exclude them from the
+// broader "Google API Key" pattern.
+var firebaseKeyRe = regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`)
+
+// oauthSecretIdentifierRe matches values that are snake_case or camelCase
+// identifiers rather than actual secret values. Used to filter false positives
+// from the "OAuth Client Secret" pattern (e.g. clientsecret:"twitter_clientsecret").
+var oauthSecretIdentifierRe = regexp.MustCompile(`^[a-z][a-z0-9]*([_-][a-z0-9]+)+$`)
+
 var jsScriptSrcRe = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
 
 var secretPatterns = map[string]*regexp.Regexp{
@@ -87,7 +97,10 @@ var secretPatterns = map[string]*regexp.Regexp{
 	"Generic Password":         regexp.MustCompile(`(?i)(password|passwd|pwd)['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][^'"` + "`" + `\s]{8,}['"` + "`" + `]`),
 	"OpenAI API Key":           regexp.MustCompile(`sk-[A-Za-z0-9]{48}`),
 	"Anthropic API Key":        regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`),
-	"Firebase API Key":         regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
+	// Firebase API Keys are intentionally client-side, domain-restricted identifiers —
+	// not secrets. Google's documentation explicitly states they are safe to embed in
+	// browser code. Detected via externalServiceRefs instead.
+	// "Firebase API Key":       regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
 	"Mailgun API Key":          regexp.MustCompile(`key-[a-f0-9]{32}`),
 	"OAuth Client Secret":      regexp.MustCompile(`(?i)client[_-]?secret['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][0-9a-zA-Z\-_.]{16,}`),
 }
@@ -595,11 +608,11 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 			}
 			seenMatches[label+":"+match] = struct{}{}
 
-			// Dedup: skip less-specific patterns when a more-specific one covers the
-			// same credential value. Firebase keys (AIzaSy...) also match "Google API
-			// Key" (AIza...) and, when in apiKey=... context, "Generic API Key".
-			if label == "Google API Key" && secretPatterns["Firebase API Key"].MatchString(match) {
-				continue // reported as Firebase API Key
+			// Firebase API keys (AIzaSy...) are public client-side identifiers, not
+			// secrets. They also match the broader "Google API Key" pattern (AIza...).
+			// Exclude them from Google API Key detection.
+			if label == "Google API Key" && firebaseKeyRe.MatchString(match) {
+				continue // Firebase key — intentionally public, not a secret
 			}
 			if label == "Generic API Key" {
 				// If the value portion of this match contains a more-specific credential,
@@ -658,6 +671,24 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 						}
 					}
 					if allLowerWord {
+						continue
+					}
+				}
+			}
+			// OAuth Client Secret: reject values that are snake_case identifiers like
+			// "twitter_clientsecret" or "google_client_secret" — config key names, not
+			// actual secret values. Real OAuth secrets are random alphanumeric strings.
+			if label == "OAuth Client Secret" {
+				if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
+					val := sub[1]
+					if oauthSecretIdentifierRe.MatchString(val) {
+						continue
+					}
+					// Also reject if the value contains common config words that indicate
+					// it's a label/key name rather than an actual secret.
+					valLower := strings.ToLower(val)
+					if strings.Contains(valLower, "secret") || strings.Contains(valLower, "client") ||
+						strings.Contains(valLower, "config") || strings.Contains(valLower, "setting") {
 						continue
 					}
 				}
@@ -788,7 +819,6 @@ func secretProofKeyword(label string) string {
 		"Private Key":              "PRIVATE KEY",
 		"OpenAI API Key":           "sk-[A-Za-z0-9]",
 		"Anthropic API Key":        "sk-ant-",
-		"Firebase API Key":         "AIzaSy",
 		"Mailgun API Key":          "key-[a-f0-9]",
 	}
 	if kw, ok := keywords[label]; ok {
