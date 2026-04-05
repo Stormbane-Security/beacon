@@ -37,6 +37,7 @@ func init() {
 		scan.Check(finding.CheckJSSourceMapExposed, finding.SeverityMedium, finding.ModeSurface),
 		scan.Check(finding.CheckSecretInResponseHeader, finding.SeverityHigh, finding.ModeSurface),
 		scan.Check(finding.CheckWAFNotDetected, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJSExternalServiceRef, finding.SeverityInfo, finding.ModeSurface),
 	)
 }
 const scannerName = "webcontent"
@@ -676,6 +677,12 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 		}
 	}
 
+	// Extract external service references — API endpoints, RPC providers, SaaS
+	// integrations discovered in the JS bundle. These reveal the application's
+	// backend dependencies and infrastructure.
+	svcFindings := extractServiceReferences(asset, jsURL, srcStr, now)
+	findings = append(findings, svcFindings...)
+
 	// Check for API keys passed as URL query parameters in JS code
 	for _, akm := range checkAPIKeyInURLs(srcStr) {
 		redactedURL := akm.url
@@ -876,4 +883,176 @@ func extractJSURLs(baseURL, html string) []string {
 		}
 	}
 	return urls
+}
+
+// ── External Service Reference Extraction ──────────────────────────────────
+
+// serviceRef maps a domain pattern to a human-readable service name and category.
+type serviceRef struct {
+	domain   string // substring match against URL host
+	service  string // human-readable name
+	category string // blockchain, payments, analytics, auth, ai, cdn, cloud, messaging, database
+}
+
+// knownServices is a catalog of external API/service domains. When a JS bundle
+// references one of these, it reveals the application's backend dependencies.
+var knownServices = []serviceRef{
+	// Blockchain / Web3
+	{domain: "helius-rpc.com", service: "Helius RPC (Solana)", category: "blockchain"},
+	{domain: "solana.com", service: "Solana RPC", category: "blockchain"},
+	{domain: "mainnet.infura.io", service: "Infura (Ethereum)", category: "blockchain"},
+	{domain: "alchemy.com", service: "Alchemy", category: "blockchain"},
+	{domain: "moralis.io", service: "Moralis", category: "blockchain"},
+	{domain: "quicknode.com", service: "QuickNode", category: "blockchain"},
+	{domain: "chainstack.com", service: "Chainstack", category: "blockchain"},
+	{domain: "etherscan.io/api", service: "Etherscan API", category: "blockchain"},
+
+	// Payments
+	{domain: "api.stripe.com", service: "Stripe API", category: "payments"},
+	{domain: "js.stripe.com", service: "Stripe.js", category: "payments"},
+	{domain: "api.paypal.com", service: "PayPal API", category: "payments"},
+	{domain: "checkout.razorpay.com", service: "Razorpay", category: "payments"},
+
+	// Auth / Identity
+	{domain: ".auth0.com", service: "Auth0", category: "auth"},
+	{domain: ".okta.com", service: "Okta", category: "auth"},
+	{domain: ".clerk.dev", service: "Clerk", category: "auth"},
+	{domain: "cognito-idp.", service: "AWS Cognito", category: "auth"},
+	{domain: ".supabase.co/auth", service: "Supabase Auth", category: "auth"},
+	{domain: ".firebaseauth.com", service: "Firebase Auth", category: "auth"},
+
+	// AI / ML
+	{domain: "api.openai.com", service: "OpenAI API", category: "ai"},
+	{domain: "api.anthropic.com", service: "Anthropic API", category: "ai"},
+	{domain: "api.cohere.ai", service: "Cohere API", category: "ai"},
+	{domain: "api.replicate.com", service: "Replicate API", category: "ai"},
+	{domain: "api-inference.huggingface.co", service: "HuggingFace Inference", category: "ai"},
+
+	// Cloud / Infrastructure
+	{domain: ".amazonaws.com", service: "AWS API", category: "cloud"},
+	{domain: ".supabase.co", service: "Supabase", category: "cloud"},
+	{domain: ".firebaseio.com", service: "Firebase Realtime DB", category: "cloud"},
+	{domain: "firestore.googleapis.com", service: "Cloud Firestore", category: "cloud"},
+	{domain: ".appwrite.io", service: "Appwrite", category: "cloud"},
+	{domain: ".convex.cloud", service: "Convex", category: "cloud"},
+	{domain: ".neon.tech", service: "Neon (Postgres)", category: "database"},
+	{domain: ".planetscale.com", service: "PlanetScale", category: "database"},
+
+	// Analytics / Monitoring
+	{domain: "api.segment.io", service: "Segment", category: "analytics"},
+	{domain: "api.mixpanel.com", service: "Mixpanel", category: "analytics"},
+	{domain: "api.amplitude.com", service: "Amplitude", category: "analytics"},
+	{domain: ".sentry.io/api", service: "Sentry", category: "monitoring"},
+	{domain: "api.datadoghq.com", service: "Datadog", category: "monitoring"},
+
+	// Messaging / Communication
+	{domain: "api.sendgrid.com", service: "SendGrid", category: "messaging"},
+	{domain: "api.twilio.com", service: "Twilio", category: "messaging"},
+	{domain: "hooks.slack.com", service: "Slack Webhook", category: "messaging"},
+	{domain: "discord.com/api", service: "Discord API", category: "messaging"},
+
+	// Search
+	{domain: ".algolia.net", service: "Algolia", category: "search"},
+	{domain: ".typesense.org", service: "Typesense", category: "search"},
+	{domain: ".meilisearch.com", service: "Meilisearch", category: "search"},
+}
+
+// jsURLExtractRe matches http/https URLs in JS source code.
+var jsURLExtractRe = regexp.MustCompile(`https?://[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:/[^\s"'` + "`" + `<>)\]},;]*)?`)
+
+// extractServiceReferences scans a JS file for URLs that reference known
+// external services and APIs. Each discovered service produces an informational
+// finding that reveals the application's backend dependencies.
+func extractServiceReferences(asset, jsURL, src string, now time.Time) []finding.Finding {
+	urls := jsURLExtractRe.FindAllString(src, 500)
+	if len(urls) == 0 {
+		return nil
+	}
+
+	// Deduplicate by service name — one finding per service per JS file.
+	seen := make(map[string]bool)
+	var findings []finding.Finding
+
+	for _, rawURL := range urls {
+		lower := strings.ToLower(rawURL)
+		for _, svc := range knownServices {
+			if !strings.Contains(lower, svc.domain) {
+				continue
+			}
+			if seen[svc.service] {
+				continue
+			}
+			seen[svc.service] = true
+
+			// Extract env var references from surrounding context.
+			var envVars []string
+			for _, envMatch := range extractEnvVarRefs(src, rawURL) {
+				envVars = append(envVars, envMatch)
+			}
+
+			ev := map[string]any{
+				"js_url":   jsURL,
+				"url":      rawURL,
+				"service":  svc.service,
+				"category": svc.category,
+			}
+			if len(envVars) > 0 {
+				ev["env_vars"] = envVars
+			}
+
+			desc := fmt.Sprintf(
+				"A JavaScript file at %s references %s (%s). "+
+					"This reveals that the application integrates with %s — "+
+					"an attacker can use this to map backend dependencies, identify "+
+					"potential pivot points, and target service-specific attacks.",
+				jsURL, svc.service, svc.category, svc.service)
+
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckJSExternalServiceRef,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityInfo,
+				Title:        fmt.Sprintf("External service reference: %s (%s)", svc.service, svc.category),
+				Description:  desc,
+				Asset:        asset,
+				Evidence:     ev,
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep -o '%s[^\"]*'", jsURL, svc.domain),
+				DiscoveredAt: now,
+			})
+		}
+	}
+	return findings
+}
+
+// envVarRefRe matches environment variable references near a URL in JS code:
+// process.env.VAR, ${...env...VAR}, import.meta.env.VAR, etc.
+var envVarRefRe = regexp.MustCompile(`(?:process\.env\.|import\.meta\.env\.|\$\{[^}]*env[^}]*\}|[A-Z][A-Z0-9_]{5,}_(?:KEY|SECRET|TOKEN|URL|API|ID))`)
+
+// extractEnvVarRefs finds environment variable references near a URL in the source.
+func extractEnvVarRefs(src, nearURL string) []string {
+	idx := strings.Index(src, nearURL)
+	if idx == -1 {
+		return nil
+	}
+	// Look at 200 chars before and after the URL for env var refs.
+	start := idx - 200
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(nearURL) + 200
+	if end > len(src) {
+		end = len(src)
+	}
+	context := src[start:end]
+
+	matches := envVarRefRe.FindAllString(context, 10)
+	seen := make(map[string]bool)
+	var unique []string
+	for _, m := range matches {
+		if !seen[m] {
+			seen[m] = true
+			unique = append(unique, m)
+		}
+	}
+	return unique
 }

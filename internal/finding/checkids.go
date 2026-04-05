@@ -1593,6 +1593,9 @@ const (
 	CheckJSFrameworkDetected   CheckID = "js.framework_detected"    // client-side JS framework and version identified
 	CheckJSFrameworkVulnerable CheckID = "js.framework_vulnerable"  // known CVE in detected JS framework version
 
+	// ── JS Service References ──────────────────────────────────────────
+	CheckJSExternalServiceRef  CheckID = "js.external_service_ref"  // external API/service URL discovered in JS bundle
+
 	// ── Dirbust (expanded) ──────────────────────────────────────────────
 	CheckDirbustTechExtension  CheckID = "dirbust.tech_extension_found" // path found via tech-specific extension probing
 	CheckDirbustRecursive      CheckID = "dirbust.recursive_found"      // path found via recursive directory probing
