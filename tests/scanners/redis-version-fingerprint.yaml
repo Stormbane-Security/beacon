@@ -1,0 +1,80 @@
+name: redis-version-fingerprint
+description: >
+  Redis 5.0 (old, no ACL support, unauthenticated) vs Redis 7.4 (new, password
+  required). Tests version extraction, auth status detection, and false positive
+  absence on the authenticated instance.
+tags: [redis, portscan, fingerprint, version, false-positive, exploit]
+
+services:
+  redis-old:
+    image: redis:5.0
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19510:6379"]
+
+  redis-new:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--requirepass", "beacon-test-pw", "--bind", "0.0.0.0"]
+    ports: ["19511:6379"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 19510 PING 2>/dev/null | grep -q PONG"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Pre-flight: both instances respond ---
+  - name: redis-old-responds
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 19510 PING | grep -q PONG"
+      exit_code: 0
+
+  - name: redis-new-requires-auth
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 19511 PING 2>&1 | grep -q NOAUTH"
+      exit_code: 0
+
+  # --- Old Redis: unauthenticated access detected ---
+  - name: detects-redis-old-unauth
+    type: beacon
+    target: localhost:19510
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19510"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # --- Old Redis: version extracted in evidence ---
+  - name: redis-old-version-in-evidence
+    type: beacon
+    target: localhost:19510
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19510", "--format", "json"]
+    expect:
+      check_id: port.redis_unauthenticated
+      evidence_contains:
+        version: "5.0"
+
+  # --- Old Redis: exploit chain fires ---
+  - name: redis-old-exploit-chain
+    type: beacon
+    target: localhost:19510
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19510", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exploit.lateral_movement
+
+  # --- New Redis: NO unauthenticated access (false positive guard) ---
+  - name: negative-redis-new-no-unauth
+    type: beacon
+    target: localhost:19511
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19511"]
+    expect:
+      absent_check_id: port.redis_unauthenticated
+
+  # --- New Redis: NO exploit chain fires ---
+  - name: negative-redis-new-no-exploit
+    type: beacon
+    target: localhost:19511
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19511", "--deep", "--permission-confirmed"]
+    expect:
+      absent_check_id: exploit.lateral_movement
+
+timeout: 5m

@@ -2971,6 +2971,148 @@ func enrichEvidenceFromFindings(ev *playbook.Evidence, findings []finding.Findin
 					ev.ExternalServices = append(ev.ExternalServices, svc)
 				}
 			}
+
+		// ── Port service fingerprints → PortServices ──────────────────────
+		case f.CheckID == finding.CheckPortServiceIdentified:
+			port, _ := f.Evidence["port"].(int)
+			if port == 0 {
+				break
+			}
+			if ev.PortServices == nil {
+				ev.PortServices = make(map[int]playbook.PortServiceInfo)
+			}
+			if _, exists := ev.PortServices[port]; !exists {
+				svc, _ := f.Evidence["service"].(string)
+				ver, _ := f.Evidence["version"].(string)
+				product, _ := f.Evidence["product"].(string)
+				osHint, _ := f.Evidence["os_hint"].(string)
+				banner, _ := f.Evidence["banner"].(string)
+				if len(banner) > 256 {
+					banner = banner[:256]
+				}
+				ev.PortServices[port] = playbook.PortServiceInfo{
+					Service:  svc,
+					Product:  product,
+					Version:  ver,
+					OSHint:   osHint,
+					Banner:   banner,
+					Protocol: "tcp",
+				}
+			}
+
+		// ── Auth weakness signals → CredentialExposures ───────────────────
+		case f.CheckID == finding.CheckPortRedisUnauth ||
+			f.CheckID == finding.CheckPortMemcachedUnauth ||
+			f.CheckID == finding.CheckPortElasticsearchUnauth ||
+			f.CheckID == finding.CheckPortCouchDBUnauth:
+			svc, _ := f.Evidence["service"].(string)
+			if svc == "" {
+				svc = string(f.CheckID)
+			}
+			ev.CredentialExposures = append(ev.CredentialExposures, playbook.CredentialExposure{
+				Type:    "no_auth",
+				Service: svc,
+			})
+
+		case f.CheckID == finding.CheckPortMinIODefaultCreds ||
+			f.CheckID == finding.CheckPortGrafanaDefaultCreds ||
+			f.CheckID == finding.CheckPortSonarQubeDefaultCreds ||
+			f.CheckID == finding.CheckPortAirflowDefaultCreds ||
+			f.CheckID == finding.CheckPortTomcatDefaultCreds ||
+			f.CheckID == finding.CheckPortPortainerDefaultCreds ||
+			f.CheckID == finding.CheckPortRabbitMQDefaultCreds ||
+			f.CheckID == finding.CheckPortMSSQLDefaultCreds ||
+			f.CheckID == finding.CheckPortSupersetDefaultCreds ||
+			f.CheckID == finding.CheckWebDefaultCredentials:
+			svc, _ := f.Evidence["service"].(string)
+			if svc == "" {
+				// Derive service from check ID prefix
+				svc = string(f.CheckID)
+			}
+			ev.CredentialExposures = append(ev.CredentialExposures, playbook.CredentialExposure{
+				Type:    "default_creds",
+				Service: svc,
+			})
+
+		// ── Credential harvest → CredentialExposures with access targets ──
+		case f.CheckID == finding.CheckExploitCredentialHarvest:
+			svc, _ := f.Evidence["credential_source"].(string)
+			target, _ := f.Evidence["grants_access_to"].(string)
+			ev.CredentialExposures = append(ev.CredentialExposures, playbook.CredentialExposure{
+				Type:           "harvested",
+				Service:        svc,
+				GrantsAccessTo: target,
+			})
+
+		// ── Data extraction → DataStoreConnections ────────────────────────
+		case f.CheckID == finding.CheckExploitDataExtracted:
+			svc, _ := f.Evidence["service"].(string)
+			host, _ := f.Evidence["target_host"].(string)
+			ev.DataStoreConnections = append(ev.DataStoreConnections, playbook.DataStoreConnection{
+				Type:   svc,
+				Host:   host,
+				Source: "exploit_chain",
+			})
+
+		// ── Internal network discovery → NetworkAdjacency ─────────────────
+		case f.CheckID == finding.CheckExploitInternalNetDiscovered:
+			if hosts, ok := f.Evidence["hosts_found"].([]string); ok {
+				for _, h := range hosts {
+					ev.NetworkAdjacency = append(ev.NetworkAdjacency, playbook.NetworkAdjacent{
+						Host:       h,
+						Discovered: "container_network",
+					})
+				}
+			}
+
+		// ── CI/CD signals ─────────────────────────────────────────────────
+		case f.CheckID == finding.CheckPortJenkinsNoAuth:
+			if !containsStr(ev.CICDSignals, "jenkins") {
+				ev.CICDSignals = append(ev.CICDSignals, "jenkins")
+			}
+		case f.CheckID == finding.CheckPortGiteaNoAuth:
+			if !containsStr(ev.CICDSignals, "gitea") {
+				ev.CICDSignals = append(ev.CICDSignals, "gitea")
+			}
+		case f.CheckID == finding.CheckGitLabAPIUnauth ||
+			f.CheckID == finding.CheckGitLabPublicProjects:
+			if !containsStr(ev.CICDSignals, "gitlab") {
+				ev.CICDSignals = append(ev.CICDSignals, "gitlab")
+			}
+
+		// ── API schema exposure → ExposedAPISchemas ───────────────────────
+		case f.CheckID == finding.CheckSwaggerExposed:
+			path, _ := f.Evidence["path"].(string)
+			if path == "" {
+				path = "/swagger"
+			}
+			ev.ExposedAPISchemas = append(ev.ExposedAPISchemas, playbook.APISchemaInfo{
+				Type: "openapi",
+				Path: path,
+			})
+		case f.CheckID == finding.CheckPortGRPCReflectionEnabled:
+			ev.ExposedAPISchemas = append(ev.ExposedAPISchemas, playbook.APISchemaInfo{
+				Type: "grpc_reflection",
+				Path: "/",
+			})
+
+		// ── UDP service fingerprints → PortServices ───────────────────────
+		case f.CheckID == finding.CheckPortServiceDiscovered:
+			if proto, _ := f.Evidence["protocol"].(string); proto == "udp" {
+				port, _ := f.Evidence["port"].(int)
+				svc, _ := f.Evidence["service"].(string)
+				if port > 0 && svc != "" {
+					if ev.PortServices == nil {
+						ev.PortServices = make(map[int]playbook.PortServiceInfo)
+					}
+					if _, exists := ev.PortServices[port]; !exists {
+						ev.PortServices[port] = playbook.PortServiceInfo{
+							Service:  svc,
+							Protocol: "udp",
+						}
+					}
+				}
+			}
 		}
 	}
 }

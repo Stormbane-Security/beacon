@@ -1177,7 +1177,10 @@ func detectTomcat(ctx context.Context, host string, port int, banner string, mak
 	if idx := strings.Index(body, "Apache Tomcat/"); idx >= 0 {
 		snippet := body[idx+len("Apache Tomcat/"):]
 		if end := strings.IndexAny(snippet, "<\" \n\r"); end > 0 {
-			ev["tomcat_version"] = snippet[:end]
+			ver := snippet[:end]
+			ev["tomcat_version"] = ver
+			ev["version"] = ver
+			ev["product"] = "Apache Tomcat " + ver
 		}
 	}
 	return []finding.Finding{makeF(

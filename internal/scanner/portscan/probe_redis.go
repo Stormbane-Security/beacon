@@ -22,9 +22,15 @@ func detectRedis(ctx context.Context, host string, port int, banner string, make
 		return nil
 	}
 
-	ev := map[string]any{"port": port, "service": "redis", "authenticated": false, "banner": banner}
+	ev := map[string]any{
+		"port": port, "service": "redis",
+		"authenticated": false, "auth_status": "no_auth",
+		"banner": banner,
+	}
 	if redisVersion != "" {
 		ev["redis_version"] = redisVersion
+		ev["version"] = redisVersion
+		ev["product"] = "Redis " + redisVersion
 	}
 	findings := []finding.Finding{makeF(
 		finding.CheckPortRedisUnauth,

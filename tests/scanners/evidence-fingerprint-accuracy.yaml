@@ -1,0 +1,90 @@
+name: evidence-fingerprint-accuracy
+description: >
+  Multi-service environment testing that Evidence fields are populated correctly:
+  ServiceVersions, Framework, PortServices, CredentialExposures. Uses services
+  with known versions and configurations to verify fingerprinting accuracy.
+tags: [evidence, fingerprint, classify, portscan, accuracy]
+
+services:
+  # nginx with known version — tests web_server ServiceVersions extraction
+  nginx:
+    image: nginx:1.25.4-alpine
+    ports: ["19600:80"]
+
+  # Redis unauthenticated — tests PortServices + CredentialExposures
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19601:6379"]
+
+  # Elasticsearch unauthenticated — tests version extraction from JSON API
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19602:9200"]
+
+ready:
+  cmd: "curl -sf http://localhost:19600/ -o /dev/null && redis-cli -h localhost -p 19601 PING 2>/dev/null | grep -q PONG && curl -sf http://localhost:19602/ | grep -q cluster_name"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # --- nginx: Server header version extracted ---
+  - name: nginx-server-version
+    type: classify
+    target: localhost:19600
+    expect:
+      service_version_contains:
+        web_server: "nginx/1.25"
+
+  # --- nginx: technology stack finding emitted ---
+  - name: nginx-tech-stack-finding
+    type: beacon
+    target: localhost:19600
+    args: ["--no-enrich", "--scanners", "classify"]
+    expect:
+      check_id: web.tech_detected
+
+  # --- Redis: version extracted in finding evidence ---
+  - name: redis-version-in-finding
+    type: beacon
+    target: localhost:19601
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19601", "--format", "json"]
+    expect:
+      check_id: port.redis_unauthenticated
+      evidence_contains:
+        version: "7.2"
+
+  # --- Redis: service identified with correct name ---
+  - name: redis-service-identified
+    type: beacon
+    target: localhost:19601
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19601"]
+    expect:
+      check_id: port.service_identified
+      evidence_contains:
+        service: "redis"
+
+  # --- Elasticsearch: version extracted in finding evidence ---
+  - name: es-version-in-finding
+    type: beacon
+    target: localhost:19602
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19602", "--format", "json"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+      evidence_contains:
+        version: "7.17.0"
+
+  # --- Elasticsearch: product name in evidence ---
+  - name: es-product-in-finding
+    type: beacon
+    target: localhost:19602
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19602", "--format", "json"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+      evidence_contains:
+        product: "Elasticsearch 7.17.0"
+
+timeout: 10m

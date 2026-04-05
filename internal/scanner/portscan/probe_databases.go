@@ -87,16 +87,26 @@ func detectElasticsearch(ctx context.Context, host string, port int, banner stri
 		description = "An OpenSearch cluster is accessible without credentials. " +
 			"All indexed data can be read, modified, or deleted by anyone with network access."
 	}
+	esVer := parseJSONStringField(body, "number")
+	esEv := map[string]any{
+		"port": port, "service": serviceName,
+		"authenticated": false, "auth_status": "no_auth",
+		"banner": banner,
+	}
+	if esVer != "" {
+		esEv["version"] = esVer
+		esEv["product"] = serviceName + " " + esVer
+	}
 	var esFindings []finding.Finding
 	esFindings = append(esFindings, makeF(
 		finding.CheckPortElasticsearchUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("%s exposed on port %d", serviceLabel, port),
 		description,
-		map[string]any{"port": port, "service": serviceName, "authenticated": false, "banner": banner},
+		esEv,
 	))
 	// CVE-2015-1427: Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE.
-	if esVer := parseJSONStringField(body, "number"); serviceName == "Elasticsearch" && isElasticsearchGroovyVulnerable(esVer) {
+	if serviceName == "Elasticsearch" && isElasticsearchGroovyVulnerable(esVer) {
 		esFindings = append(esFindings, makeF(
 			finding.CheckCVEElasticsearchGroovyRCE,
 			finding.SeverityCritical,
@@ -118,13 +128,18 @@ func detectMongoDB(ctx context.Context, host string, port int, banner string, ma
 	if !unauth {
 		return nil
 	}
+	ev := map[string]any{
+		"port": port, "service": "mongodb",
+		"authenticated": false, "auth_status": "no_auth",
+		"banner": banner,
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDatabaseExposed,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated MongoDB exposed on port %d", port),
 		"A MongoDB instance is accepting connections without authentication. "+
 			"All collections and documents are readable and writable by any network client.",
-		map[string]any{"port": port, "service": "mongodb", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -133,6 +148,22 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 	// MySQL: greeting packet starts with protocol version 0x0a/0x09
 	if probeMySQL(ctx, host, port) {
 		dbName := "MySQL"
+		mysqlVer := probeMySQLVersion(ctx, host, port)
+		dbEv := map[string]any{
+			"port": port, "service": dbName,
+			"banner": banner,
+		}
+		noAuthEv := map[string]any{
+			"port": port, "service": dbName,
+			"user": "root", "password": "(empty)",
+			"auth_status": "no_auth",
+		}
+		if mysqlVer != "" {
+			dbEv["version"] = mysqlVer
+			dbEv["product"] = "MySQL " + mysqlVer
+			noAuthEv["version"] = mysqlVer
+			noAuthEv["product"] = "MySQL " + mysqlVer
+		}
 		return []finding.Finding{
 			makeF(
 				finding.CheckPortDatabaseExposed,
@@ -141,7 +172,7 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 				fmt.Sprintf("A %s database is directly accessible from the internet. "+
 					"Databases should never be exposed publicly; this enables brute-force attacks and "+
 					"exploitation of database-engine vulnerabilities.", dbName),
-				map[string]any{"port": port, "service": dbName, "banner": banner},
+				dbEv,
 			),
 			makeF(
 				finding.CheckPortMySQLNoAuth,
@@ -152,13 +183,22 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 					"SELECT * FROM all tables, read local files via LOAD DATA INFILE, and potentially "+
 					"achieve RCE via SELECT INTO OUTFILE or UDF injection. "+
 					"Set a strong root password immediately: ALTER USER 'root'@'%' IDENTIFIED BY '...'",
-				map[string]any{"port": port, "service": dbName, "user": "root", "password": "(empty)"},
+				noAuthEv,
 			),
 		}
 	}
 	// PostgreSQL: responds to SSLRequest or StartupMessage
 	if probePostgreSQL(ctx, host, port) {
 		dbName := "PostgreSQL"
+		pgEv := map[string]any{
+			"port": port, "service": dbName,
+			"banner": banner,
+		}
+		trustEv := map[string]any{
+			"port": port, "service": dbName,
+			"user": "postgres", "auth_method": "trust",
+			"auth_status": "no_auth",
+		}
 		return []finding.Finding{
 			makeF(
 				finding.CheckPortDatabaseExposed,
@@ -167,7 +207,7 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 				fmt.Sprintf("A %s database is directly accessible from the internet. "+
 					"Databases should never be exposed publicly; this enables brute-force attacks and "+
 					"exploitation of database-engine vulnerabilities.", dbName),
-				map[string]any{"port": port, "service": dbName, "banner": banner},
+				pgEv,
 			),
 			makeF(
 				finding.CheckPortPostgreSQLTrust,
@@ -177,7 +217,7 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 					"Any client can connect as postgres without a password, gaining superuser access to all databases. "+
 					"Trust authentication exposes COPY TO/FROM PROGRAM (RCE), pg_read_file(), and all data. "+
 					"Set pg_hba.conf to require 'scram-sha-256' or 'md5' for all remote connections.",
-				map[string]any{"port": port, "service": dbName, "user": "postgres", "auth_method": "trust"},
+				trustEv,
 			),
 		}
 	}

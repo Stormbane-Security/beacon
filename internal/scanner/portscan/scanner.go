@@ -2582,6 +2582,40 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 	return false
 }
 
+// probeMySQLVersion connects and reads the MySQL greeting to extract the server version string.
+// Returns the version (e.g. "8.0.36") or "" if it can't be determined.
+// This is a lightweight read-only probe — it does NOT attempt authentication.
+func probeMySQLVersion(ctx context.Context, host string, port int) string {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return ""
+	}
+	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
+	if pktLen < 2 || pktLen > (1<<24) {
+		return ""
+	}
+	greeting := make([]byte, pktLen)
+	if _, err := io.ReadFull(conn, greeting); err != nil {
+		return ""
+	}
+	// Protocol version 0x0a followed by NUL-terminated version string
+	if greeting[0] != 0x0a && greeting[0] != 0x09 {
+		return ""
+	}
+	if nul := bytes.IndexByte(greeting[1:], 0); nul > 0 {
+		return string(greeting[1 : 1+nul])
+	}
+	return ""
+}
+
 // probePostgreSQL attempts a PostgreSQL startup handshake as user "postgres" with no password.
 // Returns true if the server responds with AuthenticationOk (message type 'R' + int32(0)),
 // indicating trust authentication is configured for remote connections.
