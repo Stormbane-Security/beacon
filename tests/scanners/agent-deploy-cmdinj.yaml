@@ -45,7 +45,7 @@ assertions:
   - name: beacon-finds-cmdinj
     type: beacon
     target: localhost:8080
-    args: ["--authorized", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
+    args: ["--authorized", "--yes", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
     expect:
       check_id: web.command_injection
 

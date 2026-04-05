@@ -7,7 +7,10 @@ package portscan
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1154,5 +1157,81 @@ func TestTransparentProxyDetection(t *testing.T) {
 			t.Errorf("expected ratio_pct >= 80, got %d", ratio)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// detectElasticsearch unit tests
+// ---------------------------------------------------------------------------
+
+func testMakeF(checkID finding.CheckID, sev finding.Severity, title, desc string, ev map[string]any) finding.Finding {
+	return finding.Finding{CheckID: checkID, Severity: sev, Title: title, Description: desc, Evidence: ev}
+}
+
+func TestElasticsearchDetectTruePositive(t *testing.T) {
+	esResponse := `{"name":"node1","cluster_name":"docker-cluster","cluster_uuid":"abc123","version":{"number":"7.17.0","build_flavor":"default"},"tagline":"You Know, for Search"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(esResponse))
+	}))
+	defer ts.Close()
+
+	host, port := splitTestServer(t, ts)
+	fs := detectElasticsearch(context.Background(), host, port, "", testMakeF)
+	if len(fs) == 0 {
+		t.Fatal("expected findings for real ES response, got none")
+	}
+	hasCheck := false
+	for _, f := range fs {
+		if f.CheckID == finding.CheckPortElasticsearchUnauth {
+			hasCheck = true
+		}
+	}
+	if !hasCheck {
+		t.Errorf("expected CheckPortElasticsearchUnauth in findings")
+	}
+}
+
+func TestElasticsearchDetectFalsePositiveRabbitMQ(t *testing.T) {
+	// RabbitMQ management /api/overview returns JSON with cluster_name but NOT
+	// cluster_uuid or version.number — should NOT match Elasticsearch.
+	rmqResponse := `{"management_version":"3.13.0","rates_mode":"basic","rabbitmq_version":"3.13.0","cluster_name":"rabbit@hostname","erlang_version":"26.2.1"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(rmqResponse))
+	}))
+	defer ts.Close()
+
+	host, port := splitTestServer(t, ts)
+	fs := detectElasticsearch(context.Background(), host, port, "", testMakeF)
+	if len(fs) > 0 {
+		t.Errorf("detectElasticsearch should NOT match RabbitMQ management API, got %d findings (first: %s)", len(fs), fs[0].CheckID)
+	}
+}
+
+func TestElasticsearchDetectFalsePositiveGenericJSON(t *testing.T) {
+	// Generic JSON API that happens to have "cluster_name" but nothing else ES-specific.
+	genericResponse := `{"status":"ok","cluster_name":"my-app","nodes":3}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(genericResponse))
+	}))
+	defer ts.Close()
+
+	host, port := splitTestServer(t, ts)
+	fs := detectElasticsearch(context.Background(), host, port, "", testMakeF)
+	if len(fs) > 0 {
+		t.Errorf("detectElasticsearch should NOT match generic JSON with cluster_name, got %d findings", len(fs))
+	}
+}
+
+func splitTestServer(t *testing.T, ts *httptest.Server) (string, int) {
+	t.Helper()
+	addr := strings.TrimPrefix(ts.URL, "http://")
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("splitTestServer: %v", err)
+	}
+	port, _ := strconv.Atoi(portStr)
+	return host, port
 }
 

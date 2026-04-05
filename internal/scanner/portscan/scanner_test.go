@@ -9,8 +9,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -74,33 +72,10 @@ func TestRunContextCancellationIsRespected(t *testing.T) {
 	}
 }
 
-// TestElasticsearchUnauthFinding verifies that an HTTP 200 on port 9200
-// at /_cat/health triggers CheckPortElasticsearchUnauth.
-// We start a real HTTP server and validate the probe logic via a mock.
+// TestElasticsearchUnauthFinding is a placeholder — real tests for
+// detectElasticsearch live in probe_test.go (internal package).
 func TestElasticsearchUnauthFinding(t *testing.T) {
-	// Start a mock Elasticsearch server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/_cat/health" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`[{"status":"green"}]`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-
-	// Extract just the host:port from the test server URL
-	addr := strings.TrimPrefix(ts.URL, "http://")
-	host, _, _ := net.SplitHostPort(addr)
-
-	// We can't call Run() and route to a non-standard port.
-	// Instead verify the HTTP probe helper produces the correct finding
-	// by directly testing the exported probe via a test that bypasses
-	// the fixed-port constraint using the internal probeHTTP helper.
-	// Since probeHTTP is unexported, we document this limitation here:
-	// Full integration tested via TestPrometheusUnauthHTTPMock below.
-	_ = host
-	t.Log("Note: probeHTTP is unexported; integration coverage via mock HTTP server on actual port 9200 requires a real ES instance")
+	t.Log("detectElasticsearch tested via TestElasticsearchDetect* in probe_test.go")
 }
 
 // TestPortScannerDoesNotProbeUnknownPorts verifies that the scanner only checks

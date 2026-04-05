@@ -32,6 +32,6 @@ assertions:
   - name: beacon-ssrf-scan
     type: beacon
     target: localhost
-    args: ["--authorized", "--scanners", "ssrf", "--output-json", "/tmp/results.json"]
+    args: ["--authorized", "--yes", "--scanners", "ssrf", "--output-json", "/tmp/results.json"]
     expect:
       min_findings: 1

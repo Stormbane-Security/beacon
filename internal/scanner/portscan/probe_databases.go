@@ -71,9 +71,14 @@ func detectElasticsearch(ctx context.Context, host string, port int, banner stri
 		return nil
 	}
 	// Require ES/OpenSearch-specific JSON fields in root response.
-	// ES returns: {"name":"...","cluster_name":"...","cluster_uuid":"...","version":{...},...}
+	// ES returns: {"name":"...","cluster_name":"...","cluster_uuid":"...","version":{"number":"..."},...}
+	// Require cluster_name AND (cluster_uuid OR "version"+"number") to avoid false positives
+	// on other HTTP services that might have one of these fields (e.g. RabbitMQ management).
 	bodyLower := strings.ToLower(body)
-	if !strings.Contains(bodyLower, "cluster_name") && !strings.Contains(bodyLower, "cluster_uuid") {
+	if !strings.Contains(bodyLower, "cluster_name") {
+		return nil
+	}
+	if !strings.Contains(bodyLower, "cluster_uuid") && !(strings.Contains(bodyLower, `"version"`) && strings.Contains(bodyLower, `"number"`)) {
 		return nil
 	}
 	// Distinguish OpenSearch from Elasticsearch via the root response.

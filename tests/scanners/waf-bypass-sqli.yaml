@@ -45,6 +45,6 @@ assertions:
   - name: beacon-bypasses-waf
     type: beacon
     target: localhost
-    args: ["--authorized", "--scanners", "sqli", "--output-json", "/tmp/results.json"]
+    args: ["--authorized", "--yes", "--scanners", "sqli", "--output-json", "/tmp/results.json"]
     expect:
       check_id: web.sqli

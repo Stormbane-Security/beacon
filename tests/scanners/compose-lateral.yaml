@@ -150,7 +150,7 @@ assertions:
   - name: beacon-discovers-internal-hosts
     type: beacon
     target: localhost:9352
-    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.internal_network_discovered
       evidence_key: hosts_found
@@ -158,7 +158,7 @@ assertions:
   - name: beacon-pivots-to-redis
     type: beacon
     target: localhost:9352
-    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.lateral_movement
       evidence_key: pivot_target
@@ -167,7 +167,7 @@ assertions:
   - name: beacon-extracts-creds-from-redis
     type: beacon
     target: localhost:9352
-    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.credential_harvest
       evidence_key: credential_source
@@ -176,7 +176,7 @@ assertions:
   - name: beacon-pivots-to-elasticsearch
     type: beacon
     target: localhost:9352
-    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.lateral_movement
       evidence_key: pivot_target
@@ -185,7 +185,7 @@ assertions:
   - name: beacon-extracts-data-from-elasticsearch
     type: beacon
     target: localhost:9352
-    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "cmdinj", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.data_extracted
       evidence_key: data_type

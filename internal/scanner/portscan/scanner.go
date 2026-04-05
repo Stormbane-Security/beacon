@@ -1715,9 +1715,14 @@ func probeMinIODefaultCreds(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = resp.Body.Close() }()
-	// 200 with a session token means credentials were accepted.
-	if resp.StatusCode != http.StatusOK {
+	// 200 or 204 means credentials were accepted. MinIO Console returns 204
+	// with a session cookie on successful login.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return false
+	}
+	if resp.StatusCode == http.StatusNoContent {
+		// MinIO Console returns 204 with cookies — login succeeded.
+		return true
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	var loginResp struct {
