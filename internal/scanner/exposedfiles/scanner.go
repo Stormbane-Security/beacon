@@ -3416,8 +3416,9 @@ func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset strin
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
-	// Any non-404 response with Telerik-specific content confirms the endpoint.
-	if resp.StatusCode == http.StatusNotFound {
+	// Only 200/400/500 responses are valid Telerik indicators.
+	// 404 = not found, 3xx = redirect (SPA catch-all or CDN rewrite).
+	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 300 && resp.StatusCode < 400) {
 		return nil
 	}
 	bLower := strings.ToLower(string(b))
