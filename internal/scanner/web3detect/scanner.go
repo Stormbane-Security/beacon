@@ -64,9 +64,12 @@ var walletLibNames = []string{
 // word boundaries, to avoid matching partial hashes in comments.
 var evmAddressRe = regexp.MustCompile(`\b0x[0-9a-fA-F]{40}\b`)
 
-// rpcEndpointRe matches well-known RPC provider hostnames.
+// rpcEndpointRe matches well-known RPC provider endpoint URLs.
+// Requires a non-trivial path (at least /v followed by a digit, or a path
+// with 10+ hex/alphanumeric chars that look like an API key) to avoid
+// matching marketing pages like www.alchemy.com or docs.infura.io.
 var rpcEndpointRe = regexp.MustCompile(
-	`https://[a-z0-9.\-]+(\.infura\.io|\.alchemyapi\.io|\.ankr\.com|\.quicknode\.io|\.alchemy\.com)[^\s"'<>]*`)
+	`https://[a-z0-9.\-]+(\.infura\.io|\.alchemyapi\.io|\.ankr\.com|\.quicknode\.io|\.alchemy\.com)/v\d/[^\s"'<>]+`)
 
 // scriptSrcRe extracts JS file URLs from <script src="..."> tags.
 var scriptSrcRe = regexp.MustCompile(`<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
