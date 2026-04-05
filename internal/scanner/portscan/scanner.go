@@ -452,15 +452,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Run nmap against confirmed open ports for service version + NSE scripts.
 	// Nmap results supplement (not replace) the pure-Go scan findings — Go TCP
 	// findings are always emitted regardless of whether nmap is available.
-	if nmapFs := s.runNmap(ctx, asset, openPorts, scanType); len(nmapFs) > 0 {
-		findings = append(findings, nmapFs...)
+	// Skip nmap when using explicit --ports (targeted scan mode) — the caller
+	// wants fast results on specific ports, not a full nmap fingerprint pass.
+	if len(s.Ports) == 0 {
+		if nmapFs := s.runNmap(ctx, asset, openPorts, scanType); len(nmapFs) > 0 {
+			findings = append(findings, nmapFs...)
+		}
 	}
 
 	// Run UDP probes for services not reachable via TCP connect.
 	// Deep mode runs all UDP probes; surface mode runs the basic set only.
-	// Pass explicit ports so UDP probes can also try non-standard ports
-	// (e.g. DNS on 5353 instead of just 53).
-	if ctx.Err() == nil {
+	// Skip when using explicit --ports (targeted TCP scan mode).
+	if ctx.Err() == nil && len(s.Ports) == 0 {
 		udpExtra := append([]int{}, s.Ports...)
 		if targetPort > 0 {
 			udpExtra = append(udpExtra, targetPort)
@@ -1036,12 +1039,10 @@ func probeJupyter(ctx context.Context, host string, port int) bool {
 	return strings.Contains(strings.ToLower(string(body)), "jupyter")
 }
 
-// probeMongoDB sends the MongoDB OP_MSG "hello" wire-protocol message and
-// checks that the response starts with a valid MongoDB wire-protocol header.
-//
-// Wire format: MsgHeader (16 bytes) + OP_MSG body.
-// We send a minimal isMaster/hello request and check whether the response
-// carries a BSON document with { ok: 1 }.
+// probeMongoDB checks for unauthenticated MongoDB access by sending a
+// listDatabases command via OP_MSG wire protocol. This correctly returns
+// false on auth-enabled MongoDB (which rejects listDatabases without creds)
+// and true only on genuinely unauthenticated instances.
 func probeMongoDB(ctx context.Context, host string, port int) bool {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	dialer := &net.Dialer{Timeout: dialTimeout}
@@ -1052,26 +1053,51 @@ func probeMongoDB(ctx context.Context, host string, port int) bool {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
-	// Build a minimal OP_MSG hello.
-	// BSON document: { isMaster: 1 }
-	// Encoding: int32 len + elements + 0x00 terminator
-	//   "\x13\x00\x00\x00"               -- doc len = 19
-	//   "\x10"                            -- type int32
-	//   "isMaster\x00"                   -- key
-	//   "\x01\x00\x00\x00"               -- value 1
-	//   "\x00"                            -- terminator
-	bsonDoc := []byte{
+	const opMsg uint32 = 2013
+
+	// Step 1: Send isMaster to confirm it's MongoDB.
+	isMasterBSON := []byte{
 		0x13, 0x00, 0x00, 0x00, // document length = 19
-		0x10,                                           // type: int32
+		0x10,                                                     // type: int32
 		0x69, 0x73, 0x4d, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00, // "isMaster\0"
 		0x01, 0x00, 0x00, 0x00, // value: 1
 		0x00, // terminator
 	}
+	if !sendMongoOPMsg(conn, opMsg, 1, isMasterBSON) {
+		return false
+	}
+	respCode, _ := readMongoOPMsgResponse(conn, opMsg)
+	if respCode == 0 {
+		return false
+	}
 
-	// OP_MSG header + flagBits (0) + section kind 0 + BSON body
-	// MsgHeader: messageLength(4) requestID(4) responseTo(4) opCode(4)
-	// OP_MSG opCode = 2013 (0x07DD)
-	const opMsg = 2013
+	// Step 2: Send listDatabases to verify unauthenticated access.
+	// BSON: {listDatabases: 1, $db: "admin"}
+	listDBBSON := []byte{
+		0x27, 0x00, 0x00, 0x00, // document length = 39
+		0x10,                                                                                           // type: int32
+		0x6c, 0x69, 0x73, 0x74, 0x44, 0x61, 0x74, 0x61, 0x62, 0x61, 0x73, 0x65, 0x73, 0x00, // "listDatabases\0"
+		0x01, 0x00, 0x00, 0x00, // value: 1
+		0x02,                   // type: string
+		0x24, 0x64, 0x62, 0x00, // "$db\0"
+		0x06, 0x00, 0x00, 0x00, // string length = 6
+		0x61, 0x64, 0x6d, 0x69, 0x6e, 0x00, // "admin\0"
+		0x00, // terminator
+	}
+	if !sendMongoOPMsg(conn, opMsg, 2, listDBBSON) {
+		return false
+	}
+	_, respBody := readMongoOPMsgResponse(conn, opMsg)
+
+	// Check if response contains BSON ok: 1.0 (type double).
+	// BSON double "ok" with value 1.0:
+	//   \x01 "ok\0" \x00\x00\x00\x00\x00\x00\xF0\x3F
+	okPattern := []byte{0x01, 0x6f, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f}
+	return bytes.Contains(respBody, okPattern)
+}
+
+// sendMongoOPMsg builds and sends an OP_MSG wire protocol message.
+func sendMongoOPMsg(conn net.Conn, opCode uint32, reqID uint32, bsonDoc []byte) bool {
 	flagBits := []byte{0x00, 0x00, 0x00, 0x00}
 	sectionKind := []byte{0x00} // kind 0 = body
 
@@ -1081,23 +1107,37 @@ func probeMongoDB(ctx context.Context, host string, port int) bool {
 	headerLen := 16 + len(body)
 	header := make([]byte, 16)
 	binary.LittleEndian.PutUint32(header[0:4], uint32(headerLen))
-	binary.LittleEndian.PutUint32(header[4:8], 1)    // requestID
-	binary.LittleEndian.PutUint32(header[8:12], 0)   // responseTo
-	binary.LittleEndian.PutUint32(header[12:16], opMsg)
+	binary.LittleEndian.PutUint32(header[4:8], reqID)
+	binary.LittleEndian.PutUint32(header[8:12], 0)
+	binary.LittleEndian.PutUint32(header[12:16], opCode)
 
 	msg := append(header, body...)
-	if _, err := conn.Write(msg); err != nil {
-		return false
-	}
+	_, err := conn.Write(msg)
+	return err == nil
+}
 
-	// Read the 16-byte response header and check opCode is OP_MSG (2013).
+// readMongoOPMsgResponse reads a MongoDB OP_MSG response. Returns the opCode
+// and the BSON body (everything after the 16-byte header + 4 flagBits + 1 sectionKind).
+func readMongoOPMsgResponse(conn net.Conn, expectedOp uint32) (uint32, []byte) {
 	respHeader := make([]byte, 16)
 	if _, err := io.ReadFull(conn, respHeader); err != nil {
-		return false
+		return 0, nil
 	}
+	respLen := binary.LittleEndian.Uint32(respHeader[0:4])
 	respOpCode := binary.LittleEndian.Uint32(respHeader[12:16])
-	// A valid MongoDB response returns OP_MSG (2013) or the legacy OP_REPLY (1).
-	return respOpCode == opMsg || respOpCode == 1
+	if respOpCode != expectedOp && respOpCode != 1 {
+		return 0, nil
+	}
+	// Read the rest of the message (respLen includes the 16-byte header).
+	bodyLen := int(respLen) - 16
+	if bodyLen <= 0 || bodyLen > 1<<20 {
+		return respOpCode, nil
+	}
+	body := make([]byte, bodyLen)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return respOpCode, nil
+	}
+	return respOpCode, body
 }
 
 // probeMQTT sends a minimal MQTT CONNECT packet and checks for a CONNACK response.
@@ -1479,17 +1519,25 @@ func parseFTPVersion(banner string) string {
 // occurrence of "key":"value" and returns the value string. It avoids a full
 // json.Unmarshal to stay allocation-light for the common hot path.
 func parseJSONStringField(body, key string) string {
+	// Try compact format: "key":"value"
 	needle := `"` + key + `":"`
 	idx := strings.Index(body, needle)
-	if idx < 0 {
-		return ""
+	if idx >= 0 {
+		rest := body[idx+len(needle):]
+		if end := strings.IndexByte(rest, '"'); end >= 0 {
+			return rest[:end]
+		}
 	}
-	rest := body[idx+len(needle):]
-	end := strings.IndexByte(rest, '"')
-	if end < 0 {
-		return ""
+	// Try pretty-printed format: "key" : "value" (with spaces around colon)
+	needle = `"` + key + `" : "`
+	idx = strings.Index(body, needle)
+	if idx >= 0 {
+		rest := body[idx+len(needle):]
+		if end := strings.IndexByte(rest, '"'); end >= 0 {
+			return rest[:end]
+		}
 	}
-	return rest[:end]
+	return ""
 }
 
 // isElasticsearchGroovyVulnerable returns true when the Elasticsearch version is

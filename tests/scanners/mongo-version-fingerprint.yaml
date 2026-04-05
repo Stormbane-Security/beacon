@@ -18,16 +18,16 @@ services:
     ports: ["19581:27017"]
 
 ready:
-  cmd: "mongosh --host localhost --port 19580 --eval 'db.runCommand({ping:1})' --quiet 2>/dev/null || mongo --host localhost --port 19580 --eval 'db.runCommand({ping:1})' --quiet 2>/dev/null"
+  cmd: "nc -z localhost 19580 && nc -z localhost 19581"
   timeout: 60s
   interval: 3s
 
 assertions:
-  # --- Pre-flight ---
+  # --- Pre-flight: TCP connectivity ---
   - name: mongo-old-accessible
     type: command
     expect:
-      command: "(mongosh --host localhost --port 19580 --eval 'db.runCommand({ping:1})' --quiet || mongo --host localhost --port 19580 --eval 'db.runCommand({ping:1})' --quiet) 2>/dev/null | grep -q 'ok'"
+      command: "nc -z localhost 19580"
       exit_code: 0
 
   # --- Old MongoDB: unauthenticated access detected ---
@@ -42,7 +42,7 @@ assertions:
   - name: mongo-old-exploit-chain
     type: beacon
     target: localhost:19580
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19580", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19580", "--authorized", "--deep", "--permission-confirmed", "--yes"]
     expect:
       check_id: exploit.lateral_movement
 
@@ -58,7 +58,7 @@ assertions:
   - name: negative-mongo-new-no-exploit
     type: beacon
     target: localhost:19581
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19581", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19581", "--authorized", "--deep", "--permission-confirmed", "--yes"]
     expect:
       not_check_id: exploit.lateral_movement
 

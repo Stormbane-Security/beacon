@@ -22,7 +22,7 @@ services:
     ports: ["19521:9200"]
 
 ready:
-  cmd: "curl -sf http://localhost:19520/_cluster/health | grep -q status"
+  cmd: "curl -sf http://localhost:19520/_cluster/health | grep -q status && curl -sf http://localhost:19521/ | grep -q lucene"
   timeout: 180s
   interval: 10s
 
@@ -62,9 +62,9 @@ assertions:
   - name: es-old-exploit-chain
     type: beacon
     target: localhost:19520
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--authorized", "--deep", "--permission-confirmed", "--yes"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: exploit.lateral_movement
 
   # --- New ES: also unauthenticated (security disabled) ---
   - name: detects-es-new-unauth

@@ -39,7 +39,7 @@ assertions:
     target: localhost:19550
     args: ["--no-enrich"]
     expect:
-      check_id: web.version_outdated
+      check_id: version.outdated_software
 
   # --- New nginx: NOT flagged as EOL ---
   - name: negative-nginx-new-not-eol
@@ -47,6 +47,6 @@ assertions:
     target: localhost:19551
     args: ["--no-enrich"]
     expect:
-      not_check_id: web.version_outdated
+      not_check_id: version.outdated_software
 
 timeout: 5m
