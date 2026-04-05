@@ -101,16 +101,16 @@ document.getElementById('output').innerHTML = decodeURIComponent(location.hash.s
 	if err != nil {
 		t.Fatalf("cannot start test server: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, vulnPage)
+		_, _ = fmt.Fprint(w, vulnPage)
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(l)
-	defer srv.Close()
+	go func() { _ = srv.Serve(l) }()
+	defer func() { _ = srv.Close() }()
 
 	asset := l.Addr().String() // "127.0.0.1:XXXXX"
 	s := New()
@@ -149,16 +149,16 @@ func TestDOMXSS_NoFindingOnSafePage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot start test server: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, safePage)
+		_, _ = fmt.Fprint(w, safePage)
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(l)
-	defer srv.Close()
+	go func() { _ = srv.Serve(l) }()
+	defer func() { _ = srv.Close() }()
 
 	asset := l.Addr().String()
 	s := New()
