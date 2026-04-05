@@ -5461,14 +5461,25 @@ func probeStruts2S2066(ctx context.Context, client *http.Client, base, asset str
 		if err != nil {
 			continue
 		}
+		// Reject redirects — SPA catch-alls return 3xx for unknown paths.
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			_ = resp.Body.Close()
+			continue
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		_ = resp.Body.Close()
 		bodyLow := strings.ToLower(string(body))
+		// Require strong Struts indicators — not just "struts2" which can
+		// appear when SPA catch-all pages reflect the URL path in the body.
 		isStruts := strings.Contains(bodyLow, "apache struts") ||
-			strings.Contains(bodyLow, "struts2") ||
 			strings.Contains(bodyLow, "struts 2") ||
 			strings.Contains(bodyLow, "there is no action mapped") ||
 			resp.Header.Get("X-Struts-Version") != ""
+		// "struts2" alone is only valid if the path doesn't contain it
+		// (avoids SPA URL reflection matching the path itself).
+		if !isStruts && strings.Contains(bodyLow, "struts2") && !strings.Contains(p, "struts2") {
+			isStruts = true
+		}
 		if !isStruts {
 			continue
 		}

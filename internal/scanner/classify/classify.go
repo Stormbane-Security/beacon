@@ -1084,12 +1084,12 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 
 	// Sanity check: catch-all/SPA detection. Two thresholds:
 	// 1. Absolute: >15 paths returned 200 — no server runs 15+ backends.
-	// 2. Proportional: if ≥80% of probed paths returned 200 AND we probed
-	//    at least 5 paths, this is almost certainly a catch-all. With
-	//    progressive probing sending only ~12 universal paths, the old
-	//    absolute threshold of 15 was too high to catch SPA catch-alls.
+	// 2. Proportional: if ≥80% of probed paths returned any accepted status
+	//    (2xx, 3xx, 401, 403) AND we probed at least 5 paths, this is almost
+	//    certainly a catch-all. Uses len(found) not ok200 because SPAs may
+	//    return mixed status codes (200, 301, etc.) for nonexistent paths.
 	isCatchAll := ok200 > 15
-	if !isCatchAll && len(selectedPaths) >= 5 && ok200 >= len(selectedPaths)*4/5 {
+	if !isCatchAll && len(selectedPaths) >= 5 && len(found) >= len(selectedPaths)*4/5 {
 		isCatchAll = true
 	}
 	if isCatchAll {
