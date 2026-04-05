@@ -149,6 +149,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if resp.StatusCode == 400 {
 				return
 			}
+			// Skip 5xx — server errors (especially 502 Bad Gateway, 503 Service
+			// Unavailable, 504 Gateway Timeout) indicate the upstream doesn't
+			// exist or is down, not that the endpoint is accessible.
+			if resp.StatusCode >= 500 {
+				return
+			}
 			// Skip HTML responses — almost certainly a catch-all redirect/landing page.
 			ct := resp.Header.Get("Content-Type")
 			if strings.Contains(ct, "text/html") {

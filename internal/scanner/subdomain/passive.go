@@ -135,12 +135,35 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 	// Generate targeted permutations of discovered subdomains (env prefixes,
 	// version suffixes, infra keywords). Much smaller query set than blind
 	// wordlists — only permutes actually-discovered names.
+	// Each permutation is DNS-resolved — only those that actually resolve are
+	// included as confirmed discoveries.
 	var discovered []string
 	for sub := range subdomains {
 		discovered = append(discovered, sub)
 	}
-	for _, perm := range permuteSubdomains(discovered, asset) {
-		subdomains[perm] = struct{}{}
+	permCandidates := permuteSubdomains(discovered, asset)
+	if len(permCandidates) > 0 {
+		// Resolve permutations concurrently with bounded parallelism.
+		const maxResolvers = 50
+		sem := make(chan struct{}, maxResolvers)
+		var mu sync.Mutex
+		var permWg sync.WaitGroup
+		for _, perm := range permCandidates {
+			permWg.Add(1)
+			go func(name string) {
+				defer permWg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				addrs, err := net.DefaultResolver.LookupHost(runCtx, name)
+				if err != nil || len(addrs) == 0 {
+					return
+				}
+				mu.Lock()
+				subdomains[name] = struct{}{}
+				mu.Unlock()
+			}(perm)
+		}
+		permWg.Wait()
 	}
 
 	// ── Wildcard DNS detection ────────────────────────────────────────────────

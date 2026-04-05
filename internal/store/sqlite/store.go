@@ -311,6 +311,10 @@ func Open(path string) (*Store, error) {
 		`ALTER TABLE playbook_suggestions ADD COLUMN affected_domains TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE fingerprint_rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
 		`ALTER TABLE findings ADD COLUMN proof_command TEXT NOT NULL DEFAULT ''`,
+		// Remove pre-existing duplicate findings before creating the dedup index.
+		`DELETE FROM findings WHERE rowid NOT IN (
+			SELECT MIN(rowid) FROM findings GROUP BY scan_run_id, check_id, asset, title
+		)`,
 		// Dedup index so per-asset incremental saves + final save don't produce duplicates.
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup ON findings(scan_run_id, check_id, asset, title)`,
 	}

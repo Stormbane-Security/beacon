@@ -33,6 +33,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 	"github.com/stormbane-security/beacon/internal/store"
+	memstore "github.com/stormbane-security/beacon/internal/store/memory"
 	sqlitestore "github.com/stormbane-security/beacon/internal/store/sqlite"
 	"golang.org/x/term"
 )
@@ -74,6 +75,7 @@ SCAN FLAGS:
   --scanners <list>          Comma-separated scanner names to run (skips playbook matching; e.g. cors,jwt,tls)
   --ports <list>             Comma-separated port numbers for portscan (e.g. 8123,6379); default: scan all known ports
   --no-enrich                Skip AI enrichment (output raw findings only)
+  --no-db                    Skip scan history persistence (no SQLite writes)
   --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
@@ -256,6 +258,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		verbose             bool
 		noTUI               bool
 		noEnrich            bool
+		noDB                bool
 		anonymize           bool
 		dryRun              bool
 		extraCIDRs          []string
@@ -327,6 +330,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			noTUI = true
 		case "--no-enrich":
 			noEnrich = true
+		case "--no-db":
+			noDB = true
 		case "--anonymize":
 			anonymize = true
 		case "--dry-run":
@@ -481,7 +486,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
 		return
 	}
 
@@ -582,16 +587,23 @@ Type exactly: I have written authorization for %s
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 
-	// Open store
-	st, err := sqlitestore.Open(cfg.Store.Path)
-	if err != nil {
-		fatalf("open store: %v", err)
-	}
-	defer func() { _ = st.Close() }()
+	// Open store — use in-memory store when --no-db is set to avoid
+	// persisting scan history (useful for drydock tests, CI, quick checks).
+	var st store.Store
+	if noDB {
+		st = memstore.New()
+	} else {
+		sqlst, err := sqlitestore.Open(cfg.Store.Path)
+		if err != nil {
+			fatalf("open store: %v", err)
+		}
+		defer func() { _ = sqlst.Close() }()
+		st = sqlst
 
-	// Seed built-in fingerprint rules (idempotent — safe to call every scan).
-	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
-		info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
+		// Seed built-in fingerprint rules (idempotent — safe to call every scan).
+		if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
+			info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
+		}
 	}
 
 	// Upsert target
@@ -1080,7 +1092,7 @@ func cmdScanMultiAsset(
 	targets []string,
 	deep, permissionConfirmed, authorized, autoApproveExploits bool,
 	outPath, outputRawPath, format, severityFlag string,
-	verbose, noTUI, noEnrich bool,
+	verbose, noTUI, noEnrich, noDB bool,
 	extraCIDRs []string,
 	cloudEnabled bool,
 	awsProfile, gcpCredentials, azureSubscription string,
@@ -1157,14 +1169,19 @@ Type exactly: I have written authorization for all listed targets
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 
-	st, err := sqlitestore.Open(cfg.Store.Path)
-	if err != nil {
-		fatalf("open store: %v", err)
-	}
-	defer func() { _ = st.Close() }()
-
-	if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
-		info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
+	var st store.Store
+	if noDB {
+		st = memstore.New()
+	} else {
+		sqlst, err := sqlitestore.Open(cfg.Store.Path)
+		if err != nil {
+			fatalf("open store: %v", err)
+		}
+		defer func() { _ = sqlst.Close() }()
+		st = sqlst
+		if seedErr := fingerprintdb.Seed(ctx, st); seedErr != nil {
+			info("beacon: warning: fingerprint seed failed: %v\n", seedErr)
+		}
 	}
 
 	warnMissingAPIKeys(cfg)
