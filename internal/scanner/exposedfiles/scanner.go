@@ -5794,10 +5794,14 @@ func probeIvantiCS2025(ctx context.Context, client *http.Client, base, asset str
 		bodyStr := string(body)
 		bodyLow := strings.ToLower(bodyStr)
 
+		// "dana-na" alone is too weak — SPA catch-all pages often reflect the
+		// request path in canonical URLs, og:url meta tags, or routing data,
+		// causing false positives on non-Ivanti sites. Require a real Ivanti
+		// keyword or product header.
 		isIvanti := strings.Contains(bodyLow, "ivanti") ||
 			strings.Contains(bodyLow, "pulse secure") ||
 			strings.Contains(bodyLow, "juniper networks") && strings.Contains(bodyLow, "secure access") ||
-			strings.Contains(bodyLow, "dana-na") ||
+			(strings.Contains(bodyLow, "dana-na") && (strings.Contains(bodyLow, "welcome") && strings.Contains(bodyLow, "sign in"))) ||
 			resp.Header.Get("X-Pulse-Version") != "" ||
 			resp.Header.Get("X-Ivanti-Version") != ""
 		if !isIvanti {

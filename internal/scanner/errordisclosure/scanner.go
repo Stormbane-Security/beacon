@@ -139,9 +139,25 @@ var debugKeywords = []string{
 	"server_admin",
 	"spring boot",
 	"active profiles",
-	"elmah",
 	"debug toolbar",
 	"profiler",
+}
+
+// debugPathBodySignatures maps debug paths to required body content.
+// If a path is listed here, the response body must contain the specified
+// substring for the finding to fire. This prevents SPA catch-all sites
+// (which return 200 for every path) from producing false positives.
+var debugPathBodySignatures = map[string]string{
+	"/elmah.axd":             "error log",    // ELMAH error log viewer
+	"/phpinfo.php":           "php version",  // phpinfo() output
+	"/server-status":         "server uptime", // Apache mod_status
+	"/server-info":           "server information", // Apache mod_info
+	"/actuator/env":          "propertysources",    // Spring Boot actuator
+	"/actuator/configprops":  "propertysources",    // Spring Boot actuator
+	"/actuator/trace":        "timestamp",          // Spring Boot actuator
+	"/actuator/httptrace":    "timestamp",          // Spring Boot actuator
+	"/_profiler/":            "symfony",             // Symfony profiler
+	"/__debug__/":            "django",              // Django debug toolbar
 }
 
 type Scanner struct{}
@@ -292,6 +308,15 @@ func (s *Scanner) probeDebugPath(ctx context.Context, client *http.Client, base,
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, int64(maxBodyRead)))
 	bodyLower := strings.ToLower(string(body))
+
+	// If this path has a required body signature, verify the response
+	// contains product-specific content before checking debug keywords.
+	// This prevents SPA catch-all sites from triggering false positives.
+	if requiredBody, ok := debugPathBodySignatures[path]; ok {
+		if !strings.Contains(bodyLower, requiredBody) {
+			return nil
+		}
+	}
 
 	// Must contain debug-specific content, not just a 200 from a catch-all.
 	for _, kw := range debugKeywords {

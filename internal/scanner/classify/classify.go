@@ -1082,13 +1082,17 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 	}
 	wg.Wait()
 
-	// Sanity check: if an implausible number of paths returned HTTP 200
-	// (even after body signature checks), the site is a catch-all/SPA that
-	// slipped past detectSoftNotFound (e.g. the SPA embeds the URL or a
-	// nonce, so the canary hashes differ). No legitimate server runs 15+
-	// distinct backend technologies. Discard all results and mark
-	// SoftNotFound so downstream scanners are aware.
-	if ok200 > 15 {
+	// Sanity check: catch-all/SPA detection. Two thresholds:
+	// 1. Absolute: >15 paths returned 200 — no server runs 15+ backends.
+	// 2. Proportional: if ≥80% of probed paths returned 200 AND we probed
+	//    at least 5 paths, this is almost certainly a catch-all. With
+	//    progressive probing sending only ~12 universal paths, the old
+	//    absolute threshold of 15 was too high to catch SPA catch-alls.
+	isCatchAll := ok200 > 15
+	if !isCatchAll && len(selectedPaths) >= 5 && ok200 >= len(selectedPaths)*4/5 {
+		isCatchAll = true
+	}
+	if isCatchAll {
 		e.SoftNotFound = true
 		return nil
 	}
