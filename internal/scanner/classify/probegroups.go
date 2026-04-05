@@ -148,6 +148,7 @@ var probeGroups = []probeGroup{
 			"/robots.txt",
 			"/metrics",           // Prometheus metrics (exposed = info leak)
 			"/server-status",     // Apache mod_status
+			"/stats",             // HAProxy stats / Envoy admin (body-checked)
 			"/debug/pprof/",      // Go pprof
 			"/healthz",           // K8s health
 			"/wp-login.php",      // WordPress (massively common)

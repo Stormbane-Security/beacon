@@ -222,8 +222,20 @@ func detectKibana(ctx context.Context, host string, port int, banner string, mak
 		return nil
 	}
 	ev["kibana_version"] = kibanaVer
+	var findings []finding.Finding
+	// Always emit exposed dashboard finding — Kibana should never be public.
+	findings = append(findings, makeF(
+		finding.CheckPortKibanaExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Kibana %s dashboard exposed on port %d", kibanaVer, port),
+		fmt.Sprintf("A Kibana %s dashboard is publicly accessible without authentication. "+
+			"Kibana provides full access to Elasticsearch data, saved searches, dashboards, and Dev Tools console. "+
+			"Restrict access with authentication (X-Pack Security or a reverse proxy) and network-level controls.",
+			kibanaVer),
+		ev,
+	))
 	if isVulnerableKibana(kibanaVer) {
-		return []finding.Finding{makeF(
+		findings = append(findings, makeF(
 			finding.CheckPortKibanaVulnerable,
 			finding.SeverityCritical,
 			fmt.Sprintf("Kibana %s is vulnerable to CVE-2025-25015 (prototype pollution RCE)", kibanaVer),
@@ -232,9 +244,9 @@ func detectKibana(ctx context.Context, host string, port int, banner string, mak
 				"Upgrade to Kibana 8.17.3 or later immediately. "+
 				"Kibana should also not be directly internet-accessible.",
 			ev,
-		)}
+		))
 	}
-	return nil
+	return findings
 }
 
 func detectMinIOConsole(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {

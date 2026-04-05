@@ -771,6 +771,7 @@ const (
 	CheckPortRedisVulnerableCVE2025   CheckID = "cve.redis_cve_2025_49844"         // CVE-2025-49844 Redis < 7.2.11/7.4.6/8.0.4/8.2.2 unauthenticated RCE
 	CheckPortBGPExposed               CheckID = "port.bgp_exposed"                 // BGP port 179 accessible — routing infrastructure exposed
 	CheckPortKibanaVulnerable         CheckID = "cve.kibana_cve_2025_25015"        // CVE-2025-25015 Kibana 8.15.0–8.17.2 prototype pollution RCE (CVSS 9.9)
+	CheckPortKibanaExposed            CheckID = "port.kibana_exposed"              // Kibana dashboard accessible without authentication
 	CheckPortMinIODefaultCreds        CheckID = "port.minio_default_credentials"   // MinIO console (port 9001) accepts minioadmin:minioadmin default credentials
 	CheckPortGrafanaDefaultCreds      CheckID = "port.grafana_default_credentials" // Grafana (port 3000) accepts admin:admin default credentials
 	CheckPortSonarQubeDefaultCreds    CheckID = "port.sonarqube_default_credentials" // SonarQube (port 9000) accepts admin:admin default credentials
@@ -2857,6 +2858,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortRedisVulnerableCVE2025: {CheckPortRedisVulnerableCVE2025, SeverityCritical, ModeSurface},
 	CheckPortBGPExposed:        {CheckPortBGPExposed, SeverityMedium, ModeSurface},
 	CheckPortKibanaVulnerable:  {CheckPortKibanaVulnerable, SeverityCritical, ModeSurface},
+	CheckPortKibanaExposed:     {CheckPortKibanaExposed, SeverityHigh, ModeSurface},
 	CheckPortMinIODefaultCreds:     {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortGrafanaDefaultCreds:   {CheckPortGrafanaDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortSonarQubeDefaultCreds: {CheckPortSonarQubeDefaultCreds, SeverityCritical, ModeDeep},

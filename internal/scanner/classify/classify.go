@@ -278,10 +278,33 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 		e.Scheme = scheme
 		e.StatusCode = resp.StatusCode
 
-		// Collect headers (lower-case keys)
+		// Collect headers (lower-case keys) from the final response.
 		for k, vs := range resp.Header {
 			if len(vs) > 0 {
 				e.Headers[strings.ToLower(k)] = vs[0]
+			}
+		}
+		// If the server redirected, also capture headers from the initial (pre-redirect)
+		// response. Some services (e.g. Kibana kbn-name, kbn-license-sig) expose
+		// fingerprint headers only on the initial 302/301, not on the redirect target.
+		if resp.Request.URL.String() != url {
+			noRedirClient := &http.Client{
+				Timeout:       3 * time.Second,
+				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+				Transport:     httpClient.Transport,
+			}
+			if preReq, err2 := http.NewRequestWithContext(ctx, "HEAD", url, nil); err2 == nil {
+				preReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
+				if preResp, err3 := noRedirClient.Do(preReq); err3 == nil {
+					for k, vs := range preResp.Header {
+						kl := strings.ToLower(k)
+						// Only add headers not already present from the final response.
+						if _, exists := e.Headers[kl]; !exists && len(vs) > 0 {
+							e.Headers[kl] = vs[0]
+						}
+					}
+					_ = preResp.Body.Close()
+				}
 			}
 		}
 
@@ -713,8 +736,8 @@ var fingerprintPaths = []string{
 	"/api/settings", "/api/status", // Portainer REST API paths
 	// ── Kibana legacy paths (pre-8.x navigation) ─────────────────────────
 	"/app/home", "/app/kibana", // Kibana home/legacy redirect paths
-	// ── Envoy admin interface ─────────────────────────────────────────────
-	"/config_dump", "/stats", // Envoy admin API — unique to Envoy proxy
+	// ── Envoy admin + HAProxy stats ──────────────────────────────────────
+	"/config_dump", "/stats", // Envoy admin API + HAProxy stats page (body-checked)
 	// ── Hasura GraphQL Engine console ────────────────────────────────────
 	"/console", // Hasura console (distinct from /v1/graphql health path)
 	// ── Traefik dashboard ─────────────────────────────────────────────────
@@ -979,6 +1002,8 @@ var pathBodySignatures = map[string]string{
 	"/redoc": `redoc-container`,
 	// Sentry
 	"/api/0/internal/health": `"healthy"`,
+	// HAProxy stats page — title contains "Statistics Report for HAProxy"
+	"/stats": `statistics report for haproxy`,
 }
 
 func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evidence) []string {
@@ -1634,6 +1659,9 @@ func fingerprintTech(e *playbook.Evidence) {
 			e.ServiceVersions["platform"] = "grafana"
 		case strings.Contains(body, "kibana") && (strings.Contains(body, "kbn-") || strings.Contains(body, "__kbnBootstrap")):
 			e.ServiceVersions["platform"] = "kibana"
+		case h["kbn-name"] != "" || h["kbn-license-sig"] != "":
+			// Kibana sets kbn-name and kbn-license-sig headers even on 302 redirects.
+			e.ServiceVersions["platform"] = "kibana"
 		case strings.Contains(body, "prometheus") && strings.Contains(body, "/graph"):
 			e.ServiceVersions["platform"] = "prometheus"
 		case strings.Contains(body, "gitea") || strings.Contains(body, "go-gitea"):
@@ -1827,6 +1855,20 @@ func fingerprintTech(e *playbook.Evidence) {
 	// fingerprintTech operates on the truncated e.Body512 (512 bytes) which
 	// would miss almost all contract addresses and library references.
 
+	// ── ProxyType from RespondingPaths ────────────────────────────────────────
+	// Some load balancers/proxies only reveal themselves at specific paths (e.g.
+	// HAProxy stats at /stats) rather than via root-response headers.
+	if e.ProxyType == "" {
+		for _, path := range e.RespondingPaths {
+			if path == "/stats" {
+				// /stats with body match "statistics report for haproxy" confirms HAProxy
+				e.ProxyType = "haproxy"
+				e.InfraLayer = "load_balancer"
+				break
+			}
+		}
+	}
+
 	// ── BackendServices ───────────────────────────────────────────────────────
 	// Infer named backend services from RespondingPaths. Used by the AI enricher
 	// and topology renderer for richer service context. Each path prefix maps to
@@ -1836,6 +1878,23 @@ func fingerprintTech(e *playbook.Evidence) {
 	// Supplement from root response body/title when path probing was skipped
 	// (e.g. SoftNotFound sites like ClickHouse that return 200 for all paths).
 	e.BackendServices = inferBackendFromRoot(e.BackendServices, body, strings.ToLower(e.Title), serverLower)
+
+	// Ensure platform detection is reflected in BackendServices. Some products
+	// are only detected via headers (e.g. Kibana kbn-name on a 302 redirect)
+	// and may not appear in path probing or root body signals.
+	if platform := e.ServiceVersions["platform"]; platform != "" {
+		canonName := platformServiceName(platform)
+		found := false
+		for _, s := range e.BackendServices {
+			if strings.EqualFold(s, canonName) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			e.BackendServices = append(e.BackendServices, canonName)
+		}
+	}
 }
 
 // pathServiceMap maps a responding path prefix/exact to a canonical service name.
@@ -2015,6 +2074,39 @@ func inferBackendFromRoot(existing []string, body, title, server string) []strin
 		}
 	}
 	return existing
+}
+
+// platformServiceName converts a lowercase platform tag (from ServiceVersions["platform"])
+// to a display-ready canonical service name for BackendServices.
+func platformServiceName(platform string) string {
+	names := map[string]string{
+		"kibana":        "Kibana",
+		"grafana":       "Grafana",
+		"prometheus":    "Prometheus",
+		"jenkins":       "Jenkins",
+		"gitlab":        "GitLab",
+		"gitea":         "Gitea",
+		"sonarqube":     "SonarQube",
+		"swagger-ui":    "Swagger UI",
+		"confluence":    "Confluence",
+		"jira":          "Jira",
+		"nextcloud":     "Nextcloud",
+		"rabbitmq":      "RabbitMQ",
+		"mongo-express": "Mongo Express",
+		"minio":         "MinIO",
+		"couchdb":       "CouchDB",
+		"harbor":        "Harbor",
+		"ipfs":          "IPFS",
+		"openstack":     "OpenStack",
+	}
+	if n, ok := names[platform]; ok {
+		return n
+	}
+	// Capitalize first letter as fallback.
+	if len(platform) > 0 {
+		return strings.ToUpper(platform[:1]) + platform[1:]
+	}
+	return platform
 }
 
 // haproxyHeader returns true when any header key starts with "x-haproxy-".
