@@ -731,9 +731,10 @@ const (
 	CheckSwaggerExposed CheckID = "web.swagger_exposed" // OpenAPI/Swagger spec publicly accessible
 
 	// Web3 / blockchain passive detection
-	CheckWeb3WalletLibDetected  CheckID = "web3.wallet_lib_detected"
-	CheckWeb3RPCEndpointExposed CheckID = "web3.rpc_endpoint_exposed"
-	CheckWeb3ContractFound      CheckID = "web3.contract_address_found"
+	CheckWeb3WalletLibDetected   CheckID = "web3.wallet_lib_detected"
+	CheckWeb3RPCEndpointExposed  CheckID = "web3.rpc_endpoint_exposed"
+	CheckWeb3RPCProviderDetected CheckID = "web3.rpc_provider_detected"
+	CheckWeb3ContractFound       CheckID = "web3.contract_address_found"
 
 	// EVM smart contract vulnerability scanning
 	CheckContractReentrancy       CheckID = "contract.reentrancy"         // reentrancy vulnerability detected in contract bytecode
@@ -2484,8 +2485,9 @@ var Registry = map[CheckID]CheckMeta{
 
 	// Web3 / blockchain
 	CheckWeb3WalletLibDetected:  {CheckWeb3WalletLibDetected, SeverityInfo, ModeSurface},
-	CheckWeb3RPCEndpointExposed: {CheckWeb3RPCEndpointExposed, SeverityHigh, ModeSurface},
-	CheckWeb3ContractFound:      {CheckWeb3ContractFound, SeverityInfo, ModeSurface},
+	CheckWeb3RPCEndpointExposed:  {CheckWeb3RPCEndpointExposed, SeverityHigh, ModeSurface},
+	CheckWeb3RPCProviderDetected: {CheckWeb3RPCProviderDetected, SeverityInfo, ModeSurface},
+	CheckWeb3ContractFound:       {CheckWeb3ContractFound, SeverityInfo, ModeSurface},
 
 	// EVM smart contract vulnerability scanning
 	CheckContractReentrancy:      {CheckContractReentrancy, SeverityCritical, ModeDeep},

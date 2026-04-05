@@ -110,7 +110,7 @@ func TestWeb3Detect_RPCEndpointInJS(t *testing.T) {
 
 // TestWeb3Detect_RPCEndpoint_MarketingPageIgnored verifies that a plain
 // provider homepage link (www.alchemy.com) is NOT flagged as an exposed
-// RPC endpoint — only actual API endpoint URLs with key paths should match.
+// RPC endpoint — but IS flagged as an info-level provider reference.
 func TestWeb3Detect_RPCEndpoint_MarketingPageIgnored(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -126,10 +126,20 @@ func TestWeb3Detect_RPCEndpoint_MarketingPageIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
+	var gotExposed, gotProvider bool
 	for _, f := range findings {
 		if f.CheckID == finding.CheckWeb3RPCEndpointExposed {
-			t.Errorf("should NOT flag marketing links as RPC endpoints: %v", f.Evidence["rpc_urls"])
+			gotExposed = true
 		}
+		if f.CheckID == finding.CheckWeb3RPCProviderDetected {
+			gotProvider = true
+		}
+	}
+	if gotExposed {
+		t.Error("should NOT flag marketing links as HIGH rpc_endpoint_exposed")
+	}
+	if !gotProvider {
+		t.Error("should flag marketing links as INFO rpc_provider_detected")
 	}
 }
 
