@@ -1018,7 +1018,17 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 		sem      = make(chan struct{}, 10) // max 10 concurrent probes
 	)
 
-	for _, path := range fingerprintPaths {
+	// Select probe paths based on Evidence signals. Only paths whose
+	// technology group is triggered by existing evidence (headers, cookies,
+	// body, framework) are probed — plus a small universal set that always
+	// runs. This replaces the old flat fingerprintPaths list (200+ blind
+	// probes) with targeted, evidence-driven probing (~10-40 paths).
+	selectedPaths := selectProbePaths(e)
+	if len(selectedPaths) == 0 {
+		selectedPaths = fingerprintPaths // fallback if no signals at all
+	}
+
+	for _, path := range selectedPaths {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()

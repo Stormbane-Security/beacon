@@ -2898,8 +2898,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAccessControlPathTraversalBypass: {CheckAccessControlPathTraversalBypass, SeverityCritical, ModeDeep},
 
 	// API Key in URL / JS — Surface (passive scan of response content)
-	CheckJSAPIKeyInURL:       {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
-	CheckJSAPIKeyInSourceMap: {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
+	CheckJSAPIKeyInURL:        {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
+	CheckJSAPIKeyInSourceMap:  {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
+	CheckJSExternalServiceRef: {CheckJSExternalServiceRef, SeverityInfo, ModeSurface},
 
 	// DigitalOcean Cloud — Deep (requires API token)
 	CheckCloudDOScanError:          {CheckCloudDOScanError, SeverityInfo, ModeDeep},

@@ -207,8 +207,33 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		findings = append(findings, *wafFinding)
 	}
 
-	// JavaScript analysis: find script src URLs and scan each
+	// JavaScript analysis: find script src URLs and scan each.
+	// Also discover additional JS chunks from Next.js manifests and webpack
+	// chunk references for deeper coverage of SPA bundles.
 	jsURLs := extractJSURLs(targetURL, string(body))
+
+	// Discover Next.js build manifest chunks if this is a Next.js app.
+	extraChunks := discoverNextJSChunks(ctx, client, targetURL, string(body))
+	for _, chunk := range extraChunks {
+		// Add only new URLs not already in the initial set.
+		dupe := false
+		for _, existing := range jsURLs {
+			if existing == chunk {
+				dupe = true
+				break
+			}
+		}
+		if !dupe {
+			jsURLs = append(jsURLs, chunk)
+		}
+	}
+
+	// Cap total JS files to prevent runaway scanning on huge apps.
+	const maxJSFiles = 100
+	if len(jsURLs) > maxJSFiles {
+		jsURLs = jsURLs[:maxJSFiles]
+	}
+
 	for _, jsURL := range jsURLs {
 		jsFindings := analyzeJS(ctx, client, asset, jsURL)
 		findings = append(findings, jsFindings...)
@@ -853,6 +878,88 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 	}
 
 	return findings
+}
+
+// ── Next.js / Webpack Chunk Discovery ──────────────────────────────────────
+
+// nextBuildIDRe extracts the Next.js build ID from __NEXT_DATA__ in the HTML.
+var nextBuildIDRe = regexp.MustCompile(`"buildId"\s*:\s*"([a-zA-Z0-9_-]+)"`)
+
+// nextChunkRefRe matches chunk file references in Next.js manifests.
+// Patterns: "static/chunks/1234-hash.js", "pages/index-hash.js"
+var nextChunkRefRe = regexp.MustCompile(`"((?:static/chunks|pages|app)/[^"]+\.js)"`)
+
+// discoverNextJSChunks finds additional JavaScript files by probing Next.js
+// build manifests and extracting chunk references. This discovers JS bundles
+// that aren't directly linked in <script> tags but are lazy-loaded by the app.
+func discoverNextJSChunks(ctx context.Context, client *http.Client, baseURL, html string) []string {
+	// Extract the build ID from __NEXT_DATA__ JSON in the HTML.
+	buildIDMatch := nextBuildIDRe.FindStringSubmatch(html)
+	if len(buildIDMatch) < 2 {
+		return nil // Not a Next.js app or build ID not found
+	}
+	buildID := buildIDMatch[1]
+
+	// Determine the origin URL for constructing absolute paths.
+	origin := baseURL
+	if u, err := url.Parse(baseURL); err == nil {
+		origin = u.Scheme + "://" + u.Host
+	}
+
+	// Probe the _buildManifest.js — this lists all page chunks.
+	manifestURL := origin + "/_next/static/" + buildID + "/_buildManifest.js"
+	manifestBody := fetchJSBody(ctx, client, manifestURL)
+
+	var chunks []string
+	seen := make(map[string]bool)
+
+	// Extract chunk references from the manifest.
+	for _, match := range nextChunkRefRe.FindAllStringSubmatch(manifestBody, 200) {
+		if len(match) < 2 {
+			continue
+		}
+		chunkPath := match[1]
+		chunkURL := origin + "/_next/" + chunkPath
+		if !seen[chunkURL] {
+			seen[chunkURL] = true
+			chunks = append(chunks, chunkURL)
+		}
+	}
+
+	// Also look for chunk references in the HTML itself — Next.js inlines
+	// some chunk URLs in script tags with data-nscript or in the
+	// __NEXT_DATA__ props.
+	for _, match := range nextChunkRefRe.FindAllStringSubmatch(html, 200) {
+		if len(match) < 2 {
+			continue
+		}
+		chunkPath := match[1]
+		chunkURL := origin + "/_next/" + chunkPath
+		if !seen[chunkURL] {
+			seen[chunkURL] = true
+			chunks = append(chunks, chunkURL)
+		}
+	}
+
+	return chunks
+}
+
+// fetchJSBody fetches a JS file and returns the body as a string.
+func fetchJSBody(ctx context.Context, client *http.Client, jsURL string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jsURL, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	return string(body)
 }
 
 // extractJSURLs finds script src URLs in HTML.
