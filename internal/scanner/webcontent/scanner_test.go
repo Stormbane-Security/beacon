@@ -270,10 +270,9 @@ func TestAnalyzeCookies_SessionCookieSameSiteNone(t *testing.T) {
 
 func TestAnalyzeCookies_SessionCookieNoSameSiteAttribute(t *testing.T) {
 	// When Go parses a Set-Cookie header with no SameSite attribute, the
-	// SameSite field is left at Go's zero value (0), which is distinct from
-	// http.SameSiteDefaultMode (1). The scanner checks for SameSiteDefaultMode
-	// and SameSiteNoneMode, so an absent attribute (zero value) does NOT
-	// trigger the finding. This test documents that behavior.
+	// SameSite field is left at Go's zero value (0). Absent SameSite should
+	// trigger the finding since the browser will default to Lax but the
+	// server hasn't explicitly set a policy.
 	resp := &http.Response{
 		Header: http.Header{
 			"Set-Cookie": []string{"sid=val; Secure; HttpOnly"},
@@ -281,8 +280,8 @@ func TestAnalyzeCookies_SessionCookieNoSameSiteAttribute(t *testing.T) {
 	}
 	findings := analyzeCookies("example.com", resp)
 	found := findingsByCheckID(findings, finding.CheckCookieMissingSameSite)
-	if len(found) != 0 {
-		t.Errorf("expected 0 CheckCookieMissingSameSite findings when SameSite attr is absent (Go zero value != SameSiteDefaultMode), got %d", len(found))
+	if len(found) != 1 {
+		t.Errorf("expected 1 CheckCookieMissingSameSite finding when SameSite attr is absent, got %d", len(found))
 	}
 }
 
@@ -1300,7 +1299,7 @@ func TestDiscoverNextJSChunks_ManifestParsed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expected := "/_next/static/" + buildID + "/_buildManifest.js"
 		if r.URL.Path == expected {
-			fmt.Fprint(w, manifest)
+			_, _ = fmt.Fprint(w, manifest)
 		} else {
 			http.NotFound(w, r)
 		}
@@ -1364,7 +1363,7 @@ func TestDiscoverNextJSChunks_Deduplication(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_next/static/"+buildID+"/_buildManifest.js" {
-			fmt.Fprint(w, manifest)
+			_, _ = fmt.Fprint(w, manifest)
 		} else {
 			http.NotFound(w, r)
 		}
@@ -1661,9 +1660,9 @@ func TestNextJSChunks_ServiceRefsInChunks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/_next/static/" + buildID + "/_buildManifest.js":
-			fmt.Fprint(w, manifest)
+			_, _ = fmt.Fprint(w, manifest)
 		case "/_next/static/chunks/pages/dashboard-aabb.js":
-			fmt.Fprint(w, chunkBody)
+			_, _ = fmt.Fprint(w, chunkBody)
 		default:
 			http.NotFound(w, r)
 		}

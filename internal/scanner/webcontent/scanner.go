@@ -199,7 +199,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	resp, err := client.Do(req)
 	if err != nil {
 		// Try HTTP fallback
-		req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+asset, nil)
+		targetURL = "http://" + asset
+		req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 		if err2 != nil {
 			return nil, nil // invalid URL — unreachable
 		}
@@ -370,7 +371,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 			})
 		}
 
-		if cookie.SameSite == http.SameSiteDefaultMode || cookie.SameSite == http.SameSiteNoneMode {
+		if cookie.SameSite == 0 || cookie.SameSite == http.SameSiteDefaultMode || cookie.SameSite == http.SameSiteNoneMode {
 			findings = append(findings, finding.Finding{
 				CheckID:      finding.CheckCookieMissingSameSite,
 				Module:       "surface",
@@ -1120,10 +1121,7 @@ func extractServiceReferences(asset, jsURL, src string, now time.Time) []finding
 			seen[svc.service] = true
 
 			// Extract env var references from surrounding context.
-			var envVars []string
-			for _, envMatch := range extractEnvVarRefs(src, rawURL) {
-				envVars = append(envVars, envMatch)
-			}
+			envVars := extractEnvVarRefs(src, rawURL)
 
 			ev := map[string]any{
 				"js_url":   jsURL,

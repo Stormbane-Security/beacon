@@ -2,7 +2,12 @@ package jenkins
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 // ── isJenkinsCLIVulnerable ──────────────────────────────────────────────────
@@ -205,5 +210,86 @@ func TestScriptEndpoint(t *testing.T) {
 				t.Errorf("scriptEndpoint(%q) = %q; want %q", tt.asset, got, tt.want)
 			}
 		})
+	}
+}
+
+// ── Surface-mode detection ──────────────────────────────────────────────────
+
+func TestJenkins_SurfaceMode_XJenkinsHeader_EmitsCICDPanel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Jenkins", "2.450")
+		w.Header().Set("X-Jenkins-CLI2-Port", "50000")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := New()
+	asset := srv.Listener.Addr().String()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var foundCICD bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckExposureCICDPanel {
+			foundCICD = true
+		}
+	}
+	if !foundCICD {
+		ids := make([]string, len(findings))
+		for i, f := range findings {
+			ids[i] = string(f.CheckID)
+		}
+		t.Errorf("expected %s in surface mode; got %v", finding.CheckExposureCICDPanel, ids)
+	}
+}
+
+func TestJenkins_SurfaceMode_NoXJenkinsHeader_NoFindings(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := New()
+	asset := srv.Listener.Addr().String()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings without X-Jenkins header; got %d", len(findings))
+	}
+}
+
+func TestJenkins_SurfaceMode_VulnerableVersion_EmitsCVEAndCICD(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Jenkins", "2.400")
+		w.Header().Set("X-Jenkins-CLI2-Port", "50000")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := New()
+	asset := srv.Listener.Addr().String()
+	findings, err := s.Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var foundCICD, foundCVE bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckExposureCICDPanel {
+			foundCICD = true
+		}
+		if f.CheckID == finding.CheckCVEJenkinsCLIFileRead {
+			foundCVE = true
+		}
+	}
+	if !foundCICD {
+		t.Error("expected exposure.cicd_panel for vulnerable Jenkins version")
+	}
+	if !foundCVE {
+		t.Error("expected cve.jenkins_cli_file_read for Jenkins 2.400")
 	}
 }
