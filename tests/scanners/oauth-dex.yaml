@@ -47,6 +47,6 @@ assertions:
     target: localhost:5556
     args: ["--no-enrich", "--scanners", "oauth"]
     expect:
-      check_id: oauth.jwks_exposed
+      check_id: oauth.token_in_url_fragment
 
 timeout: 3m
