@@ -120,9 +120,17 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 	if err != nil {
 		return nil
 	}
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
+	// Portainer returns 404 with a JSON error body like {"message":"...","details":"..."}.
+	// A bare 404 from nginx/apache/tomcat is NOT Portainer. Verify by checking
+	// the response body and Portainer-specific headers.
+	bodyStr := string(respBody)
+	isPortainer := resp.Header.Get("X-Portainer-Version") != "" ||
+		(strings.Contains(bodyStr, "\"message\"") && strings.Contains(bodyStr, "\"details\""))
+
+	if resp.StatusCode == http.StatusNotFound && isPortainer {
 		return []finding.Finding{makeF(
 			finding.CheckPortPortainerDefaultCreds,
 			finding.SeverityCritical,
