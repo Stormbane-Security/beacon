@@ -19,6 +19,7 @@ func NewServer(db *DB, port int) *http.Server {
 	mux.HandleFunc("GET /api/stats", h.getStats)
 	mux.HandleFunc("POST /api/findings", h.postFindings)
 	mux.HandleFunc("POST /api/payloads", h.postPayload)
+	mux.HandleFunc("POST /api/fingerprints", h.handleSaveFingerprint)
 
 	return &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
@@ -177,4 +178,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("vulndb: write response: %v", err)
 	}
+}
+
+func (h *apiHandler) handleSaveFingerprint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var fp ServiceFingerprint
+	if err := json.NewDecoder(r.Body).Decode(&fp); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.db.SaveFingerprint(fp); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
 }

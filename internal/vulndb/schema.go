@@ -364,3 +364,15 @@ func (d *DB) Stats() (DBStats, error) {
 	}
 	return s, nil
 }
+
+// SaveFingerprint upserts a service fingerprint.
+func (db *DB) SaveFingerprint(fp ServiceFingerprint) error {
+	_, err := db.db.Exec(`INSERT INTO service_fingerprints (domain, service, version, tech_stack, auth_system, waf_detected, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(domain, service) DO UPDATE SET
+			version=excluded.version, tech_stack=excluded.tech_stack,
+			auth_system=excluded.auth_system, waf_detected=excluded.waf_detected,
+			last_seen=excluded.last_seen`,
+		fp.Domain, fp.Service, fp.Version, fp.TechStack, fp.AuthSystem, fp.WAFDetected, fp.LastSeen)
+	return err
+}

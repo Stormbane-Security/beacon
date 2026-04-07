@@ -13,6 +13,7 @@ package surface
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -36,6 +37,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/classify"
 	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/vulndb"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 	"github.com/stormbane-security/beacon/internal/scanner/assetintel"
 	"github.com/stormbane-security/beacon/internal/scanner/bgp"
@@ -157,6 +159,7 @@ import (
 
 // Module is the Surface scan module.
 type Module struct {
+	vulndbURL string // URL of beacon-vulndb service (auto-upload findings)
 	// Asset discovery
 	subdomainScanner  *subdomain.PassiveScanner
 	passiveDNSScanner *passivedns.Scanner
@@ -2526,6 +2529,49 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			FindingsCount:     len(findings),
 			CreatedAt:         time.Now(),
 		})
+	}
+
+	// Auto-upload findings to vulndb if configured.
+	// This populates the database with every scan's results automatically:
+	// fingerprints, findings, verified payloads, credentials, topology.
+	if m.vulndbURL != "" {
+		go func() {
+			vc := vulndb.NewClient(m.vulndbURL)
+			if err := func() error { b, err := json.Marshal(findings); if err != nil { return err }; return vc.UploadFindings(rootDomain, b) }(); err != nil {
+				// Non-fatal — vulndb may not be running
+				_ = err
+			}
+			// Save fingerprints from classify/detection findings
+			for _, f := range findings {
+				if svc, ok := f.Evidence[finding.EvidenceService].(string); ok && svc != "" {
+					ver, _ := f.Evidence[finding.EvidenceVersion].(string)
+					_ = vc.SaveFingerprint(vulndb.ServiceFingerprint{
+						Domain:  rootDomain,
+						Service: svc,
+						Version: ver,
+						LastSeen: time.Now(),
+					})
+				}
+			}
+			// Save verified payloads
+			for _, f := range findings {
+				if f.Confidence == finding.ConfidenceVerified {
+					svc, _ := f.Evidence[finding.EvidenceService].(string)
+					ver, _ := f.Evidence[finding.EvidenceVersion].(string)
+					if svc != "" {
+						_ = vc.SavePayload(vulndb.VerifiedPayload{
+							Service:    svc,
+							Version:    ver,
+							VulnClass:  string(f.CheckID),
+							CVEID:      fmt.Sprintf("%v", f.Evidence["cve_id"]),
+							Payload:    fmt.Sprintf("%v", f.Evidence[finding.EvidencePayload]),
+							ProofCommand:   f.ProofCommand,
+							Confidence: f.Confidence,
+						})
+					}
+				}
+			}
+		}()
 	}
 
 	return findings

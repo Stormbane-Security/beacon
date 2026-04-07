@@ -127,3 +127,25 @@ func (c *Client) postJSON(path string, body any) error {
 	}
 	return nil
 }
+
+// SaveFingerprint stores a service fingerprint.
+func (c *Client) SaveFingerprint(fp ServiceFingerprint) error {
+	body, err := json.Marshal(fp)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", c.BaseURL+"/api/fingerprints", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("vulndb: save fingerprint: %d", resp.StatusCode)
+	}
+	return nil
+}
