@@ -13,8 +13,8 @@ services:
     ports: ["9316:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:9316/ >/dev/null"
-  timeout: 60s
+  cmd: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9316/ | grep -qE '200|302|404'"
+  timeout: 90s
   interval: 3s
 
 assertions:
