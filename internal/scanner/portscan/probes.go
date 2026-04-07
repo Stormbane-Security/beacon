@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 // findingMaker creates a finding with common fields pre-populated.
@@ -174,7 +176,9 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 					resultCh <- probeResult{probe: probe}
 					return
 				}
+				probeStart := time.Now()
 				fs := probe.Detect(ctx, host, port, banner, makeF)
+				scanlog.FromContext(ctx).ProbeTimed(scannerName, fmt.Sprintf("%s:%d", host, port), probe.Name, time.Since(probeStart), len(fs), nil)
 				resultCh <- probeResult{probe: probe, findings: fs}
 			}(p)
 		}
@@ -225,7 +229,10 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	// Run banner and HTTP probes sequentially (they're I/O-light or
 	// already filtered to the correct category).
 	for _, probe := range otherProbes {
-		if fs := probe.Detect(ctx, host, port, banner, makeF); len(fs) > 0 {
+		probeStart := time.Now()
+		fs := probe.Detect(ctx, host, port, banner, makeF)
+		scanlog.FromContext(ctx).ProbeTimed(scannerName, fmt.Sprintf("%s:%d", host, port), probe.Name, time.Since(probeStart), len(fs), nil)
+		if len(fs) > 0 {
 			findings = append(findings, fs...)
 			if !identified {
 				identified = true
