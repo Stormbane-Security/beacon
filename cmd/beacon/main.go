@@ -612,6 +612,9 @@ Type exactly: I have written authorization for %s
 	// Inject exploit module approval gate for authorized mode.
 	if authorized && !autoApprove {
 		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	} else if authorized && autoApprove {
+		// --yes: auto-approve all exploit modules without prompting.
+		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
 	// Set up structured logging if --log-file is specified.
@@ -1199,6 +1202,8 @@ Type exactly: I have written authorization for all listed targets
 	// Inject exploit module approval gate for authorized mode.
 	if authorized && !autoApproveExploits {
 		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	} else if authorized && autoApproveExploits {
+		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
 	// Set up structured logging if --log-file is specified.
