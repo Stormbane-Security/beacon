@@ -1,0 +1,46 @@
+name: oauth-hydra-oidc
+description: >
+  ORY Hydra OAuth2/OIDC provider (Go-based). Tests OIDC discovery,
+  implicit flow detection, token endpoint exposure. Fast startup (~3s).
+tags: [oauth, scanner, web, hydra, oidc, iam, fast]
+
+services:
+  hydra:
+    image: oryd/hydra:v2.2.0
+    ports: ["4444:4444", "4445:4445"]
+    environment:
+      DSN: "memory"
+      URLS_SELF_ISSUER: "http://localhost:4444"
+      URLS_LOGIN: "http://localhost:4444/login"
+      URLS_CONSENT: "http://localhost:4444/consent"
+      SERVE_PUBLIC_CORS_ENABLED: "true"
+      LOG_LEVEL: "error"
+    command: ["serve", "all", "--dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:4444/.well-known/openid-configuration | grep -q issuer"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: oidc-discovery-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:4444/.well-known/openid-configuration | grep -q authorization_endpoint"
+      exit_code: 0
+
+  - name: detects-oidc-discovery
+    type: beacon
+    target: localhost:4444
+    args: ["--no-enrich", "--scanners", "oauth,wellknown"]
+    expect:
+      check_id: wellknown.oidc_discovery
+
+  - name: detects-jwks-exposed
+    type: beacon
+    target: localhost:4444
+    args: ["--no-enrich", "--scanners", "oauth"]
+    expect:
+      check_id: oauth.jwks_exposed
+
+timeout: 3m
