@@ -21,22 +21,22 @@ ready:
 assertions:
   - name: nmap-http-title
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "18080"]
+    target: localhost:18080
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.http_title
 
   - name: nmap-http-robots
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "18080"]
+    target: localhost:18080
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.http_robots_disallow
 
   - name: nmap-http-methods-dangerous
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "18080"]
+    target: localhost:18080
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.http_dangerous_methods
 
