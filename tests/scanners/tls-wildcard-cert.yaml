@@ -1,0 +1,32 @@
+name: tls-wildcard-cert
+description: >
+  Nginx with a wildcard certificate (*.example.com). Beacon tlscheck
+  scanner should flag the wildcard cert via tls.cert_wildcard.
+tags: [tls, certificate, wildcard]
+
+services:
+  nginx:
+    build:
+      context: ./fixtures/tls-wildcard-cert
+    ports: ["19963:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:19963/ -o /dev/null -w '%{http_code}' | grep -q '200'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-cert-is-wildcard
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:19963 </dev/null 2>/dev/null | openssl x509 -noout -subject | grep -q '\\*.example.com'"
+      exit_code: 0
+
+  - name: detects-wildcard-cert
+    type: beacon
+    target: localhost:19963
+    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    expect:
+      check_id: tls.cert_wildcard
+
+timeout: 5m

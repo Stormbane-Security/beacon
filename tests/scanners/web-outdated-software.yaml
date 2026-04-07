@@ -1,0 +1,31 @@
+name: web-outdated-software
+description: >
+  nginx 1.18.0 (EOL since 2022). Beacon classify pipeline should detect
+  the outdated software version via version.outdated_software.
+tags: [nginx, fingerprint, eol, version]
+
+services:
+  nginx:
+    image: nginx:1.18.0
+    ports: ["19965:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19965/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-nginx-version-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19965/ | grep -i 'Server:.*nginx/1.18'"
+      exit_code: 0
+
+  - name: detects-outdated-software
+    type: beacon
+    target: localhost:19965
+    args: ["--no-enrich"]
+    expect:
+      check_id: version.outdated_software
+
+timeout: 5m

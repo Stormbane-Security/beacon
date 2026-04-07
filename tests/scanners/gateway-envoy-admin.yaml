@@ -1,0 +1,34 @@
+name: gateway-envoy-admin-exposed
+description: >
+  Envoy proxy with admin interface exposed on port 9901. Beacon gateway
+  scanner should detect via gateway.envoy_admin_exposed.
+tags: [envoy, gateway, admin, exposed]
+
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    ports: ["19969:9901"]
+    volumes:
+      - ./fixtures/gateway-envoy-admin/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
+
+ready:
+  cmd: "curl -sf http://localhost:19969/clusters -o /dev/null -w '%{http_code}' | grep -q '200'"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: exploit-envoy-admin-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19969/config_dump | grep -q 'configs'"
+      exit_code: 0
+
+  - name: detects-envoy-admin-exposed
+    type: beacon
+    target: localhost:19969
+    args: ["--no-enrich", "--scanners", "gateway"]
+    expect:
+      check_id: gateway.envoy_admin_exposed
+
+timeout: 5m

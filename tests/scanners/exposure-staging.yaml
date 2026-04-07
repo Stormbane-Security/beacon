@@ -1,0 +1,43 @@
+name: exposure-staging-environment
+description: >
+  Nginx serving staging content with X-Environment header and staging
+  body signals. This test validates the fixture setup for staging
+  environment detection. The exposure.staging_subdomain check requires
+  DNS subdomain enumeration which is not testable with localhost, so
+  we validate staging signals via command assertions and verify beacon
+  does not false-positive on unrelated checks.
+tags: [exposure, staging, environment]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19974:80"]
+    volumes:
+      - ./fixtures/exposure-staging/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19974/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-staging-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19974/ | grep -qi 'X-Environment.*staging'"
+      exit_code: 0
+
+  - name: exploit-staging-content-present
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19974/ | grep -qi 'staging'"
+      exit_code: 0
+
+  - name: negative-no-false-git-exposed
+    type: beacon
+    target: localhost:19974
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      not_check_id: exposure.git_exposed
+
+timeout: 5m

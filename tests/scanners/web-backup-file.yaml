@@ -1,0 +1,35 @@
+name: web-backup-file-exposed
+description: >
+  Nginx serving a backup.sql file at the web root. Beacon exposedfiles
+  scanner should detect the exposed SQL backup file.
+tags: [exposure, backup, sensitive-file]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19967:80"]
+    volumes:
+      - ./fixtures/web-backup-file/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/web-backup-file/index.html:/usr/share/nginx/html/index.html:ro
+      - ./fixtures/web-backup-file/backup.sql:/usr/share/nginx/html/backup.sql:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19967/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-backup-sql-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19967/backup.sql | grep -q 'INSERT'"
+      exit_code: 0
+
+  - name: detects-backup-file
+    type: beacon
+    target: localhost:19967
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.sensitive_file
+
+timeout: 5m

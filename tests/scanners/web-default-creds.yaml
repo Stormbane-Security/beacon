@@ -1,0 +1,35 @@
+name: web-default-credentials
+description: >
+  Apache Tomcat 9 with manager app configured with default admin:admin
+  credentials. Beacon portscan should detect the default credentials
+  via Basic Auth on /manager/html.
+tags: [tomcat, scanner, defaultcreds]
+
+services:
+  tomcat:
+    image: tomcat:9.0-jdk17
+    ports: ["19964:8080"]
+    volumes:
+      - ./fixtures/web-default-creds/tomcat-users.xml:/usr/local/tomcat/conf/tomcat-users.xml:ro
+      - ./fixtures/web-default-creds/context.xml:/usr/local/tomcat/webapps/manager/META-INF/context.xml:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19964/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-manager-accepts-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:19964/manager/html | grep -qi 'tomcat.*manager'"
+      exit_code: 0
+
+  - name: detects-default-credentials
+    type: beacon
+    target: localhost:19964
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.tomcat_default_credentials
+
+timeout: 5m

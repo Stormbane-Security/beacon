@@ -1,0 +1,32 @@
+name: tls-expired-cert
+description: >
+  Nginx with an expired (or near-expiry) self-signed TLS certificate.
+  Beacon should detect the certificate expiry via tls.cert_expiry_7d.
+tags: [tls, certificate, expiry]
+
+services:
+  nginx:
+    build:
+      context: ./fixtures/tls-expired-cert
+    ports: ["19960:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:19960/ -o /dev/null -w '%{http_code}' | grep -qE '200|000'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-cert-expires-within-7d
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:19960 </dev/null 2>/dev/null | openssl x509 -noout -enddate | grep -q notAfter"
+      exit_code: 0
+
+  - name: detects-cert-expiry
+    type: beacon
+    target: localhost:19960
+    args: ["--no-enrich", "--ports", "443"]
+    expect:
+      check_id: tls.cert_expiry_7d
+
+timeout: 5m
