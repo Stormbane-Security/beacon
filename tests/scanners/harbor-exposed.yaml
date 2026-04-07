@@ -1,0 +1,37 @@
+name: harbor-registry-exposed
+description: >
+  Harbor container registry with default admin/Harbor12345 credentials.
+  Beacon should detect the exposed registry and default credentials.
+tags: [harbor, registry, container, defaultcreds, detection]
+
+services:
+  harbor:
+    image: goharbor/harbor-core:v2.10.0
+    ports: ["18880:8080"]
+    environment:
+      CORE_SECRET: test-secret
+      _REDIS_URL_CORE: "redis://redis:6379"
+      DATABASE_TYPE: "sqlite"
+      REGISTRY_URL: "http://registry:5000"
+      LOG_LEVEL: info
+
+ready:
+  cmd: "curl -sf http://localhost:18880/api/v2.0/health -o /dev/null -w '%{http_code}' | grep -qE '200|401'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: harbor-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:18880/api/v2.0/health | grep -qE '200|401'"
+      exit_code: 0
+
+  - name: detects-harbor-exposed
+    type: beacon
+    target: localhost:18880
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18880"]
+    expect:
+      check_id: port.harbor_exposed
+
+timeout: 5m
