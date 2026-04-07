@@ -1,0 +1,31 @@
+name: nmap-os-detect
+description: >
+  Nginx container scanned in deep mode. Beacon should attempt OS detection
+  via nmap -O and emit nmap.os_detected finding. Requires root privileges.
+tags: [nmap, scanner, network, os-detect, deep]
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["19906:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19906/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-nginx-alive
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19906/ >/dev/null"
+      exit_code: 0
+
+  - name: detects-os-fingerprint
+    type: beacon
+    target: localhost:19906
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: nmap.os_detected
+
+timeout: 5m

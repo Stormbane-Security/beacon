@@ -80,6 +80,8 @@ SCAN FLAGS:
   --no-db                    Skip scan history persistence (no SQLite writes)
   --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
   --no-nmap                  Skip nmap integration (no service version detection, no NSE scripts)
+  --no-nuclei                Skip nuclei integration (no template-based vulnerability scanning)
+  --no-testssl               Skip testssl.sh integration (no deep TLS analysis)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
   --log-file <path>          Write structured JSON logs to file (one event per line)
@@ -265,6 +267,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		anonymize           bool
 		dryRun              bool
 		noNmap              bool
+		noNuclei            bool
+		noTestssl           bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -342,6 +346,10 @@ func cmdScan(cfg *config.Config, args []string) {
 			dryRun = true
 		case "--no-nmap":
 			noNmap = true
+		case "--no-nuclei":
+			noNuclei = true
+		case "--no-testssl":
+			noTestssl = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -465,7 +473,9 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 	}
 
-	// Check for nmap availability unless --no-nmap is set.
+	// Check for external tool availability.
+	// Critical tools (nmap) cause a hard error; important tools warn with opt-out;
+	// optional tools warn only. All warnings are grouped together.
 	if noNmap {
 		cfg.NmapBin = ""
 	} else {
@@ -473,6 +483,13 @@ func cmdScan(cfg *config.Config, args []string) {
 			fatalf("beacon: nmap not found. Install nmap (https://nmap.org/download) or pass --no-nmap to skip nmap integration.")
 		}
 	}
+	if noNuclei {
+		cfg.NucleiBin = ""
+	}
+	if noTestssl {
+		cfg.TestsslBin = ""
+	}
+	checkExternalTools(cfg, noNuclei, noTestssl)
 
 	// Build unified target list from --domain, --asset, and --targets file.
 	if domain != "" {

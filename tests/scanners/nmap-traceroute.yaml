@@ -1,0 +1,31 @@
+name: nmap-traceroute
+description: >
+  Nginx container with nmap --traceroute. Beacon should emit nmap.traceroute
+  finding with hop data. Note: traceroute may require root privileges.
+tags: [nmap, scanner, network, traceroute]
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["19902:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19902/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-nginx-alive
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19902/ >/dev/null"
+      exit_code: 0
+
+  - name: detects-traceroute-hops
+    type: beacon
+    target: localhost:19902
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: nmap.traceroute
+
+timeout: 5m
