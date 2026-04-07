@@ -34,6 +34,6 @@ assertions:
     target: "localhost:9428"
     args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9428"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: port.ldap_exposed
 
 timeout: 5m
