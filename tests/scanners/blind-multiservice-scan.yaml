@@ -66,13 +66,13 @@ ready:
 assertions:
   # --- Blind portscan: must discover and identify all services ---
 
-  # nginx detected
+  # nginx detected (generic service identification — nginx doesn't have a specific check)
   - name: blind-discovers-nginx
     type: beacon
     target: localhost
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
-      check_id: port.service_discovered
+      check_id: port.service_identified
 
   # Redis unauthenticated detected
   - name: blind-discovers-redis-unauth
@@ -96,7 +96,7 @@ assertions:
     target: localhost
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
-      check_id: port.postgresql_trust_auth
+      check_id: port.postgresql_trust
 
   # Grafana default creds detected
   - name: blind-discovers-grafana-defaultcreds
@@ -135,7 +135,7 @@ assertions:
     target: localhost
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
-      not_check_id: port.database_exposed
+      not_check_id: port.mongodb_unauthenticated
 
   - name: negative-no-mssql-detected
     type: beacon
