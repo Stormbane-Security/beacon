@@ -82,6 +82,10 @@ SCAN FLAGS:
   --no-nmap                  Skip nmap integration (no service version detection, no NSE scripts)
   --no-nuclei                Skip nuclei integration (no template-based vulnerability scanning)
   --no-testssl               Skip testssl.sh integration (no deep TLS analysis)
+  --no-sqlmap                Skip sqlmap integration (no deep SQLi exploitation)
+  --no-wpscan                Skip wpscan integration (no WordPress vulnerability scanning)
+  --no-masscan               Skip masscan integration (no fast CIDR port scanning)
+  --no-arjun                 Skip arjun integration (no external parameter discovery)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
   --log-file <path>          Write structured JSON logs to file (one event per line)
@@ -269,6 +273,10 @@ func cmdScan(cfg *config.Config, args []string) {
 		noNmap              bool
 		noNuclei            bool
 		noTestssl           bool
+		// noSqlmap            bool // TODO: wire when sqlmap integration lands
+		// noWpscan            bool // TODO: wire when wpscan integration lands
+		noMasscan           bool
+		noArjun             bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -350,6 +358,14 @@ func cmdScan(cfg *config.Config, args []string) {
 			noNuclei = true
 		case "--no-testssl":
 			noTestssl = true
+		case "--no-sqlmap":
+			// noSqlmap = true
+		case "--no-wpscan":
+			// noWpscan = true
+		case "--no-masscan":
+			noMasscan = true
+		case "--no-arjun":
+			noArjun = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -488,6 +504,15 @@ func cmdScan(cfg *config.Config, args []string) {
 	}
 	if noTestssl {
 		cfg.TestsslBin = ""
+	}
+	// TODO: wire when sqlmap/wpscan integrations land
+	// if noSqlmap { cfg.SqlmapBin = "" }
+	// if noWpscan { cfg.WpscanBin = "" }
+	if noMasscan {
+		cfg.MasscanBin = ""
+	}
+	if noArjun {
+		cfg.ArjunBin = ""
 	}
 	checkExternalTools(cfg, noNuclei, noTestssl)
 

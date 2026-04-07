@@ -113,3 +113,66 @@ func TestSurfaceModeSkips(t *testing.T) {
 		t.Errorf("expected no findings in surface mode, got %d", len(findings))
 	}
 }
+
+func TestResponseDivergenceDetected(t *testing.T) {
+	// Server that alternates between 200 and 409 on /api/redeem, simulating
+	// a race condition where some requests succeed and some are rejected.
+	var count atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/redeem" && r.Method == http.MethodPost {
+			n := count.Add(1)
+			if n%2 == 0 {
+				w.WriteHeader(409)
+				_, _ = w.Write([]byte(`{"error": "conflict"}`))
+			} else {
+				w.WriteHeader(200)
+				_, _ = w.Write([]byte(`{"success": true}`))
+			}
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	s := New()
+	findings, err := s.Run(context.Background(), srv.Listener.Addr().String(), module.ScanDeep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(findings) == 0 {
+		t.Fatal("expected divergence finding, got none")
+	}
+	// Should detect divergence — mixed 200/409 status codes.
+	found := false
+	for _, f := range findings {
+		if f.CheckID == "web.race_condition" {
+			found = true
+			t.Logf("finding: %s", f.Title)
+		}
+	}
+	if !found {
+		t.Error("expected web.race_condition finding from divergence detection")
+	}
+}
+
+func TestNoDivergenceOnConsistentServer(t *testing.T) {
+	// Server that always returns 403 on all race paths — consistent, no finding.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(403)
+			_, _ = w.Write([]byte(`{"error": "forbidden"}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	s := New()
+	findings, err := s.Run(context.Background(), srv.Listener.Addr().String(), module.ScanDeep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Errorf("expected no findings on consistent 403 server, got %d", len(findings))
+	}
+}

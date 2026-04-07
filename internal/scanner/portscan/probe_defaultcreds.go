@@ -64,6 +64,42 @@ func init() {
 		DefaultPorts: []int{8088},
 		Detect:       detectSupersetDefaultCreds,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "wordpress-creds",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443, 8080},
+		Detect:       detectWordPressDefaultCreds,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "mongo-express-creds",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8081},
+		Detect:       detectMongoExpressDefaultCreds,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "phpmyadmin-creds",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 8080},
+		Detect:       detectPhpMyAdminDefaultCreds,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "kibana-creds",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{5601},
+		Detect:       detectKibanaDefaultCreds,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "rabbitmq-creds",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{15672},
+		Detect:       detectRabbitMQDefaultCreds,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "minio-console-creds",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{9001},
+		Detect:       detectMinIOConsoleDefaultCreds,
+	})
 }
 
 // detectTomcatDefaultCreds attempts Tomcat Manager login with common default credentials.
@@ -284,6 +320,210 @@ func detectGiteaNoAuth(ctx context.Context, host string, port int, _ string, mak
 			desc,
 			map[string]any{"port": port, "service": "gitea", "authenticated": false,
 				"proof": fmt.Sprintf("curl -s http://%s:%d/api/v1/repos/search?limit=5", host, port)},
+		)}
+	}
+	return nil
+}
+
+// detectWordPressDefaultCreds attempts WordPress login with common default credentials.
+func detectWordPressDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	// Verify it's WordPress by checking the login page.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/wp-login.php")
+	if !ok || !strings.Contains(strings.ToLower(body), "wordpress") {
+		return nil
+	}
+
+	defaultPairs := [][2]string{
+		{"admin", "admin"},
+		{"admin", "password"},
+	}
+
+	for _, creds := range defaultPairs {
+		url := fmt.Sprintf("http://%s:%d/wp-login.php", host, port)
+		payload := strings.NewReader(fmt.Sprintf("log=%s&pwd=%s&wp-submit=Log+In", creds[0], creds[1]))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		client := &http.Client{Timeout: httpTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		_, _ = io.ReadAll(io.LimitReader(resp.Body, 512))
+		_ = resp.Body.Close()
+
+		// WordPress redirects to /wp-admin/ on successful login (302 with Location header).
+		if resp.StatusCode == http.StatusFound {
+			loc := resp.Header.Get("Location")
+			if strings.Contains(loc, "wp-admin") {
+				return []finding.Finding{makeF(
+					finding.CheckPortWordPressDefaultCreds,
+					finding.SeverityCritical,
+					fmt.Sprintf("WordPress accepts default %s:%s credentials on port %d", creds[0], creds[1], port),
+					fmt.Sprintf("WordPress admin panel accepts default credentials %s/%s. "+
+						"An attacker can install plugins, edit themes, and achieve remote code execution on the server.", creds[0], creds[1]),
+					map[string]any{"port": port, "service": "wordpress", "default_creds": true,
+						"username": creds[0],
+						"proof":    fmt.Sprintf("curl -s -o /dev/null -w '%%{redirect_url}' -X POST http://%s:%d/wp-login.php -d 'log=%s&pwd=%s&wp-submit=Log+In'", host, port, creds[0], creds[1])},
+				)}
+			}
+		}
+	}
+	return nil
+}
+
+// detectMongoExpressDefaultCreds attempts mongo-express login with admin:pass.
+func detectMongoExpressDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	// mongo-express uses HTTP basic auth by default.
+	body, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/", "admin", "pass")
+	if !ok {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(body), "mongo express") || strings.Contains(strings.ToLower(body), "mongo-express") {
+		return []finding.Finding{makeF(
+			finding.CheckPortMongoExpressDefaultCreds,
+			finding.SeverityCritical,
+			fmt.Sprintf("mongo-express accepts default admin:pass credentials on port %d", port),
+			"mongo-express web interface accepts factory-default credentials admin/pass. "+
+				"An attacker can browse, modify, and delete all MongoDB databases and collections.",
+			map[string]any{"port": port, "service": "mongo-express", "default_creds": true,
+				"username": "admin",
+				"proof":    fmt.Sprintf("curl -s -u admin:pass http://%s:%d/", host, port)},
+		)}
+	}
+	return nil
+}
+
+// detectPhpMyAdminDefaultCreds attempts phpMyAdmin login with root and empty/default password.
+func detectPhpMyAdminDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	// Verify it's phpMyAdmin by checking the login page.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/index.php")
+	if !ok || !strings.Contains(strings.ToLower(body), "phpmyadmin") {
+		return nil
+	}
+
+	defaultPairs := [][2]string{
+		{"root", ""},
+		{"root", "root"},
+	}
+
+	for _, creds := range defaultPairs {
+		url := fmt.Sprintf("http://%s:%d/index.php", host, port)
+		payload := strings.NewReader(fmt.Sprintf("pma_username=%s&pma_password=%s&server=1", creds[0], creds[1]))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		client := &http.Client{Timeout: httpTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+
+		// Successful login: redirect to main page or response contains navigation elements.
+		if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusOK {
+			bodyStr := strings.ToLower(string(b))
+			loc := strings.ToLower(resp.Header.Get("Location"))
+			if strings.Contains(loc, "index.php") && !strings.Contains(loc, "login") ||
+				strings.Contains(bodyStr, "server_databases") || strings.Contains(bodyStr, "navigation") {
+				passDesc := creds[1]
+				if passDesc == "" {
+					passDesc = "(empty)"
+				}
+				return []finding.Finding{makeF(
+					finding.CheckPortPhpMyAdminDefaultCreds,
+					finding.SeverityCritical,
+					fmt.Sprintf("phpMyAdmin accepts root:%s credentials on port %d", passDesc, port),
+					fmt.Sprintf("phpMyAdmin database management tool accepts credentials root/%s. "+
+						"An attacker can read, modify, and delete all MySQL/MariaDB databases.", passDesc),
+					map[string]any{"port": port, "service": "phpmyadmin", "default_creds": true,
+						"username": creds[0],
+						"proof":    fmt.Sprintf("curl -s -X POST http://%s:%d/index.php -d 'pma_username=%s&pma_password=%s&server=1'", host, port, creds[0], creds[1])},
+				)}
+			}
+		}
+	}
+	return nil
+}
+
+// detectKibanaDefaultCreds attempts Kibana login with elastic:changeme.
+func detectKibanaDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	// Kibana uses Elasticsearch credentials. Try the security API.
+	body, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/api/security/v1/me", "elastic", "changeme")
+	if !ok {
+		return nil
+	}
+	if strings.Contains(body, "username") && strings.Contains(body, "elastic") {
+		return []finding.Finding{makeF(
+			finding.CheckPortKibanaDefaultCreds,
+			finding.SeverityCritical,
+			fmt.Sprintf("Kibana accepts default elastic:changeme credentials on port %d", port),
+			"Kibana accepts the Elasticsearch default credentials elastic/changeme. "+
+				"An attacker can view all indices, execute queries, and access sensitive data "+
+				"stored in Elasticsearch via the Kibana dashboard.",
+			map[string]any{"port": port, "service": "kibana", "default_creds": true,
+				"username": "elastic",
+				"proof":    fmt.Sprintf("curl -s -u elastic:changeme http://%s:%d/api/security/v1/me", host, port)},
+		)}
+	}
+	return nil
+}
+
+// detectRabbitMQDefaultCreds attempts RabbitMQ Management login with guest:guest.
+func detectRabbitMQDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	body, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/api/whoami", "guest", "guest")
+	if !ok {
+		return nil
+	}
+	if strings.Contains(body, "name") && strings.Contains(body, "guest") {
+		return []finding.Finding{makeF(
+			finding.CheckPortRabbitMQDefaultCreds,
+			finding.SeverityCritical,
+			fmt.Sprintf("RabbitMQ Management accepts default guest:guest credentials on port %d", port),
+			"RabbitMQ Management API accepts factory-default credentials guest/guest. "+
+				"An attacker can view all queues, exchanges, and messages, publish malicious messages, "+
+				"and disrupt message-driven services.",
+			map[string]any{"port": port, "service": "rabbitmq", "default_creds": true,
+				"username": "guest",
+				"proof":    fmt.Sprintf("curl -s -u guest:guest http://%s:%d/api/whoami", host, port)},
+		)}
+	}
+	return nil
+}
+
+// detectMinIOConsoleDefaultCreds attempts MinIO Console login with minioadmin:minioadmin.
+func detectMinIOConsoleDefaultCreds(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	url := fmt.Sprintf("http://%s:%d/api/v1/login", host, port)
+	payload := strings.NewReader(`{"accessKey":"minioadmin","secretKey":"minioadmin"}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: httpTimeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+	if resp.StatusCode == http.StatusNoContent || (resp.StatusCode == http.StatusOK && strings.Contains(string(b), "sessionId")) {
+		return []finding.Finding{makeF(
+			finding.CheckPortMinIODefaultCreds,
+			finding.SeverityCritical,
+			fmt.Sprintf("MinIO Console accepts default minioadmin:minioadmin credentials on port %d", port),
+			"MinIO Console accepts factory-default credentials minioadmin/minioadmin. "+
+				"An attacker can access all S3-compatible object storage buckets, download sensitive files, "+
+				"and modify or delete stored data.",
+			map[string]any{"port": port, "service": "minio", "default_creds": true,
+				"username": "minioadmin",
+				"proof":    fmt.Sprintf("curl -s -X POST http://%s:%d/api/v1/login -H 'Content-Type: application/json' -d '{\"accessKey\":\"minioadmin\",\"secretKey\":\"minioadmin\"}'", host, port)},
 		)}
 	}
 	return nil

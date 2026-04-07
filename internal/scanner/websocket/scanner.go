@@ -10,9 +10,15 @@
 package websocket
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/sha1" //nolint:gosec // SHA-1 required by RFC 6455 WebSocket protocol
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -28,6 +34,7 @@ func init() {
 		return New()
 	},
 		scan.Check(finding.CheckWebSocketCSWSH, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWebSocketMsgInjection, finding.SeverityHigh, finding.ModeDeep),
 	)
 }
 const scannerName = "websocket"
@@ -101,6 +108,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		f := probeCWSH(ctx, client, httpURL, wsURL, asset, sessionCookies)
 		if f != nil {
+			findings = append(findings, *f)
+		}
+
+		// Probe for WebSocket message injection (XSS via echo).
+		if f := probeMsgInjection(ctx, scheme, asset, path); f != nil {
 			findings = append(findings, *f)
 		}
 	}
@@ -216,4 +228,215 @@ func probeCWSH(ctx context.Context, client *http.Client, httpURL, wsURL, asset s
 		},
 		DiscoveredAt: time.Now(),
 	}
+}
+
+// xssPayload is the injection string we send over the WebSocket. If the server
+// echoes it back without sanitization, it indicates a message injection flaw
+// that could lead to XSS when the content is rendered in a browser.
+const xssPayload = `<img src=x onerror=alert('beacon-ws-probe')>`
+
+// probeMsgInjection performs a raw WebSocket upgrade handshake, sends an XSS
+// payload, and checks if the server echoes it back unsanitized.
+func probeMsgInjection(ctx context.Context, scheme, asset, path string) *finding.Finding {
+	host := asset
+	port := "443"
+	if scheme == "http" {
+		port = "80"
+	}
+	if h, p, err := net.SplitHostPort(asset); err == nil {
+		host = h
+		port = p
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var d net.Dialer
+	conn, err := d.DialContext(dialCtx, "tcp", net.JoinHostPort(host, port))
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
+
+	// Generate a random WebSocket key.
+	keyBytes := make([]byte, 16)
+	_, _ = rand.Read(keyBytes)
+	wsKey := base64.StdEncoding.EncodeToString(keyBytes)
+
+	// Send HTTP/1.1 upgrade request.
+	httpURL := scheme + "://" + asset + path
+	upgradeReq := fmt.Sprintf(
+		"GET %s HTTP/1.1\r\n"+
+			"Host: %s\r\n"+
+			"Connection: Upgrade\r\n"+
+			"Upgrade: websocket\r\n"+
+			"Sec-WebSocket-Version: 13\r\n"+
+			"Sec-WebSocket-Key: %s\r\n"+
+			"\r\n",
+		path, asset, wsKey)
+	if _, err := conn.Write([]byte(upgradeReq)); err != nil {
+		return nil
+	}
+
+	// Read the HTTP response.
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		return nil
+	}
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		return nil
+	}
+
+	// Verify the Sec-WebSocket-Accept header (RFC 6455 section 4.2.2).
+	expectedAccept := computeAcceptKey(wsKey)
+	if resp.Header.Get("Sec-WebSocket-Accept") != expectedAccept {
+		return nil
+	}
+
+	// Send a text frame with the XSS payload.
+	if err := writeWSTextFrame(conn, []byte(xssPayload)); err != nil {
+		return nil
+	}
+
+	// Read a response frame.
+	echoData, err := readWSFrame(conn)
+	if err != nil {
+		return nil
+	}
+
+	echoStr := string(echoData)
+
+	// Check if the server echoed the payload without sanitization.
+	if !strings.Contains(echoStr, "<img") && !strings.Contains(echoStr, "onerror") {
+		return nil
+	}
+
+	wsScheme := "ws"
+	if scheme == "https" {
+		wsScheme = "wss"
+	}
+	wsURL := wsScheme + "://" + asset + path
+
+	return &finding.Finding{
+		CheckID:  finding.CheckWebSocketMsgInjection,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("WebSocket message injection (XSS echo) at %s", wsURL),
+		Description: fmt.Sprintf(
+			"The WebSocket endpoint at %s echoes user-supplied messages without sanitization. "+
+				"The injected payload %q was reflected back verbatim. If these messages are rendered "+
+				"in a browser (e.g., chat, dashboard, log viewer), this enables cross-site scripting (XSS) "+
+				"attacks via WebSocket message injection.", httpURL, xssPayload),
+		Asset: asset,
+		ProofCommand: fmt.Sprintf(
+			`echo '%s' | npx wscat --connect %s`,
+			xssPayload, wsURL),
+		Evidence: map[string]any{
+			"url":       wsURL,
+			"payload":   xssPayload,
+			"echo":      echoStr,
+			"sanitized": false,
+		},
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// computeAcceptKey computes the Sec-WebSocket-Accept value per RFC 6455 section 4.2.2.
+func computeAcceptKey(key string) string {
+	const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	h := sha1.New() //nolint:gosec // SHA-1 required by RFC 6455
+	_, _ = h.Write([]byte(key + websocketGUID))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// writeWSTextFrame writes a masked WebSocket text frame (opcode 0x1).
+func writeWSTextFrame(conn net.Conn, payload []byte) error {
+	// Frame: FIN=1, opcode=text(0x1), MASK=1 (client must mask per RFC 6455).
+	frame := []byte{0x81} // FIN + text opcode
+
+	pLen := len(payload)
+	switch {
+	case pLen <= 125:
+		frame = append(frame, byte(pLen)|0x80) // Set MASK bit
+	case pLen <= 65535:
+		frame = append(frame, 126|0x80)
+		frame = append(frame, byte(pLen>>8), byte(pLen))
+	default:
+		frame = append(frame, 127|0x80)
+		lenBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(lenBytes, uint64(pLen))
+		frame = append(frame, lenBytes...)
+	}
+
+	// Masking key (4 random bytes).
+	mask := make([]byte, 4)
+	_, _ = rand.Read(mask)
+	frame = append(frame, mask...)
+
+	// Mask the payload.
+	masked := make([]byte, pLen)
+	for i := range payload {
+		masked[i] = payload[i] ^ mask[i%4]
+	}
+	frame = append(frame, masked...)
+
+	_, err := conn.Write(frame)
+	return err
+}
+
+// readWSFrame reads a single WebSocket frame and returns the payload.
+func readWSFrame(conn net.Conn) ([]byte, error) {
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(conn, header); err != nil {
+		return nil, err
+	}
+
+	masked := (header[1] & 0x80) != 0
+	length := int64(header[1] & 0x7F)
+
+	switch length {
+	case 126:
+		ext := make([]byte, 2)
+		if _, err := io.ReadFull(conn, ext); err != nil {
+			return nil, err
+		}
+		length = int64(binary.BigEndian.Uint16(ext))
+	case 127:
+		ext := make([]byte, 8)
+		if _, err := io.ReadFull(conn, ext); err != nil {
+			return nil, err
+		}
+		length = int64(binary.BigEndian.Uint64(ext))
+	}
+
+	// Limit read to prevent memory exhaustion.
+	if length > 65536 {
+		return nil, fmt.Errorf("frame too large: %d bytes", length)
+	}
+
+	var mask []byte
+	if masked {
+		mask = make([]byte, 4)
+		if _, err := io.ReadFull(conn, mask); err != nil {
+			return nil, err
+		}
+	}
+
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		return nil, err
+	}
+
+	if masked {
+		for i := range payload {
+			payload[i] ^= mask[i%4]
+		}
+	}
+
+	return payload, nil
 }
