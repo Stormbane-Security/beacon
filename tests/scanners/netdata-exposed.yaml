@@ -1,0 +1,32 @@
+name: netdata-monitoring-exposed
+description: >
+  Netdata monitoring agent with no authentication. Beacon should detect
+  the exposed monitoring dashboard and API.
+tags: [netdata, monitoring, dashboard, detection]
+
+services:
+  netdata:
+    image: netdata/netdata:stable
+    ports: ["19999:19999"]
+    cap_add: ["SYS_PTRACE"]
+
+ready:
+  cmd: "curl -sf http://localhost:19999/api/v1/info | grep -q version"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: netdata-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19999/api/v1/info | grep -q version"
+      exit_code: 0
+
+  - name: detects-netdata-exposed
+    type: beacon
+    target: localhost:19999
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19999"]
+    expect:
+      check_id: port.netdata_exposed
+
+timeout: 3m

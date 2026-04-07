@@ -1,0 +1,33 @@
+name: clickhouse-exposed
+description: >
+  ClickHouse analytics database with no authentication. Beacon should
+  detect the exposed ClickHouse HTTP interface.
+tags: [clickhouse, database, analytics, portscan, detection]
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.12
+    ports: ["8123:8123", "9000:9000"]
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+
+ready:
+  cmd: "curl -sf http://localhost:8123/ping | grep -q Ok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: clickhouse-api-accessible
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:8123/?query=SELECT+1' | grep -q 1"
+      exit_code: 0
+
+  - name: detects-clickhouse-exposed
+    type: beacon
+    target: localhost:8123
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8123"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+timeout: 3m
