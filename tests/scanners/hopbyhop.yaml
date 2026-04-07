@@ -1,10 +1,10 @@
 name: hopbyhop-proxy-header-stripping
 description: >
-  Real nginx reverse proxy in front of a backend that changes behavior based on
-  X-Forwarded-For. When an attacker sends Connection: X-Forwarded-For, the proxy
-  strips it per RFC 7230, causing the backend to deny access — demonstrating the
-  hop-by-hop header abuse attack. Beacon hopbyhop scanner should detect the
-  response delta.
+  Vulnerable Python reverse proxy in front of a backend that changes behavior
+  based on X-Forwarded-For. The proxy sets XFF then strips hop-by-hop headers,
+  so sending Connection: X-Forwarded-For causes the proxy to remove its own XFF
+  before forwarding — the backend denies access. Beacon hopbyhop scanner should
+  detect the response delta.
 tags: [hopbyhop, scanner, proxy, header-stripping, deep]
 
 services:
@@ -14,10 +14,15 @@ services:
       - ./hopbyhop/backend.conf:/etc/nginx/conf.d/default.conf:ro
 
   proxy:
-    image: nginx:alpine
+    image: python:3.12-alpine
     ports: ["9295:80"]
     volumes:
-      - ./hopbyhop/proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./hopbyhop/vulnerable-proxy.py:/app/proxy.py:ro
+    environment:
+      BACKEND_HOST: backend
+      BACKEND_PORT: "80"
+      LISTEN_PORT: "80"
+    command: ["python3", "/app/proxy.py"]
 
 ready:
   cmd: "curl -sf http://localhost:9295/ >/dev/null"
@@ -28,7 +33,7 @@ assertions:
   - name: exploit-normal-request-gets-200
     type: command
     expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9295/"
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9295/ | grep -q '200'"
       exit_code: 0
 
   - name: exploit-hopbyhop-strips-xff

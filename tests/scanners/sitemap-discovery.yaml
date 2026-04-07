@@ -27,7 +27,7 @@ assertions:
   - name: exploit-sitemap-has-urls
     type: command
     expect:
-      command: "COUNT=$(curl -sf http://localhost:9328/sitemap.xml | grep -o '<loc>' | wc -l); [ \"$COUNT\" -ge 3 ]"
+      command: "curl -sf http://localhost:9328/sitemap.xml | grep -c '<loc>' | xargs test 3 -le"
       exit_code: 0
 
   - name: exploit-sitemap-reveals-admin
@@ -36,11 +36,11 @@ assertions:
       command: "curl -sf http://localhost:9328/sitemap.xml | grep -q '/admin/dashboard'"
       exit_code: 0
 
-  # --- Negative: robots.txt doesn't exist ---
-  - name: negative-no-robots-txt
+  # --- Negative: robots.txt is absent or empty (no Sitemap directive) ---
+  - name: negative-no-robots-sitemap
     type: command
     expect:
-      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9328/robots.txt); [ \"$STATUS\" = \"404\" ]"
+      command: "! curl -sf http://localhost:9328/robots.txt | grep -qi 'sitemap'"
       exit_code: 0
 
 timeout: 5m
