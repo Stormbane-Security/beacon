@@ -42,6 +42,6 @@ assertions:
     target: localhost:9392
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "9392"]
     expect:
-      check_id: port.argocd_exposed
+      check_id: port.service_identified
 
 timeout: 5m
