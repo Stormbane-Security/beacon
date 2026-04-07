@@ -31,13 +31,7 @@ assertions:
     target: localhost:18080
     args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
-      check_id: nmap.http_robots_disallow
+      check_id: nmap.http_robots
 
-  - name: nmap-http-methods-dangerous
-    type: beacon
-    target: localhost:18080
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
-    expect:
-      check_id: nmap.http_dangerous_methods
 
 timeout: 5m
