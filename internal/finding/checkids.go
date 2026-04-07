@@ -93,6 +93,7 @@ const (
 	CheckExposureSensitiveFile    CheckID = "exposure.sensitive_file"
 	CheckExposureAIModelFile     CheckID = "exposure.ai_model_file"    // ML model weights served publicly (.onnx, .pt, .safetensors, etc.)
 	CheckExposureVulnDependency  CheckID = "exposure.vulnerable_dependency" // Known-vulnerable dependency found in exposed manifest file
+	CheckOSVCVEMatch             CheckID = "osv.cve_version_match"         // CVE found via OSV database for fingerprinted service version
 
 	// Nuclei-sourced (mapped from template IDs)
 	CheckNucleiS3BucketExposed   CheckID = "nuclei.s3_bucket_exposed"
@@ -806,6 +807,10 @@ const (
 	CheckPortZabbixDefaultCreds       CheckID = "port.zabbix_default_credentials"  // Zabbix (port 80) accepts Admin:zabbix default credentials
 	CheckPortGiteaNoAuth              CheckID = "port.gitea_no_auth"               // Gitea/Forgejo (port 3000) exposes repositories without authentication
 	CheckPortSupersetDefaultCreds     CheckID = "port.superset_default_credentials" // Apache Superset (port 8088) accepts admin:admin default credentials
+	CheckPortWordPressDefaultCreds    CheckID = "port.wordpress_default_credentials" // WordPress (port 80/443) accepts admin:admin or admin:password default credentials
+	CheckPortMongoExpressDefaultCreds CheckID = "port.mongo_express_default_credentials" // mongo-express (port 8081) accepts admin:pass default credentials
+	CheckPortPhpMyAdminDefaultCreds   CheckID = "port.phpmyadmin_default_credentials" // phpMyAdmin (port 80/8080) accepts root with empty or default password
+	CheckPortKibanaDefaultCreds       CheckID = "port.kibana_default_credentials"  // Kibana (port 5601) accepts elastic:changeme default credentials
 	CheckCVENextJSMiddlewareBypass    CheckID = "cve.nextjs_middleware_bypass"      // CVE-2025-29927 Next.js middleware auth bypass via X-Middleware-Subrequest (CVSS 9.1, KEV)
 	CheckCVEViteFileRead              CheckID = "cve.vite_file_read"               // CVE-2025-30208 Vite dev server arbitrary file read via /@fs/ path double-query confusion (CVSS 9.1)
 	CheckCVEIngressNightmare          CheckID = "cve.ingress_nightmare"            // CVE-2025-1974 ingress-nginx admission webhook exposed — pre-auth RCE via annotation injection (CVSS 9.8, KEV)
@@ -1018,6 +1023,11 @@ const (
 	CheckCorrelationCNAMEToCloud        CheckID = "correlation.cname_to_cloud"         // domain CNAMEs to cloud provider hostname
 	CheckCorrelationSharedInfra         CheckID = "correlation.shared_infrastructure"  // multiple assets share the same backend IP
 	CheckCorrelationCloudToSurface      CheckID = "correlation.cloud_to_surface"       // cloud resource serves a scanned domain (composite signal)
+
+	// ── Chained exploit correlation ──────────────────────────────────────
+	CheckCorrelationXSSCSRFChain        CheckID = "correlation.xss_csrf_chain"           // XSS + missing CSRF protection = account takeover
+	CheckCorrelationTLSSessionHijack    CheckID = "correlation.tls_session_hijack"       // weak TLS + insecure cookies = session hijack
+	CheckCorrelationCloudMetadataChain  CheckID = "correlation.cloud_metadata_chain"     // SSRF + cloud metadata accessible = IAM takeover
 
 	// Terraform / IaC static analysis
 	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
@@ -1790,6 +1800,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckExposureCloudStorage:     {CheckExposureCloudStorage, SeverityCritical, ModeSurface},
 	CheckExposureSensitiveFile:    {CheckExposureSensitiveFile, SeverityHigh, ModeSurface},
 	CheckExposureAIModelFile:     {CheckExposureAIModelFile, SeverityHigh, ModeSurface},
+	CheckExposureVulnDependency: {CheckExposureVulnDependency, SeverityHigh, ModeSurface},
+	CheckOSVCVEMatch:            {CheckOSVCVEMatch, SeverityHigh, ModeSurface},
 	CheckNucleiS3BucketExposed:    {CheckNucleiS3BucketExposed, SeverityCritical, ModeSurface},
 	CheckNucleiMisconfiguredCORS:  {CheckNucleiMisconfiguredCORS, SeverityMedium, ModeSurface},
 	CheckNucleiStaleTemplates:     {CheckNucleiStaleTemplates, SeverityMedium, ModeSurface},
@@ -2579,6 +2591,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationSharedInfra:    {CheckCorrelationSharedInfra, SeverityInfo, ModeSurface},
 	CheckCorrelationCloudToSurface: {CheckCorrelationCloudToSurface, SeverityMedium, ModeSurface},
 
+	// Chained exploit correlation
+	CheckCorrelationXSSCSRFChain:       {CheckCorrelationXSSCSRFChain, SeverityCritical, ModeSurface},
+	CheckCorrelationTLSSessionHijack:   {CheckCorrelationTLSSessionHijack, SeverityHigh, ModeSurface},
+	CheckCorrelationCloudMetadataChain: {CheckCorrelationCloudMetadataChain, SeverityCritical, ModeSurface},
+
 	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
 	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ModeSurface},
 	CheckTerraformGCSBucketPublic:   {CheckTerraformGCSBucketPublic, SeverityHigh, ModeSurface},
@@ -2914,7 +2931,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortPgAdminDefaultCreds:   {CheckPortPgAdminDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortZabbixDefaultCreds:    {CheckPortZabbixDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortGiteaNoAuth:           {CheckPortGiteaNoAuth, SeverityHigh, ModeSurface},
-	CheckPortSupersetDefaultCreds:  {CheckPortSupersetDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortSupersetDefaultCreds:      {CheckPortSupersetDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortWordPressDefaultCreds:    {CheckPortWordPressDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortMongoExpressDefaultCreds: {CheckPortMongoExpressDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortPhpMyAdminDefaultCreds:   {CheckPortPhpMyAdminDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortKibanaDefaultCreds:       {CheckPortKibanaDefaultCreds, SeverityCritical, ModeDeep},
 
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},

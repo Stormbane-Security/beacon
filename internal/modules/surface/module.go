@@ -103,6 +103,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
+	_ "github.com/stormbane-security/beacon/internal/scanner/correlation"
 	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
 	_ "github.com/stormbane-security/beacon/internal/scanner/elinjection"
 	_ "github.com/stormbane-security/beacon/internal/scanner/containerimage"

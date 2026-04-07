@@ -64,13 +64,24 @@ var apiPrefixes = []string{
 var seedIDs = []string{"1", "2", "100", "1000"}
 
 // Scanner probes for IDOR/BOLA vulnerabilities via sequential ID manipulation.
-type Scanner struct{}
+type Scanner struct {
+	// priorFindings holds findings from earlier scanners (e.g. crawler,
+	// webcontent) used to extract real numeric IDs for targeted testing.
+	priorFindings []finding.Finding
+}
 
 // New returns a new Scanner.
 func New() *Scanner { return &Scanner{} }
 
 // Name returns the stable scanner identifier.
 func (s *Scanner) Name() string { return scannerName }
+
+// SetPriorFindings provides findings from earlier scanners so the IDOR
+// scanner can extract real IDs from crawled responses instead of relying
+// solely on hardcoded seed IDs.
+func (s *Scanner) SetPriorFindings(findings []finding.Finding) {
+	s.priorFindings = findings
+}
 
 // Run executes the IDOR scan. Only runs in deep or authorized mode.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
@@ -92,6 +103,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	base := schemedetect.Base(ctx, client, asset)
 
+	// Build the effective seed ID list: hardcoded defaults plus any IDs
+	// extracted from prior scanner findings (crawler, webcontent, etc.).
+	effectiveSeedIDs := make([]string, len(seedIDs))
+	copy(effectiveSeedIDs, seedIDs)
+
+	if len(s.priorFindings) > 0 {
+		extracted := ExtractIDsFromEvidence(s.priorFindings)
+		// Deduplicate against existing seeds.
+		seedSet := make(map[string]struct{}, len(effectiveSeedIDs))
+		for _, id := range effectiveSeedIDs {
+			seedSet[id] = struct{}{}
+		}
+		for _, id := range extracted {
+			if _, exists := seedSet[id]; !exists {
+				effectiveSeedIDs = append(effectiveSeedIDs, id)
+				seedSet[id] = struct{}{}
+			}
+		}
+	}
+
 	var findings []finding.Finding
 
 	for _, prefix := range apiPrefixes {
@@ -99,7 +130,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			break
 		}
 
-		for _, seedID := range seedIDs {
+		for _, seedID := range effectiveSeedIDs {
 			if ctx.Err() != nil {
 				break
 			}

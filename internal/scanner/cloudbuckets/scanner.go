@@ -110,10 +110,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 
 			// --- Azure Blob Storage ---
+			// Probe the storage account root.
 			azureURL := fmt.Sprintf("https://%s.blob.core.windows.net/", c)
 			local = append(local, probeURL(ctx, client, asset, azureURL, "Azure Blob", c, pageText, now))
 			if scanType == module.ScanAuthorized {
 				local = append(local, probeWrite(ctx, client, asset, azureURL, "Azure Blob", c, now))
+			}
+
+			// Probe common Azure container names within the storage account.
+			for _, container := range azureContainers {
+				containerURL := fmt.Sprintf("https://%s.blob.core.windows.net/%s?restype=container&comp=list", c, container)
+				local = append(local, probeAzureContainer(ctx, client, asset, containerURL, "Azure Blob", c, container, pageText, now))
 			}
 
 			mu.Lock()
@@ -505,6 +512,113 @@ func bucketCandidates(root string) []string {
 	}
 
 	return candidates
+}
+
+// azureContainers are common Azure Blob Storage container names to enumerate
+// within each candidate storage account.
+var azureContainers = []string{
+	"$web",
+	"assets",
+	"backup",
+	"backups",
+	"data",
+	"files",
+	"images",
+	"logs",
+	"media",
+	"public",
+	"static",
+	"uploads",
+}
+
+// probeAzureContainer checks a specific container within an Azure storage account.
+// Azure container listing uses ?restype=container&comp=list and returns XML with
+// <EnumerationResults> when publicly accessible.
+func probeAzureContainer(ctx context.Context, client *http.Client, asset, url, provider, accountName, container, pageText string, now time.Time) *finding.Finding {
+	bucketName := accountName + "/" + container
+	confirmed := pageText != "" && (strings.Contains(pageText, accountName) || strings.Contains(pageText, container))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	bodyStr := string(body)
+
+	if strings.Contains(bodyStr, "EnumerationResults") || strings.Contains(bodyStr, "ListBucketResult") {
+		titlePrefix := "Possible"
+		desc := fmt.Sprintf(
+			"An %s container '%s' in storage account '%s' (guessed from %s) is publicly listable. "+
+				"Confirm it belongs to the target by reviewing blob names.",
+			provider, container, accountName, asset)
+		if confirmed {
+			titlePrefix = "Confirmed"
+			desc = fmt.Sprintf(
+				"An %s container '%s' in storage account '%s' belonging to %s is publicly listable. "+
+					"Anyone can enumerate and download all blobs.",
+				provider, container, accountName, asset)
+		}
+		return &finding.Finding{
+			CheckID:     finding.CheckCloudBucketPublic,
+			Module:      "surface",
+			Scanner:     scannerName,
+			Severity:    finding.SeverityCritical,
+			Title:       fmt.Sprintf("%s public %s container (listable): %s", titlePrefix, provider, bucketName),
+			Description: desc,
+			Asset:       asset,
+			Evidence: map[string]any{
+				"bucket_url":          url,
+				"bucket_name":         bucketName,
+				"provider":            provider,
+				"container":           container,
+				"storage_account":     accountName,
+				"status_code":         resp.StatusCode,
+				"listing":             "enabled",
+				"ownership_confirmed": confirmed,
+			},
+			ProofCommand: fmt.Sprintf(
+				"# List blobs in Azure container:\ncurl -s '%s' | grep -o '<Name>[^<]*</Name>' | sed 's/<[^>]*>//g'",
+				url),
+			DiscoveredAt: now,
+		}
+	}
+
+	return nil
+}
+
+// probePublicRead attempts to download a well-known test path from a bucket URL
+// to confirm that individual objects are publicly readable (not just that the
+// bucket exists). Returns true if any probe returned HTTP 200 with a non-empty body.
+func probePublicRead(ctx context.Context, client *http.Client, baseURL string) bool {
+	testPaths := []string{"index.html", "robots.txt", "favicon.ico"}
+	for _, p := range testPaths {
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL+p, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return true
+		}
+	}
+	return false
 }
 
 // rootDomain strips subdomains, returning e.g. "acme.com" from "app.acme.com".
