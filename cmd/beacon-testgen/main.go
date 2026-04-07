@@ -223,7 +223,7 @@ assertions:
   - name: nuclei-detects
     type: beacon
     target: localhost:{{.HostPort}}
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "nuclei"]
     expect:
       check_id: {{.NucleiCheck}}
 {{- if .HasExploit}}
@@ -231,7 +231,7 @@ assertions:
   - name: exploit-chain
     type: beacon
     target: localhost:{{.HostPort}}
-    args: ["--no-enrich", "--no-nmap", "--scanners", "{{.ExploitSpec.Scanner}}", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "nuclei", "--scanners", "{{.ExploitSpec.Scanner}}", "--authorized", "--yes"]
     expect:
       check_id: {{.ExploitSpec.CheckID}}
 {{- end}}

@@ -415,8 +415,11 @@ func New(cfg Config) (*Module, error) {
 	scannerCfg := moduleScannerConfig(cfg)
 	scannerMap := scan.Build(scannerCfg)
 
-	// Special cases: nuclei shares a single instance for "tls" and is
-	// not in the registry because it requires per-module configuration.
+	// Special cases: nuclei shares a single instance and is not in the
+	// scan.Build registry because it requires per-module configuration.
+	// Register under both "nuclei" (for --scanners nuclei) and "tls"
+	// (legacy alias for TLS-specific template runs).
+	scannerMap["nuclei"] = nucl
 	scannerMap["tls"] = nucl
 
 	// Clamp depth and asset limits to their hard ceilings.
