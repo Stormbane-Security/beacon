@@ -1062,7 +1062,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		// Use a larger read limit for dependency files so the parser
+		// can see the full manifest; other files stay at 4 KiB.
+		readLimit := int64(4096)
+		if isDependencyFile(t.path) {
+			readLimit = 256 * 1024
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
 		_ = resp.Body.Close()
 
 		// Confirm it's a real file, not a soft 404 or CMS catch-all.
@@ -1110,6 +1116,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				"snippet": snippet,
 			},
 		})
+
+		// When the exposed file is a dependency manifest, parse it
+		// and check for known vulnerable packages/versions.
+		if isDependencyFile(t.path) {
+			vulnFindings := analyzeDependencies(asset, t.path, body)
+			findings = append(findings, vulnFindings...)
+		}
 	}
 
 	// CVE-2024-27198 (TeamCity auth bypass, CVSS 9.8, KEV):

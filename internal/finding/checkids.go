@@ -92,6 +92,7 @@ const (
 	CheckExposureCloudStorage     CheckID = "exposure.cloud_storage"
 	CheckExposureSensitiveFile    CheckID = "exposure.sensitive_file"
 	CheckExposureAIModelFile     CheckID = "exposure.ai_model_file"    // ML model weights served publicly (.onnx, .pt, .safetensors, etc.)
+	CheckExposureVulnDependency  CheckID = "exposure.vulnerable_dependency" // Known-vulnerable dependency found in exposed manifest file
 
 	// Nuclei-sourced (mapped from template IDs)
 	CheckNucleiS3BucketExposed   CheckID = "nuclei.s3_bucket_exposed"
