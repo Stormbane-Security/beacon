@@ -2,6 +2,13 @@ package finding
 
 import "time"
 
+// Confidence levels for findings.
+const (
+	ConfidenceObserved = "observed" // Scanner saw concrete evidence (banner, response, etc.)
+	ConfidenceProbable = "probable" // Strong indicators (version match, pattern match) but not verified
+	ConfidenceVerified = "verified" // Confirmed via active exploitation or proof-of-concept
+)
+
 // Finding is the canonical normalized finding produced by any scanner.
 // All scanners return []Finding regardless of the underlying tool.
 type Finding struct {
@@ -39,6 +46,14 @@ type Finding struct {
 	// ChainDepth tracks how many hops from the initial entry point this
 	// finding is. Depth 0 = direct scan finding, 1 = first pivot, etc.
 	ChainDepth int `json:"chain_depth,omitempty"`
+
+	// Confidence indicates how certain we are this finding is real.
+	// Three tiers:
+	//   "observed"  — scanner saw concrete evidence (HTTP response, banner, etc.)
+	//   "probable"  — strong indicators but not conclusively verified (version match, pattern match)
+	//   "verified"  — finding confirmed via active exploitation or proof-of-concept
+	// Empty string means confidence was not assessed (legacy findings).
+	Confidence string `json:"confidence,omitempty"`
 }
 
 // Meta returns the CheckMeta for this finding's CheckID.
