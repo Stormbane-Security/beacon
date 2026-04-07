@@ -98,6 +98,10 @@ func probeKongAdmin(ctx context.Context, client *http.Client, asset string) []fi
 		url  string
 		desc string
 	}{
+		// Try the asset URL directly first (respects port from target/drydock)
+		{fmt.Sprintf("http://%s/", asset), "target port"},
+		{fmt.Sprintf("https://%s/", asset), "target port (TLS)"},
+		// Then try default Kong admin ports
 		{fmt.Sprintf("http://%s:8001/", host), "port 8001 (default admin)"},
 		{fmt.Sprintf("https://%s:8444/", host), "port 8444 (default admin TLS)"},
 	}
