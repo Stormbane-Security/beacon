@@ -1,0 +1,34 @@
+name: ntp-monlist
+description: >
+  NTP server exposed on UDP 123. Beacon should detect the exposed
+  NTP service via UDP probe.
+tags: [udp, ntp, amplification, detection]
+
+services:
+  ntpd:
+    image: cturra/ntp:latest
+    ports: ["15123:123/udp"]
+    cap_add: ["SYS_TIME"]
+
+ready:
+  cmd: "ntpdate -q localhost 2>/dev/null | grep -q offset || ntpq -p localhost 2>/dev/null | grep -q '^[*+\\-]'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: NTP responds to queries
+  - name: ntp-responds
+    type: command
+    expect:
+      command: "ntpdate -q localhost 2>/dev/null | grep -q offset || ntpq -p localhost 2>/dev/null | grep -q '^[*+\\-]'"
+      exit_code: 0
+
+  # Portscan detection — no --ports so nmap handles UDP discovery
+  - name: detects-ntp-exposed
+    type: beacon
+    target: localhost:15123
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.ntp_exposed
+
+timeout: 5m

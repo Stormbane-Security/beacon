@@ -1,0 +1,2 @@
+This is a test file served by TFTP.
+If you can read this, anonymous TFTP access is enabled.
