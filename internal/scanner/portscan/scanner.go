@@ -457,6 +457,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			chainFindings := chain.ProbeHostServices(ctx, host, openPorts, fb)
 			log.Debug("chain.complete", slog.Int("finding_count", len(chainFindings)), slog.Duration("duration", time.Since(chainStart)))
 			findings = append(findings, chainFindings...)
+
+			// Credential reuse: replay harvested tokens against all HTTP services.
+			if ctx.Err() == nil {
+				httpSvcs := postexploit.HTTPServicesFromPorts(host, openPorts)
+				if len(httpSvcs) > 0 {
+					reuseFindings := chain.ProbeCredentialReuse(ctx, httpSvcs, fb)
+					if len(reuseFindings) > 0 {
+						log.Debug("credreuse.complete", slog.Int("finding_count", len(reuseFindings)))
+						findings = append(findings, reuseFindings...)
+					}
+				}
+			}
 		}
 	}
 
