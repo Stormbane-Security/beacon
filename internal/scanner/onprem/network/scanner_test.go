@@ -498,3 +498,167 @@ func TestScannerName(t *testing.T) {
 		t.Errorf("expected scanner name 'onprem/network', got %q", s.Name())
 	}
 }
+
+// --------------------------------------------------------------------------
+// ARP spoofing detection
+// --------------------------------------------------------------------------
+
+func TestARPSpoofing_Detected(t *testing.T) {
+	dialer := newTestDialer()
+	ip := "192.168.1.40"
+
+	// Fake ARP table with duplicate MACs for the same IP.
+	fakeARP := func() (string, error) {
+		return `? (192.168.1.40) at aa:bb:cc:dd:ee:01 on en0
+? (192.168.1.40) at aa:bb:cc:dd:ee:02 on en0
+? (192.168.1.41) at aa:bb:cc:dd:ee:03 on en0
+`, nil
+	}
+
+	cfg := network.Config{Targets: []string{ip}}
+	s := network.NewWithOptions(cfg, dialer, failHTTPClient(), fakeARP)
+
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(findings, finding.CheckOnpremNetworkARPSpoofing) {
+		t.Error("expected CheckOnpremNetworkARPSpoofing when ARP table has duplicate MACs")
+	}
+
+	// Verify evidence.
+	for _, f := range findings {
+		if f.CheckID == finding.CheckOnpremNetworkARPSpoofing {
+			macCount, _ := f.Evidence["mac_count"].(int)
+			if macCount != 2 {
+				t.Errorf("expected mac_count=2, got %d", macCount)
+			}
+		}
+	}
+}
+
+func TestARPSpoofing_NoDuplicates_NoFinding(t *testing.T) {
+	dialer := newTestDialer()
+	ip := "192.168.1.41"
+
+	// Normal ARP table — each IP has one MAC.
+	fakeARP := func() (string, error) {
+		return `? (192.168.1.41) at aa:bb:cc:dd:ee:01 on en0
+? (192.168.1.42) at aa:bb:cc:dd:ee:02 on en0
+`, nil
+	}
+
+	cfg := network.Config{Targets: []string{ip}}
+	s := network.NewWithOptions(cfg, dialer, failHTTPClient(), fakeARP)
+
+	findings, _ := s.Run(context.Background(), ip, module.ScanDeep)
+	if hasCheckID(findings, finding.CheckOnpremNetworkARPSpoofing) {
+		t.Error("should not emit ARP spoofing finding when no duplicate MACs exist")
+	}
+}
+
+func TestARPSpoofing_ProcNetArpFormat(t *testing.T) {
+	dialer := newTestDialer()
+	ip := "10.0.0.1"
+
+	// Linux /proc/net/arp format.
+	fakeARP := func() (string, error) {
+		return `IP address       HW type     Flags       HW address            Mask     Device
+10.0.0.1         0x1         0x2         aa:bb:cc:dd:ee:01     *        eth0
+10.0.0.1         0x1         0x2         aa:bb:cc:dd:ee:ff     *        eth0
+10.0.0.2         0x1         0x2         11:22:33:44:55:66     *        eth0
+`, nil
+	}
+
+	cfg := network.Config{Targets: []string{ip}}
+	s := network.NewWithOptions(cfg, dialer, failHTTPClient(), fakeARP)
+
+	findings, _ := s.Run(context.Background(), ip, module.ScanDeep)
+	if !hasCheckID(findings, finding.CheckOnpremNetworkARPSpoofing) {
+		t.Error("expected ARP spoofing detection from /proc/net/arp format")
+	}
+}
+
+func TestARPSpoofing_SurfaceMode_NoCheck(t *testing.T) {
+	dialer := newTestDialer()
+	ip := "192.168.1.50"
+
+	fakeARP := func() (string, error) {
+		return `? (192.168.1.50) at aa:bb:cc:dd:ee:01 on en0
+? (192.168.1.50) at aa:bb:cc:dd:ee:02 on en0
+`, nil
+	}
+
+	cfg := network.Config{Targets: []string{ip}}
+	s := network.NewWithOptions(cfg, dialer, failHTTPClient(), fakeARP)
+
+	findings, _ := s.Run(context.Background(), ip, module.ScanSurface)
+	if hasCheckID(findings, finding.CheckOnpremNetworkARPSpoofing) {
+		t.Error("ARP spoofing check should not run in surface mode")
+	}
+}
+
+// --------------------------------------------------------------------------
+// LLMNR exposure detection
+// --------------------------------------------------------------------------
+
+func TestLLMNR_Detected(t *testing.T) {
+	dialer := newTestDialer()
+	ip := "192.168.1.60"
+
+	dialer.addUDPHandler(ip+":5355", func(pc net.PacketConn) {
+		buf := make([]byte, 4096)
+		n, addr, err := pc.ReadFrom(buf)
+		if err != nil || n == 0 {
+			return
+		}
+		// Build an LLMNR response (QR bit set in flags).
+		response := make([]byte, n)
+		copy(response, buf[:n])
+		// Set QR bit (bit 15 of flags field at offset 2-3).
+		response[2] = response[2] | 0x80
+		// Set ANCOUNT=1.
+		response[6] = 0x00
+		response[7] = 0x01
+		// Append a minimal A record answer.
+		answer := []byte{
+			0xc0, 0x0c, // name pointer
+			0x00, 0x01, // type: A
+			0x00, 0x01, // class: IN
+			0x00, 0x00, 0x00, 0x1e, // TTL: 30
+			0x00, 0x04, // rdlength: 4
+			0xc0, 0xa8, 0x01, 0x3c, // 192.168.1.60
+		}
+		response = append(response, answer...)
+		_, _ = pc.WriteTo(response, addr)
+	})
+
+	cfg := network.Config{Targets: []string{ip}}
+	s := network.NewWithOptions(cfg, dialer, failHTTPClient(), nil)
+
+	findings, err := s.Run(context.Background(), ip, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasCheckID(findings, finding.CheckOnpremNetworkLLMNRExposed) {
+		t.Error("expected CheckOnpremNetworkLLMNRExposed when LLMNR responds")
+	}
+}
+
+func TestLLMNR_NoResponse_NoFinding(t *testing.T) {
+	dialer := newTestDialer()
+	ip := "192.168.1.61"
+
+	dialer.addUDPHandler(ip+":5355", func(pc net.PacketConn) {
+		buf := make([]byte, 4096)
+		_, _, _ = pc.ReadFrom(buf) // read and discard
+	})
+
+	cfg := network.Config{Targets: []string{ip}}
+	s := network.NewWithOptions(cfg, dialer, failHTTPClient(), nil)
+
+	findings, _ := s.Run(context.Background(), ip, module.ScanDeep)
+	if hasCheckID(findings, finding.CheckOnpremNetworkLLMNRExposed) {
+		t.Error("should not emit LLMNR finding when no response is received")
+	}
+}

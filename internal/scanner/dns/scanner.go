@@ -34,6 +34,7 @@ func init() {
 		scan.Check(finding.CheckDNSDNSSECMissing, finding.SeverityLow, finding.ModeSurface),
 		scan.Check(finding.CheckDNSMissingCAA, finding.SeverityLow, finding.ModeSurface),
 		scan.Check(finding.CheckDNSWildcard, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckDNSRebindingVulnerable, finding.SeverityMedium, finding.ModeSurface),
 	)
 }
 const scannerName = "dns"
@@ -57,6 +58,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 
 	if f := checkWildcard(ctx, domain, asset); f != nil {
+		findings = append(findings, *f)
+	}
+
+	if f := checkRebinding(ctx, domain, asset); f != nil {
 		findings = append(findings, *f)
 	}
 

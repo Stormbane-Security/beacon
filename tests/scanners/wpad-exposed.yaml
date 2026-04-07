@@ -1,0 +1,31 @@
+name: wpad-exposed
+description: "Nginx serving wpad.dat proxy auto-config — beacon detects WPAD exposure"
+tags: [wellknown, scanner, wpad, proxy]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9280:80"]
+    volumes:
+      - ./wpad-exposed/wpad.dat:/usr/share/nginx/html/wpad.dat:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9280/wpad.dat >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-wpad-dat-exists
+    type: command
+    expect:
+      command: "curl -s http://localhost:9280/wpad.dat | grep -qi 'FindProxyForURL'"
+      exit_code: 0
+
+  - name: detects-wpad-exposed
+    type: beacon
+    target: localhost:9280
+    args: ["--no-enrich", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.wpad_exposed
+
+timeout: 3m

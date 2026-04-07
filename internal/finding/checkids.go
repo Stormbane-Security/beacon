@@ -65,7 +65,8 @@ const (
 	CheckDNSWildcard       CheckID = "dns.wildcard_dns"
 	CheckDNSDanglingCNAME  CheckID = "dns.dangling_cname"
 	CheckDNSMissingCAA     CheckID = "dns.missing_caa"
-	CheckDNSDNSSECMissing  CheckID = "dns.dnssec_missing"
+	CheckDNSDNSSECMissing      CheckID = "dns.dnssec_missing"
+	CheckDNSRebindingVulnerable CheckID = "dns.rebinding_vulnerable"     // target resolves to private IP — DNS rebinding attack surface
 
 	// HTTP Security Headers
 	CheckHeadersMissingCSP              CheckID = "headers.missing_csp"
@@ -1536,6 +1537,8 @@ const (
 	CheckOnpremNetworkDefaultCreds       CheckID = "onprem.network.default_creds"           // network device accepts default credentials
 	CheckOnpremNetworkNoSNMPv3           CheckID = "onprem.network.no_snmpv3"               // SNMP configured but SNMPv3 not available
 	CheckOnpremNetworkHTTPMgmt           CheckID = "onprem.network.http_mgmt"               // device management UI over HTTP without TLS
+	CheckOnpremNetworkARPSpoofing        CheckID = "onprem.network.arp_spoofing_detected"   // duplicate MAC addresses for same IP — ARP poisoning indicator
+	CheckOnpremNetworkLLMNRExposed       CheckID = "onprem.network.llmnr_exposed"           // LLMNR responder on network — poisoning attack surface
 
 	// ── On-prem — NAS Appliances (Synology/TrueNAS/QNAP) ────────────────
 	CheckOnpremNASScanError              CheckID = "onprem.nas.scan_error"                  // NAS scan failed
@@ -1575,6 +1578,7 @@ const (
 	CheckWellKnownMatrix        CheckID = "wellknown.matrix_server"       // Matrix federation server
 	CheckWellKnownHostMeta      CheckID = "wellknown.host_meta"           // host-meta (XRD/LRDD) exposed
 	CheckWellKnownResourceMissing CheckID = "wellknown.security_txt_missing" // no security.txt — best practice gap
+	CheckWellKnownWPADExposed     CheckID = "wellknown.wpad_exposed"          // WPAD proxy auto-config exposed — traffic interception risk
 
 	// ── robots.txt / sitemap.xml ────────────────────────────────────────
 	CheckRobotsSensitivePath    CheckID = "exposure.robots_sensitive_path" // robots.txt Disallow reveals admin/internal paths
@@ -1773,7 +1777,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckDNSWildcard:      {CheckDNSWildcard, SeverityMedium, ModeSurface},
 	CheckDNSDanglingCNAME: {CheckDNSDanglingCNAME, SeverityHigh, ModeSurface},
 	CheckDNSMissingCAA:    {CheckDNSMissingCAA, SeverityLow, ModeSurface},
-	CheckDNSDNSSECMissing: {CheckDNSDNSSECMissing, SeverityLow, ModeSurface},
+	CheckDNSDNSSECMissing:       {CheckDNSDNSSECMissing, SeverityLow, ModeSurface},
+	CheckDNSRebindingVulnerable: {CheckDNSRebindingVulnerable, SeverityMedium, ModeSurface},
 
 	// Headers — single normal HTTP GET, reading response headers → Surface
 	CheckHeadersMissingCSP:               {CheckHeadersMissingCSP, SeverityMedium, ModeSurface},
@@ -3167,6 +3172,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckOnpremNetworkDefaultCreds:    {CheckOnpremNetworkDefaultCreds, SeverityCritical, ModeDeep},
 	CheckOnpremNetworkNoSNMPv3:        {CheckOnpremNetworkNoSNMPv3, SeverityMedium, ModeDeep},
 	CheckOnpremNetworkHTTPMgmt:        {CheckOnpremNetworkHTTPMgmt, SeverityMedium, ModeSurface},
+	CheckOnpremNetworkARPSpoofing:     {CheckOnpremNetworkARPSpoofing, SeverityHigh, ModeDeep},
+	CheckOnpremNetworkLLMNRExposed:    {CheckOnpremNetworkLLMNRExposed, SeverityMedium, ModeDeep},
 
 	// On-prem — NAS appliances (Deep — requires API/SMB access)
 	CheckOnpremNASScanError:            {CheckOnpremNASScanError, SeverityInfo, ModeDeep},
@@ -3220,6 +3227,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWellKnownMatrix:          {CheckWellKnownMatrix, SeverityInfo, ModeSurface},
 	CheckWellKnownHostMeta:        {CheckWellKnownHostMeta, SeverityInfo, ModeSurface},
 	CheckWellKnownResourceMissing: {CheckWellKnownResourceMissing, SeverityInfo, ModeSurface},
+	CheckWellKnownWPADExposed:     {CheckWellKnownWPADExposed, SeverityHigh, ModeSurface},
 
 	// robots.txt / sitemap.xml
 	CheckRobotsSensitivePath:  {CheckRobotsSensitivePath, SeverityMedium, ModeSurface},

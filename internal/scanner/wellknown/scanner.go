@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ func init() {
 		scan.Check(finding.CheckWellKnownResourceMissing, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownSecurityTxt, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownWebfinger, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownWPADExposed, finding.SeverityHigh, finding.ModeSurface),
 	)
 }
 
@@ -218,7 +220,113 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		})
 	}
 
+	// WPAD detection — check for proxy auto-config exposure.
+	findings = append(findings, checkWPAD(ctx, client, asset, scheme, now)...)
+
 	return findings, nil
+}
+
+// wpadProxyRE matches PROXY directives in PAC files: "PROXY host:port"
+var wpadProxyRE = regexp.MustCompile(`(?i)PROXY\s+([^\s;"]+)`)
+
+// checkWPAD probes for WPAD (Web Proxy Auto-Discovery) PAC files.
+// If found, it parses proxy URLs from the PAC content. An attacker who can
+// serve a malicious wpad.dat (via LLMNR/NBNS poisoning or DNS hijack) can
+// redirect all HTTP traffic through their proxy.
+func checkWPAD(ctx context.Context, client *http.Client, asset, scheme string, now time.Time) []finding.Finding {
+	// Paths to check: direct on the target, and the conventional wpad hostname.
+	wpadPaths := []string{
+		scheme + "://" + asset + "/wpad.dat",
+	}
+
+	// If the asset has a domain component, also try wpad.<domain>.
+	parts := strings.SplitN(asset, ".", 2)
+	if len(parts) == 2 && parts[1] != "" {
+		// Strip port if present.
+		domain := parts[1]
+		if idx := strings.Index(domain, ":"); idx >= 0 {
+			domain = domain[:idx]
+		}
+		wpadPaths = append(wpadPaths, scheme+"://wpad."+domain+"/wpad.dat")
+	}
+
+	var findings []finding.Finding
+
+	for _, wpadURL := range wpadPaths {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, wpadURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
+
+		resp, err := client.Do(req)
+		if err != nil && scheme == "https" {
+			// Retry with HTTP fallback.
+			httpURL := strings.Replace(wpadURL, "https://", "http://", 1)
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, httpURL, nil)
+			if err != nil {
+				continue
+			}
+			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
+			resp, err = client.Do(req)
+			if err != nil {
+				continue
+			}
+			wpadURL = httpURL
+		} else if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		bodyStr := string(body)
+		// PAC files must contain FindProxyForURL function or PROXY directive.
+		if !strings.Contains(bodyStr, "FindProxyForURL") && !strings.Contains(strings.ToUpper(bodyStr), "PROXY") {
+			continue
+		}
+
+		// Extract proxy URLs from the PAC content.
+		var proxies []string
+		matches := wpadProxyRE.FindAllStringSubmatch(bodyStr, -1)
+		for _, m := range matches {
+			if len(m) >= 2 {
+				proxies = append(proxies, m[1])
+			}
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckWellKnownWPADExposed,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Asset:    asset,
+			Title:    fmt.Sprintf("WPAD proxy auto-config exposed on %s", asset),
+			Description: fmt.Sprintf(
+				"A WPAD proxy auto-config file (wpad.dat) was found at %s. "+
+					"Clients configured for automatic proxy detection will use this file "+
+					"to route their HTTP traffic. An attacker who can serve a malicious "+
+					"wpad.dat (via LLMNR/NBNS poisoning, DHCP, or DNS hijack) can redirect "+
+					"all victim HTTP traffic through their proxy, enabling credential theft "+
+					"and traffic interception.",
+				wpadURL,
+			),
+			Evidence: map[string]any{
+				"url":          wpadURL,
+				"proxies":      proxies,
+				"body_preview": truncate(bodyStr, 500),
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s'", wpadURL),
+			DiscoveredAt: now,
+		})
+
+		break // one WPAD finding is enough
+	}
+
+	return findings
 }
 
 func truncate(s string, n int) string {
