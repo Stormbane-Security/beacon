@@ -102,7 +102,188 @@ var probePaths = []struct {
 	{"/category", []string{"id", "name", "type", "sort", "order", "limit", "offset"}},
 }
 
-// Scanner checks for time-blind SQL injection.
+// sqlErrorPattern pairs a database type with an error substring to look for.
+type sqlErrorPattern struct {
+	dbType  string
+	pattern string
+}
+
+// sqlErrorPatterns is an ordered list of error patterns to check. Specific
+// database patterns come first so they match before the generic fallbacks.
+var sqlErrorPatterns = []sqlErrorPattern{
+	// MySQL
+	{"mysql", "You have an error in your SQL syntax"},
+	{"mysql", "mysql_fetch"},
+	{"mysql", "mysql_num_rows"},
+	// PostgreSQL
+	{"postgres", "ERROR: syntax error at or near"},
+	{"postgres", "pg_query"},
+	{"postgres", "unterminated quoted string"},
+	// SQLite
+	{"sqlite", "SQLITE_ERROR"},
+	{"sqlite", "unrecognized token"},
+	{"sqlite", "near \"\":"},
+	{"sqlite", "SQL logic error"},
+	// MSSQL
+	{"mssql", "Unclosed quotation mark"},
+	{"mssql", "Microsoft OLE DB"},
+	{"mssql", "ODBC SQL Server Driver"},
+	// Generic (checked last)
+	{"generic", "SQL syntax"},
+	{"generic", "syntax error"},
+	{"generic", "unexpected end of SQL"},
+}
+
+// errorBasedPayloads are injected into parameters to trigger SQL error messages.
+var errorBasedPayloads = []struct {
+	name  string
+	value string
+}{
+	{"single-quote", "'"},
+	{"boolean-tautology", "' OR '1'='1"},
+}
+
+// probeErrorBased sends error-inducing payloads and checks whether the response
+// body contains SQL error messages. Returns a finding if an error pattern is
+// matched, or nil if no error-based SQLi was detected.
+func probeErrorBased(ctx context.Context, client *http.Client, scheme, asset, path, param string) *finding.Finding {
+	baseURL := fmt.Sprintf("%s://%s%s?%s=1", scheme, asset, path, param)
+
+	// Fetch baseline response body for boolean comparison.
+	baselineBody, err := fetchBody(ctx, client, baseURL)
+	if err != nil {
+		return nil
+	}
+
+	for _, ep := range errorBasedPayloads {
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		injectedURL := fmt.Sprintf("%s://%s%s?%s=%s",
+			scheme, asset, path, param, url.QueryEscape("1"+ep.value))
+
+		body, err := fetchBody(ctx, client, injectedURL)
+		if err != nil {
+			continue
+		}
+
+		// Check for SQL error strings in the response. The patterns list is
+		// ordered so specific databases match before the generic fallback.
+		bodyLower := strings.ToLower(body)
+		for _, ep2 := range sqlErrorPatterns {
+			if strings.Contains(bodyLower, strings.ToLower(ep2.pattern)) {
+				detectedDB := ep2.dbType
+				if detectedDB == "generic" {
+					detectedDB = "unknown"
+				}
+				return &finding.Finding{
+					CheckID:    finding.CheckWebSQLi,
+					Module:     "deep",
+					Scanner:    scannerName,
+					Severity:   finding.SeverityCritical,
+					Confidence: finding.ConfidenceVerified,
+					Title:      fmt.Sprintf("Error-based SQL injection in %s parameter at %s", param, path),
+					Description: fmt.Sprintf(
+						"SQL error message detected in response body after injecting %q. "+
+							"Matched pattern: %q (database: %s).",
+						ep.value, ep2.pattern, detectedDB),
+					Asset:    asset,
+					DeepOnly: true,
+					Evidence: map[string]any{
+						"method":        "error-based",
+						"path":          path,
+						"parameter":     param,
+						"payload":       ep.name,
+						"db_type":       detectedDB,
+						"error_pattern": ep2.pattern,
+					},
+					ProofCommand: fmt.Sprintf(
+						`curl -sk '%s' | grep -i '%s'`,
+						injectedURL, ep2.pattern),
+					DiscoveredAt: time.Now(),
+				}
+			}
+		}
+
+		// Boolean-based: if the tautology payload produces a significantly
+		// different response compared to the baseline, that's suspicious.
+		if ep.name == "boolean-tautology" && baselineBody != "" && body != "" {
+			diff := bodyLengthDiff(baselineBody, body)
+			if diff > 0.3 { // >30% body length change
+				return &finding.Finding{
+					CheckID:    finding.CheckWebSQLi,
+					Module:     "deep",
+					Scanner:    scannerName,
+					Severity:   finding.SeverityCritical,
+					Confidence: finding.ConfidenceProbable,
+					Title:      fmt.Sprintf("Boolean-based SQL injection in %s parameter at %s", param, path),
+					Description: fmt.Sprintf(
+						"Response body changed significantly (%.0f%% size difference) when injecting boolean tautology %q. "+
+							"Baseline length: %d, injected length: %d.",
+						diff*100, ep.value, len(baselineBody), len(body)),
+					Asset:    asset,
+					DeepOnly: true,
+					Evidence: map[string]any{
+						"method":          "boolean-based",
+						"path":            path,
+						"parameter":       param,
+						"payload":         ep.name,
+						"baseline_length": len(baselineBody),
+						"injected_length": len(body),
+						"diff_ratio":      diff,
+					},
+					ProofCommand: fmt.Sprintf(
+						`diff <(curl -sk '%s') <(curl -sk '%s')`,
+						baseURL, injectedURL),
+					DiscoveredAt: time.Now(),
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// fetchBody performs an HTTP GET and returns the response body as a string
+// (capped at 128KB).
+func fetchBody(ctx context.Context, client *http.Client, rawURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; beacon-sqli-scanner)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// bodyLengthDiff returns the relative size difference between two strings (0.0–1.0).
+func bodyLengthDiff(a, b string) float64 {
+	la, lb := float64(len(a)), float64(len(b))
+	if la == 0 && lb == 0 {
+		return 0
+	}
+	max := la
+	if lb > max {
+		max = lb
+	}
+	diff := la - lb
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff / max
+}
+
+// Scanner checks for SQL injection using error-based, boolean-based, and
+// time-blind techniques.
 type Scanner struct{}
 
 func New() *Scanner { return &Scanner{} }
@@ -145,6 +326,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				break
 			}
 
+			// Phase 1: Error-based / boolean-based detection (fast — one request per payload)
+			if f := probeErrorBased(ctx, client, scheme, asset, pp.path, param); f != nil {
+				findings = append(findings, *f)
+			}
+
+			// Phase 2: Time-blind detection (may find injection points that
+			// don't reflect errors)
 			baseURL := fmt.Sprintf("%s://%s%s?%s=1", scheme, asset, pp.path, param)
 
 			// Step 1: Measure baseline latency
@@ -220,11 +408,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 				// Both deltas confirmed — this is real SQLi
 				findings = append(findings, finding.Finding{
-					CheckID:  finding.CheckWebSQLi,
-					Module:   "deep",
-					Scanner:  scannerName,
-					Severity: finding.SeverityCritical,
-					Title:    fmt.Sprintf("Time-blind SQL injection in %s parameter at %s", param, pp.path),
+					CheckID:    finding.CheckWebSQLi,
+					Module:     "deep",
+					Scanner:    scannerName,
+					Severity:   finding.SeverityCritical,
+					Confidence: finding.ConfidenceVerified,
+					Title:      fmt.Sprintf("Time-blind SQL injection in %s parameter at %s", param, pp.path),
 					Description: fmt.Sprintf(
 						"Calibration-based timing analysis confirmed SQL injection. "+
 							"Baseline: %s, SLEEP(3) delta: %s, SLEEP(5) delta: %s. "+
@@ -234,6 +423,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					Asset:    asset,
 					DeepOnly: true,
 					Evidence: map[string]any{
+						"method":          "time-blind",
 						"path":            pp.path,
 						"parameter":       param,
 						"payload":         confirmedLabel,
