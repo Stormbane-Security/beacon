@@ -320,12 +320,47 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
 		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 		_, _ = conn.Write([]byte("PING\r\n"))
-		buf := make([]byte, 32)
+		buf := make([]byte, 64)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
 		resp := string(buf[:n])
 		if strings.HasPrefix(resp, "+PONG") || strings.HasPrefix(resp, "-NOAUTH") || strings.HasPrefix(resp, "-ERR") {
 			return "redis"
+		}
+	}
+
+	// Try MySQL: connect and read greeting packet (server sends it first)
+	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		buf := make([]byte, 128)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		if n > 4 && buf[3] == 0x00 && buf[4] == 0x0a { // sequence=0, protocol=10
+			return "mysql"
+		}
+	}
+
+	// Try PostgreSQL: send startup cancel request, check for 'R' auth response
+	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		// SSLRequest (8 bytes: length=8, code=80877103)
+		_, _ = conn.Write([]byte{0, 0, 0, 8, 4, 210, 22, 47})
+		buf := make([]byte, 8)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		if n >= 1 && (buf[0] == 'N' || buf[0] == 'S') { // 'N' = no SSL, 'S' = SSL ok
+			return "postgres"
+		}
+	}
+
+	// Try SMTP: wait for banner (SMTP servers send 220 greeting)
+	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		buf := make([]byte, 128)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		if n > 3 && strings.HasPrefix(string(buf[:n]), "220 ") {
+			return "smtp"
 		}
 	}
 
