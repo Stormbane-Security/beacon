@@ -1,0 +1,39 @@
+name: port-airflow-exposed
+description: >
+  Apache Airflow standalone web server. Beacon portscan should detect
+  the exposed Airflow UI/API on port 8080.
+tags: [portscan, airflow, cicd, detection]
+
+services:
+  airflow:
+    image: apache/airflow:2.9.0
+    ports: ["9277:8080"]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: airflow
+      _AIRFLOW_WWW_USER_PASSWORD: airflow
+    command: standalone
+
+ready:
+  cmd: "curl -sf http://localhost:9277/api/v1/health | grep -q healthy"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: airflow-health-ok
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9277/api/v1/health | grep -q healthy"
+      exit_code: 0
+
+  - name: detects-airflow-exposed
+    type: beacon
+    target: localhost:9277
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9277"]
+    expect:
+      check_id: port.airflow_exposed
+
+timeout: 5m

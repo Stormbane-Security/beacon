@@ -1,0 +1,37 @@
+name: port-nfs-exposed
+description: >
+  NFS server with exports enumerable without authentication on
+  port 2049. Beacon should detect the exposed NFS exports.
+tags: [portscan, nfs, fileshare, detection]
+
+services:
+  nfs:
+    image: erichough/nfs-server:2.2.1
+    ports: ["2049:2049"]
+    environment:
+      NFS_EXPORT_0: "/srv/nfs *(ro,no_subtree_check,fsid=0)"
+    cap_add: ["SYS_ADMIN"]
+    volumes:
+      - type: tmpfs
+        target: /srv/nfs
+
+ready:
+  cmd: "nc -z localhost 2049"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: nfs-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 2049"
+      exit_code: 0
+
+  - name: detects-nfs-exports-exposed
+    type: beacon
+    target: localhost:2049
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2049"]
+    expect:
+      check_id: port.nfs_exports_exposed
+
+timeout: 5m
