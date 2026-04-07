@@ -1317,6 +1317,19 @@ func deduplicateFindings(findings []finding.Finding) []finding.Finding {
 // convergence loops — just the bare scanner runs. Used by --scanners mode
 // for targeted testing (e.g. Drydock).
 func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) []finding.Finding {
+	// Inject auth context for filtered scanner runs (--scanners mode).
+	// The normal runAsset path does this after evidence collection, but the
+	// filtered path skips evidence — auth must be injected here.
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	if len(m.authCfgs) > 0 {
+		if authedClient, _, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
+			_ = err
+		} else if authedClient != nil {
+			httpClient = authedClient
+		}
+	}
+	ctx = authctx.WithHTTPClient(ctx, httpClient)
+
 	var findings []finding.Finding
 	var mu sync.Mutex
 	var wg sync.WaitGroup

@@ -101,15 +101,8 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 	// Portainer serves on HTTPS by default on 9443, HTTP on 9000.
 	useTLS := port == 9443
 
-	// Check if the initialization endpoint is accessible (first-time setup).
-	body, ok := probeHTTPBody(ctx, host, port, useTLS, "/api/users/admin/check")
-	if !ok {
-		return nil
-	}
-
-	// If admin doesn't exist yet, Portainer returns 404 on this endpoint.
-	// That means anyone can create the initial admin account.
-	// The probeHTTPBody returns false for 404, so we need to check differently.
+	// Check admin/check endpoint directly — probeHTTPBody only returns true for
+	// 200, but uninitialized Portainer returns 404 which we need to detect.
 	url := fmt.Sprintf("http://%s:%d/api/users/admin/check", host, port)
 	if useTLS {
 		url = fmt.Sprintf("https://%s:%d/api/users/admin/check", host, port)
@@ -143,7 +136,6 @@ func detectPortainerSetup(ctx context.Context, host string, port int, _ string, 
 	}
 
 	// Also check if the status API reveals it's Portainer without auth.
-	_ = body
 	statusBody, ok := probeHTTPBody(ctx, host, port, useTLS, "/api/status")
 	if ok && strings.Contains(statusBody, "Version") {
 		// Portainer is accessible, but admin is set up. Check if we can list endpoints.

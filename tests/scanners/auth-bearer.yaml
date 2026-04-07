@@ -20,23 +20,23 @@ ready:
   interval: 2s
 
 assertions:
-  # Unauthenticated scan sees only 401.
-  - name: unauth-scan-sees-401
+  # Unauthenticated scan does NOT find swagger (blocked by 401).
+  - name: unauth-scan-no-swagger
     type: beacon
     target: localhost:9401
-    args: ["--no-enrich", "--scanners", "classify,swagger"]
+    args: ["--no-enrich", "--scanners", "swagger"]
     expect:
-      not_check_id: http.swagger_exposed
+      not_check_id: web.swagger_exposed
 
   # Authenticated scan (bearer token) discovers the OpenAPI spec.
   - name: auth-scan-finds-swagger
     type: beacon
     target: localhost:9401
-    args: ["--no-enrich", "--scanners", "classify,swagger,apiversions", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "swagger,apiversions", "--deep", "--permission-confirmed"]
     auth:
       method: bearer
       token: test-api-token-2024
     expect:
-      check_id: http.swagger_exposed
+      check_id: web.swagger_exposed
 
 timeout: 3m

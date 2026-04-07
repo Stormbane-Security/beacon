@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
@@ -1013,6 +1014,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+	if c := authctx.HTTPClient(ctx); c != nil {
+		// Use the auth transport but keep our redirect policy.
+		ac := *c
+		ac.CheckRedirect = client.CheckRedirect
+		client = &ac
 	}
 
 	scheme := detectScheme(ctx, client, asset)

@@ -21,28 +21,23 @@ ready:
   interval: 2s
 
 assertions:
-  # Unauthenticated scan sees 401 and the www-authenticate header.
-  - name: unauth-scan-sees-401
+  # Unauthenticated scan detects missing security headers (nginx serves headers even on 401).
+  - name: unauth-scan-sees-missing-headers
     type: beacon
     target: localhost:9400
-    args: ["--no-enrich", "--scanners", "classify,secheaders"]
+    args: ["--no-enrich", "--scanners", "secheaders"]
     expect:
-      check_id: http.missing_security_headers
-      not_check_id: http.exposed_server_version
+      check_id: headers.missing_hsts
 
-  # Authenticated scan (basic auth) sees the content behind auth.
-  - name: auth-scan-finds-server-header
+  # Unauthenticated scan does NOT find .env (blocked by 401).
+  - name: unauth-scan-no-env-file
     type: beacon
     target: localhost:9400
-    args: ["--no-enrich", "--scanners", "classify,secheaders,exposedfiles"]
-    auth:
-      method: basic
-      username: scanner
-      password: b3acon-t3st
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
-      check_id: http.missing_security_headers
+      not_check_id: exposure.env_file_exposed
 
-  # Authenticated scan discovers exposed files behind auth.
+  # Authenticated scan (basic auth) finds the exposed .env file behind auth.
   - name: auth-scan-finds-exposed-file
     type: beacon
     target: localhost:9400
@@ -52,6 +47,6 @@ assertions:
       username: scanner
       password: b3acon-t3st
     expect:
-      check_id: http.exposed_env_file
+      check_id: exposure.env_file_exposed
 
 timeout: 3m
