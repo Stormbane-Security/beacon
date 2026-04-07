@@ -1,0 +1,39 @@
+name: csrf-secure-no-finding
+description: >
+  nginx serving a form with a CSRF token and SameSite=Strict cookie.
+  This is a properly protected form — beacon CSRF scanner must NOT flag it.
+tags: [csrf, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9461:80"]
+    volumes:
+      - ./csrf-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9461/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: setup-form-has-csrf-token
+    type: command
+    expect:
+      command: "curl -s http://localhost:9461/ | grep -q csrf_token"
+      exit_code: 0
+
+  - name: setup-samesite-cookie-set
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9461/ | grep -qi 'SameSite=Strict'"
+      exit_code: 0
+
+  - name: no-csrf-false-positive
+    type: beacon
+    target: localhost:9461
+    args: ["--no-enrich", "--scanners", "csrf", "--deep", "--permission-confirmed"]
+    expect:
+      no_check_id: web.csrf_token_missing
+
+timeout: 3m

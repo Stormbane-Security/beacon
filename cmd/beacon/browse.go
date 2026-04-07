@@ -194,8 +194,15 @@ type browseResult struct {
 // cmdBrowse opens the interactive scan history browser.
 // Loops so the user can launch new scans and return to browse without restarting.
 func cmdBrowse(cfg *config.Config) {
+	cmdBrowseWithAttach(cfg, "")
+}
+
+// cmdBrowseWithAttach opens the browser and, if attachRunID is non-empty,
+// immediately attaches to that scan's live view instead of showing the list.
+func cmdBrowseWithAttach(cfg *config.Config, attachRunID string) {
 	for {
-		res := browseInteractive(cfg)
+		res := browseInteractive(cfg, attachRunID)
+		attachRunID = "" // only auto-attach on the first iteration
 		if res.exportID != "" {
 			format := res.exportFormat
 			if format == "" {
@@ -349,7 +356,9 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 
 // browseInteractive runs the raw-terminal TUI and returns a scan run ID if the
 // user pressed 'r' to export a report, or "" to simply exit.
-func browseInteractive(cfg *config.Config) browseResult {
+// If attachRunID is non-empty, the browser immediately attaches to that scan's
+// live view so the user lands inside the scan they just detached from.
+func browseInteractive(cfg *config.Config, attachRunID string) browseResult {
 	ctx := context.Background()
 	st, err := sqlitestore.Open(cfg.Store.Path)
 	if err != nil {
@@ -375,6 +384,22 @@ func browseInteractive(cfg *config.Config) browseResult {
 	defer func() { _, _ = fmt.Fprint(os.Stderr, "\x1b[?25h\x1b[?1049l") }()
 
 	bs := &browseState{scans: scans}
+
+	// If we were launched from a detached scan, auto-attach to it so the user
+	// lands back inside the scan they just left rather than the scan list.
+	if attachRunID != "" {
+		if job, ok := getLiveJob(attachRunID); ok {
+			// Position cursor on the matching scan in the list.
+			for i, r := range bs.scans {
+				if r.ID == attachRunID {
+					bs.scanCursor = i
+					break
+				}
+			}
+			attachJob(bs, job)
+		}
+	}
+
 	browseRender(bs)
 
 	// Read stdin in a goroutine so the main loop can also respond to ticks.
@@ -427,19 +452,15 @@ func browseInteractive(cfg *config.Config) browseResult {
 
 			if bs.attachedJob != nil {
 				job := bs.attachedJob
-				// Detect detach: renderer closed its detached channel, or scan finished.
+				// Detect detach: only when the user explicitly pressed 'b' to
+				// close the detached channel. Do NOT auto-detach when the scan
+				// finishes — keep showing the final state so the user can review
+				// findings. They navigate back manually with 'b'.
 				detachNow := false
 				select {
 				case <-job.renderer.detached:
 					detachNow = true
 				default:
-				}
-				if !detachNow {
-					select {
-					case <-job.done:
-						detachNow = true
-					default:
-					}
 				}
 				if detachNow {
 					bs.attachedJob = nil
@@ -457,11 +478,22 @@ func browseInteractive(cfg *config.Config) browseResult {
 			}
 
 			if tickCount%4 == 0 {
-				// Reload statuses for any scan that is still "running" or "pending".
-				for i, r := range bs.scans {
-					if r.Status == store.StatusRunning || r.Status == store.StatusPending {
-						if updated, err := st.GetScanRun(ctx, r.ID); err == nil {
-							bs.scans[i] = *updated
+				// Reload the full scan list so new scans started from
+				// other terminals appear without restarting browse.
+				if updated, err := st.ListRecentScanRuns(ctx, 200); err == nil {
+					// Preserve cursor position by matching the currently
+					// selected scan ID after the refresh.
+					var selectedID string
+					if bs.scanCursor < len(bs.scans) {
+						selectedID = bs.scans[bs.scanCursor].ID
+					}
+					bs.scans = updated
+					if selectedID != "" {
+						for i, r := range bs.scans {
+							if r.ID == selectedID {
+								bs.scanCursor = i
+								break
+							}
 						}
 					}
 				}

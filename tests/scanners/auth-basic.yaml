@@ -1,0 +1,57 @@
+name: auth-basic
+description: >
+  Nginx serving content behind HTTP Basic Auth. Beacon in authenticated
+  scanning mode (method: basic) should authenticate and discover the
+  exposed files and server headers behind auth that are invisible to
+  an unauthenticated scan.
+tags: [auth, basic, authenticated-scanning]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["9400:80"]
+    volumes:
+      - ./fixtures/auth-basic/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/auth-basic/htpasswd:/etc/nginx/.htpasswd:ro
+      - ./fixtures/auth-basic/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9400/ -o /dev/null -w '%{http_code}' | grep -q 401"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Unauthenticated scan sees 401 and the www-authenticate header.
+  - name: unauth-scan-sees-401
+    type: beacon
+    target: localhost:9400
+    args: ["--no-enrich", "--scanners", "classify,secheaders"]
+    expect:
+      check_id: http.missing_security_headers
+      not_check_id: http.exposed_server_version
+
+  # Authenticated scan (basic auth) sees the content behind auth.
+  - name: auth-scan-finds-server-header
+    type: beacon
+    target: localhost:9400
+    args: ["--no-enrich", "--scanners", "classify,secheaders,exposedfiles"]
+    auth:
+      method: basic
+      username: scanner
+      password: b3acon-t3st
+    expect:
+      check_id: http.missing_security_headers
+
+  # Authenticated scan discovers exposed files behind auth.
+  - name: auth-scan-finds-exposed-file
+    type: beacon
+    target: localhost:9400
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    auth:
+      method: basic
+      username: scanner
+      password: b3acon-t3st
+    expect:
+      check_id: http.exposed_env_file
+
+timeout: 3m

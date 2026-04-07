@@ -2,8 +2,12 @@ package domxss
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/http"
 	"testing"
 
+	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 )
 
@@ -75,4 +79,96 @@ func TestTracerJS_Embedded(t *testing.T) {
 func TestChromeAvailable(t *testing.T) {
 	// Just verify it doesn't panic — result depends on the host
 	_ = chromeAvailable()
+}
+
+// TestDOMXSS_DetectsInnerHTMLSink verifies end-to-end detection: a page that
+// assigns location.hash to innerHTML should produce a web.xss finding.
+func TestDOMXSS_DetectsInnerHTMLSink(t *testing.T) {
+	if !chromeAvailable() {
+		t.Skip("Chrome not available — DOM XSS detection requires headless Chrome")
+	}
+
+	// Vulnerable page: reads location.hash and writes it into innerHTML.
+	vulnPage := `<!DOCTYPE html>
+<html><body>
+<div id="output"></div>
+<script>
+document.getElementById('output').innerHTML = decodeURIComponent(location.hash.slice(1));
+</script>
+</body></html>`
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("cannot start test server: %v", err)
+	}
+	defer func() { _ = l.Close() }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprint(w, vulnPage)
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(l) }()
+	defer func() { _ = srv.Close() }()
+
+	asset := l.Addr().String() // "127.0.0.1:XXXXX"
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("scanner returned error: %v", err)
+	}
+
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebXSS {
+			found = true
+			sink, _ := f.Evidence["sink"].(string)
+			if sink != "innerHTML" {
+				t.Errorf("expected sink=innerHTML, got %q", sink)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected web.xss finding for innerHTML sink, got %d findings: %+v", len(findings), findings)
+	}
+}
+
+// TestDOMXSS_NoFindingOnSafePage verifies no false positive on a page that
+// does not use any dangerous sinks with user-controlled data.
+func TestDOMXSS_NoFindingOnSafePage(t *testing.T) {
+	if !chromeAvailable() {
+		t.Skip("Chrome not available")
+	}
+
+	safePage := `<!DOCTYPE html>
+<html><body><p>Hello, world!</p></body></html>`
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("cannot start test server: %v", err)
+	}
+	defer func() { _ = l.Close() }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprint(w, safePage)
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(l) }()
+	defer func() { _ = srv.Close() }()
+
+	asset := l.Addr().String()
+	s := New()
+	findings, err := s.Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("scanner returned error: %v", err)
+	}
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebXSS {
+			t.Errorf("expected no XSS finding on safe page, got: %s", f.Title)
+		}
+	}
 }

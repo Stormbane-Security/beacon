@@ -75,14 +75,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 }
 
 func (s *Scanner) parseRobots(ctx context.Context, client *http.Client, asset string, now time.Time) []finding.Finding {
-	url := "https://" + asset + "/robots.txt"
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	url := scheme + "://" + asset + "/robots.txt"
 	body, err := fetchBody(ctx, client, url)
-	if err != nil {
+	if err != nil && scheme == "https" {
 		url = "http://" + asset + "/robots.txt"
 		body, err = fetchBody(ctx, client, url)
 		if err != nil {
 			return nil
 		}
+	} else if err != nil {
+		return nil
 	}
 
 	var findings []finding.Finding
@@ -154,14 +160,20 @@ type urlset struct {
 }
 
 func (s *Scanner) parseSitemap(ctx context.Context, client *http.Client, asset string, now time.Time) []finding.Finding {
-	url := "https://" + asset + "/sitemap.xml"
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	url := scheme + "://" + asset + "/sitemap.xml"
 	body, err := fetchBody(ctx, client, url)
-	if err != nil {
+	if err != nil && scheme == "https" {
 		url = "http://" + asset + "/sitemap.xml"
 		body, err = fetchBody(ctx, client, url)
 		if err != nil {
 			return nil
 		}
+	} else if err != nil {
+		return nil
 	}
 
 	// Check for XML content.

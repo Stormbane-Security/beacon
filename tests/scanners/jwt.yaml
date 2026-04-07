@@ -110,7 +110,7 @@ assertions:
   - name: exploit-jwt-set-in-cookie
     type: command
     expect:
-      command: "curl -sI http://localhost:9205/ | grep -i 'set-cookie' | grep -q 'session=eyJ'"
+      command: "curl -sD- http://localhost:9205/ -o /dev/null | grep -i 'set-cookie' | grep -q 'session=eyJ'"
       exit_code: 0
 
   # --- Negative: health endpoint does not issue tokens ---

@@ -340,6 +340,109 @@ func TestFingerprintTech_AuthSystemWeb3Wallet(t *testing.T) {
 	}
 }
 
+// ── selectProbePaths tests ─────────────────────────────────────────────────
+
+func TestSelectProbePaths_UniversalAlwaysIncluded(t *testing.T) {
+	e := &playbook.Evidence{Headers: map[string]string{}}
+	paths := selectProbePaths(e)
+	// Universal paths should always be present.
+	found := false
+	for _, p := range paths {
+		if p == "/.well-known/openid-configuration" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("universal path /.well-known/openid-configuration should always be selected")
+	}
+}
+
+func TestSelectProbePaths_JavaTriggeredByCookie(t *testing.T) {
+	e := &playbook.Evidence{
+		Headers:     map[string]string{},
+		CookieNames: []string{"JSESSIONID"},
+	}
+	paths := selectProbePaths(e)
+	found := false
+	for _, p := range paths {
+		if p == "/actuator/health" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("JSESSIONID cookie should trigger Java probe group including /actuator/health")
+	}
+}
+
+func TestSelectProbePaths_NoSpuriousPaths(t *testing.T) {
+	// A Next.js site should NOT get Java/PHP/HashiCorp paths.
+	e := &playbook.Evidence{
+		Headers:   map[string]string{"server": "next.js"},
+		Framework: "nextjs",
+	}
+	paths := selectProbePaths(e)
+	for _, p := range paths {
+		if p == "/actuator/health" || p == "/v1/sys/health" || p == "/phpmyadmin" {
+			t.Errorf("Next.js site should not probe %s", p)
+		}
+	}
+}
+
+func TestSelectProbePaths_EmptyEvidence_OnlyUniversal(t *testing.T) {
+	e := &playbook.Evidence{Headers: map[string]string{}}
+	paths := selectProbePaths(e)
+	// With no signals, only universal paths should be selected.
+	// Universal group has ~10 paths. Total should be small.
+	if len(paths) > 20 {
+		t.Errorf("empty evidence should select only universal paths, got %d paths", len(paths))
+	}
+}
+
+func TestSelectProbePaths_NoDuplicates(t *testing.T) {
+	// Trigger multiple groups that share paths (e.g. /graphql appears in both
+	// universal and hasura groups).
+	e := &playbook.Evidence{
+		Headers: map[string]string{},
+		Body512: "hasura graphql",
+	}
+	paths := selectProbePaths(e)
+	seen := make(map[string]bool)
+	for _, p := range paths {
+		if seen[p] {
+			t.Errorf("duplicate path in selection: %s", p)
+		}
+		seen[p] = true
+	}
+}
+
+func TestProbeFingerprintPaths_UsesProgressiveProbing(t *testing.T) {
+	// Create a server that counts how many requests it receives.
+	var reqCount atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCount.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	host := srv.Listener.Addr().String()
+
+	// Evidence with no signals — should use selective probing (universal only).
+	e := &playbook.Evidence{
+		Hostname: host,
+		Headers:  map[string]string{},
+	}
+	_ = probeFingerprintPaths(context.Background(), host, e)
+
+	// With progressive probing, we should send far fewer than the full
+	// fingerprintPaths list (~200). Universal group has ~10 paths.
+	count := reqCount.Load()
+	if count > 50 {
+		t.Errorf("progressive probing should limit requests; got %d (expected <50 for empty evidence)", count)
+	}
+}
+
 // makeEvidence constructs a minimal Evidence struct with the given body string.
 // Headers and ServiceVersions are initialised so fingerprintTech can run safely.
 func makeEvidence(body string) playbook.Evidence {

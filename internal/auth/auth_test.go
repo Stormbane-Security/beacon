@@ -3,8 +3,10 @@ package auth_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -387,5 +389,274 @@ func TestAuthenticate_Bearer_DoesNotDoublePrefixBearerToken(t *testing.T) {
 	// Should NOT produce "Bearer Bearer already-prefixed".
 	if strings.HasPrefix(gotHeader, "Bearer Bearer") {
 		t.Errorf("double Bearer prefix detected: %q", gotHeader)
+	}
+}
+
+// ── Form-based login ───────────────────────────────────────────────────────
+
+func TestAuthenticate_FormLogin_Success(t *testing.T) {
+	var gotCookie string
+	// Login server returns Set-Cookie on successful POST.
+	loginSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/login" {
+			_ = r.ParseForm()
+			if r.FormValue("username") == "admin" && r.FormValue("password") == "secret" {
+				http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123"})
+				w.WriteHeader(200)
+				return
+			}
+			w.WriteHeader(401)
+			return
+		}
+		gotCookie = r.Header.Get("Cookie")
+		w.WriteHeader(200)
+	}))
+	defer loginSrv.Close()
+
+	cfgs := []config.AuthConfig{{
+		Asset:    "*",
+		Method:   "form",
+		Username: "admin",
+		Password: "secret",
+		LoginURL: loginSrv.URL + "/login",
+	}}
+	client, session, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if session.Method != "form" {
+		t.Errorf("expected method=form, got %s", session.Method)
+	}
+	if !strings.Contains(session.Label, "admin") {
+		t.Errorf("expected label to contain username, got %q", session.Label)
+	}
+	// Use the authenticated client to make a request.
+	_, _ = client.Get(loginSrv.URL + "/protected")
+	if !strings.Contains(gotCookie, "session=abc123") {
+		t.Errorf("expected session cookie in request, got %q", gotCookie)
+	}
+}
+
+func TestAuthenticate_FormLogin_CustomFields(t *testing.T) {
+	loginSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if r.FormValue("email") == "user@test.com" && r.FormValue("pass") == "pw" && r.FormValue("csrf") == "tok123" {
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "xyz"})
+			w.WriteHeader(200)
+			return
+		}
+		w.WriteHeader(401)
+	}))
+	defer loginSrv.Close()
+
+	cfgs := []config.AuthConfig{{
+		Asset:         "*",
+		Method:        "form",
+		Username:      "user@test.com",
+		Password:      "pw",
+		LoginURL:      loginSrv.URL + "/login",
+		UsernameField: "email",
+		PasswordField: "pass",
+		ExtraFields:   map[string]string{"csrf": "tok123"},
+	}}
+	client, _, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client from form login with custom fields")
+	}
+}
+
+func TestAuthenticate_FormLogin_NoCookie(t *testing.T) {
+	// Server returns 200 but no cookie → error.
+	loginSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer loginSrv.Close()
+
+	cfgs := []config.AuthConfig{{
+		Asset:    "*",
+		Method:   "form",
+		Username: "admin",
+		Password: "pw",
+		LoginURL: loginSrv.URL + "/login",
+	}}
+	_, _, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err == nil {
+		t.Fatal("expected error when form login returns no cookies")
+	}
+	if !strings.Contains(err.Error(), "no session cookies") {
+		t.Errorf("expected 'no session cookies' error, got: %v", err)
+	}
+}
+
+func TestAuthenticate_FormLogin_MissingLoginURL(t *testing.T) {
+	cfgs := []config.AuthConfig{{
+		Asset: "*", Method: "form", Username: "admin", Password: "pw",
+	}}
+	_, _, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err == nil {
+		t.Fatal("expected error when login_url is missing")
+	}
+	if !strings.Contains(err.Error(), "login_url") {
+		t.Errorf("expected login_url error, got: %v", err)
+	}
+}
+
+// ── Web3 EVM (SIWE) auth ──────────────────────────────────────────────────
+
+func TestAuthenticate_Web3EVM_VerifyEndpointDiscovery(t *testing.T) {
+	// Minimal SIWE server: GET /api/auth/nonce returns nonce, POST /api/auth/verify returns cookie.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth/nonce" && r.Method == http.MethodGet:
+			_, _ = fmt.Fprint(w, "test-nonce-12345678")
+		case r.URL.Path == "/api/auth/verify" && r.Method == http.MethodPost:
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "siwe-session-val"})
+			w.WriteHeader(200)
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+
+	// Parse host from test server to use as asset.
+	u, _ := url.Parse(srv.URL)
+	asset := u.Host
+
+	cfgs := []config.AuthConfig{{Asset: "*", Method: "web3_evm"}}
+	client, session, err := auth.Authenticate(context.Background(), cfgs, asset, &http.Client{})
+	if err != nil {
+		t.Fatalf("web3_evm auth: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if session.Method != "web3_evm" {
+		t.Errorf("expected method=web3_evm, got %s", session.Method)
+	}
+}
+
+func TestAuthenticate_Web3EVM_NoVerifyEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(404) // No SIWE endpoints
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	cfgs := []config.AuthConfig{{Asset: "*", Method: "web3_evm"}}
+	_, _, err := auth.Authenticate(context.Background(), cfgs, u.Host, &http.Client{})
+	if err == nil {
+		t.Fatal("expected error when no SIWE verify endpoint found")
+	}
+	if !strings.Contains(err.Error(), "verify endpoint") {
+		t.Errorf("expected verify endpoint error, got: %v", err)
+	}
+}
+
+// ── Web3 Solana (SIWS) auth ───────────────────────────────────────────────
+
+func TestAuthenticate_Web3Sol_VerifyEndpointDiscovery(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/auth/nonce" && r.Method == http.MethodGet:
+			_, _ = fmt.Fprint(w, "test-nonce-87654321")
+		case r.URL.Path == "/api/auth/verify" && r.Method == http.MethodPost:
+			http.SetCookie(w, &http.Cookie{Name: "token", Value: "siws-token-val"})
+			w.WriteHeader(200)
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	cfgs := []config.AuthConfig{{Asset: "*", Method: "web3_sol"}}
+	client, session, err := auth.Authenticate(context.Background(), cfgs, u.Host, &http.Client{})
+	if err != nil {
+		t.Fatalf("web3_sol auth: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if session.Method != "web3_sol" {
+		t.Errorf("expected method=web3_sol, got %s", session.Method)
+	}
+}
+
+// ── OIDC authorization_code flow ───────────────────────────────────────────
+
+func TestAuthenticate_OIDCCode_MissingAuthURL(t *testing.T) {
+	cfgs := []config.AuthConfig{{
+		Asset:    "*",
+		Method:   "oidc_code",
+		ClientID: "id",
+		TokenURL: "https://accounts.google.com/o/oauth2/token",
+	}}
+	_, _, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err == nil {
+		t.Fatal("expected error when auth_url is missing")
+	}
+	if !strings.Contains(err.Error(), "auth_url") {
+		t.Errorf("expected auth_url error, got: %v", err)
+	}
+}
+
+func TestAuthenticate_OIDCCode_MissingTokenURL(t *testing.T) {
+	cfgs := []config.AuthConfig{{
+		Asset:    "*",
+		Method:   "oidc_code",
+		ClientID: "id",
+		AuthURL:  "https://accounts.google.com/o/oauth2/auth",
+	}}
+	_, _, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err == nil {
+		t.Fatal("expected error when token_url is missing")
+	}
+	if !strings.Contains(err.Error(), "token_url") {
+		t.Errorf("expected token_url error, got: %v", err)
+	}
+}
+
+func TestAuthenticate_OIDCCode_BadTokenURL(t *testing.T) {
+	cfgs := []config.AuthConfig{{
+		Asset:    "*",
+		Method:   "oidc_code",
+		ClientID: "id",
+		AuthURL:  "https://evil.com/auth",
+		TokenURL: "https://evil.com/token",
+	}}
+	_, _, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err == nil {
+		t.Fatal("expected error for non-allowlisted token URL")
+	}
+}
+
+// ── Session metadata for new methods ───────────────────────────────────────
+
+func TestAuthenticate_SessionMetadata_NewMethods(t *testing.T) {
+	// Form login — needs a server.
+	loginSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "s", Value: "v"})
+		w.WriteHeader(200)
+	}))
+	defer loginSrv.Close()
+
+	cfgs := []config.AuthConfig{{
+		Asset: "*", Method: "form", Username: "u", Password: "p", LoginURL: loginSrv.URL + "/login",
+	}}
+	_, session, err := auth.Authenticate(context.Background(), cfgs, "target.com", &http.Client{})
+	if err != nil {
+		t.Fatalf("form auth: %v", err)
+	}
+	if session.Method != "form" {
+		t.Errorf("expected form, got %s", session.Method)
+	}
+	if !strings.Contains(session.Label, "form login") {
+		t.Errorf("expected 'form login' in label, got %q", session.Label)
 	}
 }

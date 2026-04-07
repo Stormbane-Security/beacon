@@ -1,0 +1,42 @@
+name: auth-bearer
+description: >
+  API server that requires Bearer token authentication. Without the
+  token, all endpoints return 401. With the correct token, the server
+  exposes API version information and a Swagger/OpenAPI spec that
+  beacon should detect.
+tags: [auth, bearer, authenticated-scanning, api]
+
+services:
+  api:
+    image: nginx:alpine
+    ports: ["9401:80"]
+    volumes:
+      - ./fixtures/auth-bearer/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/auth-bearer/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9401/ -o /dev/null -w '%{http_code}' | grep -q 401"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Unauthenticated scan sees only 401.
+  - name: unauth-scan-sees-401
+    type: beacon
+    target: localhost:9401
+    args: ["--no-enrich", "--scanners", "classify,swagger"]
+    expect:
+      not_check_id: http.swagger_exposed
+
+  # Authenticated scan (bearer token) discovers the OpenAPI spec.
+  - name: auth-scan-finds-swagger
+    type: beacon
+    target: localhost:9401
+    args: ["--no-enrich", "--scanners", "classify,swagger,apiversions", "--deep", "--permission-confirmed"]
+    auth:
+      method: bearer
+      token: test-api-token-2024
+    expect:
+      check_id: http.swagger_exposed
+
+timeout: 3m

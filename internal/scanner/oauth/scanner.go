@@ -424,6 +424,19 @@ func checkTokenEndpointAuth(ctx context.Context, client *http.Client, asset, bas
 		// credential-rejection codes here — NOT the broad string "invalid", which
 		// would swallow "invalid_scope" and "invalid_token" (both indicate the
 		// server is processing the request without verifying the client identity).
+		//
+		// Also exclude API versioning errors — these indicate the request was
+		// rejected at a version-gate layer before auth was even evaluated
+		// (e.g. {"error":"Invalid version","version":null}).
+		isVersionGate := strings.Contains(bodyLower, "invalid version") ||
+			strings.Contains(bodyLower, "unsupported version") ||
+			strings.Contains(bodyLower, "api version") ||
+			strings.Contains(bodyLower, "version required") ||
+			strings.Contains(bodyLower, "version not found")
+		if isVersionGate {
+			return nil
+		}
+
 		is400Misconfig := resp.StatusCode == http.StatusBadRequest &&
 			!strings.Contains(bodyLower, "invalid_client") &&
 			!strings.Contains(bodyLower, "invalid_request") &&

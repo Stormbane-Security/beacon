@@ -79,9 +79,9 @@ func mockSIWEServer(t *testing.T, rejectNonceReuse bool, rejectWrongDomain bool)
 
 // TestSIWE_WalletGeneration verifies ephemeral wallet creation and address derivation.
 func TestSIWE_WalletGeneration(t *testing.T) {
-	w, err := newEphemeralWallet()
+	w, err := NewEphemeralWallet()
 	if err != nil {
-		t.Fatalf("newEphemeralWallet() error: %v", err)
+		t.Fatalf("NewEphemeralWallet() error: %v", err)
 	}
 	if !strings.HasPrefix(w.Address, "0x") {
 		t.Errorf("Address should start with 0x, got: %s", w.Address)
@@ -93,8 +93,8 @@ func TestSIWE_WalletGeneration(t *testing.T) {
 
 // TestSIWE_TwoWalletsHaveDifferentAddresses verifies key generation is non-deterministic.
 func TestSIWE_TwoWalletsHaveDifferentAddresses(t *testing.T) {
-	w1, _ := newEphemeralWallet()
-	w2, _ := newEphemeralWallet()
+	w1, _ := NewEphemeralWallet()
+	w2, _ := NewEphemeralWallet()
 	if w1.Address == w2.Address {
 		t.Error("Two ephemeral wallets should not have the same address")
 	}
@@ -102,8 +102,8 @@ func TestSIWE_TwoWalletsHaveDifferentAddresses(t *testing.T) {
 
 // TestSIWE_PersonalSignLength verifies the signature is 65 bytes (130 hex chars + 0x).
 func TestSIWE_PersonalSignLength(t *testing.T) {
-	w, _ := newEphemeralWallet()
-	sig := w.personalSign("hello world")
+	w, _ := NewEphemeralWallet()
+	sig := w.PersonalSign("hello world")
 	if !strings.HasPrefix(sig, "0x") {
 		t.Errorf("Signature should start with 0x, got: %s", sig)
 	}
@@ -298,9 +298,9 @@ func TestSIWE_LooksLikeNonce(t *testing.T) {
 
 // TestSIWS_WalletGeneration verifies Solana Ed25519 wallet creation.
 func TestSIWS_WalletGeneration(t *testing.T) {
-	w, err := newEphemeralSolanaWallet()
+	w, err := NewEphemeralSolanaWallet()
 	if err != nil {
-		t.Fatalf("newEphemeralSolanaWallet() error: %v", err)
+		t.Fatalf("NewEphemeralSolanaWallet() error: %v", err)
 	}
 	// Solana addresses are base58-encoded 32-byte public keys — 32-44 chars.
 	if len(w.Address) < 32 || len(w.Address) > 44 {
@@ -314,8 +314,8 @@ func TestSIWS_WalletGeneration(t *testing.T) {
 
 // TestSIWS_TwoWalletsHaveDifferentAddresses verifies Solana key non-determinism.
 func TestSIWS_TwoWalletsHaveDifferentAddresses(t *testing.T) {
-	w1, _ := newEphemeralSolanaWallet()
-	w2, _ := newEphemeralSolanaWallet()
+	w1, _ := NewEphemeralSolanaWallet()
+	w2, _ := NewEphemeralSolanaWallet()
 	if w1.Address == w2.Address {
 		t.Error("Two Solana wallets should not have the same address")
 	}
@@ -323,7 +323,7 @@ func TestSIWS_TwoWalletsHaveDifferentAddresses(t *testing.T) {
 
 // TestSIWS_SignatureLength verifies Ed25519 signature is 64 bytes (hex-encoded + 0x prefix = 130 chars).
 func TestSIWS_SignatureLength(t *testing.T) {
-	w, _ := newEphemeralSolanaWallet()
+	w, _ := NewEphemeralSolanaWallet()
 	sig := w.sign("hello solana")
 	if !strings.HasPrefix(sig, "0x") {
 		t.Errorf("Solana signature should start with 0x, got: %s", sig)
@@ -335,8 +335,8 @@ func TestSIWS_SignatureLength(t *testing.T) {
 
 // TestSIWS_BuildMessageContainsFields verifies SIWS message construction.
 func TestSIWS_BuildMessageContainsFields(t *testing.T) {
-	w, _ := newEphemeralSolanaWallet()
-	msg := buildSIWSMessage("example.com", w.Address, "nonce99", "https://example.com")
+	w, _ := NewEphemeralSolanaWallet()
+	msg := BuildSIWSMessage("example.com", w.Address, "nonce99", "https://example.com")
 	if !strings.Contains(msg, "example.com") {
 		t.Error("SIWS message missing domain")
 	}
@@ -435,7 +435,7 @@ func TestSIWE_URIMismatchDetected(t *testing.T) {
 
 // TestSIWE_BuildMessageContainsFields verifies SIWE message construction.
 func TestSIWE_BuildMessageContainsFields(t *testing.T) {
-	msg := buildSIWEMessage("example.com", "0xAbCd1234", "nonce99", "https://example.com")
+	msg := BuildSIWEMessage("example.com", "0xAbCd1234", "nonce99", "https://example.com")
 	if !strings.Contains(msg, "example.com") {
 		t.Error("SIWE message missing domain")
 	}
@@ -457,11 +457,11 @@ func TestSIWE_BuildMessageContainsFields(t *testing.T) {
 // base58-encoded signature (no "0x" prefix) while sign() returns hex.
 // Both must produce 64-byte Ed25519 signatures but in different encodings.
 func TestSIWS_SignBase58IsNotHexPrefixed(t *testing.T) {
-	w, err := newEphemeralSolanaWallet()
+	w, err := NewEphemeralSolanaWallet()
 	if err != nil {
-		t.Fatalf("newEphemeralSolanaWallet() error: %v", err)
+		t.Fatalf("NewEphemeralSolanaWallet() error: %v", err)
 	}
-	sig := w.signBase58("hello solana")
+	sig := w.SignBase58("hello solana")
 	if strings.HasPrefix(sig, "0x") {
 		t.Errorf("signBase58 must return base58 (no 0x prefix), got: %s", sig)
 	}

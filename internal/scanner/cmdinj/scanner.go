@@ -335,6 +335,16 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 					continue
 				}
 
+				// Proportional delta check: sleep(5) should be ~2s longer than
+				// sleep(3). If both deltas are similar, the delay is from WAF
+				// throttling or network latency, not command execution.
+				// Real injection: delta5 - delta3 ≈ 2000ms (±500ms)
+				// WAF/network: delta5 ≈ delta3 (difference < 1000ms)
+				deltaDiff := delta5 - confirmedDelta3
+				if deltaDiff < 1000*time.Millisecond {
+					continue
+				}
+
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebCmdInjection,
 					Module:   "deep",

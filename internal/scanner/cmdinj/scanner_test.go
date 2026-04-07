@@ -16,6 +16,7 @@ import (
 )
 
 func TestCmdInj_SkipsSurface(t *testing.T) {
+	t.Parallel()
 	s := New()
 	findings, err := s.Run(context.Background(), "example.com", module.ScanSurface)
 	if err != nil {
@@ -27,6 +28,7 @@ func TestCmdInj_SkipsSurface(t *testing.T) {
 }
 
 func TestCmdInj_DetectsTimeBased(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		param := r.URL.Query().Get("cmd")
 		if strings.Contains(param, "sleep 3") {
@@ -60,6 +62,7 @@ func TestCmdInj_DetectsTimeBased(t *testing.T) {
 }
 
 func TestCmdInj_NoFalsePositiveConstantTime(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
@@ -95,6 +98,7 @@ func TestBuildPayload_CmdInj(t *testing.T) {
 }
 
 func TestCmdInj_OOBIntegration(t *testing.T) {
+	t.Parallel()
 	oobSrv := oob.NewServer("oob.test.com", "127.0.0.1:0")
 	// Use a short context deadline — this test only verifies the scanner
 	// doesn't crash when OOB is present; it doesn't need to exhaust all
@@ -136,6 +140,7 @@ func TestMeasureBaseline_CmdInj(t *testing.T) {
 }
 
 func TestCmdInj_ShellshockDetection(t *testing.T) {
+	t.Parallel()
 	// Simulate a CGI endpoint vulnerable to Shellshock.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/cgi-bin/vulnerable" {
@@ -188,6 +193,7 @@ func TestCmdInj_ShellshockDetection(t *testing.T) {
 }
 
 func TestCmdInj_ShellshockPostExploit(t *testing.T) {
+	t.Parallel()
 	// Simulate a Shellshock-vulnerable endpoint that can also execute recon commands.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/cgi-bin/vulnerable" {
@@ -276,6 +282,7 @@ func TestCmdInj_ShellshockPostExploit(t *testing.T) {
 }
 
 func TestCmdInj_ShellshockNoFalsePositive(t *testing.T) {
+	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("Normal page"))

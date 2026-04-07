@@ -1,8 +1,12 @@
 package webcontent
 
 import (
+	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 )
@@ -90,7 +94,6 @@ func TestSecretProofKeyword(t *testing.T) {
 		{"Private Key", "PRIVATE KEY"},
 		{"OpenAI API Key", "sk-[A-Za-z0-9]"},
 		{"Anthropic API Key", "sk-ant-"},
-		{"Firebase API Key", "AIzaSy"},
 		{"Mailgun API Key", "key-[a-f0-9]"},
 	}
 
@@ -266,10 +269,9 @@ func TestAnalyzeCookies_SessionCookieSameSiteNone(t *testing.T) {
 
 func TestAnalyzeCookies_SessionCookieNoSameSiteAttribute(t *testing.T) {
 	// When Go parses a Set-Cookie header with no SameSite attribute, the
-	// SameSite field is left at Go's zero value (0), which is distinct from
-	// http.SameSiteDefaultMode (1). The scanner checks for SameSiteDefaultMode
-	// and SameSiteNoneMode, so an absent attribute (zero value) does NOT
-	// trigger the finding. This test documents that behavior.
+	// SameSite field is left at Go's zero value (0). Absent SameSite should
+	// trigger the finding since the browser will default to Lax but the
+	// server hasn't explicitly set a policy.
 	resp := &http.Response{
 		Header: http.Header{
 			"Set-Cookie": []string{"sid=val; Secure; HttpOnly"},
@@ -277,8 +279,8 @@ func TestAnalyzeCookies_SessionCookieNoSameSiteAttribute(t *testing.T) {
 	}
 	findings := analyzeCookies("example.com", resp)
 	found := findingsByCheckID(findings, finding.CheckCookieMissingSameSite)
-	if len(found) != 0 {
-		t.Errorf("expected 0 CheckCookieMissingSameSite findings when SameSite attr is absent (Go zero value != SameSiteDefaultMode), got %d", len(found))
+	if len(found) != 1 {
+		t.Errorf("expected 1 CheckCookieMissingSameSite finding when SameSite attr is absent, got %d", len(found))
 	}
 }
 
@@ -817,19 +819,48 @@ func TestSecretPatterns_OpenAIKey(t *testing.T) {
 	}
 }
 
-func TestSecretPatterns_FirebaseAPIKey(t *testing.T) {
-	tests := []struct {
-		input string
-		match bool
-	}{
-		{"AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ12345678", true},
-		{"AIzaSy-_abcdefghijklmnopqrstuvwxyz12345", true},
-		{"AIzaNotFirebase", false}, // AIza but not AIzaSy
+func TestFirebaseAPIKey_ExcludedFromSecretPatterns(t *testing.T) {
+	// Firebase API keys are intentionally client-side, domain-restricted identifiers.
+	// They should NOT be in secretPatterns (which triggers CRITICAL js.hardcoded_secret).
+	if _, ok := secretPatterns["Firebase API Key"]; ok {
+		t.Error("Firebase API Key should not be in secretPatterns — it's a public client-side identifier, not a secret")
 	}
-	re := secretPatterns["Firebase API Key"]
-	for _, tt := range tests {
-		if got := re.MatchString(tt.input); got != tt.match {
-			t.Errorf("Firebase API Key pattern on %q: got %v, want %v", tt.input, got, tt.match)
+}
+
+func TestFirebaseAPIKey_ExcludedFromGoogleAPIKeyDetection(t *testing.T) {
+	// Firebase keys (AIzaSy...) match the broader Google API Key pattern (AIza...).
+	// The firebaseKeyRe exclusion should prevent them from being reported.
+	firebaseKey := "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ12345678"
+	if !firebaseKeyRe.MatchString(firebaseKey) {
+		t.Error("firebaseKeyRe should match Firebase API key pattern")
+	}
+	if !secretPatterns["Google API Key"].MatchString(firebaseKey) {
+		t.Error("Google API Key pattern should match Firebase key — dedup in analyzeJS excludes it")
+	}
+	// A non-Firebase Google API key should NOT match firebaseKeyRe.
+	nonFirebaseKey := "AIzaXXABCDEFGHIJKLMNOPQRSTUVWXYZ12345678"
+	if firebaseKeyRe.MatchString(nonFirebaseKey) {
+		t.Error("firebaseKeyRe should NOT match non-Firebase Google API key (AIzaXX...)")
+	}
+}
+
+func TestFirebaseAPIKey_NoHardcodedSecretFinding(t *testing.T) {
+	// Firebase API key in JS should NOT produce a js.hardcoded_secret finding.
+	js := `var firebaseConfig = {apiKey: "AIzaSyDqPgLl3UvJ98rKfE3aBcDeFgHiJkLmUf0U"};`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = fmt.Fprint(w, js)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	findings := analyzeJS(ctx, &http.Client{Timeout: 2 * time.Second}, "example.com", ts.URL)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJSHardcodedSecret {
+			label, _ := f.Evidence["pattern"].(string)
+			t.Errorf("Firebase key should not produce hardcoded secret finding, got: pattern=%q title=%q", label, f.Title)
 		}
 	}
 }
@@ -905,6 +936,81 @@ func TestGenericPwdValueRe(t *testing.T) {
 			}
 			t.Errorf("genericPwdValueRe on %q: got %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+// ===========================================================================
+// OAuth Client Secret false positive filtering
+// ===========================================================================
+
+func TestOAuthSecretIdentifierRe(t *testing.T) {
+	tests := []struct {
+		input string
+		match bool
+	}{
+		{"twitter_clientsecret", true},   // snake_case config key name
+		{"google_client_secret", true},   // snake_case config key name
+		{"facebook-client-secret", true}, // kebab-case config key name
+		{"my_oauth_secret", true},        // snake_case with "secret"
+		{"app-config-value", true},       // kebab-case identifier
+		{"aB3xKz9mNp2qR4sT7uV", false},  // random secret — not snake/kebab case
+		{"dGhlIHF1aWNrIGJyb3du", false},  // base64-like — not snake/kebab case
+		{"TWITTER_CLIENT", false},        // uppercase — not matched (different pattern)
+		{"x", false},                     // too short, no separator
+	}
+	for _, tt := range tests {
+		if got := oauthSecretIdentifierRe.MatchString(tt.input); got != tt.match {
+			t.Errorf("oauthSecretIdentifierRe on %q: got %v, want %v", tt.input, got, tt.match)
+		}
+	}
+}
+
+func TestOAuthClientSecret_ConfigKeyNameRejected(t *testing.T) {
+	// The OAuth Client Secret pattern should NOT flag values that are config key names.
+	// e.g. clientsecret:"twitter_clientsecret" — the value is a label, not a secret.
+	js := `var config = {clientsecret:"twitter_clientsecret"};`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = fmt.Fprint(w, js)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	findings := analyzeJS(ctx, &http.Client{Timeout: 2 * time.Second}, "example.com", ts.URL)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJSHardcodedSecret {
+			if label, _ := f.Evidence["pattern"].(string); label == "OAuth Client Secret" {
+				t.Errorf("should not flag OAuth Client Secret for config key name value, got: %s", f.Title)
+			}
+		}
+	}
+}
+
+func TestOAuthClientSecret_RealSecretDetected(t *testing.T) {
+	// A real OAuth client secret (random alphanumeric string) should be detected.
+	js := `var config = {client_secret: "aB3xKz9mNp2qR4sT7uVwX"};`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = fmt.Fprint(w, js)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	findings := analyzeJS(ctx, &http.Client{Timeout: 2 * time.Second}, "example.com", ts.URL)
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckJSHardcodedSecret {
+			if label, _ := f.Evidence["pattern"].(string); label == "OAuth Client Secret" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected OAuth Client Secret finding for real secret value, got none")
 	}
 }
 
@@ -1024,18 +1130,15 @@ func TestScannerName(t *testing.T) {
 // but the Google API Key pattern should be suppressed in favor of Firebase.
 // ===========================================================================
 
-func TestFirebaseKeyMatchesBothGoogleAndFirebase(t *testing.T) {
-	// A Firebase key (AIzaSy...) should match both Firebase API Key and Google API Key patterns
+func TestFirebaseKeyExcludedFromGoogleViaFirebaseKeyRe(t *testing.T) {
+	// Firebase key matches Google API Key regex but should be excluded via firebaseKeyRe
 	key := "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ12345678"
 
-	firebaseMatch := secretPatterns["Firebase API Key"].MatchString(key)
-	googleMatch := secretPatterns["Google API Key"].MatchString(key)
-
-	if !firebaseMatch {
-		t.Error("expected Firebase API Key pattern to match AIzaSy... key")
+	if !secretPatterns["Google API Key"].MatchString(key) {
+		t.Error("expected Google API Key pattern to match AIzaSy... key")
 	}
-	if !googleMatch {
-		t.Error("expected Google API Key pattern to match AIzaSy... key (dedup is done in analyzeJS)")
+	if !firebaseKeyRe.MatchString(key) {
+		t.Error("expected firebaseKeyRe to match — this key should be excluded from detection")
 	}
 }
 
@@ -1278,4 +1381,453 @@ func TestCSPWildcardRe_SubdomainPatternNotFlagged(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// discoverNextJSChunks tests
+// ---------------------------------------------------------------------------
+
+func TestDiscoverNextJSChunks_ManifestParsed(t *testing.T) {
+	const buildID = "abc123XYZ"
+	manifest := `self.__BUILD_MANIFEST={
+		"/": ["static/chunks/pages/index-9f2a1b3c.js"],
+		"/about": ["static/chunks/pages/about-d4e5f678.js"],
+		"/dashboard": ["static/chunks/pages/dashboard-1a2b3c4d.js"],
+		"_app": ["static/chunks/app/layout-aabbccdd.js"]
+	}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expected := "/_next/static/" + buildID + "/_buildManifest.js"
+		if r.URL.Path == expected {
+			_, _ = fmt.Fprint(w, manifest)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	html := fmt.Sprintf(`<script id="__NEXT_DATA__">{"buildId":"%s","props":{}}</script>`, buildID)
+	chunks := discoverNextJSChunks(context.Background(), srv.Client(), srv.URL, html)
+
+	if len(chunks) != 4 {
+		t.Fatalf("expected 4 chunks, got %d: %v", len(chunks), chunks)
+	}
+	for _, c := range chunks {
+		if c[:len(srv.URL)] != srv.URL {
+			t.Errorf("chunk URL should start with server URL: %s", c)
+		}
+	}
+}
+
+func TestDiscoverNextJSChunks_NoBuildID_ReturnsNil(t *testing.T) {
+	html := `<html><body>Not a Next.js app</body></html>`
+	chunks := discoverNextJSChunks(context.Background(), http.DefaultClient, "https://example.com", html)
+	if chunks != nil {
+		t.Fatalf("expected nil for non-Next.js page, got %v", chunks)
+	}
+}
+
+func TestDiscoverNextJSChunks_ManifestNotFound_ReturnsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	html := `<script id="__NEXT_DATA__">{"buildId":"testBuild123","props":{}}</script>`
+	chunks := discoverNextJSChunks(context.Background(), srv.Client(), srv.URL, html)
+	if len(chunks) != 0 {
+		t.Fatalf("expected 0 chunks when manifest 404s, got %d", len(chunks))
+	}
+}
+
+func TestDiscoverNextJSChunks_HTMLInlineChunkRefs(t *testing.T) {
+	// Chunks referenced in __NEXT_DATA__ JSON or inline script variables
+	// use the same "static/chunks/..." pattern the regex expects.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	html := `<script id="__NEXT_DATA__">{"buildId":"inlineBuild","props":{},
+		"chunks":["static/chunks/pages/inline-aabb1122.js","app/layout-ccdd3344.js"]}</script>`
+
+	chunks := discoverNextJSChunks(context.Background(), srv.Client(), srv.URL, html)
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 inline chunks, got %d: %v", len(chunks), chunks)
+	}
+}
+
+func TestDiscoverNextJSChunks_Deduplication(t *testing.T) {
+	const buildID = "dedup123"
+	manifest := `self.__BUILD_MANIFEST={"/": ["static/chunks/pages/index-aabb.js"]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_next/static/"+buildID+"/_buildManifest.js" {
+			_, _ = fmt.Fprint(w, manifest)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	html := fmt.Sprintf(`<script id="__NEXT_DATA__">{"buildId":"%s"}</script>
+	<script src="/_next/static/chunks/pages/index-aabb.js"></script>`, buildID)
+
+	chunks := discoverNextJSChunks(context.Background(), srv.Client(), srv.URL, html)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 deduplicated chunk, got %d: %v", len(chunks), chunks)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// extractServiceReferences tests
+// ---------------------------------------------------------------------------
+
+func TestExtractServiceReferences_HeliusRPC(t *testing.T) {
+	src := `const rpcURL = "https://mainnet.helius-rpc.com/?api-key=${p.env.HELIUS_API_KEY}";`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	f := findings[0]
+	if f.CheckID != finding.CheckJSExternalServiceRef {
+		t.Errorf("wrong check ID: %s", f.CheckID)
+	}
+	if f.Evidence["service"] != "Helius RPC (Solana)" {
+		t.Errorf("wrong service: %v", f.Evidence["service"])
+	}
+	if f.Evidence["category"] != "blockchain" {
+		t.Errorf("wrong category: %v", f.Evidence["category"])
+	}
+}
+
+func TestExtractServiceReferences_MultipleServices(t *testing.T) {
+	src := `
+		fetch("https://api.stripe.com/v1/charges", {headers: {"Authorization": "Bearer " + key}});
+		fetch("https://o123.sentry.io/api/456/store/", {body: JSON.stringify(event)});
+		fetch("https://mainnet.helius-rpc.com/?api-key=test123");
+	`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings (Stripe, Sentry, Helius), got %d", len(findings))
+	}
+
+	services := make(map[string]bool)
+	for _, f := range findings {
+		svc := f.Evidence["service"].(string)
+		services[svc] = true
+	}
+	for _, expected := range []string{"Stripe API", "Sentry", "Helius RPC (Solana)"} {
+		if !services[expected] {
+			t.Errorf("missing expected service: %s", expected)
+		}
+	}
+}
+
+func TestExtractServiceReferences_DeduplicatesSameService(t *testing.T) {
+	src := `
+		fetch("https://api.stripe.com/v1/charges");
+		fetch("https://api.stripe.com/v1/customers");
+		fetch("https://api.stripe.com/v1/invoices");
+	`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding (deduplicated Stripe), got %d", len(findings))
+	}
+}
+
+func TestExtractServiceReferences_NoKnownServices(t *testing.T) {
+	src := `
+		const x = "hello world";
+		fetch("https://internal.company.com/api/v1/data");
+		fetch("https://cdn.example.com/assets/logo.png");
+	`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for unknown services, got %d", len(findings))
+	}
+}
+
+func TestExtractServiceReferences_NoURLs(t *testing.T) {
+	src := `const greeting = "hello"; function add(a,b) { return a+b; }`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for JS without URLs, got %d", len(findings))
+	}
+}
+
+func TestExtractServiceReferences_AllCategories(t *testing.T) {
+	src := `
+		fetch("https://mainnet.helius-rpc.com/rpc");
+		fetch("https://api.stripe.com/v1/charges");
+		fetch("https://myapp.auth0.com/authorize");
+		fetch("https://api.openai.com/v1/chat");
+		fetch("https://s3.amazonaws.com/bucket/key");
+		fetch("https://api.segment.io/v1/track");
+		fetch("https://o123.sentry.io/api/store");
+		fetch("https://api.sendgrid.com/v3/mail/send");
+		fetch("https://search.algolia.net/1/indexes");
+		fetch("https://db.neon.tech/sql");
+	`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	categories := make(map[string]bool)
+	for _, f := range findings {
+		cat := f.Evidence["category"].(string)
+		categories[cat] = true
+	}
+
+	expected := []string{"blockchain", "payments", "auth", "ai", "cloud", "analytics", "monitoring", "messaging", "search", "database"}
+	for _, cat := range expected {
+		if !categories[cat] {
+			t.Errorf("missing category: %s (found: %v)", cat, categories)
+		}
+	}
+}
+
+func TestExtractServiceReferences_ProofCommandFormat(t *testing.T) {
+	src := `fetch("https://api.stripe.com/v1/charges");`
+	findings := extractServiceReferences("example.com", "https://example.com/app.js", src, time.Now())
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	proof := findings[0].ProofCommand
+	if proof == "" {
+		t.Fatal("ProofCommand should not be empty")
+	}
+	if !strContains(proof, "curl") || !strContains(proof, "api.stripe.com") {
+		t.Errorf("ProofCommand should contain curl and domain: %s", proof)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// extractEnvVarRefs tests
+// ---------------------------------------------------------------------------
+
+func TestExtractEnvVarRefs_ProcessEnv(t *testing.T) {
+	src := `const url = "https://api.example.com/" + process.env.API_KEY;`
+	refs := extractEnvVarRefs(src, "https://api.example.com/")
+
+	if len(refs) == 0 {
+		t.Fatal("expected env var refs, got none")
+	}
+	// The regex matches "process.env." as the pattern — the variable name
+	// isn't captured by the env var regex, but the presence of process.env.
+	// near the URL is the signal we care about.
+	found := false
+	for _, r := range refs {
+		if strContains(r, "process.env") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected process.env ref, got: %v", refs)
+	}
+}
+
+func TestExtractEnvVarRefs_ImportMetaEnv(t *testing.T) {
+	src := `const endpoint = import.meta.env.VITE_API_URL + "/v1/data";`
+	refs := extractEnvVarRefs(src, "/v1/data")
+
+	found := false
+	for _, r := range refs {
+		if strContains(r, "import.meta.env") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected import.meta.env ref, got: %v", refs)
+	}
+}
+
+func TestExtractEnvVarRefs_TemplateLiteral(t *testing.T) {
+	src := `const url = "https://rpc.helius.com/?api-key=${p.env.HELIUS_API_KEY}";`
+	refs := extractEnvVarRefs(src, "https://rpc.helius.com/")
+
+	found := false
+	for _, r := range refs {
+		if strContains(r, "env") && strContains(r, "HELIUS") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected HELIUS env var ref, got: %v", refs)
+	}
+}
+
+func TestExtractEnvVarRefs_ConstantPattern(t *testing.T) {
+	src := `const headers = { "Authorization": "Bearer " + STRIPE_SECRET_KEY }; fetch("https://api.stripe.com/v1/charges");`
+	refs := extractEnvVarRefs(src, "https://api.stripe.com/")
+
+	found := false
+	for _, r := range refs {
+		if strContains(r, "STRIPE_SECRET_KEY") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected STRIPE_SECRET_KEY ref, got: %v", refs)
+	}
+}
+
+func TestExtractEnvVarRefs_URLNotFound_ReturnsNil(t *testing.T) {
+	src := `const x = "hello world";`
+	refs := extractEnvVarRefs(src, "https://not-in-source.com/")
+
+	if refs != nil {
+		t.Fatalf("expected nil when URL not found, got %v", refs)
+	}
+}
+
+func TestExtractEnvVarRefs_NoDuplicates(t *testing.T) {
+	src := `process.env.KEY process.env.KEY fetch("https://api.example.com/") process.env.KEY`
+	refs := extractEnvVarRefs(src, "https://api.example.com/")
+
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 deduplicated ref, got %d: %v", len(refs), refs)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Next.js regex tests
+// ---------------------------------------------------------------------------
+
+func TestNextBuildIDRe(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"standard", `{"buildId":"abc123XYZ","props":{}}`, "abc123XYZ"},
+		{"with spaces", `{"buildId" : "def-456_ghi","runtimeConfig":{}}`, "def-456_ghi"},
+		{"no match", `{"version":"1.0","name":"app"}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := nextBuildIDRe.FindStringSubmatch(tt.input)
+			got := ""
+			if len(m) >= 2 {
+				got = m[1]
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNextChunkRefRe(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{"pages chunk", `"static/chunks/pages/index-9f2a1b3c.js"`, 1},
+		{"app chunk", `"app/layout-aabbccdd.js"`, 1},
+		{"multiple", `"static/chunks/1-hash.js","pages/about-hash.js","app/page-hash.js"`, 3},
+		{"no match", `"styles/globals.css","images/logo.png"`, 0},
+		{"non-js", `"static/chunks/data.json"`, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matches := nextChunkRefRe.FindAllStringSubmatch(tt.input, -1)
+			if len(matches) != tt.want {
+				t.Errorf("got %d matches, want %d", len(matches), tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration: discoverNextJSChunks → extractServiceReferences pipeline
+// ---------------------------------------------------------------------------
+
+func TestNextJSChunks_ServiceRefsInChunks(t *testing.T) {
+	const buildID = "pipelineBuild"
+
+	manifest := `self.__BUILD_MANIFEST={"/dashboard": ["static/chunks/pages/dashboard-aabb.js"]}`
+	chunkBody := `
+		import {Connection} from "@solana/web3.js";
+		const conn = new Connection("https://mainnet.helius-rpc.com/?api-key=${p.env.HELIUS_API_KEY}");
+	`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_next/static/" + buildID + "/_buildManifest.js":
+			_, _ = fmt.Fprint(w, manifest)
+		case "/_next/static/chunks/pages/dashboard-aabb.js":
+			_, _ = fmt.Fprint(w, chunkBody)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	html := fmt.Sprintf(`<script id="__NEXT_DATA__">{"buildId":"%s"}</script>`, buildID)
+
+	chunks := discoverNextJSChunks(context.Background(), srv.Client(), srv.URL, html)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+
+	body := fetchJSBody(context.Background(), srv.Client(), chunks[0])
+	findings := extractServiceReferences("example.com", chunks[0], body, time.Now())
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 service ref finding, got %d", len(findings))
+	}
+	if findings[0].Evidence["service"] != "Helius RPC (Solana)" {
+		t.Errorf("wrong service: %v", findings[0].Evidence)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// checkAPIKeyInURLs — public key domain exclusions
+// ---------------------------------------------------------------------------
+
+func TestCheckAPIKeyInURLs_SentryDSN_Excluded(t *testing.T) {
+	src := `Sentry.init({ dsn: "https://o447951.ingest.sentry.io/api/450?key=dfb07d783ad5325c245c1fd3725390" });`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 0 {
+		t.Errorf("Sentry DSN should be excluded from API key check, got %d matches: %v", len(matches), matches)
+	}
+}
+
+func TestCheckAPIKeyInURLs_SentryLegacy_Excluded(t *testing.T) {
+	src := `fetch("https://sentry.io/api/123/store/?sentry_key=abc123def456");`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 0 {
+		t.Errorf("Sentry legacy DSN should be excluded, got %d matches", len(matches))
+	}
+}
+
+func TestCheckAPIKeyInURLs_RealAPIKey_StillDetected(t *testing.T) {
+	src := `fetch("https://api.example.com/v1/data?api_key=sk_live_1234567890abcdef");`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match for real API key, got %d", len(matches))
+	}
+}
+
+func TestCheckAPIKeyInURLs_AlgoliaSearch_Excluded(t *testing.T) {
+	src := `fetch("https://APPID.algolia.net/1/indexes?key=searchOnlyKey123");`
+	matches := checkAPIKeyInURLs(src)
+	if len(matches) != 0 {
+		t.Errorf("Algolia search key should be excluded, got %d matches", len(matches))
+	}
+}
+
+func strContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

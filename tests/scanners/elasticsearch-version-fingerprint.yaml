@@ -1,0 +1,93 @@
+name: elasticsearch-version-fingerprint
+description: >
+  Elasticsearch 7.10.1 (old, unauthenticated) vs 8.17.0 (new, security disabled
+  but modern). Tests version extraction from /_cluster/health JSON, auth status
+  detection, and CVE version-range matching.
+tags: [elasticsearch, portscan, fingerprint, version, exploit]
+
+services:
+  es-old:
+    image: elasticsearch:7.10.1
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19520:9200"]
+
+  es-new:
+    image: elasticsearch:8.17.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19521:9200"]
+
+ready:
+  cmd: "curl -sf http://localhost:19520/_cluster/health | grep -q status && curl -sf http://localhost:19521/ | grep -q lucene"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # --- Pre-flight ---
+  - name: es-old-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19520/ | grep -q '7.10.1'"
+      exit_code: 0
+
+  - name: es-new-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19521/ | grep -q '8.17.0'"
+      exit_code: 0
+
+  # --- Old ES: unauthenticated access detected ---
+  - name: detects-es-old-unauth
+    type: beacon
+    target: localhost:19520
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  # --- Old ES: version extracted ---
+  - name: es-old-version-in-evidence
+    type: beacon
+    target: localhost:19520
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--format", "json"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+      evidence_key: version
+      evidence_value: "7.10.1"
+
+  # --- Old ES: exploit chain fires ---
+  - name: es-old-exploit-chain
+    type: beacon
+    target: localhost:19520
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--authorized", "--deep", "--permission-confirmed", "--yes"]
+    expect:
+      check_id: exploit.lateral_movement
+
+  # --- New ES: also unauthenticated (security disabled) ---
+  - name: detects-es-new-unauth
+    type: beacon
+    target: localhost:19521
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19521"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  # --- New ES: version is 8.17.0, NOT flagged for Groovy RCE CVE ---
+  - name: negative-es-new-no-groovy-rce
+    type: beacon
+    target: localhost:19521
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19521"]
+    expect:
+      not_check_id: cve.elasticsearch_groovy_rce
+
+  # --- Old ES: also NOT flagged for Groovy RCE (7.10.1 > 1.5.x) ---
+  - name: negative-es-old-no-groovy-rce
+    type: beacon
+    target: localhost:19520
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520"]
+    expect:
+      not_check_id: cve.elasticsearch_groovy_rce
+
+timeout: 10m

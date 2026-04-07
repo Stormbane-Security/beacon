@@ -139,6 +139,10 @@ func parseFillGapsResponse(text string) (*FillGapsResult, error) {
 		if proposed.SignalValue == "" || proposed.Value == "" {
 			continue
 		}
+		// Reject body rules with overly-generic signals that match many services.
+		if strings.ToLower(proposed.SignalType) == "body" && isGenericBodySignal(proposed.SignalValue) {
+			continue
+		}
 		if proposed.Confidence <= 0 || proposed.Confidence > 1.0 {
 			proposed.Confidence = 0.3
 		}
@@ -155,4 +159,42 @@ func parseFillGapsResponse(text string) (*FillGapsResult, error) {
 	}
 
 	return result, nil
+}
+
+// genericBodySignals are common error/status page strings that many HTTP
+// servers return. AI-proposed body-match rules using these as signals would
+// fire on unrelated services, causing false positive classifications.
+var genericBodySignals = []string{
+	"404 page not found",
+	"not found",
+	"page not found",
+	"method not allowed",
+	"bad request",
+	"internal server error",
+	"service unavailable",
+	"forbidden",
+	"unauthorized",
+	"ok",
+	"hello world",
+	"it works",
+	"welcome to nginx",
+	"test page",
+	"default page",
+	"under construction",
+}
+
+// isGenericBodySignal returns true if the signal value is too common to be
+// a reliable technology fingerprint.
+func isGenericBodySignal(signalValue string) bool {
+	lower := strings.ToLower(strings.TrimSpace(signalValue))
+	for _, g := range genericBodySignals {
+		if lower == g {
+			return true
+		}
+	}
+	// Also reject very short body signals (< 10 chars) — too ambiguous.
+	if len(lower) < 10 {
+		return true
+	}
+	return false
 }

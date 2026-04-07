@@ -27,7 +27,7 @@ func startRegistry(t *testing.T, handler http.Handler) func() {
 
 	l, err := net.Listen("tcp", "127.0.0.1:"+registryPort)
 	if err != nil {
-		t.Skipf("cannot bind port %s (in use): %v", registryPort, err)
+		t.Fatalf("cannot bind port %s (in use): %v", registryPort, err)
 	}
 
 	srv := &http.Server{Handler: handler}

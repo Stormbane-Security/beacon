@@ -1,0 +1,82 @@
+name: mysql-version-fingerprint
+description: >
+  MySQL 8.0 (empty root password) vs MySQL 8.4 (strong password). Tests MySQL
+  version extraction from wire protocol greeting, empty-password auth detection,
+  and false positive absence on properly-secured instance.
+tags: [mysql, portscan, fingerprint, version, false-positive, exploit]
+
+services:
+  mysql-old:
+    image: mysql:8.0
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    ports: ["19540:3306"]
+
+  mysql-new:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: securepassword123
+    ports: ["19541:3306"]
+
+ready:
+  cmd: "mysql -h 127.0.0.1 -P 19540 -u root -e 'SELECT 1' 2>/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Pre-flight ---
+  - name: mysql-old-empty-root
+    type: command
+    expect:
+      command: "mysql -h 127.0.0.1 -P 19540 -u root -e 'SELECT VERSION()' 2>/dev/null | grep -q '8.0'"
+      exit_code: 0
+
+  # --- Old MySQL: exposed + empty root password ---
+  - name: detects-mysql-old-exposed
+    type: beacon
+    target: localhost:19540
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: detects-mysql-old-noauth
+    type: beacon
+    target: localhost:19540
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540"]
+    expect:
+      check_id: port.mysql_no_auth
+
+  # --- Old MySQL: version extracted ---
+  - name: mysql-old-version-in-evidence
+    type: beacon
+    target: localhost:19540
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--format", "json"]
+    expect:
+      check_id: port.database_exposed
+      evidence_key: version
+
+  # --- Old MySQL: exploit chain fires ---
+  - name: mysql-old-exploit-chain
+    type: beacon
+    target: localhost:19540
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- New MySQL: NO empty password auth ---
+  - name: negative-mysql-new-no-empty-auth
+    type: beacon
+    target: localhost:19541
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541"]
+    expect:
+      not_check_id: port.mysql_no_auth
+
+  # --- New MySQL: NO exploit chain fires ---
+  - name: negative-mysql-new-no-exploit
+    type: beacon
+    target: localhost:19541
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541", "--deep", "--permission-confirmed"]
+    expect:
+      not_check_id: exploit.data_extracted
+
+timeout: 8m

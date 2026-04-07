@@ -760,13 +760,21 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// Unconfirmed IPs still get a surface scan (unsolicited observation is
 	// always safe) but are flagged for the operator to review before a deep
 	// scan is allowed.
+	// Cap BGP-discovered assets to prevent ASN enumeration from producing
+	// thousands of targets that overwhelm the scan pipeline.
+	const maxBGPAssets = 200
+	bgpAdded := 0
 	for _, f := range bgpFindings {
+		if bgpAdded >= maxBGPAssets {
+			break
+		}
 		switch f.CheckID {
 		case finding.CheckASNIPService:
 			if ip, ok := f.Evidence["ip"].(string); ok && ip != "" {
 				if _, alreadySeen := seen[ip]; !alreadySeen {
 					seen[ip] = struct{}{}
 					assets = append(assets, ip) // surface scan always runs
+					bgpAdded++
 					ownership := checkAssetOwnership(ctx, ip, rootDomain)
 					if ownership.Confidence >= AssetConfirmed {
 						assetSource[ip] = "bgp"
@@ -788,6 +796,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 				if _, alreadySeen := seen[hostname]; !alreadySeen {
 					seen[hostname] = struct{}{}
 					assets = append(assets, hostname) // surface scan always runs
+					bgpAdded++
 					if ipBelongsToDomain(hostname, rootDomain) {
 						assetSource[hostname] = "bgp_ptr"
 					} else {
@@ -1228,13 +1237,15 @@ assetLoop:
 								ev := &playbook.Evidence{
 									AIEndpoints: extractAIEndpoints(assetFindings),
 								}
-								fs, scanErr = aillm.NewWithEvidence(ev).Run(ctx, targetAsset, scanType)
+								result := scan.Execute(aillm.NewWithEvidence(ev), ctx, targetAsset, scanType)
+								fs, scanErr = result.Findings, result.Error
 							default:
 								sc, ok := m.scanners[name]
 								if !ok {
 									continue
 								}
-								fs, scanErr = sc.Run(ctx, targetAsset, scanType)
+								result := scan.Execute(sc, ctx, targetAsset, scanType)
+								fs, scanErr = result.Findings, result.Error
 							}
 							_ = scanErr
 							if len(fs) > 0 {
@@ -1279,12 +1290,14 @@ func deduplicateFindings(findings []finding.Finding) []finding.Finding {
 	type dedupKey struct {
 		checkID string
 		asset   string
+		port    int
 	}
 	seen := make(map[dedupKey]int, len(findings)) // key → index in result
 	result := make([]finding.Finding, 0, len(findings))
 
 	for _, f := range findings {
-		key := dedupKey{f.CheckID, f.Asset}
+		port, _ := f.Evidence["port"].(int)
+		key := dedupKey{f.CheckID, f.Asset, port}
 		if idx, exists := seen[key]; exists {
 			// Prefer native scanner over nuclei.
 			if result[idx].Scanner == "nuclei" && f.Scanner != "nuclei" {
@@ -1403,7 +1416,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
 	// base http.Client to inject credentials into all scanner requests.
-	httpClient := &http.Client{}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 	if len(m.authCfgs) > 0 {
 		if authedClient, session, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
 			// Log but don't abort — fall back to unauthenticated scan.
@@ -1414,6 +1427,36 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}
 	}
 	ctx = authctx.WithHTTPClient(ctx, httpClient)
+
+	// Post-auth re-classify: if we authenticated, re-fingerprint the asset with
+	// the authenticated client. Many apps show a login page to unauthenticated
+	// users but redirect to a dashboard after auth — the second classify captures
+	// the real application surface (different title, headers, frameworks, status code).
+	if len(m.authCfgs) > 0 && httpClient != nil {
+		authEv := classify.Collect(ctx, asset)
+		// Merge authenticated evidence into the original — keep DNS/TLS from
+		// the first pass (those don't change with auth) but update HTTP-derived
+		// fields that may differ.
+		if authEv.StatusCode > 0 && authEv.StatusCode != ev.StatusCode {
+			ev.StatusCode = authEv.StatusCode
+		}
+		if authEv.Title != "" && authEv.Title != ev.Title {
+			ev.Title = authEv.Title
+		}
+		if authEv.AuthSystem == "" && ev.AuthSystem != "" {
+			// Keep the original auth system detection
+		} else if authEv.AuthSystem != "" {
+			ev.AuthSystem = authEv.AuthSystem
+		}
+		// Merge headers — authenticated response may expose new headers.
+		for k, v := range authEv.Headers {
+			ev.Headers[k] = v
+		}
+		// Merge service versions discovered behind auth.
+		for k, v := range authEv.ServiceVersions {
+			ev.ServiceVersions[k] = v
+		}
+	}
 
 	// Inject ScanContext — provides typed accessors (asset, scanType, HTTP client,
 	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
@@ -2376,6 +2419,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 
+		// Enrich evidence from Phase B findings so downstream consumers
+		// (reports, AI enrichment, TUI asset detail) see the full picture.
+		enrichEvidenceFromFindings(&ev, findings)
+
 		_ = m.st.SaveAssetExecution(ctx, &store.AssetExecution{
 			ScanRunID:         scanRunID,
 			Asset:             asset,
@@ -2867,6 +2914,246 @@ func extractAIEndpoints(findings []finding.Finding) []string {
 		}
 	}
 	return eps
+}
+
+// enrichEvidenceFromFindings scans all scanner findings and backfills Evidence
+// fields that classify couldn't know at fingerprint time. This ensures the
+// stored Evidence (used by reports, TUI asset detail, AI enrichment) reflects
+// everything discovered during the scan, not just initial fingerprinting.
+func enrichEvidenceFromFindings(ev *playbook.Evidence, findings []finding.Finding) {
+	for _, f := range findings {
+		switch {
+		// OAuth / OIDC → auth system
+		case strings.HasPrefix(string(f.CheckID), "oauth.") || strings.HasPrefix(string(f.CheckID), "iam."):
+			if ev.AuthSystem == "" {
+				provider, _ := f.Evidence["provider"].(string)
+				if provider != "" {
+					ev.AuthSystem = provider
+				} else {
+					ev.AuthSystem = "oauth"
+				}
+			}
+
+		// SAML → auth system
+		case strings.HasPrefix(string(f.CheckID), "saml."):
+			if ev.AuthSystem == "" {
+				ev.AuthSystem = "saml"
+			}
+
+		// gRPC reflection
+		case f.CheckID == finding.CheckPortGRPCReflectionEnabled:
+			ev.GRPCReflection = true
+
+		// WebSocket endpoints
+		case f.CheckID == finding.CheckWebSocketOpen || f.CheckID == finding.CheckWebSocketCSWSH ||
+			f.CheckID == finding.CheckWebSocketNoAuth:
+			if endpoint, ok := f.Evidence["endpoint"].(string); ok && endpoint != "" {
+				found := false
+				for _, ws := range ev.WebSocketEndpoints {
+					if ws == endpoint {
+						found = true
+						break
+					}
+				}
+				if !found {
+					ev.WebSocketEndpoints = append(ev.WebSocketEndpoints, endpoint)
+				}
+			}
+
+		// JS framework detection
+		case f.CheckID == finding.CheckJSFrameworkDetected:
+			if ev.Framework == "" {
+				if fw, ok := f.Evidence["framework"].(string); ok && fw != "" {
+					ev.Framework = fw
+				}
+			}
+
+		// Web3 signals from web3detect (RPC providers, wallet libs, contracts)
+		case f.CheckID == finding.CheckWeb3RPCProviderDetected:
+			if providers, ok := f.Evidence["providers"].([]string); ok {
+				for _, p := range providers {
+					if !containsStr(ev.Web3Signals, p) {
+						ev.Web3Signals = append(ev.Web3Signals, p)
+					}
+				}
+			}
+		case f.CheckID == finding.CheckWeb3WalletLibDetected:
+			if libs, ok := f.Evidence["libraries"].([]string); ok {
+				for _, lib := range libs {
+					if !containsStr(ev.Web3Signals, lib) {
+						ev.Web3Signals = append(ev.Web3Signals, lib)
+					}
+				}
+			}
+		case f.CheckID == finding.CheckWeb3ContractFound:
+			if addrs, ok := f.Evidence["addresses"].([]string); ok {
+				for _, addr := range addrs {
+					if !containsStr(ev.ContractAddresses, addr) {
+						ev.ContractAddresses = append(ev.ContractAddresses, addr)
+					}
+				}
+			}
+
+		// External service references from JS bundles → ExternalServices
+		case f.CheckID == finding.CheckJSExternalServiceRef:
+			if svc, ok := f.Evidence["service"].(string); ok && svc != "" {
+				if !containsStr(ev.ExternalServices, svc) {
+					ev.ExternalServices = append(ev.ExternalServices, svc)
+				}
+			}
+
+		// ── Port service fingerprints → PortServices ──────────────────────
+		case f.CheckID == finding.CheckPortServiceIdentified:
+			port, _ := f.Evidence["port"].(int)
+			if port == 0 {
+				break
+			}
+			if ev.PortServices == nil {
+				ev.PortServices = make(map[int]playbook.PortServiceInfo)
+			}
+			if _, exists := ev.PortServices[port]; !exists {
+				svc, _ := f.Evidence["service"].(string)
+				ver, _ := f.Evidence["version"].(string)
+				product, _ := f.Evidence["product"].(string)
+				osHint, _ := f.Evidence["os_hint"].(string)
+				banner, _ := f.Evidence["banner"].(string)
+				if len(banner) > 256 {
+					banner = banner[:256]
+				}
+				ev.PortServices[port] = playbook.PortServiceInfo{
+					Service:  svc,
+					Product:  product,
+					Version:  ver,
+					OSHint:   osHint,
+					Banner:   banner,
+					Protocol: "tcp",
+				}
+			}
+
+		// ── Auth weakness signals → CredentialExposures ───────────────────
+		case f.CheckID == finding.CheckPortRedisUnauth ||
+			f.CheckID == finding.CheckPortMemcachedUnauth ||
+			f.CheckID == finding.CheckPortElasticsearchUnauth ||
+			f.CheckID == finding.CheckPortCouchDBUnauth:
+			svc, _ := f.Evidence["service"].(string)
+			if svc == "" {
+				svc = string(f.CheckID)
+			}
+			ev.CredentialExposures = append(ev.CredentialExposures, playbook.CredentialExposure{
+				Type:    "no_auth",
+				Service: svc,
+			})
+
+		case f.CheckID == finding.CheckPortMinIODefaultCreds ||
+			f.CheckID == finding.CheckPortGrafanaDefaultCreds ||
+			f.CheckID == finding.CheckPortSonarQubeDefaultCreds ||
+			f.CheckID == finding.CheckPortAirflowDefaultCreds ||
+			f.CheckID == finding.CheckPortTomcatDefaultCreds ||
+			f.CheckID == finding.CheckPortPortainerDefaultCreds ||
+			f.CheckID == finding.CheckPortRabbitMQDefaultCreds ||
+			f.CheckID == finding.CheckPortMSSQLDefaultCreds ||
+			f.CheckID == finding.CheckPortSupersetDefaultCreds ||
+			f.CheckID == finding.CheckWebDefaultCredentials:
+			svc, _ := f.Evidence["service"].(string)
+			if svc == "" {
+				// Derive service from check ID prefix
+				svc = string(f.CheckID)
+			}
+			ev.CredentialExposures = append(ev.CredentialExposures, playbook.CredentialExposure{
+				Type:    "default_creds",
+				Service: svc,
+			})
+
+		// ── Credential harvest → CredentialExposures with access targets ──
+		case f.CheckID == finding.CheckExploitCredentialHarvest:
+			svc, _ := f.Evidence["credential_source"].(string)
+			target, _ := f.Evidence["grants_access_to"].(string)
+			ev.CredentialExposures = append(ev.CredentialExposures, playbook.CredentialExposure{
+				Type:           "harvested",
+				Service:        svc,
+				GrantsAccessTo: target,
+			})
+
+		// ── Data extraction → DataStoreConnections ────────────────────────
+		case f.CheckID == finding.CheckExploitDataExtracted:
+			svc, _ := f.Evidence["service"].(string)
+			host, _ := f.Evidence["target_host"].(string)
+			ev.DataStoreConnections = append(ev.DataStoreConnections, playbook.DataStoreConnection{
+				Type:   svc,
+				Host:   host,
+				Source: "exploit_chain",
+			})
+
+		// ── Internal network discovery → NetworkAdjacency ─────────────────
+		case f.CheckID == finding.CheckExploitInternalNetDiscovered:
+			if hosts, ok := f.Evidence["hosts_found"].([]string); ok {
+				for _, h := range hosts {
+					ev.NetworkAdjacency = append(ev.NetworkAdjacency, playbook.NetworkAdjacent{
+						Host:       h,
+						Discovered: "container_network",
+					})
+				}
+			}
+
+		// ── CI/CD signals ─────────────────────────────────────────────────
+		case f.CheckID == finding.CheckPortJenkinsNoAuth:
+			if !containsStr(ev.CICDSignals, "jenkins") {
+				ev.CICDSignals = append(ev.CICDSignals, "jenkins")
+			}
+		case f.CheckID == finding.CheckPortGiteaNoAuth:
+			if !containsStr(ev.CICDSignals, "gitea") {
+				ev.CICDSignals = append(ev.CICDSignals, "gitea")
+			}
+		case f.CheckID == finding.CheckGitLabAPIUnauth ||
+			f.CheckID == finding.CheckGitLabPublicProjects:
+			if !containsStr(ev.CICDSignals, "gitlab") {
+				ev.CICDSignals = append(ev.CICDSignals, "gitlab")
+			}
+
+		// ── API schema exposure → ExposedAPISchemas ───────────────────────
+		case f.CheckID == finding.CheckSwaggerExposed:
+			path, _ := f.Evidence["path"].(string)
+			if path == "" {
+				path = "/swagger"
+			}
+			ev.ExposedAPISchemas = append(ev.ExposedAPISchemas, playbook.APISchemaInfo{
+				Type: "openapi",
+				Path: path,
+			})
+		case f.CheckID == finding.CheckPortGRPCReflectionEnabled:
+			ev.ExposedAPISchemas = append(ev.ExposedAPISchemas, playbook.APISchemaInfo{
+				Type: "grpc_reflection",
+				Path: "/",
+			})
+
+		// ── UDP service fingerprints → PortServices ───────────────────────
+		case f.CheckID == finding.CheckPortServiceDiscovered:
+			if proto, _ := f.Evidence["protocol"].(string); proto == "udp" {
+				port, _ := f.Evidence["port"].(int)
+				svc, _ := f.Evidence["service"].(string)
+				if port > 0 && svc != "" {
+					if ev.PortServices == nil {
+						ev.PortServices = make(map[int]playbook.PortServiceInfo)
+					}
+					if _, exists := ev.PortServices[port]; !exists {
+						ev.PortServices[port] = playbook.PortServiceInfo{
+							Service:  svc,
+							Protocol: "udp",
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func containsStr(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // scannerSkipReason returns a non-empty human-readable reason if the named

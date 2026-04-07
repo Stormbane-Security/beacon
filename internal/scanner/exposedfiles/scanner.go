@@ -3036,18 +3036,23 @@ func probeSpringOAuthSpEL(ctx context.Context, client *http.Client, base, asset 
 		return nil
 	}
 	bodyLower := strings.ToLower(string(b))
-	// Spring OAuth2 error responses are JSON {"error":"...","error_description":"..."}
-	// or Spring Whitelabel Error Page containing "oauth" context.
-	// Require both the endpoint to be reachable AND Spring/OAuth-specific content.
-	isSpringOAuth := (strings.Contains(bodyLower, `"error"`) && strings.Contains(bodyLower, "oauth")) ||
-		strings.Contains(bodyLower, "whitelabel error") ||
+	// Elasticsearch and other API servers echo the path in error messages —
+	// seeing "oauth" in a generic error like "Incorrect HTTP method for uri [/oauth/...]"
+	// is not a Spring OAuth indicator. Require Spring-specific content, not just path echo.
+	isSpringOAuth := strings.Contains(bodyLower, "whitelabel error") ||
 		strings.Contains(bodyLower, "x-application-context") ||
-		strings.Contains(bodyLower, "spring security oauth")
+		strings.Contains(bodyLower, "spring security oauth") ||
+		(strings.Contains(bodyLower, "error_description") && strings.Contains(bodyLower, "oauth"))
 	if !isSpringOAuth {
 		// Also check for the X-Application-Context header (Spring Boot specific).
 		if resp.Header.Get("X-Application-Context") == "" {
 			return nil
 		}
+	}
+	// Exclude Elasticsearch/OpenSearch which echo paths in error messages.
+	if strings.Contains(bodyLower, "elasticsearch") || strings.Contains(bodyLower, "opensearch") ||
+		strings.Contains(bodyLower, "incorrect http method for uri") {
+		return nil
 	}
 	return &finding.Finding{
 		CheckID:  finding.CheckCVESpringOAuthSpEL,
@@ -3097,9 +3102,16 @@ func probeSpring4Shell(ctx context.Context, client *http.Client, base, asset str
 		return nil
 	}
 	bodyLower := strings.ToLower(string(b))
-	// Spring returns a Whitelabel Error Page or JSON error mentioning "classLoader" or "data binding"
-	if !strings.Contains(bodyLower, "classloader") &&
-		!strings.Contains(bodyLower, "data binding") &&
+	// Exclude servers that just echo back unrecognized parameters (Elasticsearch, etc.).
+	if strings.Contains(bodyLower, "unrecognized parameter") ||
+		strings.Contains(bodyLower, "elasticsearch") ||
+		strings.Contains(bodyLower, "opensearch") {
+		return nil
+	}
+	// Spring returns a Whitelabel Error Page or JSON error mentioning data binding.
+	// Don't match on "classloader" alone — the probe URL contains it, so any server
+	// that echoes the parameter back would match.
+	if !strings.Contains(bodyLower, "data binding") &&
 		!strings.Contains(bodyLower, "spring") &&
 		!strings.Contains(bodyLower, "whitelabel") {
 		return nil
@@ -3416,17 +3428,15 @@ func probeTelerikRAU(ctx context.Context, client *http.Client, base, asset strin
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
-	// Any non-404 response with Telerik-specific content confirms the endpoint.
-	if resp.StatusCode == http.StatusNotFound {
+	// Only 200/400/500 responses are valid Telerik indicators.
+	// 404 = not found, 3xx = redirect (SPA catch-all or CDN rewrite).
+	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 300 && resp.StatusCode < 400) {
 		return nil
 	}
 	bLower := strings.ToLower(string(b))
 	if !strings.Contains(bLower, "telerik") && !strings.Contains(bLower, "radupload") &&
 		!strings.Contains(bLower, "fileinfo") && !strings.Contains(bLower, "raupostback") {
-		// Also check for 200 with empty JSON body (some versions return {"fileInfo":{}})
-		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), "{") {
-			return nil
-		}
+		return nil
 	}
 	return &finding.Finding{
 		CheckID:  finding.CheckCVETelerikRAU,
@@ -5460,14 +5470,25 @@ func probeStruts2S2066(ctx context.Context, client *http.Client, base, asset str
 		if err != nil {
 			continue
 		}
+		// Reject redirects — SPA catch-alls return 3xx for unknown paths.
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			_ = resp.Body.Close()
+			continue
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		_ = resp.Body.Close()
 		bodyLow := strings.ToLower(string(body))
+		// Require strong Struts indicators — not just "struts2" which can
+		// appear when SPA catch-all pages reflect the URL path in the body.
 		isStruts := strings.Contains(bodyLow, "apache struts") ||
-			strings.Contains(bodyLow, "struts2") ||
 			strings.Contains(bodyLow, "struts 2") ||
 			strings.Contains(bodyLow, "there is no action mapped") ||
 			resp.Header.Get("X-Struts-Version") != ""
+		// "struts2" alone is only valid if the path doesn't contain it
+		// (avoids SPA URL reflection matching the path itself).
+		if !isStruts && strings.Contains(bodyLow, "struts2") && !strings.Contains(p, "struts2") {
+			isStruts = true
+		}
 		if !isStruts {
 			continue
 		}
@@ -5794,10 +5815,14 @@ func probeIvantiCS2025(ctx context.Context, client *http.Client, base, asset str
 		bodyStr := string(body)
 		bodyLow := strings.ToLower(bodyStr)
 
+		// "dana-na" alone is too weak — SPA catch-all pages often reflect the
+		// request path in canonical URLs, og:url meta tags, or routing data,
+		// causing false positives on non-Ivanti sites. Require a real Ivanti
+		// keyword or product header.
 		isIvanti := strings.Contains(bodyLow, "ivanti") ||
 			strings.Contains(bodyLow, "pulse secure") ||
 			strings.Contains(bodyLow, "juniper networks") && strings.Contains(bodyLow, "secure access") ||
-			strings.Contains(bodyLow, "dana-na") ||
+			(strings.Contains(bodyLow, "dana-na") && (strings.Contains(bodyLow, "welcome") && strings.Contains(bodyLow, "sign in"))) ||
 			resp.Header.Get("X-Pulse-Version") != "" ||
 			resp.Header.Get("X-Ivanti-Version") != ""
 		if !isIvanti {

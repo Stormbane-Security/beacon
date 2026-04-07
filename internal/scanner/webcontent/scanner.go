@@ -37,6 +37,7 @@ func init() {
 		scan.Check(finding.CheckJSSourceMapExposed, finding.SeverityMedium, finding.ModeSurface),
 		scan.Check(finding.CheckSecretInResponseHeader, finding.SeverityHigh, finding.ModeSurface),
 		scan.Check(finding.CheckWAFNotDetected, finding.SeverityMedium, finding.ModeSurface),
+		scan.Check(finding.CheckJSExternalServiceRef, finding.SeverityInfo, finding.ModeSurface),
 	)
 }
 const scannerName = "webcontent"
@@ -69,6 +70,16 @@ var genericPwdFalsePositives = map[string]bool{
 // real credentials: %word%, {word}, <word>, {{word}}, $VAR_NAME style tokens.
 var genericPwdPlaceholderRe = regexp.MustCompile(`^(%[^%]+%|\{[^}]+\}|<[^>]+>|\$[A-Z_]+|YOUR_|EXAMPLE|REPLACE|CHANGEME|TODO|FIXME|REDACTED|FILTERED)`)
 
+// firebaseKeyRe matches Firebase API keys (AIzaSy...) which are intentionally
+// public client-side identifiers, not secrets. Used to exclude them from the
+// broader "Google API Key" pattern.
+var firebaseKeyRe = regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`)
+
+// oauthSecretIdentifierRe matches values that are snake_case or camelCase
+// identifiers rather than actual secret values. Used to filter false positives
+// from the "OAuth Client Secret" pattern (e.g. clientsecret:"twitter_clientsecret").
+var oauthSecretIdentifierRe = regexp.MustCompile(`^[a-z][a-z0-9]*([_-][a-z0-9]+)+$`)
+
 var jsScriptSrcRe = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
 
 var secretPatterns = map[string]*regexp.Regexp{
@@ -86,7 +97,10 @@ var secretPatterns = map[string]*regexp.Regexp{
 	"Generic Password":         regexp.MustCompile(`(?i)(password|passwd|pwd)['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][^'"` + "`" + `\s]{8,}['"` + "`" + `]`),
 	"OpenAI API Key":           regexp.MustCompile(`sk-[A-Za-z0-9]{48}`),
 	"Anthropic API Key":        regexp.MustCompile(`sk-ant-[A-Za-z0-9\-_]{93}`),
-	"Firebase API Key":         regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
+	// Firebase API Keys are intentionally client-side, domain-restricted identifiers —
+	// not secrets. Google's documentation explicitly states they are safe to embed in
+	// browser code. Detected via externalServiceRefs instead.
+	// "Firebase API Key":       regexp.MustCompile(`AIzaSy[A-Za-z0-9\-_]{33}`),
 	"Mailgun API Key":          regexp.MustCompile(`key-[a-f0-9]{32}`),
 	"OAuth Client Secret":      regexp.MustCompile(`(?i)client[_-]?secret['"` + "`" + `\s]*[=:]\s*['"` + "`" + `][0-9a-zA-Z\-_.]{16,}`),
 }
@@ -104,6 +118,20 @@ type apiKeyMatch struct {
 	paramName string
 }
 
+// publicKeyDomains lists domains where API keys in URLs are intentionally
+// public client-side identifiers, not secrets. These are designed to be
+// embedded in browser JS and only grant write/ingest access, not read access.
+var publicKeyDomains = []string{
+	".ingest.sentry.io",   // Sentry DSN — public error reporting key
+	"sentry.io/api/",      // Sentry legacy DSN format
+	"browser-intake-",     // Datadog RUM — public client token
+	"plausible.io/api/",   // Plausible analytics — public site ID
+	"cdn.segment.com",     // Segment analytics.js — public write key
+	".posthog.com/capture", // PostHog — public project key
+	".algolia.net",        // Algolia search — public search-only key
+	".typesense.org",      // Typesense search — public search-only key
+}
+
 // checkAPIKeyInURLs scans JS content for URL query parameters containing API keys.
 func checkAPIKeyInURLs(body string) []apiKeyMatch {
 	matches := apiKeyURLParamRe.FindAllStringSubmatch(body, -1)
@@ -118,6 +146,19 @@ func checkAPIKeyInURLs(body string) []apiKeyMatch {
 			continue
 		}
 		seen[fullURL] = struct{}{}
+
+		// Skip URLs on domains where keys are intentionally public.
+		urlLower := strings.ToLower(fullURL)
+		isPublic := false
+		for _, domain := range publicKeyDomains {
+			if strings.Contains(urlLower, domain) {
+				isPublic = true
+				break
+			}
+		}
+		if isPublic {
+			continue
+		}
 
 		// Extract the parameter name.
 		paramMatch := apiKeyParamNameRe.FindStringSubmatch(fullURL)
@@ -171,7 +212,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	resp, err := client.Do(req)
 	if err != nil {
 		// Try HTTP fallback
-		req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+asset, nil)
+		targetURL = "http://" + asset
+		req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 		if err2 != nil {
 			return nil, nil // invalid URL — unreachable
 		}
@@ -206,8 +248,33 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		findings = append(findings, *wafFinding)
 	}
 
-	// JavaScript analysis: find script src URLs and scan each
+	// JavaScript analysis: find script src URLs and scan each.
+	// Also discover additional JS chunks from Next.js manifests and webpack
+	// chunk references for deeper coverage of SPA bundles.
 	jsURLs := extractJSURLs(targetURL, string(body))
+
+	// Discover Next.js build manifest chunks if this is a Next.js app.
+	extraChunks := discoverNextJSChunks(ctx, client, targetURL, string(body))
+	for _, chunk := range extraChunks {
+		// Add only new URLs not already in the initial set.
+		dupe := false
+		for _, existing := range jsURLs {
+			if existing == chunk {
+				dupe = true
+				break
+			}
+		}
+		if !dupe {
+			jsURLs = append(jsURLs, chunk)
+		}
+	}
+
+	// Cap total JS files to prevent runaway scanning on huge apps.
+	const maxJSFiles = 100
+	if len(jsURLs) > maxJSFiles {
+		jsURLs = jsURLs[:maxJSFiles]
+	}
+
 	for _, jsURL := range jsURLs {
 		jsFindings := analyzeJS(ctx, client, asset, jsURL)
 		findings = append(findings, jsFindings...)
@@ -317,7 +384,7 @@ func analyzeCookies(asset string, resp *http.Response) []finding.Finding {
 			})
 		}
 
-		if cookie.SameSite == http.SameSiteDefaultMode || cookie.SameSite == http.SameSiteNoneMode {
+		if cookie.SameSite == 0 || cookie.SameSite == http.SameSiteDefaultMode || cookie.SameSite == http.SameSiteNoneMode {
 			findings = append(findings, finding.Finding{
 				CheckID:      finding.CheckCookieMissingSameSite,
 				Module:       "surface",
@@ -541,11 +608,11 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 			}
 			seenMatches[label+":"+match] = struct{}{}
 
-			// Dedup: skip less-specific patterns when a more-specific one covers the
-			// same credential value. Firebase keys (AIzaSy...) also match "Google API
-			// Key" (AIza...) and, when in apiKey=... context, "Generic API Key".
-			if label == "Google API Key" && secretPatterns["Firebase API Key"].MatchString(match) {
-				continue // reported as Firebase API Key
+			// Firebase API keys (AIzaSy...) are public client-side identifiers, not
+			// secrets. They also match the broader "Google API Key" pattern (AIza...).
+			// Exclude them from Google API Key detection.
+			if label == "Google API Key" && firebaseKeyRe.MatchString(match) {
+				continue // Firebase key — intentionally public, not a secret
 			}
 			if label == "Generic API Key" {
 				// If the value portion of this match contains a more-specific credential,
@@ -608,6 +675,24 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 					}
 				}
 			}
+			// OAuth Client Secret: reject values that are snake_case identifiers like
+			// "twitter_clientsecret" or "google_client_secret" — config key names, not
+			// actual secret values. Real OAuth secrets are random alphanumeric strings.
+			if label == "OAuth Client Secret" {
+				if sub := genericPwdValueRe.FindStringSubmatch(match); sub != nil {
+					val := sub[1]
+					if oauthSecretIdentifierRe.MatchString(val) {
+						continue
+					}
+					// Also reject if the value contains common config words that indicate
+					// it's a label/key name rather than an actual secret.
+					valLower := strings.ToLower(val)
+					if strings.Contains(valLower, "secret") || strings.Contains(valLower, "client") ||
+						strings.Contains(valLower, "config") || strings.Contains(valLower, "setting") {
+						continue
+					}
+				}
+			}
 			// Redact the actual value in the finding
 			redacted := match
 			if len(redacted) > 12 {
@@ -629,7 +714,7 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 						"The owning team for %s should be notified.",
 					label, jsURL, asset, asset, jsHost)
 			}
-			ev := map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted}
+			ev := map[string]any{"js_url": jsURL, "pattern": label, "match_redacted": redacted, "match_full": match}
 			if crossOrigin {
 				ev["loaded_by"] = asset
 				ev["hosted_on"] = jsHost
@@ -675,6 +760,12 @@ func analyzeJS(ctx context.Context, client *http.Client, asset, jsURL string) []
 			})
 		}
 	}
+
+	// Extract external service references — API endpoints, RPC providers, SaaS
+	// integrations discovered in the JS bundle. These reveal the application's
+	// backend dependencies and infrastructure.
+	svcFindings := extractServiceReferences(asset, jsURL, srcStr, now)
+	findings = append(findings, svcFindings...)
 
 	// Check for API keys passed as URL query parameters in JS code
 	for _, akm := range checkAPIKeyInURLs(srcStr) {
@@ -728,7 +819,6 @@ func secretProofKeyword(label string) string {
 		"Private Key":              "PRIVATE KEY",
 		"OpenAI API Key":           "sk-[A-Za-z0-9]",
 		"Anthropic API Key":        "sk-ant-",
-		"Firebase API Key":         "AIzaSy",
 		"Mailgun API Key":          "key-[a-f0-9]",
 	}
 	if kw, ok := keywords[label]; ok {
@@ -848,6 +938,88 @@ func checkSourceMapExposed(ctx context.Context, client *http.Client, asset, jsUR
 	return findings
 }
 
+// ── Next.js / Webpack Chunk Discovery ──────────────────────────────────────
+
+// nextBuildIDRe extracts the Next.js build ID from __NEXT_DATA__ in the HTML.
+var nextBuildIDRe = regexp.MustCompile(`"buildId"\s*:\s*"([a-zA-Z0-9_-]+)"`)
+
+// nextChunkRefRe matches chunk file references in Next.js manifests.
+// Patterns: "static/chunks/1234-hash.js", "pages/index-hash.js"
+var nextChunkRefRe = regexp.MustCompile(`"((?:static/chunks|pages|app)/[^"]+\.js)"`)
+
+// discoverNextJSChunks finds additional JavaScript files by probing Next.js
+// build manifests and extracting chunk references. This discovers JS bundles
+// that aren't directly linked in <script> tags but are lazy-loaded by the app.
+func discoverNextJSChunks(ctx context.Context, client *http.Client, baseURL, html string) []string {
+	// Extract the build ID from __NEXT_DATA__ JSON in the HTML.
+	buildIDMatch := nextBuildIDRe.FindStringSubmatch(html)
+	if len(buildIDMatch) < 2 {
+		return nil // Not a Next.js app or build ID not found
+	}
+	buildID := buildIDMatch[1]
+
+	// Determine the origin URL for constructing absolute paths.
+	origin := baseURL
+	if u, err := url.Parse(baseURL); err == nil {
+		origin = u.Scheme + "://" + u.Host
+	}
+
+	// Probe the _buildManifest.js — this lists all page chunks.
+	manifestURL := origin + "/_next/static/" + buildID + "/_buildManifest.js"
+	manifestBody := fetchJSBody(ctx, client, manifestURL)
+
+	var chunks []string
+	seen := make(map[string]bool)
+
+	// Extract chunk references from the manifest.
+	for _, match := range nextChunkRefRe.FindAllStringSubmatch(manifestBody, 200) {
+		if len(match) < 2 {
+			continue
+		}
+		chunkPath := match[1]
+		chunkURL := origin + "/_next/" + chunkPath
+		if !seen[chunkURL] {
+			seen[chunkURL] = true
+			chunks = append(chunks, chunkURL)
+		}
+	}
+
+	// Also look for chunk references in the HTML itself — Next.js inlines
+	// some chunk URLs in script tags with data-nscript or in the
+	// __NEXT_DATA__ props.
+	for _, match := range nextChunkRefRe.FindAllStringSubmatch(html, 200) {
+		if len(match) < 2 {
+			continue
+		}
+		chunkPath := match[1]
+		chunkURL := origin + "/_next/" + chunkPath
+		if !seen[chunkURL] {
+			seen[chunkURL] = true
+			chunks = append(chunks, chunkURL)
+		}
+	}
+
+	return chunks
+}
+
+// fetchJSBody fetches a JS file and returns the body as a string.
+func fetchJSBody(ctx context.Context, client *http.Client, jsURL string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jsURL, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	return string(body)
+}
+
 // extractJSURLs finds script src URLs in HTML.
 func extractJSURLs(baseURL, html string) []string {
 	matches := jsScriptSrcRe.FindAllStringSubmatch(html, 50) // cap at 50 JS files
@@ -876,4 +1048,174 @@ func extractJSURLs(baseURL, html string) []string {
 		}
 	}
 	return urls
+}
+
+// ── External Service Reference Extraction ──────────────────────────────────
+
+// serviceRef maps a domain pattern to a human-readable service name and category.
+type serviceRef struct {
+	domain   string // substring match against URL host
+	service  string // human-readable name
+	category string // blockchain, payments, analytics, auth, ai, cdn, cloud, messaging, database
+}
+
+// knownServices is a catalog of external API/service domains. When a JS bundle
+// references one of these, it reveals the application's backend dependencies.
+var knownServices = []serviceRef{
+	// Blockchain / Web3
+	{domain: "helius-rpc.com", service: "Helius RPC (Solana)", category: "blockchain"},
+	{domain: "solana.com", service: "Solana RPC", category: "blockchain"},
+	{domain: "mainnet.infura.io", service: "Infura (Ethereum)", category: "blockchain"},
+	{domain: "alchemy.com", service: "Alchemy", category: "blockchain"},
+	{domain: "moralis.io", service: "Moralis", category: "blockchain"},
+	{domain: "quicknode.com", service: "QuickNode", category: "blockchain"},
+	{domain: "chainstack.com", service: "Chainstack", category: "blockchain"},
+	{domain: "etherscan.io/api", service: "Etherscan API", category: "blockchain"},
+
+	// Payments
+	{domain: "api.stripe.com", service: "Stripe API", category: "payments"},
+	{domain: "js.stripe.com", service: "Stripe.js", category: "payments"},
+	{domain: "api.paypal.com", service: "PayPal API", category: "payments"},
+	{domain: "checkout.razorpay.com", service: "Razorpay", category: "payments"},
+
+	// Auth / Identity
+	{domain: ".auth0.com", service: "Auth0", category: "auth"},
+	{domain: ".okta.com", service: "Okta", category: "auth"},
+	{domain: ".clerk.dev", service: "Clerk", category: "auth"},
+	{domain: "cognito-idp.", service: "AWS Cognito", category: "auth"},
+	{domain: ".supabase.co/auth", service: "Supabase Auth", category: "auth"},
+	{domain: ".firebaseauth.com", service: "Firebase Auth", category: "auth"},
+
+	// AI / ML
+	{domain: "api.openai.com", service: "OpenAI API", category: "ai"},
+	{domain: "api.anthropic.com", service: "Anthropic API", category: "ai"},
+	{domain: "api.cohere.ai", service: "Cohere API", category: "ai"},
+	{domain: "api.replicate.com", service: "Replicate API", category: "ai"},
+	{domain: "api-inference.huggingface.co", service: "HuggingFace Inference", category: "ai"},
+
+	// Cloud / Infrastructure
+	{domain: ".amazonaws.com", service: "AWS API", category: "cloud"},
+	{domain: ".supabase.co", service: "Supabase", category: "cloud"},
+	{domain: ".firebaseio.com", service: "Firebase Realtime DB", category: "cloud"},
+	{domain: "firestore.googleapis.com", service: "Cloud Firestore", category: "cloud"},
+	{domain: ".appwrite.io", service: "Appwrite", category: "cloud"},
+	{domain: ".convex.cloud", service: "Convex", category: "cloud"},
+	{domain: ".neon.tech", service: "Neon (Postgres)", category: "database"},
+	{domain: ".planetscale.com", service: "PlanetScale", category: "database"},
+
+	// Analytics / Monitoring
+	{domain: "api.segment.io", service: "Segment", category: "analytics"},
+	{domain: "api.mixpanel.com", service: "Mixpanel", category: "analytics"},
+	{domain: "api.amplitude.com", service: "Amplitude", category: "analytics"},
+	{domain: ".sentry.io/api", service: "Sentry", category: "monitoring"},
+	{domain: ".ingest.sentry.io", service: "Sentry", category: "monitoring"},
+	{domain: "api.datadoghq.com", service: "Datadog", category: "monitoring"},
+
+	// Messaging / Communication
+	{domain: "api.sendgrid.com", service: "SendGrid", category: "messaging"},
+	{domain: "api.twilio.com", service: "Twilio", category: "messaging"},
+	{domain: "hooks.slack.com", service: "Slack Webhook", category: "messaging"},
+	{domain: "discord.com/api", service: "Discord API", category: "messaging"},
+
+	// Search
+	{domain: ".algolia.net", service: "Algolia", category: "search"},
+	{domain: ".typesense.org", service: "Typesense", category: "search"},
+	{domain: ".meilisearch.com", service: "Meilisearch", category: "search"},
+}
+
+// jsURLExtractRe matches http/https URLs in JS source code.
+var jsURLExtractRe = regexp.MustCompile(`https?://[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(?:/[^\s"'` + "`" + `<>)\]},;]*)?`)
+
+// extractServiceReferences scans a JS file for URLs that reference known
+// external services and APIs. Each discovered service produces an informational
+// finding that reveals the application's backend dependencies.
+func extractServiceReferences(asset, jsURL, src string, now time.Time) []finding.Finding {
+	urls := jsURLExtractRe.FindAllString(src, 500)
+	if len(urls) == 0 {
+		return nil
+	}
+
+	// Deduplicate by service name — one finding per service per JS file.
+	seen := make(map[string]bool)
+	var findings []finding.Finding
+
+	for _, rawURL := range urls {
+		lower := strings.ToLower(rawURL)
+		for _, svc := range knownServices {
+			if !strings.Contains(lower, svc.domain) {
+				continue
+			}
+			if seen[svc.service] {
+				continue
+			}
+			seen[svc.service] = true
+
+			// Extract env var references from surrounding context.
+			envVars := extractEnvVarRefs(src, rawURL)
+
+			ev := map[string]any{
+				"js_url":   jsURL,
+				"url":      rawURL,
+				"service":  svc.service,
+				"category": svc.category,
+			}
+			if len(envVars) > 0 {
+				ev["env_vars"] = envVars
+			}
+
+			desc := fmt.Sprintf(
+				"A JavaScript file at %s references %s (%s). "+
+					"This reveals that the application integrates with %s — "+
+					"an attacker can use this to map backend dependencies, identify "+
+					"potential pivot points, and target service-specific attacks.",
+				jsURL, svc.service, svc.category, svc.service)
+
+			findings = append(findings, finding.Finding{
+				CheckID:      finding.CheckJSExternalServiceRef,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityInfo,
+				Title:        fmt.Sprintf("External service reference: %s (%s)", svc.service, svc.category),
+				Description:  desc,
+				Asset:        asset,
+				Evidence:     ev,
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep -o '%s[^\"]*'", jsURL, svc.domain),
+				DiscoveredAt: now,
+			})
+		}
+	}
+	return findings
+}
+
+// envVarRefRe matches environment variable references near a URL in JS code:
+// process.env.VAR, ${...env...VAR}, import.meta.env.VAR, etc.
+var envVarRefRe = regexp.MustCompile(`(?:process\.env\.|import\.meta\.env\.|\$\{[^}]*env[^}]*\}|[A-Z][A-Z0-9_]{5,}_(?:KEY|SECRET|TOKEN|URL|API|ID))`)
+
+// extractEnvVarRefs finds environment variable references near a URL in the source.
+func extractEnvVarRefs(src, nearURL string) []string {
+	idx := strings.Index(src, nearURL)
+	if idx == -1 {
+		return nil
+	}
+	// Look at 200 chars before and after the URL for env var refs.
+	start := idx - 200
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(nearURL) + 200
+	if end > len(src) {
+		end = len(src)
+	}
+	context := src[start:end]
+
+	matches := envVarRefRe.FindAllString(context, 10)
+	seen := make(map[string]bool)
+	var unique []string
+	for _, m := range matches {
+		if !seen[m] {
+			seen[m] = true
+			unique = append(unique, m)
+		}
+	}
+	return unique
 }

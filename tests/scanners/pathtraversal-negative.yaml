@@ -1,0 +1,40 @@
+name: pathtraversal-secure-no-finding
+description: >
+  nginx that blocks all path traversal patterns (.. sequences) with 403.
+  The /admin endpoint is protected and cannot be traversed into.
+  Beacon path traversal scanner must NOT flag secure nginx configs.
+tags: [pathtraversal, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9466:80"]
+    volumes:
+      - ./pathtraversal-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9466/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: setup-admin-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9466/admin"
+      stdout_contains: "403"
+
+  - name: setup-traversal-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9466/..;/admin'"
+      stdout_contains: "400"
+
+  - name: no-pathtraversal-false-positive
+    type: beacon
+    target: localhost:9466
+    args: ["--no-enrich", "--scanners", "pathtraversal", "--deep", "--permission-confirmed"]
+    expect:
+      no_check_id: web.path_traversal
+
+timeout: 3m

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -615,6 +616,7 @@ func extractFindingURL(f *finding.Finding) string {
 // available (pbcopy on macOS, xclip/xsel on Linux, clip on Windows).
 // Returns true if the copy succeeded.
 func copyToClipboard(text string) bool {
+	// Try native clipboard tools first.
 	candidates := [][]string{
 		{"pbcopy"},                           // macOS
 		{"xclip", "-selection", "clipboard"}, // Linux/X11
@@ -639,7 +641,12 @@ func copyToClipboard(text string) bool {
 			return true
 		}
 	}
-	return false
+	// Fallback: OSC 52 escape sequence sets the system clipboard in terminals
+	// that support it (iTerm2, kitty, alacritty, Windows Terminal, etc.).
+	// Works even inside alternate screen mode where mouse selection fails.
+	encoded := base64.StdEncoding.EncodeToString([]byte(text))
+	_, _ = fmt.Fprintf(os.Stderr, "\x1b]52;c;%s\x07", encoded)
+	return true
 }
 
 // fingerprintBadge returns a compact technology label for an asset built from

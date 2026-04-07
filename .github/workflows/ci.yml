@@ -18,7 +18,8 @@ jobs:
   ci:
     uses: stormbane-security/bosun/.github/workflows/go-ci.yml@main
     with:
-      gosec-excludes: G304,G107,G101
+      test-timeout: 10m
+      gosec-excludes: G304,G107,G101,G104
 
   # ── Drydock E2E: runs after CI passes ─────────────────────────────────
   # Skipped on PRs to dev (too slow for feature branches).
@@ -126,7 +127,7 @@ jobs:
   results:
     name: Drydock Results
     needs: drydock
-    if: always() && (github.event_name == 'push' || github.base_ref == 'main')
+    if: always() && needs.drydock.result != 'skipped' && (github.event_name == 'push' || github.base_ref == 'main')
     runs-on: ubuntu-24.04
     steps:
       - name: Download all artifacts

@@ -115,36 +115,120 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	hasBanner := banner != ""
 	bannerProto := bannerProtocol(banner)
 
-	var findings []finding.Finding
-	identified := false
+	// When no banner was received, the service might be HTTP (which doesn't
+	// send data until a request arrives) or a protocol service that waits for
+	// the client to speak first. Do a quick HTTP check: one request (~5s max)
+	// versus running ~35 protocol probes serially (~175s of timeouts).
+	if !hasBanner {
+		if quickHTTPCheck(ctx, host, port) {
+			bannerHTTP = true
+		}
+		// Either way, we now know something about the port. Enable pre-filtering
+		// so HTTP probes are skipped on non-HTTP ports (and vice versa). Without
+		// this, all ~116 probes run serially against every no-banner port.
+		hasBanner = true
+	}
+
+	// Split probes into protocol (run in parallel) and non-protocol (run after).
+	var protocolProbes, otherProbes []ServiceProbe
 	for _, probe := range probeRegistry {
 		if hasBanner {
-			// Skip HTTP probes when the banner is clearly non-HTTP.
 			if probe.Category == ProbeCatHTTP && !bannerHTTP {
 				continue
 			}
-			// Skip protocol probes when the banner is clearly HTTP.
 			if probe.Category == ProbeCatProtocol && bannerHTTP {
 				continue
 			}
-			// Skip protocol probes when the banner identifies a different
-			// protocol (e.g. don't try Redis probe on an SMTP port).
-			// Use Contains so compound probe names like "mysql-postgres-mssql-oracle"
-			// match when bannerProto is "mysql".
 			if probe.Category == ProbeCatProtocol && bannerProto != "" && !strings.Contains(probe.Name, bannerProto) {
 				continue
 			}
 		}
+		if probe.Category == ProbeCatProtocol {
+			protocolProbes = append(protocolProbes, probe)
+		} else {
+			otherProbes = append(otherProbes, probe)
+		}
+	}
 
+	var findings []finding.Finding
+	identified := false
+
+	// Run protocol probes in parallel — each opens its own TCP connection,
+	// sends a handshake, and checks the response. A port runs one service,
+	// so once any probe identifies it, cancel the rest via context.
+	// Limit concurrency to avoid tripping IDS port-scan signatures.
+	const maxProbeParallel = 5
+	if len(protocolProbes) > 0 {
+		type probeResult struct {
+			probe    ServiceProbe
+			findings []finding.Finding
+		}
+		resultCh := make(chan probeResult, len(protocolProbes))
+		sem := make(chan struct{}, maxProbeParallel)
+		for _, p := range protocolProbes {
+			go func(probe ServiceProbe) {
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					resultCh <- probeResult{probe: probe}
+					return
+				}
+				fs := probe.Detect(ctx, host, port, banner, makeF)
+				resultCh <- probeResult{probe: probe, findings: fs}
+			}(p)
+		}
+		for range protocolProbes {
+			pr := <-resultCh
+			if len(pr.findings) > 0 {
+				findings = append(findings, pr.findings...)
+				if !identified {
+					identified = true
+					service := pr.probe.Name
+					version := ""
+					if ev := pr.findings[0].Evidence; ev != nil {
+						if s, ok := ev["service"].(string); ok && s != "" {
+							service = s
+						}
+						if v, ok := ev["version"].(string); ok && v != "" {
+							version = v
+						}
+					}
+					ev := map[string]any{
+						"port":    port,
+						"service": service,
+						"probe":   pr.probe.Name,
+					}
+					if version != "" {
+						ev["version"] = version
+					}
+					if banner != "" {
+						ev["banner"] = banner
+					}
+					title := fmt.Sprintf("%s identified on port %d", service, port)
+					if version != "" {
+						title = fmt.Sprintf("%s %s identified on port %d", service, version, port)
+					}
+					findings = append(findings, makeF(
+						finding.CheckPortServiceIdentified,
+						finding.SeverityInfo,
+						title,
+						fmt.Sprintf("Wire-protocol probe confirmed %s is running on port %d. "+
+							"This identification is based on active protocol handshake, not port number assumption.", service, port),
+						ev,
+					))
+				}
+			}
+		}
+	}
+
+	// Run banner and HTTP probes sequentially (they're I/O-light or
+	// already filtered to the correct category).
+	for _, probe := range otherProbes {
 		if fs := probe.Detect(ctx, host, port, banner, makeF); len(fs) > 0 {
 			findings = append(findings, fs...)
-			// Emit a service identification finding so the asset graph and
-			// classify pipeline know what's running on this port, even when
-			// the probe finds no vulnerability. Only emit once per port.
 			if !identified {
 				identified = true
-				// Extract service name from the first finding's evidence if
-				// available, otherwise fall back to the probe name.
 				service := probe.Name
 				version := ""
 				if ev := fs[0].Evidence; ev != nil {
@@ -181,5 +265,29 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			}
 		}
 	}
+
+	// Fallback: if HTTP was confirmed but no specific probe matched, emit a
+	// generic "http" service identification. This ensures the postexploit
+	// chain can route HTTP-based exploit modules (apache-rce, spring4shell,
+	// etc.) even on non-standard ports with no recognized web application.
+	if !identified && bannerHTTP {
+		ev := map[string]any{
+			"port":    port,
+			"service": "http",
+			"probe":   "http-fallback",
+		}
+		if banner != "" {
+			ev["banner"] = banner
+		}
+		findings = append(findings, makeF(
+			finding.CheckPortServiceIdentified,
+			finding.SeverityInfo,
+			fmt.Sprintf("http identified on port %d", port),
+			fmt.Sprintf("HTTP service confirmed on port %d via active probe, but no specific "+
+				"web application was identified.", port),
+			ev,
+		))
+	}
+
 	return findings
 }

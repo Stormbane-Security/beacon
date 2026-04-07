@@ -1,0 +1,66 @@
+name: postgres-version-fingerprint
+description: >
+  PostgreSQL 12 (trust auth — no password) vs PostgreSQL 16 (scram-sha-256 auth).
+  Tests auth bypass detection on trust-configured instance and false positive
+  absence on properly-secured instance.
+tags: [postgres, portscan, fingerprint, version, false-positive, exploit]
+
+services:
+  postgres-old:
+    image: postgres:12
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["19530:5432"]
+
+  postgres-new:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: securepassword123
+    ports: ["19531:5432"]
+
+ready:
+  cmd: "pg_isready -h localhost -p 19530 2>/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Pre-flight: trust auth works on old ---
+  - name: postgres-old-trust-login
+    type: command
+    expect:
+      command: "PGPASSWORD='' psql -h localhost -p 19530 -U postgres -c 'SELECT version()' 2>/dev/null | grep -qi PostgreSQL"
+      exit_code: 0
+
+  # --- Old PG: trust auth detected ---
+  - name: detects-postgres-trust-auth
+    type: beacon
+    target: localhost:19530
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19530"]
+    expect:
+      check_id: port.postgresql_trust_auth
+
+  # --- Old PG: exploit chain fires ---
+  - name: postgres-old-exploit-chain
+    type: beacon
+    target: localhost:19530
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19530", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- New PG: NO trust auth detected (requires password) ---
+  - name: negative-postgres-new-no-trust
+    type: beacon
+    target: localhost:19531
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19531"]
+    expect:
+      not_check_id: port.postgresql_trust_auth
+
+  # --- New PG: NO exploit chain (auth required) ---
+  - name: negative-postgres-new-no-exploit
+    type: beacon
+    target: localhost:19531
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19531", "--deep", "--permission-confirmed"]
+    expect:
+      not_check_id: exploit.data_extracted
+
+timeout: 5m

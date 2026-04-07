@@ -649,9 +649,9 @@ func TestIsMetadataRedirect(t *testing.T) {
 			want:     false,
 		},
 		{
-			name:     "metadata IP embedded in path segment",
+			name:     "metadata IP in query string (not host) — not a real redirect",
 			location: "http://evil.com/?redirect=http://169.254.169.254/",
-			want:     true,
+			want:     false,
 		},
 		{
 			name:     "metadata IP with port",

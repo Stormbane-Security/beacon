@@ -11,7 +11,6 @@ description: >
 match:
   any:
     - title_contains: "n8n"
-    - path_responds: "/healthz"
     - path_responds: "/api/v1/settings"
     - body_contains: "n8n"
     - header_value:

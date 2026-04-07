@@ -403,11 +403,18 @@ var metadataIPs = []string{
 	"100.100.100.200",         // Alibaba Cloud
 }
 
-// isMetadataRedirect returns true if the Location header points to a known
-// cloud metadata endpoint IP or hostname.
+// isMetadataRedirect returns true if the Location header's host points to a
+// known cloud metadata endpoint IP or hostname. Only the host portion is
+// checked — a query string that happens to contain a metadata IP (e.g. a
+// canonical redirect preserving the original payload) is NOT a real SSRF.
 func isMetadataRedirect(location string) bool {
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
 	for _, ip := range metadataIPs {
-		if strings.Contains(location, ip) {
+		if host == ip {
 			return true
 		}
 	}

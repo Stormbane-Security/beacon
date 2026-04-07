@@ -111,15 +111,15 @@ func buildPlaybookAdvisorPrompt(
 	b.Write(evidenceJSON)
 	b.WriteString("\n\n")
 
-	b.WriteString(fmt.Sprintf("Already running these scanners (from matched playbooks): %s\n\n",
-		strings.Join(matchedScanners, ", ")))
+	fmt.Fprintf(&b, "Already running these scanners (from matched playbooks): %s\n\n",
+		strings.Join(matchedScanners, ", "))
 
-	b.WriteString(fmt.Sprintf("Available additional scanners: %s\n",
-		strings.Join(availableScanners, ", ")))
+	fmt.Fprintf(&b, "Available additional scanners: %s\n",
+		strings.Join(availableScanners, ", "))
 
-	b.WriteString(fmt.Sprintf("Scan mode: %s\n\n", scanMode))
+	fmt.Fprintf(&b, "Scan mode: %s\n\n", scanMode)
 
-	b.WriteString(fmt.Sprintf(`Respond with a JSON object:
+	fmt.Fprintf(&b, `Respond with a JSON object:
 {
   "scanners": ["scanner1", "scanner2"],
   "rationale": "one sentence explanation"
@@ -131,7 +131,7 @@ Rules:
 - Do not suggest scanners already running
 - Only suggest scanners relevant to the detected technology stack
 - If nothing useful to add, return {"scanners": [], "rationale": "coverage complete"}
-`, playbookAdvisorMaxSugg))
+`, playbookAdvisorMaxSugg)
 
 	return b.String()
 }

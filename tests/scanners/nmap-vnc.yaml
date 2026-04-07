@@ -1,0 +1,28 @@
+name: nmap-vnc-noauth
+description: >
+  VNC server exposed without authentication — nmap vnc-info NSE script
+  should detect that no authentication is required.
+tags: [nmap, vnc, portscan, fingerprint]
+
+services:
+  vnc:
+    image: theasp/novnc:latest
+    ports: ["15900:5900"]
+    environment:
+      DISPLAY_WIDTH: "800"
+      DISPLAY_HEIGHT: "600"
+
+ready:
+  cmd: "nc -z localhost 15900"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: nmap-vnc-info-noauth
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "15900"]
+    expect:
+      check_id: nmap.vnc_no_auth
+
+timeout: 5m

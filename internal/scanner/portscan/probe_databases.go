@@ -70,6 +70,17 @@ func detectElasticsearch(ctx context.Context, host string, port int, banner stri
 	if !ok {
 		return nil
 	}
+	// Require ES/OpenSearch-specific JSON fields in root response.
+	// ES returns: {"name":"...","cluster_name":"...","cluster_uuid":"...","version":{"number":"..."},...}
+	// Require cluster_name AND (cluster_uuid OR "version"+"number") to avoid false positives
+	// on other HTTP services that might have one of these fields (e.g. RabbitMQ management).
+	bodyLower := strings.ToLower(body)
+	if !strings.Contains(bodyLower, "cluster_name") {
+		return nil
+	}
+	if !strings.Contains(bodyLower, "cluster_uuid") && (!strings.Contains(bodyLower, `"version"`) || !strings.Contains(bodyLower, `"number"`)) {
+		return nil
+	}
 	// Distinguish OpenSearch from Elasticsearch via the root response.
 	serviceName := "Elasticsearch"
 	serviceLabel := "Unauthenticated Elasticsearch"
@@ -81,16 +92,26 @@ func detectElasticsearch(ctx context.Context, host string, port int, banner stri
 		description = "An OpenSearch cluster is accessible without credentials. " +
 			"All indexed data can be read, modified, or deleted by anyone with network access."
 	}
+	esVer := parseJSONStringField(body, "number")
+	esEv := map[string]any{
+		"port": port, "service": serviceName,
+		"authenticated": false, "auth_status": "no_auth",
+		"banner": banner,
+	}
+	if esVer != "" {
+		esEv["version"] = esVer
+		esEv["product"] = serviceName + " " + esVer
+	}
 	var esFindings []finding.Finding
 	esFindings = append(esFindings, makeF(
 		finding.CheckPortElasticsearchUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("%s exposed on port %d", serviceLabel, port),
 		description,
-		map[string]any{"port": port, "service": serviceName, "authenticated": false, "banner": banner},
+		esEv,
 	))
 	// CVE-2015-1427: Elasticsearch ≤ 1.5.x Groovy sandbox escape → unauthenticated RCE.
-	if esVer := parseJSONStringField(body, "number"); serviceName == "Elasticsearch" && isElasticsearchGroovyVulnerable(esVer) {
+	if serviceName == "Elasticsearch" && isElasticsearchGroovyVulnerable(esVer) {
 		esFindings = append(esFindings, makeF(
 			finding.CheckCVEElasticsearchGroovyRCE,
 			finding.SeverityCritical,
@@ -112,13 +133,18 @@ func detectMongoDB(ctx context.Context, host string, port int, banner string, ma
 	if !unauth {
 		return nil
 	}
+	ev := map[string]any{
+		"port": port, "service": "mongodb",
+		"authenticated": false, "auth_status": "no_auth",
+		"banner": banner,
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDatabaseExposed,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated MongoDB exposed on port %d", port),
 		"A MongoDB instance is accepting connections without authentication. "+
 			"All collections and documents are readable and writable by any network client.",
-		map[string]any{"port": port, "service": "mongodb", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -127,6 +153,22 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 	// MySQL: greeting packet starts with protocol version 0x0a/0x09
 	if probeMySQL(ctx, host, port) {
 		dbName := "MySQL"
+		mysqlVer := probeMySQLVersion(ctx, host, port)
+		dbEv := map[string]any{
+			"port": port, "service": dbName,
+			"banner": banner,
+		}
+		noAuthEv := map[string]any{
+			"port": port, "service": dbName,
+			"user": "root", "password": "(empty)",
+			"auth_status": "no_auth",
+		}
+		if mysqlVer != "" {
+			dbEv["version"] = mysqlVer
+			dbEv["product"] = "MySQL " + mysqlVer
+			noAuthEv["version"] = mysqlVer
+			noAuthEv["product"] = "MySQL " + mysqlVer
+		}
 		return []finding.Finding{
 			makeF(
 				finding.CheckPortDatabaseExposed,
@@ -135,7 +177,7 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 				fmt.Sprintf("A %s database is directly accessible from the internet. "+
 					"Databases should never be exposed publicly; this enables brute-force attacks and "+
 					"exploitation of database-engine vulnerabilities.", dbName),
-				map[string]any{"port": port, "service": dbName, "banner": banner},
+				dbEv,
 			),
 			makeF(
 				finding.CheckPortMySQLNoAuth,
@@ -146,13 +188,22 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 					"SELECT * FROM all tables, read local files via LOAD DATA INFILE, and potentially "+
 					"achieve RCE via SELECT INTO OUTFILE or UDF injection. "+
 					"Set a strong root password immediately: ALTER USER 'root'@'%' IDENTIFIED BY '...'",
-				map[string]any{"port": port, "service": dbName, "user": "root", "password": "(empty)"},
+				noAuthEv,
 			),
 		}
 	}
 	// PostgreSQL: responds to SSLRequest or StartupMessage
 	if probePostgreSQL(ctx, host, port) {
 		dbName := "PostgreSQL"
+		pgEv := map[string]any{
+			"port": port, "service": dbName,
+			"banner": banner,
+		}
+		trustEv := map[string]any{
+			"port": port, "service": dbName,
+			"user": "postgres", "auth_method": "trust",
+			"auth_status": "no_auth",
+		}
 		return []finding.Finding{
 			makeF(
 				finding.CheckPortDatabaseExposed,
@@ -161,7 +212,7 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 				fmt.Sprintf("A %s database is directly accessible from the internet. "+
 					"Databases should never be exposed publicly; this enables brute-force attacks and "+
 					"exploitation of database-engine vulnerabilities.", dbName),
-				map[string]any{"port": port, "service": dbName, "banner": banner},
+				pgEv,
 			),
 			makeF(
 				finding.CheckPortPostgreSQLTrust,
@@ -171,7 +222,7 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 					"Any client can connect as postgres without a password, gaining superuser access to all databases. "+
 					"Trust authentication exposes COPY TO/FROM PROGRAM (RCE), pg_read_file(), and all data. "+
 					"Set pg_hba.conf to require 'scram-sha-256' or 'md5' for all remote connections.",
-				map[string]any{"port": port, "service": dbName, "user": "postgres", "auth_method": "trust"},
+				trustEv,
 			),
 		}
 	}
@@ -232,24 +283,47 @@ func detectMemcached(ctx context.Context, host string, port int, banner string, 
 }
 
 func detectCouchDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/_all_dbs")
-	if !unauth {
+	// Check unauthenticated access: /_all_dbs returns JSON array without credentials.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/_all_dbs")
+	if ok && strings.HasPrefix(strings.TrimSpace(body), "[") {
+		return []finding.Finding{makeF(
+			finding.CheckPortCouchDBUnauth,
+			finding.SeverityCritical,
+			fmt.Sprintf("Unauthenticated CouchDB exposed on port %d", port),
+			"A CouchDB instance is accessible without authentication. "+
+				"All databases and their documents can be read, modified, or deleted.",
+			map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner},
+		)}
+	}
+	// Fallback: CouchDB root / returns {"couchdb":"Welcome",...} even with auth enabled.
+	rootBody, rootOk := probeHTTPBody(ctx, host, port, false, "/")
+	if !rootOk {
+		return nil
+	}
+	if !strings.Contains(rootBody, `"couchdb"`) {
 		return nil
 	}
 	return []finding.Finding{makeF(
-		finding.CheckPortCouchDBUnauth,
-		finding.SeverityCritical,
-		fmt.Sprintf("Unauthenticated CouchDB exposed on port %d", port),
-		"A CouchDB instance is accessible without authentication. "+
-			"All databases and their documents can be read, modified, or deleted.",
-		map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner},
+		finding.CheckPortDatabaseExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("CouchDB exposed on port %d", port),
+		"A CouchDB database is publicly accessible. Although authentication may be configured, "+
+			"the CouchDB service is reachable from the network and may be subject to brute-force or "+
+			"exploitation of known CouchDB vulnerabilities. Restrict to trusted networks.",
+		map[string]any{"port": port, "service": "couchdb", "banner": banner},
 	)}
 }
 
 func detectInfluxDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/ping")
-	if !unauth {
+	// InfluxDB /ping returns 204 No Content. If the response has HTML body content,
+	// it's a SPA returning its shell, not InfluxDB.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/ping")
+	if !ok {
 		return nil
+	}
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "<!") {
+		return nil // HTML response — not InfluxDB
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortInfluxDBExposed,
@@ -297,8 +371,13 @@ func detectNeo4j(ctx context.Context, host string, port int, banner string, make
 }
 
 func detectSplunkMgmt(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, true, "/services/server/info")
-	if !unauth {
+	// Splunk /services/server/info returns XML with <entry> elements and "server-info".
+	body, ok := probeHTTPBody(ctx, host, port, true, "/services/server/info")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	if !strings.Contains(bodyLow, "server-info") && !strings.Contains(bodyLow, "splunk") {
 		return nil
 	}
 	return []finding.Finding{makeF(

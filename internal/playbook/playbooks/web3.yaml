@@ -15,8 +15,11 @@ match:
     - web3_signal_contains: "viem"
     - web3_signal_contains: "walletconnect"
     - web3_signal_contains: "window.ethereum"
-    - web3_signal_contains: "infura.io"
-    - web3_signal_contains: "alchemyapi.io"
+    - web3_signal_contains: "infura"
+    - web3_signal_contains: "alchemy"
+    - web3_signal_contains: "ankr"
+    - web3_signal_contains: "quicknode"
+    - web3_signal_contains: "moralis"
     - web3_signal_contains: "metamask"
     - web3_signal_contains: "rainbow"
     # Solana / Phantom wallet signals

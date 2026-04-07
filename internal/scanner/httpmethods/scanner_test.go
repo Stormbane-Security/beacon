@@ -95,16 +95,17 @@ func TestConfirmMethod_PUT_Returns201_Confirmed(t *testing.T) {
 	}
 }
 
-func TestConfirmMethod_DELETE_Returns404_Confirmed(t *testing.T) {
-	// 404 means the server processed DELETE (resource not found, but method accepted)
+func TestConfirmMethod_DELETE_Returns404_NotConfirmed(t *testing.T) {
+	// 404 on a probe path just means the resource doesn't exist — it does
+	// not prove the method is dangerously enabled on real resources.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
 
 	ok, _ := confirmMethod(context.Background(), ts.Client(), ts.URL+"/", http.MethodDelete)
-	if !ok {
-		t.Error("404 on DELETE should confirm method (server processed it, resource not found)")
+	if ok {
+		t.Error("404 on DELETE should NOT confirm method — resource not found is not dangerous")
 	}
 }
 

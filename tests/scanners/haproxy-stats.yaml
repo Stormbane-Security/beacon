@@ -1,0 +1,44 @@
+name: haproxy-stats-exposed
+description: >
+  HAProxy with stats page enabled on /stats. Beacon gateway scanner should
+  detect the exposed statistics page (gateway.haproxy_stats_exposed) and
+  classify should identify HAProxy as the proxy type.
+tags: [haproxy, scanner, gateway, fingerprint, exposed]
+
+services:
+  haproxy:
+    image: haproxy:lts
+    ports: ["18404:8404"]
+    volumes:
+      - ./haproxy-stats/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+ready:
+  cmd: "curl -sf http://localhost:18404/stats | grep -qi haproxy"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Pre-flight: HAProxy stats page is accessible
+  - name: haproxy-stats-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18404/stats | grep -qi 'Statistics Report for HAProxy'"
+      exit_code: 0
+
+  # Scanner: gateway scanner detects exposed stats page
+  - name: detects-haproxy-stats
+    type: beacon
+    target: localhost:18404
+    args: ["--no-enrich", "--scanners", "gateway"]
+    expect:
+      check_id: gateway.haproxy_stats_exposed
+
+  # Negative: no false positive Elasticsearch detection
+  - name: negative-no-elasticsearch-fp
+    type: beacon
+    target: localhost:18404
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18404"]
+    expect:
+      not_check_id: port.elasticsearch_no_auth
+
+timeout: 5m

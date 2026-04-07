@@ -121,7 +121,7 @@ func (s *Scanner) get(ctx context.Context, path string, result any) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		return fmt.Errorf("okta API %d: %s", resp.StatusCode, string(body))
 	}
 

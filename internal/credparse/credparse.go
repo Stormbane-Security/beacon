@@ -256,6 +256,9 @@ func findNearbyEndpoint(data, match string) string {
 	return ""
 }
 
+// usernameRe is compiled once for credential-adjacent username extraction.
+var usernameRe = regexp.MustCompile(`(?i)(?:"user(?:name)?"|'user(?:name)?'|user(?:name)?\s*[:=])\s*['"]?([^\s'"}{,\]]{2,})['"]?`)
+
 // findNearbyUsername looks for username/user patterns near a credential match.
 func findNearbyUsername(data, match string) string {
 	idx := strings.Index(data, match)
@@ -272,8 +275,7 @@ func findNearbyUsername(data, match string) string {
 	}
 	window := data[start:end]
 
-	re := regexp.MustCompile(`(?i)(?:"user(?:name)?"|'user(?:name)?'|user(?:name)?\s*[:=])\s*['"]?([^\s'"}{,\]]{2,})['"]?`)
-	m := re.FindStringSubmatch(window)
+	m := usernameRe.FindStringSubmatch(window)
 	if len(m) >= 2 {
 		return m[1]
 	}

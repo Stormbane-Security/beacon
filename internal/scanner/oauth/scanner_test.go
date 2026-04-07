@@ -520,6 +520,28 @@ func TestOAuth_TokenEndpoint_BlockchainAPI400NonOAuthBody_NoFinding(t *testing.T
 	}
 }
 
+func TestOAuth_TokenEndpoint_VersionGateError_NoFinding(t *testing.T) {
+	// Regression: versioned APIs behind /oauth/token return {"error":"Invalid version"}
+	// before auth is evaluated. The "error": key triggered the old OAuth signal check
+	// but the endpoint isn't actually accepting unauthenticated OAuth requests.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"Invalid version","version":null}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{}
+	f := checkTokenEndpointAuth(t.Context(), client, asset(srv), srv.URL, "")
+	if f != nil {
+		t.Errorf("version-gate error must not fire oauth.token_endpoint_no_auth; got: %s", f.Title)
+	}
+}
+
 func TestOAuth_TokenEndpoint_400WithGrantTypeButNoProperRejection_FindingEmitted(t *testing.T) {
 	// Server returns 400 and echoes back grant_type in the body, but without
 	// a proper RFC 6749 rejection code — indicates a misconfigured OAuth endpoint.

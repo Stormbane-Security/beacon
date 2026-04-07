@@ -31,6 +31,7 @@ type Evidence struct {
 	DNSSuffix   string   // last part of hostname, e.g. ".cloudfront.net"
 
 	// HTTP
+	Scheme     string            // "https" or "http" — whichever succeeded during classify probe
 	Headers   map[string]string // lower-case header names → values
 	Title     string            // <title> content
 	Body512   string            // first 512 bytes of response body (for quick pattern match)
@@ -233,4 +234,113 @@ type Evidence struct {
 
 	// WebSocketEndpoints lists paths where WebSocket upgrade was accepted.
 	WebSocketEndpoints []string
+
+	// ExternalServices lists named external API/SaaS dependencies discovered
+	// in JavaScript bundles (e.g. "Stripe API", "Helius RPC (Solana)", "Auth0").
+	// Populated by the webcontent scanner via enrichEvidenceFromFindings.
+	// Other scanners can use this to target service-specific attack patterns.
+	ExternalServices []string
+
+	// ── Attack-path context for Forecast convergence ────────────────────────
+
+	// PortServices is a structured per-port service fingerprint aggregated from
+	// portscan findings. Forecast uses this to build the service graph, match
+	// CVEs by exact product+version, and model lateral movement paths.
+	// Populated by the surface module after portscan completes.
+	PortServices map[int]PortServiceInfo
+
+	// ContainerInfo holds container runtime metadata when the asset is running
+	// inside a container. Enables Forecast to trace from running service →
+	// container image → registry → source repo → CI/CD pipeline.
+	ContainerInfo *ContainerInfo
+
+	// CICDSignals lists CI/CD system indicators found in HTTP responses,
+	// headers, or exposed config. Forecast uses these to map deployment
+	// pipelines and trace code-to-infrastructure paths.
+	// Examples: "jenkins", "github_actions", "gitlab_ci", "argocd", "tekton"
+	CICDSignals []string
+
+	// DeploymentContext describes the orchestration/deployment environment.
+	// Populated from cloud metadata, K8s API responses, or Docker API headers.
+	DeploymentContext *DeploymentContext
+
+	// DataStoreConnections lists backend data stores this asset connects to,
+	// discovered via environment variables, config files, or API responses.
+	// Forecast uses these to model data-flow paths and blast radius.
+	DataStoreConnections []DataStoreConnection
+
+	// CredentialExposures summarizes types of credential exposure found on this
+	// asset (not the credential values themselves). Forecast uses these to model
+	// which other assets/services become reachable through credential reuse.
+	CredentialExposures []CredentialExposure
+
+	// NetworkAdjacency lists other hosts/services reachable from this asset,
+	// discovered via container network inspection, ARP tables, route tables,
+	// or service mesh config. Forecast uses this for lateral movement modeling.
+	NetworkAdjacency []NetworkAdjacent
+
+	// ExposedAPISchemas lists API schema endpoints found (OpenAPI/Swagger,
+	// GraphQL introspection, gRPC reflection). These reveal the full API
+	// surface and enable Forecast to generate targeted exploit payloads.
+	ExposedAPISchemas []APISchemaInfo
+}
+
+// PortServiceInfo is a structured fingerprint for a single port's service.
+type PortServiceInfo struct {
+	Service    string `json:"service"`              // canonical service name: "redis", "nginx", "postgresql"
+	Product    string `json:"product,omitempty"`     // product banner: "nginx/1.14.2", "Redis server v=7.4.1"
+	Version    string `json:"version,omitempty"`     // extracted version: "1.14.2", "7.4.1"
+	OSHint     string `json:"os_hint,omitempty"`     // OS hint from banner: "Ubuntu", "Alpine", "Debian"
+	AuthStatus string `json:"auth_status,omitempty"` // "no_auth", "default_creds", "auth_required", "auth_bypass"
+	TLS        bool   `json:"tls,omitempty"`         // true if TLS is negotiated on this port
+	Protocol   string `json:"protocol,omitempty"`    // "tcp" or "udp"
+	Banner     string `json:"banner,omitempty"`      // raw banner (truncated to 256 bytes)
+	CVEs       []string `json:"cves,omitempty"`      // known CVEs for this exact product+version
+}
+
+// ContainerInfo holds container runtime metadata.
+type ContainerInfo struct {
+	Runtime  string `json:"runtime"`            // "docker", "containerd", "podman", "cri-o"
+	ImageRef string `json:"image_ref,omitempty"` // image reference: "nginx:1.14.2-alpine", "redis:7-alpine"
+	ImageID  string `json:"image_id,omitempty"`  // image digest if available
+	Labels   map[string]string `json:"labels,omitempty"` // container labels / k8s annotations
+}
+
+// DeploymentContext describes the deployment/orchestration environment.
+type DeploymentContext struct {
+	Platform   string `json:"platform"`              // "kubernetes", "docker_compose", "ecs", "lambda", "bare_metal"
+	Namespace  string `json:"namespace,omitempty"`    // k8s namespace
+	Cluster    string `json:"cluster,omitempty"`      // k8s/ECS cluster name
+	Network    string `json:"network,omitempty"`      // Docker network name, VPC ID
+	ServiceMesh string `json:"service_mesh,omitempty"` // "istio", "linkerd", "consul_connect"
+}
+
+// DataStoreConnection represents a backend data store this asset connects to.
+type DataStoreConnection struct {
+	Type     string `json:"type"`               // "postgresql", "mysql", "redis", "mongodb", "s3", "dynamodb"
+	Host     string `json:"host,omitempty"`     // host:port if discovered
+	Database string `json:"database,omitempty"` // database/bucket name if known
+	Source   string `json:"source"`             // how discovered: "env_var", "config_file", "api_response"
+}
+
+// CredentialExposure describes a type of credential exposure without the value.
+type CredentialExposure struct {
+	Type      string `json:"type"`                // "no_auth", "default_creds", "hardcoded_key", "env_leak"
+	Service   string `json:"service"`             // which service: "redis", "tomcat", "aws_s3"
+	GrantsAccessTo string `json:"grants_access_to,omitempty"` // what this credential unlocks: "redis://internal:6379"
+}
+
+// NetworkAdjacent represents a host/service reachable from this asset.
+type NetworkAdjacent struct {
+	Host       string `json:"host"`
+	Port       int    `json:"port,omitempty"`
+	Service    string `json:"service,omitempty"`
+	Discovered string `json:"discovered"` // how: "arp_table", "docker_network", "k8s_api", "route_table", "dns_ptr"
+}
+
+// APISchemaInfo describes an exposed API schema endpoint.
+type APISchemaInfo struct {
+	Type     string `json:"type"`     // "openapi", "swagger", "graphql", "grpc_reflection", "wsdl"
+	Path     string `json:"path"`     // URL path where schema was found
+	Version  string `json:"version,omitempty"` // API version if extractable
 }

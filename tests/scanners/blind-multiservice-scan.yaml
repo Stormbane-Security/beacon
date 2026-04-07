@@ -1,0 +1,147 @@
+name: blind-multiservice-scan
+description: >
+  Blind scan of a mixed-service environment. Beacon runs portscan with NO hints
+  about what's running — it must discover and correctly identify every service
+  through banner grabbing and protocol probing. Tests the full detection pipeline
+  end-to-end: port discovery → service identification → version extraction →
+  vulnerability detection → exploit chains.
+tags: [blind, portscan, fingerprint, exploit, integration, accuracy]
+
+services:
+  # Web server — nginx with known version
+  nginx:
+    image: nginx:1.25.4-alpine
+    ports: ["19700:80"]
+
+  # Key-value store — Redis unauthenticated
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19701:6379"]
+
+  # Search engine — Elasticsearch unauthenticated
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19702:9200"]
+
+  # Relational DB — PostgreSQL trust auth
+  postgres:
+    image: postgres:12
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["19703:5432"]
+
+  # Container management — Grafana with default creds
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports: ["19704:3000"]
+
+  # CI/CD — Jenkins without auth
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    ports: ["19705:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+  # FTP — anonymous access
+  ftp:
+    image: fauria/vsftpd
+    environment:
+      ANONYMOUS_ENABLE: "YES"
+      LOCAL_ENABLE: "NO"
+      PASV_MIN_PORT: "21100"
+      PASV_MAX_PORT: "21110"
+    ports: ["19706:21"]
+
+ready:
+  cmd: "curl -sf http://localhost:19700/ -o /dev/null && redis-cli -h localhost -p 19701 PING 2>/dev/null | grep -q PONG && curl -sf http://localhost:19702/ | grep -q cluster_name"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # --- Blind portscan: must discover and identify all services ---
+
+  # nginx detected
+  - name: blind-discovers-nginx
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      check_id: port.service_discovered
+
+  # Redis unauthenticated detected
+  - name: blind-discovers-redis-unauth
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # Elasticsearch unauthenticated detected
+  - name: blind-discovers-es-unauth
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  # PostgreSQL trust auth detected
+  - name: blind-discovers-postgres-trust
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      check_id: port.postgresql_trust_auth
+
+  # Grafana default creds detected
+  - name: blind-discovers-grafana-defaultcreds
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # Jenkins no-auth detected
+  - name: blind-discovers-jenkins-noauth
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      check_id: port.jenkins_noauth
+
+  # --- Full authorized chain scan: should fire exploit chains ---
+  - name: blind-authorized-finds-exploits
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.lateral_movement
+
+  - name: blind-authorized-extracts-data
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.data_extracted
+
+  # --- False positive guards: should NOT detect services that aren't there ---
+  - name: negative-no-mongodb-detected
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      not_check_id: port.database_exposed
+
+  - name: negative-no-mssql-detected
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    expect:
+      not_check_id: port.mssql_default_creds
+
+timeout: 15m

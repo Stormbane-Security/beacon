@@ -20,7 +20,7 @@ match:
         contains: "csrftoken"
     - header_value:
         name: "set-cookie"
-        contains: "sessionid"
+        contains: "sessionid="
     - framework_contains: "django"
 surface:
   nuclei_tags:

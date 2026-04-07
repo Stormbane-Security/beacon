@@ -1,0 +1,33 @@
+name: clickjacking-secure-no-finding
+description: >
+  nginx with X-Frame-Options: DENY and CSP frame-ancestors 'none'.
+  Beacon clickjacking scanner must NOT flag properly protected pages.
+tags: [clickjacking, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9462:80"]
+    volumes:
+      - ./clickjacking-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9462/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: setup-xfo-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:9462/ | grep -qi 'X-Frame-Options: DENY'"
+      exit_code: 0
+
+  - name: no-clickjacking-false-positive
+    type: beacon
+    target: localhost:9462
+    args: ["--no-enrich", "--scanners", "clickjacking"]
+    expect:
+      no_check_id: web.clickjacking
+
+timeout: 3m

@@ -100,9 +100,13 @@ func DiscoverInternalTargets(ctx context.Context, netInfo *NetworkInfo) []Intern
 					break
 				}
 				wg.Add(1)
-				sem <- struct{}{}
 				go func(h string, port int, service string) {
 					defer wg.Done()
+					select {
+					case sem <- struct{}{}:
+					case <-ctx.Done():
+						return
+					}
 					defer func() { <-sem }()
 
 					addr := net.JoinHostPort(h, fmt.Sprintf("%d", port))
@@ -143,13 +147,19 @@ func enumerateHosts(subnet *net.IPNet, maxHosts int) []string {
 	ip := make(net.IP, len(subnet.IP))
 	copy(ip, subnet.IP)
 
+	// Compute broadcast address from network + inverted mask.
+	broadcast := make(net.IP, len(subnet.IP))
+	for i := range broadcast {
+		broadcast[i] = subnet.IP[i] | ^subnet.Mask[i]
+	}
+
 	for i := 0; i < maxHosts; i++ {
 		ip = nextIP(ip)
 		if !subnet.Contains(ip) {
 			break
 		}
-		// Skip network and broadcast addresses.
-		if ip[len(ip)-1] == 0 || ip[len(ip)-1] == 255 {
+		// Skip network (subnet.IP) and broadcast addresses.
+		if ip.Equal(subnet.IP) || ip.Equal(broadcast) {
 			continue
 		}
 		hosts = append(hosts, ip.String())

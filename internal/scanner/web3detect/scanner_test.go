@@ -108,6 +108,41 @@ func TestWeb3Detect_RPCEndpointInJS(t *testing.T) {
 	}
 }
 
+// TestWeb3Detect_RPCEndpoint_MarketingPageIgnored verifies that a plain
+// provider homepage link (www.alchemy.com) is NOT flagged as an exposed
+// RPC endpoint — but IS flagged as an info-level provider reference.
+func TestWeb3Detect_RPCEndpoint_MarketingPageIgnored(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintln(w, `<html><body>
+			<p>Powered by <a href="https://www.alchemy.com/">Alchemy</a></p>
+			<p>See also <a href="https://docs.infura.io/">Infura docs</a></p>
+		</body></html>`)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	var gotExposed, gotProvider bool
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWeb3RPCEndpointExposed {
+			gotExposed = true
+		}
+		if f.CheckID == finding.CheckWeb3RPCProviderDetected {
+			gotProvider = true
+		}
+	}
+	if gotExposed {
+		t.Error("should NOT flag marketing links as HIGH rpc_endpoint_exposed")
+	}
+	if !gotProvider {
+		t.Error("should flag marketing links as INFO rpc_provider_detected")
+	}
+}
+
 // TestWeb3Detect_ContractAddressFound verifies that a page containing a
 // 0x-prefixed 40-hex address produces a CheckWeb3ContractFound finding.
 func TestWeb3Detect_ContractAddressFound(t *testing.T) {

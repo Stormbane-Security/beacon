@@ -254,7 +254,7 @@ assertions:
     target: localhost:9240
     args: ["--no-enrich"]
     expect:
-      min_findings: 3
+      min_findings: 8
 
   # Run beacon against the WAF endpoint with no filter — should complete
   # even when WAF blocks payloads.
@@ -263,7 +263,7 @@ assertions:
     target: localhost:9241
     args: ["--no-enrich"]
     expect:
-      min_findings: 1
+      min_findings: 3
 
   # Validate scan exit code is 0 (clean completion)
   - name: scan-exits-cleanly

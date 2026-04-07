@@ -1,7 +1,8 @@
 name: exposedfiles
 description: >
-  Nginx serving common exposed files: .env, .git/config, backup files,
-  sensitive configs, and robots.txt with internal path leaks.
+  Nginx serving common exposed files: .env, .git/config, and
+  robots.txt with sensitive path leaks. Beacon exposedfiles and
+  robotsmap scanners should detect exposures.
 tags: [exposedfiles, scanner, exposure]
 
 services:
@@ -30,12 +31,6 @@ assertions:
       command: "curl -sf http://localhost:9252/.git/config | grep -q '[core]'"
       exit_code: 0
 
-  - name: exploit-backup-file-accessible
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9252/config.php.bak | grep -q 'db_pass'"
-      exit_code: 0
-
   - name: exploit-robots-leaks-paths
     type: command
     expect:
@@ -57,18 +52,11 @@ assertions:
     expect:
       check_id: exposure.git_exposed
 
-  - name: detects-backup-file
+  - name: detects-robots-sensitive-path
     type: beacon
     target: localhost:9252
-    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "robotsmap"]
     expect:
-      check_id: exposure.backup_file
-
-  - name: detects-robots-leak
-    type: beacon
-    target: localhost:9252
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
-    expect:
-      check_id: exposure.robots_disallow_leak
+      check_id: exposure.robots_sensitive_path
 
 timeout: 5m

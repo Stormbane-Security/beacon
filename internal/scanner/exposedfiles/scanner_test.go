@@ -230,6 +230,78 @@ func TestExposedFiles_Spring4ShellNotFlaggedOn404(t *testing.T) {
 	}
 }
 
+func TestExposedFiles_Spring4ShellNotFlaggedOnElasticsearch(t *testing.T) {
+	// Elasticsearch returns 400 with "unrecognized parameter" and echoes "classLoader"
+	// in the error body — should not trigger Spring4Shell.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.RawQuery, "class.module.classLoader") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintln(w, `{"error":{"type":"illegal_argument_exception","reason":"request [/] contains unrecognized parameter: [class.module.classLoader.URLs[0]]"},"status":400}`)
+			return
+		}
+		// ES root response
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintln(w, `{"name":"node","cluster_name":"elasticsearch","version":{"number":"8.13.0"}}`)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "spring4shell") {
+			t.Errorf("unexpected Spring4Shell finding on Elasticsearch: %v", f)
+		}
+	}
+}
+
+func TestExposedFiles_SpringOAuthNotFlaggedOnElasticsearch(t *testing.T) {
+	// Elasticsearch returns 405 with error mentioning the oauth path — should not trigger.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/oauth/") {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = fmt.Fprintln(w, `{"error":"Incorrect HTTP method for uri [/oauth/authorize] and method [GET], allowed: [POST]","status":405}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintln(w, `{"name":"node","cluster_name":"elasticsearch"}`)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "spring_oauth") {
+			t.Errorf("unexpected Spring OAuth finding on Elasticsearch: %v", f)
+		}
+	}
+}
+
+func TestExposedFiles_TelerikNotFlaggedOnJSON(t *testing.T) {
+	// A generic JSON API should not trigger Telerik RAU.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintln(w, `{"status":"ok","data":{"version":"1.0"}}`)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanSurface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.Contains(string(f.CheckID), "telerik") {
+			t.Errorf("unexpected Telerik finding on generic JSON API: %v", f)
+		}
+	}
+}
+
 func TestExposedFiles_ZimbraAuthBypassDetected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/service/extension/backup/mboximport" {

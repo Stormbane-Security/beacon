@@ -65,7 +65,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, fmt.Errorf("katana: %w", err)
 	}
 
-	target := "https://" + asset
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	target := scheme + "://" + asset
 
 	// Scope regex: restrict katana to the target domain and its subdomains.
 	// This prevents katana from following external links and crawling third-party

@@ -275,12 +275,36 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 
+		e.Scheme = scheme
 		e.StatusCode = resp.StatusCode
 
-		// Collect headers (lower-case keys)
+		// Collect headers (lower-case keys) from the final response.
 		for k, vs := range resp.Header {
 			if len(vs) > 0 {
 				e.Headers[strings.ToLower(k)] = vs[0]
+			}
+		}
+		// If the server redirected, also capture headers from the initial (pre-redirect)
+		// response. Some services (e.g. Kibana kbn-name, kbn-license-sig) expose
+		// fingerprint headers only on the initial 302/301, not on the redirect target.
+		if resp.Request.URL.String() != url {
+			noRedirClient := &http.Client{
+				Timeout:       3 * time.Second,
+				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+				Transport:     httpClient.Transport,
+			}
+			if preReq, err2 := http.NewRequestWithContext(ctx, "HEAD", url, nil); err2 == nil {
+				preReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon/1.0)")
+				if preResp, err3 := noRedirClient.Do(preReq); err3 == nil {
+					for k, vs := range preResp.Header {
+						kl := strings.ToLower(k)
+						// Only add headers not already present from the final response.
+						if _, exists := e.Headers[kl]; !exists && len(vs) > 0 {
+							e.Headers[kl] = vs[0]
+						}
+					}
+					_ = preResp.Body.Close()
+				}
 			}
 		}
 
@@ -390,6 +414,24 @@ func probeHTTP(ctx context.Context, hostname string, e *playbook.Evidence) {
 				e.Web3Signals = append(e.Web3Signals, wl.label)
 			}
 		}
+		// RPC provider references — signal blockchain infrastructure usage.
+		rpcProviders := []struct{ pattern, label string }{
+			{"infura.io", "infura"},
+			{"alchemy.com", "alchemy"},
+			{"alchemyapi.io", "alchemy"},
+			{"ankr.com/rpc", "ankr"},
+			{"quicknode.io", "quicknode"},
+			{"chainnodes.org", "chainnodes"},
+			{"moralis.io", "moralis"},
+			{"getblock.io", "getblock"},
+		}
+		for _, rp := range rpcProviders {
+			if strings.Contains(fullBodyLower, rp.pattern) && !seenWalletLabel[rp.label] {
+				seenWalletLabel[rp.label] = true
+				e.Web3Signals = append(e.Web3Signals, rp.label)
+			}
+		}
+
 		seen := map[string]bool{}
 		// EVM contract addresses — scan the full body for 0x-prefixed 40-hex addresses.
 		for _, m := range contractAddrRe.FindAllStringSubmatch(fullBody, -1) {
@@ -694,8 +736,8 @@ var fingerprintPaths = []string{
 	"/api/settings", "/api/status", // Portainer REST API paths
 	// ── Kibana legacy paths (pre-8.x navigation) ─────────────────────────
 	"/app/home", "/app/kibana", // Kibana home/legacy redirect paths
-	// ── Envoy admin interface ─────────────────────────────────────────────
-	"/config_dump", "/stats", // Envoy admin API — unique to Envoy proxy
+	// ── Envoy admin + HAProxy stats ──────────────────────────────────────
+	"/config_dump", "/stats", // Envoy admin API + HAProxy stats page (body-checked)
 	// ── Hasura GraphQL Engine console ────────────────────────────────────
 	"/console", // Hasura console (distinct from /v1/graphql health path)
 	// ── Traefik dashboard ─────────────────────────────────────────────────
@@ -806,6 +848,13 @@ var fingerprintPaths = []string{
 // A wildcard domain returns a valid A record for any random subdomain query, making
 // probeFingerprintPaths unreliable (every path would appear to respond).
 func isWildcardDomain(ctx context.Context, hostname string) bool {
+	// Skip wildcard check for localhost / loopback — *.localhost always resolves
+	// to 127.0.0.1 on many systems, which would falsely disable path probing.
+	lower := strings.ToLower(hostname)
+	if lower == "localhost" || lower == "127.0.0.1" || lower == "::1" ||
+		strings.HasSuffix(lower, ".localhost") {
+		return false
+	}
 	// Probe a nonsense subdomain — if it resolves, wildcard DNS is in use.
 	probe := "beacon-wc-probe-xqzjmkpv." + hostname
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -815,8 +864,10 @@ func isWildcardDomain(ctx context.Context, hostname string) bool {
 }
 
 // detectSoftNotFound probes two distinct canary paths and compares their
-// SHA-256 body hashes. If both return 200 and have identical hashes, the site
-// is a catch-all / SPA that returns the same page for every URL.
+// responses. If both return 200 and the bodies are similar (>80% overlap
+// by length, or identical hashes), the site is a catch-all / SPA.
+// Fuzzy comparison catches SPAs that embed the URL path or a nonce in the
+// response, which defeats exact hash matching.
 func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string) (bool, [32]byte) {
 	fetch := func(u string) ([]byte, int) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -838,10 +889,25 @@ func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string
 	}
 	hashA := sha256.Sum256(bodyA)
 	hashB := sha256.Sum256(bodyB)
-	if hashA != hashB {
-		return false, [32]byte{}
+	// Exact match — classic catch-all
+	if hashA == hashB {
+		return true, hashA
 	}
-	return true, hashA
+	// Fuzzy match — bodies are similar in size (within 10%) and both
+	// are substantial (>1KB). This catches SPAs that embed the URL path
+	// or a per-request nonce in the response.
+	if len(bodyA) > 1024 && len(bodyB) > 1024 {
+		big, small := len(bodyA), len(bodyB)
+		if big < small {
+			big, small = small, big
+		}
+		// Within 10% size means the content is structurally the same
+		// with minor per-request variation.
+		if float64(small)/float64(big) > 0.90 {
+			return true, hashA
+		}
+	}
+	return false, [32]byte{}
 }
 
 // probeFingerprintPaths probes each path in fingerprintPaths concurrently and
@@ -854,7 +920,7 @@ func detectSoftNotFound(ctx context.Context, client *http.Client, baseURL string
 // listed; all other paths fall back to pure status-code matching.
 var pathBodySignatures = map[string]string{
 	// Spring Boot Actuator
-	"/actuator/health":    `"status"`,
+	"/actuator/health":    `"diskspace"`,
 	"/actuator/env":       `"activeProfiles"`,
 	"/actuator/mappings":  `"mappings"`,
 	// HashiCorp Vault
@@ -882,42 +948,42 @@ var pathBodySignatures = map[string]string{
 	"/api/v1/health": `"metadatabase"`,
 	"/api/v1/dags":   `"dags"`,
 	// Jupyter
-	"/api/kernels":   `"id"`,
-	"/api/contents":  `"type"`,
+	"/api/kernels":   `"execution_state"`,
+	"/api/contents":  `"writable"`,
 	// Hasura
-	"/v1/graphql":  `"data"`,
-	"/v1/metadata": `"version"`,
+	"/v1/graphql":  `__schema`,
+	"/v1/metadata": `"resource_version"`,
 	// Traefik
 	"/api/overview":    `"http"`,
 	"/api/entrypoints": `"name"`,
 	// Kafka REST
-	"/topics":      `[`,
+	"/topics":      `"partitions"`,
 	"/v3/clusters": `"cluster_id"`,
 	// WordPress
-	"/wp-json": `"name"`,
+	"/wp-json": `"wp:`,
 	// OIDC / OAuth
 	"/oauth/authorize":  `response_type`,
 	"/oauth2/authorize": `response_type`,
 	// AI / LLM
-	"/v1/models": `"data"`,
+	"/v1/models": `"owned_by"`,
 	// Langflow
-	"/api/v1/version": `"version"`,
-	"/api/v1/flows":   `"id"`,
+	"/api/v1/version": `"langflow"`,
+	"/api/v1/flows":   `"endpoint_name"`,
 	// Veeam
-	"/api/v1/serverInfo": `"version"`,
+	"/api/v1/serverInfo": `"veeam"`,
 	// Wazuh
-	"/api/v2/manager/info": `"title"`,
+	"/api/v2/manager/info": `"wazuh"`,
 	// OpenStack Keystone
-	"/identity/v3": `"version"`,
+	"/identity/v3": `"media-types"`,
 	// Proxmox VE
-	"/api2/json/version": `"version"`,
+	"/api2/json/version": `"pveversion"`,
 	// Ansible AWX/Tower
 	"/api/v2/ping": `"ha"`,
 	// Jaeger — /api/traces response contains "traceID" key (Jaeger format)
 	"/api/traces":   `"traceID"`,
-	"/api/services": `"data"`,
+	"/api/services": `"total"`,
 	// Loki
-	"/loki/api/v1/labels": `"data"`,
+	"/loki/api/v1/labels": `"values"`,
 	// Tempo — /tempo/api/traces is Tempo-specific; body contains "rootServiceName"
 	"/tempo/api/traces": `"rootServiceName"`,
 	// VictoriaMetrics
@@ -925,11 +991,13 @@ var pathBodySignatures = map[string]string{
 	// Harbor
 	"/api/v2.0/systeminfo": `"harbor_version"`,
 	// ArgoCD
-	"/api/v1/applications": `"items"`,
+	"/api/v1/applications": `"metadata"`,
 	// TeamCity
 	"/app/rest/server": `"version"`,
 	// CouchDB
-	"/_all_dbs": `[`,
+	"/_all_dbs": `"_replicator"`,
+	// Etcd
+	"/version": `"etcdserver"`,
 	// Neo4j
 	"/db/neo4j/tx": `"neo4j"`,
 	// MinIO
@@ -938,11 +1006,13 @@ var pathBodySignatures = map[string]string{
 	"/api/v0/id": `"ID"`,
 	// SonarQube
 	"/api/system/status": `"status"`,
-	// FastAPI
-	"/docs":  `swagger`,
-	"/redoc": `redoc`,
+	// FastAPI — require swagger-ui specific content, not just the word "swagger"
+	"/docs":  `swagger-ui`,
+	"/redoc": `redoc-container`,
 	// Sentry
-	"/api/0/internal/health": `ok`,
+	"/api/0/internal/health": `"healthy"`,
+	// HAProxy stats page — title contains "Statistics Report for HAProxy"
+	"/stats": `statistics report for haproxy`,
 }
 
 func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evidence) []string {
@@ -975,13 +1045,24 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 	base := scheme + "://" + hostname
 
 	var (
-		mu      sync.Mutex
-		found   []string
-		wg      sync.WaitGroup
-		sem     = make(chan struct{}, 10) // max 10 concurrent probes
+		mu       sync.Mutex
+		found    []string
+		ok200    int // count of paths that returned HTTP 200
+		wg       sync.WaitGroup
+		sem      = make(chan struct{}, 10) // max 10 concurrent probes
 	)
 
-	for _, path := range fingerprintPaths {
+	// Select probe paths based on Evidence signals. Only paths whose
+	// technology group is triggered by existing evidence (headers, cookies,
+	// body, framework) are probed — plus a small universal set that always
+	// runs. This replaces the old flat fingerprintPaths list (200+ blind
+	// probes) with targeted, evidence-driven probing (~10-40 paths).
+	selectedPaths := selectProbePaths(e)
+	if len(selectedPaths) == 0 {
+		selectedPaths = fingerprintPaths // fallback if no signals at all
+	}
+
+	for _, path := range selectedPaths {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
@@ -1012,10 +1093,15 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 				return
 			}
 
-			// For paths with a required body signature, only accept HTTP 200
-			// and verify the body contains the expected content. This prevents
-			// catch-all sites from matching service-specific paths.
-			if needsBody && sc == http.StatusOK {
+			// For paths with a required body signature, require HTTP 200 and
+			// verify the body contains the expected content. Non-200 responses
+			// (redirects, auth challenges) for body-signature paths are rejected
+			// because they don't prove the expected service is running.
+			if needsBody {
+				if sc != http.StatusOK {
+					_ = resp.Body.Close()
+					return
+				}
 				body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 				_ = resp.Body.Close()
 				if !strings.Contains(strings.ToLower(string(body)), requiredBody) {
@@ -1027,10 +1113,29 @@ func probeFingerprintPaths(ctx context.Context, hostname string, e *playbook.Evi
 
 			mu.Lock()
 			found = append(found, p)
+			if sc == http.StatusOK {
+				ok200++
+			}
 			mu.Unlock()
 		}(path)
 	}
 	wg.Wait()
+
+	// Sanity check: catch-all/SPA detection. Two thresholds:
+	// 1. Absolute: >15 paths returned 200 — no server runs 15+ backends.
+	// 2. Proportional: if ≥80% of probed paths returned any accepted status
+	//    (2xx, 3xx, 401, 403) AND we probed at least 5 paths, this is almost
+	//    certainly a catch-all. Uses len(found) not ok200 because SPAs may
+	//    return mixed status codes (200, 301, etc.) for nonexistent paths.
+	isCatchAll := ok200 > 15
+	if !isCatchAll && len(selectedPaths) >= 5 && len(found) >= len(selectedPaths)*4/5 {
+		isCatchAll = true
+	}
+	if isCatchAll {
+		e.SoftNotFound = true
+		return nil
+	}
+
 	return found
 }
 
@@ -1568,6 +1673,9 @@ func fingerprintTech(e *playbook.Evidence) {
 			e.ServiceVersions["platform"] = "grafana"
 		case strings.Contains(body, "kibana") && (strings.Contains(body, "kbn-") || strings.Contains(body, "__kbnBootstrap")):
 			e.ServiceVersions["platform"] = "kibana"
+		case h["kbn-name"] != "" || h["kbn-license-sig"] != "":
+			// Kibana sets kbn-name and kbn-license-sig headers even on 302 redirects.
+			e.ServiceVersions["platform"] = "kibana"
 		case strings.Contains(body, "prometheus") && strings.Contains(body, "/graph"):
 			e.ServiceVersions["platform"] = "prometheus"
 		case strings.Contains(body, "gitea") || strings.Contains(body, "go-gitea"):
@@ -1611,6 +1719,18 @@ func fingerprintTech(e *playbook.Evidence) {
 			e.ServiceVersions["platform"] = "mongo-express"
 		case strings.Contains(body, "sonarqube"):
 			e.ServiceVersions["platform"] = "sonarqube"
+		// ── Message queues ───────────────────────────────────────────────
+		case strings.Contains(body, "nats.io") || strings.Contains(body, "nats-io"):
+			e.ServiceVersions["platform"] = "nats"
+		// ── Password managers ────────────────────────────────────────────
+		case strings.Contains(body, "bitwarden") || strings.Contains(body, "vaultwarden"):
+			e.ServiceVersions["platform"] = "vaultwarden"
+		// ── Web servers ──────────────────────────────────────────────────
+		case strings.Contains(body, "apache tomcat/") || strings.Contains(body, "apache tomcat"):
+			e.ServiceVersions["platform"] = "tomcat"
+		// ── Database admin ───────────────────────────────────────────────
+		case strings.Contains(body, "adminer") && strings.Contains(body, "login"):
+			e.ServiceVersions["platform"] = "adminer"
 		}
 	}
 	// Jenkins also exposes an X-Jenkins header — detect regardless of body.
@@ -1628,6 +1748,28 @@ func fingerprintTech(e *playbook.Evidence) {
 	// CouchDB exposes Server: CouchDB.
 	if strings.Contains(serverLower, "couchdb") && e.ServiceVersions["platform"] == "" {
 		e.ServiceVersions["platform"] = "couchdb"
+	}
+	// Jaeger distributed tracing exposes Traceresponse header.
+	if h["traceresponse"] != "" && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "jaeger"
+	}
+	// Etcd KV store: platform is set from /version path probe (body-checked for
+	// "etcdserver"), confirmed via RespondingPaths → pathServiceMap.
+	// Apache Tomcat often doesn't set a Server header but error pages include version.
+	if strings.Contains(serverLower, "apache-coyote") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "tomcat"
+	}
+	// Tomcat default error pages use "HTTP Status NNN" title pattern with Tahoma font.
+	titleLower := strings.ToLower(e.Title)
+	if strings.HasPrefix(titleLower, "http status ") &&
+		strings.Contains(body, "tahoma") && e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "tomcat"
+	}
+	// Vaultwarden/Bitwarden behind Server: Rocket with duosecurity in CSP.
+	if strings.Contains(serverLower, "rocket") &&
+		strings.Contains(strings.ToLower(h["content-security-policy"]), "duosecurity.com") &&
+		e.ServiceVersions["platform"] == "" {
+		e.ServiceVersions["platform"] = "vaultwarden"
 	}
 	// Harbor registry exposes x-harbor-csrf-token.
 	if h["x-harbor-csrf-token"] != "" && e.ServiceVersions["platform"] == "" {
@@ -1761,6 +1903,20 @@ func fingerprintTech(e *playbook.Evidence) {
 	// fingerprintTech operates on the truncated e.Body512 (512 bytes) which
 	// would miss almost all contract addresses and library references.
 
+	// ── ProxyType from RespondingPaths ────────────────────────────────────────
+	// Some load balancers/proxies only reveal themselves at specific paths (e.g.
+	// HAProxy stats at /stats) rather than via root-response headers.
+	if e.ProxyType == "" {
+		for _, path := range e.RespondingPaths {
+			if path == "/stats" {
+				// /stats with body match "statistics report for haproxy" confirms HAProxy
+				e.ProxyType = "haproxy"
+				e.InfraLayer = "load_balancer"
+				break
+			}
+		}
+	}
+
 	// ── BackendServices ───────────────────────────────────────────────────────
 	// Infer named backend services from RespondingPaths. Used by the AI enricher
 	// and topology renderer for richer service context. Each path prefix maps to
@@ -1770,6 +1926,37 @@ func fingerprintTech(e *playbook.Evidence) {
 	// Supplement from root response body/title when path probing was skipped
 	// (e.g. SoftNotFound sites like ClickHouse that return 200 for all paths).
 	e.BackendServices = inferBackendFromRoot(e.BackendServices, body, strings.ToLower(e.Title), serverLower)
+
+	// If platform was not set from body/headers but we inferred a backend service
+	// from path probing (e.g. Etcd via /version), set platform from the first
+	// single backend service. Only when there's exactly one — if there are multiple,
+	// this is a proxy/gateway with multiple backends, not a single platform.
+	if e.ServiceVersions["platform"] == "" && len(e.BackendServices) == 1 {
+		// Reverse-map canonical service name to lowercase platform key.
+		svcLower := strings.ToLower(e.BackendServices[0])
+		// Remove common prefixes for matching (e.g. "Apache Tomcat" → "tomcat")
+		for _, prefix := range []string{"apache ", "hashicorp "} {
+			svcLower = strings.TrimPrefix(svcLower, prefix)
+		}
+		e.ServiceVersions["platform"] = svcLower
+	}
+
+	// Ensure platform detection is reflected in BackendServices. Some products
+	// are only detected via headers (e.g. Kibana kbn-name on a 302 redirect)
+	// and may not appear in path probing or root body signals.
+	if platform := e.ServiceVersions["platform"]; platform != "" {
+		canonName := platformServiceName(platform)
+		found := false
+		for _, s := range e.BackendServices {
+			if strings.EqualFold(s, canonName) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			e.BackendServices = append(e.BackendServices, canonName)
+		}
+	}
 }
 
 // pathServiceMap maps a responding path prefix/exact to a canonical service name.
@@ -1877,6 +2064,8 @@ var pathServiceMap = []struct {
 	{"/redoc", "FastAPI"},
 	// Sentry self-hosted
 	{"/api/0/internal/health", "Sentry"},
+	// Etcd (body-checked for "etcdserver")
+	{"/version", "Etcd"},
 }
 
 // inferBackendServices returns a deduplicated list of named backend services
@@ -1919,6 +2108,9 @@ var rootServiceSignatures = []struct {
 	{"title", "rabbitmq", "RabbitMQ"},
 	{"server", "couchdb", "CouchDB"},
 	{"server", "minio", "MinIO"},
+	{"title", "adminer", "Adminer"},
+	{"body", "nats.io", "NATS"},
+	{"body", "apache tomcat", "Apache Tomcat"},
 	// API servers with soft-404 (return 200 for all paths, skipping path probing)
 	{"body", "lucene_version", "Elasticsearch"},
 	{"title", "consul", "HashiCorp Consul"},
@@ -1949,6 +2141,47 @@ func inferBackendFromRoot(existing []string, body, title, server string) []strin
 		}
 	}
 	return existing
+}
+
+// platformServiceName converts a lowercase platform tag (from ServiceVersions["platform"])
+// to a display-ready canonical service name for BackendServices.
+func platformServiceName(platform string) string {
+	names := map[string]string{
+		"kibana":        "Kibana",
+		"grafana":       "Grafana",
+		"prometheus":    "Prometheus",
+		"jenkins":       "Jenkins",
+		"gitlab":        "GitLab",
+		"gitea":         "Gitea",
+		"sonarqube":     "SonarQube",
+		"swagger-ui":    "Swagger UI",
+		"confluence":    "Confluence",
+		"jira":          "Jira",
+		"nextcloud":     "Nextcloud",
+		"rabbitmq":      "RabbitMQ",
+		"mongo-express": "Mongo Express",
+		"minio":         "MinIO",
+		"couchdb":       "CouchDB",
+		"harbor":        "Harbor",
+		"ipfs":          "IPFS",
+		"openstack":     "OpenStack",
+		"jaeger":        "Jaeger",
+		"nats":          "NATS",
+		"vaultwarden":   "Vaultwarden",
+		"tomcat":        "Apache Tomcat",
+		"adminer":       "Adminer",
+		"etcd":          "Etcd",
+		"portainer":     "Portainer",
+		"consul":        "HashiCorp Consul",
+	}
+	if n, ok := names[platform]; ok {
+		return n
+	}
+	// Capitalize first letter as fallback.
+	if len(platform) > 0 {
+		return strings.ToUpper(platform[:1]) + platform[1:]
+	}
+	return platform
 }
 
 // haproxyHeader returns true when any header key starts with "x-haproxy-".

@@ -85,6 +85,11 @@ func (s *Scanner) runWithIP(ctx context.Context, asset, ip string, _ module.Scan
 	if baseline == nil {
 		return nil, nil // asset not serving HTTP/S — skip
 	}
+	// If the baseline itself is a server error (5xx), the backend is broken and
+	// any comparison is noise — slight differences in error pages are not vhosts.
+	if baseline.status >= 500 {
+		return nil, nil
+	}
 
 	var findings []finding.Finding
 	now := time.Now()
@@ -98,6 +103,11 @@ func (s *Scanner) runWithIP(ctx context.Context, asset, ip string, _ module.Scan
 
 		resp := probeHost(ctx, client, ip, candidate)
 		if resp == nil {
+			continue
+		}
+		// Skip candidates returning server errors — a 502/503 from the proxy
+		// for an unknown Host header is not a real virtual host.
+		if resp.status >= 500 {
 			continue
 		}
 		// Consider it a real vhost if the response differs meaningfully from baseline:

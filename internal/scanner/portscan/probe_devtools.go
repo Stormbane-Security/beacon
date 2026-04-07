@@ -147,8 +147,14 @@ func detectSGLang(ctx context.Context, host string, port int, banner string, mak
 	if !ok {
 		return nil
 	}
+	// SGLang /v1/models returns JSON like {"object":"list","data":[{"id":"model-name","object":"model",...}]}.
+	// Reject HTML responses and require JSON structure.
+	trimmedBody := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmedBody, "<") || !strings.HasPrefix(trimmedBody, "{") {
+		return nil
+	}
 	bodyLow := strings.ToLower(body)
-	if !strings.Contains(bodyLow, "data") || !strings.Contains(bodyLow, "model") {
+	if !strings.Contains(bodyLow, `"data"`) || !strings.Contains(bodyLow, `"model"`) {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -172,11 +178,18 @@ func detectRayDashboard(ctx context.Context, host string, port int, banner strin
 	if !ok {
 		return nil
 	}
+	// Reject HTML responses (SPAs/web apps return 200 with HTML for any path).
+	trimmedBody := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmedBody, "<") || strings.HasPrefix(trimmedBody, "<!") {
+		return nil
+	}
 	ev := map[string]any{"port": port, "service": "ray"}
 	if ver := parseJSONStringField(body, "version"); ver != "" {
 		ev["ray_version"] = ver
 	}
-	if !strings.Contains(strings.ToLower(body), "ray") && !strings.Contains(body, "version") {
+	// Ray /api/version returns JSON like {"version":"2.10.0","ray_version":"2.10.0"}.
+	// Require "ray" in the response to avoid matching other services with /api/version.
+	if !strings.Contains(strings.ToLower(body), "ray") {
 		return nil
 	}
 	return []finding.Finding{makeF(

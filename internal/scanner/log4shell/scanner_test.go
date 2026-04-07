@@ -91,6 +91,92 @@ func TestLog4Shell_NoReflection_NoFinding(t *testing.T) {
 	}
 }
 
+// TestLog4Shell_ObfuscatedPayloadReflection verifies that obfuscated JNDI
+// payloads (WAF bypass variants) are sent and detected in body reflection.
+func TestLog4Shell_ObfuscatedPayloadReflection(t *testing.T) {
+	seenPayloads := map[string]bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Apache Tomcat/9.0.75")
+		var sb strings.Builder
+		for _, vals := range r.Header {
+			for _, v := range vals {
+				if strings.Contains(v, "jndi") || strings.Contains(v, "JNDI") ||
+					strings.Contains(v, "{::-j}") || strings.Contains(v, "{lower:j}") {
+					seenPayloads[v] = true
+				}
+				sb.WriteString(v + "\n")
+			}
+		}
+		_, _ = fmt.Fprintln(w, sb.String())
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	_, err := New().Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	// Verify multiple obfuscation variants were tried
+	if len(seenPayloads) < 3 {
+		t.Errorf("expected at least 3 obfuscation variants, saw %d: %v", len(seenPayloads), seenPayloads)
+	}
+}
+
+// TestLog4Shell_OOBPayloadFormat verifies that when BEACON_OOB_DOMAIN is set,
+// the JNDI payload references the OOB domain instead of the default.
+func TestLog4Shell_OOBPayloadFormat(t *testing.T) {
+	oobDomain := "oob.test.local"
+	t.Setenv("BEACON_OOB_DOMAIN", oobDomain)
+
+	oobSeen := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Apache Tomcat/9.0.75")
+		for _, vals := range r.Header {
+			for _, v := range vals {
+				if strings.Contains(v, oobDomain) {
+					oobSeen = true
+				}
+			}
+		}
+		_, _ = fmt.Fprintln(w, "ok")
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	_, _ = New().Run(context.Background(), asset, module.ScanAuthorized)
+
+	if !oobSeen {
+		t.Error("expected JNDI payload to use BEACON_OOB_DOMAIN, but it was not seen in request headers")
+	}
+}
+
+// TestLog4Shell_NoFindingWithoutJavaSignals verifies that header reflection
+// alone (without Java stack signals) does NOT produce a Log4Shell finding.
+// Many non-Java servers echo headers — we must not false-positive on them.
+func TestLog4Shell_NoFindingWithoutJavaSignals(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo headers but NO Java signals (no Tomcat, no JSESSIONID, etc.)
+		w.Header().Set("Server", "nginx/1.25.0")
+		var sb strings.Builder
+		for name, vals := range r.Header {
+			sb.WriteString(name + ": " + strings.Join(vals, ", ") + "\n")
+		}
+		_, _ = fmt.Fprintln(w, sb.String())
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanAuthorized)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	for _, f := range findings {
+		if f.CheckID == finding.CheckCVELog4Shell {
+			t.Errorf("should not emit Log4Shell finding without Java signals: %s", f.Title)
+		}
+	}
+}
+
 // TestLog4Shell_SkippedInSurfaceMode_ActiveProbes verifies that in surface
 // mode the scanner does not inject JNDI payloads into request headers.
 func TestLog4Shell_SkippedInSurfaceMode_ActiveProbes(t *testing.T) {

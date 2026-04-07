@@ -679,6 +679,28 @@ const (
 	CheckNmapFTPAnonymous   CheckID = "nmap.ftp_anonymous"
 	CheckNmapSSHAlgorithms  CheckID = "nmap.ssh_weak_algorithms"
 
+	// Nmap — fingerprinting (surface)
+	CheckNmapSMBOSDiscovery  CheckID = "nmap.smb_os_discovery"      // SMB OS/domain/hostname via smb-os-discovery
+	CheckNmapSSLCertInfo     CheckID = "nmap.ssl_cert_info"          // SSL certificate details (expiry, CN, issuer)
+	CheckNmapSSLCertExpired  CheckID = "nmap.ssl_cert_expired"       // SSL certificate expired or expiring soon
+	CheckNmapHTTPTitle       CheckID = "nmap.http_title"             // HTTP page title for asset identification
+	CheckNmapHTTPRobots      CheckID = "nmap.http_robots"            // robots.txt disallowed paths discovered
+	CheckNmapNetBIOSInfo     CheckID = "nmap.netbios_info"           // NetBIOS name/domain/MAC via nbstat
+	CheckNmapSMTPCommands    CheckID = "nmap.smtp_commands"          // SMTP VRFY/EXPN user enumeration enabled
+	CheckNmapVNCInfo         CheckID = "nmap.vnc_no_auth"            // VNC with no authentication required
+	CheckNmapRDPEncryption   CheckID = "nmap.rdp_weak_encryption"    // RDP weak encryption (NLA disabled)
+	CheckNmapTelnetEncrypt   CheckID = "nmap.telnet_no_encryption"   // Telnet without encryption
+
+	// Nmap — vulnerability detection (surface)
+	CheckNmapSMBSigningOff   CheckID = "nmap.smb_signing_disabled"   // SMB signing not required (relay attacks)
+	CheckNmapHTTPMethods     CheckID = "nmap.http_unsafe_methods"    // Dangerous HTTP methods (PUT/DELETE/TRACE)
+	CheckNmapNTPMonlist      CheckID = "nmap.ntp_monlist"            // NTP monlist DDoS amplification
+
+	// Nmap — vulnerability detection (deep)
+	CheckNmapSMTPOpenRelay   CheckID = "nmap.smtp_open_relay"        // Open mail relay
+	CheckNmapMySQLNoPassword CheckID = "nmap.mysql_no_password"      // MySQL root with no password
+	CheckNmapIPMICipherZero  CheckID = "nmap.ipmi_cipher_zero"       // IPMI cipher 0 auth bypass
+
 	// External intelligence APIs (all optional — keys required)
 	CheckVirusTotalReputation CheckID = "intel.virustotal_reputation"
 	CheckCensysHostData       CheckID = "intel.censys_host"
@@ -709,9 +731,10 @@ const (
 	CheckSwaggerExposed CheckID = "web.swagger_exposed" // OpenAPI/Swagger spec publicly accessible
 
 	// Web3 / blockchain passive detection
-	CheckWeb3WalletLibDetected  CheckID = "web3.wallet_lib_detected"
-	CheckWeb3RPCEndpointExposed CheckID = "web3.rpc_endpoint_exposed"
-	CheckWeb3ContractFound      CheckID = "web3.contract_address_found"
+	CheckWeb3WalletLibDetected   CheckID = "web3.wallet_lib_detected"
+	CheckWeb3RPCEndpointExposed  CheckID = "web3.rpc_endpoint_exposed"
+	CheckWeb3RPCProviderDetected CheckID = "web3.rpc_provider_detected"
+	CheckWeb3ContractFound       CheckID = "web3.contract_address_found"
 
 	// EVM smart contract vulnerability scanning
 	CheckContractReentrancy       CheckID = "contract.reentrancy"         // reentrancy vulnerability detected in contract bytecode
@@ -748,11 +771,15 @@ const (
 	CheckPortRedisVulnerableCVE2025   CheckID = "cve.redis_cve_2025_49844"         // CVE-2025-49844 Redis < 7.2.11/7.4.6/8.0.4/8.2.2 unauthenticated RCE
 	CheckPortBGPExposed               CheckID = "port.bgp_exposed"                 // BGP port 179 accessible — routing infrastructure exposed
 	CheckPortKibanaVulnerable         CheckID = "cve.kibana_cve_2025_25015"        // CVE-2025-25015 Kibana 8.15.0–8.17.2 prototype pollution RCE (CVSS 9.9)
+	CheckPortKibanaExposed            CheckID = "port.kibana_exposed"              // Kibana dashboard accessible without authentication
 	CheckPortMinIODefaultCreds        CheckID = "port.minio_default_credentials"   // MinIO console (port 9001) accepts minioadmin:minioadmin default credentials
 	CheckPortGrafanaDefaultCreds      CheckID = "port.grafana_default_credentials" // Grafana (port 3000) accepts admin:admin default credentials
 	CheckPortSonarQubeDefaultCreds    CheckID = "port.sonarqube_default_credentials" // SonarQube (port 9000) accepts admin:admin default credentials
 	CheckPortAirflowDefaultCreds      CheckID = "port.airflow_default_credentials" // Apache Airflow (port 8080) accepts airflow:airflow default credentials
 	CheckPortTomcatDefaultCreds       CheckID = "port.tomcat_default_credentials"  // Apache Tomcat manager (port 8080) accepts tomcat:tomcat default credentials
+	CheckPortTomcatExposed            CheckID = "port.tomcat_exposed"              // Apache Tomcat default page exposed (port 8080)
+	CheckPortJaegerExposed            CheckID = "port.jaeger_exposed"              // Jaeger distributed tracing UI exposed (port 16686)
+	CheckPortAdminerExposed           CheckID = "port.adminer_exposed"             // Adminer database admin panel exposed (port 8080)
 	CheckPortJenkinsNoAuth            CheckID = "port.jenkins_no_auth"             // Jenkins (port 8080) allows unauthenticated access to script console or job config
 	CheckPortPortainerDefaultCreds    CheckID = "port.portainer_default_credentials" // Portainer (port 9443/9000) initial admin setup still available
 	CheckPortPgAdminDefaultCreds      CheckID = "port.pgadmin_default_credentials" // pgAdmin (port 5050) accepts default admin credentials
@@ -1570,6 +1597,9 @@ const (
 	CheckJSFrameworkDetected   CheckID = "js.framework_detected"    // client-side JS framework and version identified
 	CheckJSFrameworkVulnerable CheckID = "js.framework_vulnerable"  // known CVE in detected JS framework version
 
+	// ── JS Service References ──────────────────────────────────────────
+	CheckJSExternalServiceRef  CheckID = "js.external_service_ref"  // external API/service URL discovered in JS bundle
+
 	// ── Dirbust (expanded) ──────────────────────────────────────────────
 	CheckDirbustTechExtension  CheckID = "dirbust.tech_extension_found" // path found via tech-specific extension probing
 	CheckDirbustRecursive      CheckID = "dirbust.recursive_found"      // path found via recursive directory probing
@@ -2049,6 +2079,28 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNmapFTPAnonymous:   {CheckNmapFTPAnonymous, SeverityHigh, ModeSurface},
 	CheckNmapSSHAlgorithms:  {CheckNmapSSHAlgorithms, SeverityMedium, ModeSurface},
 
+	// nmap — fingerprinting (surface)
+	CheckNmapSMBOSDiscovery:  {CheckNmapSMBOSDiscovery, SeverityInfo, ModeSurface},
+	CheckNmapSSLCertInfo:     {CheckNmapSSLCertInfo, SeverityInfo, ModeSurface},
+	CheckNmapSSLCertExpired:  {CheckNmapSSLCertExpired, SeverityHigh, ModeSurface},
+	CheckNmapHTTPTitle:       {CheckNmapHTTPTitle, SeverityInfo, ModeSurface},
+	CheckNmapHTTPRobots:      {CheckNmapHTTPRobots, SeverityInfo, ModeSurface},
+	CheckNmapNetBIOSInfo:     {CheckNmapNetBIOSInfo, SeverityInfo, ModeSurface},
+	CheckNmapSMTPCommands:    {CheckNmapSMTPCommands, SeverityMedium, ModeSurface},
+	CheckNmapVNCInfo:         {CheckNmapVNCInfo, SeverityHigh, ModeSurface},
+	CheckNmapRDPEncryption:   {CheckNmapRDPEncryption, SeverityMedium, ModeSurface},
+	CheckNmapTelnetEncrypt:   {CheckNmapTelnetEncrypt, SeverityMedium, ModeSurface},
+
+	// nmap — vulnerability detection (surface)
+	CheckNmapSMBSigningOff:   {CheckNmapSMBSigningOff, SeverityHigh, ModeSurface},
+	CheckNmapHTTPMethods:     {CheckNmapHTTPMethods, SeverityMedium, ModeSurface},
+	CheckNmapNTPMonlist:      {CheckNmapNTPMonlist, SeverityHigh, ModeSurface},
+
+	// nmap — vulnerability detection (deep)
+	CheckNmapSMTPOpenRelay:   {CheckNmapSMTPOpenRelay, SeverityCritical, ModeDeep},
+	CheckNmapMySQLNoPassword: {CheckNmapMySQLNoPassword, SeverityCritical, ModeDeep},
+	CheckNmapIPMICipherZero:  {CheckNmapIPMICipherZero, SeverityCritical, ModeDeep},
+
 	// Non-HTTP protocol exposure
 	CheckPortMQTTExposed:    {CheckPortMQTTExposed, SeverityHigh, ModeSurface},
 	CheckPortSIPExposed:     {CheckPortSIPExposed, SeverityMedium, ModeSurface},
@@ -2440,8 +2492,9 @@ var Registry = map[CheckID]CheckMeta{
 
 	// Web3 / blockchain
 	CheckWeb3WalletLibDetected:  {CheckWeb3WalletLibDetected, SeverityInfo, ModeSurface},
-	CheckWeb3RPCEndpointExposed: {CheckWeb3RPCEndpointExposed, SeverityHigh, ModeSurface},
-	CheckWeb3ContractFound:      {CheckWeb3ContractFound, SeverityInfo, ModeSurface},
+	CheckWeb3RPCEndpointExposed:  {CheckWeb3RPCEndpointExposed, SeverityHigh, ModeSurface},
+	CheckWeb3RPCProviderDetected: {CheckWeb3RPCProviderDetected, SeverityInfo, ModeSurface},
+	CheckWeb3ContractFound:       {CheckWeb3ContractFound, SeverityInfo, ModeSurface},
 
 	// EVM smart contract vulnerability scanning
 	CheckContractReentrancy:      {CheckContractReentrancy, SeverityCritical, ModeDeep},
@@ -2808,11 +2861,15 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortRedisVulnerableCVE2025: {CheckPortRedisVulnerableCVE2025, SeverityCritical, ModeSurface},
 	CheckPortBGPExposed:        {CheckPortBGPExposed, SeverityMedium, ModeSurface},
 	CheckPortKibanaVulnerable:  {CheckPortKibanaVulnerable, SeverityCritical, ModeSurface},
+	CheckPortKibanaExposed:     {CheckPortKibanaExposed, SeverityHigh, ModeSurface},
 	CheckPortMinIODefaultCreds:     {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortGrafanaDefaultCreds:   {CheckPortGrafanaDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortSonarQubeDefaultCreds: {CheckPortSonarQubeDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortAirflowDefaultCreds:   {CheckPortAirflowDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortTomcatDefaultCreds:    {CheckPortTomcatDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortTomcatExposed:        {CheckPortTomcatExposed, SeverityMedium, ModeSurface},
+	CheckPortJaegerExposed:        {CheckPortJaegerExposed, SeverityHigh, ModeSurface},
+	CheckPortAdminerExposed:       {CheckPortAdminerExposed, SeverityCritical, ModeSurface},
 	CheckPortJenkinsNoAuth:         {CheckPortJenkinsNoAuth, SeverityCritical, ModeSurface},
 	CheckPortPortainerDefaultCreds: {CheckPortPortainerDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortPgAdminDefaultCreds:   {CheckPortPgAdminDefaultCreds, SeverityCritical, ModeDeep},
@@ -2849,8 +2906,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAccessControlPathTraversalBypass: {CheckAccessControlPathTraversalBypass, SeverityCritical, ModeDeep},
 
 	// API Key in URL / JS — Surface (passive scan of response content)
-	CheckJSAPIKeyInURL:       {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
-	CheckJSAPIKeyInSourceMap: {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
+	CheckJSAPIKeyInURL:        {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
+	CheckJSAPIKeyInSourceMap:  {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
+	CheckJSExternalServiceRef: {CheckJSExternalServiceRef, SeverityInfo, ModeSurface},
 
 	// DigitalOcean Cloud — Deep (requires API token)
 	CheckCloudDOScanError:          {CheckCloudDOScanError, SeverityInfo, ModeDeep},

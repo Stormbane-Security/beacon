@@ -1,0 +1,41 @@
+name: cors-secure-no-finding
+description: >
+  nginx configured with a strict CORS policy that only allows a specific
+  origin. Beacon CORS scanner must NOT flag this as a misconfiguration.
+tags: [cors, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9460:80"]
+    volumes:
+      - ./cors-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9460/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Verify setup: strict CORS returns only the allowed origin
+  - name: setup-correct-origin-allowed
+    type: command
+    expect:
+      command: "curl -s -H 'Origin: https://trusted.example.com' -I http://localhost:9460/ | grep -i 'access-control-allow-origin: https://trusted.example.com'"
+      exit_code: 0
+
+  - name: setup-untrusted-origin-rejected
+    type: command
+    expect:
+      command: "curl -s -H 'Origin: https://evil.com' -I http://localhost:9460/ | grep -ci 'access-control-allow-origin: https://evil.com'"
+      stdout_contains: "0"
+
+  # Scanner must NOT flag strict CORS
+  - name: no-cors-false-positive
+    type: beacon
+    target: localhost:9460
+    args: ["--no-enrich", "--scanners", "cors"]
+    expect:
+      no_check_id: web.cors_misconfiguration
+
+timeout: 3m

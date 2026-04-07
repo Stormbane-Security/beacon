@@ -26,9 +26,9 @@ type Wallet struct {
 	Address    string // checksummed hex, e.g. "0xAbCd..."
 }
 
-// newEphemeralWallet generates a fresh secp256k1 key pair and derives the
+// NewEphemeralWallet generates a fresh secp256k1 key pair and derives the
 // corresponding Ethereum address. Returns an error only on entropy failure.
-func newEphemeralWallet() (*Wallet, error) {
+func NewEphemeralWallet() (*Wallet, error) {
 	priv, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("web3auth: keygen: %w", err)
@@ -82,7 +82,7 @@ func toChecksumAddress(addr string) string {
 //	address — the checksummed Ethereum address
 //	nonce   — server-issued nonce (at least 8 alphanumeric chars per EIP-4361)
 //	uri     — the full URI of the resource (e.g. "https://example.com")
-func buildSIWEMessage(domain, address, nonce, uri string) string {
+func BuildSIWEMessage(domain, address, nonce, uri string) string {
 	issuedAt := time.Now().UTC().Format(time.RFC3339)
 	return fmt.Sprintf(
 		"%s wants you to sign in with your Ethereum account:\n"+
@@ -102,7 +102,7 @@ func buildSIWEMessage(domain, address, nonce, uri string) string {
 //	keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
 //
 // Returns the 65-byte signature as a 0x-prefixed hex string (r+s+v format).
-func (w *Wallet) personalSign(message string) string {
+func (w *Wallet) PersonalSign(message string) string {
 	msgBytes := []byte(message)
 	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(msgBytes))
 	hash := keccak256(append([]byte(prefix), msgBytes...))
@@ -118,7 +118,7 @@ func (w *Wallet) personalSign(message string) string {
 
 // randomNonce returns a random 12-character alphanumeric string suitable for
 // use as a SIWE nonce when the server doesn't provide one.
-func randomNonce() string {
+func RandomNonce() string {
 	b := make([]byte, 9)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)[:12]

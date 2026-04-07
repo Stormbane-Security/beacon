@@ -1,0 +1,28 @@
+name: nmap-mysql-empty-password
+description: >
+  MySQL 8 with empty root password — nmap mysql-empty-password NSE script
+  should detect unauthenticated root access. Requires deep/authorized mode.
+tags: [nmap, mysql, portscan, deep]
+
+services:
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: testdb
+    ports: ["13306:3306"]
+
+ready:
+  cmd: "mysqladmin -h 127.0.0.1 -P 13306 -u root ping 2>/dev/null | grep -q alive"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: nmap-mysql-nopass
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "13306", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: nmap.mysql_empty_password
+
+timeout: 5m

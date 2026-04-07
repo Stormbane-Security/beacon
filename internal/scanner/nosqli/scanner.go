@@ -111,12 +111,21 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, fs...)
 	}
 
-	// Post-exploitation: if any injection was confirmed, attempt data extraction
-	if len(findings) > 0 {
-		injType := "operator_injection"
-		if p, ok := findings[0].Evidence["payload"].(string); ok {
-			injType = p
+	// Post-exploitation: only on confirmed auth bypass or operator injection
+	// findings — $where boolean differential alone is not reliable enough
+	// to justify data extraction attempts.
+	hasConfirmedInjection := false
+	injType := "operator_injection"
+	for _, f := range findings {
+		if p, ok := f.Evidence["payload"].(string); ok {
+			if !strings.Contains(p, "boolean differential") {
+				hasConfirmedInjection = true
+				injType = p
+				break
+			}
 		}
+	}
+	if hasConfirmedInjection {
 		postFindings := postExploit(ctx, client, asset, base, injType)
 		findings = append(findings, postFindings...)
 	}
@@ -316,12 +325,14 @@ func checkDataExfiltration(ctx context.Context, client *http.Client, asset, base
 }
 
 // checkWhereInjection tests for $where operator JavaScript injection.
+// Confirmation requires either MongoDB error strings in the response OR
+// a repeated boolean-based differential proving server-side JS execution.
+// Returns at most ONE finding per asset to avoid result flooding.
 func checkWhereInjection(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
-	var findings []finding.Finding
-
 	allPaths := make([]string, 0, len(loginPaths)+len(dataPaths))
 	allPaths = append(allPaths, loginPaths...)
 	allPaths = append(allPaths, dataPaths...)
+
 	for _, path := range allPaths {
 		if ctx.Err() != nil {
 			break
@@ -329,8 +340,18 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 
 		endpoint := base + path
 
-		// $where with sleep-like JS to test for server-side execution
-		payloads := []struct {
+		// Pre-filter: skip endpoints that return 200 for any POST body.
+		// Catch-all handlers (SPAs, API gateways) produce false differentials.
+		ctrlStatus, ctrlBody := postJSON(ctx, client, endpoint, map[string]any{
+			"beacon_nosqli_control": "probe",
+		})
+		if ctrlStatus == 0 || ctrlStatus == 404 || ctrlStatus == 405 {
+			continue
+		}
+
+		// Phase 1: Error-based detection — send $where with JS and look for
+		// MongoDB error messages that confirm the operator was parsed.
+		errorPayloads := []struct {
 			name string
 			body map[string]any
 		}{
@@ -348,22 +369,19 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 			},
 		}
 
-		for _, p := range payloads {
+		for _, p := range errorPayloads {
 			status, body := postJSON(ctx, client, endpoint, p.body)
 			if status == 0 || status == 404 || status == 405 {
 				continue
 			}
 
-			// Look for MongoDB error messages indicating $where was processed
 			mongoErrors := []string{
-				"MongoError", "MongoServerError", "$where",
-				"SyntaxError", "ReferenceError", "not allowed",
-				"disabled", "sleep is not defined",
+				"MongoError", "MongoServerError",
 			}
 
 			for _, errStr := range mongoErrors {
 				if strings.Contains(body, errStr) {
-					findings = append(findings, finding.Finding{
+					return []finding.Finding{{
 						CheckID:  finding.CheckWebNoSQLi,
 						Module:   "deep",
 						Scanner:  scannerName,
@@ -372,8 +390,7 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 						Description: fmt.Sprintf(
 							"The endpoint %s processed a MongoDB $where operator injection. "+
 								"The response contains MongoDB-specific error messages (%q), confirming "+
-								"that user input is passed directly to MongoDB queries. This can lead to "+
-								"server-side JavaScript execution and data exfiltration.",
+								"that user input is passed directly to MongoDB queries.",
 							endpoint, errStr),
 						Asset:    asset,
 						DeepOnly: true,
@@ -387,43 +404,101 @@ func checkWhereInjection(ctx context.Context, client *http.Client, asset, base s
 							"status":      status,
 						},
 						DiscoveredAt: time.Now(),
-					})
-					goto nextPath
+					}}
 				}
 			}
-
-			// If $where returned 200 with data (not error), that's also bad
-			if status == 200 && len(body) > 50 && strings.Contains(body, "{") {
-				findings = append(findings, finding.Finding{
-					CheckID:  finding.CheckWebNoSQLi,
-					Module:   "deep",
-					Scanner:  scannerName,
-					Severity: finding.SeverityCritical,
-					Title:    fmt.Sprintf("NoSQL $where JavaScript execution at %s", path),
-					Description: fmt.Sprintf(
-						"The endpoint %s accepted a $where operator with JavaScript code and returned "+
-							"data (HTTP 200, %d bytes). This confirms server-side JavaScript execution "+
-							"in MongoDB queries, enabling full database access and potential RCE.",
-						endpoint, len(body)),
-					Asset:    asset,
-					DeepOnly: true,
-					ProofCommand: fmt.Sprintf(
-						`curl -s -X POST -H 'Content-Type: application/json' -d '%s' '%s'`,
-						mustMarshal(p.body), endpoint),
-					Evidence: map[string]any{
-						"endpoint":      endpoint,
-						"payload":       p.name,
-						"status":        status,
-						"response_size": len(body),
-					},
-					DiscoveredAt: time.Now(),
-				})
-				goto nextPath
-			}
 		}
-	nextPath:
+
+		// Phase 2: Boolean-based differential — $where:"1==1" should return
+		// data while $where:"1==0" should return empty/fewer results.
+		// Repeated 3 times to eliminate random variance.
+		if f := confirmBooleanDifferential(ctx, client, asset, endpoint, path, ctrlStatus, ctrlBody); f != nil {
+			return []finding.Finding{*f}
+		}
 	}
-	return findings
+	return nil
+}
+
+// confirmBooleanDifferential sends $where:"1==1" and $where:"1==0" three
+// times each. ALL true-condition responses must be significantly larger
+// than ALL false-condition responses, AND the control request (no $where)
+// must be a different size than the true-condition response. This eliminates
+// catch-all endpoints that return the same response for any body.
+func confirmBooleanDifferential(ctx context.Context, client *http.Client, asset, endpoint, path string, ctrlStatus int, ctrlBody string) *finding.Finding {
+	const rounds = 3
+
+	var trueSizes, falseSizes [rounds]int
+
+	for i := 0; i < rounds; i++ {
+		if ctx.Err() != nil {
+			return nil
+		}
+		trueStatus, trueBody := postJSON(ctx, client, endpoint, map[string]any{
+			"$where": "1==1",
+		})
+		if trueStatus != 200 {
+			return nil
+		}
+		trueSizes[i] = len(trueBody)
+
+		falseStatus, falseBody := postJSON(ctx, client, endpoint, map[string]any{
+			"$where": "1==0",
+		})
+		if falseStatus != 200 {
+			return nil
+		}
+		falseSizes[i] = len(falseBody)
+	}
+
+	// All true responses must be > 100 bytes (real data, not error stubs).
+	// All false responses must be < 1/3 of the corresponding true response.
+	for i := 0; i < rounds; i++ {
+		if trueSizes[i] < 100 {
+			return nil
+		}
+		if falseSizes[i] >= trueSizes[i]/3 {
+			return nil
+		}
+	}
+
+	// Control check: the control request (random body, no $where) must NOT
+	// produce a response similar to the true-condition. If it does, the
+	// endpoint returns the same data regardless of body content.
+	if ctrlStatus == 200 {
+		// If control body is within 2x of true body, it's a catch-all.
+		avgTrue := (trueSizes[0] + trueSizes[1] + trueSizes[2]) / 3
+		if len(ctrlBody) > avgTrue/2 {
+			return nil
+		}
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckWebNoSQLi,
+		Module:   "deep",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("NoSQL $where JavaScript execution at %s", path),
+		Description: fmt.Sprintf(
+			"The endpoint %s executes MongoDB $where JavaScript. Boolean differential "+
+				"confirmed over %d rounds: $where:\"1==1\" returned ~%d bytes, "+
+				"$where:\"1==0\" returned ~%d bytes. "+
+				"This enables full database access and potential RCE.",
+			endpoint, rounds, trueSizes[0], falseSizes[0]),
+		Asset:    asset,
+		DeepOnly: true,
+		ProofCommand: fmt.Sprintf(
+			`curl -s -X POST -H 'Content-Type: application/json' -d '{"$where":"1==1"}' '%s'`,
+			endpoint),
+		Evidence: map[string]any{
+			"endpoint":    endpoint,
+			"payload":     "$where boolean differential",
+			"true_bytes":  []int{trueSizes[0], trueSizes[1], trueSizes[2]},
+			"false_bytes": []int{falseSizes[0], falseSizes[1], falseSizes[2]},
+			"ctrl_bytes":  len(ctrlBody),
+			"rounds":      rounds,
+		},
+		DiscoveredAt: time.Now(),
+	}
 }
 
 // postJSON sends a JSON POST request and returns status + body string.

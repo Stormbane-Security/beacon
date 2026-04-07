@@ -1,0 +1,33 @@
+name: hostheader-secure-no-finding
+description: >
+  nginx that validates the Host header and rejects unknown hosts (444).
+  Beacon host header injection scanner must NOT flag properly validated hosts.
+tags: [hostheader, scanner, negative, false-positive]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9467:80"]
+    volumes:
+      - ./hostheader-negative/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9467/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: setup-valid-host-works
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -H 'Host: localhost' http://localhost:9467/"
+      stdout_contains: "200"
+
+  - name: no-hostheader-false-positive
+    type: beacon
+    target: localhost:9467
+    args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--permission-confirmed"]
+    expect:
+      no_check_id: web.host_header_injection
+
+timeout: 3m

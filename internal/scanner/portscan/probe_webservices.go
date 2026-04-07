@@ -178,6 +178,24 @@ func init() {
 		DefaultPorts: []int{8500, 8888},
 		Detect:       detectColdFusion,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "jaeger",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{16686},
+		Detect:       detectJaeger,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "adminer",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080},
+		Detect:       detectAdminer,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "tomcat",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 8443},
+		Detect:       detectTomcat,
+	})
 }
 
 func detectJupyter(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -196,8 +214,10 @@ func detectJupyter(ctx context.Context, host string, port int, banner string, ma
 }
 
 func detectPrometheus(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeHTTP(ctx, host, port, false, "/api/v1/targets")
-	if !unauth {
+	// Prometheus /api/v1/targets returns JSON with "status":"success" and "activeTargets".
+	// Reject HTML responses (SPAs return 200 with HTML for any path).
+	body, ok := probeHTTPBody(ctx, host, port, false, "/api/v1/targets")
+	if !ok || !strings.Contains(body, "activeTargets") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -222,8 +242,20 @@ func detectKibana(ctx context.Context, host string, port int, banner string, mak
 		return nil
 	}
 	ev["kibana_version"] = kibanaVer
+	var findings []finding.Finding
+	// Always emit exposed dashboard finding — Kibana should never be public.
+	findings = append(findings, makeF(
+		finding.CheckPortKibanaExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Kibana %s dashboard exposed on port %d", kibanaVer, port),
+		fmt.Sprintf("A Kibana %s dashboard is publicly accessible without authentication. "+
+			"Kibana provides full access to Elasticsearch data, saved searches, dashboards, and Dev Tools console. "+
+			"Restrict access with authentication (X-Pack Security or a reverse proxy) and network-level controls.",
+			kibanaVer),
+		ev,
+	))
 	if isVulnerableKibana(kibanaVer) {
-		return []finding.Finding{makeF(
+		findings = append(findings, makeF(
 			finding.CheckPortKibanaVulnerable,
 			finding.SeverityCritical,
 			fmt.Sprintf("Kibana %s is vulnerable to CVE-2025-25015 (prototype pollution RCE)", kibanaVer),
@@ -232,9 +264,9 @@ func detectKibana(ctx context.Context, host string, port int, banner string, mak
 				"Upgrade to Kibana 8.17.3 or later immediately. "+
 				"Kibana should also not be directly internet-accessible.",
 			ev,
-		)}
+		))
 	}
-	return nil
+	return findings
 }
 
 func detectMinIOConsole(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -328,7 +360,13 @@ func detectEtcd(ctx context.Context, host string, port int, banner string, makeF
 }
 
 func detectWebmin(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	if !probeHTTP(ctx, host, port, true, "/session_login.cgi") {
+	// Webmin login page contains form with action="/session_login.cgi" and "Webmin" branding.
+	body, ok := probeHTTPBody(ctx, host, port, true, "/session_login.cgi")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	if !strings.Contains(bodyLow, "webmin") && !strings.Contains(bodyLow, "session_login") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -446,7 +484,8 @@ func detectWebLogic(ctx context.Context, host string, port int, banner string, m
 		return nil
 	}
 	lb := strings.ToLower(body)
-	if !strings.Contains(lb, "weblogic") && !strings.Contains(lb, "oracle") {
+	// Require "weblogic" specifically — "oracle" alone matches database admin tools like Adminer.
+	if !strings.Contains(lb, "weblogic") {
 		return nil
 	}
 	return []finding.Finding{makeF(
@@ -677,7 +716,9 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 }
 
 func detectViteDev(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	if !probeHTTP(ctx, host, port, false, "/__vite_ping") {
+	// Vite's /__vite_ping returns a tiny non-HTML response. SPAs return HTML for any path.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/__vite_ping")
+	if !ok || strings.HasPrefix(strings.TrimSpace(body), "<") {
 		return nil
 	}
 	now := time.Now()
@@ -999,7 +1040,8 @@ func detectColdFusion(ctx context.Context, host string, port int, banner string,
 			continue
 		}
 		lb := strings.ToLower(body)
-		if strings.Contains(lb, "lucee") || strings.Contains(lb, "password") && strings.Contains(lb, "login") {
+		// Require "lucee" specifically — "password" + "login" matches any login page.
+		if strings.Contains(lb, "lucee") {
 			ev["service"] = "lucee"
 			return []finding.Finding{makeF(
 				finding.CheckPortColdFusionAdminExposed,
@@ -1022,8 +1064,27 @@ func detectApacheTika(ctx context.Context, host string, port int, banner string,
 	if !ok {
 		return nil
 	}
+	// Tika /version returns plain-text like "Apache Tika 1.17" or just "1.17".
+	// Many other services expose /version as JSON or HTML — reject those.
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "{") ||
+		strings.HasPrefix(trimmed, "[") || len(trimmed) > 100 {
+		return nil
+	}
+	// Positive match: must contain "tika" or look like a bare semver (digits and dots only).
+	lowerTrimmed := strings.ToLower(trimmed)
+	isTika := strings.Contains(lowerTrimmed, "tika")
+	if !isTika {
+		// Check for bare semver like "1.17" or "2.9.1" — no spaces, no letters except dots.
+		clean := strings.ReplaceAll(trimmed, ".", "")
+		for _, c := range clean {
+			if c < '0' || c > '9' {
+				return nil // Contains non-digit/dot characters — not a Tika version
+			}
+		}
+	}
 	ev := map[string]any{"port": port, "service": "tika", "banner": banner}
-	tikaVer := strings.TrimSpace(body)
+	tikaVer := trimmed
 	if strings.HasPrefix(strings.ToLower(tikaVer), "apache tika ") {
 		tikaVer = tikaVer[len("apache tika "):]
 	}
@@ -1049,6 +1110,86 @@ func detectApacheTika(ctx context.Context, host string, port int, banner string,
 		"An Apache Tika Server REST API is internet-accessible without authentication. "+
 			"Tika Server is a document parsing service not designed for direct internet exposure. "+
 			"Verify the version is ≥ 1.18 (CVE-2018-1335 command injection) and restrict to internal networks.",
+		ev,
+	)}
+}
+
+func detectJaeger(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Jaeger /api/services returns JSON with service list.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/api/services")
+	if !ok {
+		return nil
+	}
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "{") || !strings.Contains(body, "data") {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortJaegerExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Jaeger distributed tracing UI exposed without authentication on port %d", port),
+		"Jaeger distributed tracing is publicly accessible without authentication. "+
+			"Trace data reveals internal service architecture, request/response payloads, "+
+			"error messages with stack traces, and HTTP headers which may contain auth tokens. "+
+			"Restrict to internal networks and enable authentication.",
+		map[string]any{"port": port, "service": "jaeger", "banner": banner},
+	)}
+}
+
+func detectAdminer(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, false, "/")
+	if !ok {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(body), "adminer") {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortAdminerExposed,
+		finding.SeverityCritical,
+		fmt.Sprintf("Adminer database admin panel exposed on port %d", port),
+		"Adminer is a full-featured PHP database management tool accessible without authentication. "+
+			"It supports MySQL, PostgreSQL, SQLite, MSSQL, Oracle, and other databases. "+
+			"CVE-2021-21311 (Adminer < 4.7.9) allows SSRF to exfiltrate MySQL credentials. "+
+			"Adminer should never be publicly accessible.",
+		map[string]any{"port": port, "service": "adminer", "banner": banner},
+	)}
+}
+
+func detectTomcat(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Tomcat may return 200 (default webapp) or 404 (no default webapp) on root.
+	// Both responses contain "Apache Tomcat" in the body. Use probeHTTPAny to
+	// get the body regardless of status code.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/")
+	if !ok {
+		// Try non-existent path — Tomcat's 404 page has "Apache Tomcat/VERSION".
+		body, ok = probeHTTPAnyBody(ctx, host, port, false, "/nonexistent-beacon-probe")
+		if !ok {
+			return nil
+		}
+	}
+	lb := strings.ToLower(body)
+	if !strings.Contains(lb, "tomcat") && !strings.Contains(lb, "apache-coyote") {
+		return nil
+	}
+	ev := map[string]any{"port": port, "service": "tomcat", "banner": banner}
+	// Extract version from "Apache Tomcat/9.0.117" pattern.
+	if idx := strings.Index(body, "Apache Tomcat/"); idx >= 0 {
+		snippet := body[idx+len("Apache Tomcat/"):]
+		if end := strings.IndexAny(snippet, "<\" \n\r"); end > 0 {
+			ver := snippet[:end]
+			ev["tomcat_version"] = ver
+			ev["version"] = ver
+			ev["product"] = "Apache Tomcat " + ver
+		}
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortTomcatExposed,
+		finding.SeverityMedium,
+		fmt.Sprintf("Apache Tomcat exposed on port %d", port),
+		"An Apache Tomcat server is publicly accessible. If the Manager application "+
+			"is enabled with default credentials (tomcat:tomcat), attackers can deploy "+
+			"malicious WAR files for remote code execution.",
 		ev,
 	)}
 }

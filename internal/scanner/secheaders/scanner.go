@@ -196,6 +196,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 }
 
 // fetchHeaders tries HTTPS then HTTP and returns the response headers.
+// Returns nil headers for 5xx responses — checking security headers on
+// a proxy error page is meaningless since the application isn't serving.
 func fetchHeaders(ctx context.Context, client *http.Client, asset string) (scheme string, headers http.Header, err error) {
 	for _, s := range []string{"https", "http"} {
 		url := s + "://" + asset + "/"
@@ -210,6 +212,9 @@ func fetchHeaders(ctx context.Context, client *http.Client, asset string) (schem
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024)) //nolint:errcheck
 		_ = resp.Body.Close()
+		if resp.StatusCode >= 500 {
+			return "", nil, nil
+		}
 		return s, resp.Header, nil
 	}
 	return "", nil, err

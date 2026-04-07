@@ -220,6 +220,9 @@ var extendedPorts = []portEntry{
 	{8843, "unifi-portal-tls", false},   // Ubiquiti UniFi HTTPS guest captive portal
 	{4343, "aruba-instant", false},      // Aruba Instant Access Point HTTPS management
 	{8043, "omada-alt", false},          // TP-Link Omada controller (alternate port)
+	// ── CI/CD & Container Management ────────────────────────────────────────
+	{8111, "teamcity", false},           // JetBrains TeamCity server — CVE-2023-42793 pre-auth admin token (CVSS 9.8, KEV)
+	{9443, "portainer", false},          // Portainer CE/EE container management UI (HTTPS default)
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -316,62 +319,87 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	var wg sync.WaitGroup
 
 	for _, entry := range ports {
-		// Stagger goroutine launches before starting each one. Placing the delay
-		// here (not inside the goroutine) ensures SYN packets are spread across
-		// time even when multiple semaphore slots are available simultaneously.
-		// At 50 ms per port with 30 ports this adds ~1.5 s overhead — acceptable
-		// for a scan that would otherwise fire 30 near-simultaneous SYNs.
-		select {
-		case <-ctx.Done():
-			goto collectResults
-		case <-time.After(interConnectDelay):
-		}
-
 		wg.Add(1)
 		go func(e portEntry) {
 			defer wg.Done()
-			sem <- struct{}{}
+
+			// Acquire semaphore with context cancellation support.
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-sem }()
+
+			// Stagger SYN packets inside the goroutine to spread connects
+			// across time even when multiple semaphore slots are available.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(interConnectDelay):
+			}
 
 			open, banner := probePort(ctx, asset, e.port)
 			results <- result{entry: e, open: open, banner: banner}
 		}(entry)
 	}
 
-collectResults:
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	var findings []finding.Finding
-	openPorts := make(map[int]string)
+	// Collect port scan results, then probe open ports in parallel.
+	type openPort struct {
+		entry  portEntry
+		banner string
+	}
+	var open []openPort
 	totalScanned := 0
 	for r := range results {
 		totalScanned++
-		if !r.open {
-			continue
+		if r.open {
+			open = append(open, openPort{entry: r.entry, banner: r.banner})
 		}
-		openPorts[r.entry.port] = r.entry.service
-		fs := buildFindings(ctx, asset, r.entry, r.banner)
-		findings = append(findings, fs...)
-		// Update service name from probe-identified findings. When --ports
-		// is used, the initial portEntry has service="unknown". The probe
-		// registry identifies the actual service (e.g. "redis") and stores
-		// it in the service_identified finding's evidence. Use that for
-		// accurate post-exploit module routing.
-		for _, f := range fs {
-			if f.CheckID == finding.CheckPortServiceIdentified {
-				if svc, ok := f.Evidence["service"].(string); ok && svc != "" {
-					openPorts[r.entry.port] = svc
+	}
+
+	// Probe open ports concurrently — each port's probes run independently.
+	type probeResult struct {
+		port     int
+		service  string
+		findings []finding.Finding
+	}
+	probeCh := make(chan probeResult, len(open))
+	var probeWg sync.WaitGroup
+	for _, op := range open {
+		probeWg.Add(1)
+		go func(o openPort) {
+			defer probeWg.Done()
+			fs := buildFindings(ctx, asset, o.entry, o.banner)
+			svc := o.entry.service
+			for _, f := range fs {
+				if f.CheckID == finding.CheckPortServiceIdentified {
+					if s, ok := f.Evidence["service"].(string); ok && s != "" {
+						svc = s
+					}
 				}
 			}
-		}
-		// Emit a service-discovered hint for web-like services on non-standard ports.
-		// The surface module picks these up to schedule a full per-port classify pass.
-		if hint := EmitPortServiceDiscovered(asset, r.entry.port, r.entry.service, r.banner); hint != nil {
-			findings = append(findings, *hint)
-		}
+			if hint := EmitPortServiceDiscovered(asset, o.entry.port, o.entry.service, o.banner); hint != nil {
+				fs = append(fs, *hint)
+			}
+			probeCh <- probeResult{port: o.entry.port, service: svc, findings: fs}
+		}(op)
+	}
+	go func() {
+		probeWg.Wait()
+		close(probeCh)
+	}()
+
+	var findings []finding.Finding
+	openPorts := make(map[int]string)
+	for pr := range probeCh {
+		openPorts[pr.port] = pr.service
+		findings = append(findings, pr.findings...)
 	}
 
 	// Transparent proxy / honeypot detection: if 80%+ of scanned ports
@@ -427,15 +455,18 @@ collectResults:
 	// Run nmap against confirmed open ports for service version + NSE scripts.
 	// Nmap results supplement (not replace) the pure-Go scan findings — Go TCP
 	// findings are always emitted regardless of whether nmap is available.
-	if nmapFs := s.runNmap(ctx, asset, openPorts, scanType); len(nmapFs) > 0 {
-		findings = append(findings, nmapFs...)
+	// Skip nmap when using explicit --ports (targeted scan mode) — the caller
+	// wants fast results on specific ports, not a full nmap fingerprint pass.
+	if len(s.Ports) == 0 {
+		if nmapFs := s.runNmap(ctx, asset, openPorts, scanType); len(nmapFs) > 0 {
+			findings = append(findings, nmapFs...)
+		}
 	}
 
 	// Run UDP probes for services not reachable via TCP connect.
 	// Deep mode runs all UDP probes; surface mode runs the basic set only.
-	// Pass explicit ports so UDP probes can also try non-standard ports
-	// (e.g. DNS on 5353 instead of just 53).
-	if ctx.Err() == nil {
+	// Skip when using explicit --ports (targeted TCP scan mode).
+	if ctx.Err() == nil && len(s.Ports) == 0 {
 		udpExtra := append([]int{}, s.Ports...)
 		if targetPort > 0 {
 			udpExtra = append(udpExtra, targetPort)
@@ -683,6 +714,38 @@ func looksLikeHTTP(banner string) bool {
 	return false
 }
 
+// quickHTTPCheck sends a HEAD request to http://host:port/ to determine if
+// the service speaks HTTP. Used by runProbes when no banner was received: HTTP
+// servers don't send data until a request arrives, so the passive banner grab
+// returns empty. One quick HTTP check (~3s) avoids running ~35 protocol probes
+// serially (~175s of timeouts) against an HTTP service.
+func quickHTTPCheck(ctx context.Context, host string, port int) bool {
+	url := fmt.Sprintf("http://%s:%d/", host, port)
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   dialTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	// Any valid HTTP response (even 4xx/5xx) means the service speaks HTTP.
+	return true
+}
+
 // ── Service-specific probes ───────────────────────────────────────────────────
 
 // probeRedis sends a Redis PING command, checks for +PONG, then queries
@@ -820,6 +883,43 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 	return string(b), true
 }
 
+// probeHTTPAnyBody is like probeHTTPBody but returns the body for any status
+// code (not just 200). Used for services like Tomcat that reveal their identity
+// in 404 error pages.
+func probeHTTPAnyBody(ctx context.Context, host string, port int, useTLS bool, path string) (string, bool) {
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", true
+	}
+	return string(b), true
+}
+
 func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path string) bool {
 	scheme := "http"
 	if useTLS {
@@ -942,12 +1042,10 @@ func probeJupyter(ctx context.Context, host string, port int) bool {
 	return strings.Contains(strings.ToLower(string(body)), "jupyter")
 }
 
-// probeMongoDB sends the MongoDB OP_MSG "hello" wire-protocol message and
-// checks that the response starts with a valid MongoDB wire-protocol header.
-//
-// Wire format: MsgHeader (16 bytes) + OP_MSG body.
-// We send a minimal isMaster/hello request and check whether the response
-// carries a BSON document with { ok: 1 }.
+// probeMongoDB checks for unauthenticated MongoDB access by sending a
+// listDatabases command via OP_MSG wire protocol. This correctly returns
+// false on auth-enabled MongoDB (which rejects listDatabases without creds)
+// and true only on genuinely unauthenticated instances.
 func probeMongoDB(ctx context.Context, host string, port int) bool {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	dialer := &net.Dialer{Timeout: dialTimeout}
@@ -958,26 +1056,51 @@ func probeMongoDB(ctx context.Context, host string, port int) bool {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 
-	// Build a minimal OP_MSG hello.
-	// BSON document: { isMaster: 1 }
-	// Encoding: int32 len + elements + 0x00 terminator
-	//   "\x13\x00\x00\x00"               -- doc len = 19
-	//   "\x10"                            -- type int32
-	//   "isMaster\x00"                   -- key
-	//   "\x01\x00\x00\x00"               -- value 1
-	//   "\x00"                            -- terminator
-	bsonDoc := []byte{
+	const opMsg uint32 = 2013
+
+	// Step 1: Send isMaster to confirm it's MongoDB.
+	isMasterBSON := []byte{
 		0x13, 0x00, 0x00, 0x00, // document length = 19
-		0x10,                                           // type: int32
+		0x10,                                                     // type: int32
 		0x69, 0x73, 0x4d, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00, // "isMaster\0"
 		0x01, 0x00, 0x00, 0x00, // value: 1
 		0x00, // terminator
 	}
+	if !sendMongoOPMsg(conn, opMsg, 1, isMasterBSON) {
+		return false
+	}
+	respCode, _ := readMongoOPMsgResponse(conn, opMsg)
+	if respCode == 0 {
+		return false
+	}
 
-	// OP_MSG header + flagBits (0) + section kind 0 + BSON body
-	// MsgHeader: messageLength(4) requestID(4) responseTo(4) opCode(4)
-	// OP_MSG opCode = 2013 (0x07DD)
-	const opMsg = 2013
+	// Step 2: Send listDatabases to verify unauthenticated access.
+	// BSON: {listDatabases: 1, $db: "admin"}
+	listDBBSON := []byte{
+		0x27, 0x00, 0x00, 0x00, // document length = 39
+		0x10,                                                                                           // type: int32
+		0x6c, 0x69, 0x73, 0x74, 0x44, 0x61, 0x74, 0x61, 0x62, 0x61, 0x73, 0x65, 0x73, 0x00, // "listDatabases\0"
+		0x01, 0x00, 0x00, 0x00, // value: 1
+		0x02,                   // type: string
+		0x24, 0x64, 0x62, 0x00, // "$db\0"
+		0x06, 0x00, 0x00, 0x00, // string length = 6
+		0x61, 0x64, 0x6d, 0x69, 0x6e, 0x00, // "admin\0"
+		0x00, // terminator
+	}
+	if !sendMongoOPMsg(conn, opMsg, 2, listDBBSON) {
+		return false
+	}
+	_, respBody := readMongoOPMsgResponse(conn, opMsg)
+
+	// Check if response contains BSON ok: 1.0 (type double).
+	// BSON double "ok" with value 1.0:
+	//   \x01 "ok\0" \x00\x00\x00\x00\x00\x00\xF0\x3F
+	okPattern := []byte{0x01, 0x6f, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f}
+	return bytes.Contains(respBody, okPattern)
+}
+
+// sendMongoOPMsg builds and sends an OP_MSG wire protocol message.
+func sendMongoOPMsg(conn net.Conn, opCode uint32, reqID uint32, bsonDoc []byte) bool {
 	flagBits := []byte{0x00, 0x00, 0x00, 0x00}
 	sectionKind := []byte{0x00} // kind 0 = body
 
@@ -987,23 +1110,37 @@ func probeMongoDB(ctx context.Context, host string, port int) bool {
 	headerLen := 16 + len(body)
 	header := make([]byte, 16)
 	binary.LittleEndian.PutUint32(header[0:4], uint32(headerLen))
-	binary.LittleEndian.PutUint32(header[4:8], 1)    // requestID
-	binary.LittleEndian.PutUint32(header[8:12], 0)   // responseTo
-	binary.LittleEndian.PutUint32(header[12:16], opMsg)
+	binary.LittleEndian.PutUint32(header[4:8], reqID)
+	binary.LittleEndian.PutUint32(header[8:12], 0)
+	binary.LittleEndian.PutUint32(header[12:16], opCode)
 
 	msg := append(header, body...)
-	if _, err := conn.Write(msg); err != nil {
-		return false
-	}
+	_, err := conn.Write(msg)
+	return err == nil
+}
 
-	// Read the 16-byte response header and check opCode is OP_MSG (2013).
+// readMongoOPMsgResponse reads a MongoDB OP_MSG response. Returns the opCode
+// and the BSON body (everything after the 16-byte header + 4 flagBits + 1 sectionKind).
+func readMongoOPMsgResponse(conn net.Conn, expectedOp uint32) (uint32, []byte) {
 	respHeader := make([]byte, 16)
 	if _, err := io.ReadFull(conn, respHeader); err != nil {
-		return false
+		return 0, nil
 	}
+	respLen := binary.LittleEndian.Uint32(respHeader[0:4])
 	respOpCode := binary.LittleEndian.Uint32(respHeader[12:16])
-	// A valid MongoDB response returns OP_MSG (2013) or the legacy OP_REPLY (1).
-	return respOpCode == opMsg || respOpCode == 1
+	if respOpCode != expectedOp && respOpCode != 1 {
+		return 0, nil
+	}
+	// Read the rest of the message (respLen includes the 16-byte header).
+	bodyLen := int(respLen) - 16
+	if bodyLen <= 0 || bodyLen > 1<<20 {
+		return respOpCode, nil
+	}
+	body := make([]byte, bodyLen)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return respOpCode, nil
+	}
+	return respOpCode, body
 }
 
 // probeMQTT sends a minimal MQTT CONNECT packet and checks for a CONNACK response.
@@ -1385,17 +1522,25 @@ func parseFTPVersion(banner string) string {
 // occurrence of "key":"value" and returns the value string. It avoids a full
 // json.Unmarshal to stay allocation-light for the common hot path.
 func parseJSONStringField(body, key string) string {
+	// Try compact format: "key":"value"
 	needle := `"` + key + `":"`
 	idx := strings.Index(body, needle)
-	if idx < 0 {
-		return ""
+	if idx >= 0 {
+		rest := body[idx+len(needle):]
+		if end := strings.IndexByte(rest, '"'); end >= 0 {
+			return rest[:end]
+		}
 	}
-	rest := body[idx+len(needle):]
-	end := strings.IndexByte(rest, '"')
-	if end < 0 {
-		return ""
+	// Try pretty-printed format: "key" : "value" (with spaces around colon)
+	needle = `"` + key + `" : "`
+	idx = strings.Index(body, needle)
+	if idx >= 0 {
+		rest := body[idx+len(needle):]
+		if end := strings.IndexByte(rest, '"'); end >= 0 {
+			return rest[:end]
+		}
 	}
-	return rest[:end]
+	return ""
 }
 
 // isElasticsearchGroovyVulnerable returns true when the Elasticsearch version is
@@ -1425,6 +1570,12 @@ func probeK8sVersion(ctx context.Context, host string, port int) string {
 		if !ok {
 			return ""
 		}
+	}
+	// K8s /version returns JSON like {"major":"1","minor":"28","gitVersion":"v1.28.2",...}.
+	// Reject HTML responses (SPAs embed JS that may contain "gitVersion" as a string).
+	trimmed := strings.TrimSpace(body)
+	if strings.HasPrefix(trimmed, "<") || !strings.HasPrefix(trimmed, "{") {
+		return ""
 	}
 	ver := parseJSONStringField(body, "gitVersion")
 	return strings.TrimPrefix(ver, "v")
@@ -1567,9 +1718,14 @@ func probeMinIODefaultCreds(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = resp.Body.Close() }()
-	// 200 with a session token means credentials were accepted.
-	if resp.StatusCode != http.StatusOK {
+	// 200 or 204 means credentials were accepted. MinIO Console returns 204
+	// with a session cookie on successful login.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return false
+	}
+	if resp.StatusCode == http.StatusNoContent {
+		// MinIO Console returns 204 with cookies — login succeeded.
+		return true
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	var loginResp struct {
@@ -2482,6 +2638,40 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 	return false
 }
 
+// probeMySQLVersion connects and reads the MySQL greeting to extract the server version string.
+// Returns the version (e.g. "8.0.36") or "" if it can't be determined.
+// This is a lightweight read-only probe — it does NOT attempt authentication.
+func probeMySQLVersion(ctx context.Context, host string, port int) string {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return ""
+	}
+	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
+	if pktLen < 2 || pktLen > (1<<24) {
+		return ""
+	}
+	greeting := make([]byte, pktLen)
+	if _, err := io.ReadFull(conn, greeting); err != nil {
+		return ""
+	}
+	// Protocol version 0x0a followed by NUL-terminated version string
+	if greeting[0] != 0x0a && greeting[0] != 0x09 {
+		return ""
+	}
+	if nul := bytes.IndexByte(greeting[1:], 0); nul > 0 {
+		return string(greeting[1 : 1+nul])
+	}
+	return ""
+}
+
 // probePostgreSQL attempts a PostgreSQL startup handshake as user "postgres" with no password.
 // Returns true if the server responds with AuthenticationOk (message type 'R' + int32(0)),
 // indicating trust authentication is configured for remote connections.
@@ -3016,8 +3206,30 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode == 401 || resp.StatusCode == 200 || resp.StatusCode == 415
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+	_ = resp.Body.Close()
+	// WinRM 401 responses include WWW-Authenticate with Negotiate/NTLM/Kerberos.
+	if resp.StatusCode == 401 {
+		authHeader := resp.Header.Get("WWW-Authenticate")
+		return strings.Contains(authHeader, "Negotiate") || strings.Contains(authHeader, "NTLM") ||
+			strings.Contains(authHeader, "Kerberos")
+	}
+	// WinRM 415 (Unsupported Media Type) is characteristic — web apps rarely return this.
+	if resp.StatusCode == 415 {
+		return true
+	}
+	// WinRM 200 returns SOAP/XML, not HTML. Check Content-Type and body structure.
+	bodyStr := string(body)
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "soap") || strings.Contains(ct, "xml") {
+		return true
+	}
+	// Reject HTML responses — web apps return HTML for any path.
+	trimmed := strings.TrimSpace(bodyStr)
+	if strings.HasPrefix(trimmed, "<!") || strings.HasPrefix(strings.ToLower(trimmed), "<html") {
+		return false
+	}
+	return strings.Contains(bodyStr, "schemas.dmtf.org") || strings.Contains(bodyStr, "xmlsoap.org")
 }
 
 // probeZooKeeper sends "ruok" and checks for "imok".
@@ -3218,6 +3430,10 @@ func probeJetDirect(ctx context.Context, host string, port int) bool {
 	buf := make([]byte, 256)
 	n, _ := conn.Read(buf)
 	resp := string(buf[:n])
+	// Exclude Redis/other services that echo back our probe in error messages.
+	if strings.Contains(resp, "-ERR") || strings.Contains(resp, "unknown command") {
+		return false
+	}
 	return strings.Contains(resp, "@PJL") || strings.Contains(resp, "INFO ID")
 }
 

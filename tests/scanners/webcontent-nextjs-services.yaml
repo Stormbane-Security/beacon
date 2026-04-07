@@ -1,0 +1,106 @@
+name: webcontent-nextjs-service-refs
+description: >
+  Simulated Next.js application with build manifest and lazy-loaded page chunks
+  containing references to external services (Stripe, Helius RPC, Auth0,
+  Supabase, Sentry, Segment, SendGrid). Tests both the Next.js chunk discovery
+  pipeline and the external service reference extraction.
+tags: [webcontent, scanner, web, nextjs, services]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["9291:80"]
+    volumes:
+      - ./webcontent-nextjs-services/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9291/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ── Infrastructure: verify the test app is set up correctly ──────────────
+
+  - name: exploit-nextjs-build-id-present
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9291/ | grep -q 'test-build-abc123'"
+      exit_code: 0
+
+  - name: exploit-manifest-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9291/_next/static/test-build-abc123/_buildManifest.js | grep -q 'dashboard'"
+      exit_code: 0
+
+  - name: exploit-helius-rpc-in-chunk
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9291/_next/static/chunks/pages/dashboard-5e6f7a8b.js | grep -q 'helius-rpc.com'"
+      exit_code: 0
+
+  - name: exploit-stripe-in-main
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9291/_next/static/chunks/main-aabb1122.js | grep -q 'api.stripe.com'"
+      exit_code: 0
+
+  # ── Beacon detection: service references found in JS chunks ──────────────
+
+  - name: detects-stripe-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "Stripe"
+
+  - name: detects-sentry-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "Sentry"
+
+  - name: detects-helius-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "Helius"
+
+  - name: detects-auth0-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "Auth0"
+
+  - name: detects-supabase-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "Supabase"
+
+  - name: detects-segment-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "Segment"
+
+  - name: detects-sendgrid-service-ref
+    type: beacon
+    target: localhost:9291
+    args: ["--no-enrich", "--scanners", "webcontent"]
+    expect:
+      check_id: js.external_service_ref
+      evidence_contains: "SendGrid"
+
+timeout: 5m

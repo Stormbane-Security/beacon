@@ -111,7 +111,7 @@ assertions:
   - name: beacon-authorized-exploitation
     type: beacon
     target: localhost:9350
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9350", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9350", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expectations:
       # Step 1: Datasource enumeration — discovers PostgreSQL backend
       - check_id: exploit.datasource_exposed

@@ -25,6 +25,7 @@ func init() {
 	},
 		scan.Check(finding.CheckWeb3ContractFound, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWeb3RPCEndpointExposed, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckWeb3RPCProviderDetected, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWeb3WalletLibDetected, finding.SeverityInfo, finding.ModeSurface),
 	)
 }
@@ -64,9 +65,16 @@ var walletLibNames = []string{
 // word boundaries, to avoid matching partial hashes in comments.
 var evmAddressRe = regexp.MustCompile(`\b0x[0-9a-fA-F]{40}\b`)
 
-// rpcEndpointRe matches well-known RPC provider hostnames.
+// rpcEndpointRe matches well-known RPC provider endpoint URLs with API key paths.
+// Requires /v{digit}/ path segment, which real endpoints always have
+// (e.g. /v3/apikey). Marketing pages like www.alchemy.com don't match.
 var rpcEndpointRe = regexp.MustCompile(
-	`https://[a-z0-9.\-]+(\.infura\.io|\.alchemyapi\.io|\.ankr\.com|\.quicknode\.io|\.alchemy\.com)[^\s"'<>]*`)
+	`https://[a-z0-9.\-]+(\.infura\.io|\.alchemyapi\.io|\.ankr\.com|\.quicknode\.io|\.alchemy\.com)/v\d/[^\s"'<>]+`)
+
+// rpcProviderRe matches any reference to known RPC provider domains (including
+// marketing/docs links). Used for informational web3 infrastructure detection.
+var rpcProviderRe = regexp.MustCompile(
+	`https?://[a-z0-9.\-]*(infura\.io|alchemyapi\.io|ankr\.com|quicknode\.io|alchemy\.com|chainnodes\.org|moralis\.io|getblock\.io)[^\s"'<>]*`)
 
 // scriptSrcRe extracts JS file URLs from <script src="..."> tags.
 var scriptSrcRe = regexp.MustCompile(`<script[^>]+src=["']([^"']+\.js[^"']*)["']`)
@@ -164,6 +172,31 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		})
 	}
 
+	// --- RPC provider reference detection ---
+	// Even without an exposed API key, references to RPC providers (Alchemy,
+	// Infura, etc.) signal blockchain infrastructure usage.
+	providerRefs := detectRPCProviders(combined)
+	// Exclude any that were already reported as exposed endpoints.
+	providerRefs = subtractStrings(providerRefs, rpcURLs)
+	if len(providerRefs) > 0 {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckWeb3RPCProviderDetected,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityInfo,
+			Title:    "Blockchain RPC provider referenced in page source",
+			Description: "The page references one or more blockchain RPC providers " +
+				"(Alchemy, Infura, Ankr, etc.), indicating Web3 infrastructure usage. " +
+				"No API keys were found in these references.",
+			Asset: asset,
+			Evidence: map[string]any{
+				"providers": providerRefs,
+				"url":       base + "/",
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	// --- Contract address detection ---
 	addrs := detectContractAddresses(combined)
 	if len(addrs) > 0 {
@@ -207,6 +240,30 @@ func detectWalletLibs(content string) []string {
 func detectRPCEndpoints(content string) []string {
 	matches := rpcEndpointRe.FindAllString(content, -1)
 	return deduplicate(matches)
+}
+
+// detectRPCProviders returns deduplicated RPC provider domain references.
+func detectRPCProviders(content string) []string {
+	matches := rpcProviderRe.FindAllString(content, -1)
+	return deduplicate(matches)
+}
+
+// subtractStrings returns items in a that are not in b.
+func subtractStrings(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	exclude := make(map[string]bool, len(b))
+	for _, s := range b {
+		exclude[s] = true
+	}
+	var out []string
+	for _, s := range a {
+		if !exclude[s] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // detectContractAddresses returns deduplicated EVM addresses found in content.

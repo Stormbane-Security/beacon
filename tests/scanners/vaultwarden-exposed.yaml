@@ -1,0 +1,51 @@
+name: vaultwarden-exposed
+description: >
+  Vaultwarden (Bitwarden-compatible) password manager with default configuration.
+  Beacon should fingerprint Vaultwarden from CSP headers (duosecurity.com) and
+  Server: Rocket header, detect the exposed login page, and identify it as a
+  high-value target (password manager).
+tags: [vaultwarden, bitwarden, scanner, fingerprint, exposed, password-manager]
+
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    ports: ["18065:80"]
+    environment:
+      - I_REALLY_WANT_VOLATILE_STORAGE=true
+
+ready:
+  cmd: "curl -sf http://localhost:18065/ -o /dev/null -w '%{http_code}' | grep -q 200"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Classification: beacon identifies Vaultwarden
+  - name: classify-detects-vaultwarden
+    type: classify
+    target: localhost:18065
+    expect:
+      service: Vaultwarden
+
+  # Pre-flight: CSP contains duosecurity (Vaultwarden fingerprint)
+  - name: vaultwarden-csp-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:18065/ | grep -i content-security-policy | grep -q duosecurity"
+      exit_code: 0
+
+  # Pre-flight: Server header is Rocket
+  - name: vaultwarden-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:18065/ | grep -qi 'server: rocket'"
+      exit_code: 0
+
+  # Scanner: detect exposed password manager
+  - name: detects-vaultwarden-service
+    type: beacon
+    target: localhost:18065
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18065"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

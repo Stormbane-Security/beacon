@@ -1,0 +1,52 @@
+name: nginx-version-fingerprint
+description: >
+  nginx 1.14.2 (2018, EOL, CVE-2019-9511/9513 HTTP/2 DoS) vs nginx 1.27-alpine
+  (latest). Tests Server header version extraction and EOL detection. The classify
+  phase runs version checks automatically during a surface scan.
+tags: [nginx, fingerprint, version, eol, false-positive]
+
+services:
+  nginx-old:
+    image: nginx:1.14.2
+    ports: ["19550:80"]
+
+  nginx-new:
+    image: nginx:1.27-alpine
+    ports: ["19551:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19550/ -o /dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Pre-flight: version headers visible ---
+  - name: nginx-old-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19550/ | grep -i 'Server:.*nginx/1.14'"
+      exit_code: 0
+
+  - name: nginx-new-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19551/ | grep -i 'Server:.*nginx/1.27'"
+      exit_code: 0
+
+  # --- Old nginx: EOL software detected (classify runs as part of surface scan) ---
+  - name: detects-nginx-old-eol
+    type: beacon
+    target: localhost:19550
+    args: ["--no-enrich"]
+    expect:
+      check_id: version.outdated_software
+
+  # --- New nginx: NOT flagged as EOL ---
+  - name: negative-nginx-new-not-eol
+    type: beacon
+    target: localhost:19551
+    args: ["--no-enrich"]
+    expect:
+      not_check_id: version.outdated_software
+
+timeout: 5m

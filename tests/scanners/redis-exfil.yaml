@@ -105,7 +105,7 @@ assertions:
   - name: beacon-dumps-session-tokens
     type: beacon
     target: localhost:9351
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.session_hijack
       evidence_key: session_count
@@ -113,7 +113,7 @@ assertions:
   - name: beacon-extracts-aws-credentials
     type: beacon
     target: localhost:9351
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.credential_harvest
       evidence_key: credential_type
@@ -122,7 +122,7 @@ assertions:
   - name: beacon-extracts-database-password
     type: beacon
     target: localhost:9351
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.credential_harvest
       evidence_key: credential_type
@@ -131,7 +131,7 @@ assertions:
   - name: beacon-finds-pii-in-cache
     type: beacon
     target: localhost:9351
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.data_extracted
       evidence_key: data_type

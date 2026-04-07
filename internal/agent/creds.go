@@ -20,7 +20,7 @@ var credPatterns = []struct {
 	{"Slack Token", "token", regexp.MustCompile(`xox[bpors]-[0-9]{10,}-[A-Za-z0-9-]+`)},
 	{"Stripe Key", "api_key", regexp.MustCompile(`sk_live_[A-Za-z0-9]{24,}`)},
 	{"Stripe Test Key", "api_key", regexp.MustCompile(`sk_test_[A-Za-z0-9]{24,}`)},
-	{"Heroku API Key", "api_key", regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)},
+	{"Heroku API Key", "api_key", regexp.MustCompile(`(?i)HEROKU_API_KEY\s*[=:]\s*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)},
 	{"Generic API Key", "api_key", regexp.MustCompile(`(?i)(api[_-]?key|apikey)\s*[=:]\s*['"]?([A-Za-z0-9]{20,})['"]?`)},
 	{"Generic Password", "password", regexp.MustCompile(`(?i)(password|passwd|pwd)\s*[=:]\s*['"]?([^\s'"]{4,})['"]?`)},
 	{"Generic Secret", "password", regexp.MustCompile(`(?i)(secret|secret_key)\s*[=:]\s*['"]?([^\s'"]{8,})['"]?`)},

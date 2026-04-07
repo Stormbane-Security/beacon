@@ -16,6 +16,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 const scannerName = "onprem/vmware"
@@ -118,7 +119,11 @@ type datastoreListResponse struct {
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	endpoint := s.cfg.Endpoint
 	if endpoint == "" {
-		endpoint = "https://" + asset
+		scheme := "https"
+		if sctx, ok := scan.FromContext(ctx); ok {
+			scheme = sctx.Scheme()
+		}
+		endpoint = scheme + "://" + asset
 	}
 	endpoint = strings.TrimRight(endpoint, "/")
 

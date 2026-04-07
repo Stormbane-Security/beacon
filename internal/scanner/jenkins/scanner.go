@@ -81,7 +81,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Confirm /script is accessible before sending the Groovy payload.
 	// A redirect (3xx) to /login means auth is required — not vulnerable.
-	scriptURL := scriptEndpoint(asset)
+	scriptURL := scriptEndpoint(ctx, asset)
 	if !scriptAccessible(ctx, client, scriptURL) {
 		return nil, nil
 	}
@@ -142,8 +142,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 // scriptEndpoint returns the /script URL for the asset over HTTPS (falls back
 // to HTTP only in probing — the actual access check uses both schemes).
-func scriptEndpoint(asset string) string {
-	return "https://" + asset + "/script"
+func scriptEndpoint(ctx context.Context, asset string) string {
+	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
+	return scheme + "://" + asset + "/script"
 }
 
 // scriptAccessible returns true if /script responds with 200 AND the response
@@ -280,9 +284,6 @@ func probeJenkinsCLIVersion(ctx context.Context, client *http.Client, asset stri
 		// Confirm Jenkins CLI port header is present (stronger signal).
 		cliPortExposed := resp.Header.Get("X-Jenkins-CLI2-Port") != "" ||
 			resp.Header.Get("X-Jenkins-CLI-Port") != ""
-		if !isJenkinsCLIVulnerable(ver) {
-			return nil
-		}
 		ev := map[string]any{
 			"jenkins_version":  ver,
 			"cli_port_exposed": cliPortExposed,
@@ -290,6 +291,37 @@ func probeJenkinsCLIVersion(ctx context.Context, client *http.Client, asset stri
 		}
 		proofCmd := fmt.Sprintf("curl -sI '%s' | grep -i 'x-jenkins'", u)
 		var fs []finding.Finding
+
+		// Surface-level Jenkins detection: X-Jenkins header confirms
+		// the service is Jenkins regardless of version vulnerabilities.
+		noAuth := resp.StatusCode == http.StatusOK
+		fs = append(fs, finding.Finding{
+			CheckID:  finding.CheckExposureCICDPanel,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("Jenkins %s dashboard exposed on %s", ver, asset),
+			Description: fmt.Sprintf(
+				"Jenkins %s is internet-accessible at %s (HTTP %d). "+
+					"The X-Jenkins response header confirms the service identity and version. "+
+					"Unauthenticated access to Jenkins dashboards exposes build pipeline "+
+					"information, job names, and environment details even without login.",
+				ver, u, resp.StatusCode,
+			),
+			Asset:    asset,
+			Evidence: map[string]any{
+				"jenkins_version":  ver,
+				"cli_port_exposed": cliPortExposed,
+				"url":              u,
+				"unauthenticated":  noAuth,
+			},
+			ProofCommand: proofCmd,
+			DiscoveredAt: time.Now(),
+		})
+
+		if !isJenkinsCLIVulnerable(ver) {
+			return fs
+		}
 
 		// CVE-2024-23897: Jenkins < 2.442 / LTS < 2.426.3 CLI args4j @file read.
 		fs = append(fs, finding.Finding{

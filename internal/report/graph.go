@@ -69,13 +69,13 @@ func RenderGraphDOT(g asset.AssetGraph) string {
 		fillColor, fontColor := nodeColors(a, stats[a.ID])
 		shape := nodeShape(a.Type)
 
-		b.WriteString(fmt.Sprintf("    %s [label=%s, shape=%s, fillcolor=\"%s\", fontcolor=\"%s\"",
-			nodeID, dotQuote(label), shape, fillColor, fontColor))
+		fmt.Fprintf(&b, "    %s [label=%s, shape=%s, fillcolor=\"%s\", fontcolor=\"%s\"",
+			nodeID, dotQuote(label), shape, fillColor, fontColor)
 
 		// Add a colored border for nodes with findings.
 		if s, ok := stats[a.ID]; ok && s.count > 0 {
 			borderColor := severityBorderColor(s.maxSeverity)
-			b.WriteString(fmt.Sprintf(", color=\"%s\", penwidth=2.0", borderColor))
+			fmt.Fprintf(&b, ", color=\"%s\", penwidth=2.0", borderColor)
 		} else {
 			b.WriteString(", color=\"#444466\"")
 		}
@@ -83,7 +83,7 @@ func RenderGraphDOT(g asset.AssetGraph) string {
 		// Add tooltip with finding details.
 		if s, ok := stats[a.ID]; ok && len(s.titles) > 0 {
 			tooltip := strings.Join(s.titles, "\\n")
-			b.WriteString(fmt.Sprintf(", tooltip=%s", dotQuote(tooltip)))
+			fmt.Fprintf(&b, ", tooltip=%s", dotQuote(tooltip))
 		}
 
 		b.WriteString("];\n")
@@ -118,8 +118,8 @@ func RenderGraphDOT(g asset.AssetGraph) string {
 			edgeLabel = fmt.Sprintf("%s (%.0f%%)", r.Type, r.Confidence*100)
 		}
 
-		b.WriteString(fmt.Sprintf("    %s -> %s [label=%s, style=%s, color=\"%s\"];\n",
-			fromID, toID, dotQuote(edgeLabel), edgeStyle, edgeColor))
+		fmt.Fprintf(&b, "    %s -> %s [label=%s, style=%s, color=\"%s\"];\n",
+			fromID, toID, dotQuote(edgeLabel), edgeStyle, edgeColor)
 	}
 
 	b.WriteString("}\n")

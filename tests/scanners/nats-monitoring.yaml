@@ -1,0 +1,48 @@
+name: nats-monitoring-exposed
+description: >
+  NATS message broker with HTTP monitoring endpoint exposed. Beacon should
+  detect NATS from body content, fingerprint it correctly, and detect the
+  exposed monitoring dashboard with connection/subscription information.
+tags: [nats, scanner, fingerprint, exposed, monitoring]
+
+services:
+  nats:
+    image: nats:latest
+    ports: ["18222:8222"]
+    command: ["--http_port", "8222"]
+
+ready:
+  cmd: "curl -sf http://localhost:18222/ | grep -qi nats"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Classification: beacon identifies NATS
+  - name: classify-detects-nats
+    type: classify
+    target: localhost:18222
+    expect:
+      service: NATS
+
+  # Pre-flight: NATS monitoring API accessible
+  - name: nats-connz-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18222/connz | grep -q num_connections"
+      exit_code: 0
+
+  - name: nats-varz-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18222/varz | grep -q server_id"
+      exit_code: 0
+
+  # Scanner: detect exposed monitoring
+  - name: detects-nats-exposed
+    type: beacon
+    target: localhost:18222
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18222"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

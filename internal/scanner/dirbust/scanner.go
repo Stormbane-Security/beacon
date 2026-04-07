@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 const (
@@ -221,8 +222,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 		}
 	}
 
-	// Pure-Go fallback.
+	// Pure-Go fallback. Use evidence-derived scheme when available.
 	scheme := "https"
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+	}
 	baseURL := scheme + "://" + asset
 
 	// ── Soft-404 canary ──────────────────────────────────────────────────────

@@ -277,22 +277,22 @@ func (a *Analyzer) buildSingleDomainSummary(ctx context.Context, run store.ScanR
 	if run.CompletedAt != nil {
 		scannedAt = run.CompletedAt.UTC().Format("2006-01-02")
 	}
-	b.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&b,
 		"### Domain: %s | run: %s | assets: %d | findings: %d | scanned: %s\n\n",
 		run.Domain, run.ID, run.AssetCount, run.FindingCount, scannedAt,
-	))
+	)
 
 	// Scanner ROI section.
 	roi, err := a.st.GetScannerROI(ctx, run.Domain)
 	if err == nil && len(roi) > 0 {
 		b.WriteString("Scanner ROI:\n")
 		for _, r := range roi {
-			b.WriteString(fmt.Sprintf(
+			fmt.Fprintf(&b,
 				"  %-20s | %3d runs | %5dms avg | %3d findings (%d/%d) | %.0f%% err\n",
 				r.ScannerName, r.RunCount, r.AvgDurationMs,
 				r.TotalFindings, r.CriticalFindings, r.HighFindings,
 				r.ErrorRate*100,
-			))
+			)
 		}
 		b.WriteString("\n")
 	}
@@ -346,7 +346,7 @@ func (a *Analyzer) buildSingleDomainSummary(ctx context.Context, run store.ScanR
 	assetCount := 0
 	for _, asset := range assets {
 		if assetCount >= maxAssets {
-			b.WriteString(fmt.Sprintf("  ... and %d more assets (omitted for length)\n", len(assets)-maxAssets))
+			fmt.Fprintf(&b, "  ... and %d more assets (omitted for length)\n", len(assets)-maxAssets)
 			break
 		}
 		assetCount++
@@ -372,13 +372,13 @@ func (a *Analyzer) buildSingleDomainSummary(ctx context.Context, run store.ScanR
 		if len(techParts) > 0 {
 			techStr = "[" + strings.Join(techParts, ", ") + "] "
 		}
-		b.WriteString(fmt.Sprintf("  %s %sdiscovered_via=%s\n", asset, techStr, src))
+		fmt.Fprintf(&b, "  %s %sdiscovered_via=%s\n", asset, techStr, src)
 
 		if len(ac.playbooks) > 0 {
-			b.WriteString(fmt.Sprintf("    matched: %s\n", strings.Join(ac.playbooks, ", ")))
+			fmt.Fprintf(&b, "    matched: %s\n", strings.Join(ac.playbooks, ", "))
 		}
 		if len(ac.scanners) > 0 {
-			b.WriteString(fmt.Sprintf("    scanners: %s\n", strings.Join(ac.scanners, ", ")))
+			fmt.Fprintf(&b, "    scanners: %s\n", strings.Join(ac.scanners, ", "))
 		}
 
 		// Findings for this asset — sorted by severity desc, capped at 25.
@@ -410,20 +410,20 @@ func (a *Analyzer) buildSingleDomainSummary(ctx context.Context, run store.ScanR
 			case finding.SeverityCritical, finding.SeverityHigh:
 				// Three-line block: header | evidence | proof
 				// Gives Claude enough context for accurate false-positive detection.
-				b.WriteString(fmt.Sprintf("    %s %-28s | %s\n",
-					sevLabel, string(f.CheckID), truncateStr(endpoint, 60)))
+				fmt.Fprintf(&b, "    %s %-28s | %s\n",
+					sevLabel, string(f.CheckID), truncateStr(endpoint, 60))
 
 				// Evidence line: up to 4 key=value pairs, values up to 80 chars each.
 				ev := extractDetailedEvidence(f.Evidence, 4, 80)
 				if ev != "" {
-					b.WriteString(fmt.Sprintf("         evidence: %s\n", ev))
+					fmt.Fprintf(&b, "         evidence: %s\n", ev)
 				}
 
 				// Proof line: up to 200 chars (enough to spot wrong URL or broken grep).
 				if f.ProofCommand != "" {
 					pc := strings.ReplaceAll(f.ProofCommand, "\n", " ; ")
 					pc = strings.ReplaceAll(pc, "\r", "")
-					b.WriteString(fmt.Sprintf("         proof:    %s\n", truncateStr(pc, 200)))
+					fmt.Fprintf(&b, "         proof:    %s\n", truncateStr(pc, 200))
 				}
 
 			case finding.SeverityMedium:
@@ -437,13 +437,13 @@ func (a *Analyzer) buildSingleDomainSummary(ctx context.Context, run store.ScanR
 
 			default:
 				// Low/Info: check_id + title only — no evidence needed.
-				b.WriteString(fmt.Sprintf("    %s %-28s  %s\n",
-					sevLabel, string(f.CheckID), truncateStr(f.Title, 60)))
+				fmt.Fprintf(&b, "    %s %-28s  %s\n",
+					sevLabel, string(f.CheckID), truncateStr(f.Title, 60))
 			}
 		}
 
 		if len(assetFindings) > maxFindings {
-			b.WriteString(fmt.Sprintf("    ... and %d more findings\n", len(assetFindings)-maxFindings))
+			fmt.Fprintf(&b, "    ... and %d more findings\n", len(assetFindings)-maxFindings)
 		}
 	}
 
