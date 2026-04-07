@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
+	"net"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/scanlog"
 )
@@ -124,6 +124,11 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	if !hasBanner {
 		if quickHTTPCheck(ctx, host, port) {
 			bannerHTTP = true
+		} else if proto := quickProtocolCheck(ctx, host, port); proto != "" {
+			// Identified a non-HTTP protocol via quick handshake (Redis PING,
+			// MySQL greeting, etc.). This prevents 100+ protocol probes from
+			// timing out against an already-identified service.
+			bannerProto = proto
 		}
 		// Either way, we now know something about the port. Enable pre-filtering
 		// so HTTP probes are skipped on non-HTTP ports (and vice versa). Without
@@ -165,6 +170,9 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			probe    ServiceProbe
 			findings []finding.Finding
 		}
+		// Cancel remaining probes once one identifies the service.
+		probeCtx, probeCancel := context.WithCancel(ctx)
+		defer probeCancel()
 		resultCh := make(chan probeResult, len(protocolProbes))
 		sem := make(chan struct{}, maxProbeParallel)
 		for _, p := range protocolProbes {
@@ -172,12 +180,12 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				select {
 				case sem <- struct{}{}:
 					defer func() { <-sem }()
-				case <-ctx.Done():
+				case <-probeCtx.Done():
 					resultCh <- probeResult{probe: probe}
 					return
 				}
 				probeStart := time.Now()
-				fs := probe.Detect(ctx, host, port, banner, makeF)
+				fs := probe.Detect(probeCtx, host, port, banner, makeF)
 				scanlog.FromContext(ctx).ProbeTimed(scannerName, fmt.Sprintf("%s:%d", host, port), probe.Name, time.Since(probeStart), len(fs), nil)
 				resultCh <- probeResult{probe: probe, findings: fs}
 			}(p)
@@ -188,6 +196,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				findings = append(findings, pr.findings...)
 				if !identified {
 					identified = true
+					probeCancel() // cancel remaining protocol probes
 					service := pr.probe.Name
 					version := ""
 					if ev := pr.findings[0].Evidence; ev != nil {
@@ -297,4 +306,28 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	}
 
 	return findings
+}
+
+// quickProtocolCheck sends lightweight protocol handshakes to identify
+// non-HTTP services that don't send a banner on connect. This prevents
+// 100+ protocol probes from timing out against already-identifiable services.
+// Returns the protocol name (e.g., "redis", "mysql") or "" if unknown.
+func quickProtocolCheck(ctx context.Context, host string, port int) string {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	dialer := &net.Dialer{Timeout: 2 * time.Second}
+
+	// Try Redis: send PING, expect +PONG
+	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		_, _ = conn.Write([]byte("PING\r\n"))
+		buf := make([]byte, 32)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		resp := string(buf[:n])
+		if strings.HasPrefix(resp, "+PONG") || strings.HasPrefix(resp, "-NOAUTH") || strings.HasPrefix(resp, "-ERR") {
+			return "redis"
+		}
+	}
+
+	return ""
 }
