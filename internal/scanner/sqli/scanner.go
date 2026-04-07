@@ -343,10 +343,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			// Phase 1: Error-based / boolean-based detection (fast — one request per payload)
 			if f := probeErrorBased(ctx, client, scheme, asset, pp.path, param); f != nil {
 				findings = append(findings, *f)
+				continue // skip time-blind — already confirmed SQLi on this param
 			}
 
-			// Phase 2: Time-blind detection (may find injection points that
-			// don't reflect errors)
+			// Phase 2: Time-blind detection (only runs if error-based didn't find it)
 			baseURL := fmt.Sprintf("%s://%s%s?%s=1", scheme, asset, pp.path, param)
 
 			// Step 1: Measure baseline latency
