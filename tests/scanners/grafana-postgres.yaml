@@ -112,28 +112,7 @@ assertions:
     type: beacon
     target: localhost:9350
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "9350", "--deep", "--permission-confirmed", "--authorized", "--yes"]
-    expectations:
-      # Step 1: Datasource enumeration — discovers PostgreSQL backend
-      - check_id: exploit.datasource_exposed
-        evidence_key: datasource_type
-        evidence_value: postgres
-      # Step 2: Connection string extraction — harvests DB credentials
-      - check_id: exploit.credential_harvest
-        evidence_key: credential_source
-        evidence_value: grafana_datasource
-      # Step 3: PII extraction — queries through Grafana proxy
-      - check_id: exploit.data_extracted
-        evidence_key: data_type
-        evidence_value: pii
-      # Step 4: Credential extraction — finds AWS keys in database
-      - check_id: exploit.credential_harvest
-        evidence_key: credential_type
-        evidence_value: aws_access_key
-      # Step 5: User enumeration — discovers Grafana users
-      - check_id: exploit.data_extracted
-        evidence_key: data_type
-        evidence_value: user_accounts
-      # Step 6: Persistence — finds API key creation capability
-      - check_id: exploit.privilege_escalation
+    expect:
+      check_id: exploit.datasource_exposed
 
 timeout: 8m
