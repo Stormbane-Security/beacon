@@ -16,6 +16,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 
@@ -47,6 +48,8 @@ func (s *Scanner) Name() string { return scannerName }
 // Runs in all modes (surface, deep, authorized) — it only performs a single
 // GET request and inspects the response headers.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	log := scanlog.FromContext(ctx)
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -60,7 +63,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		},
 	}
 
+	probeStart := time.Now()
 	scheme, headers, err := fetchHeaders(ctx, client, asset)
+	status := 0
+	if headers != nil {
+		status = 200
+	}
+	log.ProbeTimed(scannerName, asset, "fetch-headers", time.Since(probeStart), status, err)
 	if err != nil || headers == nil {
 		return nil, nil // unreachable — nothing to report
 	}

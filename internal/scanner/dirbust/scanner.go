@@ -34,6 +34,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 const (
@@ -428,6 +429,7 @@ func (s *Scanner) buildFindings(asset string, results []Result) []finding.Findin
 // canaryHash is the SHA-256 of a known-404 response body; if a 200 response
 // body matches, it is treated as a soft-404 and skipped.
 func (s *Scanner) probe(ctx context.Context, baseURL, path string, canaryHash string) (*Result, bool) {
+	log := scanlog.FromContext(ctx)
 	url := baseURL + path
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -442,14 +444,17 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string, canaryHash st
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
 
+		probeStart := time.Now()
 		resp, err := s.client.Do(req)
 		if err != nil {
+			log.ProbeTimed("dirbust", baseURL, path, time.Since(probeStart), 0, err)
 			return nil, false
 		}
 
 		// Read body for soft-404 comparison (cap at 128 KB to avoid buffering huge pages).
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 		_ = resp.Body.Close()
+		log.ProbeTimed("dirbust", baseURL, path, time.Since(probeStart), resp.StatusCode, nil)
 
 		// WAF block: 403 with WAF-specific headers — signal the caller.
 		// Do not count as an interesting path finding.

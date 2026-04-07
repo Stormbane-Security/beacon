@@ -27,6 +27,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 
@@ -117,6 +118,8 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	log := scanlog.FromContext(ctx)
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -133,7 +136,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	base := scheme + "://" + asset
 
 	// Find a reachable spec.
+	probeStart := time.Now()
 	specURL, specBody := findSpec(ctx, client, base)
+	specStatus := 0
+	if specURL != "" {
+		specStatus = 200
+	}
+	log.ProbeTimed(scannerName, asset, "find-spec", time.Since(probeStart), specStatus, nil)
 	if specURL == "" {
 		return nil, nil
 	}
@@ -168,7 +177,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return findings, nil
 	}
 
-	fs := fuzzEndpoints(ctx, client, asset, base, &spec)
+	fs := fuzzEndpoints(ctx, client, asset, base, &spec, log)
 	findings = append(findings, fs...)
 	return findings, nil
 }
@@ -206,7 +215,7 @@ func findSpec(ctx context.Context, client *http.Client, base string) (string, []
 
 // fuzzEndpoints iterates over paths in the spec and sends probe requests
 // designed to surface missing input validation.
-func fuzzEndpoints(ctx context.Context, client *http.Client, asset, base string, spec *openAPISpec) []finding.Finding {
+func fuzzEndpoints(ctx context.Context, client *http.Client, asset, base string, spec *openAPISpec, log *scanlog.Logger) []finding.Finding {
 	var findings []finding.Finding
 
 	// Cap total probes to avoid flooding the target.
@@ -235,8 +244,13 @@ func fuzzEndpoints(ctx context.Context, client *http.Client, asset, base string,
 			endpointURL := base + cleanPath
 
 			// Probe 1: missing required parameters → expect 400/422, flag 500.
+			probeName := fmt.Sprintf("fuzz-missing-params %s %s", method, cleanPath)
+			fuzzStart := time.Now()
 			if f := probeMissingParams(ctx, client, asset, endpointURL, method, &op); f != nil {
+				log.ProbeTimed(scannerName, asset, probeName, time.Since(fuzzStart), http.StatusInternalServerError, nil)
 				findings = append(findings, *f)
+			} else {
+				log.ProbeTimed(scannerName, asset, probeName, time.Since(fuzzStart), 0, nil)
 			}
 			probeCount++
 
@@ -246,8 +260,13 @@ func fuzzEndpoints(ctx context.Context, client *http.Client, asset, base string,
 
 			// Probe 2: type confusion and SQL canary in JSON body for POST/PUT/PATCH.
 			if method == "POST" || method == "PUT" || method == "PATCH" {
+				probeName2 := fmt.Sprintf("fuzz-type-confusion %s %s", method, cleanPath)
+				fuzzStart2 := time.Now()
 				if f := probeTypeFuzz(ctx, client, asset, endpointURL, method, &op); f != nil {
+					log.ProbeTimed(scannerName, asset, probeName2, time.Since(fuzzStart2), http.StatusInternalServerError, nil)
 					findings = append(findings, *f)
+				} else {
+					log.ProbeTimed(scannerName, asset, probeName2, time.Since(fuzzStart2), 0, nil)
 				}
 				probeCount++
 			}

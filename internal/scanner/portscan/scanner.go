@@ -22,6 +22,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 func init() {
@@ -339,7 +340,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			case <-time.After(interConnectDelay):
 			}
 
+			probeStart := time.Now()
 			open, banner := probePort(ctx, asset, e.port)
+			scanlog.FromContext(ctx).ProbeTimed(scannerName, asset, fmt.Sprintf("tcp-connect:%d", e.port), time.Since(probeStart), 0, nil)
 			results <- result{entry: e, open: open, banner: banner}
 		}(entry)
 	}

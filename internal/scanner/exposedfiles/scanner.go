@@ -14,10 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
-	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanlog"
+	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
 
 
@@ -1022,6 +1023,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		client = &ac
 	}
 
+	log := scanlog.FromContext(ctx)
+
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
@@ -1046,10 +1049,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			continue
 		}
 
+		probeStart := time.Now()
 		resp, err := client.Do(req)
 		if err != nil {
+			log.ProbeTimed(scannerName, asset, t.path, time.Since(probeStart), 0, err)
 			continue
 		}
+		log.ProbeTimed(scannerName, asset, t.path, time.Since(probeStart), resp.StatusCode, nil)
 
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
