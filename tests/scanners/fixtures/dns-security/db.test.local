@@ -1,0 +1,10 @@
+$ORIGIN test.local.
+@   3600 IN SOA ns1.test.local. admin.test.local. 2024010101 3600 900 604800 86400
+@   3600 IN NS  ns1.test.local.
+ns1 3600 IN A   127.0.0.1
+@   3600 IN A   10.0.0.1
+www 3600 IN A   10.0.0.2
+mail 3600 IN A  10.0.0.3
+secret 3600 IN A 10.0.0.100
+db  3600 IN A   10.0.0.50
+vpn 3600 IN A   10.0.0.200

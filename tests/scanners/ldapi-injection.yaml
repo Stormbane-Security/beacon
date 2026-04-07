@@ -1,0 +1,41 @@
+name: ldapi-injection
+description: >
+  Nginx proxying a Python app with an LDAP search endpoint vulnerable to
+  LDAP filter injection. Beacon iam scanner should detect the injection
+  by comparing normal vs injected responses.
+tags: [ldap, injection, iam, deep, authorized]
+
+services:
+  app:
+    image: python:3.11-slim
+    ports: ["19907:8080"]
+    volumes:
+      - ./fixtures/ldapi-injection/app.py:/app/app.py:ro
+    command: ["python", "/app/app.py"]
+
+ready:
+  cmd: "curl -sf http://localhost:19907/search?q=test >/dev/null"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: exploit-search-endpoint-responds
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:19907/search?q=admin' | grep -qi 'result'"
+      exit_code: 0
+
+  - name: exploit-ldap-injection-payload-accepted
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:19907/search?q=*)(%26' | grep -qi 'result'"
+      exit_code: 0
+
+  - name: detects-ldap-injection
+    type: beacon
+    target: localhost:19907
+    args: ["--no-enrich", "--scanners", "iam", "--authorized", "--yes"]
+    expect:
+      check_id: iam.ldap_injection
+
+timeout: 5m

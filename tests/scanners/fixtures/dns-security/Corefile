@@ -1,0 +1,7 @@
+test.local:53 {
+    file /etc/coredns/db.test.local
+    transfer {
+        to *
+    }
+    log
+}
