@@ -1,0 +1,39 @@
+name: evasion-waf-block
+description: "ModSecurity WAF with OWASP CRS blocking SQL injection — beacon detects WAF presence"
+tags: [evasion, waf, modsecurity, web]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["9401:80"]
+    environment:
+      BACKEND: "http://app:8080"
+      PARANOIA: "2"
+      ANOMALY_INBOUND: "5"
+    depends_on: [app]
+
+ready:
+  cmd: "curl -sf http://localhost:9401/get >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-waf-blocks-sqli-payload
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9401/get?q=1+UNION+SELECT+password+FROM+users--' | grep -q '403'"
+      exit_code: 0
+
+  - name: detects-waf-present
+    type: beacon
+    target: localhost:9401
+    args: ["--no-enrich", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+timeout: 5m

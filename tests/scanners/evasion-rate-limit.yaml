@@ -1,0 +1,31 @@
+name: evasion-rate-limit
+description: "Nginx with limit_req (2r/s) — beacon evasion monitor detects rate limiting via 429/503 responses"
+tags: [evasion, rate-limit, ids, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9400:80"]
+    volumes:
+      - ./fixtures/evasion-rate-limit/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9400/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-rate-limit-triggers-503
+    type: command
+    expect:
+      command: "for i in $(seq 1 20); do curl -sf -o /dev/null -w '%{http_code}\\n' http://localhost:9400/; done | grep -c '503' | grep -qvE '^0$'"
+      exit_code: 0
+
+  - name: detects-rate-limiting
+    type: beacon
+    target: localhost:9400
+    args: ["--no-enrich", "--scanners", "secheaders,exposedfiles,ratelimit", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: ids.detected
+
+timeout: 5m
