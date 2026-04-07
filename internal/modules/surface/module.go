@@ -34,6 +34,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/playbook"
 	"github.com/stormbane-security/beacon/internal/scanner/classify"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scan"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 	"github.com/stormbane-security/beacon/internal/scanner/assetintel"
@@ -1458,6 +1459,22 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			_ = session // session.Label available for logging if verbose
 		}
 	}
+
+	// Wrap the HTTP transport with the evasion MonitoredTransport so every
+	// scanner request is checked for WAF/IDS/rate-limit signals automatically.
+	// The monitor is stored in context so scanners can call monitor.Blocked()
+	// before sending additional probes.
+	evasionMonitor := evasion.NewMonitor(m.evasionStrategy)
+	baseTransport := httpClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	httpClient.Transport = &evasion.MonitoredTransport{
+		Base:    baseTransport,
+		Monitor: evasionMonitor,
+	}
+	ctx = evasion.WithMonitor(ctx, evasionMonitor)
+
 	ctx = authctx.WithHTTPClient(ctx, httpClient)
 
 	// Post-auth re-classify: if we authenticated, re-fingerprint the asset with
@@ -2086,6 +2103,37 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		findings = append(findings, *aifpUnknownFinding)
 	}
 
+	// ── Parameter discovery from crawl results ───────────────────────────────
+	// Extract URLs from crawler findings and discover parameters from URL query
+	// strings so web vuln scanners triggered in the convergence loop (sqli, ssrf,
+	// cmdinj, ssti, xxe, pathtraversal) can probe discovered parameters alongside
+	// their hardcoded lists. Runs after Phase B (crawler has finished) and before
+	// the convergence loop (web vuln scanners may be triggered there).
+	{
+		var crawlURLs []string
+		for _, f := range findings {
+			if f.CheckID != finding.CheckAssetCrawlEndpoints {
+				continue
+			}
+			switch v := f.Evidence["endpoints"].(type) {
+			case []string:
+				crawlURLs = append(crawlURLs, v...)
+			case []interface{}:
+				for _, item := range v {
+					if s, ok := item.(string); ok {
+						crawlURLs = append(crawlURLs, s)
+					}
+				}
+			}
+		}
+		if len(crawlURLs) > 0 {
+			discoveredParams := paramdiscovery.ExtractFromURLs(crawlURLs)
+			if len(discoveredParams) > 0 {
+				ctx = paramdiscovery.WithDiscoveredParams(ctx, discoveredParams)
+			}
+		}
+	}
+
 	// ── Evidence convergence loop ─────────────────────────────────────────────
 	// After Phase B completes, extract new check IDs from findings and re-match
 	// playbooks. Run any newly matched scanners that haven't run yet. Also runs
@@ -2225,6 +2273,13 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				}
 			}
 		}
+	}
+
+	// ── Evasion monitor findings ─────────────────────────────────────────────
+	// Collect any IDS/WAF/rate-limit detections the monitor observed during all
+	// scanner phases and append them to the findings list.
+	if monitorFindings := evasionMonitor.Findings(); len(monitorFindings) > 0 {
+		findings = append(findings, monitorFindings...)
 	}
 
 	// ── Post-scan classify helpers (after wg.Wait — no concurrent writes) ─────

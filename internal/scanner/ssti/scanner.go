@@ -23,6 +23,8 @@ import (
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/diffing"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 )
 
 
@@ -132,15 +134,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
+	// Merge discovered parameters from crawl results into the hardcoded lists.
+	effectivePaths := probePaths
+	effectiveParams := probeParams
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		effectivePaths, effectiveParams = mergeDiscoveredSSTI(probePaths, probeParams, discovered)
+	}
+
 	var findings []finding.Finding
 
-	for _, path := range probePaths {
+	for _, path := range effectivePaths {
 		// Cheap pre-check: skip paths that return 404.
 		if isNotFound(ctx, client, base+path) {
 			continue
 		}
 
-		for _, param := range probeParams {
+		for _, param := range effectiveParams {
 			for _, p := range payloads {
 				// Build candidate expressions: original + WAF evasion variants.
 				candidates := []string{p.expr}
@@ -190,6 +199,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					continue
 				}
 
+				// Secondary confirmation via response diffing: compare the
+				// baseline response against the probed response after stripping
+				// dynamic content. A significant structural difference combined
+				// with the expression evaluation is a strong SSTI signal.
+				baselineBody := fetchBodySafe(ctx, client, base+path)
+				diffScore := diffing.Compare([]byte(baselineBody), []byte(bodyStr))
+
 				wafBypassed := usedExpr != p.expr
 				findings = append(findings, finding.Finding{
 					CheckID:  finding.CheckWebSSTI,
@@ -209,13 +225,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 						`curl -s '%s' | grep -o '\b%s\b'`,
 						base+path+"?"+param+"="+url.QueryEscape(usedExpr), p.expect),
 					Evidence: map[string]any{
-						"url":        base + path + "?" + param + "=" + url.QueryEscape(usedExpr),
-						"path":       path,
-						"param":      param,
-						"payload":    usedExpr,
-						"expect":     p.expect,
-						"engine":     p.engine,
-						"waf_bypass": wafBypassed,
+						"url":             base + path + "?" + param + "=" + url.QueryEscape(usedExpr),
+						"path":            path,
+						"param":           param,
+						"payload":         usedExpr,
+						"expect":          p.expect,
+						"engine":          p.engine,
+						"waf_bypass":      wafBypassed,
+						"diff_similarity": diffScore,
 					},
 					DiscoveredAt: time.Now(),
 				})
@@ -318,6 +335,54 @@ func countOccurrences(expect, body string) int {
 	default:
 		return strings.Count(body, expect)
 	}
+}
+
+// fetchBodySafe fetches a URL and returns its body as a string (up to maxBodySize).
+// Returns an empty string on error.
+func fetchBodySafe(ctx context.Context, client *http.Client, rawURL string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+	_ = resp.Body.Close()
+	return string(body)
+}
+
+// mergeDiscoveredSSTI combines hardcoded probe paths and params with parameters
+// discovered from crawl results. Returns expanded paths and params lists.
+func mergeDiscoveredSSTI(hardcodedPaths, hardcodedParams []string, discovered map[string][]string) ([]string, []string) {
+	pathSet := make(map[string]bool, len(hardcodedPaths))
+	for _, p := range hardcodedPaths {
+		pathSet[p] = true
+	}
+	paramSet := make(map[string]bool, len(hardcodedParams))
+	for _, p := range hardcodedParams {
+		paramSet[p] = true
+	}
+
+	paths := make([]string, len(hardcodedPaths))
+	copy(paths, hardcodedPaths)
+	params := make([]string, len(hardcodedParams))
+	copy(params, hardcodedParams)
+
+	for path, newParams := range discovered {
+		if !pathSet[path] {
+			paths = append(paths, path)
+			pathSet[path] = true
+		}
+		for _, p := range newParams {
+			if !paramSet[p] {
+				params = append(params, p)
+				paramSet[p] = true
+			}
+		}
+	}
+	return paths, params
 }
 
 // detectScheme tries HTTPS first, falling back to HTTP.

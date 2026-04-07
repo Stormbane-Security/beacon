@@ -25,6 +25,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
@@ -129,7 +130,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	base := schemedetect.Base(ctx, client, asset)
 	var findings []finding.Finding
 
-	for _, path := range protectedPaths {
+	// Merge discovered paths from crawl results into the protected paths list
+	// and LFI paths for traversal testing.
+	effectiveProtectedPaths := protectedPaths
+	effectiveLFIPaths := lfiPaths
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		effectiveProtectedPaths, effectiveLFIPaths = mergeDiscoveredPathTraversal(protectedPaths, lfiPaths, discovered)
+	}
+
+	for _, path := range effectiveProtectedPaths {
 		if ctx.Err() != nil {
 			break
 		}
@@ -253,7 +262,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Parameter-based Local File Inclusion (LFI) probing.
 	// Tests endpoints that accept file/path parameters for traversal.
-	for _, lfi := range lfiPaths {
+	for _, lfi := range effectiveLFIPaths {
 		if ctx.Err() != nil {
 			break
 		}
@@ -325,4 +334,53 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	return findings, nil
+}
+
+// mergeDiscoveredPathTraversal combines hardcoded protected paths and LFI paths
+// with paths discovered from crawl results.
+func mergeDiscoveredPathTraversal(
+	hardcodedProtected []string,
+	hardcodedLFI []struct{ path string; params []string },
+	discovered map[string][]string,
+) ([]string, []struct{ path string; params []string }) {
+	// Expand protected paths with discovered paths.
+	protectedSet := make(map[string]bool, len(hardcodedProtected))
+	for _, p := range hardcodedProtected {
+		protectedSet[p] = true
+	}
+	protPaths := make([]string, len(hardcodedProtected))
+	copy(protPaths, hardcodedProtected)
+
+	// Expand LFI paths with discovered path+param combos.
+	lfi := make([]struct{ path string; params []string }, len(hardcodedLFI))
+	lfiIdx := make(map[string]int, len(hardcodedLFI))
+	for i, pp := range hardcodedLFI {
+		params := make([]string, len(pp.params))
+		copy(params, pp.params)
+		lfi[i] = struct{ path string; params []string }{path: pp.path, params: params}
+		lfiIdx[pp.path] = i
+	}
+
+	for path, newParams := range discovered {
+		// Add to protected paths if it looks like an admin/internal path.
+		if !protectedSet[path] {
+			protPaths = append(protPaths, path)
+			protectedSet[path] = true
+		}
+		// Add to LFI paths with discovered params.
+		if idx, ok := lfiIdx[path]; ok {
+			existing := make(map[string]bool, len(lfi[idx].params))
+			for _, p := range lfi[idx].params {
+				existing[p] = true
+			}
+			for _, p := range newParams {
+				if !existing[p] {
+					lfi[idx].params = append(lfi[idx].params, p)
+				}
+			}
+		} else {
+			lfi = append(lfi, struct{ path string; params []string }{path: path, params: newParams})
+		}
+	}
+	return protPaths, lfi
 }

