@@ -1,0 +1,37 @@
+name: step-ca-pki-exposed
+description: >
+  Smallstep step-ca PKI certificate authority with exposed API.
+  Beacon should detect the exposed CA endpoint.
+tags: [step-ca, pki, certificate, detection]
+
+services:
+  step-ca:
+    image: smallstep/step-ca:0.25.2
+    ports: ["9443:9443"]
+    environment:
+      DOCKER_STEPCA_INIT_NAME: "Test CA"
+      DOCKER_STEPCA_INIT_DNS_NAMES: "localhost"
+      DOCKER_STEPCA_INIT_PROVISIONER_NAME: "admin"
+      DOCKER_STEPCA_INIT_PASSWORD: "testpassword123"
+      DOCKER_STEPCA_INIT_ADDRESS: ":9443"
+
+ready:
+  cmd: "curl -sk https://localhost:9443/health | grep -q ok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: step-ca-health
+    type: command
+    expect:
+      command: "curl -sk https://localhost:9443/health | grep -q ok"
+      exit_code: 0
+
+  - name: detects-step-ca-exposed
+    type: beacon
+    target: localhost:9443
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9443"]
+    expect:
+      check_id: port.step_ca_exposed
+
+timeout: 3m
