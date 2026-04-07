@@ -45,11 +45,11 @@ assertions:
     expect:
       check_id: chain.node_rpc_exposed
 
-  # ── Surface: detects unauthenticated state-changing methods ───────────
+  # ── Deep: detects unauthenticated state-changing methods ───────────
   - name: detects-unauth-rpc
     type: beacon
     target: localhost:8545
-    args: ["--no-enrich", "--scanners", "chainnode"]
+    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed"]
     expect:
       check_id: chain.node_rpc_unauth
 
