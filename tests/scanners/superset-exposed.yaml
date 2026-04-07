@@ -1,0 +1,38 @@
+name: superset-exposed
+description: >
+  Apache Superset with default admin/admin credentials. Beacon should
+  detect the exposed Superset dashboard and default credentials.
+tags: [superset, dashboard, defaultcreds, detection]
+
+services:
+  superset:
+    image: apache/superset:3.1.0
+    ports: ["8088:8088"]
+    environment:
+      SUPERSET_SECRET_KEY: "test-secret-key-for-drydock"
+    command: >
+      bash -c "superset db upgrade && superset fab create-admin
+      --username admin --firstname Admin --lastname Admin
+      --email admin@test.local --password admin && superset init &&
+      superset run -h 0.0.0.0 -p 8088"
+
+ready:
+  cmd: "curl -sf http://localhost:8088/login/ -o /dev/null"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  - name: superset-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8088/login/ | grep -qi superset"
+      exit_code: 0
+
+  - name: detects-superset-exposed
+    type: beacon
+    target: localhost:8088
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8088"]
+    expect:
+      check_id: port.superset_exposed
+
+timeout: 8m
