@@ -64,6 +64,24 @@ func checkExternalTools(cfg *config.Config, noNuclei, noTestssl bool) {
 		}
 	}
 
+	// Deprecation warnings for tools replaced by native functionality.
+	if cfg.HttpxBin != "" {
+		if _, err := exec.LookPath(cfg.HttpxBin); err == nil {
+			warnings = append(warnings, toolWarning{
+				name:    "httpx",
+				message: "httpx integration deprecated — classify scanner provides equivalent functionality",
+			})
+		}
+	}
+	if cfg.DnsxBin != "" {
+		if _, err := exec.LookPath(cfg.DnsxBin); err == nil {
+			warnings = append(warnings, toolWarning{
+				name:    "dnsx",
+				message: "dnsx integration deprecated — beacon performs bulk DNS resolution natively",
+			})
+		}
+	}
+
 	// Optional tools (warn only, no flag needed).
 	type optionalTool struct {
 		bin  string
@@ -72,10 +90,12 @@ func checkExternalTools(cfg *config.Config, noNuclei, noTestssl bool) {
 	optionals := []optionalTool{
 		{cfg.KatanaBin, "katana"},
 		{cfg.FfufBin, "ffuf"},
-		{cfg.HttpxBin, "httpx"},
-		{cfg.DnsxBin, "dnsx"},
 		{cfg.GowitnessBin, "gowitness"},
 		{cfg.GitleaksBin, "gitleaks"},
+		{cfg.SqlmapBin, "sqlmap"},
+		{cfg.WpscanBin, "wpscan"},
+		{cfg.MasscanBin, "masscan"},
+		{cfg.ArjunBin, "arjun"},
 	}
 	// dig is not in the config — check PATH directly.
 	optionals = append(optionals, optionalTool{"dig", "dig"})
