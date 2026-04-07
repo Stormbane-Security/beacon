@@ -477,9 +477,10 @@ func TestSSRF_OnePerParam(t *testing.T) {
 	}
 
 	// Count body-reflection SSRF findings per param. The main loop and Azure
-	// IMDS loop are independent — the first param ("url") can legitimately
-	// have one finding from each, so we allow up to 2 per param (main + Azure).
+	// IMDS loop are independent — each param can legitimately have one finding
+	// from each loop per probe path, so we allow up to 2 * len(probePaths).
 	ssrf := findingsByCheckID(findings, finding.CheckWebSSRF)
+	maxPerParam := 2 * len(probePaths)
 	paramCount := make(map[string]int)
 	for _, f := range ssrf {
 		ev := f.Evidence
@@ -490,8 +491,8 @@ func TestSSRF_OnePerParam(t *testing.T) {
 		paramCount[p]++
 	}
 	for p, count := range paramCount {
-		if count > 2 {
-			t.Errorf("param %q should have at most 2 findings (main + Azure loop), got %d", p, count)
+		if count > maxPerParam {
+			t.Errorf("param %q should have at most %d findings (main + Azure per path), got %d", p, maxPerParam, count)
 		}
 	}
 

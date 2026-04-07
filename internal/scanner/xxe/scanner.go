@@ -104,6 +104,12 @@ var xmlPaths = []string{
 	"/rss",
 	"/feed",
 	"/sitemap.xml",
+	"/api/upload",
+	"/api/import",
+	"/api/parse",
+	"/xmlrpc",
+	"/wsdl",
+	"/api/xml",
 }
 
 // xmlContentTypes are MIME types to try for XML submissions.

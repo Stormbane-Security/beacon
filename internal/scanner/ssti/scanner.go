@@ -50,6 +50,15 @@ var probePaths = []string{
 	"/preview",
 	"/api/render",
 	"/api/preview",
+	"/profile",
+	"/greeting",
+	"/message",
+	"/email/preview",
+	"/report/generate",
+	"/page",
+	"/api",
+	"/api/v1",
+	"/api/v2",
 }
 
 // probeParams are the query parameter names used for injection.

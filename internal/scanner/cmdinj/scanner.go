@@ -76,11 +76,29 @@ var probePaths = []struct {
 	path   string
 	params []string
 }{
-	{"/", []string{"cmd", "exec", "command", "run", "ping", "host", "ip"}},
+	{"/", []string{"cmd", "exec", "command", "run", "ping", "host", "ip", "domain", "address", "query", "input", "filename", "path", "target"}},
 	{"/api/v1/ping", []string{"host", "target", "ip"}},
 	{"/admin/backup", []string{"file", "path", "dir"}},
 	{"/tools/lookup", []string{"domain", "host", "ip", "target"}},
 	{"/api/health", []string{"check", "host"}},
+	{"/ping", []string{"host", "ip", "target", "domain", "address"}},
+	{"/nslookup", []string{"host", "domain", "target", "query"}},
+	{"/dig", []string{"host", "domain", "target", "query"}},
+	{"/traceroute", []string{"host", "ip", "target", "domain", "address"}},
+	{"/exec", []string{"cmd", "command", "input", "query"}},
+	{"/run", []string{"cmd", "command", "input", "query"}},
+	{"/cmd", []string{"cmd", "command", "input", "query", "host", "ip"}},
+	{"/shell", []string{"cmd", "command", "input", "query"}},
+	{"/test", []string{"host", "ip", "cmd", "command", "target", "domain", "input"}},
+	{"/check", []string{"host", "ip", "target", "domain", "address"}},
+	{"/api/exec", []string{"cmd", "command", "host", "ip", "target", "input"}},
+	{"/api/run", []string{"cmd", "command", "host", "ip", "target", "input"}},
+	{"/tools", []string{"host", "ip", "cmd", "command", "domain", "target", "query", "input"}},
+	{"/admin/exec", []string{"cmd", "command", "host", "ip", "target", "input"}},
+	{"/system", []string{"cmd", "command", "host", "ip", "target", "input", "filename", "path"}},
+	{"/api", []string{"cmd", "command", "host", "ip", "target", "domain", "input"}},
+	{"/api/v1", []string{"cmd", "command", "host", "ip", "target", "domain", "input"}},
+	{"/api/v2", []string{"cmd", "command", "host", "ip", "target", "domain", "input"}},
 }
 
 // shellshockPaths are CGI paths commonly vulnerable to Shellshock.
