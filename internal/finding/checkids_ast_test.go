@@ -158,6 +158,7 @@ func TestCheckIDConstants_ValidPrefixes(t *testing.T) {
 		"ct":          true,
 		"oob":         true,
 		"fingerprint": true,
+		"osv":         true,
 	}
 
 	for _, decl := range f.Decls {

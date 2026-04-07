@@ -1,6 +1,7 @@
 package exposedfiles
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +10,32 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/osv"
 )
+
+// init disables live OSV API calls for unit tests by pointing the depcheck OSV
+// client at a local server that always returns empty results.
+func init() {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Decode request to know how many results to return.
+		var req struct {
+			Queries []json.RawMessage `json:"queries"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		type entry struct {
+			Vulns []struct{} `json:"vulns"`
+		}
+		type resp struct {
+			Results []entry `json:"results"`
+		}
+		out := resp{Results: make([]entry, len(req.Queries))}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+	}))
+	// Note: we intentionally don't close srv — it lives for the duration of the test process.
+	SetDepcheckOSVClient(osv.NewWithHTTPClient(srv.Client(), srv.URL))
+}
 
 // ---------- isDependencyFile ----------
 

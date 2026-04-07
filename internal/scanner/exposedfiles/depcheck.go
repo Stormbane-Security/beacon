@@ -1,6 +1,7 @@
 package exposedfiles
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -9,7 +10,24 @@ import (
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/osv"
 )
+
+// depcheckOSVClient is the package-level OSV client for dependency checking.
+// nil means create a new default client on first use.
+var depcheckOSVClient *osv.Client
+
+// SetDepcheckOSVClient overrides the OSV client used by analyzeDependencies (for testing).
+func SetDepcheckOSVClient(c *osv.Client) {
+	depcheckOSVClient = c
+}
+
+func getDepcheckOSVClient() *osv.Client {
+	if depcheckOSVClient != nil {
+		return depcheckOSVClient
+	}
+	return osv.New()
+}
 
 // isDependencyFile returns true for paths that are package-manager manifests
 // whose contents can be parsed for vulnerable dependency versions.
@@ -23,15 +41,27 @@ func isDependencyFile(path string) bool {
 }
 
 // analyzeDependencies parses a dependency manifest and checks each dependency
-// against a hardcoded list of known-vulnerable packages. Returns a finding
-// for each match.
+// against a hardcoded list of known-vulnerable packages (offline fallback),
+// then queries the OSV.dev database for comprehensive CVE coverage.
+// Returns a finding for each match.
 func analyzeDependencies(asset, path string, body []byte) []finding.Finding {
+	return analyzeDependenciesWithContext(context.Background(), asset, path, body)
+}
+
+// analyzeDependenciesCtx is the context-aware version used by the scanner.
+func analyzeDependenciesCtx(ctx context.Context, asset, path string, body []byte) []finding.Finding {
+	return analyzeDependenciesWithContext(ctx, asset, path, body)
+}
+
+func analyzeDependenciesWithContext(ctx context.Context, asset, path string, body []byte) []finding.Finding {
 	deps := parseDependencies(path, body)
 	if len(deps) == 0 {
 		return nil
 	}
 
+	// --- Phase 1: hardcoded offline fallback ---
 	var findings []finding.Finding
+	hardcodedHits := make(map[string]bool) // "name@version" already reported
 	for _, d := range deps {
 		for _, vuln := range knownVulnerablePackages {
 			if !strings.EqualFold(d.name, vuln.Name) {
@@ -49,6 +79,7 @@ func analyzeDependencies(asset, path string, body []byte) []finding.Finding {
 				continue
 			}
 			if versionLessThan(installed, safe) {
+				hardcodedHits[strings.ToLower(d.name)+"@"+d.version] = true
 				findings = append(findings, finding.Finding{
 					CheckID:    finding.CheckExposureVulnDependency,
 					Module:     "surface",
@@ -79,7 +110,134 @@ func analyzeDependencies(asset, path string, body []byte) []finding.Finding {
 			}
 		}
 	}
+
+	// --- Phase 2: OSV live query for comprehensive coverage ---
+	ecosystem := ecosystemForManifest(path)
+	if ecosystem == "" {
+		return findings
+	}
+
+	var queries []osv.PackageQuery
+	var queryDeps []dependency
+	for _, d := range deps {
+		if d.version == "" {
+			continue
+		}
+		queries = append(queries, osv.PackageQuery{
+			Name:      d.name,
+			Version:   d.version,
+			Ecosystem: ecosystem,
+		})
+		queryDeps = append(queryDeps, d)
+	}
+
+	if len(queries) == 0 {
+		return findings
+	}
+
+	client := getDepcheckOSVClient()
+	results, err := client.QueryBatch(ctx, queries)
+	if err != nil {
+		return findings // OSV unavailable; return hardcoded results only
+	}
+
+	seen := make(map[string]bool) // dedupe OSV findings by CVE/OSV ID
+	// Also track CVEs already reported by hardcoded list.
+	for _, f := range findings {
+		if f.Evidence != nil {
+			if cve, ok := f.Evidence["cve"].(string); ok {
+				seen[cve] = true
+			}
+		}
+	}
+
+	now := time.Now()
+	for i, result := range results {
+		if result.Error != "" || len(result.Vulnerabilities) == 0 {
+			continue
+		}
+		d := queryDeps[i]
+
+		for _, vuln := range result.Vulnerabilities {
+			dedup := vuln.ID
+			if cves := vuln.CVEIDs(); len(cves) > 0 {
+				dedup = cves[0]
+			}
+			if seen[dedup] {
+				continue
+			}
+			seen[dedup] = true
+
+			cveIDs := vuln.CVEIDs()
+			cveStr := vuln.ID
+			if len(cveIDs) > 0 {
+				cveStr = strings.Join(cveIDs, ", ")
+			}
+
+			severity := finding.ParseSeverity(vuln.Severity)
+			if severity == finding.SeverityInfo {
+				severity = finding.SeverityHigh // version-matched CVE is at least high
+			}
+
+			fixNote := ""
+			if vuln.FixedVersion != "" {
+				fixNote = fmt.Sprintf(" Fixed in %s.", vuln.FixedVersion)
+			}
+
+			evidence := map[string]any{
+				"manifest_path":    path,
+				"package":          d.name,
+				"installed_version": d.version,
+				"osv_id":           vuln.ID,
+				"cve_ids":          cveIDs,
+				"severity":         vuln.Severity,
+				"summary":          vuln.Summary,
+				"source":           "osv",
+			}
+			if vuln.FixedVersion != "" {
+				evidence["fixed_version"] = vuln.FixedVersion
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:    finding.CheckOSVCVEMatch,
+				Module:     "surface",
+				Scanner:    scannerName,
+				Severity:   severity,
+				Confidence: finding.ConfidenceProbable,
+				Asset:      asset,
+				Title: fmt.Sprintf("OSV: %s affects %s %s",
+					cveStr, d.name, d.version),
+				Description: fmt.Sprintf(
+					"The OSV database reports %s (%s) affecting %s version %s "+
+						"declared in the exposed manifest %s on %s.%s %s",
+					cveStr, vuln.ID, d.name, d.version,
+					path, asset, fixNote, vuln.Summary),
+				Evidence: evidence,
+				ProofCommand: fmt.Sprintf("curl -s 'https://%s%s' | grep -i '%s'",
+					asset, path, d.name),
+				DiscoveredAt: now,
+			})
+		}
+	}
+
 	return findings
+}
+
+// ecosystemForManifest returns the OSV ecosystem string for a given manifest path.
+func ecosystemForManifest(path string) string {
+	switch path {
+	case "/package.json":
+		return "npm"
+	case "/composer.json":
+		return "Packagist"
+	case "/requirements.txt":
+		return "PyPI"
+	case "/go.sum":
+		return "Go"
+	case "/Gemfile", "/Gemfile.lock":
+		return "RubyGems"
+	}
+	return ""
 }
 
 // dependency is a parsed (name, version) tuple from a manifest file.

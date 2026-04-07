@@ -2212,6 +2212,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// ── Post-scan classify helpers (after wg.Wait — no concurrent writes) ─────
 	// Run after goroutines finish to avoid data races on the findings slice.
 	findings = append(findings, classify.CheckVersions(ev, asset)...)
+	findings = append(findings, classify.CheckOSVVersions(ctx, ev, asset)...)
 	if tf := classify.EmitTechStackFinding(ev, asset); tf != nil {
 		findings = append(findings, *tf)
 	}

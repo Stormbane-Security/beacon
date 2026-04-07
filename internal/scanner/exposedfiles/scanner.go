@@ -1120,7 +1120,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// When the exposed file is a dependency manifest, parse it
 		// and check for known vulnerable packages/versions.
 		if isDependencyFile(t.path) {
-			vulnFindings := analyzeDependencies(asset, t.path, body)
+			vulnFindings := analyzeDependenciesCtx(ctx, asset, t.path, body)
 			findings = append(findings, vulnFindings...)
 		}
 	}

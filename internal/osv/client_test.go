@@ -248,6 +248,86 @@ func TestVulnerability_CVEIDs_None(t *testing.T) {
 	}
 }
 
+func TestQuery_SinglePackage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := batchResponse{
+			Results: []batchResultEntry{
+				{
+					Vulns: []osvVuln{
+						{
+							ID:      "GHSA-single",
+							Aliases: []string{"CVE-2024-00001"},
+							Summary: "Single query test",
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client := NewWithHTTPClient(srv.Client(), srv.URL)
+	result, err := client.Query(context.Background(), PackageQuery{
+		Name: "test-pkg", Version: "1.0.0", Ecosystem: "npm",
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if result == nil {
+		t.Fatal("result is nil")
+	}
+	if len(result.Vulnerabilities) != 1 {
+		t.Fatalf("expected 1 vuln, got %d", len(result.Vulnerabilities))
+	}
+	if result.Vulnerabilities[0].ID != "GHSA-single" {
+		t.Errorf("ID = %q", result.Vulnerabilities[0].ID)
+	}
+}
+
+func TestServiceToOSVQueries_KnownService(t *testing.T) {
+	cases := []struct {
+		svc, ver string
+		wantName string
+	}{
+		{"nginx", "1.18.0", "nginx"},
+		{"Apache", "2.4.51", "apache"},
+		{"PHP", "8.1.12", "php"},
+		{"express", "4.17.1", "express"},
+		{"django", "3.2.0", "django"},
+		{"OpenSSH", "8.9", "openssh"},
+	}
+	for _, tc := range cases {
+		queries := ServiceToOSVQueries(tc.svc, tc.ver)
+		if len(queries) == 0 {
+			t.Errorf("ServiceToOSVQueries(%q, %q) returned no queries", tc.svc, tc.ver)
+			continue
+		}
+		if queries[0].Name != tc.wantName {
+			t.Errorf("ServiceToOSVQueries(%q, %q).Name = %q, want %q",
+				tc.svc, tc.ver, queries[0].Name, tc.wantName)
+		}
+		if queries[0].Version != tc.ver {
+			t.Errorf("Version = %q, want %q", queries[0].Version, tc.ver)
+		}
+	}
+}
+
+func TestServiceToOSVQueries_UnknownService(t *testing.T) {
+	queries := ServiceToOSVQueries("totally-unknown-service", "1.0.0")
+	if len(queries) != 0 {
+		t.Errorf("expected no queries for unknown service, got %d", len(queries))
+	}
+}
+
+func TestServiceToOSVQueries_EmptyVersion(t *testing.T) {
+	queries := ServiceToOSVQueries("nginx", "")
+	if len(queries) != 0 {
+		t.Errorf("expected no queries for empty version, got %d", len(queries))
+	}
+}
+
 func TestConvertVuln_TruncateSummary(t *testing.T) {
 	long := make([]byte, 600)
 	for i := range long {
