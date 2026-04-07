@@ -42,8 +42,8 @@ assertions:
   - name: detects-adminer-exposed
     type: beacon
     target: localhost:18075
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--scanners", "portscan"]
     expect:
-      check_id: exposure.cicd_panel
+      check_id: port.adminer_exposed
 
 timeout: 5m
