@@ -258,8 +258,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			break
 		}
 		lfiURL := base + lfi.path
-		// Skip paths that 404.
-		checkReq, err := http.NewRequestWithContext(ctx, http.MethodGet, lfiURL+"?"+lfi.params[0]+"=test", nil)
+		// Check if the endpoint exists at all. A 404 on the path itself
+		// (without params) means the endpoint doesn't exist. But a 404 with
+		// a param like ?file=test is normal for file inclusion endpoints
+		// (file not found ≠ endpoint not found). So only skip if the base
+		// path without params returns 404.
+		checkReq, err := http.NewRequestWithContext(ctx, http.MethodGet, lfiURL, nil)
 		if err != nil {
 			continue
 		}
@@ -269,7 +273,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		_, _ = io.Copy(io.Discard, checkResp.Body)
 		_ = checkResp.Body.Close()
-		if checkResp.StatusCode == 404 {
+		// Only skip if the endpoint itself doesn't exist (not the file param)
+		if checkResp.StatusCode == 404 || checkResp.StatusCode == 405 {
 			continue
 		}
 
