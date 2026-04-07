@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -35,11 +36,13 @@ import (
 
 // Callback records a single OOB interaction from a vulnerable target.
 type Callback struct {
-	Token      string    // the unique token that was triggered
-	RemoteAddr string    // source IP of the callback
-	Protocol   string    // "http" or "dns"
-	Detail     string    // HTTP path or DNS query name
-	ReceivedAt time.Time // when the callback arrived
+	Token      string            // the unique token that was triggered
+	RemoteAddr string            // source IP of the callback
+	Protocol   string            // "http" or "dns"
+	Detail     string            // HTTP path or DNS query name
+	Headers    map[string]string // HTTP request headers (nil for DNS)
+	Body       string            // HTTP request body (empty for DNS)
+	ReceivedAt time.Time         // when the callback arrived
 }
 
 // Server is an in-process OOB callback server.
@@ -202,6 +205,17 @@ func (s *Server) GetCallback(token string) (*Callback, bool) {
 	return cb, ok
 }
 
+// ReceivedCallbacks returns a snapshot of all callbacks received so far.
+func (s *Server) ReceivedCallbacks() []Callback {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Callback, 0, len(s.callbacks))
+	for _, cb := range s.callbacks {
+		out = append(out, *cb)
+	}
+	return out
+}
+
 // recordCallback stores the callback and notifies any waiters.
 func (s *Server) recordCallback(cb *Callback) {
 	s.mu.Lock()
@@ -241,11 +255,26 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capture request headers.
+	hdrs := make(map[string]string, len(r.Header))
+	for k, v := range r.Header {
+		hdrs[k] = strings.Join(v, ", ")
+	}
+
+	// Capture request body (limit to 4 KB to avoid abuse).
+	var body string
+	if r.Body != nil {
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+		body = string(raw)
+	}
+
 	s.recordCallback(&Callback{
 		Token:      token,
 		RemoteAddr: r.RemoteAddr,
 		Protocol:   "http",
 		Detail:     r.URL.Path,
+		Headers:    hdrs,
+		Body:       body,
 		ReceivedAt: time.Now(),
 	})
 
