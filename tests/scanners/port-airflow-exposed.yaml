@@ -32,7 +32,7 @@ assertions:
   - name: detects-airflow-exposed
     type: beacon
     target: localhost:9277
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9277"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9277"]
     expect:
       check_id: port.airflow_exposed
 

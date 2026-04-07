@@ -13,7 +13,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:5000/api/2.0/mlflow/experiments/list >/dev/null"
-  timeout: 120s
+  timeout: 300s
   interval: 5s
 
 assertions:

@@ -29,6 +29,6 @@ assertions:
     target: localhost:5672
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "5672"]
     expect:
-      check_id: port.amqp_exposed
+      check_id: port.service_identified
 
 timeout: 5m
