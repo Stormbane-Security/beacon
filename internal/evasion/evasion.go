@@ -29,6 +29,11 @@ type Strategy struct {
 	// 0 disables jitter.
 	MaxJitterMs int
 
+	// BaseDelayMs is a fixed delay added before each request, in milliseconds.
+	// Used by the detection monitor to slow down scanning when rate limiting is detected.
+	// 0 means no base delay.
+	BaseDelayMs int
+
 	counter atomic.Uint64
 }
 
@@ -54,13 +59,19 @@ func (s *Strategy) HTTPClient(base *http.Client) *http.Client {
 	return &clone
 }
 
-// Jitter sleeps a random duration in [0, MaxJitterMs] ms, respecting ctx cancellation.
-// If MaxJitterMs is 0 it returns immediately.
+// Jitter sleeps a random duration in [BaseDelayMs, BaseDelayMs+MaxJitterMs] ms,
+// respecting ctx cancellation. If both BaseDelayMs and MaxJitterMs are 0 it
+// returns immediately.
 func (s *Strategy) Jitter(ctx context.Context) {
-	if s.MaxJitterMs <= 0 {
+	base := time.Duration(s.BaseDelayMs) * time.Millisecond
+	var jitter time.Duration
+	if s.MaxJitterMs > 0 {
+		jitter = time.Duration(rand.IntN(s.MaxJitterMs+1)) * time.Millisecond
+	}
+	delay := base + jitter
+	if delay <= 0 {
 		return
 	}
-	delay := time.Duration(rand.IntN(s.MaxJitterMs+1)) * time.Millisecond
 	select {
 	case <-ctx.Done():
 	case <-time.After(delay):
