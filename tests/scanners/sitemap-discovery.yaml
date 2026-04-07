@@ -27,7 +27,7 @@ assertions:
   - name: exploit-sitemap-has-urls
     type: command
     expect:
-      command: "curl -sf http://localhost:9328/sitemap.xml | grep -c '<loc>' | awk '{exit ($1 >= 3) ? 0 : 1}'"
+      command: "COUNT=$(curl -sf http://localhost:9328/sitemap.xml | grep -o '<loc>' | wc -l); [ \"$COUNT\" -ge 3 ]"
       exit_code: 0
 
   - name: exploit-sitemap-reveals-admin

@@ -8,6 +8,10 @@ services:
   apache:
     image: httpd:2.4-alpine
     ports: ["9327:80"]
+    volumes:
+      - ./http-trace/httpd-extra.conf:/usr/local/apache2/conf/extra/httpd-trace.conf:ro
+    command: >
+      sh -c "echo 'Include conf/extra/httpd-trace.conf' >> /usr/local/apache2/conf/httpd.conf && httpd-foreground"
 
 ready:
   cmd: "curl -sf http://localhost:9327/ >/dev/null"

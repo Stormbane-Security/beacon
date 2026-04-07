@@ -34,12 +34,27 @@ const (
 )
 
 // probePaths are common API and web endpoints that accept query parameters.
+// Includes both REST-style paths and common app endpoints seen in the wild.
 var probePaths = []string{
+	"/",
 	"/api",
 	"/api/v1",
+	"/api/v2",
 	"/search",
 	"/users",
 	"/products",
+	"/get",
+	"/query",
+	"/filter",
+	"/login",
+	"/auth",
+	"/callback",
+	"/redirect",
+	"/admin",
+	"/dashboard",
+	"/account",
+	"/settings",
+	"/profile",
 }
 
 // roleProbe tests whether a second "role" value overrides the first.

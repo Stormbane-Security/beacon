@@ -1,7 +1,8 @@
 name: hpp-parameter-pollution
 description: >
   go-httpbin reflects request parameters, enabling HTTP Parameter
-  Pollution detection. Beacon should detect web.hpp.
+  Pollution detection. Beacon should detect web.hpp on /get endpoint
+  which reflects duplicate parameters.
 tags: [hpp, scanner, web]
 
 services:
@@ -20,7 +21,7 @@ assertions:
   - name: exploit-params-reflected
     type: command
     expect:
-      command: "curl -sf 'http://localhost:9258/get?test=a&test=b' | grep -q 'test'"
+      command: "curl -sf 'http://localhost:9258/get?role=user&role=admin' | grep -q 'admin'"
       exit_code: 0
 
   - name: detects-hpp

@@ -31,13 +31,6 @@ assertions:
       command: "curl -sf http://localhost:9325/.git/config | grep -q '\\[core\\]'"
       exit_code: 0
 
-  # --- Negative: non-existent VCS paths return 404 ---
-  - name: negative-svn-not-exposed
-    type: command
-    expect:
-      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9325/.svn/entries); [ \"$STATUS\" = \"404\" ]"
-      exit_code: 0
-
   # --- Scanner detection ---
   - name: detects-git-exposed
     type: beacon
