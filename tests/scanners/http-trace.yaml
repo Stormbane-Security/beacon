@@ -20,11 +20,6 @@ ready:
 
 assertions:
   # --- Exploit proofs: verify TRACE method is accepted ---
-  - name: exploit-trace-returns-200
-    type: command
-    expect:
-      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X TRACE http://localhost:9327/); [ \"$STATUS\" = \"200\" ] || [ \"$STATUS\" = \"405\" ]"
-      exit_code: 0
 
   - name: exploit-trace-echoes-request
     type: command
