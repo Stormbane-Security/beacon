@@ -223,7 +223,7 @@ assertions:
   - name: nuclei-detects
     type: beacon
     target: localhost:{{.HostPort}}
-    args: ["--no-enrich", "--no-nmap", "--scanners", "nuclei"]
+    args: ["--no-enrich", "--no-nmap"]
     expect:
       check_id: {{.NucleiCheck}}
 {{- if .HasExploit}}
