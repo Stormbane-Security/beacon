@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -434,12 +435,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// This runs BEFORE nmap because chain findings (credential harvest,
 	// data extraction, lateral movement) are higher value and faster than
 	// nmap vuln scripts. Nmap is supplementary and can take 5+ minutes.
+	log := scanlog.FromContext(ctx)
 	if scanType == module.ScanAuthorized && ctx.Err() == nil {
 		host, _ := parseAssetPort(asset)
 		if host == "" {
 			host = asset
 		}
 		if len(openPorts) > 0 {
+			log.Debug("chain.start", slog.String("host", host), slog.Int("port_count", len(openPorts)), slog.Any("services", openPorts), slog.Bool("ctx_cancelled", ctx.Err() != nil))
 			chain := postexploit.NewChain()
 			chain.Timeout = 2 * time.Minute // tighter timeout within portscan context
 			chain.ApproveFunc = postexploit.ApproveFuncFromContext(ctx)
@@ -450,7 +453,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 			// Pass service map so chain only probes modules matching
 			// identified services, not all 16 modules on non-standard ports.
+			chainStart := time.Now()
 			chainFindings := chain.ProbeHostServices(ctx, host, openPorts, fb)
+			log.Debug("chain.complete", slog.Int("finding_count", len(chainFindings)), slog.Duration("duration", time.Since(chainStart)))
 			findings = append(findings, chainFindings...)
 		}
 	}
