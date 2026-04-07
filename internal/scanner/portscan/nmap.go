@@ -121,43 +121,69 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 		"-p", portList,
 	}
 
-	// Surface mode: add targeted NSE scripts for common misconfigs.
-	// Scripts used are information-gathering only (no exploitation).
-	surfaceScripts := []string{
-		// Existing
-		"ssh-auth-methods",
-		"ssh2-enum-algos",
-		"dns-recursion",
-		"ftp-anon",
-		"snmp-info",
-		"banner",
-		// Fingerprinting
-		"smb-os-discovery",    // OS, domain, hostname from SMB
-		"ssl-cert",            // TLS certificate details (expiry, CN, issuer)
-		"http-title",          // HTML page title
-		"http-robots.txt",     // robots.txt disallowed paths
-		"nbstat",              // NetBIOS name/domain/MAC
-		"smtp-commands",       // SMTP VRFY/EXPN enumeration
-		"vnc-info",            // VNC auth type (none = open desktop)
-		"rdp-enum-encryption", // RDP encryption level (NLA check)
-		"telnet-encryption",   // Telnet without encryption
-		// Additional NSE scripts
-		"http-server-header",  // Server header info leak
-		"http-headers",        // Response headers security analysis
-		"ssl-enum-ciphers",    // Weak cipher suite enumeration
-		"ssh-hostkey",         // SSH host key info
-		"http-auth",           // HTTP basic/digest auth detection
-		"vulners",             // CVE matching via version detection
-		"http-cookie-flags",   // Missing Secure/HttpOnly cookie flags
-		"smb2-security-mode",  // SMB2/3 signing not required
-		"ms-sql-info",         // Exposed MSSQL instance info
-		"mongodb-info",        // Exposed MongoDB instance info
-		// Vulnerability detection
-		"smb-security-mode",   // SMB signing not required
-		"http-methods",        // Dangerous methods (PUT/DELETE/TRACE)
-		"ntp-monlist",         // NTP amplification (DDoS)
+	// Surface mode: add targeted NSE scripts based on IDENTIFIED services.
+	// Only run scripts relevant to what we already found — don't run SSH
+	// scripts against HTTP ports or SMB scripts against Redis.
+	var surfaceScripts []string
+
+	// Always run these lightweight scripts
+	surfaceScripts = append(surfaceScripts, "banner")
+
+	// Add service-specific scripts based on what portscan identified
+	for _, svc := range openPorts {
+		switch svc {
+		case "http", "https":
+			surfaceScripts = append(surfaceScripts, "http-title", "http-robots.txt",
+				"http-server-header", "http-headers")
+		case "ssh":
+			surfaceScripts = append(surfaceScripts, "ssh-auth-methods", "ssh2-enum-algos")
+		case "smtp":
+			surfaceScripts = append(surfaceScripts, "smtp-commands")
+		case "ftp":
+			surfaceScripts = append(surfaceScripts, "ftp-anon")
+		case "smb":
+			surfaceScripts = append(surfaceScripts, "smb-os-discovery", "smb-security-mode",
+				"smb2-security-mode", "nbstat")
+		case "dns":
+			surfaceScripts = append(surfaceScripts, "dns-recursion")
+		case "snmp":
+			surfaceScripts = append(surfaceScripts, "snmp-info")
+		case "vnc":
+			surfaceScripts = append(surfaceScripts, "vnc-info")
+		case "rdp":
+			surfaceScripts = append(surfaceScripts, "rdp-enum-encryption")
+		case "telnet":
+			surfaceScripts = append(surfaceScripts, "telnet-encryption")
+		case "mysql", "postgres", "mssql":
+			surfaceScripts = append(surfaceScripts, "ms-sql-info", "mongodb-info")
+		}
 	}
-	args = append(args, "--script", strings.Join(surfaceScripts, ","))
+	// TLS scripts for any HTTPS or TLS-detected service
+	for port := range openPorts {
+		if port == 443 || port == 8443 || port == 9443 {
+			surfaceScripts = append(surfaceScripts, "ssl-cert", "ssl-enum-ciphers")
+			break
+		}
+	}
+	// Deduplicate
+	seen := map[string]bool{}
+	deduped := surfaceScripts[:0]
+	for _, s := range surfaceScripts {
+		if !seen[s] {
+			seen[s] = true
+			deduped = append(deduped, s)
+		}
+	}
+	surfaceScripts = deduped
+
+	// Legacy full list for reference (was running ALL of these on every port):
+	// ssh-auth-methods, ssh2-enum-algos, dns-recursion, ftp-anon, snmp-info,
+	// banner, smb-os-discovery, ssl-cert, http-title, http-robots.txt, nbstat,
+	// smtp-commands, vnc-info, rdp-enum-encryption, telnet-encryption,
+	// http-server-header, http-headers
+	if len(surfaceScripts) > 0 {
+		args = append(args, "--script", strings.Join(surfaceScripts, ","))
+	}
 
 	// Deep mode: add NSE vulnerability scripts and OS detection.
 	// These probe for specific CVEs — only allowed with explicit permission.
