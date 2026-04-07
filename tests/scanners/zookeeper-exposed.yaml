@@ -1,0 +1,33 @@
+name: zookeeper-exposed
+description: >
+  Apache ZooKeeper with no authentication. Beacon should detect the
+  exposed ZooKeeper service via the 4-letter command protocol.
+tags: [zookeeper, portscan, detection]
+
+services:
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    ports: ["2181:2181"]
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+
+ready:
+  cmd: "echo ruok | nc -w2 localhost 2181 | grep -q imok"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: zookeeper-responds
+    type: command
+    expect:
+      command: "echo ruok | nc -w2 localhost 2181 | grep -q imok"
+      exit_code: 0
+
+  - name: detects-zookeeper-exposed
+    type: beacon
+    target: localhost:2181
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2181"]
+    expect:
+      check_id: port.zookeeper_exposed
+
+timeout: 3m

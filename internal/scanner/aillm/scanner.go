@@ -75,6 +75,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
+	// Detect Ollama by querying /api/tags — if it responds, extract a model name.
+	ollamaModel := detectOllamaModel(ctx, client, base)
+
 	// Use known AI endpoints from evidence, or fall back to default paths.
 	endpoints := defaultEndpoints
 	if s.Evidence != nil && len(s.Evidence.AIEndpoints) > 0 {
@@ -85,8 +88,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	for _, path := range endpoints {
 		url := base + path
-		for _, probe := range activeProbes {
-			f := runProbe(ctx, client, url, asset, probe)
+		for _, p := range activeProbes {
+			f := runProbeWithFormat(ctx, client, url, asset, p, path, ollamaModel)
 			if f != nil {
 				findings = append(findings, *f)
 			}
@@ -233,15 +236,94 @@ var activeProbes = []probe{
 	},
 }
 
-// runProbe sends a single probe and evaluates the response for attack success.
-func runProbe(ctx context.Context, client *http.Client, url, asset string, p probe) *finding.Finding {
+// ollamaEndpoints are paths that use Ollama's native API format (not OpenAI-compat).
+var ollamaEndpoints = map[string]bool{
+	"/api/generate": true,
+	"/api/chat":     true,
+}
+
+// detectOllamaModel queries /api/tags to check if the target is an Ollama instance.
+// Returns the first available model name, or "" if Ollama is not detected.
+func detectOllamaModel(ctx context.Context, client *http.Client, base string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/tags", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	_ = resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ""
+	}
+
+	var tagsResp struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(body, &tagsResp); err != nil {
+		return ""
+	}
+	if len(tagsResp.Models) > 0 {
+		return tagsResp.Models[0].Name
+	}
+	return ""
+}
+
+// buildPayload constructs the JSON payload appropriate for the endpoint type.
+// For Ollama-native endpoints (/api/generate, /api/chat), it uses Ollama's format.
+// For everything else (including Ollama's /v1/chat/completions), it uses OpenAI format
+// with the detected model name if available.
+func buildPayload(p probe, path string, ollamaModel string) ([]byte, error) {
+	if ollamaEndpoints[path] && ollamaModel != "" {
+		if path == "/api/generate" {
+			// Ollama /api/generate takes a single prompt string, not messages.
+			prompt := ""
+			if len(p.messages) > 0 {
+				prompt = p.messages[0]["content"]
+			}
+			payload := map[string]any{
+				"model":  ollamaModel,
+				"prompt": prompt,
+				"stream": false,
+			}
+			return json.Marshal(payload)
+		}
+		// /api/chat — Ollama's chat format uses same messages shape but requires model.
+		payload := map[string]any{
+			"model":    ollamaModel,
+			"messages": p.messages,
+			"stream":   false,
+		}
+		return json.Marshal(payload)
+	}
+
+	// OpenAI-compatible format (default). Use detected Ollama model if available,
+	// otherwise fall back to a generic model name.
+	modelName := "gpt-3.5-turbo"
+	if ollamaModel != "" {
+		modelName = ollamaModel
+	}
 	payload := map[string]any{
-		"model":      "gpt-3.5-turbo", // generic model name; real servers use their own
+		"model":      modelName,
 		"messages":   p.messages,
 		"max_tokens": 300,
 		"stream":     false,
 	}
-	payloadBytes, _ := json.Marshal(payload)
+	return json.Marshal(payload)
+}
+
+// runProbeWithFormat sends a single probe using the appropriate API format for the
+// endpoint and evaluates the response for attack success.
+func runProbeWithFormat(ctx context.Context, client *http.Client, url, asset string, p probe, path string, ollamaModel string) *finding.Finding {
+	payloadBytes, err := buildPayload(p, path, ollamaModel)
+	if err != nil {
+		return nil
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payloadBytes))
 	if err != nil {
@@ -262,7 +344,7 @@ func runProbe(ctx context.Context, client *http.Client, url, asset string, p pro
 		return nil
 	}
 
-	// Extract the model's text response from the OpenAI response format.
+	// Extract the model's text response from the response body.
 	modelText := extractModelText(body)
 	if modelText == "" {
 		modelText = string(body) // fall back to raw body

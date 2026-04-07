@@ -1,0 +1,33 @@
+name: influxdb-exposed
+description: >
+  InfluxDB v1 with no authentication. Beacon should detect the exposed
+  time-series database and its unauthenticated API.
+tags: [influxdb, database, portscan, detection]
+
+services:
+  influxdb:
+    image: influxdb:1.8-alpine
+    ports: ["8086:8086"]
+    environment:
+      INFLUXDB_HTTP_AUTH_ENABLED: "false"
+
+ready:
+  cmd: "curl -sf http://localhost:8086/ping >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: influxdb-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8086/query?q=SHOW+DATABASES | grep -q results"
+      exit_code: 0
+
+  - name: detects-influxdb-exposed
+    type: beacon
+    target: localhost:8086
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8086"]
+    expect:
+      check_id: port.influxdb_exposed
+
+timeout: 3m

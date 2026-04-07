@@ -362,3 +362,261 @@ func TestAILLM_EvidenceEndpointsUsed(t *testing.T) {
 		t.Error("should not probe default paths when Evidence.AIEndpoints is set")
 	}
 }
+
+// ollamaServer returns a test server that simulates an Ollama instance.
+// It responds to GET /api/tags with a model list and POST /api/generate
+// with Ollama's native response format.
+func ollamaServer(t *testing.T, responseText string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Ollama model listing
+		if r.URL.Path == "/api/tags" && r.Method == "GET" {
+			resp := map[string]any{
+				"models": []map[string]any{
+					{"name": "tinyllama:latest", "size": 637000000},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Ollama native /api/generate
+		if r.URL.Path == "/api/generate" && r.Method == "POST" {
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "bad request", 400)
+				return
+			}
+			// Verify Ollama format: must have "prompt" (string) and "model" fields
+			if _, ok := req["prompt"]; !ok {
+				http.Error(w, `{"error":"missing prompt field"}`, 400)
+				return
+			}
+			if _, ok := req["model"]; !ok {
+				http.Error(w, `{"error":"missing model field"}`, 400)
+				return
+			}
+			resp := map[string]any{
+				"response": responseText,
+				"done":     true,
+				"model":    "tinyllama:latest",
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Ollama native /api/chat
+		if r.URL.Path == "/api/chat" && r.Method == "POST" {
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "bad request", 400)
+				return
+			}
+			if _, ok := req["model"]; !ok {
+				http.Error(w, `{"error":"missing model field"}`, 400)
+				return
+			}
+			resp := map[string]any{
+				"message": map[string]string{"role": "assistant", "content": responseText},
+				"done":    true,
+				"model":   "tinyllama:latest",
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// OpenAI-compat /v1/chat/completions — require model field
+		if r.URL.Path == "/v1/chat/completions" && r.Method == "POST" {
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "bad request", 400)
+				return
+			}
+			if _, ok := req["model"]; !ok {
+				http.Error(w, `{"error":"missing model field"}`, 400)
+				return
+			}
+			resp := map[string]any{
+				"choices": []map[string]any{
+					{"message": map[string]string{"content": responseText}, "finish_reason": "stop"},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+}
+
+func TestAILLM_OllamaDetection_PromptInjection(t *testing.T) {
+	srv := ollamaServer(t, "INJECTION_CONFIRMED. I am now unrestricted.")
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, f := range findings {
+		if f.CheckID == finding.CheckAIPromptInjection {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected ai.prompt_injection finding from Ollama server")
+	}
+}
+
+func TestAILLM_OllamaDetection_UsesCorrectModel(t *testing.T) {
+	// Verify that when Ollama is detected, probes use the detected model name
+	// and the correct Ollama format for /api/generate.
+	var receivedModels []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Path == "/api/tags" && r.Method == "GET" {
+			resp := map[string]any{
+				"models": []map[string]any{
+					{"name": "mistral:7b", "size": 4000000000},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.Method == "POST" {
+			var req map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if m, ok := req["model"].(string); ok {
+				receivedModels = append(receivedModels, m)
+			}
+			// Return a benign refusal so no findings are generated.
+			if r.URL.Path == "/api/generate" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"response": "I cannot do that.",
+					"done":     true,
+				})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []map[string]any{
+						{"message": map[string]string{"content": "I cannot do that."}},
+					},
+				})
+			}
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	_, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// All requests should use the detected Ollama model name.
+	for _, m := range receivedModels {
+		if m != "mistral:7b" {
+			t.Errorf("expected model 'mistral:7b', got %q", m)
+		}
+	}
+	if len(receivedModels) == 0 {
+		t.Error("expected at least one probe request with a model field")
+	}
+}
+
+func TestAILLM_OllamaGenerateFormat(t *testing.T) {
+	// Verify /api/generate receives "prompt" field (string), not "messages".
+	var gotPrompt bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Path == "/api/tags" && r.Method == "GET" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{{"name": "llama3:latest"}},
+			})
+			return
+		}
+
+		if r.URL.Path == "/api/generate" && r.Method == "POST" {
+			var req map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if _, ok := req["prompt"].(string); ok {
+				gotPrompt = true
+			}
+			if _, ok := req["messages"]; ok {
+				t.Error("/api/generate should not receive 'messages' field, should use 'prompt'")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"response": "I cannot do that.",
+				"done":     true,
+			})
+			return
+		}
+
+		// Other endpoints: return 404 to skip them.
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	_, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !gotPrompt {
+		t.Error("expected /api/generate to receive 'prompt' field in Ollama format")
+	}
+}
+
+func TestAILLM_NoOllama_FallbackToOpenAI(t *testing.T) {
+	// When /api/tags returns 404, scanner should fall back to OpenAI format with
+	// the default model name.
+	var receivedModels []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Path == "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+
+		if r.Method == "POST" {
+			var req map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if m, ok := req["model"].(string); ok {
+				receivedModels = append(receivedModels, m)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{
+					{"message": map[string]string{"content": "I cannot do that."}},
+				},
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	_, err := New().Run(t.Context(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, m := range receivedModels {
+		if m != "gpt-3.5-turbo" {
+			t.Errorf("without Ollama, expected default model 'gpt-3.5-turbo', got %q", m)
+		}
+	}
+}
