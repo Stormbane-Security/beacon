@@ -1,0 +1,80 @@
+name: aillm-ollama-prompt-injection
+description: >
+  Ollama running a small LLM (tinyllama). Tests the full AI scanning pipeline:
+  aidetect discovers the endpoint, aillm tests prompt injection, system prompt
+  leak, and model info disclosure against a real running model. Verifies beacon
+  can detect and exploit exposed LLM infrastructure.
+tags: [ai, llm, ollama, prompt-injection, exploit, authorized]
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    # Ollama needs a model pulled after startup — handled in run commands
+
+ready:
+  cmd: "curl -sf http://localhost:11434/api/tags >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+run:
+  # Pull a tiny model for testing (tinyllama is ~600MB, small enough for CI)
+  - "curl -sf -X POST http://localhost:11434/api/pull -d '{\"name\":\"tinyllama\"}' --max-time 300 -o /dev/null"
+  # Verify model is loaded and responding
+  - "curl -sf -X POST http://localhost:11434/api/generate -d '{\"model\":\"tinyllama\",\"prompt\":\"hello\",\"stream\":false}' --max-time 60 | grep -q response"
+
+assertions:
+  # ── Pre-flight: Ollama API is accessible ──────────────────────────────
+  - name: ollama-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:11434/api/tags | grep -q tinyllama"
+      exit_code: 0
+
+  - name: ollama-model-responds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:11434/api/generate -d '{\"model\":\"tinyllama\",\"prompt\":\"say yes\",\"stream\":false}' --max-time 30 | grep -q response"
+      exit_code: 0
+
+  # ── Surface detection: aidetect finds the LLM endpoint ────────────────
+  - name: detects-ollama-endpoint
+    type: beacon
+    target: localhost:11434
+    args: ["--no-enrich", "--scanners", "aidetect"]
+    expect:
+      check_id: ai.endpoint_exposed
+
+  # ── Surface detection: portscan identifies Ollama service ─────────────
+  - name: portscan-identifies-ollama
+    type: beacon
+    target: localhost:11434
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11434"]
+    expect:
+      check_id: port.ollama_exposed
+
+  # ── Deep mode: aillm tests prompt injection against real model ────────
+  - name: aillm-prompt-injection
+    type: beacon
+    target: localhost:11434
+    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: ai.prompt_injection
+
+  # ── Deep mode: aillm extracts model info ──────────────────────────────
+  - name: aillm-model-info
+    type: beacon
+    target: localhost:11434
+    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: ai.model_info_exposed
+
+  # ── Negative: model should NOT expose customer data ───────────────────
+  - name: negative-no-data-exfil
+    type: beacon
+    target: localhost:11434
+    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--permission-confirmed"]
+    expect:
+      not_check_id: ai.data_exfiltration
+
+timeout: 15m

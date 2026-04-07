@@ -1,0 +1,49 @@
+name: aiinfra-ray-dashboard
+description: >
+  Ray distributed computing cluster with unauthenticated dashboard.
+  Beacon should detect the exposed Ray dashboard and identify that
+  arbitrary Python job execution is possible without authentication.
+tags: [ai, ray, infrastructure, exploit, critical]
+
+services:
+  ray:
+    image: rayproject/ray:2.9.0
+    ports: ["8265:8265"]
+    command: ["ray", "start", "--head", "--dashboard-host=0.0.0.0", "--block"]
+
+ready:
+  cmd: "curl -sf http://localhost:8265/api/version >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: Ray dashboard API accessible ──────────────────────────
+  - name: ray-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8265/api/version | grep -q ray_version"
+      exit_code: 0
+
+  - name: ray-jobs-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8265/api/jobs/ | grep -qE 'submission_id|\\[\\]'"
+      exit_code: 0
+
+  # ── Surface: aiinfra detects exposed Ray dashboard ────────────────────
+  - name: detects-ray-unauthenticated
+    type: beacon
+    target: localhost:8265
+    args: ["--no-enrich", "--scanners", "aiinfra"]
+    expect:
+      check_id: ai.ray_dashboard_unauthenticated
+
+  # ── Surface: portscan identifies Ray service ──────────────────────────
+  - name: portscan-identifies-ray
+    type: beacon
+    target: localhost:8265
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8265"]
+    expect:
+      check_id: port.ray_dashboard_exposed
+
+timeout: 5m
