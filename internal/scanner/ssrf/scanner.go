@@ -18,6 +18,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 )
@@ -406,6 +407,29 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					DiscoveredAt: time.Now(),
 				})
 				break
+			}
+		}
+	}
+
+	// Web exploit dispatcher: run post-exploit chains with per-module approval.
+	if scanType == module.ScanAuthorized && len(findings) > 0 {
+		dispatcher := postexploit.NewWebExploitDispatcher()
+		approveFunc := postexploit.ApproveFuncFromContext(ctx)
+		fb := &postexploit.FindingBuilder{
+			Module:  "deep",
+			Scanner: scannerName,
+			Asset:   asset,
+		}
+		for _, f := range findings {
+			if ctx.Err() != nil {
+				break
+			}
+			if dispatcher.CanExploit(f.CheckID) {
+				if approveFunc == nil || !approveFunc("web-exploit-"+string(f.CheckID), asset, 0) {
+					continue
+				}
+				exploitFindings := dispatcher.Dispatch(ctx, f, fb)
+				findings = append(findings, exploitFindings...)
 			}
 		}
 	}
