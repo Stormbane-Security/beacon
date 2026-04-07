@@ -98,5 +98,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			"csp_frame_ancestors": hasFrameAncestors,
 		},
 		DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 	}}, nil
 }

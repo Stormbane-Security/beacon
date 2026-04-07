@@ -177,6 +177,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			},
 			ProofCommand: fmt.Sprintf("curl -sI '%s' | grep -i '^server:'", url),
 			DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 		})
 	}
 
@@ -198,6 +199,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			},
 			ProofCommand: fmt.Sprintf("curl -sI '%s' | grep -i '^x-powered-by:'", url),
 			DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 		})
 	}
 
@@ -245,6 +247,7 @@ func headerFinding(checkID finding.CheckID, sev finding.Severity, asset, url, he
 		},
 		ProofCommand: fmt.Sprintf("curl -sI '%s' | grep -i '%s'", url, strings.ToLower(header)),
 		DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 	}
 }
 
