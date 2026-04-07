@@ -301,6 +301,224 @@ func TestInterpretNmapScript_IPMICipherZero(t *testing.T) {
 	}
 }
 
+// ── New NSE script tests ────────────────────────────────────────────────────
+
+func TestInterpretNmapScript_HTTPServerHeader(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 80, nmapScript{
+		ID:     "http-server-header",
+		Output: "Apache/2.4.49 (Unix)",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapHTTPServerHeader {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapHTTPServerHeader)
+	}
+	if fs[0].Severity != finding.SeverityInfo {
+		t.Errorf("severity = %v; want Info", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_HTTPHeaders_MissingSecurity(t *testing.T) {
+	// Output missing several security headers
+	fs := interpretNmapScript("10.0.0.1", 443, nmapScript{
+		ID:     "http-headers",
+		Output: "Date: Mon, 01 Jan 2024 00:00:00 GMT\nServer: nginx\nContent-Type: text/html",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapHTTPHeaders {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapHTTPHeaders)
+	}
+	issues := fs[0].Evidence["missing_headers"].([]string)
+	if len(issues) < 3 {
+		t.Errorf("expected at least 3 missing headers, got %d: %v", len(issues), issues)
+	}
+}
+
+func TestInterpretNmapScript_HTTPHeaders_AllPresent(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 443, nmapScript{
+		ID:     "http-headers",
+		Output: "X-Frame-Options: DENY\nX-Content-Type-Options: nosniff\nContent-Security-Policy: default-src 'self'\nStrict-Transport-Security: max-age=31536000",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 0 {
+		t.Errorf("expected 0 findings when all security headers present, got %d", len(fs))
+	}
+}
+
+func TestInterpretNmapScript_SSLEnumCiphers_Weak(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 443, nmapScript{
+		ID:     "ssl-enum-ciphers",
+		Output: "SSLv3:\n  ciphers:\n    TLS_RSA_EXPORT_WITH_RC4_40_MD5\nTLSv1.0:\n  ciphers:\n    TLS_RSA_WITH_AES_128_CBC_SHA",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapSSLEnumCiphers {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapSSLEnumCiphers)
+	}
+	if fs[0].Severity != finding.SeverityHigh {
+		t.Errorf("severity = %v; want High", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_SSLEnumCiphers_Strong(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 443, nmapScript{
+		ID:     "ssl-enum-ciphers",
+		Output: "TLSv1.2:\n  ciphers:\n    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384\nTLSv1.3:\n  ciphers:\n    TLS_AES_256_GCM_SHA384",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 0 {
+		t.Errorf("expected 0 findings for strong ciphers only, got %d", len(fs))
+	}
+}
+
+func TestInterpretNmapScript_SSHHostKey_Weak(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 22, nmapScript{
+		ID:     "ssh-hostkey",
+		Output: "1024 aa:bb:cc:dd:ee:ff:00:11 (ssh-dss)\n2048 11:22:33:44:55:66:77:88 (ssh-rsa)",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapSSHHostKey {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapSSHHostKey)
+	}
+	if fs[0].Severity != finding.SeverityHigh {
+		t.Errorf("severity = %v; want High (DSA key)", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_SSHHostKey_Strong(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 22, nmapScript{
+		ID:     "ssh-hostkey",
+		Output: "256 aa:bb:cc:dd:ee:ff:00:11 (ecdsa-sha2-nistp256)\n256 11:22:33:44:55:66:77:88 (ssh-ed25519)",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding (info level), got %d", len(fs))
+	}
+	if fs[0].Severity != finding.SeverityInfo {
+		t.Errorf("severity = %v; want Info for strong keys", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_HTTPAuth(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 80, nmapScript{
+		ID:     "http-auth",
+		Output: "HTTP/1.1 401 Unauthorized\n  Basic realm=\"Admin Panel\"",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapHTTPAuth {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapHTTPAuth)
+	}
+	if fs[0].Evidence["auth_type"] != "Basic" {
+		t.Errorf("auth_type = %v; want Basic", fs[0].Evidence["auth_type"])
+	}
+}
+
+func TestInterpretNmapScript_Vulners(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 80, nmapScript{
+		ID:     "vulners",
+		Output: "cpe:/a:apache:http_server:2.4.49:\n  CVE-2021-41773  7.5  https://vulners.com/cve/CVE-2021-41773\n  CVE-2021-42013  9.8  https://vulners.com/cve/CVE-2021-42013",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapVulners {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapVulners)
+	}
+	cves := fs[0].Evidence["cves"].([]string)
+	if len(cves) != 2 {
+		t.Errorf("expected 2 CVEs, got %d: %v", len(cves), cves)
+	}
+}
+
+func TestInterpretNmapScript_Vulners_NoCVEs(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 80, nmapScript{
+		ID:     "vulners",
+		Output: "cpe:/a:apache:http_server:2.4.62:\n  No known vulnerabilities",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 0 {
+		t.Errorf("expected 0 findings when no CVEs, got %d", len(fs))
+	}
+}
+
+func TestInterpretNmapScript_HTTPCookieFlags(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 443, nmapScript{
+		ID:     "http-cookie-flags",
+		Output: "/:\n  JSESSIONID:\n    httponly flag is not set\n    secure flag is not set",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapHTTPCookieFlags {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapHTTPCookieFlags)
+	}
+	if fs[0].Severity != finding.SeverityMedium {
+		t.Errorf("severity = %v; want Medium", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_SMB2SecurityMode(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 445, nmapScript{
+		ID:     "smb2-security-mode",
+		Output: "2.0.2:\n  Message signing enabled but not required",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapSMB2SecurityMode {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapSMB2SecurityMode)
+	}
+	if fs[0].Severity != finding.SeverityHigh {
+		t.Errorf("severity = %v; want High", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_SMB2SecurityMode_Required(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 445, nmapScript{
+		ID:     "smb2-security-mode",
+		Output: "3.1.1:\n  Message signing enabled and required",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 0 {
+		t.Errorf("expected 0 findings when signing required, got %d", len(fs))
+	}
+}
+
+func TestInterpretNmapScript_MSSQLInfo(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 1433, nmapScript{
+		ID:     "ms-sql-info",
+		Output: "  Instance name: MSSQLSERVER\n  Version: 15.0.2000.5\n  TCP port: 1433",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapMSSQLInfo {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapMSSQLInfo)
+	}
+	if fs[0].Severity != finding.SeverityHigh {
+		t.Errorf("severity = %v; want High", fs[0].Severity)
+	}
+}
+
+func TestInterpretNmapScript_MongoDBInfo(t *testing.T) {
+	fs := interpretNmapScript("10.0.0.1", 27017, nmapScript{
+		ID:     "mongodb-info",
+		Output: "MongoDB Build info:\n  version: 4.4.6\n  gitVersion: abc123\n  OpenSSLVersion: OpenSSL 1.1.1k",
+	}, "nmap -sV 10.0.0.1", time.Now())
+	if len(fs) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(fs))
+	}
+	if fs[0].CheckID != finding.CheckNmapMongoDBInfo {
+		t.Errorf("checkID = %q; want %q", fs[0].CheckID, finding.CheckNmapMongoDBInfo)
+	}
+	if fs[0].Severity != finding.SeverityHigh {
+		t.Errorf("severity = %v; want High", fs[0].Severity)
+	}
+}
+
 func TestExtractField(t *testing.T) {
 	tests := []struct {
 		output string

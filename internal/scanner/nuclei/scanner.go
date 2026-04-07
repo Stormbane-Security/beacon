@@ -316,15 +316,20 @@ func (s *Scanner) RunWithTags(ctx context.Context, asset string, tags []string) 
 type nucleiResult struct {
 	TemplateID  string `json:"template-id"`
 	Info        struct {
-		Name        string `json:"name"`
-		Severity    string `json:"severity"`
-		Description string `json:"description"`
+		Name        string   `json:"name"`
+		Severity    string   `json:"severity"`
+		Description string   `json:"description"`
+		Tags        []string `json:"tags"`
+		Reference   []string `json:"reference"`
 	} `json:"info"`
-	Host          string            `json:"host"`
-	MatchedAt     string            `json:"matched-at"`
-	ExtractedResults []string       `json:"extracted-results"`
-	Meta          map[string]string `json:"meta"`
-	Timestamp     time.Time         `json:"timestamp"`
+	Host             string            `json:"host"`
+	MatchedAt        string            `json:"matched-at"`
+	ExtractedResults []string          `json:"extracted-results"`
+	Meta             map[string]string `json:"meta"`
+	CurlCommand      string            `json:"curl-command"`
+	MatcherName      string            `json:"matcher-name"`
+	Type             string            `json:"type"`
+	Timestamp        time.Time         `json:"timestamp"`
 }
 
 func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
@@ -354,6 +359,22 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 			"extracted_results": r.ExtractedResults,
 			"meta":              r.Meta,
 		}
+		// Preserve additional context fields when present.
+		if r.MatcherName != "" {
+			evidence["matcher_name"] = r.MatcherName
+		}
+		if r.Type != "" {
+			evidence["type"] = r.Type
+		}
+		if len(r.Info.Tags) > 0 {
+			evidence["tags"] = r.Info.Tags
+		}
+		if len(r.Info.Reference) > 0 {
+			evidence["references"] = r.Info.Reference
+		}
+
+		// Use nuclei's curl-command as the proof command when available.
+		proofCmd := r.CurlCommand
 
 		findings = append(findings, finding.Finding{
 			CheckID:      checkID,
@@ -364,6 +385,7 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 			Description:  r.Info.Description,
 			Asset:        asset,
 			Evidence:     evidence,
+			ProofCommand: proofCmd,
 			DiscoveredAt: r.Timestamp,
 		})
 	}

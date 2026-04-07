@@ -696,6 +696,18 @@ const (
 	CheckNmapHTTPMethods     CheckID = "nmap.http_unsafe_methods"    // Dangerous HTTP methods (PUT/DELETE/TRACE)
 	CheckNmapNTPMonlist      CheckID = "nmap.ntp_monlist"            // NTP monlist DDoS amplification
 
+	// Nmap — NSE script parsing (surface)
+	CheckNmapHTTPServerHeader CheckID = "nmap.http_server_header"     // HTTP server header info leak
+	CheckNmapHTTPHeaders      CheckID = "nmap.http_headers"           // HTTP response headers security analysis
+	CheckNmapSSLEnumCiphers   CheckID = "nmap.ssl_weak_ciphers"      // Weak TLS cipher suites (SSLv3, TLS 1.0, export)
+	CheckNmapSSHHostKey       CheckID = "nmap.ssh_hostkey"            // SSH host key info (weak key types/sizes)
+	CheckNmapHTTPAuth         CheckID = "nmap.http_auth"              // HTTP basic/digest authentication detected
+	CheckNmapVulners          CheckID = "nmap.vulners_cve"            // CVE matches from vulners NSE script
+	CheckNmapHTTPCookieFlags  CheckID = "nmap.http_cookie_flags"      // Missing Secure/HttpOnly cookie flags
+	CheckNmapSMB2SecurityMode CheckID = "nmap.smb2_signing_disabled"  // SMB2 signing not required
+	CheckNmapMSSQLInfo        CheckID = "nmap.mssql_exposed"          // Exposed MSSQL instance
+	CheckNmapMongoDBInfo      CheckID = "nmap.mongodb_exposed"        // Exposed MongoDB instance
+
 	// Nmap — vulnerability detection (deep)
 	CheckNmapSMTPOpenRelay   CheckID = "nmap.smtp_open_relay"        // Open mail relay
 	CheckNmapMySQLNoPassword CheckID = "nmap.mysql_no_password"      // MySQL root with no password
@@ -2098,6 +2110,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNmapSMBSigningOff:   {CheckNmapSMBSigningOff, SeverityHigh, ModeSurface},
 	CheckNmapHTTPMethods:     {CheckNmapHTTPMethods, SeverityMedium, ModeSurface},
 	CheckNmapNTPMonlist:      {CheckNmapNTPMonlist, SeverityHigh, ModeSurface},
+
+	// nmap — NSE script parsing (surface)
+	CheckNmapHTTPServerHeader: {CheckNmapHTTPServerHeader, SeverityInfo, ModeSurface},
+	CheckNmapHTTPHeaders:      {CheckNmapHTTPHeaders, SeverityInfo, ModeSurface},
+	CheckNmapSSLEnumCiphers:   {CheckNmapSSLEnumCiphers, SeverityHigh, ModeSurface},
+	CheckNmapSSHHostKey:       {CheckNmapSSHHostKey, SeverityInfo, ModeSurface},
+	CheckNmapHTTPAuth:         {CheckNmapHTTPAuth, SeverityInfo, ModeSurface},
+	CheckNmapVulners:          {CheckNmapVulners, SeverityHigh, ModeSurface},
+	CheckNmapHTTPCookieFlags:  {CheckNmapHTTPCookieFlags, SeverityMedium, ModeSurface},
+	CheckNmapSMB2SecurityMode: {CheckNmapSMB2SecurityMode, SeverityHigh, ModeSurface},
+	CheckNmapMSSQLInfo:        {CheckNmapMSSQLInfo, SeverityHigh, ModeSurface},
+	CheckNmapMongoDBInfo:      {CheckNmapMongoDBInfo, SeverityHigh, ModeSurface},
 
 	// nmap — vulnerability detection (deep)
 	CheckNmapSMTPOpenRelay:   {CheckNmapSMTPOpenRelay, SeverityCritical, ModeDeep},
