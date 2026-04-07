@@ -29,6 +29,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/auth"
 	"github.com/stormbane-security/beacon/internal/config"
 	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/exploitcache"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/playbook"
@@ -1279,6 +1280,23 @@ assetLoop:
 	// nuclei. When both a native scanner and nuclei detect the same issue on
 	// the same asset, the native finding has richer evidence and proof commands.
 	allFindings = deduplicateFindings(allFindings)
+
+	// Persist verified findings to the exploit cache for reuse in future scans.
+	if cache := exploitcache.CacheFromContext(ctx); cache != nil {
+		for _, f := range allFindings {
+			if f.Confidence != finding.ConfidenceVerified {
+				continue
+			}
+			service, _ := f.Evidence[finding.EvidenceService].(string)
+			if service == "" {
+				service, _ = f.Evidence[finding.EvidencePivotTarget].(string)
+			}
+			version, _ := f.Evidence[finding.EvidenceVersion].(string)
+			if service != "" {
+				_ = cache.SaveFromFinding(f, service, version)
+			}
+		}
+	}
 
 	return allFindings, nil
 }
