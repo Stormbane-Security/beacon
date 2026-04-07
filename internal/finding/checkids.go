@@ -743,6 +743,9 @@ const (
 	CheckContractIntegerOverflow  CheckID = "contract.integer_overflow"   // potential integer overflow / underflow
 	CheckContractSourceExposed    CheckID = "contract.source_exposed"     // contract source code verified and retrievable
 	CheckContractProxyAdmin       CheckID = "contract.proxy_admin"        // upgradeable proxy with admin slot detectable
+	CheckContractUnprotectedWithdraw CheckID = "contract.unprotected_withdraw" // withdraw/transfer function without access control
+	CheckContractApprovalUnlimited   CheckID = "contract.approval_unlimited"   // ERC20 approve with unlimited allowance
+	CheckContractFlashloanCallback   CheckID = "contract.flashloan_callback"   // flash loan callback function exposed
 
 	// Blockchain node / validator / miner detection
 	CheckChainNodeRPCExposed      CheckID = "chain.node_rpc_exposed"      // Ethereum/Bitcoin/Solana JSON-RPC port open and responding
@@ -2503,6 +2506,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckContractIntegerOverflow: {CheckContractIntegerOverflow, SeverityHigh, ModeDeep},
 	CheckContractSourceExposed:   {CheckContractSourceExposed, SeverityMedium, ModeSurface},
 	CheckContractProxyAdmin:      {CheckContractProxyAdmin, SeverityHigh, ModeSurface},
+	CheckContractUnprotectedWithdraw: {CheckContractUnprotectedWithdraw, SeverityCritical, ModeDeep},
+	CheckContractApprovalUnlimited:   {CheckContractApprovalUnlimited, SeverityHigh, ModeDeep},
+	CheckContractFlashloanCallback:   {CheckContractFlashloanCallback, SeverityHigh, ModeDeep},
 
 	// Blockchain node detection
 	CheckChainNodeRPCExposed:       {CheckChainNodeRPCExposed, SeverityCritical, ModeSurface},
