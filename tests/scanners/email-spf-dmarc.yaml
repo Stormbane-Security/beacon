@@ -1,0 +1,47 @@
+name: email-spf-dmarc-missing
+description: >
+  DNS server configured with a domain that has no SPF, DKIM, or DMARC records.
+  Beacon should detect all missing email security records.
+tags: [email, spf, dmarc, dkim, dns, detection]
+
+services:
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["15353:53/udp", "15353:53/tcp"]
+    volumes:
+      - ./fixtures/email-dns/Corefile:/etc/coredns/Corefile:ro
+      - ./fixtures/email-dns/db.testdomain.local:/etc/coredns/db.testdomain.local:ro
+
+ready:
+  cmd: "dig @localhost -p 15353 testdomain.local A +short | grep -q '10.0.0.1'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: dns-resolves
+    type: command
+    expect:
+      command: "dig @localhost -p 15353 testdomain.local A +short | grep -q '10.0.0.1'"
+      exit_code: 0
+
+  - name: no-spf-record
+    type: command
+    expect:
+      command: "dig @localhost -p 15353 testdomain.local TXT +short | grep -cv 'v=spf1' | grep -q '^0$' || true"
+      exit_code: 0
+
+  - name: detects-spf-missing
+    type: beacon
+    target: testdomain.local
+    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:15353"]
+    expect:
+      check_id: email.spf_missing
+
+  - name: detects-dmarc-missing
+    type: beacon
+    target: testdomain.local
+    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:15353"]
+    expect:
+      check_id: email.dmarc_missing
+
+timeout: 3m

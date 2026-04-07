@@ -1,0 +1,65 @@
+name: ingress-misconfig-chain
+description: >
+  Multi-container: Nginx ingress proxy routes to multiple backends.
+  One backend is admin-only but the ingress misconfiguration allows
+  path traversal to reach it. Tests beacon's ability to detect
+  proxy misconfigurations and path-based access control bypass.
+tags: [ingress, proxy, multi-container, accesscontrol, pathtraversal]
+
+services:
+  ingress:
+    image: nginx:alpine
+    ports: ["18100:80"]
+    volumes:
+      - ./fixtures/ingress-misconfig/ingress.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [app, admin]
+
+  app:
+    image: nginx:alpine
+    expose: ["80"]
+    volumes:
+      - ./fixtures/ingress-misconfig/app.conf:/etc/nginx/conf.d/default.conf:ro
+
+  admin:
+    image: nginx:alpine
+    expose: ["80"]
+    volumes:
+      - ./fixtures/ingress-misconfig/admin.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:18100/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Public app accessible
+  - name: app-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18100/ | grep -q 'public'"
+      exit_code: 0
+
+  # Admin should be blocked via ingress
+  - name: admin-blocked-via-ingress
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:18100/admin/ | grep -q 403"
+      exit_code: 0
+
+  # Beacon detects exposed services
+  - name: detects-missing-headers
+    type: beacon
+    target: localhost:18100
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Deep scan — path traversal and access control testing
+  - name: deep-accesscontrol-scan
+    type: beacon
+    target: localhost:18100
+    args: ["--no-enrich", "--scanners", "accesscontrol,pathtraversal", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

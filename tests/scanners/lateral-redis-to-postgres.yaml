@@ -1,0 +1,72 @@
+name: lateral-redis-to-postgres
+description: >
+  Multi-container lateral movement: Redis with no auth contains PostgreSQL
+  credentials in cached config. Beacon should discover Redis, extract the
+  DB credentials, then use them to access PostgreSQL. Tests the full
+  credential feedback loop.
+tags: [lateral, pivot, redis, postgresql, multi-container, chain, authorized]
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["16379:6379"]
+
+  postgres:
+    image: postgres:16-alpine
+    ports: ["15432:5432"]
+    environment:
+      POSTGRES_USER: "app_user"
+      POSTGRES_PASSWORD: "harvested_db_pass_2024"
+      POSTGRES_DB: "production"
+
+ready:
+  cmd: "redis-cli -h localhost -p 16379 PING 2>/dev/null | grep -q PONG && PGPASSWORD=harvested_db_pass_2024 psql -h localhost -p 15432 -U app_user -d production -c 'SELECT 1' >/dev/null 2>&1"
+  timeout: 30s
+  interval: 2s
+
+run:
+  # Seed Redis with database credentials (simulates cached app config)
+  - "redis-cli -h localhost -p 16379 SET 'config:database' '{\"host\":\"postgres\",\"port\":5432,\"user\":\"app_user\",\"password\":\"harvested_db_pass_2024\",\"database\":\"production\"}'"
+  # Seed Postgres with sensitive data
+  - "PGPASSWORD=harvested_db_pass_2024 psql -h localhost -p 15432 -U app_user -d production -c \"CREATE TABLE IF NOT EXISTS users (id serial, name text, email text, ssn text); INSERT INTO users (name, email, ssn) VALUES ('Alice Admin', 'alice@corp.internal', '123-45-6789');\""
+
+assertions:
+  # Pre-flight verification
+  - name: redis-has-db-creds
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 16379 GET 'config:database' | grep -q harvested_db_pass"
+      exit_code: 0
+
+  - name: postgres-has-data
+    type: command
+    expect:
+      command: "PGPASSWORD=harvested_db_pass_2024 psql -h localhost -p 15432 -U app_user -d production -c 'SELECT name FROM users' | grep -q Alice"
+      exit_code: 0
+
+  # Beacon discovers and exploits Redis
+  - name: beacon-discovers-redis
+    type: beacon
+    target: localhost:16379
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "16379"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # Beacon extracts credentials from Redis
+  - name: beacon-extracts-redis-creds
+    type: beacon
+    target: localhost:16379
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "16379", "--authorized", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: exploit.credential_harvest
+
+  # Beacon discovers PostgreSQL
+  - name: beacon-discovers-postgres
+    type: beacon
+    target: localhost:15432
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15432"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

@@ -1,0 +1,71 @@
+name: waf-behind-cdn-chain
+description: >
+  Multi-container: Nginx CDN proxy → ModSecurity WAF → vulnerable backend.
+  Tests beacon's ability to detect WAF presence, identify the real backend
+  technology behind CDN/WAF layers, and attempt WAF bypass.
+tags: [waf, cdn, proxy, multi-container, chain, bypass, deep]
+
+services:
+  # Simulated CDN layer (nginx reverse proxy with caching)
+  cdn:
+    image: nginx:alpine
+    ports: ["18090:80"]
+    volumes:
+      - ./fixtures/waf-cdn/cdn.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [waf]
+
+  # WAF layer (ModSecurity with OWASP CRS)
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    expose: ["80"]
+    environment:
+      MODSEC_RULE_ENGINE: "DetectionOnly"
+      BACKEND: "http://app:8080"
+    depends_on: [app]
+
+  # Vulnerable backend application
+  app:
+    image: nginx:alpine
+    expose: ["8080"]
+    volumes:
+      - ./fixtures/waf-cdn/app.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/waf-cdn/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:18090/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # CDN layer is accessible
+  - name: cdn-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18090/ | grep -q 'vulnerable'"
+      exit_code: 0
+
+  # Beacon detects WAF
+  - name: detects-waf-through-cdn
+    type: beacon
+    target: localhost:18090
+    args: ["--no-enrich", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.not_detected
+
+  # Beacon detects missing security headers (CDN doesn't add them)
+  - name: detects-missing-headers
+    type: beacon
+    target: localhost:18090
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Beacon finds exposed files through CDN→WAF→backend chain
+  - name: detects-exposed-env-through-chain
+    type: beacon
+    target: localhost:18090
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+timeout: 5m
