@@ -20,8 +20,31 @@ type nmapRun struct {
 }
 
 type nmapHost struct {
-	Ports []nmapPort `xml:"ports>port"`
-	OS    nmapOS     `xml:"os"`
+	Addresses []nmapAddress `xml:"address"`
+	Status    nmapStatus    `xml:"status"`
+	Ports     []nmapPort    `xml:"ports>port"`
+	OS        nmapOS        `xml:"os"`
+	Trace     nmapTrace     `xml:"trace"`
+}
+
+type nmapAddress struct {
+	Addr     string `xml:"addr,attr"`
+	AddrType string `xml:"addrtype,attr"`
+}
+
+type nmapStatus struct {
+	State string `xml:"state,attr"`
+}
+
+type nmapTrace struct {
+	Hops []nmapHop `xml:"hop"`
+}
+
+type nmapHop struct {
+	TTL    int    `xml:"ttl,attr"`
+	IPAddr string `xml:"ipaddr,attr"`
+	RTT    string `xml:"rtt,attr"`
+	Host   string `xml:"host,attr"`
 }
 
 type nmapOS struct {
@@ -272,6 +295,37 @@ func parseNmapXML(asset string, data []byte, scanType module.ScanType, proofCmd 
 			if osF := buildOSFinding(asset, host.OS, proofCmd, now); osF != nil {
 				findings = append(findings, *osF)
 			}
+		}
+
+		// Traceroute finding (populated when --traceroute was used)
+		if len(host.Trace.Hops) > 0 {
+			hops := make([]map[string]any, 0, len(host.Trace.Hops))
+			for _, h := range host.Trace.Hops {
+				hop := map[string]any{
+					"ttl":    h.TTL,
+					"ipaddr": h.IPAddr,
+					"rtt":    h.RTT,
+				}
+				if h.Host != "" {
+					hop["host"] = h.Host
+				}
+				hops = append(hops, hop)
+			}
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckNmapTraceroute,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityInfo,
+				Asset:       asset,
+				Title:       fmt.Sprintf("Traceroute: %d hops to %s", len(host.Trace.Hops), asset),
+				Description: fmt.Sprintf("nmap traceroute discovered %d network hops to %s. Hop data reveals intermediate routers and network topology.", len(host.Trace.Hops), asset),
+				Evidence: map[string]any{
+					"hops":      hops,
+					"hop_count": len(host.Trace.Hops),
+				},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			})
 		}
 
 		for _, port := range host.Ports {
@@ -1082,6 +1136,64 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+// nmapPingSweep runs `nmap -sn` against a CIDR range and returns the IP
+// addresses of hosts that responded to ping (ICMP echo, TCP SYN to 443/80,
+// ICMP timestamp). This is used for subnet scanning — discovering which hosts
+// are alive before port scanning them.
+// Returns nil when nmapBin is "" or nmap fails.
+func (s *Scanner) nmapPingSweep(ctx context.Context, cidr string) ([]string, error) {
+	if s.nmapBin == "" {
+		return nil, fmt.Errorf("nmap binary not configured")
+	}
+
+	args := []string{
+		"-sn",
+		"-oX", "-",
+		cidr,
+	}
+
+	sweepTimeout := 5 * time.Minute
+	sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(sweepCtx, s.nmapBin, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if stdout.Len() == 0 {
+			return nil, fmt.Errorf("nmap ping sweep failed: %w: %s", err, stderr.String())
+		}
+		// nmap may exit non-zero but still produce partial XML — parse what we have.
+	}
+
+	return parsePingSweepXML(stdout.Bytes())
+}
+
+// parsePingSweepXML extracts live host IPs from nmap -sn XML output.
+func parsePingSweepXML(data []byte) ([]string, error) {
+	var run nmapRun
+	if err := xml.Unmarshal(data, &run); err != nil {
+		return nil, fmt.Errorf("parse nmap ping sweep XML: %w", err)
+	}
+
+	var hosts []string
+	for _, host := range run.Hosts {
+		// Only include hosts that are up.
+		if host.Status.State != "up" {
+			continue
+		}
+		for _, addr := range host.Addresses {
+			if addr.AddrType == "ipv4" || addr.AddrType == "ipv6" {
+				hosts = append(hosts, addr.Addr)
+				break // one IP per host is sufficient
+			}
+		}
+	}
+	return hosts, nil
 }
 
 // extractField pulls a value from "key=value" or "key: value" patterns in

@@ -708,6 +708,10 @@ const (
 	CheckNmapMSSQLInfo        CheckID = "nmap.mssql_exposed"          // Exposed MSSQL instance
 	CheckNmapMongoDBInfo      CheckID = "nmap.mongodb_exposed"        // Exposed MongoDB instance
 
+	// Nmap — traceroute and host discovery
+	CheckNmapTraceroute CheckID = "nmap.traceroute" // Traceroute hop data from nmap --traceroute
+	CheckNmapPingSweep  CheckID = "nmap.ping_sweep" // Live host discovered via nmap -sn ping sweep
+
 	// Nmap — vulnerability detection (deep)
 	CheckNmapSMTPOpenRelay   CheckID = "nmap.smtp_open_relay"        // Open mail relay
 	CheckNmapMySQLNoPassword CheckID = "nmap.mysql_no_password"      // MySQL root with no password
@@ -2122,6 +2126,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNmapSMB2SecurityMode: {CheckNmapSMB2SecurityMode, SeverityHigh, ModeSurface},
 	CheckNmapMSSQLInfo:        {CheckNmapMSSQLInfo, SeverityHigh, ModeSurface},
 	CheckNmapMongoDBInfo:      {CheckNmapMongoDBInfo, SeverityHigh, ModeSurface},
+
+	// nmap — traceroute and host discovery
+	CheckNmapTraceroute: {CheckNmapTraceroute, SeverityInfo, ModeSurface},
+	CheckNmapPingSweep:  {CheckNmapPingSweep, SeverityInfo, ModeSurface},
 
 	// nmap — vulnerability detection (deep)
 	CheckNmapSMTPOpenRelay:   {CheckNmapSMTPOpenRelay, SeverityCritical, ModeDeep},

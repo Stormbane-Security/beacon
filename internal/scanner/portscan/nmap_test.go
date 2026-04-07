@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/module"
 )
 
 func TestInterpretNmapScript_SMBOSDiscovery(t *testing.T) {
@@ -516,6 +517,138 @@ func TestInterpretNmapScript_MongoDBInfo(t *testing.T) {
 	}
 	if fs[0].Severity != finding.SeverityHigh {
 		t.Errorf("severity = %v; want High", fs[0].Severity)
+	}
+}
+
+func TestParseNmapXML_Traceroute(t *testing.T) {
+	xmlData := []byte(`<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <address addr="93.184.216.34" addrtype="ipv4"/>
+    <status state="up"/>
+    <ports>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http"/>
+      </port>
+    </ports>
+    <trace>
+      <hop ttl="1" ipaddr="192.168.1.1" rtt="1.00" host="gateway.local"/>
+      <hop ttl="2" ipaddr="10.0.0.1" rtt="5.00"/>
+      <hop ttl="3" ipaddr="93.184.216.34" rtt="12.50" host="example.com"/>
+    </trace>
+  </host>
+</nmaprun>`)
+	fs := parseNmapXML("example.com", xmlData, module.ScanSurface, "nmap --traceroute example.com")
+	var traceFound bool
+	for _, f := range fs {
+		if f.CheckID == finding.CheckNmapTraceroute {
+			traceFound = true
+			if f.Severity != finding.SeverityInfo {
+				t.Errorf("severity = %v; want Info", f.Severity)
+			}
+			hops, ok := f.Evidence["hops"].([]map[string]any)
+			if !ok {
+				t.Fatalf("evidence.hops has wrong type: %T", f.Evidence["hops"])
+			}
+			if len(hops) != 3 {
+				t.Errorf("hop count = %d; want 3", len(hops))
+			}
+			if hops[0]["ipaddr"] != "192.168.1.1" {
+				t.Errorf("hop[0].ipaddr = %v; want 192.168.1.1", hops[0]["ipaddr"])
+			}
+			if hops[0]["host"] != "gateway.local" {
+				t.Errorf("hop[0].host = %v; want gateway.local", hops[0]["host"])
+			}
+			if hops[1]["ipaddr"] != "10.0.0.1" {
+				t.Errorf("hop[1].ipaddr = %v; want 10.0.0.1", hops[1]["ipaddr"])
+			}
+			// hop 2 has no host attribute — should not be present in map
+			if _, hasHost := hops[1]["host"]; hasHost {
+				t.Errorf("hop[1] should not have host key, got %v", hops[1]["host"])
+			}
+			break
+		}
+	}
+	if !traceFound {
+		t.Fatal("expected a traceroute finding, got none")
+	}
+}
+
+func TestParseNmapXML_NoTraceroute(t *testing.T) {
+	xmlData := []byte(`<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <address addr="93.184.216.34" addrtype="ipv4"/>
+    <status state="up"/>
+    <ports>
+      <port protocol="tcp" portid="80">
+        <state state="open"/>
+        <service name="http"/>
+      </port>
+    </ports>
+  </host>
+</nmaprun>`)
+	fs := parseNmapXML("example.com", xmlData, module.ScanSurface, "nmap example.com")
+	for _, f := range fs {
+		if f.CheckID == finding.CheckNmapTraceroute {
+			t.Fatal("should not produce traceroute finding when no trace element")
+		}
+	}
+}
+
+func TestParsePingSweepXML(t *testing.T) {
+	xmlData := []byte(`<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <status state="up"/>
+    <address addr="192.168.1.1" addrtype="ipv4"/>
+    <address addr="AA:BB:CC:DD:EE:FF" addrtype="mac"/>
+  </host>
+  <host>
+    <status state="up"/>
+    <address addr="192.168.1.5" addrtype="ipv4"/>
+  </host>
+  <host>
+    <status state="down"/>
+    <address addr="192.168.1.10" addrtype="ipv4"/>
+  </host>
+  <host>
+    <status state="up"/>
+    <address addr="2001:db8::1" addrtype="ipv6"/>
+  </host>
+</nmaprun>`)
+
+	hosts, err := parsePingSweepXML(xmlData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hosts) != 3 {
+		t.Fatalf("expected 3 live hosts, got %d: %v", len(hosts), hosts)
+	}
+	// The down host (192.168.1.10) should be excluded.
+	for _, h := range hosts {
+		if h == "192.168.1.10" {
+			t.Errorf("down host 192.168.1.10 should not be in results")
+		}
+	}
+}
+
+func TestParsePingSweepXML_Empty(t *testing.T) {
+	xmlData := []byte(`<?xml version="1.0"?><nmaprun></nmaprun>`)
+	hosts, err := parsePingSweepXML(xmlData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hosts) != 0 {
+		t.Errorf("expected 0 hosts, got %d", len(hosts))
+	}
+}
+
+func TestParsePingSweepXML_InvalidXML(t *testing.T) {
+	_, err := parsePingSweepXML([]byte("not xml"))
+	if err == nil {
+		t.Error("expected error for invalid XML, got nil")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -78,6 +79,7 @@ SCAN FLAGS:
   --no-enrich                Skip AI enrichment (output raw findings only)
   --no-db                    Skip scan history persistence (no SQLite writes)
   --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
+  --no-nmap                  Skip nmap integration (no service version detection, no NSE scripts)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
   --log-file <path>          Write structured JSON logs to file (one event per line)
@@ -262,6 +264,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		noDB                bool
 		anonymize           bool
 		dryRun              bool
+		noNmap              bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -337,6 +340,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			anonymize = true
 		case "--dry-run":
 			dryRun = true
+		case "--no-nmap":
+			noNmap = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -457,6 +462,15 @@ func cmdScan(cfg *config.Config, args []string) {
 				d := net.Dialer{Timeout: 5 * time.Second}
 				return d.DialContext(ctx, network, dnsServer)
 			},
+		}
+	}
+
+	// Check for nmap availability unless --no-nmap is set.
+	if noNmap {
+		cfg.NmapBin = ""
+	} else {
+		if _, err := exec.LookPath(cfg.NmapBin); err != nil {
+			fatalf("beacon: nmap not found. Install nmap (https://nmap.org/download) or pass --no-nmap to skip nmap integration.")
 		}
 	}
 
