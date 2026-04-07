@@ -554,8 +554,10 @@ By passing --permission-confirmed you confirm that:
   3. You accept full legal responsibility for your use of --deep mode.`, domain)
 	}
 
-	if authorized && (!deep || !permissionConfirmed) {
-		fatalf("--authorized requires --deep and --permission-confirmed")
+	// --authorized implies --deep and --permission-confirmed.
+	if authorized {
+		deep = true
+		permissionConfirmed = true
 	}
 	if authorized {
 		// BEACON_AUTHORIZED_ACK=1 bypasses the interactive prompt for CI/automation.
@@ -1158,8 +1160,10 @@ authorization from the owner of every listed target and accept full legal
 responsibility for your use of --deep mode.`)
 	}
 
-	if authorized && (!deep || !permissionConfirmed) {
-		fatalf("--authorized requires --deep and --permission-confirmed")
+	// --authorized implies --deep and --permission-confirmed.
+	if authorized {
+		deep = true
+		permissionConfirmed = true
 	}
 	if authorized {
 		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
