@@ -14,14 +14,15 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:11434/api/tags >/dev/null"
-  timeout: 120s
+  timeout: 180s
   interval: 5s
 
 run:
-  # Pull a tiny model for testing (tinyllama is ~600MB, small enough for CI)
-  - "curl -sf -X POST http://localhost:11434/api/pull -d '{\"name\":\"tinyllama\"}' --max-time 300 -o /dev/null"
+  # Pull a tiny model for testing (tinyllama is ~600MB). Stream output so curl
+  # doesn't timeout waiting for the full download — Ollama streams progress JSON.
+  - "curl -s -X POST http://localhost:11434/api/pull -d '{\"name\":\"tinyllama\"}' --max-time 600 | tail -1 | grep -q success"
   # Verify model is loaded and responding
-  - "curl -sf -X POST http://localhost:11434/api/generate -d '{\"model\":\"tinyllama\",\"prompt\":\"hello\",\"stream\":false}' --max-time 60 | grep -q response"
+  - "curl -sf -X POST http://localhost:11434/api/generate -d '{\"model\":\"tinyllama\",\"prompt\":\"say yes\",\"stream\":false}' --max-time 120 | grep -q response"
 
 assertions:
   # ── Pre-flight: Ollama API is accessible ──────────────────────────────
@@ -77,4 +78,4 @@ assertions:
     expect:
       not_check_id: ai.data_exfiltration
 
-timeout: 15m
+timeout: 20m
