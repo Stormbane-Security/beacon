@@ -14,7 +14,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -169,6 +171,65 @@ func resolveImage(tmpl NucleiTemplate) (ImageInfo, string, bool) {
 }
 
 // ---------------------------------------------------------------------------
+// WordPress plugin helpers
+// ---------------------------------------------------------------------------
+
+// isWordPressPlugin returns true when the template targets a WordPress plugin.
+func isWordPressPlugin(tmpl NucleiTemplate) bool {
+	fw := strings.ToLower(tmpl.Info.Metadata["framework"])
+	product := strings.ToLower(tmpl.Info.Metadata["product"])
+	if fw == "wordpress" && product != "" && product != "wordpress" {
+		return true
+	}
+	return false
+}
+
+// wpPluginSlug extracts the plugin directory name from the zoomeye-query
+// metadata field (e.g. `http.body="wp-content/plugins/wd-google-maps"` →
+// "wd-google-maps"). Falls back to converting the product slug (underscores
+// to hyphens).
+func wpPluginSlug(tmpl NucleiTemplate) string {
+	zq := tmpl.Info.Metadata["zoomeye-query"]
+	if zq != "" {
+		re := regexp.MustCompile(`wp-content/plugins/([a-zA-Z0-9_-]+)`)
+		if m := re.FindStringSubmatch(zq); len(m) == 2 {
+			return m[1]
+		}
+	}
+	// Fallback: product field with underscores → hyphens.
+	return strings.ReplaceAll(strings.ToLower(tmpl.Info.Metadata["product"]), "_", "-")
+}
+
+// wpVulnVersion parses a version constraint like "< 1.0.73" from the
+// template name and returns the last vulnerable version by decrementing
+// the final component (→ "1.0.72"). Returns "" if no version can be parsed.
+func wpVulnVersion(tmpl NucleiTemplate) string {
+	// Look for patterns like "< 1.0.73" or "<= 1.0.73" in the template name.
+	re := regexp.MustCompile(`<[=]?\s*(\d+(?:\.\d+)*)`)
+	m := re.FindStringSubmatch(tmpl.Info.Name)
+	if len(m) < 2 {
+		return ""
+	}
+	parts := strings.Split(m[1], ".")
+	last, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil || last <= 0 {
+		return ""
+	}
+	parts[len(parts)-1] = strconv.Itoa(last - 1)
+	return strings.Join(parts, ".")
+}
+
+// wpDockerfileContent builds a Dockerfile that installs a specific
+// vulnerable WordPress plugin version.
+func wpDockerfileContent(pluginSlug, version string) string {
+	return fmt.Sprintf(`FROM wordpress:latest
+RUN apt-get update && apt-get install -y unzip && rm -rf /var/lib/apt/lists/*
+ADD https://downloads.wordpress.org/plugin/%s.%s.zip /tmp/plugin.zip
+RUN unzip /tmp/plugin.zip -d /var/www/html/wp-content/plugins/ && rm /tmp/plugin.zip
+`, pluginSlug, version)
+}
+
+// ---------------------------------------------------------------------------
 // Drydock YAML generation
 // ---------------------------------------------------------------------------
 
@@ -185,6 +246,10 @@ type TestSpec struct {
 	HasExploit  bool
 	ExploitSpec *ExploitAssertion
 	Timeout     string
+
+	// WordPress plugin fields
+	IsWPPlugin    bool
+	WPFixtureDir  string // relative path like ./fixtures/cve-2024-xxxx/
 }
 
 type ExploitAssertion struct {
@@ -213,6 +278,51 @@ services:
   target:
     image: {{.Image}}
     ports: ["{{.HostPort}}:{{.ContPort}}"]
+
+ready:
+  cmd: "curl -sf {{.ReadyURL}} -o /dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: nuclei-detects
+    type: beacon
+    target: localhost:{{.HostPort}}
+    args: ["--no-enrich", "--no-nmap", "--scanners", "nuclei"]
+    expect:
+      check_id: {{.NucleiCheck}}
+{{- if .HasExploit}}
+
+  - name: exploit-chain
+    type: beacon
+    target: localhost:{{.HostPort}}
+    args: ["--no-enrich", "--no-nmap", "--scanners", "nuclei", "--scanners", "{{.ExploitSpec.Scanner}}", "--authorized", "--yes"]
+    expect:
+      check_id: {{.ExploitSpec.CheckID}}
+{{- end}}
+
+timeout: {{.Timeout}}
+`))
+
+var drydockWPTmpl = template.Must(template.New("drydock-wp").Parse(`# AUTO-GENERATED from nuclei template {{.SourceID}}
+name: {{.Name}}
+description: "Auto-generated: {{.Description}}"
+tags: [{{.Tags}}]
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: testpass
+      MYSQL_DATABASE: wordpress
+
+  wordpress:
+    build: {{.WPFixtureDir}}
+    ports: ["{{.HostPort}}:80"]
+    depends_on: [db]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_PASSWORD: testpass
 
 ready:
   cmd: "curl -sf {{.ReadyURL}} -o /dev/null"
@@ -415,9 +525,6 @@ func main() {
 		tags := tmpl.Info.TagList()
 		vc, exploitable := classifyTemplate(tags)
 
-		// Build image string — use "latest" since nuclei templates rarely
-		// include version info we can reliably extract.
-		image := imgInfo.Image + ":latest"
 		hp := hostPort(tmpl.ID)
 
 		// Build tag list for the test YAML.
@@ -437,18 +544,37 @@ func main() {
 
 		readyURL := fmt.Sprintf("http://localhost:%d/", hp)
 
+		// Detect WordPress plugin templates and handle them specially.
+		wpPlugin := isWordPressPlugin(tmpl)
+		var wpSlug, wpVersion string
+		if wpPlugin {
+			wpSlug = wpPluginSlug(tmpl)
+			wpVersion = wpVulnVersion(tmpl)
+			if wpVersion == "" {
+				// Cannot determine installable version; fall back to generic.
+				wpPlugin = false
+			}
+			testTags = append(testTags, "wordpress")
+		}
+
 		spec := TestSpec{
 			SourceID:    tmpl.ID,
 			Name:        safeName,
 			Description: escapeYAMLString(tmpl.Info.Name + " (" + tmpl.ID + ")"),
 			Tags:        strings.Join(testTags, ", "),
-			Image:       image,
+			Image:       imgInfo.Image + ":latest",
 			HostPort:    hp,
 			ContPort:    imgInfo.DefaultPort,
 			ReadyURL:    readyURL,
 			NucleiCheck: "nuclei." + tmpl.ID,
 			HasExploit:  exploitable,
 			Timeout:     "5m",
+			IsWPPlugin:  wpPlugin,
+		}
+
+		if wpPlugin {
+			spec.WPFixtureDir = "./fixtures/" + safeName + "/"
+			spec.ContPort = 80
 		}
 
 		if exploitable {
@@ -465,13 +591,31 @@ func main() {
 			continue
 		}
 
+		// For WordPress plugin templates, create a fixture directory with Dockerfile.
+		if wpPlugin {
+			fixtureDir := filepath.Join(*outputDir, "fixtures", safeName)
+			if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
+				log.Printf("warning: cannot create fixture dir %s: %v", fixtureDir, err)
+				continue
+			}
+			dfPath := filepath.Join(fixtureDir, "Dockerfile")
+			if err := os.WriteFile(dfPath, []byte(wpDockerfileContent(wpSlug, wpVersion)), 0o644); err != nil {
+				log.Printf("warning: cannot write Dockerfile %s: %v", dfPath, err)
+				continue
+			}
+		}
+
 		outPath := filepath.Join(*outputDir, safeName+".yaml")
 		f, err := os.Create(outPath)
 		if err != nil {
 			log.Printf("warning: cannot create %s: %v", outPath, err)
 			continue
 		}
-		if err := drydockTmpl.Execute(f, spec); err != nil {
+		tmplToUse := drydockTmpl
+		if wpPlugin {
+			tmplToUse = drydockWPTmpl
+		}
+		if err := tmplToUse.Execute(f, spec); err != nil {
 			log.Printf("warning: template exec for %s: %v", tmpl.ID, err)
 		}
 		f.Close()
