@@ -1,0 +1,36 @@
+name: tls-selfsigned-cert
+description: >
+  Nginx with a self-signed TLS certificate. Beacon should detect the
+  self-signed cert, weak key size, and missing HSTS.
+tags: [tls, certificate, security, detection]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["8443:443"]
+    volumes:
+      - ./fixtures/tls-selfsigned/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/tls-selfsigned/cert.pem:/etc/nginx/ssl/cert.pem:ro
+      - ./fixtures/tls-selfsigned/key.pem:/etc/nginx/ssl/key.pem:ro
+
+ready:
+  cmd: "curl -sk https://localhost:8443/ -o /dev/null -w '%{http_code}' | grep -qE '200|301'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-self-signed-cert
+    type: beacon
+    target: localhost:8443
+    args: ["--no-enrich", "--scanners", "tls"]
+    expect:
+      check_id: tls.self_signed
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:8443
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 3m
