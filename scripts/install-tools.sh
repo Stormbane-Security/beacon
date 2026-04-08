@@ -45,15 +45,8 @@ else
   go install -v github.com/projectdiscovery/katana/cmd/katana@latest
 fi
 
-# --- gowitness (Apache 2.0) — screenshot capture (requires Chrome/Chromium) ---
-if check gowitness; then
-  info "gowitness already installed"
-else
-  info "installing gowitness..."
-  go install -v github.com/sensepost/gowitness@latest
-fi
-
-# Warn if no browser found for gowitness
+# gowitness removed — replaced by native chromedp (Go library, no binary needed)
+# Chrome/Chromium is still needed for screenshots and DOM XSS scanning
 HAS_BROWSER=false
 for b in chromium chromium-browser google-chrome google-chrome-stable; do
   if check "$b"; then HAS_BROWSER=true; break; fi
@@ -63,7 +56,7 @@ if [ -f "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] || \
   HAS_BROWSER=true
 fi
 if [ "$HAS_BROWSER" = false ]; then
-  warn "gowitness requires Chrome or Chromium — screenshots will be skipped."
+  warn "Chrome or Chromium required for screenshots + DOM XSS scanning."
   warn "Install Chrome: https://www.google.com/chrome/"
 fi
 

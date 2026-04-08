@@ -215,6 +215,8 @@ func main() {
 		cmdEnrich(cfg, os.Args[2:])
 	case "classify":
 		cmdClassify(cfg, os.Args[2:])
+	case "exploit":
+		cmdExploit(cfg, os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -499,22 +501,81 @@ func cmdScan(cfg *config.Config, args []string) {
 			fatalf("beacon: nmap not found. Install nmap (https://nmap.org/download) or pass --no-nmap to skip nmap integration.")
 		}
 	}
+	// Critical tools — HARD FAIL if missing (unless explicitly opted out).
+	// These tools are required for core scanning functionality. Without them,
+	// beacon misses thousands of CVEs, subdomains, or endpoints silently.
+	// Use --no-<tool> to opt out explicitly.
+	type toolCheck struct {
+		name    string
+		bin     string
+		optOut  bool
+		install string
+	}
+	criticalTools := []toolCheck{
+		{"nuclei", cfg.NucleiBin, noNuclei, "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+		{"subfinder", "subfinder", false, "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"},
+		{"katana", cfg.KatanaBin, false, "go install github.com/projectdiscovery/katana/cmd/katana@latest"},
+		{"ffuf", cfg.FfufBin, false, "go install github.com/ffuf/ffuf/v2@latest"},
+		{"gau", "gau", false, "go install github.com/lc/gau/v2/cmd/gau@latest"},
+		{"httpx", cfg.HttpxBin, false, "go install github.com/projectdiscovery/httpx/cmd/httpx@latest"},
+		{"dnsx", cfg.DnsxBin, false, "go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest"},
+	}
+
+	var missingCritical []string
+	for _, tc := range criticalTools {
+		if tc.optOut {
+			continue
+		}
+		if _, err := exec.LookPath(tc.bin); err != nil {
+			missingCritical = append(missingCritical, fmt.Sprintf("  %-14s not found. Install: %s", tc.name, tc.install))
+		}
+	}
+	if len(missingCritical) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: FATAL — required tools not found:\n%s\n\n", strings.Join(missingCritical, "\n"))
+		_, _ = fmt.Fprintf(os.Stderr, "Run: scripts/install-tools.sh  (or install manually)\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Use --no-<tool> flags to opt out of specific tools.\n")
+		os.Exit(1)
+	}
+
+	// Optional tools — WARN if missing but continue.
+	// These enhance scanning but aren't required for core functionality.
+	type optionalTool struct {
+		name    string
+		bin     string
+		optOut  bool
+		purpose string
+	}
+	optionalTools := []optionalTool{
+		{"testssl", cfg.TestsslBin, noTestssl, "deep TLS vulnerability scanning"},
+		{"masscan", cfg.MasscanBin, noMasscan, "fast CIDR/subnet port scanning"},
+		{"arjun", cfg.ArjunBin, noArjun, "parameter discovery"},
+	}
+
+	var missingOptional []string
+	for _, ot := range optionalTools {
+		if ot.optOut {
+			continue
+		}
+		if _, err := exec.LookPath(ot.bin); err != nil {
+			missingOptional = append(missingOptional, fmt.Sprintf("  %-14s %s", ot.name, ot.purpose))
+		}
+	}
+	if len(missingOptional) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: optional tools not found (reduced coverage):\n%s\n\n", strings.Join(missingOptional, "\n"))
+	}
+
 	if noNuclei {
 		cfg.NucleiBin = ""
 	}
 	if noTestssl {
 		cfg.TestsslBin = ""
 	}
-	// TODO: wire when sqlmap/wpscan integrations land
-	// if noSqlmap { cfg.SqlmapBin = "" }
-	// if noWpscan { cfg.WpscanBin = "" }
 	if noMasscan {
 		cfg.MasscanBin = ""
 	}
 	if noArjun {
 		cfg.ArjunBin = ""
 	}
-	checkExternalTools(cfg, noNuclei, noTestssl)
 
 	// Build unified target list from --domain, --asset, and --targets file.
 	if domain != "" {
