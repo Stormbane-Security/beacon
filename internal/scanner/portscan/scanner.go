@@ -564,7 +564,10 @@ func buildPortList(scanType module.ScanType) []portEntry {
 func probePort(ctx context.Context, host string, port int) (bool, string) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: dialTimeout}
+
+	connectStart := time.Now()
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	connectTime := time.Since(connectStart)
 	if err != nil {
 		return false, ""
 	}
@@ -576,17 +579,27 @@ func probePort(ctx context.Context, host string, port int) (bool, string) {
 		return true, ""
 	}
 
-	// Two-phase banner grab: short initial read (100ms) catches fast banners
-	// (SSH, FTP, SMTP, MySQL all respond in <50ms). If nothing arrives in
-	// 100ms, the port is likely HTTP or a client-speaks-first protocol —
-	// return immediately instead of waiting the full 500ms.
-	_ = conn.SetDeadline(time.Now().Add(100 * time.Millisecond))
+	// Adaptive banner timeout based on network latency:
+	// - Local/Docker (connect <10ms): use 100ms timeout
+	// - LAN (connect 10-50ms): use 200ms timeout
+	// - Internet (connect 50-300ms): use 500ms timeout
+	// - High latency (connect >300ms): use 1s timeout
+	// This ensures we catch banners on slow connections while staying fast locally.
+	bannerWait := 100 * time.Millisecond
+	if connectTime > 300*time.Millisecond {
+		bannerWait = 1000 * time.Millisecond
+	} else if connectTime > 50*time.Millisecond {
+		bannerWait = 500 * time.Millisecond
+	} else if connectTime > 10*time.Millisecond {
+		bannerWait = 200 * time.Millisecond
+	}
+
+	_ = conn.SetDeadline(time.Now().Add(bannerWait))
 	buf := make([]byte, 512)
-	n, err := conn.Read(buf)
+	n, _ := conn.Read(buf)
 	if n > 0 {
 		return true, strings.TrimSpace(string(buf[:n]))
 	}
-	// No data in 100ms — likely HTTP or client-speaks-first. Don't wait longer.
 	return true, ""
 }
 
