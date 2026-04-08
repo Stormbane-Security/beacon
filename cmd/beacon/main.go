@@ -217,6 +217,8 @@ func main() {
 		cmdClassify(cfg, os.Args[2:])
 	case "exploit":
 		cmdExploit(cfg, os.Args[2:])
+	case "scope":
+		cmdScope(os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
