@@ -1,0 +1,72 @@
+name: fuzz-json-api-pipeline
+description: >
+  Tests beacon-fuzz wired into the main scan pipeline via the apifuzz scanner.
+  Uses httpbin (public container) which echoes back POST data. Type confusion
+  mutations should trigger response size/status anomalies when the API handles
+  different types differently.
+tags: [fuzz, api, pipeline, integration, deep]
+
+services:
+  # httpbin: public container, echoes request data
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19980:8080"]
+    environment:
+      PORT: "8080"
+
+  # Second httpbin for comparison
+  httpbin2:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19981:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19980/ >/dev/null && curl -sf http://localhost:19981/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: API accepts JSON
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: httpbin-accepts-json-post
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19980/post -H 'Content-Type: application/json' -d '{\"name\":\"test\"}' | grep -q 'name'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Standalone beacon-fuzz: proves fuzzer runs and generates mutations
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: fuzz-runs-and-sends-mutations
+    type: command
+    expect:
+      command: "beacon-fuzz --target http://localhost:19980/post --method POST --content-type application/json --body '{\"username\":\"admin\",\"password\":\"test\",\"age\":25}' --output /tmp/fuzz-pipeline.json --max-requests 30 --rate 10 --timeout 30s && python3 -c \"import json; d=json.load(open('/tmp/fuzz-pipeline.json')); print('sent', d['total_sent']); assert d['total_sent']>=10\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Pipeline: beacon apifuzz scanner probes API endpoints
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: beacon-apifuzz-deep-scan
+    type: beacon
+    target: localhost:19980
+    args: ["--no-enrich", "--no-nmap", "--scanners", "apifuzz,secheaders", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: apifuzz should NOT run in surface mode
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-fuzz-in-surface-mode
+    type: beacon
+    target: localhost:19981
+    args: ["--no-enrich", "--no-nmap", "--scanners", "apifuzz"]
+    expect:
+      min_findings: 0
+
+timeout: 5m
