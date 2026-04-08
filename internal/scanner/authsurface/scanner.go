@@ -54,13 +54,92 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	var findings []finding.Finding
 	now := time.Now()
 
-	// Probe common login/register paths
-	loginPaths := []string{"/", "/login", "/login.php", "/signin", "/signin.php",
-		"/auth/login", "/admin", "/admin/login", "/wp-login.php",
-		"/accounts/login", "/user/login", "/api/auth/login",
-		"/index.php", "/member/login", "/portal/login"}
-	registerPaths := []string{"/register", "/signup", "/sign-up", "/auth/register",
-		"/accounts/signup", "/user/register", "/join"}
+	base := scheme + "://" + asset
+
+	// Use paths from scan context evidence (crawl results) if available,
+	// otherwise fetch the main page and extract links + use fallbacks.
+	var loginPaths, registerPaths []string
+
+	// Try to get crawl-discovered URLs from context
+	if v := ctx.Value(module.CrawlFeedKey); v != nil {
+		if ch, ok := v.(chan string); ok {
+			for {
+				select {
+				case url, ok := <-ch:
+					if !ok {
+						goto drained
+					}
+					lower := strings.ToLower(url)
+					if strings.Contains(lower, "login") || strings.Contains(lower, "signin") ||
+						strings.Contains(lower, "auth") || strings.Contains(lower, "admin") {
+						if strings.HasPrefix(url, base) {
+							loginPaths = append(loginPaths, url[len(base):])
+						}
+					}
+					if strings.Contains(lower, "register") || strings.Contains(lower, "signup") ||
+						strings.Contains(lower, "join") || strings.Contains(lower, "create-account") {
+						if strings.HasPrefix(url, base) {
+							registerPaths = append(registerPaths, url[len(base):])
+						}
+					}
+				default:
+					goto drained
+				}
+			}
+		drained:
+		}
+	}
+
+	// Fetch main page and extract links as supplementary source
+	mainBody, mainStatus := fetchPage(ctx, client, base+"/")
+	if mainStatus == 200 {
+		// Extract href links from HTML
+		lower := strings.ToLower(mainBody)
+		for _, attr := range []string{`href="`, `href='`} {
+			idx := 0
+			for {
+				pos := strings.Index(lower[idx:], attr)
+				if pos < 0 {
+					break
+				}
+				start := idx + pos + len(attr)
+				quote := lower[start-1]
+				end := strings.IndexByte(lower[start:], quote)
+				if end < 0 {
+					break
+				}
+				link := mainBody[start : start+end]
+				linkLower := strings.ToLower(link)
+				if strings.Contains(linkLower, "login") || strings.Contains(linkLower, "signin") ||
+					strings.Contains(linkLower, "auth") {
+					loginPaths = append(loginPaths, link)
+				}
+				if strings.Contains(linkLower, "register") || strings.Contains(linkLower, "signup") ||
+					strings.Contains(linkLower, "join") {
+					registerPaths = append(registerPaths, link)
+				}
+				idx = start + end
+			}
+		}
+
+		// If main page itself has a password field, it's the login page
+		if strings.Contains(lower, `type="password"`) || strings.Contains(lower, `type='password'`) {
+			loginPaths = append([]string{"/"}, loginPaths...)
+		}
+	}
+
+	// Fallback: add common paths if nothing found from crawl/links
+	if len(loginPaths) == 0 {
+		loginPaths = []string{"/login", "/login.php", "/signin", "/auth/login", "/admin",
+			"/wp-login.php", "/accounts/login", "/user/login", "/index.php"}
+	}
+	if len(registerPaths) == 0 {
+		registerPaths = []string{"/register", "/signup", "/sign-up", "/join"}
+	}
+
+	// Deduplicate
+	loginPaths = dedup(loginPaths)
+	registerPaths = dedup(registerPaths)
 
 	for _, path := range loginPaths {
 		body, status := fetchPage(ctx, client, scheme+"://"+asset+path)
@@ -169,6 +248,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 
 	return findings, nil
+}
+
+func dedup(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func fetchPage(ctx context.Context, client *http.Client, url string) (string, int) {
