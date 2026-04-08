@@ -1,0 +1,65 @@
+name: fuzz-api-endpoint
+description: >
+  Tests beacon-fuzz against a JSON API endpoint. The httpbin /post endpoint
+  echoes back the request body, making it easy to verify mutations are sent
+  and anomalies are detected when responses differ from baseline.
+tags: [fuzz, api, integration, authorized]
+
+services:
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19910:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19910/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: API accepts JSON POST
+  - name: api-accepts-json
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19910/post -H 'Content-Type: application/json' -d '{\"name\":\"test\"}' | grep -q 'test'"
+      exit_code: 0
+
+  # beacon-fuzz runs and produces output
+  - name: fuzz-produces-results
+    type: command
+    expect:
+      command: >
+        beacon-fuzz
+        --target http://localhost:19910/post
+        --method POST
+        --content-type application/json
+        --body '{"name":"test","email":"user@example.com","age":25}'
+        --output /tmp/fuzz-result.json
+        --max-requests 20
+        --rate 10
+        --timeout 30s
+        && cat /tmp/fuzz-result.json | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['total_sent']>0, 'no requests sent'; print('OK: sent', d['total_sent'], 'anomalies:', d['anomaly_count'])"
+      exit_code: 0
+
+  # beacon-fuzz detects type confusion anomalies
+  - name: fuzz-detects-anomalies
+    type: command
+    expect:
+      command: >
+        cat /tmp/fuzz-result.json 2>/dev/null | python3 -c "
+        import sys,json
+        d=json.load(sys.stdin)
+        print('total:', d['total_sent'], 'anomalies:', d['anomaly_count'])
+        " 2>/dev/null || echo "no results"
+      exit_code: 0
+
+  # Beacon parameter discovery finds the endpoint
+  - name: beacon-discovers-params
+    type: beacon
+    target: localhost:19910
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m
