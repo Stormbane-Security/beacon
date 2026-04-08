@@ -34,7 +34,7 @@ assertions:
     type: classify
     target: localhost:19900
     expect:
-      framework: php
+      framework: wordpress
 
   - name: classify-detects-wordpress
     type: classify
