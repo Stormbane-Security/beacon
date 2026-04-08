@@ -58,7 +58,7 @@ func withScanType(ctx context.Context, st module.ScanType) context.Context {
 // timeouts for the various probe stages.
 const (
 	dialTimeout   = 3 * time.Second
-	bannerTimeout = 2 * time.Second
+	bannerTimeout = 500 * time.Millisecond // reduced from 2s — most banners arrive in <100ms
 	httpTimeout   = 5 * time.Second
 )
 
@@ -570,6 +570,13 @@ func probePort(ctx context.Context, host string, port int) (bool, string) {
 	}
 	defer func() { _ = conn.Close() }()
 
+	// Skip banner reading for ports that are almost certainly HTTP — these
+	// services don't send banners (they wait for the client's request).
+	// This saves 500ms per HTTP port.
+	if isLikelyHTTPPort(port) {
+		return true, ""
+	}
+
 	// Attempt a passive banner grab: set a short read deadline and read whatever
 	// the server sends before we've said anything.
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
@@ -577,6 +584,17 @@ func probePort(ctx context.Context, host string, port int) (bool, string) {
 	n, _ := conn.Read(buf)
 	banner := strings.TrimSpace(string(buf[:n]))
 	return true, banner
+}
+
+// isLikelyHTTPPort returns true for ports that almost always run HTTP services
+// and don't send banners. Skipping banner read on these saves 500ms each.
+func isLikelyHTTPPort(port int) bool {
+	switch port {
+	case 80, 443, 8080, 8443, 3000, 5000, 8000, 8001, 8888, 9000, 9090,
+		9200, 9443, 15672, 5601, 8200, 8500, 7474, 4200, 11434, 9001:
+		return true
+	}
+	return false
 }
 
 // buildFindings interprets an open port and returns the appropriate findings.
