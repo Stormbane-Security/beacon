@@ -112,7 +112,7 @@ assertions:
     target: localhost
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
-      check_id: port.jenkins_noauth
+      check_id: port.jenkins_no_auth
 
   # --- Full authorized chain scan: should fire exploit chains ---
   - name: blind-authorized-finds-exploits
@@ -135,7 +135,7 @@ assertions:
     target: localhost
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
-      not_check_id: port.mongodb_unauthenticated
+      not_check_id: port.database_exposed
 
   - name: negative-no-mssql-detected
     type: beacon

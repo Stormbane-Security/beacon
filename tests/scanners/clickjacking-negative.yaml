@@ -28,6 +28,6 @@ assertions:
     target: localhost:9462
     args: ["--no-enrich", "--scanners", "clickjacking"]
     expect:
-      no_check_id: web.clickjacking
+      no_check_id: http.clickjacking
 
 timeout: 3m

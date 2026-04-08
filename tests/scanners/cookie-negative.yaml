@@ -29,6 +29,6 @@ assertions:
     target: localhost:9468
     args: ["--no-enrich", "--scanners", "cookie"]
     expect:
-      no_check_id: http.insecure_cookie
+      no_check_id: cookie.missing_secure
 
 timeout: 3m

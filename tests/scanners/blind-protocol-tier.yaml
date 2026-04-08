@@ -1,0 +1,116 @@
+name: blind-protocol-tier
+description: >
+  Blind scan of 8 protocol services. Tests portscan's ability to identify
+  non-HTTP services through banner grabbing, protocol handshakes, and
+  quick protocol detection (Redis PING, MySQL greeting, PostgreSQL SSL).
+tags: [blind, portscan, protocol, fingerprint, integration, accuracy]
+
+services:
+  # FTP anonymous
+  ftp:
+    image: fauria/vsftpd
+    environment:
+      ANONYMOUS_ENABLE: "YES"
+      LOCAL_ENABLE: "NO"
+      PASV_MIN_PORT: "21100"
+      PASV_MAX_PORT: "21110"
+    ports: ["19830:21"]
+
+  # SMTP
+  smtp:
+    image: boky/postfix
+    ports: ["19831:25"]
+    environment:
+      ALLOWED_SENDER_DOMAINS: "example.com"
+
+  # Redis (password protected — should NOT trigger unauthenticated)
+  redis-auth:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--requirepass", "strongpass123", "--bind", "0.0.0.0"]
+    ports: ["19832:6379"]
+
+  # etcd unauthenticated
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    ports: ["19833:2379"]
+    command:
+      - etcd
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://localhost:2379
+
+  # RabbitMQ (AMQP + management)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["19834:5672", "19835:15672"]
+
+  # MinIO (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    ports: ["19836:9000", "19837:9001"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+
+  # Consul (service mesh)
+  consul:
+    image: hashicorp/consul:latest
+    ports: ["19838:8500"]
+
+  # Vault (dev mode)
+  vault:
+    image: hashicorp/vault:latest
+    ports: ["19839:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root-token-insecure"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+
+ready:
+  cmd: "curl -sf http://localhost:19838/v1/status/leader -o /dev/null && curl -sf http://localhost:19839/v1/sys/health -o /dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- etcd: detected as exposed ---
+  - name: blind-discovers-etcd
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19833"]
+    expect:
+      check_id: port.etcd_exposed
+
+  # --- RabbitMQ management: default creds (deep) ---
+  - name: blind-discovers-rabbitmq-defaultcreds
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19835", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  # --- MinIO: default creds (deep) ---
+  - name: blind-discovers-minio-defaultcreds
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19836", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.minio_default_credentials
+
+  # --- Service identification for all ports ---
+  - name: blind-identifies-protocol-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19830,19831,19832,19833,19834,19835,19836,19838,19839"]
+    expect:
+      check_id: port.service_identified
+
+  # --- False positive: Redis with auth should NOT trigger unauthenticated ---
+  - name: negative-redis-auth-no-unauth
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19832"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 15m

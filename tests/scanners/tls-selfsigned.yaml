@@ -24,7 +24,7 @@ assertions:
     target: localhost:8443
     args: ["--no-enrich", "--scanners", "tlscheck"]
     expect:
-      check_id: tls.self_signed
+      check_id: tls.cert_self_signed
 
   - name: detects-missing-hsts
     type: beacon
