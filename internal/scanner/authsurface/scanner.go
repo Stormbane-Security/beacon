@@ -50,6 +50,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	if sctx, ok := scan.FromContext(ctx); ok {
 		scheme = sctx.Scheme()
 	}
+	// If HTTPS fails, try HTTP (common in testing and internal networks)
+	if _, status := fetchPage(ctx, client, scheme+"://"+asset+"/"); status == 0 && scheme == "https" {
+		scheme = "http"
+	}
 
 	var findings []finding.Finding
 	now := time.Now()
