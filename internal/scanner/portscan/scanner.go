@@ -60,6 +60,7 @@ const (
 	dialTimeout   = 3 * time.Second
 	bannerTimeout = 500 * time.Millisecond // safe for high-latency (satellite, VPN, Tor); HTTP ports skip entirely
 	httpTimeout   = 5 * time.Second
+	dbProbeTimeout = 1 * time.Second // DB protocol greetings arrive in <100ms; 1s is generous
 )
 
 // defaultConcurrency is the number of ports probed simultaneously.
@@ -2649,7 +2650,7 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(dbProbeTimeout)) //nolint:errcheck
 
 	// Read the server greeting (initial handshake packet).
 	// MySQL packet format: 3-byte length (LE) + 1-byte sequence number + payload
@@ -2805,7 +2806,7 @@ func probePostgreSQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(dbProbeTimeout)) //nolint:errcheck
 
 	// PostgreSQL startup message: Int32(length) + Int32(196608 = protocol 3.0) + key=value pairs + NUL
 	user := "postgres"
@@ -2856,7 +2857,7 @@ func probeMSSQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(dbProbeTimeout)) //nolint:errcheck
 
 	// TDS 7.0 PRELOGIN packet.
 	// Header: type(1)=0x12, status(1)=0x01, length(2), SPID(2)=0, PacketID(1)=1, Window(1)=0
