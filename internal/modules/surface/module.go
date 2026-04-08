@@ -67,6 +67,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/smuggling"
 	_ "github.com/stormbane-security/beacon/internal/scanner/websocket"
 	_ "github.com/stormbane-security/beacon/internal/scanner/apifuzz"
+	_ "github.com/stormbane-security/beacon/internal/scanner/authsurface"
 	_ "github.com/stormbane-security/beacon/internal/scanner/takeover"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wafbypass"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wafdetect"
