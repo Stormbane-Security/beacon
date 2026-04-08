@@ -359,11 +359,47 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		banner string
 	}
 	var open []openPort
+	var noBannerPorts []openPort // ports open but no banner — retry with longer timeout
 	totalScanned := 0
 	for r := range results {
 		totalScanned++
 		if r.open {
 			open = append(open, openPort{entry: r.entry, banner: r.banner})
+			if r.banner == "" && !isLikelyHTTPPort(r.entry.port) {
+				noBannerPorts = append(noBannerPorts, openPort{entry: r.entry})
+			}
+		}
+	}
+
+	// Deferred banner retry: re-probe ports that were open but had no banner
+	// with a longer timeout. On slow networks, the initial 100ms timeout may
+	// miss banners that arrive in 200-500ms. Only retry non-HTTP ports since
+	// HTTP ports intentionally don't send banners.
+	if len(noBannerPorts) > 0 && ctx.Err() == nil {
+		for i, nbp := range noBannerPorts {
+			addr := net.JoinHostPort(asset, strconv.Itoa(nbp.entry.port))
+			conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+			if err != nil {
+				continue
+			}
+			_ = conn.SetDeadline(time.Now().Add(bannerTimeout)) // full 500ms timeout
+			buf := make([]byte, 512)
+			n, _ := conn.Read(buf)
+			conn.Close()
+			if n > 0 {
+				banner := strings.TrimSpace(string(buf[:n]))
+				// Update the open port entry with the deferred banner
+				for j := range open {
+					if open[j].entry.port == nbp.entry.port {
+						open[j].banner = banner
+						break
+					}
+				}
+				noBannerPorts[i].banner = banner
+				scanlog.FromContext(ctx).ProbeTimed(scannerName, asset,
+					fmt.Sprintf("deferred-banner:%d", nbp.entry.port),
+					bannerTimeout, 0, nil)
+			}
 		}
 	}
 
