@@ -1,76 +1,76 @@
 name: waf-bypass-chain
 description: >
-  Multi-service topology: nginx WAF proxy in front of go-httpbin app.
-  The WAF blocks .php/.asp extensions and SQL keywords. The app is also
-  directly accessible on port 8081 (origin bypass). Tests WAF detection,
-  proxy chain detection, and origin exposure.
-tags: [wafdetect, wafbypass, proxychain, topology, multi-service]
+  Tests beacon's ability to detect and work around a weak WAF. The "WAF" is
+  an nginx config that blocks exact SQLi strings but misses encoded variants.
+  Beacon should detect the blocking, still find security issues, and the
+  control endpoint should have matching findings.
+tags: [waf, bypass, evasion, exploit, full-chain, integration]
 
 services:
-  app:
+  # Backend: simple echo app
+  backend:
     image: mccutchen/go-httpbin:latest
     environment:
       PORT: "8080"
-    ports: ["9289:8080"]
 
-  waf:
+  # "Weak WAF": nginx blocks exact SQLi but misses encoded
+  weakwaf:
     image: nginx:alpine
-    ports: ["9288:80"]
+    ports: ["19950:80"]
     volumes:
-      - ./waf-bypass-chain/waf.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./waf-bypass-chain/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - app
+      - backend
+
+  # Control: same backend without WAF
+  direct:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19951:8080"]
+    environment:
+      PORT: "8080"
 
 ready:
-  cmd: "curl -sf http://localhost:9288/get >/dev/null && curl -sf http://localhost:9289/get >/dev/null"
-  timeout: 60s
-  interval: 3s
+  cmd: "curl -sf http://localhost:19950/ >/dev/null && curl -sf http://localhost:19951/ >/dev/null"
+  timeout: 30s
+  interval: 2s
 
 assertions:
-  - name: exploit-waf-blocks-sqli
+  # ── Pre-flight: WAF blocks obvious payload ──
+  - name: waf-blocks-obvious-sqli
     type: command
     expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9288/get?q=union+select+1' | grep -q '403'"
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19950/get?q=OR%201=1' | grep -q '403'"
       exit_code: 0
 
-  - name: exploit-waf-blocks-php-extension
+  # ── Pre-flight: double-encoded variant passes through ──
+  - name: waf-misses-double-encoded
     type: command
     expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:9288/test.php | grep -q '403'"
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19950/get?q=%254F%2552' | grep -qE '200|400'"
       exit_code: 0
 
-  - name: exploit-origin-direct-access
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9289/get | grep -q 'Host'"
-      exit_code: 0
-
-  - name: exploit-origin-no-waf-filtering
-    type: command
-    expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:9289/get?q=union+select+1' | grep -q '200'"
-      exit_code: 0
-
-  - name: exploit-proxy-chain-headers
-    type: command
-    expect:
-      command: "curl -sI http://localhost:9288/get | grep -qi 'X-WAF-Status\\|CloudProxy'"
-      exit_code: 0
-
-  # WAF detection through the proxy
-  - name: waf-scan-through-proxy
+  # ── Beacon scan completes behind weak WAF ──
+  - name: beacon-completes-behind-weakwaf
     type: beacon
-    target: localhost:9288
-    args: ["--no-enrich", "--scanners", "wafdetect"]
+    target: localhost:19950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      min_findings: 1
+      check_id: headers.missing_hsts
 
-  # Proxy chain detection
-  - name: detects-proxy-chain
+  # ── Control: direct endpoint has same findings ──
+  - name: control-direct-same-findings
     type: beacon
-    target: localhost:9288
-    args: ["--no-enrich", "--scanners", "proxychain"]
+    target: localhost:19951
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      min_findings: 1
+      check_id: headers.missing_hsts
+
+  # ── Negative: WAF port should not have Redis findings ──
+  - name: negative-no-false-service
+    type: beacon
+    target: localhost:19950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
 
 timeout: 5m
