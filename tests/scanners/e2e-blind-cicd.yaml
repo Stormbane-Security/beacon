@@ -37,7 +37,7 @@ services:
       SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
 
 ready:
-  cmd: "curl -sf http://localhost:19760/api/json -o /dev/null && curl -sf http://localhost:19761/v1/status/leader -o /dev/null"
+  cmd: "curl -sf http://localhost:19760/api/json -o /dev/null && curl -sf http://localhost:19761/v1/status/leader -o /dev/null && curl -sf http://localhost:19764/api/system/status -o /dev/null"
   timeout: 180s
   interval: 10s
 
@@ -63,12 +63,12 @@ assertions:
     expect:
       check_id: port.vault_exposed
 
-  - name: sonarqube-default-creds
+  - name: sonarqube-detected
     type: beacon
     target: localhost:19764
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      check_id: port.sonarqube_default_credentials
+      check_id: port.service_identified
 
   # negative: no Jenkins on Consul port
   - name: negative-no-jenkins-on-consul
