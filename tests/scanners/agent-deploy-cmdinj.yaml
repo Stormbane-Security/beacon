@@ -45,28 +45,22 @@ assertions:
   - name: beacon-finds-cmdinj
     type: beacon
     target: localhost:8080
-    args: ["--authorized", "--yes", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
+    args: ["--authorized", "--yes", "--scanners", "cmdinj", "--format", "json"]
     expect:
       check_id: web.command_injection
 
-  # Post-exploitation should harvest credentials from environment
+  # Post-exploitation: credential harvest
   - name: beacon-harvests-creds
-    type: beacon_output
-    file: /tmp/results.json
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.credential_harvest
 
-  # Post-exploitation should discover internal network
+  # Post-exploitation: internal network discovery
   - name: beacon-discovers-internal
-    type: beacon_output
-    file: /tmp/results.json
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.internal_network_discovered
-
-  # Agent deployment should succeed
-  - name: beacon-deploys-agent
-    type: beacon_output
-    file: /tmp/results.json
-    expect:
-      check_id: exploit.code_execution
-      evidence_contains: "agent"

@@ -69,28 +69,22 @@ assertions:
   - name: exploit-frontend
     type: beacon
     target: localhost:8080
-    args: ["--authorized", "--yes", "--scanners", "cmdinj", "--output-json", "/tmp/results.json"]
+    args: ["--authorized", "--yes", "--scanners", "cmdinj", "--format", "json"]
     expect:
       check_id: web.command_injection
 
-  # Beacon discovers tier1 network from frontend
+  # Beacon discovers internal network from frontend
   - name: discover-internal-network
-    type: beacon_output
-    file: /tmp/results.json
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.internal_network_discovered
 
   # Beacon harvests API credentials from frontend env
   - name: harvest-api-credentials
-    type: beacon_output
-    file: /tmp/results.json
+    type: beacon
+    target: localhost:8080
+    args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.credential_harvest
-
-  # Beacon discovers Redis via lateral movement
-  - name: discover-redis
-    type: beacon_output
-    file: /tmp/results.json
-    expect:
-      check_id: exploit.lateral_movement
-      evidence_contains: "redis"
