@@ -1628,6 +1628,8 @@ const (
 
 	// ── WAF (expanded) ──────────────────────────────────────────────────
 	CheckWAFProductVersion     CheckID = "waf.product_version"      // WAF product and version fingerprinted
+	CheckWAFEndpointBlocked    CheckID = "waf.endpoint_blocked"    // Scan probe blocked by WAF — Forecast should retry from different IP/encoding
+	CheckWAFRateLimited        CheckID = "waf.rate_limited"        // WAF rate-limited our scan — Forecast should slow down or rotate IP
 
 	// ── JS Framework Detection ──────────────────────────────────────────
 	CheckJSFrameworkDetected   CheckID = "js.framework_detected"    // client-side JS framework and version identified
@@ -3284,7 +3286,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebSocketMsgInjection: {CheckWebSocketMsgInjection, SeverityHigh, ModeDeep},
 
 	// WAF (expanded)
-	CheckWAFProductVersion: {CheckWAFProductVersion, SeverityInfo, ModeSurface},
+	CheckWAFProductVersion:  {CheckWAFProductVersion, SeverityInfo, ModeSurface},
+	CheckWAFEndpointBlocked: {CheckWAFEndpointBlocked, SeverityInfo, ModeSurface},
+	CheckWAFRateLimited:     {CheckWAFRateLimited, SeverityInfo, ModeSurface},
 
 	// JS Framework Detection
 	CheckJSFrameworkDetected:   {CheckJSFrameworkDetected, SeverityInfo, ModeSurface},
