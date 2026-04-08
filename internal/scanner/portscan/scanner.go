@@ -472,14 +472,20 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Run nmap against confirmed open ports for service version + NSE scripts.
-	// Nmap results supplement (not replace) the pure-Go scan findings — Go TCP
-	// findings are always emitted regardless of whether nmap is available.
-	// Skip nmap when using explicit --ports (targeted scan mode) — the caller
-	// wants fast results on specific ports, not a full nmap fingerprint pass.
+	// Run nmap against open ports that our native probes couldn't fully identify.
+	// Skip ports where Go probes already identified the service (Redis, MySQL, etc.)
+	// to avoid redundant 5-30s nmap -sV on already-known services.
+	// Always run nmap in deep/authorized mode for OS detection + vuln scripts.
 	if len(s.Ports) == 0 {
-		if nmapFs := s.runNmap(ctx, asset, openPorts, scanType); len(nmapFs) > 0 {
-			findings = append(findings, nmapFs...)
+		nmapPorts := openPorts
+		if scanType == module.ScanSurface {
+			// Surface mode: skip nmap on already-identified ports
+			nmapPorts = filterUnidentifiedPorts(openPorts, findings)
+		}
+		if len(nmapPorts) > 0 {
+			if nmapFs := s.runNmap(ctx, asset, nmapPorts, scanType); len(nmapFs) > 0 {
+				findings = append(findings, nmapFs...)
+			}
 		}
 	}
 
@@ -605,6 +611,28 @@ func probePort(ctx context.Context, host string, port int) (bool, string) {
 
 // isLikelyHTTPPort returns true for ports that almost always run HTTP services
 // and don't send banners. Skipping banner read on these saves 500ms each.
+// filterUnidentifiedPorts returns only ports from openPorts that were NOT
+// already identified by Go-native probes (i.e., no port.service_identified
+// finding exists for that port). This avoids redundant nmap -sV on ports
+// where we already know the service.
+func filterUnidentifiedPorts(openPorts map[int]string, findings []finding.Finding) map[int]string {
+	identified := make(map[int]bool)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortServiceIdentified {
+			if port, ok := f.Evidence["port"].(int); ok {
+				identified[port] = true
+			}
+		}
+	}
+	result := make(map[int]string)
+	for port, svc := range openPorts {
+		if !identified[port] {
+			result[port] = svc
+		}
+	}
+	return result
+}
+
 func isLikelyHTTPPort(port int) bool {
 	switch port {
 	case 80, 443, 8080, 8443, 3000, 5000, 8000, 8001, 8888, 9000, 9090,
