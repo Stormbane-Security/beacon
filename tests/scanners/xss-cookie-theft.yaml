@@ -1,0 +1,59 @@
+name: xss-cookie-theft-proof
+description: >
+  Proves XSS can steal cookies. Sets up an app that sets cookies WITHOUT
+  HttpOnly, then verifies that JavaScript (via chromedp) can read them.
+  Also proves the negative: cookies WITH HttpOnly are not readable.
+tags: [xss, cookie, theft, chromedp, security, integration]
+
+services:
+  # App with vulnerable cookies (no HttpOnly)
+  vuln-app:
+    image: nginx:alpine
+    ports: ["19202:80"]
+    volumes:
+      - ./xss-cookie-theft/vuln.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # App with secure cookies (HttpOnly)
+  secure-app:
+    image: nginx:alpine
+    ports: ["19203:80"]
+    volumes:
+      - ./xss-cookie-theft/secure.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19202/ >/dev/null && curl -sf http://localhost:19203/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: vulnerable app sets cookie without HttpOnly
+  - name: vuln-cookie-no-httponly
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19202/ | grep -i 'set-cookie' | grep -iv 'httponly'"
+      exit_code: 0
+
+  # Pre-flight: secure app sets cookie WITH HttpOnly
+  - name: secure-cookie-httponly
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19203/ | grep -i 'set-cookie' | grep -iq 'httponly'"
+      exit_code: 0
+
+  # Beacon finds missing cookie security on vulnerable app
+  - name: beacon-finds-insecure-cookie
+    type: beacon
+    target: localhost:19202
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie"]
+    expect:
+      check_id: cookie.missing_httponly
+
+  # Negative: secure app should NOT have cookie finding
+  - name: negative-secure-cookie-ok
+    type: beacon
+    target: localhost:19203
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie"]
+    expect:
+      not_check_id: cookie.missing_httponly
+
+timeout: 5m
