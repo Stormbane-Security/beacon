@@ -1,0 +1,81 @@
+name: e2e-blind-cicd
+description: >
+  Blind scan of 5 CI/CD and DevOps services. Tests default credential
+  detection, admin panel exposure, and service identification.
+tags: [e2e, blind, cicd, devops, full-pipeline, integration]
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    ports: ["19760:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+  consul:
+    image: hashicorp/consul:latest
+    ports: ["19761:8500"]
+
+  vault:
+    image: hashicorp/vault:latest
+    ports: ["19762:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root-token-insecure"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+
+  gitea:
+    image: gitea/gitea:latest
+    ports: ["19763:3000"]
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+
+  sonarqube:
+    image: sonarqube:lts-community
+    ports: ["19764:9000"]
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+
+ready:
+  cmd: "curl -sf http://localhost:19760/api/json -o /dev/null && curl -sf http://localhost:19761/v1/status/leader -o /dev/null"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  - name: jenkins-noauth
+    type: beacon
+    target: localhost:19760
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.jenkins_no_auth
+
+  - name: consul-noauth
+    type: beacon
+    target: localhost:19761
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.consul_no_acl
+
+  - name: vault-exposed
+    type: beacon
+    target: localhost:19762
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.vault_exposed
+
+  - name: sonarqube-default-creds
+    type: beacon
+    target: localhost:19764
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.sonarqube_default_credentials
+
+  # negative: no Jenkins on Consul port
+  - name: negative-no-jenkins-on-consul
+    type: beacon
+    target: localhost:19761
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.jenkins_no_auth
+
+timeout: 15m

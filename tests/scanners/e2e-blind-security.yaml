@@ -1,0 +1,84 @@
+name: e2e-blind-security
+description: >
+  Blind scan testing security features: WAF detection, auth scanning,
+  exposed files behind auth, and exploit chains on Juice Shop.
+tags: [e2e, blind, security, waf, auth, exploit, integration]
+
+services:
+  # WAF-protected httpbin
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19770:8080"]
+    environment:
+      PARANOIA: "1"
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://httpbin:8080"
+      PORT: "8080"
+    depends_on:
+      - httpbin
+
+  # Auth-protected nginx with .env
+  authapp:
+    image: nginx:alpine
+    ports: ["19771:80"]
+    volumes:
+      - ./auth-exploit-basicauth/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./auth-exploit-basicauth/htpasswd:/etc/nginx/.htpasswd:ro
+      - ./auth-exploit-basicauth/index.html:/var/www/html/index.html:ro
+      - ./auth-exploit-basicauth/env-file:/var/www/html/.env:ro
+
+  # Juice Shop (SQLi, XSS, mass assignment)
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19772:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19770/ >/dev/null && curl -sf -u admin:secretpass http://localhost:19771/ >/dev/null && curl -sf http://localhost:19772/rest/admin/application-version 2>/dev/null | grep -q version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # WAF detected
+  - name: waf-detected
+    type: beacon
+    target: localhost:19770
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+  # Auth: .env hidden without auth
+  - name: auth-env-hidden
+    type: beacon
+    target: localhost:19771
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
+    expect:
+      not_check_id: exposure.env_file_exposed
+
+  # Auth: .env found with auth
+  - name: auth-env-found
+    type: beacon
+    target: localhost:19771
+    auth:
+      method: basic
+      username: admin
+      password: secretpass
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+  # Juice Shop: headers
+  - name: juiceshop-headers
+    type: beacon
+    target: localhost:19772
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 10m

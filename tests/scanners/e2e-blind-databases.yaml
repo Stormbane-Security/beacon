@@ -1,0 +1,86 @@
+name: e2e-blind-databases
+description: >
+  Blind scan of 5 database services. Tests protocol detection, unauth
+  access, service identification, and negative cross-contamination.
+tags: [e2e, blind, database, full-pipeline, integration]
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19750:6379"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["19751:5432"]
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    ports: ["19752:3306"]
+
+  mongodb:
+    image: mongo:7
+    command: ["mongod", "--bind_ip_all"]
+    ports: ["19753:27017"]
+
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19754:9200"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 19750 PING 2>/dev/null | grep -q PONG && curl -sf http://localhost:19754/ | grep -q cluster_name"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: redis-unauth
+    type: beacon
+    target: localhost:19750
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: postgres-trust
+    type: beacon
+    target: localhost:19751
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: mysql-noauth
+    type: beacon
+    target: localhost:19752
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.mysql_no_auth
+
+  - name: mongodb-exposed
+    type: beacon
+    target: localhost:19753
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: elasticsearch-unauth
+    type: beacon
+    target: localhost:19754
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  # negative: no Redis on Postgres port
+  - name: negative-no-redis-on-postgres
+    type: beacon
+    target: localhost:19751
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m
