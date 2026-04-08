@@ -316,8 +316,14 @@ const (
 	CheckBingDorkExposure CheckID = "asset.dork_exposure"
 
 	// CMS plugin enumeration — HTTP probe on well-known CMS paths → Surface
-	CheckCMSPluginFound      CheckID = "cms.plugin_found"      // CMS plugin detected
-	CheckCMSPluginVulnerable CheckID = "cms.plugin_vulnerable" // plugin version has known CVE
+	CheckCMSPluginFound          CheckID = "cms.plugin_found"           // CMS plugin detected
+	CheckCMSPluginVulnerable     CheckID = "cms.plugin_vulnerable"      // plugin version has known CVE
+	CheckCMSWordPressUserEnum    CheckID = "cms.wordpress_user_enum"    // WordPress user enumeration via author archives or REST API
+	CheckCMSWordPressThemeFound  CheckID = "cms.wordpress_theme_found"  // WordPress theme detected with version
+	CheckCMSWordPressXMLRPC      CheckID = "cms.wordpress_xmlrpc"       // WordPress XML-RPC enabled (brute force, SSRF, DoS)
+	CheckCMSWordPressRestAPI     CheckID = "cms.wordpress_rest_api"     // WordPress REST API exposes user data publicly
+	CheckCMSWordPressDebugLog    CheckID = "cms.wordpress_debug_log"    // WordPress debug.log exposed (contains errors, paths, queries)
+	CheckCMSWordPressDirListing  CheckID = "cms.wordpress_dir_listing"  // WordPress uploads/plugins directory listing enabled
 
 	// GitHub Actions
 	CheckGHActionUnpinned         CheckID = "ghaction.unpinned_action"
@@ -2025,8 +2031,14 @@ var Registry = map[CheckID]CheckMeta{
 	CheckBingDorkExposure: {CheckBingDorkExposure, SeverityHigh, ModeSurface},
 
 	// CMS plugins → Surface
-	CheckCMSPluginFound:      {CheckCMSPluginFound, SeverityInfo, ModeSurface},
-	CheckCMSPluginVulnerable: {CheckCMSPluginVulnerable, SeverityHigh, ModeSurface},
+	CheckCMSPluginFound:          {CheckCMSPluginFound, SeverityInfo, ModeSurface},
+	CheckCMSPluginVulnerable:     {CheckCMSPluginVulnerable, SeverityHigh, ModeSurface},
+	CheckCMSWordPressUserEnum:    {CheckCMSWordPressUserEnum, SeverityMedium, ModeSurface},
+	CheckCMSWordPressThemeFound:  {CheckCMSWordPressThemeFound, SeverityInfo, ModeSurface},
+	CheckCMSWordPressXMLRPC:      {CheckCMSWordPressXMLRPC, SeverityMedium, ModeSurface},
+	CheckCMSWordPressRestAPI:     {CheckCMSWordPressRestAPI, SeverityMedium, ModeSurface},
+	CheckCMSWordPressDebugLog:    {CheckCMSWordPressDebugLog, SeverityHigh, ModeSurface},
+	CheckCMSWordPressDirListing:  {CheckCMSWordPressDirListing, SeverityMedium, ModeSurface},
 
 	// Dependency confusion → Surface
 	CheckDependencyConfusion: {CheckDependencyConfusion, SeverityCritical, ModeSurface},

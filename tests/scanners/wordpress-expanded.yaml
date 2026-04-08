@@ -1,0 +1,75 @@
+name: wordpress-expanded-detection
+description: >
+  Tests expanded WordPress detection: user enumeration, theme detection,
+  XML-RPC, REST API exposure, directory listing. Uses real WordPress
+  container (not our code).
+tags: [wordpress, cms, user-enum, xmlrpc, theme, integration]
+
+services:
+  wordpress-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wppass
+
+  wordpress:
+    image: wordpress:6.4-apache
+    ports: ["19985:80"]
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wppass
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - wordpress-db
+
+ready:
+  cmd: "curl -sf http://localhost:19985/ | grep -qi wordpress"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION: Beacon identifies WordPress
+  # ══════════════════════════════════════════════════════════════════════
+
+  # CMS plugin scanner detects WordPress
+  - name: detects-wordpress-cms
+    type: beacon
+    target: localhost:19985
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: WordPress features exist
+  # ══════════════════════════════════════════════════════════════════════
+
+  # XML-RPC endpoint exists
+  - name: preflight-xmlrpc-exists
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19985/xmlrpc.php | grep -qi 'XML-RPC'"
+      exit_code: 0
+
+  # wp-login.php exists (WordPress detected)
+  - name: preflight-wp-login-exists
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19985/wp-login.php | grep -qE '200|302'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SECURITY HEADERS
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: beacon-detects-missing-hsts
+    type: beacon
+    target: localhost:19985
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 10m

@@ -504,16 +504,16 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 	}
 	// Critical tools — HARD FAIL if missing (unless explicitly opted out).
-	// These tools are required for core scanning functionality. Without them,
-	// beacon misses thousands of CVEs, subdomains, or endpoints silently.
+	// Skip this check when --scanners is used (filtered mode only needs
+	// the requested scanners, not the full toolchain).
 	// Use --no-<tool> to opt out explicitly.
-	type toolCheck struct {
+	if len(scannersList) == 0 {
+	criticalTools := []struct {
 		name    string
 		bin     string
 		optOut  bool
 		install string
-	}
-	criticalTools := []toolCheck{
+	}{
 		{"nuclei", cfg.NucleiBin, noNuclei, "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
 		{"subfinder", "subfinder", false, "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"},
 		{"katana", cfg.KatanaBin, false, "go install github.com/projectdiscovery/katana/cmd/katana@latest"},
@@ -538,6 +538,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		_, _ = fmt.Fprintf(os.Stderr, "Use --no-<tool> flags to opt out of specific tools.\n")
 		os.Exit(1)
 	}
+	} // end if len(scannersList) == 0
 
 	// Optional tools — WARN if missing but continue.
 	// These enhance scanning but aren't required for core functionality.
