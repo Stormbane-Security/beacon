@@ -8,23 +8,9 @@ import (
 )
 
 func TestName(t *testing.T) {
-	s := New("")
+	s := &Scanner{}
 	if s.Name() != "screenshot" {
 		t.Errorf("expected 'screenshot', got %q", s.Name())
-	}
-}
-
-func TestNew_DefaultBin(t *testing.T) {
-	s := New("")
-	if s.bin != "gowitness" {
-		t.Errorf("expected default bin 'gowitness', got %q", s.bin)
-	}
-}
-
-func TestNew_CustomBin(t *testing.T) {
-	s := New("/usr/local/bin/gowitness")
-	if s.bin != "/usr/local/bin/gowitness" {
-		t.Errorf("expected custom bin, got %q", s.bin)
 	}
 }
 
