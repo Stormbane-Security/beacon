@@ -354,6 +354,83 @@ func classifyAnomaly(reasons []string, bodySnippet, mutationName string) string 
 		return "lfi"
 	}
 
+	// Deserialization — Java, Python pickle, PHP, .NET
+	deserialIndicators := []string{
+		"java.io.", "objectinputstream", "classnotfoundexception",
+		"deseriali", "readobject", "java.lang.runtime",
+		"pickle", "unpickling", "__reduce__",
+		"unserialize()", "php object injection",
+		"system.runtime.serialization", "binaryformatter",
+		"typeinitializationexception",
+	}
+	for _, ind := range deserialIndicators {
+		if strings.Contains(snippet, ind) {
+			return "deserialization"
+		}
+	}
+
+	// LDAP injection
+	ldapIndicators := []string{
+		"javax.naming", "ldap error", "invalid dn", "bad search filter",
+		"ldapsearchresult", "invalid attribute", "naming exception",
+	}
+	for _, ind := range ldapIndicators {
+		if strings.Contains(snippet, ind) {
+			return "ldap_injection"
+		}
+	}
+
+	// XML injection / XXE indicators
+	xmlIndicators := []string{
+		"xml parsing error", "saxparser", "xmlsyntaxerror",
+		"premature end of data", "not well-formed", "invalid xml",
+		"entity reference", "dtd not allowed",
+	}
+	for _, ind := range xmlIndicators {
+		if strings.Contains(snippet, ind) {
+			return "xxe"
+		}
+	}
+
+	// Prototype pollution (Node.js)
+	if strings.Contains(mutationName, "object") || strings.Contains(mutationName, "proto") {
+		protoIndicators := []string{
+			"__proto__", "constructor", "prototype",
+		}
+		for _, ind := range protoIndicators {
+			if strings.Contains(snippet, ind) && strings.Contains(reasonStr, "status_change") {
+				return "prototype_pollution"
+			}
+		}
+	}
+
+	// SSRF — internal IPs appearing in response when they shouldn't
+	ssrfIndicators := []string{
+		"10.0.", "10.1.", "172.16.", "172.17.", "192.168.",
+		"169.254.169.254", "metadata.google", "amazonaws.com/latest",
+	}
+	for _, ind := range ssrfIndicators {
+		if strings.Contains(snippet, ind) && !strings.Contains(reasonStr, ind) {
+			// IP appeared in response but wasn't in our request — likely SSRF
+			return "ssrf"
+		}
+	}
+
+	// Open redirect — 3xx redirect to external domain
+	if strings.Contains(reasonStr, "status_change") {
+		if strings.Contains(reasonStr, "→ 301") || strings.Contains(reasonStr, "→ 302") ||
+			strings.Contains(reasonStr, "→ 307") || strings.Contains(reasonStr, "→ 308") {
+			return "open_redirect"
+		}
+	}
+
+	// Buffer overflow / crash — connection reset or empty response after large input
+	if strings.Contains(mutationName, "boundary") || strings.Contains(mutationName, "overflow") {
+		if strings.Contains(reasonStr, "request_error") || strings.Contains(reasonStr, "connection reset") {
+			return "buffer_overflow"
+		}
+	}
+
 	return ""
 }
 
