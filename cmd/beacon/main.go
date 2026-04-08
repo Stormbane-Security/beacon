@@ -58,6 +58,8 @@ USAGE:
   beacon playbook    dismiss --id <id>           Dismiss a suggestion (won't appear again)
   beacon playbook    open-pr --id <id>           Open a GitHub PR for a suggestion
   beacon classify    <target> [--format json|text]  Fingerprint a target without running scanners
+  beacon retest      --id <scan-id>               Retest findings from a previous scan
+  beacon diff        --baseline <id> --id <id>     Diff findings between two scans
 
 SCAN FLAGS:
   --domain <domain>          Target domain (required unless --host or --targets is used)
@@ -67,9 +69,10 @@ SCAN FLAGS:
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
   --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
-  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
+  --poc-dir <path>           Generate standalone PoC files for each finding into <path>
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --quiet                    Suppress informational stderr (missing API keys, nmap warnings, progress)
@@ -88,6 +91,7 @@ SCAN FLAGS:
   --no-arjun                 Skip arjun integration (no external parameter discovery)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
+  --wordlist <path>           Custom wordlist file for brute-force scanners (dirbust, subdomain, param discovery)
   --log-file <path>          Write structured JSON logs to file (one event per line)
   --log-level <level>        Log level: debug, info (default), warn, error
 
@@ -99,7 +103,7 @@ ENRICH FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
@@ -215,6 +219,10 @@ func main() {
 		cmdEnrich(cfg, os.Args[2:])
 	case "classify":
 		cmdClassify(cfg, os.Args[2:])
+	case "retest":
+		cmdRetest(cfg, os.Args[2:])
+	case "diff":
+		cmdDiff(cfg, os.Args[2:])
 	case "exploit":
 		cmdExploit(cfg, os.Args[2:])
 	case "scope":
@@ -266,6 +274,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		autoApprove         bool
 		outPath             string
 		outputRawPath       string
+		pocDir              string
 		format              string
 		severityFlag        string
 		verbose             bool
@@ -293,6 +302,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		scannersFlag        string
 		portsFlag           string
 		dnsServer           string
+		wordlistPath        string
 		logFile             string
 		logLevel            string
 	)
@@ -333,6 +343,11 @@ func cmdScan(cfg *config.Config, args []string) {
 			i++
 			if i < len(args) {
 				outputRawPath = args[i]
+			}
+		case "--poc-dir":
+			i++
+			if i < len(args) {
+				pocDir = args[i]
 			}
 		case "--format":
 			i++
@@ -437,6 +452,11 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				portsFlag = args[i]
 			}
+		case "--wordlist":
+			i++
+			if i < len(args) {
+				wordlistPath = args[i]
+			}
 		case "--log-file":
 			i++
 			if i < len(args) {
@@ -479,6 +499,13 @@ func cmdScan(cfg *config.Config, args []string) {
 				fatalf("invalid port %q in --ports", p)
 			}
 			portsList = append(portsList, n)
+		}
+	}
+
+	// Validate --wordlist file exists if provided.
+	if wordlistPath != "" {
+		if _, err := os.Stat(wordlistPath); err != nil {
+			fatalf("--wordlist: %v", err)
 		}
 	}
 
@@ -605,7 +632,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel, wordlistPath)
 		return
 	}
 
@@ -788,6 +815,7 @@ Type exactly: I have written authorization for %s
 		GitHubToken:          cfg.GitHubToken,
 		OktaDomain:           cfg.OktaDomain,
 		OktaToken:            cfg.OktaToken,
+		WordlistPath:         wordlistPath,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -1156,6 +1184,13 @@ Type exactly: I have written authorization for %s
 		fmt.Print(output)
 	}
 
+	// PoC bundle generation: write standalone exploit scripts for each finding.
+	if pocDir != "" {
+		if err := report.RenderPoCBundle(findings, pocDir); err != nil {
+			fatalf("generate poc bundle: %v", err)
+		}
+		info("beacon: %d PoC files written to %s\n", len(findings), pocDir)
+	}
 	// Attack path analysis: uses Claude (Anthropic) specifically.
 	// Requires anthropic_api_key in config regardless of the ai: provider block.
 	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
@@ -1229,6 +1264,7 @@ func cmdScanMultiAsset(
 	portsList []int,
 	dryRun bool,
 	logFile, logLevel string,
+	wordlistPath string,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -1346,6 +1382,7 @@ Type exactly: I have written authorization for all listed targets
 		GitHubToken:          cfg.GitHubToken,
 		OktaDomain:           strOr(oktaDomain, cfg.OktaDomain),
 		OktaToken:            strOr(oktaToken, cfg.OktaToken),
+		WordlistPath:         wordlistPath,
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)

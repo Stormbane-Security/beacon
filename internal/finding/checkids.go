@@ -112,6 +112,7 @@ const (
 	CheckWebDebugEndpoint     CheckID = "web.debug_endpoint"
 	CheckWebErrorInfoLeak     CheckID = "web.error_info_leak"
 	CheckWebXSS               CheckID = "web.xss"
+	CheckWebReflectedXSS     CheckID = "web.reflected_xss"
 	CheckWebSQLi              CheckID = "web.sqli"
 	CheckWebOpenRedirect      CheckID = "web.open_redirect"
 	CheckWebSSRF              CheckID = "web.ssrf"
@@ -1847,6 +1848,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebDebugEndpoint:      {CheckWebDebugEndpoint, SeverityHigh, ModeSurface},
 	CheckWebErrorInfoLeak:      {CheckWebErrorInfoLeak, SeverityMedium, ModeSurface},
 	CheckWebXSS:                {CheckWebXSS, SeverityHigh, ModeDeep},
+	CheckWebReflectedXSS:       {CheckWebReflectedXSS, SeverityHigh, ModeDeep},
 	CheckWebSQLi:               {CheckWebSQLi, SeverityCritical, ModeDeep},
 	CheckWebOpenRedirect:       {CheckWebOpenRedirect, SeverityMedium, ModeDeep},
 	CheckWebSSRF:               {CheckWebSSRF, SeverityCritical, ModeDeep},

@@ -86,6 +86,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/hibp"
 	_ "github.com/stormbane-security/beacon/internal/scanner/historicalurls"
 	_ "github.com/stormbane-security/beacon/internal/scanner/hostheader"
+	_ "github.com/stormbane-security/beacon/internal/scanner/rxss"
 	_ "github.com/stormbane-security/beacon/internal/scanner/jwt"
 	"github.com/stormbane-security/beacon/internal/scanner/nuclei"
 	"github.com/stormbane-security/beacon/internal/scanner/passivedns"
@@ -232,6 +233,9 @@ type Module struct {
 	// as a single finding with the plan details in Evidence.
 	dryRun bool
 
+	// wordlistPath is a custom wordlist file path for brute-force scanners.
+	wordlistPath string
+
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
 
@@ -316,6 +320,11 @@ type Config struct {
 	// ClaudeModel overrides the Claude model used for profiling.
 	// Defaults to claude-sonnet-4-6 when empty.
 	ClaudeModel string
+
+	// WordlistPath is a custom wordlist file for brute-force scanners
+	// (dirbust, subdomain brute, parameter discovery). When set, scanners
+	// use this file instead of or in addition to their built-in wordlists.
+	WordlistPath string
 
 	// Auth holds per-asset credentials for authenticated scanning.
 	// When a matching entry exists for the current asset (or asset == "*"),
@@ -490,6 +499,7 @@ func New(cfg Config) (*Module, error) {
 		evasionStrategy:   evasionStrat,
 		adaptiveRecon:     cfg.AdaptiveRecon,
 		claudeModel:       claudeModel,
+		wordlistPath:      cfg.WordlistPath,
 		authCfgs:          cfg.Auth,
 		enricher:          enricher,
 	}, nil
@@ -1526,6 +1536,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
 	if authHeaders != nil {
 		sctx.WithAuthHeaders(authHeaders)
+	}
+	if m.wordlistPath != "" {
+		sctx.WithWordlist(m.wordlistPath)
 	}
 	ctx = sctx.Inject(ctx)
 

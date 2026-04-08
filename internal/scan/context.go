@@ -26,11 +26,12 @@ type contextKey struct{}
 // It is injected by the surface module before scanner execution and retrieved
 // by scanners via FromContext.
 type ScanContext struct {
-	asset       string
-	scanType    module.ScanType
-	client      *http.Client
-	evidence    *playbook.Evidence
-	authHeaders map[string]string // raw auth headers for subprocess tools (katana, ffuf, etc.)
+	asset        string
+	scanType     module.ScanType
+	client       *http.Client
+	evidence     *playbook.Evidence
+	authHeaders  map[string]string // raw auth headers for subprocess tools (katana, ffuf, etc.)
+	wordlistPath string            // custom wordlist file path for brute-force scanners
 }
 
 // NewContext creates a ScanContext for the given asset and scan type.
@@ -117,3 +118,13 @@ func (sc *ScanContext) WithAuthHeaders(headers map[string]string) *ScanContext {
 
 // AuthHeaders returns the raw auth headers, or nil if no auth is configured.
 func (sc *ScanContext) AuthHeaders() map[string]string { return sc.authHeaders }
+
+// WithWordlist sets a custom wordlist file path for brute-force scanners
+// (directory brute-force, subdomain brute-force, parameter discovery).
+func (sc *ScanContext) WithWordlist(path string) *ScanContext {
+	sc.wordlistPath = path
+	return sc
+}
+
+// WordlistPath returns the custom wordlist file path, or "" if none was set.
+func (sc *ScanContext) WordlistPath() string { return sc.wordlistPath }

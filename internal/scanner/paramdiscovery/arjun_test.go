@@ -10,7 +10,7 @@ import (
 
 func TestRunArjun_SkipsWhenBinEmpty(t *testing.T) {
 	t.Parallel()
-	results, err := runArjun(context.Background(), "https://example.com", "")
+	results, err := runArjun(context.Background(), "https://example.com", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestRunArjun_SkipsWhenBinEmpty(t *testing.T) {
 
 func TestRunArjun_SkipsWhenBinNotFound(t *testing.T) {
 	t.Parallel()
-	results, err := runArjun(context.Background(), "https://example.com", "arjun-nonexistent-binary-12345")
+	results, err := runArjun(context.Background(), "https://example.com", "arjun-nonexistent-binary-12345", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,8 @@ type arjunOutput map[string][]string
 // runArjun shells out to arjun for parameter discovery using its battle-tested
 // wordlists. Returns discovered parameter names. Returns nil if arjun is not
 // installed or the --no-arjun flag was used (arjunBin == "").
-func runArjun(ctx context.Context, targetURL string, arjunBin string) ([]string, error) {
+// When wordlistPath is non-empty, arjun uses that file as its wordlist (-w flag).
+func runArjun(ctx context.Context, targetURL string, arjunBin string, wordlistPath string) ([]string, error) {
 	if arjunBin == "" {
 		return nil, nil
 	}
@@ -38,6 +39,9 @@ func runArjun(ctx context.Context, targetURL string, arjunBin string) ([]string,
 		"-u", targetURL,
 		"--stable",
 		"-oJ", outputFile,
+	}
+	if wordlistPath != "" {
+		args = append(args, "-w", wordlistPath)
 	}
 
 	cmd := exec.CommandContext(ctx, binPath, args...)

@@ -21,12 +21,14 @@
 package dirbust
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -205,6 +207,13 @@ func ExpandWithExtensions(paths []string, fw string) []string {
 func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []finding.Finding {
 	if len(paths) == 0 {
 		return nil
+	}
+
+	// Merge custom wordlist paths when configured via --wordlist.
+	if sctx, ok := scan.FromContext(ctx); ok && sctx.WordlistPath() != "" {
+		if extra, err := loadWordlistPaths(sctx.WordlistPath()); err == nil {
+			paths = append(paths, extra...)
+		}
 	}
 
 	// Deduplicate input paths: normalize trailing slashes and case so that
@@ -600,4 +609,29 @@ func deduplicatePaths(paths []string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+// loadWordlistPaths reads a wordlist file and returns URL paths (one per line).
+// Each line is treated as a path; a leading "/" is added if missing.
+// Blank lines and lines starting with "#" are skipped.
+func loadWordlistPaths(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var paths []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, "/") {
+			line = "/" + line
+		}
+		paths = append(paths, line)
+	}
+	return paths, sc.Err()
 }

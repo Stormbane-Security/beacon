@@ -261,7 +261,7 @@ func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedF
 }
 
 // renderFormat produces the report string in the requested format.
-// format is one of: "text" (default), "html", "json", "markdown", "ocsf", "graph".
+// format is one of: "text" (default), "html", "json", "markdown", "ocsf", "har", "graph".
 // graphJSON is the persisted asset graph blob; it is included in the JSON report
 // when non-nil and used to render DOT output for the "graph" format.
 func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte) (string, error) {
@@ -274,6 +274,19 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
 	case "bounty":
 		return report.RenderBounty(run, enriched, summary, executions), nil
+	case "har":
+		// HAR 1.2 — importable by Burp Suite, ZAP, and other proxy tools.
+		rawFindings := make([]finding.Finding, 0, len(enriched))
+		for _, ef := range enriched {
+			if !ef.Omit {
+				rawFindings = append(rawFindings, ef.Finding)
+			}
+		}
+		b, err := report.RenderHAR(rawFindings)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
 	case "ocsf":
 		// OCSF 1.4.0 NDJSON — one Vulnerability Finding event per line.
 		// Compatible with AWS Security Lake, Splunk, OpenSearch Security Analytics,

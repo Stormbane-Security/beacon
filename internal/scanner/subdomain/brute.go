@@ -10,10 +10,14 @@ package subdomain
 // infrastructure. False positives are impossible: if a name resolves, it exists.
 
 import (
+	"bufio"
 	"context"
 	"net"
+	"os"
 	"strings"
 	"sync"
+
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 // commonPrefixes is a curated list of ~160 subdomain prefixes frequently
@@ -115,27 +119,71 @@ func wildcardIPs(ctx context.Context, domain string) map[string]struct{} {
 	return ips
 }
 
+// loadWordlistPrefixes reads a wordlist file and returns one prefix per line.
+// Blank lines and lines starting with "#" are skipped.
+func loadWordlistPrefixes(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var prefixes []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		prefixes = append(prefixes, line)
+	}
+	return prefixes, sc.Err()
+}
+
 // bruteForceSubdomains resolves each prefix in commonPrefixes against domain
 // using parallel DNS lookups. Returns only prefixes that successfully resolve
 // to IPs that are NOT part of a wildcard DNS response, so wildcard domains
 // (e.g. *.example.com → 1.2.3.4) do not flood results with false positives.
 // Uses a concurrency of 50 to stay fast without overwhelming local DNS.
+//
+// When a custom wordlist is set in the ScanContext, its entries are used in
+// addition to the built-in commonPrefixes list.
 func bruteForceSubdomains(ctx context.Context, domain string) []string {
 	const concurrency = 50
 
 	// Detect wildcard DNS before the main loop.
 	wildcards := wildcardIPs(ctx, domain)
 
+	// Build the prefix list: built-in + custom wordlist (if configured).
+	prefixes := make([]string, len(commonPrefixes))
+	copy(prefixes, commonPrefixes)
+	if sctx, ok := scan.FromContext(ctx); ok && sctx.WordlistPath() != "" {
+		if custom, err := loadWordlistPrefixes(sctx.WordlistPath()); err == nil {
+			prefixes = append(prefixes, custom...)
+		}
+	}
+
+	// Deduplicate prefixes.
+	seen := make(map[string]struct{}, len(prefixes))
+	var dedupedPrefixes []string
+	for _, p := range prefixes {
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			dedupedPrefixes = append(dedupedPrefixes, p)
+		}
+	}
+	prefixes = dedupedPrefixes
+
 	type result struct {
 		sub string
 	}
 
-	results := make(chan result, len(commonPrefixes))
+	results := make(chan result, len(prefixes))
 	sem := make(chan struct{}, concurrency)
 
 	var wg sync.WaitGroup
 loop:
-	for _, prefix := range commonPrefixes {
+	for _, prefix := range prefixes {
 		prefix := prefix
 		fqdn := prefix + "." + domain
 		select {

@@ -10,12 +10,13 @@ import (
 	"github.com/stormbane-security/beacon/internal/scope"
 )
 
-// cmdScope queries bug bounty program scope from HackerOne or Bugcrowd.
+// cmdScope queries bug bounty program scope from HackerOne, Bugcrowd, or Intigriti.
 //
 // Usage:
 //
 //	beacon scope hackerone:<handle>    Show in-scope assets for a HackerOne program
 //	beacon scope bugcrowd:<handle>    Show in-scope assets for a Bugcrowd program
+//	beacon scope intigriti:<handle>   Show in-scope assets for an Intigriti program
 //	beacon scope hackerone:uber       Example: Uber on HackerOne
 func cmdScope(args []string) {
 	if len(args) == 0 {
@@ -25,7 +26,9 @@ func cmdScope(args []string) {
 Examples:
   beacon scope hackerone:uber
   beacon scope bugcrowd:twitch
-  beacon scope h1:github`)
+  beacon scope intigriti:example
+  beacon scope h1:github
+  beacon scope ig:example`)
 		os.Exit(1)
 	}
 
