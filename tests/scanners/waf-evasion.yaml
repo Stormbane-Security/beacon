@@ -76,4 +76,12 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  # NEGATIVE: Unprotected httpbin should NOT trigger WAF detection
+  - name: negative-no-waf-on-direct
+    type: beacon
+    target: localhost:19901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      not_check_id: waf.detected
+
 timeout: 5m
