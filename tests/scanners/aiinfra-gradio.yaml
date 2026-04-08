@@ -22,8 +22,8 @@ services:
         "
 
 ready:
-  cmd: "curl -sf http://localhost:19210/ | grep -qi gradio"
-  timeout: 180s
+  cmd: "curl -sf http://localhost:19210/info 2>/dev/null | grep -q gradio_version"
+  timeout: 300s
   interval: 10s
 
 assertions:
