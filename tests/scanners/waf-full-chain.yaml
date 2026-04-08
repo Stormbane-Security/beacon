@@ -1,0 +1,169 @@
+name: waf-full-chain-test
+description: >
+  Comprehensive WAF testing: vulnerable app behind ModSecurity WAF, secure
+  app behind same WAF, unprotected vulnerable app as control. Tests the full
+  chain: WAF detection → bypass attempts → vulnerability detection behind WAF
+  → exploitation → post-exploit → negative tests on secure app.
+tags: [waf, evasion, bypass, exploit, negative, full-chain, integration]
+
+services:
+  # ── Vulnerable backend: Redis unauth + httpbin ──
+  redis-vuln:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+
+  httpbin-vuln:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  # ── WAF protecting vulnerable backend ──
+  waf-vuln:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19940:8080"]
+    environment:
+      PARANOIA: "1"
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://httpbin-vuln:8080"
+      PORT: "8080"
+    depends_on:
+      - httpbin-vuln
+
+  # ── Secure backend (proper headers, no vulns) ──
+  nginx-secure:
+    image: nginx:alpine
+    volumes:
+      - ./waf-full-chain/nginx-secure.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # ── WAF protecting secure backend ──
+  waf-secure:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19941:8080"]
+    environment:
+      PARANOIA: "2"
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://nginx-secure:80"
+      PORT: "8080"
+    depends_on:
+      - nginx-secure
+
+  # ── Control: vulnerable backend WITHOUT WAF ──
+  httpbin-direct:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19942:8080"]
+    environment:
+      PORT: "8080"
+
+  # ── Redis exposed (for exploit chain) ──
+  redis-exposed:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19943:6379"]
+
+ready:
+  cmd: "curl -sf http://localhost:19940/ >/dev/null && curl -sf http://localhost:19941/ >/dev/null && curl -sf http://localhost:19942/ >/dev/null && redis-cli -h localhost -p 19943 PING 2>/dev/null | grep -q PONG"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # POSITIVE: WAF Detection
+  # ══════════════════════════════════════════════════════════════════════
+
+  # WAF detected on vulnerable endpoint
+  - name: detects-waf-on-vuln
+    type: beacon
+    target: localhost:19940
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+  # WAF detected on secure endpoint
+  - name: detects-waf-on-secure
+    type: beacon
+    target: localhost:19941
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+  # ══════════════════════════════════════════════════════════════════════
+  # POSITIVE: Vulnerability detection behind WAF
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Missing security headers found behind WAF
+  - name: finds-missing-hsts-behind-waf
+    type: beacon
+    target: localhost:19940
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # POSITIVE: Exploit chain on unprotected service
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Redis detected and exploited (no WAF on Redis port)
+  - name: redis-detected-unauth
+    type: beacon
+    target: localhost:19943
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # Redis exploit chain fires (data extraction)
+  - name: redis-exploit-chain
+    type: beacon
+    target: localhost:19943
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.lateral_movement
+
+  # Redis lateral movement
+  - name: redis-lateral-movement
+    type: beacon
+    target: localhost:19943
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.lateral_movement
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: Secure app behind WAF — no false positives
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Secure endpoint should NOT have missing HSTS (nginx-secure sets it)
+  - name: negative-no-missing-hsts-on-secure
+    type: beacon
+    target: localhost:19941
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      not_check_id: headers.missing_hsts
+
+  # No false Redis finding on WAF ports
+  - name: negative-no-redis-on-waf-port
+    type: beacon
+    target: localhost:19940
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CONTROL: Unprotected app finds more than WAF-protected
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Unprotected endpoint finds headers issues
+  - name: control-direct-finds-headers
+    type: beacon
+    target: localhost:19942
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Scan completes cleanly on all endpoints
+  - name: waf-scan-completes-cleanly
+    type: beacon
+    target: localhost:19940
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,wafdetect"]
+    expect:
+      min_findings: 2
+
+timeout: 10m

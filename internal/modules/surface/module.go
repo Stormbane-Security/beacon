@@ -1471,6 +1471,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// The monitor is stored in context so scanners can call monitor.Blocked()
 	// before sending additional probes.
 	evasionMonitor := evasion.NewMonitor(m.evasionStrategy)
+	adaptiveRate := evasion.NewAdaptiveRate(0, 30*time.Second) // start unlimited, max 30s between requests
 	baseTransport := httpClient.Transport
 	if baseTransport == nil {
 		baseTransport = http.DefaultTransport
@@ -1478,6 +1479,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	httpClient.Transport = &evasion.MonitoredTransport{
 		Base:    baseTransport,
 		Monitor: evasionMonitor,
+		Rate:    adaptiveRate,
 	}
 	ctx = evasion.WithMonitor(ctx, evasionMonitor)
 

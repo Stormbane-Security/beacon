@@ -1,0 +1,46 @@
+name: waf-adaptive-rate-limiting
+description: >
+  Tests beacon's adaptive rate limiting against a WAF that returns 429
+  after too many requests. Beacon should detect the rate limit, slow down
+  automatically, and still complete the scan without crashing. The evasion
+  monitor should emit ids.detected findings for the rate limit event.
+tags: [waf, evasion, ratelimit, adaptive, integration]
+
+services:
+  # nginx with rate limiting: 2 req/s burst 5
+  ratelimit:
+    image: nginx:alpine
+    ports: ["19920:80"]
+    volumes:
+      - ./waf-adaptive-rate/nginx.conf:/etc/nginx/nginx.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19920/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: rate limit triggers on burst
+  - name: ratelimit-triggers-on-burst
+    type: command
+    expect:
+      command: "for i in $(seq 1 20); do curl -s -o /dev/null -w '%{http_code}\n' http://localhost:19920/; done | grep -c 429 | grep -qE '[1-9]'"
+      exit_code: 0
+
+  # Beacon scan completes despite rate limiting
+  - name: beacon-completes-under-ratelimit
+    type: beacon
+    target: localhost:19920
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,exposedfiles,cors"]
+    expect:
+      min_findings: 1
+
+  # Beacon detects missing HSTS even with rate limiting
+  - name: beacon-finds-missing-hsts
+    type: beacon
+    target: localhost:19920
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

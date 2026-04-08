@@ -276,15 +276,29 @@ func recommendation(dt DetectionType) string {
 }
 
 // MonitoredTransport wraps an http.RoundTripper and automatically checks every
-// response through the Monitor for defense signals.
+// response through the Monitor for defense signals. When an AdaptiveRate is
+// configured, it waits before each request based on observed WAF/rate patterns,
+// automatically slowing down when blocks are detected and speeding up when
+// responses normalize.
 type MonitoredTransport struct {
 	Base    http.RoundTripper
 	Monitor *Monitor
+
+	// Rate is an optional adaptive rate limiter. When set, each request waits
+	// Rate.Wait() before sending, and each response updates the rate via
+	// Rate.RecordResponse(). This creates a feedback loop: WAF blocks → slow
+	// down → blocks stop → speed back up.
+	Rate *AdaptiveRate
 }
 
 // RoundTrip executes the request using the base transport, then feeds the
 // response through the Monitor's detection logic.
 func (t *MonitoredTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Wait for adaptive rate limiter before sending request.
+	if t.Rate != nil {
+		t.Rate.Wait(req.Context())
+	}
+
 	start := time.Now()
 	resp, err := t.Base.RoundTrip(req)
 	latency := time.Since(start)
@@ -311,6 +325,11 @@ func (t *MonitoredTransport) RoundTrip(req *http.Request) (*http.Response, error
 		checkResp.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 	}
 	t.Monitor.CheckResponse(reqURL, &checkResp, latency)
+
+	// Feed the response into the adaptive rate limiter for automatic speed adjustment.
+	if t.Rate != nil {
+		t.Rate.RecordResponse(latency, resp.StatusCode)
+	}
 
 	// Restore the original body for the caller.
 	if len(bodyBytes) > 0 {
