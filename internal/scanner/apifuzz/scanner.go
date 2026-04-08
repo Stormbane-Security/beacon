@@ -260,6 +260,12 @@ func fuzzResultToFindings(result *fuzzResult, asset, path string) []finding.Find
 		}
 		if vulnClass != "" {
 			ev["vuln_class"] = vulnClass
+		} else {
+			// Unclassified anomaly — flag for AI/Forecast analysis.
+			// The raw anomaly data is preserved so Claude or Forecast can
+			// determine the vulnerability type from the response patterns.
+			ev["needs_classification"] = true
+			ev["raw_body_snippet"] = anomaly.Response.BodySnippet
 		}
 
 		findings = append(findings, finding.Finding{
