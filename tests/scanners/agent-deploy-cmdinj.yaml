@@ -40,11 +40,28 @@ networks:
   frontend:
   internal:
 
+ready:
+  cmd: "curl -sf http://localhost:8080/login.php -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+  timeout: 180s
+  interval: 5s
+
+run:
+  # Auto-complete DVWA setup (create database tables)
+  - >
+    curl -sf -X POST http://localhost:8080/setup.php
+    -d 'create_db=Create+/+Reset+Database'
+    -b 'PHPSESSID=test; security=low'
+    -o /dev/null || true
+
 assertions:
-  # Beacon should find command injection
+  # Beacon should find command injection (DVWA needs form login)
   - name: beacon-finds-cmdinj
     type: beacon
     target: localhost:8080
+    auth:
+      method: form
+      username: admin
+      password: password
     args: ["--authorized", "--yes", "--scanners", "cmdinj", "--format", "json"]
     expect:
       check_id: web.command_injection
@@ -53,6 +70,10 @@ assertions:
   - name: beacon-harvests-creds
     type: beacon
     target: localhost:8080
+    auth:
+      method: form
+      username: admin
+      password: password
     args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.credential_harvest
@@ -61,6 +82,10 @@ assertions:
   - name: beacon-discovers-internal
     type: beacon
     target: localhost:8080
+    auth:
+      method: form
+      username: admin
+      password: password
     args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.internal_network_discovered
