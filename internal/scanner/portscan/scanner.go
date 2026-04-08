@@ -291,6 +291,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		for _, p := range s.Ports {
 			ports = append(ports, portEntry{p, "unknown", true})
 		}
+	} else if targetPort > 0 {
+		// Domain includes a port (e.g. localhost:19902) — scan only that port.
+		// Don't waste time scanning 60+ default ports when the user specified one.
+		ports = []portEntry{{targetPort, "unknown", true}}
 	} else {
 		ports = buildPortList(scanType)
 	}
