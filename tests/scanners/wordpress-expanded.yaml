@@ -7,7 +7,7 @@ tags: [wordpress, cms, user-enum, xmlrpc, theme, integration]
 
 services:
   wordpress-db:
-    image: mysql:8.0
+    image: mariadb:10
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
       MYSQL_DATABASE: wordpress
@@ -26,8 +26,8 @@ services:
       - wordpress-db
 
 ready:
-  cmd: "curl -sf http://localhost:19985/ | grep -qi wordpress"
-  timeout: 180s
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19985/wp-login.php | grep -qE '200|302'"
+  timeout: 300s
   interval: 10s
 
 assertions:
