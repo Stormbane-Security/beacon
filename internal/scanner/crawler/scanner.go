@@ -105,6 +105,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	args = append(args, extraArgs...)
 
+	// Inject auth headers from the scan context so katana crawls behind login.
+	// Without this, katana makes unauthenticated requests and misses the
+	// authenticated attack surface.
+	if sctx, ok := scan.FromContext(ctx); ok {
+		for k, v := range sctx.AuthHeaders() {
+			args = append(args, "-H", k+": "+v)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 

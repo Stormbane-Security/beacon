@@ -1456,13 +1456,16 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
 	// base http.Client to inject credentials into all scanner requests.
 	httpClient := &http.Client{Timeout: 30 * time.Second}
+	var authHeaders map[string]string
 	if len(m.authCfgs) > 0 {
 		if authedClient, session, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
 			// Log but don't abort — fall back to unauthenticated scan.
 			_ = err
 		} else if authedClient != nil {
 			httpClient = authedClient
-			_ = session // session.Label available for logging if verbose
+			if session != nil && len(session.Headers) > 0 {
+				authHeaders = session.Headers
+			}
 		}
 	}
 
@@ -1519,6 +1522,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
 	// for backward compatibility.
 	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+	if authHeaders != nil {
+		sctx.WithAuthHeaders(authHeaders)
+	}
 	ctx = sctx.Inject(ctx)
 
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
