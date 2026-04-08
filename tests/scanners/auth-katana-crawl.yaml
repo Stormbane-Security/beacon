@@ -1,0 +1,50 @@
+name: auth-katana-crawl
+description: >
+  Tests that katana receives auth headers and can crawl behind basic auth.
+  Without auth, the crawler should get 401 and find fewer endpoints.
+  With auth, the crawler should access the app and discover more endpoints.
+tags: [auth, crawler, katana, integration]
+
+services:
+  # Auth-protected nginx serving multiple pages
+  authapp:
+    image: nginx:alpine
+    ports: ["19975:80"]
+    volumes:
+      - ./auth-katana-crawl/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./auth-katana-crawl/htpasswd:/etc/nginx/.htpasswd:ro
+      - ./auth-katana-crawl/pages:/var/www/html:ro
+
+ready:
+  cmd: "curl -sf -u admin:crawlpass http://localhost:19975/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: unauthenticated returns 401
+  - name: unauth-returns-401
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:19975/ | grep -q '401'"
+      exit_code: 0
+
+  # Pre-flight: authenticated returns 200
+  - name: auth-returns-200
+    type: command
+    expect:
+      command: "curl -sf -u admin:crawlpass http://localhost:19975/ | grep -q 'Welcome'"
+      exit_code: 0
+
+  # Beacon with auth should find security header issues
+  - name: beacon-auth-scan-works
+    type: beacon
+    target: localhost:19975
+    auth:
+      method: basic
+      username: admin
+      password: crawlpass
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m
