@@ -382,7 +382,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// HTTP ports intentionally don't send banners.
 	if len(noBannerPorts) > 0 && ctx.Err() == nil {
 		for i, nbp := range noBannerPorts {
-			addr := net.JoinHostPort(asset, strconv.Itoa(nbp.entry.port))
+			addr := net.JoinHostPort(host, strconv.Itoa(nbp.entry.port))
 			conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
 			if err != nil {
 				continue

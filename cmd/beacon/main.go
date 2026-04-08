@@ -60,8 +60,8 @@ USAGE:
   beacon classify    <target> [--format json|text]  Fingerprint a target without running scanners
 
 SCAN FLAGS:
-  --domain <domain>          Target domain (required unless --asset or --targets is used)
-  --asset <domain>           Add a target domain; repeatable for multi-asset sessions
+  --domain <domain>          Target domain (required unless --host or --targets is used)
+  --host <target>            Add a target host; repeatable for multi-host sessions
   --targets <file>           File with one domain per line (enables multi-asset mode)
   --deep                     Enable active probing (requires --permission-confirmed)
   --permission-confirmed     Acknowledge you have permission to run active probes
@@ -109,7 +109,7 @@ EXAMPLES:
   beacon scan --domain example.com --severity high
   beacon scan --domain example.com --out report.html --format html
   beacon scan --domain example.com --deep --permission-confirmed
-  beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
+  beacon scan --host example.com --host api.example.com --host cdn.example.com
   beacon scan --targets hosts.txt --deep --permission-confirmed
   beacon scan --domain example.com --output-raw findings.json
   beacon scan --domain example.com --scanners cors,jwt,tls
@@ -375,7 +375,7 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				extraCIDRs = append(extraCIDRs, args[i])
 			}
-		case "--asset":
+		case "--host", "--asset":
 			i++
 			if i < len(args) {
 				assets = append(assets, args[i])
@@ -598,7 +598,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	}
 
 	if len(assets) == 0 && githubOrg == "" {
-		fatalf("--domain, --asset, --targets, or --github is required\n\n%s", usageText)
+		fatalf("--domain, --host, --targets, or --github is required\n\n%s", usageText)
 	}
 
 	// Multi-asset mode: scan all targets in a single session.

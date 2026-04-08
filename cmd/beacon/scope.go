@@ -83,7 +83,7 @@ Examples:
 			domains = domains[:3]
 		}
 		if len(domains) > 0 {
-			fmt.Printf("  beacon scan --domain %s\n", strings.Join(domains, " --asset "))
+			fmt.Printf("  beacon scan --domain %s\n", strings.Join(domains, " --host "))
 		}
 	}
 }

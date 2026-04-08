@@ -320,61 +320,176 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	return findings
 }
 
-// quickProtocolCheck sends lightweight protocol handshakes to identify
-// non-HTTP services that don't send a banner on connect. This prevents
+// quickProtocolCheck sends lightweight protocol handshakes concurrently to
+// identify non-HTTP services that don't send a banner on connect. This prevents
 // 100+ protocol probes from timing out against already-identifiable services.
 // Returns the protocol name (e.g., "redis", "mysql") or "" if unknown.
+// All checks run in parallel with a short timeout, so worst case is ~1.5s.
 func quickProtocolCheck(ctx context.Context, host string, port int) string {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	const quickTimeout = 1500 * time.Millisecond
+	dialer := &net.Dialer{Timeout: quickTimeout}
 
-	// Try Redis: send PING, expect +PONG
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	type checkResult struct {
+		proto string
+	}
+	ch := make(chan checkResult, 6)
+
+	// Redis: send PING, expect +PONG
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		_, _ = conn.Write([]byte("PING\r\n"))
 		buf := make([]byte, 64)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
 		resp := string(buf[:n])
 		if strings.HasPrefix(resp, "+PONG") || strings.HasPrefix(resp, "-NOAUTH") || strings.HasPrefix(resp, "-ERR") {
-			return "redis"
+			ch <- checkResult{"redis"}
+			return
 		}
-	}
+		ch <- checkResult{}
+	}()
 
-	// Try MySQL: connect and read greeting packet (server sends it first)
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	// MySQL: connect and read greeting packet (server sends it first)
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		buf := make([]byte, 128)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
-		if n > 4 && buf[3] == 0x00 && buf[4] == 0x0a { // sequence=0, protocol=10
-			return "mysql"
+		if n > 4 && buf[3] == 0x00 && buf[4] == 0x0a {
+			ch <- checkResult{"mysql"}
+			return
 		}
-	}
+		ch <- checkResult{}
+	}()
 
-	// Try PostgreSQL: send startup cancel request, check for 'R' auth response
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-		// SSLRequest (8 bytes: length=8, code=80877103)
+	// PostgreSQL: send SSLRequest, check for 'N' or 'S' response
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		_, _ = conn.Write([]byte{0, 0, 0, 8, 4, 210, 22, 47})
 		buf := make([]byte, 8)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
-		if n >= 1 && (buf[0] == 'N' || buf[0] == 'S') { // 'N' = no SSL, 'S' = SSL ok
-			return "postgres"
+		if n >= 1 && (buf[0] == 'N' || buf[0] == 'S') {
+			ch <- checkResult{"postgres"}
+			return
 		}
-	}
+		ch <- checkResult{}
+	}()
 
-	// Try SMTP: wait for banner (SMTP servers send 220 greeting)
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	// SMTP: wait for 220 banner
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		buf := make([]byte, 128)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
 		if n > 3 && strings.HasPrefix(string(buf[:n]), "220 ") {
-			return "smtp"
+			ch <- checkResult{"smtp"}
+			return
+		}
+		ch <- checkResult{}
+	}()
+
+	// MongoDB: send isMaster command, check for valid BSON response
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
+		// MongoDB OP_MSG: isMaster command (minimal wire protocol v2 message)
+		// Header: length(4) + requestID(4) + responseTo(4) + opCode=2013(4)
+		// flagBits(4) + section kind=0(1) + BSON document
+		isMasterDoc := []byte{
+			// BSON document: {"isMaster": 1, "$db": "admin"}
+			0x27, 0x00, 0x00, 0x00, // doc length = 39
+			0x10,                                           // type: int32
+			0x69, 0x73, 0x4d, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00, // "isMaster\0"
+			0x01, 0x00, 0x00, 0x00, // value: 1
+			0x02,                                     // type: string
+			0x24, 0x64, 0x62, 0x00,                   // "$db\0"
+			0x06, 0x00, 0x00, 0x00,                   // string length = 6
+			0x61, 0x64, 0x6d, 0x69, 0x6e, 0x00,      // "admin\0"
+			0x00, // document terminator
+		}
+		msgLen := 4 + 4 + 4 + 4 + 4 + 1 + len(isMasterDoc) // header + flagBits + section kind + doc
+		msg := make([]byte, msgLen)
+		// Little-endian length
+		msg[0] = byte(msgLen)
+		msg[1] = byte(msgLen >> 8)
+		msg[2] = byte(msgLen >> 16)
+		msg[3] = byte(msgLen >> 24)
+		// requestID = 1
+		msg[4] = 0x01
+		// responseTo = 0 (bytes 8-11 already zero)
+		// opCode = 2013 (OP_MSG)
+		msg[12] = 0xdd
+		msg[13] = 0x07
+		// flagBits = 0 (bytes 16-19 already zero)
+		// section kind = 0
+		msg[20] = 0x00
+		copy(msg[21:], isMasterDoc)
+
+		_, _ = conn.Write(msg)
+		buf := make([]byte, 256)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		// MongoDB response: valid if length >= 16, opCode is 2013 (OP_MSG) or 1 (OP_REPLY)
+		if n >= 16 {
+			opCode := uint32(buf[12]) | uint32(buf[13])<<8 | uint32(buf[14])<<16 | uint32(buf[15])<<24
+			if opCode == 2013 || opCode == 1 {
+				ch <- checkResult{"mongodb"}
+				return
+			}
+		}
+		ch <- checkResult{}
+	}()
+
+	// SSH: wait for "SSH-" banner (some SSH servers are slow to send)
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
+		buf := make([]byte, 64)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		if n >= 4 && strings.HasPrefix(string(buf[:n]), "SSH-") {
+			ch <- checkResult{"ssh"}
+			return
+		}
+		ch <- checkResult{}
+	}()
+
+	// Collect results — return first positive match, or "" after all finish
+	for i := 0; i < 6; i++ {
+		r := <-ch
+		if r.proto != "" {
+			return r.proto
 		}
 	}
-
 	return ""
 }
