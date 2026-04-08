@@ -30,6 +30,13 @@ ready:
   timeout: 300s
   interval: 10s
 
+run:
+  # Auto-complete WordPress install wizard so xmlrpc.php and REST API work
+  - >
+    curl -sf -X POST 'http://localhost:19985/wp-admin/install.php?step=2'
+    -d 'weblog_title=TestSite&user_name=admin&admin_password=Admin123!&admin_password2=Admin123!&pw_weak=1&admin_email=admin@test.com&Submit=Install+WordPress'
+    -o /dev/null || true
+
 assertions:
   # ══════════════════════════════════════════════════════════════════════
   # DETECTION: Beacon identifies WordPress
@@ -51,7 +58,7 @@ assertions:
   - name: preflight-xmlrpc-exists
     type: command
     expect:
-      command: "curl -sf http://localhost:19985/xmlrpc.php | grep -qi 'XML-RPC'"
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:19985/xmlrpc.php | grep -qE '200|405'"
       exit_code: 0
 
   # wp-login.php exists (WordPress detected)

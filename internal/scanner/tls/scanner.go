@@ -408,7 +408,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					"cipher":   cipher,
 					"cve":      "CVE-2011-3389",
 				},
-				ProofCommand: fmt.Sprintf("openssl s_client -connect %s:%d -tls1 -cipher 'CBC'", host, port),
+				ProofCommand: fmt.Sprintf("openssl s_client -connect %s:%s -tls1 -cipher 'CBC'", host, port),
 				DiscoveredAt: now,
 			})
 		}
