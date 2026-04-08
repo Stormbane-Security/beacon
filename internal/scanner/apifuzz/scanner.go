@@ -60,6 +60,36 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 	base := scheme + "://" + asset
 
+	// Consume any crawl-discovered URLs from the crawl feed channel.
+	// These are real endpoints found by katana, much better than guessing.
+	var crawledAPIPaths []string
+	if v := ctx.Value(module.CrawlFeedKey); v != nil {
+		if ch, ok := v.(chan string); ok {
+			// Non-blocking drain of all available crawl results
+			for {
+				select {
+				case url, ok := <-ch:
+					if !ok {
+						goto drained
+					}
+					// Only fuzz URLs that look like API endpoints
+					if isAPIEndpoint(url) {
+						// Extract just the path
+						if idx := strings.Index(url, "://"); idx >= 0 {
+							rest := url[idx+3:]
+							if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
+								crawledAPIPaths = append(crawledAPIPaths, rest[slashIdx:])
+							}
+						}
+					}
+				default:
+					goto drained
+				}
+			}
+		drained:
+		}
+	}
+
 	// Probe common JSON API endpoints across popular frameworks.
 	// Each endpoint is tried with a baseline POST — if the server responds
 	// with anything other than 404, we fuzz it.
@@ -87,6 +117,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		// Django / Flask
 		{"/api/token/", "POST", `{"username":"test","password":"test"}`},
 		{"/accounts/login/", "POST", `{"username":"test","password":"test"}`},
+	}
+
+	// Add crawl-discovered API endpoints to the list.
+	for _, p := range crawledAPIPaths {
+		endpoints = append(endpoints, struct {
+			path   string
+			method string
+			body   string
+		}{p, "POST", `{"test":"fuzz"}`})
 	}
 
 	var findings []finding.Finding
@@ -310,4 +349,21 @@ func classifyAnomaly(reasons []string, bodySnippet, mutationName string) string 
 	}
 
 	return ""
+}
+
+// isAPIEndpoint returns true if the URL looks like a JSON API endpoint
+// worth fuzzing (contains /api/, /rest/, /graphql, or common API patterns).
+func isAPIEndpoint(url string) bool {
+	lower := strings.ToLower(url)
+	patterns := []string{
+		"/api/", "/rest/", "/graphql", "/v1/", "/v2/", "/v3/",
+		"/auth/", "/login", "/signup", "/register",
+		"/users", "/accounts", "/search", "/query",
+	}
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }
