@@ -816,6 +816,10 @@ const (
 	CheckPortJaegerExposed            CheckID = "port.jaeger_exposed"              // Jaeger distributed tracing UI exposed (port 16686)
 	CheckPortAdminerExposed           CheckID = "port.adminer_exposed"             // Adminer database admin panel exposed (port 8080)
 	CheckPortJenkinsNoAuth            CheckID = "port.jenkins_no_auth"             // Jenkins (port 8080) allows unauthenticated access to script console or job config
+	CheckPortGitLabExposed            CheckID = "port.gitlab_exposed"              // GitLab instance exposed — source code, CI/CD pipelines, container registry
+	CheckPortTeamCityExposed          CheckID = "port.teamcity_exposed"            // JetBrains TeamCity build server exposed — build configs, VCS credentials
+	CheckPortBambooExposed            CheckID = "port.bamboo_exposed"              // Atlassian Bamboo CI/CD server exposed — build plans, deployment credentials
+	CheckPortHazelcastExposed         CheckID = "port.hazelcast_exposed"           // Hazelcast in-memory data grid exposed — cached data, session state
 	CheckPortPortainerDefaultCreds    CheckID = "port.portainer_default_credentials" // Portainer (port 9443/9000) initial admin setup still available
 	CheckPortPgAdminDefaultCreds      CheckID = "port.pgadmin_default_credentials" // pgAdmin (port 5050) accepts default admin credentials
 	CheckPortZabbixDefaultCreds       CheckID = "port.zabbix_default_credentials"  // Zabbix (port 80) accepts Admin:zabbix default credentials
@@ -1354,6 +1358,11 @@ const (
 	CheckAccessControlVerticalEscalation  CheckID = "api.vertical_escalation"       // non-admin user can access admin endpoints
 	CheckAccessControlMethodBypass        CheckID = "api.method_bypass"              // HTTP method change bypasses auth
 	CheckAccessControlPathTraversalBypass CheckID = "api.path_traversal_auth_bypass" // path manipulation bypasses auth middleware
+
+	// ── Privilege Escalation Detection — Authorized mode only ───────────────
+	CheckPrivescBrokenAccessControl CheckID = "web.broken_access_control" // admin endpoint accessible to regular/unauth user
+	CheckPrivescHorizontalPrivesc   CheckID = "web.horizontal_privesc"    // user A can access user B's data via ID substitution
+	CheckPrivescMethodBypass        CheckID = "web.method_bypass"         // restricted endpoint accessible via alternate HTTP method
 
 	// ── API Key Exposure in URLs / JS ───────────────────────────────────────
 	CheckJSAPIKeyInURL       CheckID = "js.api_key_in_url"        // API key passed as URL query parameter in JS bundle
@@ -2968,6 +2977,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortJaegerExposed:        {CheckPortJaegerExposed, SeverityHigh, ModeSurface},
 	CheckPortAdminerExposed:       {CheckPortAdminerExposed, SeverityCritical, ModeSurface},
 	CheckPortJenkinsNoAuth:         {CheckPortJenkinsNoAuth, SeverityCritical, ModeSurface},
+	CheckPortGitLabExposed:         {CheckPortGitLabExposed, SeverityHigh, ModeSurface},
+	CheckPortTeamCityExposed:       {CheckPortTeamCityExposed, SeverityHigh, ModeSurface},
+	CheckPortBambooExposed:         {CheckPortBambooExposed, SeverityHigh, ModeSurface},
+	CheckPortHazelcastExposed:      {CheckPortHazelcastExposed, SeverityHigh, ModeSurface},
 	CheckPortPortainerDefaultCreds: {CheckPortPortainerDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortPgAdminDefaultCreds:   {CheckPortPgAdminDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortZabbixDefaultCreds:    {CheckPortZabbixDefaultCreds, SeverityCritical, ModeDeep},
@@ -3005,6 +3018,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAccessControlVerticalEscalation:  {CheckAccessControlVerticalEscalation, SeverityCritical, ModeDeep},
 	CheckAccessControlMethodBypass:        {CheckAccessControlMethodBypass, SeverityHigh, ModeDeep},
 	CheckAccessControlPathTraversalBypass: {CheckAccessControlPathTraversalBypass, SeverityCritical, ModeDeep},
+
+	// Privilege Escalation Detection — Deep (authorized-class testing)
+	CheckPrivescBrokenAccessControl: {CheckPrivescBrokenAccessControl, SeverityCritical, ModeDeep},
+	CheckPrivescHorizontalPrivesc:   {CheckPrivescHorizontalPrivesc, SeverityHigh, ModeDeep},
+	CheckPrivescMethodBypass:        {CheckPrivescMethodBypass, SeverityHigh, ModeDeep},
 
 	// API Key in URL / JS — Surface (passive scan of response content)
 	CheckJSAPIKeyInURL:        {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},

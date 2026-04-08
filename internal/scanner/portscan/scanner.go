@@ -3539,6 +3539,95 @@ func probeRPCBind(ctx context.Context, host string, port int) bool {
 	return binary.BigEndian.Uint32(buf[4:8]) == 1 && binary.BigEndian.Uint32(buf[8:12]) == 1
 }
 
+// probeNFSNull sends an RPC NULL call (procedure 0) to NFS program 100003.
+// The NULL procedure is defined for every RPC program and requires no auth.
+// A valid reply confirms an NFS service is listening.
+func probeNFSNull(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	// RPC call: xid=1, CALL(0), RPC v2, program=100003 (NFS), version=3, procedure=0 (NULL)
+	// AUTH_NULL for both credentials and verifier.
+	rpcCall := []byte{
+		0x00, 0x00, 0x00, 0x01, // xid
+		0x00, 0x00, 0x00, 0x00, // message type: CALL
+		0x00, 0x00, 0x00, 0x02, // RPC version 2
+		0x00, 0x01, 0x86, 0xA3, // program: 100003 (NFS)
+		0x00, 0x00, 0x00, 0x03, // program version: 3
+		0x00, 0x00, 0x00, 0x00, // procedure: 0 (NULL)
+		0x00, 0x00, 0x00, 0x00, // credential flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // credential length: 0
+		0x00, 0x00, 0x00, 0x00, // verifier flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // verifier length: 0
+	}
+	tcpMsg := make([]byte, 4+len(rpcCall))
+	binary.BigEndian.PutUint32(tcpMsg[:4], uint32(len(rpcCall))|0x80000000) // last fragment
+	copy(tcpMsg[4:], rpcCall)
+	if _, err := conn.Write(tcpMsg); err != nil {
+		return false
+	}
+	buf := make([]byte, 32)
+	n, _ := conn.Read(buf)
+	if n < 16 {
+		return false
+	}
+	// Check: reply (1) + accepted (0) in the RPC reply header.
+	return binary.BigEndian.Uint32(buf[4:8]) == 1 && binary.BigEndian.Uint32(buf[8:12]) == 0
+}
+
+// probeNFSExport sends a MOUNT EXPORT call (program 100005, procedure 5) to check
+// whether NFS exports can be enumerated. A successful reply with export data means
+// the server lists its exports without authentication.
+func probeNFSExport(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	// RPC call: xid=2, CALL(0), RPC v2, program=100005 (MOUNT), version=3, procedure=5 (EXPORT)
+	rpcCall := []byte{
+		0x00, 0x00, 0x00, 0x02, // xid
+		0x00, 0x00, 0x00, 0x00, // message type: CALL
+		0x00, 0x00, 0x00, 0x02, // RPC version 2
+		0x00, 0x01, 0x86, 0xA5, // program: 100005 (MOUNT)
+		0x00, 0x00, 0x00, 0x03, // program version: 3
+		0x00, 0x00, 0x00, 0x05, // procedure: 5 (EXPORT)
+		0x00, 0x00, 0x00, 0x00, // credential flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // credential length: 0
+		0x00, 0x00, 0x00, 0x00, // verifier flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // verifier length: 0
+	}
+	tcpMsg := make([]byte, 4+len(rpcCall))
+	binary.BigEndian.PutUint32(tcpMsg[:4], uint32(len(rpcCall))|0x80000000)
+	copy(tcpMsg[4:], rpcCall)
+	if _, err := conn.Write(tcpMsg); err != nil {
+		return false
+	}
+	buf := make([]byte, 256)
+	n, _ := conn.Read(buf)
+	if n < 28 {
+		return false
+	}
+	// Check RPC reply accepted and there is export data beyond the reply header.
+	// The reply header is: fragment(4) + xid(4) + type(4) + status(4) + verifier(8) + accept(4) = 28 bytes.
+	// Any additional bytes indicate export list entries.
+	if binary.BigEndian.Uint32(buf[4:8]) != 1 { // not a reply
+		return false
+	}
+	if binary.BigEndian.Uint32(buf[8:12]) != 0 { // not accepted
+		return false
+	}
+	return n > 28
+}
+
 // probeJetDirect sends a PJL INFO ID command and checks for PJL response.
 func probeJetDirect(ctx context.Context, host string, port int) bool {
 	addr := fmt.Sprintf("%s:%d", host, port)

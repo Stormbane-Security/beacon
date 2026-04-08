@@ -113,6 +113,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
 	_ "github.com/stormbane-security/beacon/internal/scanner/correlation"
 	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
+	_ "github.com/stormbane-security/beacon/internal/scanner/privesc"
 	_ "github.com/stormbane-security/beacon/internal/scanner/elinjection"
 	_ "github.com/stormbane-security/beacon/internal/scanner/containerimage"
 	_ "github.com/stormbane-security/beacon/internal/scanner/redos"
@@ -1662,13 +1663,15 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	noHTTP := ev.StatusCode == 0
 
 	// ── Phase A: Intelligence scanners (parallel) ────────────────────────────
-	// Run wafdetect, portscan, and aidetect concurrently and wait for all before
-	// starting Phase B. Their findings feed into Phase B:
-	//   • wafdetect: WAF vendor → skip vhost scanning on CDN-fronted assets
-	//   • portscan:  open-port set → service-specific Nuclei tag injection
-	//   • aidetect:  AI endpoint list → aillm uses discovered endpoints instead of
-	//               guessing defaults, reducing false negatives on non-standard paths
-	phaseANames := []string{"wafdetect", "portscan", "aidetect"}
+	// Run wafdetect, portscan, aidetect, and authsurface concurrently and wait
+	// for all before starting Phase B. Their findings feed into Phase B:
+	//   • wafdetect:    WAF vendor → skip vhost scanning on CDN-fronted assets
+	//   • portscan:     open-port set → service-specific Nuclei tag injection
+	//   • aidetect:     AI endpoint list → aillm uses discovered endpoints instead of
+	//                  guessing defaults, reducing false negatives on non-standard paths
+	//   • authsurface:  login form detection → auth pipeline acquires session before
+	//                  Phase B so all subsequent scanners run authenticated
+	phaseANames := []string{"wafdetect", "portscan", "aidetect", "authsurface"}
 	phaseADone := make(map[string]bool, len(phaseANames))
 	var phaseAMu sync.Mutex
 	var phaseAFindings []finding.Finding
@@ -1850,6 +1853,57 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 					ActiveAsset: asset,
 					StatusMsg:   "AI profile: " + strings.Join(prof.EvasionTips[:min(len(prof.EvasionTips), 2)], "; "),
 				})
+			}
+		}
+	}
+
+	// ── Auth pipeline: acquire session from Phase A authsurface findings ────
+	// If authsurface detected a login form and no user-provided auth config
+	// matched this asset, try to acquire a session via auto-registration or
+	// default credentials. On success, rebuild the HTTP client and ScanContext
+	// so all Phase B scanners run authenticated.
+	if len(m.authCfgs) == 0 || !authConfigMatchesAsset(m.authCfgs, asset) {
+		loginForms := auth.ExtractLoginForms(phaseAFindings, ev.Scheme, asset)
+		regAvailable := auth.HasRegistration(phaseAFindings)
+		if len(loginForms) > 0 {
+			pipeline := auth.NewPipeline(httpClient)
+			authedClient, sessionInfo, pipelineErr := pipeline.AcquireSession(
+				ctx, asset, ev.Scheme, &loginForms[0], m.authCfgs, regAvailable,
+			)
+			if pipelineErr == nil && authedClient != nil {
+				httpClient = authedClient
+				// Re-wrap with evasion monitoring.
+				baseTransport = httpClient.Transport
+				if baseTransport == nil {
+					baseTransport = http.DefaultTransport
+				}
+				httpClient.Transport = &evasion.MonitoredTransport{
+					Base:    baseTransport,
+					Monitor: evasionMonitor,
+					Rate:    adaptiveRate,
+				}
+				// Rebuild scan context with the authenticated client.
+				ctx = authctx.WithHTTPClient(ctx, httpClient)
+				sctx = scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+				if sessionInfo != nil && len(sessionInfo.Headers) > 0 {
+					sctx.WithAuthHeaders(sessionInfo.Headers)
+				}
+				if m.wordlistPath != "" {
+					sctx.WithWordlist(m.wordlistPath)
+				}
+				ctx = sctx.Inject(ctx)
+
+				if progressFn != nil {
+					source := "unknown"
+					if sessionInfo != nil {
+						source = sessionInfo.Source
+					}
+					progressFn(module.ProgressEvent{
+						Phase:       "auth_pipeline",
+						ActiveAsset: asset,
+						StatusMsg:   fmt.Sprintf("Session acquired via %s", source),
+					})
+				}
 			}
 		}
 	}
@@ -2882,6 +2936,18 @@ func sanitizeNucleiTags(tags []string) []string {
 }
 
 // planContains reports whether name appears in the scanner list.
+// authConfigMatchesAsset returns true if any AuthConfig explicitly targets the
+// given asset (exact match or wildcard). Used to skip the auto-auth pipeline
+// when the user already provided credentials.
+func authConfigMatchesAsset(cfgs []config.AuthConfig, asset string) bool {
+	for _, c := range cfgs {
+		if c.Asset == asset || c.Asset == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 func planContains(scanners []string, name string) bool {
 	for _, s := range scanners {
 		if s == name {
