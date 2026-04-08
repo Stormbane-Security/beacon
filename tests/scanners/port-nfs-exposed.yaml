@@ -11,9 +11,8 @@ services:
     environment:
       NFS_EXPORT_0: "/srv/nfs *(ro,no_subtree_check,fsid=0)"
     cap_add: ["SYS_ADMIN"]
-    volumes:
-      - type: tmpfs
-        target: /srv/nfs
+    tmpfs:
+      - /srv/nfs
 
 ready:
   cmd: "nc -z localhost 2049"
