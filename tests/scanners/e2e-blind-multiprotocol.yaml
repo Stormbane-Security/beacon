@@ -1,0 +1,109 @@
+name: e2e-blind-multiprotocol
+description: >
+  End-to-end blind scan across multiple protocols. Beacon scans with NO
+  hints about what's running — must discover and correctly identify every
+  service, detect security issues, and prove the full pipeline works.
+  Covers HTTP, Redis, PostgreSQL, FTP, and SMTP.
+tags: [e2e, blind, multiprotocol, full-pipeline, integration]
+
+services:
+  # HTTP — nginx with exposed .env
+  web:
+    image: nginx:alpine
+    ports: ["19730:80"]
+    volumes:
+      - ./auth-exploit-basicauth/env-file:/usr/share/nginx/html/.env:ro
+      - ./auth-exploit-basicauth/index.html:/usr/share/nginx/html/index.html:ro
+
+  # Redis — unauthenticated
+  cache:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19731:6379"]
+
+  # PostgreSQL — trust auth
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["19732:5432"]
+
+  # FTP — anonymous access
+  ftp:
+    image: fauria/vsftpd
+    environment:
+      ANONYMOUS_ENABLE: "YES"
+      LOCAL_ENABLE: "NO"
+    ports: ["19733:21"]
+
+ready:
+  cmd: "curl -sf http://localhost:19730/ >/dev/null && redis-cli -h localhost -p 19731 PING 2>/dev/null | grep -q PONG"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # HTTP: exposed .env + missing headers
+  # ══════════════════════════════════════════════════════════════════════
+  - name: http-finds-env
+    type: beacon
+    target: localhost:19730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+  - name: http-finds-missing-hsts
+    type: beacon
+    target: localhost:19730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Redis: unauthenticated
+  # ══════════════════════════════════════════════════════════════════════
+  - name: redis-detected
+    type: beacon
+    target: localhost:19731
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # PostgreSQL: trust auth
+  # ══════════════════════════════════════════════════════════════════════
+  - name: postgres-detected
+    type: beacon
+    target: localhost:19732
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.postgresql_trust
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FTP: service identified
+  # ══════════════════════════════════════════════════════════════════════
+  - name: ftp-detected
+    type: beacon
+    target: localhost:19733
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-redis-on-http
+    type: beacon
+    target: localhost:19730
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-no-postgres-on-redis
+    type: beacon
+    target: localhost:19731
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.postgresql_trust
+
+timeout: 10m
