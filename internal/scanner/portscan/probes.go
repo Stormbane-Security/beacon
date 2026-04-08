@@ -237,12 +237,24 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 
 	// Run banner and HTTP probes sequentially (they're I/O-light or
 	// already filtered to the correct category).
+	// Skip DB probes if we already identified the service as a specific DB
+	// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB).
+	identifiedService := ""
+	if identified {
+		identifiedService = "protocol-probe" // protocol probes already found something
+	}
 	for _, probe := range otherProbes {
+		// Skip relational DB probes if service was already identified
+		// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB/Redis)
+		if identifiedService != "" && probe.Name == "mysql-postgres-mssql-oracle" {
+			continue
+		}
 		probeStart := time.Now()
 		fs := probe.Detect(ctx, host, port, banner, makeF)
 		scanlog.FromContext(ctx).ProbeTimed(scannerName, fmt.Sprintf("%s:%d", host, port), probe.Name, time.Since(probeStart), len(fs), nil)
 		if len(fs) > 0 {
 			findings = append(findings, fs...)
+			identifiedService = probe.Name
 			if !identified {
 				identified = true
 				service := probe.Name
