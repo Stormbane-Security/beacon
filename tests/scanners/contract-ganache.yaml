@@ -1,0 +1,58 @@
+name: contract-ganache-scanning
+description: >
+  Tests smart contract scanning against Ganache (Ethereum test node).
+  Beacon should detect the exposed RPC endpoint, identify dangerous
+  methods, and scan any deployed contract addresses.
+tags: [web3, contract, ganache, blockchain, integration]
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["19220:8545"]
+    command: ["--host", "0.0.0.0", "--port", "8545", "--accounts", "5", "--deterministic"]
+
+ready:
+  cmd: "curl -sf -X POST http://localhost:19220/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | grep -q result"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # RPC endpoint detected
+  - name: detects-rpc-endpoint
+    type: beacon
+    target: localhost:19220
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.node_rpc_exposed
+
+  # Peer count leak detected (network topology disclosure)
+  - name: detects-peer-count-leak
+    type: beacon
+    target: localhost:19220
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.peer_count_leak
+
+  # Pre-flight: accounts are accessible
+  - name: preflight-accounts-accessible
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19220/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_accounts\",\"params\":[],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  # Pre-flight: can send transactions (dangerous!)
+  - name: preflight-sendtx-available
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19220/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendTransaction\",\"params\":[{\"from\":\"0x0000000000000000000000000000000000000000\",\"to\":\"0x0000000000000000000000000000000000000001\",\"value\":\"0x0\"}],\"id\":1}' | grep -qE 'result|error'"
+      exit_code: 0
+
+  # Beacon also finds missing headers
+  - name: detects-missing-headers
+    type: beacon
+    target: localhost:19220
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

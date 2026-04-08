@@ -1,0 +1,38 @@
+name: ai-api-exposure
+description: >
+  Tests AI endpoint detection on a mock API that responds like an LLM.
+  Uses httpbin configured to return AI-like responses. Beacon should
+  detect the exposed AI/LLM endpoint patterns.
+tags: [ai, llm, endpoint, exposure, integration]
+
+services:
+  # Mock AI API — httpbin with AI-like paths
+  aiapi:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19230:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19230/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Beacon finds missing security headers
+  - name: detects-missing-headers
+    type: beacon
+    target: localhost:19230
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Beacon identifies the service
+  - name: identifies-service
+    type: beacon
+    target: localhost:19230
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m
