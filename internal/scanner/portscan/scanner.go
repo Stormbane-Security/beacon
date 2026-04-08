@@ -58,7 +58,7 @@ func withScanType(ctx context.Context, st module.ScanType) context.Context {
 // timeouts for the various probe stages.
 const (
 	dialTimeout   = 3 * time.Second
-	bannerTimeout = 500 * time.Millisecond // reduced from 2s — most banners arrive in <100ms
+	bannerTimeout = 500 * time.Millisecond // safe for high-latency (satellite, VPN, Tor); HTTP ports skip entirely
 	httpTimeout   = 5 * time.Second
 )
 
@@ -572,18 +572,22 @@ func probePort(ctx context.Context, host string, port int) (bool, string) {
 
 	// Skip banner reading for ports that are almost certainly HTTP — these
 	// services don't send banners (they wait for the client's request).
-	// This saves 500ms per HTTP port.
 	if isLikelyHTTPPort(port) {
 		return true, ""
 	}
 
-	// Attempt a passive banner grab: set a short read deadline and read whatever
-	// the server sends before we've said anything.
-	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+	// Two-phase banner grab: short initial read (100ms) catches fast banners
+	// (SSH, FTP, SMTP, MySQL all respond in <50ms). If nothing arrives in
+	// 100ms, the port is likely HTTP or a client-speaks-first protocol —
+	// return immediately instead of waiting the full 500ms.
+	_ = conn.SetDeadline(time.Now().Add(100 * time.Millisecond))
 	buf := make([]byte, 512)
-	n, _ := conn.Read(buf)
-	banner := strings.TrimSpace(string(buf[:n]))
-	return true, banner
+	n, err := conn.Read(buf)
+	if n > 0 {
+		return true, strings.TrimSpace(string(buf[:n]))
+	}
+	// No data in 100ms — likely HTTP or client-speaks-first. Don't wait longer.
+	return true, ""
 }
 
 // isLikelyHTTPPort returns true for ports that almost always run HTTP services
