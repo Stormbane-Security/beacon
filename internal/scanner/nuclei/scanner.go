@@ -373,6 +373,13 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 			evidence["references"] = r.Info.Reference
 		}
 
+		// Map nuclei tags to vulnerability class for exploit chain routing.
+		// When --authorized --yes is used, the exploit dispatcher can route
+		// nuclei findings to the appropriate exploit module (SQLi, LFI, etc.).
+		if vc := nucleiTagsToVulnClass(r.Info.Tags); vc != "" {
+			evidence["vuln_class"] = vc
+		}
+
 		// Use nuclei's curl-command as the proof command when available.
 		proofCmd := r.CurlCommand
 
@@ -391,4 +398,29 @@ func parseOutput(asset string, data []byte) ([]finding.Finding, error) {
 	}
 
 	return findings, scanner.Err()
+}
+
+// nucleiTagsToVulnClass maps nuclei template tags to a vulnerability class
+// that the exploit chain dispatcher can route on. Returns empty string if
+// no exploitable class is identified.
+func nucleiTagsToVulnClass(tags []string) string {
+	for _, tag := range tags {
+		switch tag {
+		case "sqli", "sql-injection":
+			return "sqli"
+		case "lfi", "local-file-inclusion", "file-inclusion":
+			return "lfi"
+		case "ssrf", "server-side-request-forgery":
+			return "ssrf"
+		case "rce", "remote-code-execution":
+			return "rce"
+		case "ssti", "template-injection":
+			return "ssti"
+		case "xxe", "xml-external-entity":
+			return "xxe"
+		case "cmdi", "command-injection", "os-command-injection":
+			return "cmdinj"
+		}
+	}
+	return ""
 }

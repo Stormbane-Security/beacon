@@ -812,6 +812,8 @@ const (
 	CheckPortMongoExpressDefaultCreds CheckID = "port.mongo_express_default_credentials" // mongo-express (port 8081) accepts admin:pass default credentials
 	CheckPortPhpMyAdminDefaultCreds   CheckID = "port.phpmyadmin_default_credentials" // phpMyAdmin (port 80/8080) accepts root with empty or default password
 	CheckPortKibanaDefaultCreds       CheckID = "port.kibana_default_credentials"  // Kibana (port 5601) accepts elastic:changeme default credentials
+	CheckPortCouchDBNoAuth            CheckID = "port.couchdb_no_auth"             // CouchDB (port 5984) accessible without auth (admin party mode)
+	CheckPortPrometheusExposed        CheckID = "port.prometheus_exposed"          // Prometheus (port 9090) API accessible without auth
 	CheckCVENextJSMiddlewareBypass    CheckID = "cve.nextjs_middleware_bypass"      // CVE-2025-29927 Next.js middleware auth bypass via X-Middleware-Subrequest (CVSS 9.1, KEV)
 	CheckCVEViteFileRead              CheckID = "cve.vite_file_read"               // CVE-2025-30208 Vite dev server arbitrary file read via /@fs/ path double-query confusion (CVSS 9.1)
 	CheckCVEIngressNightmare          CheckID = "cve.ingress_nightmare"            // CVE-2025-1974 ingress-nginx admission webhook exposed — pre-auth RCE via annotation injection (CVSS 9.8, KEV)
@@ -1659,6 +1661,12 @@ const (
 	CheckExploitCloudMetadataExposed   CheckID = "exploit.cloud_metadata_exposed"     // cloud metadata endpoint reached (GCP/AWS/Azure) yielding IAM credentials
 	CheckExploitPrivilegeEscalation    CheckID = "exploit.privilege_escalation"       // elevated privileges obtained (admin token forged, role escalated)
 	CheckExploitCodeExecution          CheckID = "exploit.code_execution"             // arbitrary code/command execution achieved on exploited target
+	CheckExploitSQLi                   CheckID = "exploit.sqli"                       // SQL injection exploitation confirmed (UNION, error-based, or blind)
+	CheckExploitSSRF                   CheckID = "exploit.ssrf"                       // Server-side request forgery exploitation confirmed
+	CheckExploitLFI                    CheckID = "exploit.lfi"                        // Local file inclusion exploitation confirmed (path traversal read)
+	CheckExploitXXE                    CheckID = "exploit.xxe"                        // XML external entity exploitation confirmed (file read or SSRF)
+	CheckExploitSSTI                   CheckID = "exploit.ssti"                       // Server-side template injection exploitation confirmed (code execution)
+	CheckExploitCmdInj                 CheckID = "exploit.cmdinj"                     // Command injection exploitation confirmed (OS command execution)
 
 	// ── Container Runtime Detection (from within exploited containers) ──
 	CheckContainerDockerSocketExposed  CheckID = "container.docker_socket_exposed"    // Docker socket mounted in container — full host escape path
@@ -2924,6 +2932,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortKibanaVulnerable:  {CheckPortKibanaVulnerable, SeverityCritical, ModeSurface},
 	CheckPortKibanaExposed:     {CheckPortKibanaExposed, SeverityHigh, ModeSurface},
 	CheckPortMinIODefaultCreds:     {CheckPortMinIODefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortCouchDBNoAuth:         {CheckPortCouchDBNoAuth, SeverityCritical, ModeSurface},
+	CheckPortPrometheusExposed:     {CheckPortPrometheusExposed, SeverityHigh, ModeSurface},
 	CheckPortGrafanaDefaultCreds:   {CheckPortGrafanaDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortSonarQubeDefaultCreds: {CheckPortSonarQubeDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortAirflowDefaultCreds:   {CheckPortAirflowDefaultCreds, SeverityCritical, ModeDeep},
@@ -3303,6 +3313,12 @@ var Registry = map[CheckID]CheckMeta{
 	CheckExploitCloudMetadataExposed: {CheckExploitCloudMetadataExposed, SeverityCritical, ModeDeep},
 	CheckExploitPrivilegeEscalation:  {CheckExploitPrivilegeEscalation, SeverityCritical, ModeDeep},
 	CheckExploitCodeExecution:       {CheckExploitCodeExecution, SeverityCritical, ModeDeep},
+	CheckExploitSQLi:               {CheckExploitSQLi, SeverityCritical, ModeDeep},
+	CheckExploitSSRF:               {CheckExploitSSRF, SeverityCritical, ModeDeep},
+	CheckExploitLFI:                {CheckExploitLFI, SeverityCritical, ModeDeep},
+	CheckExploitXXE:                {CheckExploitXXE, SeverityCritical, ModeDeep},
+	CheckExploitSSTI:               {CheckExploitSSTI, SeverityCritical, ModeDeep},
+	CheckExploitCmdInj:             {CheckExploitCmdInj, SeverityCritical, ModeDeep},
 
 	// Container Runtime Detection
 	CheckContainerDockerSocketExposed: {CheckContainerDockerSocketExposed, SeverityCritical, ModeDeep},
