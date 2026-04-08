@@ -1000,6 +1000,28 @@ var targets = []sensitiveFile{
 			"Affected models include D-Link DIR-655, DIR-806, DIR-859, and others running firmware prior to October 2019. " +
 			"Disable remote management and apply firmware updates from D-Link immediately.",
 	},
+
+	// Admin panels — unauthenticated access to management interfaces
+	{path: "/admin/", title: "Admin panel accessible", severity: finding.SeverityHigh,
+		bodyContains: "admin", checkID: finding.CheckExposureAdminPath,
+		description: "An administrative panel is accessible without authentication at /admin/. " +
+			"Admin panels provide configuration access, user management, and potentially code execution."},
+	{path: "/admin", title: "Admin panel accessible", severity: finding.SeverityHigh,
+		bodyContains: "admin", checkID: finding.CheckExposureAdminPath},
+	{path: "/dashboard/", title: "Dashboard accessible", severity: finding.SeverityMedium,
+		bodyContains: "dashboard", checkID: finding.CheckExposureAdminPath},
+	{path: "/wp-admin/", title: "WordPress admin panel", severity: finding.SeverityMedium,
+		checkID: finding.CheckExposureAdminPath},
+	{path: "/administrator/", title: "Joomla admin panel", severity: finding.SeverityMedium,
+		bodyContains: "administrator", checkID: finding.CheckExposureAdminPath},
+	{path: "/manager/html", title: "Tomcat Manager accessible", severity: finding.SeverityHigh,
+		bodyContains: "manager", checkID: finding.CheckExposureAdminPath},
+	{path: "/_config/", title: "Application config endpoint", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAdminPath},
+	{path: "/phpmyadmin/", title: "phpMyAdmin accessible", severity: finding.SeverityHigh,
+		bodyContains: "phpmyadmin", checkID: finding.CheckExposureAdminPath},
+	{path: "/adminer/", title: "Adminer accessible", severity: finding.SeverityHigh,
+		bodyContains: "adminer", checkID: finding.CheckExposureAdminPath},
 }
 
 // Scanner actively probes for exposed sensitive files.
