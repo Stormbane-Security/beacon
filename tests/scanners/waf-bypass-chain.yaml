@@ -39,7 +39,7 @@ assertions:
   - name: waf-blocks-obvious-sqli
     type: command
     expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19950/get?q=OR%201=1' | grep -q '403'"
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19950/get?q=OR+1=1' | grep -q '403'"
       exit_code: 0
 
   # ── Pre-flight: double-encoded variant passes through ──
