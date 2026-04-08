@@ -272,6 +272,8 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 		return report.RenderJSON(run, enriched, summary, graphJSON)
 	case "markdown", "md":
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
+	case "bounty":
+		return report.RenderBounty(run, enriched, summary, executions), nil
 	case "ocsf":
 		// OCSF 1.4.0 NDJSON — one Vulnerability Finding event per line.
 		// Compatible with AWS Security Lake, Splunk, OpenSearch Security Analytics,

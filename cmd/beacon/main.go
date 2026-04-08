@@ -67,7 +67,7 @@ SCAN FLAGS:
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
   --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
-  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
@@ -99,7 +99,7 @@ ENRICH FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
