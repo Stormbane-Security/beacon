@@ -55,8 +55,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	now := time.Now()
 
 	// Probe common login/register paths
-	loginPaths := []string{"/", "/login", "/signin", "/auth/login", "/admin", "/wp-login.php",
-		"/accounts/login", "/user/login", "/api/auth/login"}
+	loginPaths := []string{"/", "/login", "/login.php", "/signin", "/signin.php",
+		"/auth/login", "/admin", "/admin/login", "/wp-login.php",
+		"/accounts/login", "/user/login", "/api/auth/login",
+		"/index.php", "/member/login", "/portal/login"}
 	registerPaths := []string{"/register", "/signup", "/sign-up", "/auth/register",
 		"/accounts/signup", "/user/register", "/join"}
 

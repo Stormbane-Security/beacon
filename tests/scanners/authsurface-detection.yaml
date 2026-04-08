@@ -1,0 +1,63 @@
+name: authsurface-detection
+description: >
+  Tests auth surface detection. Uses DVWA which has a traditional login
+  form with username + password fields. Also tests that a non-login page
+  does NOT trigger login form detection.
+tags: [auth, login, detection, surface, integration]
+
+services:
+  # DVWA has a traditional login form
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    ports: ["19710:80"]
+    environment:
+      MYSQL_HOST: database
+      MYSQL_USER: root
+      MYSQL_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+    depends_on: [database]
+
+  database:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa
+      MYSQL_DATABASE: dvwa
+
+  # httpbin has no login form (negative control)
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19711:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19710/login.php -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+  timeout: 180s
+  interval: 5s
+
+run:
+  # Auto-complete DVWA setup
+  - >
+    curl -sf -X POST http://localhost:19710/setup.php
+    -d 'create_db=Create+/+Reset+Database'
+    -b 'PHPSESSID=test; security=low'
+    -o /dev/null || true
+
+assertions:
+  # DVWA login form detected
+  - name: detects-login-form
+    type: beacon
+    target: localhost:19710
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.login_form_detected
+
+  # httpbin has NO login form (negative)
+  - name: negative-no-login-on-httpbin
+    type: beacon
+    target: localhost:19711
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      not_check_id: auth.login_form_detected
+
+timeout: 10m
