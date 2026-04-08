@@ -12,8 +12,8 @@ services:
     ports: ["19302:27017"]
 
 ready:
-  cmd: "echo | nc -zw2 localhost 19302 2>/dev/null"
-  timeout: 60s
+  cmd: "echo | nc -zw2 localhost 19302 2>/dev/null && sleep 5"
+  timeout: 90s
   interval: 3s
 
 assertions:
