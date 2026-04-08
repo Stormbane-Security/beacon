@@ -699,7 +699,6 @@ Type exactly: I have written authorization for %s
 	mod, err := surface.New(surface.Config{
 		NucleiBin:       cfg.NucleiBin,
 		SubfinderBin:    "subfinder",
-		AmmassBin:       cfg.AmmassBin,
 		TestsslBin:      cfg.TestsslBin,
 		GauBin:          cfg.GauBin,
 		KatanaBin:       cfg.KatanaBin,
@@ -1258,7 +1257,6 @@ Type exactly: I have written authorization for all listed targets
 	mod, err := surface.New(surface.Config{
 		NucleiBin:            cfg.NucleiBin,
 		SubfinderBin:         "subfinder",
-		AmmassBin:            cfg.AmmassBin,
 		TestsslBin:           cfg.TestsslBin,
 		GauBin:               cfg.GauBin,
 		KatanaBin:            cfg.KatanaBin,

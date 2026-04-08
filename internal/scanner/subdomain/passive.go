@@ -28,18 +28,17 @@ const scannerName = "subdomain"
 // PassiveScanner discovers subdomains using crt.sh and subfinder in passive mode.
 type PassiveScanner struct {
 	subfinderBin string
-	ammassBin    string
 	otxAPIKey    string
 }
 
-func NewPassive(subfinderBin, ammassBin string) *PassiveScanner {
-	return &PassiveScanner{subfinderBin: subfinderBin, ammassBin: ammassBin}
+func NewPassive(subfinderBin string) *PassiveScanner {
+	return &PassiveScanner{subfinderBin: subfinderBin}
 }
 
 // NewPassiveWithKeys creates a PassiveScanner with optional API keys for
 // enriched passive DNS sources (OTX).
-func NewPassiveWithKeys(subfinderBin, ammassBin, otxAPIKey string) *PassiveScanner {
-	return &PassiveScanner{subfinderBin: subfinderBin, ammassBin: ammassBin, otxAPIKey: otxAPIKey}
+func NewPassiveWithKeys(subfinderBin, otxAPIKey string) *PassiveScanner {
+	return &PassiveScanner{subfinderBin: subfinderBin, otxAPIKey: otxAPIKey}
 }
 
 func (s *PassiveScanner) Name() string { return scannerName + "/passive" }
@@ -106,10 +105,7 @@ func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.
 	// Source 2: subfinder — passive on surface, active (all sources + DNS) on deep
 	launch(func() []string { subs, _ := runSubfinder(runCtx, s.subfinderBin, asset, active); return subs })
 
-	// Source 3: amass passive/OSINT (surface) or active (deep)
-	launch(func() []string { subs, _ := runAmass(runCtx, s.ammassBin, asset, active); return subs })
-
-	// Source 4: urlscan.io passive search index (no key required)
+	// Source 3: urlscan.io passive search index (no key required)
 	launch(func() []string { return urlscanSubdomains(runCtx, asset) })
 
 	// Source 5: AlienVault OTX passive DNS (optional, requires API key)
@@ -388,42 +384,3 @@ func runSubfinder(ctx context.Context, bin, domain string, active bool) ([]strin
 	return subs, scanner.Err()
 }
 
-// runAmass runs amass in passive (OSINT) or active mode.
-func runAmass(ctx context.Context, bin, domain string, active bool) ([]string, error) {
-	if !isValidHostname(domain) {
-		return nil, fmt.Errorf("amass: invalid domain %q", domain)
-	}
-	resolvedBin, err := toolinstall.Ensure(bin)
-	if err != nil {
-		return nil, fmt.Errorf("amass: %w", err)
-	}
-
-	args := []string{"enum", "-d", domain, "-silent", "-o", "-"}
-	if !active {
-		args = append(args, "-passive")
-	}
-
-	cmd := exec.CommandContext(ctx, resolvedBin, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil && stdout.Len() == 0 {
-		return nil, fmt.Errorf("amass: %w", err)
-	}
-
-	var subs []string
-	scanner := bufio.NewScanner(&stdout)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		line = strings.ToLower(line)
-		if !isValidHostname(line) {
-			continue
-		}
-		subs = append(subs, line)
-	}
-	return subs, scanner.Err()
-}

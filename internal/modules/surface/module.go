@@ -245,7 +245,6 @@ type Module struct {
 type Config struct {
 	NucleiBin         string
 	SubfinderBin      string
-	AmmassBin         string
 	TestsslBin        string
 	GauBin            string
 	KatanaBin         string
@@ -467,7 +466,7 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	return &Module{
-		subdomainScanner:  subdomain.NewPassiveWithKeys(cfg.SubfinderBin, cfg.AmmassBin, cfg.OTXAPIKey),
+		subdomainScanner:  subdomain.NewPassiveWithKeys(cfg.SubfinderBin, cfg.OTXAPIKey),
 		passiveDNSScanner: passivedns.New(),
 		whoisScanner:      whois.New(),
 		bgpScanner:        bgp.New(),

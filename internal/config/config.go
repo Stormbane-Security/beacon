@@ -171,7 +171,7 @@ type Config struct {
 	NucleiBin    string `yaml:"nuclei_bin"`
 	GitleaksBin  string `yaml:"gitleaks_bin"`
 	TestsslBin   string `yaml:"testssl_bin"`
-	AmmassBin    string `yaml:"amass_bin"`
+	// AmmassBin removed — replaced by native DNS brute-forcing + subfinder
 	GauBin       string `yaml:"gau_bin"`
 	KatanaBin    string `yaml:"katana_bin"`
 	GowitnessBin string `yaml:"gowitness_bin"`
@@ -413,7 +413,6 @@ func defaults() *Config {
 		NucleiBin:    "nuclei",
 		GitleaksBin:  "gitleaks",
 		TestsslBin:   "testssl.sh",
-		AmmassBin:    "amass",
 		GauBin:       "gau",
 		KatanaBin:    "katana",
 		GowitnessBin: "gowitness",
@@ -521,9 +520,6 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("BEACON_TESTSSL_BIN"); v != "" {
 		cfg.TestsslBin = v
-	}
-	if v := os.Getenv("BEACON_AMASS_BIN"); v != "" {
-		cfg.AmmassBin = v
 	}
 	if v := os.Getenv("BEACON_GAU_BIN"); v != "" {
 		cfg.GauBin = v
