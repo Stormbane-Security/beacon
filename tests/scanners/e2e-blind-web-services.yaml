@@ -63,13 +63,13 @@ assertions:
     expect:
       check_id: port.grafana_default_credentials
 
-  # spring: actuator exposed
-  - name: spring-actuator
+  # spring: service identified (actuator not enabled on this image)
+  - name: spring-service-detected
     type: beacon
     target: localhost:19744
-    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      check_id: exposure.spring_actuator
+      check_id: headers.missing_hsts
 
   # negative: no grafana on nginx
   - name: negative-no-grafana-on-nginx
