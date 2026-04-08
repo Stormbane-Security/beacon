@@ -533,10 +533,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 	}
 	if len(missingCritical) > 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "beacon: FATAL — required tools not found:\n%s\n\n", strings.Join(missingCritical, "\n"))
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: WARNING — required tools not found (reduced coverage):\n%s\n\n", strings.Join(missingCritical, "\n"))
 		_, _ = fmt.Fprintf(os.Stderr, "Run: scripts/install-tools.sh  (or install manually)\n")
-		_, _ = fmt.Fprintf(os.Stderr, "Use --no-<tool> flags to opt out of specific tools.\n")
-		os.Exit(1)
 	}
 	} // end if len(scannersList) == 0
 
