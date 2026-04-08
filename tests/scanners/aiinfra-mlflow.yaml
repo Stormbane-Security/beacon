@@ -1,0 +1,43 @@
+name: aiinfra-mlflow-exposed
+description: >
+  MLflow experiment tracking server without authentication.
+  Beacon should detect the exposed MLflow API and identify that
+  experiment data, model artifacts, and registered models are accessible.
+tags: [ai, mlflow, infrastructure, exposure]
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.0
+    ports: ["5000:5000"]
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000"]
+
+ready:
+  cmd: "curl -sf http://localhost:5000/api/2.0/mlflow/experiments/list >/dev/null"
+  timeout: 300s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: MLflow API accessible ─────────────────────────────────
+  - name: mlflow-experiments-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5000/api/2.0/mlflow/experiments/list | grep -q experiments"
+      exit_code: 0
+
+  # ── Surface: aiinfra detects exposed MLflow ───────────────────────────
+  - name: detects-mlflow-unauthenticated
+    type: beacon
+    target: localhost:5000
+    args: ["--no-enrich", "--scanners", "aiinfra"]
+    expect:
+      check_id: ai.mlflow_unauthenticated
+
+  # ── Surface: portscan identifies MLflow ───────────────────────────────
+  - name: portscan-identifies-mlflow
+    type: beacon
+    target: localhost:5000
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5000"]
+    expect:
+      check_id: port.mlflow_exposed
+
+timeout: 5m

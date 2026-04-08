@@ -1,0 +1,39 @@
+name: port-harbor-exposed
+description: >
+  Harbor container registry core component with admin API exposed.
+  Beacon portscan should detect the Harbor service on port 8080.
+  NOTE: harbor-exposed.yaml also tests port.harbor_exposed with the
+  same image and check ID.
+tags: [portscan, harbor, registry, detection]
+
+services:
+  harbor:
+    image: goharbor/harbor-core:v2.10.0
+    ports: ["18881:8080"]
+    environment:
+      CORE_SECRET: test-secret
+      _REDIS_URL_CORE: "redis://localhost:6379"
+      DATABASE_TYPE: "sqlite"
+      REGISTRY_URL: "http://localhost:5000"
+      LOG_LEVEL: info
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:18881/api/v2.0/health | grep -qE '200|401'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: harbor-api-reachable
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:18881/api/v2.0/health | grep -qE '200|401'"
+      exit_code: 0
+
+  - name: detects-harbor-exposed
+    type: beacon
+    target: localhost:18881
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18881"]
+    expect:
+      check_id: port.harbor_exposed
+
+timeout: 5m

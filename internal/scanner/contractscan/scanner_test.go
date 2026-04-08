@@ -158,6 +158,155 @@ func TestSelfDestructDetection(t *testing.T) {
 	}
 }
 
+func TestContainsUnprotectedWithdraw(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{
+			name:   "no withdraw or transfer function",
+			source: "contract Safe { function deposit() { balances[msg.sender] += msg.value; } }",
+			want:   false,
+		},
+		{
+			name:   "withdraw without any protection",
+			source: "contract Vault { function withdraw(uint amount) public { payable(msg.sender).transfer(amount); } }",
+			want:   true,
+		},
+		{
+			name:   "transfer without any protection",
+			source: "contract Token { function transfer(address to, uint amount) public { balances[to] += amount; } }",
+			want:   true,
+		},
+		{
+			name:   "withdraw with onlyOwner",
+			source: "contract Vault { function withdraw(uint amount) public onlyOwner { payable(msg.sender).transfer(amount); } }",
+			want:   false,
+		},
+		{
+			name:   "withdraw with require msg.sender",
+			source: "contract Vault { function withdraw() { require(msg.sender == owner); payable(owner).transfer(address(this).balance); } }",
+			want:   false,
+		},
+		{
+			name:   "withdraw with modifier keyword present",
+			source: "contract Vault { modifier auth() { _; } function withdraw() auth { payable(msg.sender).transfer(1); } }",
+			want:   false,
+		},
+		{
+			name:   "case insensitive withdraw detection",
+			source: "contract Vault { function Withdraw(uint a) public { payable(msg.sender).call{value: a}(\"\"); } }",
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsUnprotectedWithdraw(tt.source)
+			if got != tt.want {
+				t.Errorf("containsUnprotectedWithdraw() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContainsUnlimitedApproval(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{
+			name:   "no approve call",
+			source: "contract Token { function transfer() {} }",
+			want:   false,
+		},
+		{
+			name:   "approve with type(uint256).max",
+			source: "token.approve(spender, type(uint256).max);",
+			want:   true,
+		},
+		{
+			name:   "approve with 2**256",
+			source: "IERC20(token).approve(router, 2**256 - 1);",
+			want:   true,
+		},
+		{
+			name:   "approve with uint(-1)",
+			source: "token.approve(spender, uint(-1));",
+			want:   true,
+		},
+		{
+			name:   "approve with normal amount",
+			source: "token.approve(spender, amount);",
+			want:   false,
+		},
+		{
+			name:   "no approve but has type(uint256).max",
+			source: "uint max = type(uint256).max;",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsUnlimitedApproval(strings.ToLower(tt.source))
+			if got != tt.want {
+				t.Errorf("containsUnlimitedApproval() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContainsFlashloanCallback(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{
+			name:   "no flash loan callback",
+			source: "contract Safe { function deposit() {} }",
+			want:   false,
+		},
+		{
+			name:   "flashLoan function",
+			source: "function flashLoan(uint amount) external { pool.borrow(amount); }",
+			want:   true,
+		},
+		{
+			name:   "executeOperation callback",
+			source: "function executeOperation(address[] calldata assets, uint[] calldata amounts) external returns (bool) { return true; }",
+			want:   true,
+		},
+		{
+			name:   "onFlashLoan callback",
+			source: "function onFlashLoan(address initiator, address token, uint amount, uint fee, bytes calldata data) external returns (bytes32) { }",
+			want:   true,
+		},
+		{
+			name:   "case insensitive detection",
+			source: "function EXECUTEOPERATION() external {}",
+			want:   true,
+		},
+		{
+			name:   "flashLoan in comment only - still detected (heuristic)",
+			source: "// function flashLoan is used here\ncontract X {}",
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsFlashloanCallback(strings.ToLower(tt.source))
+			if got != tt.want {
+				t.Errorf("containsFlashloanCallback() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUncheckedCallDetection(t *testing.T) {
 	// Tests the unchecked low-level call detection from analyseSource:
 	// vulnerable when source has .call( or .call{ AND lacks require( and bool success.

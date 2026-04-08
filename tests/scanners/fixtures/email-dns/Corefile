@@ -1,0 +1,4 @@
+testdomain.local:53 {
+    file /etc/coredns/db.testdomain.local
+    log
+}

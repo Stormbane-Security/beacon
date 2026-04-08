@@ -1,0 +1,40 @@
+name: crawler-endpoint-discovery
+description: >
+  Nginx serving an HTML page with links to /admin, /api/v1/users, and
+  /secret/backup. Beacon crawler (katana) should discover all linked
+  endpoints.
+tags: [crawler, discovery, katana]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["19905:80"]
+    volumes:
+      - ./fixtures/crawler-discovery/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19905/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-links-present-in-html
+    type: command
+    expect:
+      command: "curl -s http://localhost:19905/ | grep -c 'href=' | awk '{exit ($1 >= 3) ? 0 : 1}'"
+      exit_code: 0
+
+  - name: exploit-admin-link-reachable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19905/admin/ >/dev/null"
+      exit_code: 0
+
+  - name: detects-crawl-endpoints
+    type: beacon
+    target: localhost:19905
+    args: ["--no-enrich", "--scanners", "crawler"]
+    expect:
+      check_id: asset.crawl_endpoints
+
+timeout: 5m

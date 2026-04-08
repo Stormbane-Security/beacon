@@ -27,13 +27,7 @@ else
   go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 fi
 
-# --- amass (Apache 2.0) — OSINT asset discovery ---
-if check amass; then
-  info "amass already installed"
-else
-  info "installing amass..."
-  go install -v github.com/owasp-amass/amass/v4/...@master
-fi
+# amass removed — replaced by native DNS brute-forcing + subfinder
 
 # --- gau (MIT) — historical URLs from Wayback Machine + OTX ---
 if check gau; then
@@ -138,7 +132,6 @@ echo ""
 echo "Tools summary:"
 echo "  nuclei:     $(which nuclei 2>/dev/null || echo 'not found')"
 echo "  subfinder:  $(which subfinder 2>/dev/null || echo 'not found')"
-echo "  amass:      $(which amass 2>/dev/null || echo 'not found')"
 echo "  gau:        $(which gau 2>/dev/null || echo 'not found')"
 echo "  katana:     $(which katana 2>/dev/null || echo 'not found')"
 echo "  gowitness:  $(which gowitness 2>/dev/null || echo 'not found')"

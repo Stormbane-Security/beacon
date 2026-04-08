@@ -179,6 +179,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			),
 			Evidence:     map[string]any{"vendor": vendor, "scheme": scheme},
 			DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 		})
 
 		// Try to extract WAF product version from headers.
@@ -198,6 +199,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				),
 				Evidence:     map[string]any{"vendor": vendor, "version": version, "scheme": scheme},
 				DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 			})
 		}
 	}
@@ -218,6 +220,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			),
 			Evidence:     map[string]any{"vendor": idsVendor},
 			DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 		})
 	}
 
@@ -248,6 +251,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					),
 					Evidence:     map[string]any{"vendor": "Cloudflare", "ssl_mode": "flexible"},
 					DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 				})
 			}
 		}
@@ -281,6 +285,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 						"origin_ip":  originIP,
 					},
 					DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 				})
 			}
 		}
@@ -312,6 +317,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 					"test_ip":        "198.51.100.1",
 				},
 				DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 			})
 		}
 	}
@@ -710,6 +716,7 @@ func testPathNormalization(ctx context.Context, client *http.Client, asset, sche
 					},
 					ProofCommand: fmt.Sprintf("curl -sk -o /dev/null -w '%%{http_code}' '%s://%s%s'", scheme, asset, transformed),
 					DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 				})
 				break // one bypass per path is enough
 			}
@@ -790,6 +797,7 @@ func testMethodOverride(ctx context.Context, client *http.Client, asset, scheme,
 					},
 					ProofCommand: fmt.Sprintf("curl -sk -H '%s: %s' '%s://%s%s'", oh.name, oh.value, scheme, asset, path),
 					DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 				})
 				break
 			}
@@ -854,6 +862,7 @@ func testContentTypeBypass(ctx context.Context, client *http.Client, asset, sche
 					"bypass_status":        status,
 				},
 				DiscoveredAt: time.Now(),
+				Confidence:   finding.ConfidenceObserved,
 			})
 			break // one is enough
 		}

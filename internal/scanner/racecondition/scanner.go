@@ -61,6 +61,20 @@ var raceTargets = []raceTarget{
 	{"/api/like", http.MethodPost, "application/json", `{"id":"1"}`, "vote/like"},
 	{"/api/apply", http.MethodPost, "application/json", `{"id":"1"}`, "action application"},
 	{"/api/checkout", http.MethodPost, "application/json", `{}`, "checkout"},
+	{"/api/withdraw", http.MethodPost, "application/json", `{"amount":1}`, "withdrawal"},
+	{"/api/v1/withdraw", http.MethodPost, "application/json", `{"amount":1}`, "withdrawal"},
+	{"/api/claim", http.MethodPost, "application/json", `{"id":"1"}`, "reward claim"},
+	{"/api/v1/claim", http.MethodPost, "application/json", `{"id":"1"}`, "reward claim"},
+	{"/api/register", http.MethodPost, "application/json", `{"username":"beacon-race-test","password":"test"}`, "user registration"},
+	{"/api/v1/register", http.MethodPost, "application/json", `{"username":"beacon-race-test","password":"test"}`, "user registration"},
+	{"/api/coupon", http.MethodPost, "application/json", `{"code":"BEACON-RACE-TEST"}`, "coupon application"},
+	{"/api/v1/coupon", http.MethodPost, "application/json", `{"code":"BEACON-RACE-TEST"}`, "coupon application"},
+}
+
+// result captures the status code and body of a single concurrent request.
+type result struct {
+	status int
+	body   string
 }
 
 type Scanner struct{}
@@ -115,10 +129,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		// Step 2: Send concurrent requests and collect responses.
-		type result struct {
-			status int
-			body   string
-		}
 		results := make([]result, concurrency)
 		var wg sync.WaitGroup
 		gate := make(chan struct{}) // Closed to release all goroutines simultaneously.
@@ -164,7 +174,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 		}
 
-		// Heuristic: if we sent 10 concurrent requests and got more than 1
+		// Heuristic 1: if we sent N concurrent requests and got more than 1
 		// success (for an endpoint that should be idempotent-once), flag it.
 		// We require at least 3 successes to reduce false positives.
 		if successCount >= 3 {
@@ -197,8 +207,106 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				},
 				DiscoveredAt: time.Now(),
 			})
+			continue // Already flagged via success count heuristic.
+		}
+
+		// Heuristic 2: response divergence — if identical concurrent requests
+		// produce different status codes or different bodies, the server has
+		// non-deterministic state handling indicative of a race condition.
+		if diff := detectResponseDivergence(results); diff != nil {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWebRaceCondition,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Title: fmt.Sprintf("Response divergence on %s — potential race condition",
+					target.path),
+				Description: fmt.Sprintf(
+					"Sending %d identical concurrent requests to %s produced inconsistent responses: "+
+						"%s. For a state-changing operation like %s, divergent responses to identical "+
+						"requests indicate non-atomic processing — a classic Time-of-Check-Time-of-Use "+
+						"(TOCTOU) race condition.",
+					concurrency, url, diff.summary, target.description),
+				Asset: asset,
+				ProofCommand: fmt.Sprintf(
+					"for i in $(seq 1 10); do curl -s -w '\\nHTTP_CODE:%%{http_code}\\n' -X %s '%s' -H 'Content-Type: %s' -d '%s' & done; wait",
+					target.method, url, target.contentType, target.body),
+				Evidence: map[string]any{
+					"url":                url,
+					"method":             target.method,
+					"concurrency":        concurrency,
+					"status_codes":       statusCodes,
+					"unique_statuses":    diff.uniqueStatuses,
+					"unique_bodies":      diff.uniqueBodies,
+					"divergence_summary": diff.summary,
+					"operation":          target.description,
+				},
+				DiscoveredAt: time.Now(),
+			})
 		}
 	}
 
 	return findings, nil
+}
+
+// divergence captures information about inconsistent responses.
+type divergence struct {
+	uniqueStatuses int
+	uniqueBodies   int
+	summary        string
+}
+
+// detectResponseDivergence checks if concurrent identical requests produced
+// different status codes or response bodies. Returns nil if all responses are
+// consistent (no race condition signal).
+func detectResponseDivergence(results []result) *divergence {
+	statusSet := make(map[int]struct{})
+	bodySet := make(map[string]struct{})
+	validCount := 0
+
+	for _, r := range results {
+		if r.status == 0 {
+			continue // Request failed entirely.
+		}
+		validCount++
+		statusSet[r.status] = struct{}{}
+		// Normalize body for comparison: trim whitespace and limit length.
+		body := r.body
+		if len(body) > 512 {
+			body = body[:512]
+		}
+		bodySet[body] = struct{}{}
+	}
+
+	// Need at least 3 valid responses to draw conclusions.
+	if validCount < 3 {
+		return nil
+	}
+
+	uniqueStatuses := len(statusSet)
+	uniqueBodies := len(bodySet)
+
+	// If all statuses and bodies are identical, no divergence.
+	if uniqueStatuses <= 1 && uniqueBodies <= 1 {
+		return nil
+	}
+
+	var summary string
+	switch {
+	case uniqueStatuses > 1 && uniqueBodies > 1:
+		summary = fmt.Sprintf("%d different status codes and %d different response bodies across %d responses",
+			uniqueStatuses, uniqueBodies, validCount)
+	case uniqueStatuses > 1:
+		summary = fmt.Sprintf("%d different status codes across %d responses",
+			uniqueStatuses, validCount)
+	default:
+		summary = fmt.Sprintf("%d different response bodies across %d responses",
+			uniqueBodies, validCount)
+	}
+
+	return &divergence{
+		uniqueStatuses: uniqueStatuses,
+		uniqueBodies:   uniqueBodies,
+		summary:        summary,
+	}
 }

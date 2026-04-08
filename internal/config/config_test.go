@@ -326,7 +326,6 @@ func TestApplyEnv_BinaryPaths(t *testing.T) {
 		{"BEACON_NUCLEI_BIN", func(c *Config) string { return c.NucleiBin }},
 		{"BEACON_GITLEAKS_BIN", func(c *Config) string { return c.GitleaksBin }},
 		{"BEACON_TESTSSL_BIN", func(c *Config) string { return c.TestsslBin }},
-		{"BEACON_AMASS_BIN", func(c *Config) string { return c.AmmassBin }},
 		{"BEACON_GAU_BIN", func(c *Config) string { return c.GauBin }},
 		{"BEACON_KATANA_BIN", func(c *Config) string { return c.KatanaBin }},
 		{"BEACON_GOWITNESS_BIN", func(c *Config) string { return c.GowitnessBin }},

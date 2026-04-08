@@ -1,0 +1,32 @@
+name: dns-rebinding
+description: "DNS fixture resolving hostnames to private IPs — beacon detects DNS rebinding risk"
+tags: [dns, scanner, rebinding, network]
+
+services:
+  dns:
+    image: coredns/coredns:latest
+    ports: ["5553:53/udp", "5553:53/tcp"]
+    volumes:
+      - ./dns-rebinding/Corefile:/etc/coredns/Corefile:ro
+    command: ["-conf", "/etc/coredns/Corefile"]
+
+ready:
+  cmd: "dig @localhost -p 5553 internal.testcorp.local +short +time=2 2>/dev/null | grep -q '192.168.1.100'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-resolves-to-private-ip
+    type: command
+    expect:
+      command: "dig @localhost -p 5553 internal.testcorp.local +short | grep -q '192.168.1.100'"
+      exit_code: 0
+
+  - name: detects-rebinding-risk
+    type: beacon
+    target: internal.testcorp.local
+    args: ["--no-enrich", "--scanners", "dns", "--dns-server", "localhost:5553"]
+    expect:
+      check_id: dns.rebinding_vulnerable
+
+timeout: 5m

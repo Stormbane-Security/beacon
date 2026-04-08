@@ -37,7 +37,7 @@ assertions:
     target: localhost:19600
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19600"]
     expect:
-      check_id: port.service_discovered
+      check_id: port.service_identified
 
   # --- Redis: version extracted in finding evidence ---
   - name: redis-version-in-finding

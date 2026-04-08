@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -345,5 +347,139 @@ func TestServer_FullHTTPRoundTrip(t *testing.T) {
 	}
 	if cb.Detail != "/"+token {
 		t.Errorf("expected detail /%s, got %s", token, cb.Detail)
+	}
+}
+
+func TestServer_ReceivedCallbacks(t *testing.T) {
+	srv := NewServer("oob.test.com", "127.0.0.1:0")
+
+	// Empty at start
+	if got := srv.ReceivedCallbacks(); len(got) != 0 {
+		t.Errorf("expected 0 callbacks, got %d", len(got))
+	}
+
+	t1 := srv.GenerateToken("a")
+	t2 := srv.GenerateToken("b")
+	srv.recordCallback(&Callback{Token: t1, Protocol: "http", ReceivedAt: time.Now()})
+	srv.recordCallback(&Callback{Token: t2, Protocol: "dns", ReceivedAt: time.Now()})
+
+	cbs := srv.ReceivedCallbacks()
+	if len(cbs) != 2 {
+		t.Fatalf("expected 2 callbacks, got %d", len(cbs))
+	}
+
+	tokens := map[string]bool{}
+	for _, cb := range cbs {
+		tokens[cb.Token] = true
+	}
+	if !tokens[t1] || !tokens[t2] {
+		t.Error("expected both tokens in received callbacks")
+	}
+}
+
+func TestServer_HTTPCapturesHeadersAndBody(t *testing.T) {
+	srv := NewServer("oob.test.com", "127.0.0.1:0")
+
+	handler := http.HandlerFunc(srv.handleHTTP)
+	ts := http.Server{Handler: handler}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = ts.Serve(ln) }()
+	defer func() { _ = ts.Close() }()
+
+	token := srv.GenerateToken("hdr-body-test")
+	addr := ln.Addr().String()
+
+	body := "param=value&secret=leaked"
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/%s", addr, token), strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Custom", "beacon-test")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	cb, ok := srv.GetCallback(token)
+	if !ok {
+		t.Fatal("callback not recorded")
+	}
+	if cb.Headers["X-Custom"] != "beacon-test" {
+		t.Errorf("expected X-Custom header, got %v", cb.Headers)
+	}
+	if cb.Body != body {
+		t.Errorf("expected body %q, got %q", body, cb.Body)
+	}
+}
+
+func TestServer_ConcurrentCallbacks(t *testing.T) {
+	srv := NewServer("oob.test.com", "127.0.0.1:0")
+	const n = 50
+	tokens := make([]string, n)
+	for i := 0; i < n; i++ {
+		tokens[i] = srv.GenerateToken(fmt.Sprintf("concurrent-%d", i))
+	}
+
+	// Fire all callbacks concurrently
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			srv.recordCallback(&Callback{
+				Token:      tokens[idx],
+				RemoteAddr: fmt.Sprintf("10.0.0.%d:80", idx%256),
+				Protocol:   "http",
+				Detail:     "/" + tokens[idx],
+				ReceivedAt: time.Now(),
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	cbs := srv.ReceivedCallbacks()
+	if len(cbs) != n {
+		t.Errorf("expected %d callbacks, got %d", n, len(cbs))
+	}
+}
+
+func TestHelpers_MakeToken(t *testing.T) {
+	srv := NewServer("oob.test.com", ":8443")
+	token := MakeToken(srv, "sqli", "https://example.com", "time-based")
+	if token == "" {
+		t.Fatal("MakeToken returned empty token")
+	}
+	label := TokenLabel(srv, token)
+	if label == "" {
+		t.Fatal("TokenLabel returned empty for known token")
+	}
+	if !strings.HasPrefix(label, "sqli-") || !strings.HasSuffix(label, "-time-based") {
+		t.Errorf("unexpected label format: %s", label)
+	}
+}
+
+func TestHelpers_PayloadURL(t *testing.T) {
+	srv := NewServer("oob.example.com", ":9999")
+	token := srv.GenerateToken("test")
+	url := PayloadURL(srv, token)
+	want := fmt.Sprintf("http://oob.example.com:9999/%s", token)
+	if url != want {
+		t.Errorf("PayloadURL() = %q, want %q", url, want)
+	}
+}
+
+func TestHelpers_PayloadDNS(t *testing.T) {
+	srv := NewServer("oob.example.com", ":9999")
+	token := srv.GenerateToken("test")
+	hostname := PayloadDNS(srv, token)
+	want := token + ".oob.example.com"
+	if hostname != want {
+		t.Errorf("PayloadDNS() = %q, want %q", hostname, want)
 	}
 }

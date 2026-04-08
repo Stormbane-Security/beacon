@@ -1,0 +1,37 @@
+name: port-rpcbind-exposed
+description: >
+  NFS server container which includes rpcbind on port 111. Beacon
+  should detect the exposed RPC portmapper.
+tags: [portscan, rpcbind, portmapper, detection]
+
+services:
+  nfs:
+    image: erichough/nfs-server:2.2.1
+    ports: ["111:111", "2049:2049"]
+    environment:
+      NFS_EXPORT_0: "/srv/nfs *(ro,no_subtree_check,fsid=0)"
+    cap_add: ["SYS_ADMIN"]
+    volumes:
+      - type: tmpfs
+        target: /srv/nfs
+
+ready:
+  cmd: "nc -z localhost 111"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: rpcbind-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 111"
+      exit_code: 0
+
+  - name: detects-rpcbind-exposed
+    type: beacon
+    target: localhost:111
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "111"]
+    expect:
+      check_id: port.rpcbind_exposed
+
+timeout: 5m

@@ -1,0 +1,10 @@
+{
+  "name": "vulnerable-app",
+  "version": "1.0.0",
+  "description": "App with known vulnerable dependencies",
+  "dependencies": {
+    "lodash": "4.17.20",
+    "express": "4.17.1",
+    "minimist": "1.2.5"
+  }
+}

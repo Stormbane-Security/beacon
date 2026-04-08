@@ -1,0 +1,47 @@
+name: port-argocd-exposed
+description: >
+  Nginx fixture simulating an ArgoCD API version endpoint. Beacon
+  portscan should detect the exposed ArgoCD service.
+tags: [portscan, argocd, gitops, detection]
+
+services:
+  argocd-mock:
+    image: nginx:1.25-alpine
+    ports: ["9392:80"]
+    volumes:
+      - ./fixtures/argocd-mock:/usr/share/nginx/html:ro
+      - ./fixtures/argocd-mock/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+fixtures:
+  - path: fixtures/argocd-mock/api/version
+    content: '{"Version":"v2.10.0","BuildDate":"2024-01-01T00:00:00Z","GitCommit":"abc123","GoVersion":"go1.21"}'
+  - path: fixtures/argocd-mock/nginx.conf
+    content: |
+      server {
+          listen 80;
+          location /api/version {
+              default_type application/json;
+              alias /usr/share/nginx/html/api/version;
+          }
+      }
+
+ready:
+  cmd: "curl -sf http://localhost:9392/api/version | grep -q Version"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: argocd-api-version-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9392/api/version | grep -q Version"
+      exit_code: 0
+
+  - name: detects-argocd-exposed
+    type: beacon
+    target: localhost:9392
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9392"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

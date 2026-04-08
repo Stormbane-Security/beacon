@@ -1,0 +1,96 @@
+name: blind-cicd-tier
+description: >
+  Blind scan of 7 CI/CD and DevOps services. Beacon runs portscan with NO
+  hints — must discover Jenkins, GitLab, Gitea, SonarQube, Grafana,
+  Portainer, and Drone through HTTP probing and banner analysis.
+tags: [blind, portscan, cicd, devops, fingerprint, integration, accuracy]
+
+services:
+  # Jenkins without auth
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    ports: ["19810:8080"]
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+  # Gitea (lightweight Git server)
+  gitea:
+    image: gitea/gitea:latest
+    ports: ["19811:3000"]
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+
+  # SonarQube (code quality)
+  sonarqube:
+    image: sonarqube:lts-community
+    ports: ["19812:9000"]
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+
+  # Grafana default creds
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["19813:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+  # Portainer (container management)
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports: ["19814:9000"]
+    command: ["--no-analytics"]
+
+  # Drone CI
+  drone:
+    image: drone/drone:2
+    ports: ["19815:80"]
+    environment:
+      DRONE_SERVER_HOST: "localhost:19815"
+      DRONE_SERVER_PROTO: "http"
+      DRONE_RPC_SECRET: "supersecretdronerpc"
+
+  # Argo CD (API server in dev mode)
+  argocd:
+    image: quay.io/argoproj/argocd:v2.9.3
+    ports: ["19816:8080"]
+    command: ["argocd-server", "--insecure", "--disable-auth"]
+
+ready:
+  cmd: "curl -sf http://localhost:19810/api/json -o /dev/null && curl -sf http://localhost:19811/ -o /dev/null && curl -sf http://localhost:19813/ -o /dev/null"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # --- Jenkins: no auth detected ---
+  - name: blind-discovers-jenkins
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
+    expect:
+      check_id: port.jenkins_no_auth
+
+  # --- Grafana: default creds detected (deep mode) ---
+  - name: blind-discovers-grafana-defaultcreds
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # --- Service identification for all ports ---
+  - name: blind-identifies-cicd-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
+    expect:
+      check_id: port.service_identified
+
+  # --- False positive: no database findings on CI/CD ports ---
+  - name: negative-no-database-on-cicd
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 15m

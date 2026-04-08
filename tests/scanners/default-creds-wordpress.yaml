@@ -1,0 +1,52 @@
+name: default-creds-wordpress
+description: "WordPress with MySQL backend and default admin:admin credentials — beacon detects default credentials"
+tags: [wordpress, defaultcreds, portscan, authorized]
+
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+
+  wordpress:
+    image: wordpress:latest
+    ports: ["9404:80"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    depends_on: [db]
+
+ready:
+  # WordPress install wizard takes time; wait for wp-login.php to appear.
+  cmd: "curl -sf http://localhost:9404/wp-login.php 2>/dev/null | grep -qi wordpress"
+  timeout: 120s
+  interval: 5s
+
+setup:
+  # Run the WordPress 5-minute install via CLI to set admin:admin.
+  - command: >
+      curl -sf -X POST http://localhost:9404/wp-admin/install.php?step=2
+      -d 'weblog_title=Test&user_name=admin&admin_password=admin&admin_password2=admin&pw_weak=1&admin_email=admin@example.com&Submit=Install+WordPress'
+      | grep -qi 'success\|already installed'
+    timeout: 30s
+
+assertions:
+  - name: exploit-wp-login-accepts-default-creds
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{redirect_url}' -X POST http://localhost:9404/wp-login.php -d 'log=admin&pwd=admin&wp-submit=Log+In' | grep -q 'wp-admin'"
+      exit_code: 0
+
+  - name: detects-wordpress-default-credentials
+    type: beacon
+    target: localhost:9404
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9404", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.wordpress_default_credentials
+
+timeout: 8m

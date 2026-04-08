@@ -1,0 +1,32 @@
+name: tls-no-tls13
+description: >
+  Nginx configured with only TLS 1.2 (no TLS 1.3 support). Beacon
+  tlscheck scanner should detect the missing TLS 1.3 via tls.no_tls13.
+tags: [tls, protocol, crypto]
+
+services:
+  nginx:
+    build:
+      context: ./fixtures/tls-no-tls13
+    ports: ["19962:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:19962/ -o /dev/null -w '%{http_code}' | grep -q '200'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-tls13-rejected
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:19962 -tls1_3 </dev/null 2>&1 | grep -qi 'error\\|alert\\|no protocols'"
+      exit_code: 0
+
+  - name: detects-no-tls13
+    type: beacon
+    target: localhost:19962
+    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    expect:
+      check_id: tls.no_tls13
+
+timeout: 5m

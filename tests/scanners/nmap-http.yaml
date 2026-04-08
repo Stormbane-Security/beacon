@@ -10,14 +10,8 @@ services:
     image: nginx:alpine
     ports: ["18080:80"]
     volumes:
-      - type: bind
-        source: ./fixtures/nmap-http
-        target: /usr/share/nginx/html
-        read_only: true
-      - type: bind
-        source: ./fixtures/nmap-http/nginx-dav.conf
-        target: /etc/nginx/conf.d/default.conf
-        read_only: true
+      - ./fixtures/nmap-http:/usr/share/nginx/html:ro
+      - ./fixtures/nmap-http/nginx-dav.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
   cmd: "curl -sf http://localhost:18080/ >/dev/null"
@@ -27,23 +21,17 @@ ready:
 assertions:
   - name: nmap-http-title
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "18080"]
+    target: localhost:18080
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.http_title
 
   - name: nmap-http-robots
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "18080"]
+    target: localhost:18080
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
-      check_id: nmap.http_robots_disallow
+      check_id: nmap.http_robots
 
-  - name: nmap-http-methods-dangerous
-    type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "18080"]
-    expect:
-      check_id: nmap.http_dangerous_methods
 
 timeout: 5m

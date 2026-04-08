@@ -1,0 +1,44 @@
+name: web-source-maps-exposed
+description: >
+  Nginx serving JavaScript source map files (.js.map) alongside the
+  minified JS. The sourceMappingURL directive in app.js references
+  app.js.map which is publicly accessible, exposing unminified source
+  code. Tests the fixture setup for exposure.source_maps_exposed
+  detection; the finding is emitted by the classify evidence pipeline.
+tags: [exposure, source-maps, javascript]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19966:80"]
+    volumes:
+      - ./fixtures/web-source-maps/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/web-source-maps/index.html:/usr/share/nginx/html/index.html:ro
+      - ./fixtures/web-source-maps/app.js:/usr/share/nginx/html/app.js:ro
+      - ./fixtures/web-source-maps/app.js.map:/usr/share/nginx/html/app.js.map:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19966/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-source-map-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19966/app.js.map | grep -q 'version'"
+      exit_code: 0
+
+  - name: exploit-sourcemapping-url-in-js
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19966/app.js | grep -q 'sourceMappingURL'"
+      exit_code: 0
+
+  - name: exploit-map-contains-sources
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19966/app.js.map | grep -q 'sources'"
+      exit_code: 0
+
+timeout: 5m

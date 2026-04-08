@@ -1,0 +1,36 @@
+name: exposure-admin-path
+description: >
+  Nginx with /admin/ directory accessible without authentication.
+  Beacon dirbust scanner should discover the admin path via
+  dirbust.path_found.
+tags: [exposure, admin, dirbust, deep]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19971:80"]
+    volumes:
+      - ./fixtures/exposure-admin-path/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/exposure-admin-path/index.html:/usr/share/nginx/html/index.html:ro
+      - ./fixtures/exposure-admin-path/admin/index.html:/usr/share/nginx/html/admin/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19971/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-admin-path-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19971/admin/ | grep -qi 'admin'"
+      exit_code: 0
+
+  - name: detects-admin-path
+    type: beacon
+    target: localhost:19971
+    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: dirbust.path_found
+
+timeout: 5m

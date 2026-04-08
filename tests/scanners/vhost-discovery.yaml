@@ -1,0 +1,42 @@
+name: vhost-discovery
+description: >
+  Nginx with two virtual hosts: a default site and a hidden admin site
+  responding to admin.app.local. Beacon vhost scanner should discover the
+  additional virtual host by probing with candidate Host headers.
+tags: [vhost, discovery, deep]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["19903:80"]
+    volumes:
+      - ./fixtures/vhost-discovery/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/vhost-discovery/html-default:/usr/share/nginx/html:ro
+      - ./fixtures/vhost-discovery/html-admin:/usr/share/nginx/admin:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19903/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-default-vhost-accessible
+    type: command
+    expect:
+      command: "curl -s http://localhost:19903/ | grep -qi 'Welcome'"
+      exit_code: 0
+
+  - name: exploit-admin-vhost-different-content
+    type: command
+    expect:
+      command: "curl -s -H 'Host: admin.app.local' http://localhost:19903/ | grep -qi 'Admin'"
+      exit_code: 0
+
+  - name: detects-vhost
+    type: beacon
+    target: app.local:19903
+    args: ["--no-enrich", "--scanners", "vhost", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: asset.vhost_found
+
+timeout: 5m

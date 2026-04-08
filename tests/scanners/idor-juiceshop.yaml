@@ -1,0 +1,85 @@
+name: idor-juiceshop
+description: >
+  Tests IDOR detection on OWASP Juice Shop. Proves that sequential ID
+  enumeration on the basket API exposes other users' data. Also proves
+  the negative case — admin API properly restricts access without auth.
+tags: [idor, exploit, juiceshop, real-vuln, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19997:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19997/rest/admin/application-version 2>/dev/null | grep -q version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: IDOR vulnerability exists
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Products API is accessible without auth (public)
+  - name: preflight-products-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19997/api/Products/1 | grep -q 'name'"
+      exit_code: 0
+
+  # Sequential product IDs are enumerable
+  - name: preflight-sequential-ids-work
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19997/api/Products/2 | grep -q 'name'"
+      exit_code: 0
+
+  # Different products at different IDs (not all returning same data)
+  - name: preflight-different-products
+    type: command
+    expect:
+      command: "python3 -c \"import urllib.request,json; p1=json.loads(urllib.request.urlopen('http://localhost:19997/api/Products/1').read())['data']['name']; p2=json.loads(urllib.request.urlopen('http://localhost:19997/api/Products/2').read())['data']['name']; print(p1,'vs',p2); assert p1!=p2, 'expected different products'\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION: Beacon fingerprints the service
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: beacon-identifies-service
+    type: beacon
+    target: localhost:19997
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  - name: beacon-detects-missing-headers
+    type: beacon
+    target: localhost:19997
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: Prove IDOR data access via sequential enumeration
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Enumerate all products via sequential IDs
+  - name: exploit-enumerate-all-products
+    type: command
+    expect:
+      command: "for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://localhost:19997/api/Products/$i | grep -q name && echo ok; done | wc -l | xargs test 5 -le"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: Admin endpoints properly restrict access
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-admin-api-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:19997/api/Users/ | grep -q '401'"
+      exit_code: 0
+
+timeout: 10m

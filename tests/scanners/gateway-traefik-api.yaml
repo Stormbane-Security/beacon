@@ -1,0 +1,35 @@
+name: gateway-traefik-api-exposed
+description: >
+  Traefik v2.10 with insecure API enabled. Beacon gateway scanner should
+  detect gateway.traefik_api_exposed. Complements traefik-dashboard.yaml
+  which also tests classification.
+tags: [traefik, gateway, api, exposed]
+
+services:
+  traefik:
+    image: traefik:v2.10
+    ports: ["19970:8080"]
+    command:
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+
+ready:
+  cmd: "curl -sf http://localhost:19970/api/rawdata | grep -q 'routers'"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: exploit-traefik-rawdata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19970/api/rawdata | grep -q 'routers'"
+      exit_code: 0
+
+  - name: detects-traefik-api-exposed
+    type: beacon
+    target: localhost:19970
+    args: ["--no-enrich", "--scanners", "gateway"]
+    expect:
+      check_id: gateway.traefik_api_exposed
+
+timeout: 5m

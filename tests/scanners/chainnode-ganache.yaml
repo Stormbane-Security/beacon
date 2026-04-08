@@ -1,0 +1,72 @@
+name: chainnode-ganache-rpc
+description: >
+  Ganache EVM development chain with exposed JSON-RPC. Tests the full blockchain
+  node scanning pipeline: chainnode detects the RPC endpoint, identifies it as
+  Ethereum, checks for dangerous methods (eth_sendTransaction, personal_unlockAccount),
+  and detects unauthenticated state-changing access.
+tags: [web3, blockchain, chainnode, ganache, ethereum, rpc, authorized]
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["8545:8545"]
+    command: ["--host", "0.0.0.0", "--accounts", "10", "--deterministic", "--chain.allowUnlimitedContractSize"]
+
+ready:
+  cmd: "curl -sf http://localhost:8545 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[],\"id\":1}' | grep -q result"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ── Pre-flight: Ganache JSON-RPC is accessible ────────────────────────
+  - name: rpc-responds-to-chainid
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8545 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_chainId\",\"params\":[],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  - name: rpc-has-funded-accounts
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8545 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_accounts\",\"params\":[],\"id\":1}' | grep -q '0x'"
+      exit_code: 0
+
+  - name: rpc-accepts-send-transaction
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8545 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendTransaction\",\"params\":[{\"from\":\"0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1\",\"to\":\"0xFFcf8FDEE72ac11b5c542428B35EEF5769C409f0\",\"value\":\"0x1\"}],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  # ── Surface: chainnode detects exposed RPC ────────────────────────────
+  - name: detects-rpc-exposed
+    type: beacon
+    target: localhost:8545
+    args: ["--no-enrich", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.node_rpc_exposed
+
+  # ── Deep: detects unauthenticated state-changing methods ───────────
+  - name: detects-unauth-rpc
+    type: beacon
+    target: localhost:8545
+    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: chain.node_rpc_unauth
+
+  # ── Deep: detects dangerous RPC methods ───────────────────────────────
+  - name: detects-dangerous-methods
+    type: beacon
+    target: localhost:8545
+    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: chain.rpc_dangerous_method
+
+  # ── Surface: peer count leak ──────────────────────────────────────────
+  - name: detects-peer-count-leak
+    type: beacon
+    target: localhost:8545
+    args: ["--no-enrich", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.peer_count_leak
+
+timeout: 5m

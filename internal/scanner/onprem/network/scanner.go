@@ -5,12 +5,15 @@
 package network
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +28,10 @@ type Config struct {
 	Targets []string // IP addresses or CIDR ranges to scan
 }
 
+// arpReader returns the system ARP table as a string.
+// Abstracted so tests can inject fake ARP tables.
+type arpReader func() (string, error)
+
 // Scanner probes network targets for common on-premise misconfigurations.
 type Scanner struct {
 	cfg Config
@@ -32,6 +39,8 @@ type Scanner struct {
 	dialer netDialer
 	// httpClient allows tests to override the HTTP client.
 	httpClient *http.Client
+	// readARP returns the system ARP table. Overridable for testing.
+	readARP arpReader
 }
 
 // netDialer abstracts net.Dialer for testing.
@@ -50,6 +59,7 @@ func New(cfg Config) *Scanner {
 				return http.ErrUseLastResponse
 			},
 		},
+		readARP: systemARPTable,
 	}
 }
 
@@ -59,9 +69,19 @@ func NewWithDialer(cfg Config, d netDialer, client *http.Client) *Scanner {
 		cfg:        cfg,
 		dialer:     d,
 		httpClient: client,
+		readARP:    systemARPTable,
 	}
 	if s.httpClient == nil {
 		s.httpClient = &http.Client{Timeout: 5 * time.Second}
+	}
+	return s
+}
+
+// NewWithOptions returns a Scanner with custom dialer, HTTP client, and ARP reader (for testing).
+func NewWithOptions(cfg Config, d netDialer, client *http.Client, arp arpReader) *Scanner {
+	s := NewWithDialer(cfg, d, client)
+	if arp != nil {
+		s.readARP = arp
 	}
 	return s
 }
@@ -84,6 +104,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	var findings []finding.Finding
 
+	// ARP spoofing detection — runs once across the whole ARP table (Deep mode).
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+		findings = append(findings, s.checkARPSpoofing()...)
+	}
+
 	for _, target := range targets {
 		ips := expandTarget(target)
 		for _, ip := range ips {
@@ -102,6 +127,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				findings = append(findings, s.checkMDNS(ctx, ip)...)
 				findings = append(findings, s.checkTelnet(ctx, ip)...)
 				findings = append(findings, s.checkSNMP(ctx, ip)...)
+				findings = append(findings, s.checkLLMNR(ctx, ip)...)
 			}
 		}
 	}
@@ -505,6 +531,219 @@ func (s *Scanner) checkHTTPMgmt(ctx context.Context, ip string) []finding.Findin
 	}
 
 	return findings
+}
+
+// --------------------------------------------------------------------------
+// ARP spoofing detection (Deep)
+// --------------------------------------------------------------------------
+
+// systemARPTable reads the ARP table from the OS.
+func systemARPTable() (string, error) {
+	if runtime.GOOS == "linux" {
+		// Try /proc/net/arp first (no external binary needed).
+		data, err := readFileFunc("/proc/net/arp")
+		if err == nil {
+			return string(data), nil
+		}
+	}
+	// Fallback: arp -a (works on Linux, macOS, BSDs).
+	out, err := exec.Command("arp", "-a").Output()
+	if err != nil {
+		return "", fmt.Errorf("arp command failed: %w", err)
+	}
+	return string(out), nil
+}
+
+// readFileFunc is overridable for testing. Default reads from OS.
+var readFileFunc = func(path string) ([]byte, error) {
+	return exec.Command("cat", path).Output()
+}
+
+// checkARPSpoofing parses the ARP table and flags IPs that have multiple
+// distinct MAC addresses — a strong indicator of ARP cache poisoning.
+func (s *Scanner) checkARPSpoofing() []finding.Finding {
+	table, err := s.readARP()
+	if err != nil || table == "" {
+		return nil
+	}
+
+	// Parse ARP entries. We handle two formats:
+	// Linux /proc/net/arp: "IP address  HW type  Flags  HW address  Mask  Device"
+	// arp -a output:       "hostname (IP) at MAC on iface"
+	ipToMACs := make(map[string]map[string]bool)
+
+	scanner := bufio.NewScanner(strings.NewReader(table))
+	for scanner.Scan() {
+		line := scanner.Text()
+		ip, mac := parseARPLine(line)
+		if ip == "" || mac == "" || mac == "(incomplete)" || mac == "00:00:00:00:00:00" {
+			continue
+		}
+		if ipToMACs[ip] == nil {
+			ipToMACs[ip] = make(map[string]bool)
+		}
+		ipToMACs[ip][mac] = true
+	}
+
+	var findings []finding.Finding
+	for ip, macs := range ipToMACs {
+		if len(macs) > 1 {
+			macList := make([]string, 0, len(macs))
+			for m := range macs {
+				macList = append(macList, m)
+			}
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckOnpremNetworkARPSpoofing,
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Title:    fmt.Sprintf("ARP spoofing detected: %s has %d MAC addresses", ip, len(macs)),
+				Description: fmt.Sprintf(
+					"IP address %s has %d distinct MAC addresses in the ARP table (%s). "+
+						"This is a strong indicator of ARP cache poisoning. An attacker on the "+
+						"local network may be intercepting traffic destined for this host.",
+					ip, len(macs), strings.Join(macList, ", "),
+				),
+				Asset:        ip,
+				ProofCommand: "arp -a",
+				Evidence: map[string]any{
+					"ip":            ip,
+					"mac_addresses": macList,
+					"mac_count":     len(macs),
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+
+	return findings
+}
+
+// parseARPLine extracts IP and MAC from a single ARP table line.
+// Supports both /proc/net/arp format and arp -a format.
+func parseARPLine(line string) (ip, mac string) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "IP address") || strings.HasPrefix(line, "Address") {
+		return "", "" // skip headers
+	}
+
+	// arp -a format: "hostname (10.0.0.1) at aa:bb:cc:dd:ee:ff on eth0"
+	if strings.Contains(line, " at ") {
+		// Extract IP from parentheses.
+		start := strings.Index(line, "(")
+		end := strings.Index(line, ")")
+		if start >= 0 && end > start {
+			ip = line[start+1 : end]
+		}
+		// Extract MAC after " at ".
+		parts := strings.Split(line, " at ")
+		if len(parts) >= 2 {
+			macParts := strings.Fields(parts[1])
+			if len(macParts) > 0 {
+				mac = macParts[0]
+			}
+		}
+		return ip, mac
+	}
+
+	// /proc/net/arp format: "10.0.0.1  0x1  0x2  aa:bb:cc:dd:ee:ff  *  eth0"
+	fields := strings.Fields(line)
+	if len(fields) >= 4 {
+		ip = fields[0]
+		mac = fields[3]
+		// Validate it looks like an IP.
+		if net.ParseIP(ip) == nil {
+			return "", ""
+		}
+	}
+	return ip, mac
+}
+
+// --------------------------------------------------------------------------
+// LLMNR exposure detection (Deep)
+// --------------------------------------------------------------------------
+
+func (s *Scanner) checkLLMNR(ctx context.Context, ip string) []finding.Finding {
+	var findings []finding.Finding
+
+	conn, err := s.dialer.DialContext(ctx, "udp", net.JoinHostPort(ip, "5355"))
+	if err != nil {
+		return findings
+	}
+
+	// Build a minimal LLMNR query for "wpad" (a common probe).
+	query := buildLLMNRQuery("wpad")
+
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_, err = conn.Write(query)
+	if err != nil {
+		_ = conn.Close()
+		return findings
+	}
+
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	_ = conn.Close()
+	if err != nil {
+		return findings
+	}
+
+	if n > 12 {
+		// Check the response flag (QR bit set = response).
+		flags := binary.BigEndian.Uint16(buf[2:4])
+		isResponse := (flags & 0x8000) != 0
+		if isResponse {
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckOnpremNetworkLLMNRExposed,
+				Scanner:  scannerName,
+				Severity: finding.SeverityMedium,
+				Title:    fmt.Sprintf("LLMNR responder active on %s", ip),
+				Description: fmt.Sprintf(
+					"Host %s responds to LLMNR queries on port 5355/UDP. LLMNR is "+
+						"vulnerable to poisoning attacks where an attacker spoofs responses "+
+						"to redirect name resolution and capture NTLMv2 hashes. Disable "+
+						"LLMNR via Group Policy or local configuration.",
+					ip,
+				),
+				Asset:        ip,
+				ProofCommand: fmt.Sprintf("echo -ne '\\x00\\x01\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x04wpad\\x00\\x00\\x01\\x00\\x01' | nc -u -w2 %s 5355 | xxd", ip),
+				Evidence: map[string]any{
+					"ip":            ip,
+					"port":          5355,
+					"response_size": n,
+				},
+				DiscoveredAt: time.Now(),
+			})
+		}
+	}
+
+	return findings
+}
+
+// buildLLMNRQuery creates a minimal LLMNR (RFC 4795) query packet.
+// LLMNR uses the same wire format as DNS but with transaction ID and
+// flags specific to link-local multicast name resolution.
+func buildLLMNRQuery(name string) []byte {
+	header := []byte{
+		0x00, 0x01, // Transaction ID
+		0x00, 0x00, // Flags: standard query
+		0x00, 0x01, // Questions: 1
+		0x00, 0x00, // Answers: 0
+		0x00, 0x00, // Authority: 0
+		0x00, 0x00, // Additional: 0
+	}
+
+	// Encode the query name.
+	var qname []byte
+	qname = append(qname, byte(len(name)))
+	qname = append(qname, []byte(name)...)
+	qname = append(qname, 0x00) // terminator
+
+	// QTYPE=A (1), QCLASS=IN (1)
+	qtype := []byte{0x00, 0x01, 0x00, 0x01}
+
+	pkt := append(header, qname...)
+	pkt = append(pkt, qtype...)
+	return pkt
 }
 
 // --------------------------------------------------------------------------

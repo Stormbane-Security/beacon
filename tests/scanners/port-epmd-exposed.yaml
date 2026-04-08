@@ -1,0 +1,32 @@
+name: port-epmd-exposed
+description: >
+  Erlang Port Mapper Daemon running and listing nodes without
+  authentication. Beacon should detect the exposed EPMD service.
+tags: [portscan, epmd, erlang, detection]
+
+services:
+  erlang:
+    image: erlang:26
+    ports: ["4369:4369"]
+    command: ["sh", "-c", "epmd -daemon && sleep infinity"]
+
+ready:
+  cmd: "nc -z localhost 4369"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: epmd-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 4369"
+      exit_code: 0
+
+  - name: detects-epmd-exposed
+    type: beacon
+    target: localhost:4369
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "4369"]
+    expect:
+      check_id: port.epmd_exposed
+
+timeout: 5m

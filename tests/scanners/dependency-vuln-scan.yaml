@@ -1,0 +1,32 @@
+name: dependency-vuln-scan
+description: "Nginx serving package.json with vulnerable lodash 4.17.20 — beacon detects exposed dependency manifest and vulnerable dependency"
+tags: [exposedfiles, dependency, vuln, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["9402:80"]
+    volumes:
+      - ./fixtures/dependency-vuln-scan/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/dependency-vuln-scan/package.json:/usr/share/nginx/html/package.json:ro
+
+ready:
+  cmd: "curl -sf http://localhost:9402/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-package-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9402/package.json | grep -q 'lodash'"
+      exit_code: 0
+
+  - name: detects-vulnerable-dependency
+    type: beacon
+    target: localhost:9402
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.vulnerable_dependency
+
+timeout: 5m

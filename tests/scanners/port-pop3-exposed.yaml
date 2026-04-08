@@ -1,0 +1,33 @@
+name: port-pop3-exposed
+description: >
+  GreenMail mail server with POP3 on port 110. Beacon should detect
+  the exposed POP3 service.
+tags: [portscan, pop3, mail, detection]
+
+services:
+  greenmail:
+    image: greenmail/standalone:2.0.1
+    ports: ["110:3110"]
+    environment:
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0"
+
+ready:
+  cmd: "nc -z localhost 110"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: pop3-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 110"
+      exit_code: 0
+
+  - name: detects-pop3-exposed
+    type: beacon
+    target: localhost:110
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "110"]
+    expect:
+      check_id: port.pop3_exposed
+
+timeout: 5m

@@ -1,0 +1,33 @@
+name: port-imap-exposed
+description: >
+  GreenMail mail server with IMAP on port 143. Beacon should detect
+  the exposed IMAP service.
+tags: [portscan, imap, mail, detection]
+
+services:
+  greenmail:
+    image: greenmail/standalone:2.0.1
+    ports: ["143:3143"]
+    environment:
+      GREENMAIL_OPTS: "-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0"
+
+ready:
+  cmd: "nc -z localhost 143"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: imap-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 143"
+      exit_code: 0
+
+  - name: detects-imap-exposed
+    type: beacon
+    target: localhost:143
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "143"]
+    expect:
+      check_id: port.imap_exposed
+
+timeout: 5m

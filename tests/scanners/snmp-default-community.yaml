@@ -1,0 +1,42 @@
+name: snmp-default-community
+description: >
+  SNMP daemon with default public/private community strings.
+  Beacon should detect the public community via UDP probe and, in
+  authorized mode, walk the MIB tree to extract system information.
+tags: [udp, snmp, defaultcreds, authorized, exploit]
+
+services:
+  snmpd:
+    image: elcolio/net-snmp:latest
+    ports: ["15161:161/udp"]
+
+ready:
+  cmd: "snmpwalk -v2c -c public localhost:15161 1.3.6.1.2.1.1.1 2>/dev/null | grep -q ."
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: SNMP responds to public community
+  - name: snmp-public-responds
+    type: command
+    expect:
+      command: "snmpwalk -v2c -c public localhost:15161 1.3.6.1.2.1.1.1 2>/dev/null | grep -q ."
+      exit_code: 0
+
+  # Portscan detection — no --ports so nmap handles UDP discovery
+  - name: detects-snmp-public-community
+    type: beacon
+    target: localhost:15161
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.snmp_public_community
+
+  # Authorized mode: postexploit walks the SNMP tree and extracts data
+  - name: snmp-data-extracted
+    type: beacon
+    target: localhost:15161
+    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.data_extracted
+
+timeout: 5m

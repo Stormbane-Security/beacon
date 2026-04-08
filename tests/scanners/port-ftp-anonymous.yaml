@@ -1,0 +1,36 @@
+name: port-ftp-anonymous
+description: >
+  vsftpd with anonymous login enabled. Beacon should detect the
+  exposed FTP service on port 21.
+tags: [portscan, ftp, anonymous, detection]
+
+services:
+  ftp:
+    image: fauria/vsftpd
+    ports: ["21:21"]
+    environment:
+      ANONYMOUS_ENABLE: "YES"
+      LOCAL_ENABLE: "NO"
+      PASV_MIN_PORT: "21100"
+      PASV_MAX_PORT: "21110"
+
+ready:
+  cmd: "nc -z localhost 21"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: ftp-banner-accessible
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 21"
+      exit_code: 0
+
+  - name: detects-ftp-exposed
+    type: beacon
+    target: localhost:21
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "21"]
+    expect:
+      check_id: port.ftp_exposed
+
+timeout: 5m

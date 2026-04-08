@@ -1,28 +1,26 @@
-// Package screenshot captures screenshots of discovered assets using gowitness.
-// Screenshots provide visual evidence of what is exposed and are embedded in reports.
-// gowitness is Apache 2.0 licensed: https://github.com/sensepost/gowitness
+// Package screenshot captures screenshots of discovered assets using chromedp
+// (headless Chrome via DevTools Protocol). Screenshots provide visual evidence
+// of what is exposed and are embedded in reports.
 // Requires Chrome or Chromium to be installed. Skips gracefully if not available.
 package screenshot
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/chromedp/chromedp"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
-	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 func init() {
-	scan.RegisterWithCheckDecls(scannerName, func(cfg scan.ScannerConfig) scan.Scanner {
-		return New(cfg.Get("gowitness.bin"))
+	scan.RegisterWithCheckDecls(scannerName, func(_ scan.ScannerConfig) scan.Scanner {
+		return &Scanner{}
 	},
 		scan.Check(finding.CheckAssetScreenshot, finding.SeverityInfo, finding.ModeSurface),
 	)
@@ -30,83 +28,34 @@ func init() {
 
 const scannerName = "screenshot"
 
-// Scanner wraps the gowitness binary as a subprocess.
-type Scanner struct {
-	bin string
-}
-
-func New(bin string) *Scanner {
-	if bin == "" {
-		bin = "gowitness"
-	}
-	return &Scanner{bin: bin}
-}
+// Scanner captures screenshots using chromedp (headless Chrome).
+type Scanner struct{}
 
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
-	resolvedBin, err := toolinstall.Ensure(s.bin)
-	if err != nil {
-		return nil, fmt.Errorf("gowitness: %w", err)
-	}
-	// gowitness requires Chrome/Chromium — can't install a browser automatically
 	if !hasBrowser() {
-		_, _ = fmt.Fprintf(os.Stderr, "beacon: screenshots skipped — Chrome or Chromium not found (install from https://www.google.com/chrome/)\n")
 		return nil, nil
 	}
-
-	// Create a temp directory for the screenshot
-	tmpDir, err := os.MkdirTemp("", "beacon-screenshot-*")
-	if err != nil {
-		return nil, nil
-	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	scheme := "https"
 	if sctx, ok := scan.FromContext(ctx); ok {
 		scheme = sctx.Scheme()
 	}
 	target := scheme + "://" + asset
-	outFile := filepath.Join(tmpDir, "screenshot.png")
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, resolvedBin,
-		"single",
-		"--url", target,
-		"--screenshot-path", outFile,
-		"--no-db",           // don't write a gowitness database
-		"--timeout", "20",
-		"--resolution-x", "1280",
-		"--resolution-y", "800",
-	)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		// Try HTTP fallback
-		target = "http://" + asset
-		cmd2 := exec.CommandContext(ctx, resolvedBin,
-			"single",
-			"--url", target,
-			"--screenshot-path", outFile,
-			"--no-db",
-			"--timeout", "20",
-			"--resolution-x", "1280",
-			"--resolution-y", "800",
-		)
-		cmd2.Stderr = &stderr
-		if err := cmd2.Run(); err != nil {
+	data, err := captureScreenshot(ctx, target)
+	if err != nil || len(data) == 0 {
+		// Retry with HTTP
+		if scheme == "https" {
+			target = "http://" + asset
+			data, err = captureScreenshot(ctx, target)
+			if err != nil || len(data) == 0 {
+				return nil, nil
+			}
+		} else {
 			return nil, nil
 		}
-	}
-
-	// Read screenshot and encode as base64 for embedding in the report
-	data, err := os.ReadFile(outFile)
-	if err != nil || len(data) == 0 {
-		return nil, nil
 	}
 
 	b64 := base64.StdEncoding.EncodeToString(data)
@@ -120,14 +69,39 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		Title:        fmt.Sprintf("Screenshot captured for %s", asset),
 		Description:  fmt.Sprintf("A screenshot of %s was captured during the scan. This provides visual evidence of what is accessible.", asset),
 		Asset:        asset,
-		ProofCommand: fmt.Sprintf("gowitness single --url '%s'", target),
+		ProofCommand: fmt.Sprintf("curl -s '%s' | head -c 200", target),
 		Evidence: map[string]any{
-			"url":       target,
-			"image_b64": dataURI,
+			"url":        target,
+			"image_b64":  dataURI,
 			"size_bytes": len(data),
 		},
 		DiscoveredAt: time.Now(),
 	}}, nil
+}
+
+// captureScreenshot uses chromedp to take a full-page screenshot.
+func captureScreenshot(ctx context.Context, url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("ignore-certificate-errors", true),
+		chromedp.WindowSize(1280, 800),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
+	defer allocCancel()
+
+	taskCtx, taskCancel := chromedp.NewContext(allocCtx)
+	defer taskCancel()
+
+	var buf []byte
+	err := chromedp.Run(taskCtx,
+		chromedp.Navigate(url),
+		chromedp.Sleep(2*time.Second), // wait for page load
+		chromedp.FullScreenshot(&buf, 90),
+	)
+	return buf, err
 }
 
 // DataURI extracts the base64 data URI from a screenshot finding for embedding in HTML.

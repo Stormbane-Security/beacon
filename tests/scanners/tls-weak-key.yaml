@@ -1,0 +1,32 @@
+name: tls-weak-key
+description: >
+  Nginx with a 1024-bit RSA key. Beacon tlscheck scanner should detect
+  the weak key size via tls.cert_weak_key.
+tags: [tls, certificate, weak-key]
+
+services:
+  nginx:
+    build:
+      context: ./fixtures/tls-weak-key
+    ports: ["19961:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:19961/ -o /dev/null -w '%{http_code}' | grep -q '200'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-key-is-1024-bit
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:19961 </dev/null 2>/dev/null | openssl x509 -noout -text | grep -q '1024 bit'"
+      exit_code: 0
+
+  - name: detects-weak-key
+    type: beacon
+    target: localhost:19961
+    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    expect:
+      check_id: tls.cert_weak_key
+
+timeout: 5m

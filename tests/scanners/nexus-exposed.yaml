@@ -1,0 +1,31 @@
+name: nexus-repo-exposed
+description: >
+  Sonatype Nexus Repository Manager with default admin credentials.
+  Beacon should detect the exposed artifact repository.
+tags: [nexus, artifacts, repository, defaultcreds, detection]
+
+services:
+  nexus:
+    image: sonatype/nexus3:3.64.0
+    ports: ["8081:8081"]
+
+ready:
+  cmd: "curl -sf http://localhost:8081/service/rest/v1/status | grep -q '\"state\"'"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  - name: nexus-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8081/service/rest/v1/status | grep -q '\"state\"'"
+      exit_code: 0
+
+  - name: detects-nexus-exposed
+    type: beacon
+    target: localhost:8081
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8081"]
+    expect:
+      check_id: port.nexus_exposed
+
+timeout: 8m

@@ -1,0 +1,41 @@
+name: network-mdns-exposed
+description: "Container with avahi mDNS responder — beacon detects mDNS service advertising"
+tags: [onprem, network, mdns, scanner]
+
+services:
+  mdns:
+    image: flungo/avahi
+    ports: ["5353:5353/udp"]
+    environment:
+      AVAHI_DAEMON_CONF: |
+        [server]
+        host-name=testhost
+        domain-name=local
+        use-ipv4=yes
+        use-ipv6=no
+        allow-interfaces=eth0
+        [publish]
+        publish-addresses=yes
+        publish-hinfo=yes
+        publish-workstation=yes
+
+ready:
+  cmd: "dig @localhost -p 5353 _services._dns-sd._udp.local PTR +short +time=2 2>/dev/null | head -1 | grep -q '.'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-mdns-responds
+    type: command
+    expect:
+      command: "dig @localhost -p 5353 _services._dns-sd._udp.local PTR +short +time=2 | head -1 | grep -q '.'"
+      exit_code: 0
+
+  - name: detects-mdns-exposed
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "onprem/network", "--permission-confirmed"]
+    expect:
+      check_id: onprem.network.mdns_exposed
+
+timeout: 5m

@@ -20,9 +20,9 @@ ready:
 assertions:
   - name: nmap-smtp-vrfy
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "10025"]
+    target: localhost:10025
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
-      check_id: nmap.smtp_vrfy_expn
+      check_id: nmap.smtp_commands
 
 timeout: 5m

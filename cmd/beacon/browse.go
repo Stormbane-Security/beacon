@@ -267,7 +267,6 @@ func launchScanJob(cfg *config.Config, st store.Store, domain string, scanType m
 	mod, err := surface.New(surface.Config{
 		NucleiBin:            cfg.NucleiBin,
 		SubfinderBin:         "subfinder",
-		AmmassBin:            cfg.AmmassBin,
 		TestsslBin:           cfg.TestsslBin,
 		GauBin:               cfg.GauBin,
 		KatanaBin:            cfg.KatanaBin,

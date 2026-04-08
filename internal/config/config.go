@@ -171,16 +171,32 @@ type Config struct {
 	NucleiBin    string `yaml:"nuclei_bin"`
 	GitleaksBin  string `yaml:"gitleaks_bin"`
 	TestsslBin   string `yaml:"testssl_bin"`
-	AmmassBin    string `yaml:"amass_bin"`
+	// AmmassBin removed — replaced by native DNS brute-forcing + subfinder
 	GauBin       string `yaml:"gau_bin"`
 	KatanaBin    string `yaml:"katana_bin"`
 	GowitnessBin string `yaml:"gowitness_bin"`
-	// HttpxBin is the path to the httpx binary (optional, improves alive-checking speed).
+	// HttpxBin is the path to the httpx binary (optional, speeds up batch HTTP probing).
+	// in a future release. Setting it has no effect.
 	HttpxBin string `yaml:"httpx_bin"`
-	// DnsxBin is the path to the dnsx binary (optional, improves DNS batch resolution speed).
+	// DnsxBin is the path to the dnsx binary (optional, speeds up batch DNS resolution).
+	// natively. This field will be removed in a future release. Setting it has no
+	// effect.
 	DnsxBin  string `yaml:"dnsx_bin"`
 	// FfufBin is the path to the ffuf binary (optional, improves dirbust speed and evasion).
 	FfufBin  string `yaml:"ffuf_bin"`
+
+	// SqlmapBin is the path to the sqlmap binary (optional, enables deep SQLi exploitation).
+	// Only used in ScanAuthorized mode. Skip with --no-sqlmap.
+	SqlmapBin string `yaml:"sqlmap_bin"`
+	// WpscanBin is the path to the wpscan binary (optional, enables WordPress vulnerability scanning).
+	// Skip with --no-wpscan.
+	WpscanBin string `yaml:"wpscan_bin"`
+	// MasscanBin is the path to the masscan binary (optional, enables fast CIDR/subnet port scanning).
+	// Only used for CIDR targets, not single hosts. Skip with --no-masscan.
+	MasscanBin string `yaml:"masscan_bin"`
+	// ArjunBin is the path to the arjun binary (optional, enables parameter discovery).
+	// Skip with --no-arjun.
+	ArjunBin string `yaml:"arjun_bin"`
 
 	Store StoreConfig `yaml:"store"`
 
@@ -397,13 +413,16 @@ func defaults() *Config {
 		NucleiBin:    "nuclei",
 		GitleaksBin:  "gitleaks",
 		TestsslBin:   "testssl.sh",
-		AmmassBin:    "amass",
 		GauBin:       "gau",
 		KatanaBin:    "katana",
 		GowitnessBin: "gowitness",
 		HttpxBin:     "httpx",
 		DnsxBin:      "dnsx",
 		FfufBin:      "ffuf",
+		SqlmapBin:    "sqlmap",
+		WpscanBin:    "wpscan",
+		MasscanBin:   "masscan",
+		ArjunBin:     "arjun",
 		Store: StoreConfig{
 			Path: filepath.Join(home, ".beacon", "beacon.db"),
 		},
@@ -502,9 +521,6 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("BEACON_TESTSSL_BIN"); v != "" {
 		cfg.TestsslBin = v
 	}
-	if v := os.Getenv("BEACON_AMASS_BIN"); v != "" {
-		cfg.AmmassBin = v
-	}
 	if v := os.Getenv("BEACON_GAU_BIN"); v != "" {
 		cfg.GauBin = v
 	}
@@ -522,6 +538,18 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("BEACON_FFUF_BIN"); v != "" {
 		cfg.FfufBin = v
+	}
+	if v := os.Getenv("BEACON_SQLMAP_BIN"); v != "" {
+		cfg.SqlmapBin = v
+	}
+	if v := os.Getenv("BEACON_WPSCAN_BIN"); v != "" {
+		cfg.WpscanBin = v
+	}
+	if v := os.Getenv("BEACON_MASSCAN_BIN"); v != "" {
+		cfg.MasscanBin = v
+	}
+	if v := os.Getenv("BEACON_ARJUN_BIN"); v != "" {
+		cfg.ArjunBin = v
 	}
 	if v := os.Getenv("BEACON_SERVER_URL"); v != "" {
 		cfg.Server.URL = v

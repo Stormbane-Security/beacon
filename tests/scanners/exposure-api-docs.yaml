@@ -1,0 +1,37 @@
+name: exposure-api-docs
+description: >
+  Nginx serving an OpenAPI spec at /openapi.json and Swagger UI page.
+  Beacon swagger scanner should detect the exposed API documentation
+  via web.swagger_exposed.
+tags: [exposure, swagger, api-docs]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19973:80"]
+    volumes:
+      - ./fixtures/exposure-api-docs/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/exposure-api-docs/index.html:/usr/share/nginx/html/index.html:ro
+      - ./fixtures/exposure-api-docs/openapi.json:/usr/share/nginx/html/openapi.json:ro
+      - ./fixtures/exposure-api-docs/swagger-ui/index.html:/usr/share/nginx/html/swagger-ui/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19973/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-openapi-spec-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19973/openapi.json | grep -q 'openapi'"
+      exit_code: 0
+
+  - name: detects-api-docs-exposed
+    type: beacon
+    target: localhost:19973
+    args: ["--no-enrich", "--scanners", "swagger"]
+    expect:
+      check_id: web.swagger_exposed
+
+timeout: 5m

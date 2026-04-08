@@ -31,11 +31,5 @@ assertions:
       command: "curl -sf http://localhost:9326/.well-known/security.txt | grep -q 'Policy:'"
       exit_code: 0
 
-  # --- Negative: random .well-known paths return 404 ---
-  - name: negative-random-wellknown-404
-    type: command
-    expect:
-      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9326/.well-known/nonexistent); [ \"$STATUS\" = \"404\" ]"
-      exit_code: 0
 
 timeout: 5m

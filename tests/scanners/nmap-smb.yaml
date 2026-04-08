@@ -19,15 +19,15 @@ ready:
 assertions:
   - name: nmap-smb-os-discovery
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "10445"]
+    target: localhost:10445
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.smb_os_discovery
 
   - name: nmap-smb-signing-off
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "10445"]
+    target: localhost:10445
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.smb_signing_disabled
 

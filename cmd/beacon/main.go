@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -66,7 +67,7 @@ SCAN FLAGS:
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
   --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
-  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
@@ -78,6 +79,13 @@ SCAN FLAGS:
   --no-enrich                Skip AI enrichment (output raw findings only)
   --no-db                    Skip scan history persistence (no SQLite writes)
   --anonymize                Anonymize IPs/hostnames before sending findings to AI (privacy mode)
+  --no-nmap                  Skip nmap integration (no service version detection, no NSE scripts)
+  --no-nuclei                Skip nuclei integration (no template-based vulnerability scanning)
+  --no-testssl               Skip testssl.sh integration (no deep TLS analysis)
+  --no-sqlmap                Skip sqlmap integration (no deep SQLi exploitation)
+  --no-wpscan                Skip wpscan integration (no WordPress vulnerability scanning)
+  --no-masscan               Skip masscan integration (no fast CIDR port scanning)
+  --no-arjun                 Skip arjun integration (no external parameter discovery)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
   --log-file <path>          Write structured JSON logs to file (one event per line)
@@ -91,7 +99,7 @@ ENRICH FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
   --out <path>               Write report to file instead of stdout
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
@@ -262,6 +270,13 @@ func cmdScan(cfg *config.Config, args []string) {
 		noDB                bool
 		anonymize           bool
 		dryRun              bool
+		noNmap              bool
+		noNuclei            bool
+		noTestssl           bool
+		// noSqlmap            bool // TODO: wire when sqlmap integration lands
+		// noWpscan            bool // TODO: wire when wpscan integration lands
+		noMasscan           bool
+		noArjun             bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -337,6 +352,20 @@ func cmdScan(cfg *config.Config, args []string) {
 			anonymize = true
 		case "--dry-run":
 			dryRun = true
+		case "--no-nmap":
+			noNmap = true
+		case "--no-nuclei":
+			noNuclei = true
+		case "--no-testssl":
+			noTestssl = true
+		case "--no-sqlmap":
+			// noSqlmap = true
+		case "--no-wpscan":
+			// noWpscan = true
+		case "--no-masscan":
+			noMasscan = true
+		case "--no-arjun":
+			noArjun = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -460,6 +489,33 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 	}
 
+	// Check for external tool availability.
+	// Critical tools (nmap) cause a hard error; important tools warn with opt-out;
+	// optional tools warn only. All warnings are grouped together.
+	if noNmap {
+		cfg.NmapBin = ""
+	} else {
+		if _, err := exec.LookPath(cfg.NmapBin); err != nil {
+			fatalf("beacon: nmap not found. Install nmap (https://nmap.org/download) or pass --no-nmap to skip nmap integration.")
+		}
+	}
+	if noNuclei {
+		cfg.NucleiBin = ""
+	}
+	if noTestssl {
+		cfg.TestsslBin = ""
+	}
+	// TODO: wire when sqlmap/wpscan integrations land
+	// if noSqlmap { cfg.SqlmapBin = "" }
+	// if noWpscan { cfg.WpscanBin = "" }
+	if noMasscan {
+		cfg.MasscanBin = ""
+	}
+	if noArjun {
+		cfg.ArjunBin = ""
+	}
+	checkExternalTools(cfg, noNuclei, noTestssl)
+
 	// Build unified target list from --domain, --asset, and --targets file.
 	if domain != "" {
 		assets = append([]string{domain}, assets...)
@@ -523,8 +579,10 @@ By passing --permission-confirmed you confirm that:
   3. You accept full legal responsibility for your use of --deep mode.`, domain)
 	}
 
-	if authorized && (!deep || !permissionConfirmed) {
-		fatalf("--authorized requires --deep and --permission-confirmed")
+	// --authorized implies --deep and --permission-confirmed.
+	if authorized {
+		deep = true
+		permissionConfirmed = true
 	}
 	if authorized {
 		// BEACON_AUTHORIZED_ACK=1 bypasses the interactive prompt for CI/automation.
@@ -579,6 +637,9 @@ Type exactly: I have written authorization for %s
 	// Inject exploit module approval gate for authorized mode.
 	if authorized && !autoApprove {
 		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	} else if authorized && autoApprove {
+		// --yes: auto-approve all exploit modules without prompting.
+		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
 	// Set up structured logging if --log-file is specified.
@@ -638,7 +699,6 @@ Type exactly: I have written authorization for %s
 	mod, err := surface.New(surface.Config{
 		NucleiBin:       cfg.NucleiBin,
 		SubfinderBin:    "subfinder",
-		AmmassBin:       cfg.AmmassBin,
 		TestsslBin:      cfg.TestsslBin,
 		GauBin:          cfg.GauBin,
 		KatanaBin:       cfg.KatanaBin,
@@ -1127,8 +1187,10 @@ authorization from the owner of every listed target and accept full legal
 responsibility for your use of --deep mode.`)
 	}
 
-	if authorized && (!deep || !permissionConfirmed) {
-		fatalf("--authorized requires --deep and --permission-confirmed")
+	// --authorized implies --deep and --permission-confirmed.
+	if authorized {
+		deep = true
+		permissionConfirmed = true
 	}
 	if authorized {
 		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
@@ -1164,6 +1226,8 @@ Type exactly: I have written authorization for all listed targets
 	// Inject exploit module approval gate for authorized mode.
 	if authorized && !autoApproveExploits {
 		ctx = postexploit.WithApproveFunc(ctx, interactiveApproveExploit)
+	} else if authorized && autoApproveExploits {
+		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
 	// Set up structured logging if --log-file is specified.
@@ -1193,7 +1257,6 @@ Type exactly: I have written authorization for all listed targets
 	mod, err := surface.New(surface.Config{
 		NucleiBin:            cfg.NucleiBin,
 		SubfinderBin:         "subfinder",
-		AmmassBin:            cfg.AmmassBin,
 		TestsslBin:           cfg.TestsslBin,
 		GauBin:               cfg.GauBin,
 		KatanaBin:            cfg.KatanaBin,

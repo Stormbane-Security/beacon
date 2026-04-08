@@ -1,0 +1,36 @@
+name: gateway-kong-admin-exposed
+description: >
+  Kong 3.4 with admin API exposed on port 8001. Beacon gateway scanner
+  strips the asset port and probes the default Kong admin port (8001)
+  directly, so the host port must be 8001.
+tags: [kong, gateway, admin, exposed]
+
+services:
+  kong:
+    image: kong:3.4
+    ports: ["8001:8001"]
+    environment:
+      KONG_DATABASE: "off"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+
+ready:
+  cmd: "curl -sf http://localhost:8001/ | grep -q 'tagline'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-kong-admin-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8001/ | grep -qi 'kong'"
+      exit_code: 0
+
+  - name: detects-kong-admin-exposed
+    type: beacon
+    target: localhost:8001
+    args: ["--no-enrich", "--scanners", "gateway"]
+    expect:
+      check_id: gateway.kong_admin_exposed
+
+timeout: 5m

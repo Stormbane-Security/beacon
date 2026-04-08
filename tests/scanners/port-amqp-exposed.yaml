@@ -1,0 +1,34 @@
+name: port-amqp-exposed
+description: >
+  RabbitMQ message broker with AMQP port exposed. Beacon portscan should
+  detect the AMQP wire protocol on port 5672.
+tags: [portscan, amqp, rabbitmq, detection]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports: ["5672:5672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+ready:
+  cmd: "nc -z localhost 5672"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: amqp-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 5672"
+      exit_code: 0
+
+  - name: detects-amqp-exposed
+    type: beacon
+    target: localhost:5672
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5672"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

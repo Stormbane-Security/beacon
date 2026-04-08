@@ -1,0 +1,9 @@
+. {
+    hosts {
+        192.168.1.100 internal.testcorp.local
+        10.0.0.1 gateway.testcorp.local
+        fallthrough
+    }
+    forward . 8.8.8.8
+    log
+}

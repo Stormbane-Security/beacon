@@ -1,0 +1,45 @@
+name: classify-tech-stack
+description: >
+  Nginx serving a page with WordPress and PHP signals. Beacon classify
+  pipeline should detect nginx web server, PHP framework, and WordPress.
+tags: [classify, fingerprint, nginx, php, wordpress]
+
+services:
+  web:
+    image: nginx:alpine
+    ports: ["19900:80"]
+    volumes:
+      - ./fixtures/classify-tech-stack/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/classify-tech-stack/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19900/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-wordpress-signals-present
+    type: command
+    expect:
+      command: "curl -s http://localhost:19900/ | grep -qi 'wp-content'"
+      exit_code: 0
+
+  - name: classify-detects-nginx
+    type: classify
+    target: localhost:19900
+    expect:
+      server: nginx
+
+  - name: classify-detects-php
+    type: classify
+    target: localhost:19900
+    expect:
+      framework: php
+
+  - name: classify-detects-wordpress
+    type: classify
+    target: localhost:19900
+    expect:
+      framework: wordpress
+
+timeout: 3m

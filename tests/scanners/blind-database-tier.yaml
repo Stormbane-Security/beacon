@@ -1,0 +1,125 @@
+name: blind-database-tier
+description: >
+  Blind scan of 8 database services. Beacon runs portscan with NO hints
+  about what's running — it must discover and correctly identify every
+  database through protocol probing and banner analysis.
+tags: [blind, portscan, database, fingerprint, integration, accuracy]
+
+services:
+  # Redis unauthenticated
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19800:6379"]
+
+  # PostgreSQL trust auth
+  postgres:
+    image: postgres:12
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["19801:5432"]
+
+  # MySQL empty password
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    ports: ["19802:3306"]
+
+  # Elasticsearch unauthenticated
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19803:9200"]
+
+  # Memcached unauthenticated
+  memcached:
+    image: memcached:alpine
+    ports: ["19804:11211"]
+
+  # CouchDB (admin party mode)
+  couchdb:
+    image: couchdb:3
+    environment:
+      COUCHDB_USER: ""
+      COUCHDB_PASSWORD: ""
+    ports: ["19805:5984"]
+
+  # ClickHouse (default no auth)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports: ["19806:8123", "19807:9000"]
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+
+  # MongoDB unauthenticated
+  mongodb:
+    image: mongo:7
+    command: ["mongod", "--bind_ip_all"]
+    ports: ["19808:27017"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 19800 PING 2>/dev/null | grep -q PONG && curl -sf http://localhost:19803/ | grep -q cluster_name && curl -sf http://localhost:19806/ | grep -qE 'Ok|HTML'"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # --- Redis: unauthenticated detected ---
+  - name: blind-discovers-redis
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # --- PostgreSQL: trust auth detected ---
+  - name: blind-discovers-postgres-trust
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      check_id: port.postgresql_trust
+
+  # --- MySQL: no auth detected ---
+  - name: blind-discovers-mysql
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      check_id: port.mysql_no_auth
+
+  # --- Elasticsearch: unauthenticated detected ---
+  - name: blind-discovers-elasticsearch
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  # --- MongoDB: detected via database_exposed ---
+  - name: blind-discovers-mongodb
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      check_id: port.database_exposed
+
+  # --- All services identified ---
+  - name: blind-identifies-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      check_id: port.service_identified
+
+  # --- False positive: no MSSQL detected ---
+  - name: negative-no-mssql
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19800,19801,19802,19803,19804,19805,19806,19808"]
+    expect:
+      not_check_id: port.mssql_default_creds
+
+timeout: 15m

@@ -1,0 +1,35 @@
+name: tftp-anonymous-read
+description: >
+  TFTP server with anonymous read access to a known test file.
+  Beacon should detect the unauthenticated TFTP service via UDP probe.
+tags: [udp, tftp, anonymous, detection]
+
+services:
+  tftpd:
+    image: 3x3cut0r/tftpd-hpa
+    ports: ["15069:69/udp"]
+    volumes:
+      - ./fixtures/tftp-anonymous-read/tftpboot:/tftpboot:ro
+
+ready:
+  cmd: "echo test | nc -u -w2 localhost 15069 >/dev/null 2>&1; sleep 1; true"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Pre-flight: TFTP port is open (UDP — best-effort check)
+  - name: tftp-port-open
+    type: command
+    expect:
+      command: "echo -ne '\\x00\\x01test.txt\\x00octet\\x00' | nc -u -w2 localhost 15069 | head -c1 | wc -c | grep -q '[0-9]'"
+      exit_code: 0
+
+  # Portscan detection — no --ports so nmap handles UDP discovery
+  - name: detects-tftp-anonymous
+    type: beacon
+    target: localhost:15069
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: port.tftp_anonymous
+
+timeout: 5m

@@ -7,6 +7,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -28,6 +29,9 @@ type Session struct {
 	Method string
 	// Label is a human-readable description (e.g. "bearer token", "SIWE session cookie").
 	Label string
+	// Headers contains the raw auth headers for subprocess tools (katana, ffuf)
+	// that can't use the Go HTTP client. Key is header name, value is header value.
+	Headers map[string]string
 }
 
 // Authenticate performs the login described by cfg for the given asset and returns
@@ -77,7 +81,7 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 			value = "Bearer " + token
 		}
 		return injectHeader(base, header, value),
-			&Session{Method: "bearer", Label: "bearer token"}, nil
+			&Session{Method: "bearer", Label: "bearer token", Headers: map[string]string{header: value}}, nil
 
 	case "api_key":
 		header := ac.Header
@@ -85,15 +89,16 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 			header = "X-API-Key"
 		}
 		return injectHeader(base, header, ac.Token),
-			&Session{Method: "api_key", Label: fmt.Sprintf("%s header", header)}, nil
+			&Session{Method: "api_key", Label: fmt.Sprintf("%s header", header), Headers: map[string]string{header: ac.Token}}, nil
 
 	case "cookie":
 		return injectHeader(base, "Cookie", ac.Cookie),
-			&Session{Method: "cookie", Label: "session cookie"}, nil
+			&Session{Method: "cookie", Label: "session cookie", Headers: map[string]string{"Cookie": ac.Cookie}}, nil
 
 	case "basic":
+		encoded := base64.StdEncoding.EncodeToString([]byte(ac.Username + ":" + ac.Password))
 		return injectBasic(base, ac.Username, ac.Password),
-			&Session{Method: "basic", Label: fmt.Sprintf("basic auth (%s)", ac.Username)}, nil
+			&Session{Method: "basic", Label: fmt.Sprintf("basic auth (%s)", ac.Username), Headers: map[string]string{"Authorization": "Basic " + encoded}}, nil
 
 	case "form":
 		cookie, err := formLogin(ctx, ac, base)
@@ -101,7 +106,7 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 			return nil, nil, fmt.Errorf("auth form: %w", err)
 		}
 		return injectHeader(base, "Cookie", cookie),
-			&Session{Method: "form", Label: fmt.Sprintf("form login (%s)", ac.Username)}, nil
+			&Session{Method: "form", Label: fmt.Sprintf("form login (%s)", ac.Username), Headers: map[string]string{"Cookie": cookie}}, nil
 
 	case "oidc":
 		token, err := fetchOIDCToken(ctx, ac.ClientID, ac.ClientSecret, ac.TokenURL, ac.Scopes)
@@ -109,7 +114,7 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 			return nil, nil, fmt.Errorf("auth oidc: %w", err)
 		}
 		return injectHeader(base, "Authorization", "Bearer "+token),
-			&Session{Method: "oidc", Label: "OIDC bearer token"}, nil
+			&Session{Method: "oidc", Label: "OIDC bearer token", Headers: map[string]string{"Authorization": "Bearer " + token}}, nil
 
 	case "oidc_code":
 		token, err := fetchOIDCCodeToken(ctx, ac)
@@ -117,7 +122,7 @@ func Authenticate(ctx context.Context, cfgs []config.AuthConfig, asset string, b
 			return nil, nil, fmt.Errorf("auth oidc_code: %w", err)
 		}
 		return injectHeader(base, "Authorization", "Bearer "+token),
-			&Session{Method: "oidc_code", Label: "OIDC authorization_code token"}, nil
+			&Session{Method: "oidc_code", Label: "OIDC authorization_code token", Headers: map[string]string{"Authorization": "Bearer " + token}}, nil
 
 	case "web3_evm":
 		cookie, err := web3EVMLogin(ctx, ac, base, asset)

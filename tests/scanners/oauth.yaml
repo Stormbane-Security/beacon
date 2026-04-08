@@ -101,7 +101,7 @@ assertions:
     target: localhost:8180
     args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
     expect:
-      check_id: oauth.implicit_flow
+      check_id: oauth.token_in_url_fragment
 
   - name: detects-idp-admin-exposed
     type: beacon

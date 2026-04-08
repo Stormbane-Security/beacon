@@ -39,6 +39,6 @@ assertions:
     target: localhost:18404
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "18404"]
     expect:
-      not_check_id: port.elasticsearch_no_auth
+      not_check_id: port.elasticsearch_unauthenticated
 
 timeout: 5m

@@ -17,6 +17,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 
@@ -63,6 +64,8 @@ var probeOrigins = []string{
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	log := scanlog.FromContext(ctx)
+
 	// CORS probing is deep-mode only — surface mode is too noisy.
 	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
 		return nil, nil
@@ -117,12 +120,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			}
 			req.Header.Set("Origin", origin)
 
+			probeStart := time.Now()
 			resp, err := client.Do(req)
 			if err != nil {
+				log.ProbeTimed(scannerName, asset, fmt.Sprintf("cors-origin(%s)", origin), time.Since(probeStart), 0, err)
 				continue
 			}
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) //nolint:errcheck
 			_ = resp.Body.Close()
+			log.ProbeTimed(scannerName, asset, fmt.Sprintf("cors-origin(%s)", origin), time.Since(probeStart), resp.StatusCode, nil)
 
 			acao := resp.Header.Get("Access-Control-Allow-Origin")
 			acac := strings.ToLower(resp.Header.Get("Access-Control-Allow-Credentials"))
@@ -301,9 +307,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq.Header.Set("Access-Control-Request-Method", "POST")
 				preReq.Header.Set("Access-Control-Request-Headers", "Authorization")
 
+				pfStart1 := time.Now()
 				if preResp, err := client.Do(preReq); err == nil {
 					_, _ = io.Copy(io.Discard, io.LimitReader(preResp.Body, 4096)) //nolint:errcheck
 					_ = preResp.Body.Close()
+					log.ProbeTimed(scannerName, asset, "preflight-post-auth", time.Since(pfStart1), preResp.StatusCode, nil)
 
 					preACAO := preResp.Header.Get("Access-Control-Allow-Origin")
 					preACAC := strings.ToLower(preResp.Header.Get("Access-Control-Allow-Credentials"))
@@ -352,9 +360,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq2.Header.Set("Access-Control-Request-Method", "PUT")
 				preReq2.Header.Set("Access-Control-Request-Headers", "X-Custom")
 
+				pfStart2 := time.Now()
 				if preResp2, err := client.Do(preReq2); err == nil {
 					_, _ = io.Copy(io.Discard, io.LimitReader(preResp2.Body, 4096)) //nolint:errcheck
 					_ = preResp2.Body.Close()
+					log.ProbeTimed(scannerName, asset, "preflight-put-custom", time.Since(pfStart2), preResp2.StatusCode, nil)
 
 					preACAO2 := preResp2.Header.Get("Access-Control-Allow-Origin")
 					preACAC2 := strings.ToLower(preResp2.Header.Get("Access-Control-Allow-Credentials"))
@@ -415,9 +425,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				preReq3.Header.Set("Access-Control-Request-Method", "GET")
 				preReq3.Header.Set("Access-Control-Request-Headers", canaryHeader)
 
+				pfStart3 := time.Now()
 				if preResp3, err := client.Do(preReq3); err == nil {
 					_, _ = io.Copy(io.Discard, io.LimitReader(preResp3.Body, 4096)) //nolint:errcheck
 					_ = preResp3.Body.Close()
+					log.ProbeTimed(scannerName, asset, "preflight-header-reflect", time.Since(pfStart3), preResp3.StatusCode, nil)
 
 					preACAO3 := preResp3.Header.Get("Access-Control-Allow-Origin")
 					preACAH3 := preResp3.Header.Get("Access-Control-Allow-Headers")

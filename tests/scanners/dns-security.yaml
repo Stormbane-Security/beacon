@@ -1,0 +1,41 @@
+name: dns-axfr-allowed
+description: >
+  CoreDNS serving test.local zone with AXFR (transfer) enabled.
+  The exploit assertions verify zone transfer works. The beacon dns
+  scanner requires system-level NS resolution, so we verify the
+  container setup is correct and run a command-level AXFR proof.
+tags: [dns, axfr, zone-transfer]
+
+services:
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["19904:53/udp", "19904:53/tcp"]
+    volumes:
+      - ./fixtures/dns-security/Corefile:/etc/coredns/Corefile:ro
+      - ./fixtures/dns-security/db.test.local:/etc/coredns/db.test.local:ro
+
+ready:
+  cmd: "dig @localhost -p 19904 test.local SOA +short 2>/dev/null | grep -q 'ns1.test.local'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-axfr-succeeds
+    type: command
+    expect:
+      command: "dig @localhost -p 19904 axfr test.local 2>/dev/null | grep -q 'test.local'"
+      exit_code: 0
+
+  - name: exploit-zone-leaks-internal-records
+    type: command
+    expect:
+      command: "dig @localhost -p 19904 axfr test.local 2>/dev/null | grep -q 'secret.test.local'"
+      exit_code: 0
+
+  - name: exploit-zone-leaks-db-record
+    type: command
+    expect:
+      command: "dig @localhost -p 19904 axfr test.local 2>/dev/null | grep -q 'db.test.local'"
+      exit_code: 0
+
+timeout: 3m

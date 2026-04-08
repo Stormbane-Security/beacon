@@ -1,0 +1,41 @@
+name: nmap-ping-sweep
+description: >
+  Two nginx containers on different ports. Beacon nmap ping sweep should
+  discover both live hosts when scanning the Docker bridge network.
+tags: [nmap, scanner, network, ping-sweep]
+
+services:
+  web1:
+    image: nginx:1.25-alpine
+    ports: ["19900:80"]
+
+  web2:
+    image: nginx:1.25-alpine
+    ports: ["19901:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19900/ >/dev/null && curl -sf http://localhost:19901/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-web1-alive
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19900/ >/dev/null"
+      exit_code: 0
+
+  - name: exploit-web2-alive
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19901/ >/dev/null"
+      exit_code: 0
+
+  - name: detects-ping-sweep-host
+    type: beacon
+    target: localhost:19900
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: nmap.service_version
+
+timeout: 5m

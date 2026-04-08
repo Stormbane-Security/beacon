@@ -1,0 +1,77 @@
+name: proxy-smuggling-chain
+description: >
+  Multi-container setup: HAProxy frontend → Nginx backend with different
+  request parsing. Tests proxy misconfiguration detection, header smuggling,
+  and backend service exposure through proxy bypass.
+tags: [proxy, smuggling, multi-container, chain, gateway]
+
+services:
+  # Frontend reverse proxy
+  haproxy:
+    image: haproxy:2.9-alpine
+    ports: ["18080:80"]
+    volumes:
+      - ./fixtures/proxy-smuggling/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on: [backend]
+
+  # Backend application (exposed through proxy, also has direct port for comparison)
+  backend:
+    image: nginx:alpine
+    ports: ["18081:80"]
+    volumes:
+      - ./fixtures/proxy-smuggling/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fixtures/proxy-smuggling/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:18080/ >/dev/null && curl -sf http://localhost:18081/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Verify proxy is routing traffic
+  - name: proxy-routes-to-backend
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18080/ | grep -q 'backend'"
+      exit_code: 0
+
+  # Backend is also directly accessible (misconfiguration)
+  - name: backend-directly-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18081/ | grep -q 'backend'"
+      exit_code: 0
+
+  # Beacon detects the proxy
+  - name: detects-haproxy
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--scanners", "gateway,secheaders,wafdetect"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # Beacon detects missing security headers through proxy
+  - name: detects-missing-headers-via-proxy
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Beacon detects the backend directly — different fingerprint than proxy
+  - name: detects-backend-direct
+    type: beacon
+    target: localhost:18081
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Deep scan through proxy — test hop-by-hop header handling
+  - name: deep-proxy-scan
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--scanners", "hopbyhop,httpmethods", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

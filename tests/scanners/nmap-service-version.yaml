@@ -1,0 +1,49 @@
+name: nmap-service-version
+description: >
+  Nginx (HTTP) and Redis on their standard ports. Beacon nmap service
+  version detection should identify both services without --ports flag.
+tags: [nmap, scanner, network, service-version]
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    ports: ["19903:80"]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["19904:6379"]
+
+ready:
+  cmd: "curl -sf http://localhost:19903/ >/dev/null && redis-cli -h localhost -p 19904 PING 2>/dev/null | grep -q PONG"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-nginx-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19903/ | grep -qi 'nginx\\|welcome'"
+      exit_code: 0
+
+  - name: exploit-redis-responds
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 19904 PING | grep -q PONG"
+      exit_code: 0
+
+  - name: detects-nginx-service-version
+    type: beacon
+    target: localhost:19903
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: nmap.service_version
+
+  - name: detects-redis-service-version
+    type: beacon
+    target: localhost:19904
+    args: ["--no-enrich", "--scanners", "portscan"]
+    expect:
+      check_id: nmap.service_version
+
+timeout: 5m

@@ -13,6 +13,7 @@ package surface
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -29,11 +30,14 @@ import (
 	"github.com/stormbane-security/beacon/internal/auth"
 	"github.com/stormbane-security/beacon/internal/config"
 	"github.com/stormbane-security/beacon/internal/enrichment"
+	"github.com/stormbane-security/beacon/internal/exploitcache"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
 	"github.com/stormbane-security/beacon/internal/playbook"
 	"github.com/stormbane-security/beacon/internal/scanner/classify"
+	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/vulndb"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 	"github.com/stormbane-security/beacon/internal/scanner/assetintel"
 	"github.com/stormbane-security/beacon/internal/scanner/bgp"
@@ -62,7 +66,9 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/httpmethods"
 	_ "github.com/stormbane-security/beacon/internal/scanner/smuggling"
 	_ "github.com/stormbane-security/beacon/internal/scanner/websocket"
+	_ "github.com/stormbane-security/beacon/internal/scanner/apifuzz"
 	_ "github.com/stormbane-security/beacon/internal/scanner/takeover"
+	_ "github.com/stormbane-security/beacon/internal/scanner/wafbypass"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wafdetect"
 	_ "github.com/stormbane-security/beacon/internal/scanner/oauth"
 	_ "github.com/stormbane-security/beacon/internal/scanner/ratelimit"
@@ -103,6 +109,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
+	_ "github.com/stormbane-security/beacon/internal/scanner/correlation"
 	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
 	_ "github.com/stormbane-security/beacon/internal/scanner/elinjection"
 	_ "github.com/stormbane-security/beacon/internal/scanner/containerimage"
@@ -154,6 +161,7 @@ import (
 
 // Module is the Surface scan module.
 type Module struct {
+	vulndbURL string // URL of beacon-vulndb service (auto-upload findings)
 	// Asset discovery
 	subdomainScanner  *subdomain.PassiveScanner
 	passiveDNSScanner *passivedns.Scanner
@@ -239,7 +247,6 @@ type Module struct {
 type Config struct {
 	NucleiBin         string
 	SubfinderBin      string
-	AmmassBin         string
 	TestsslBin        string
 	GauBin            string
 	KatanaBin         string
@@ -412,8 +419,11 @@ func New(cfg Config) (*Module, error) {
 	scannerCfg := moduleScannerConfig(cfg)
 	scannerMap := scan.Build(scannerCfg)
 
-	// Special cases: nuclei shares a single instance for "tls" and is
-	// not in the registry because it requires per-module configuration.
+	// Special cases: nuclei shares a single instance and is not in the
+	// scan.Build registry because it requires per-module configuration.
+	// Register under both "nuclei" (for --scanners nuclei) and "tls"
+	// (legacy alias for TLS-specific template runs).
+	scannerMap["nuclei"] = nucl
 	scannerMap["tls"] = nucl
 
 	// Clamp depth and asset limits to their hard ceilings.
@@ -458,7 +468,7 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	return &Module{
-		subdomainScanner:  subdomain.NewPassiveWithKeys(cfg.SubfinderBin, cfg.AmmassBin, cfg.OTXAPIKey),
+		subdomainScanner:  subdomain.NewPassiveWithKeys(cfg.SubfinderBin, cfg.OTXAPIKey),
 		passiveDNSScanner: passivedns.New(),
 		whoisScanner:      whois.New(),
 		bgpScanner:        bgp.New(),
@@ -1279,6 +1289,23 @@ assetLoop:
 	// the same asset, the native finding has richer evidence and proof commands.
 	allFindings = deduplicateFindings(allFindings)
 
+	// Persist verified findings to the exploit cache for reuse in future scans.
+	if cache := exploitcache.CacheFromContext(ctx); cache != nil {
+		for _, f := range allFindings {
+			if f.Confidence != finding.ConfidenceVerified {
+				continue
+			}
+			service, _ := f.Evidence[finding.EvidenceService].(string)
+			if service == "" {
+				service, _ = f.Evidence[finding.EvidencePivotTarget].(string)
+			}
+			version, _ := f.Evidence[finding.EvidenceVersion].(string)
+			if service != "" {
+				_ = cache.SaveFromFinding(f, service, version)
+			}
+		}
+	}
+
 	return allFindings, nil
 }
 
@@ -1317,6 +1344,19 @@ func deduplicateFindings(findings []finding.Finding) []finding.Finding {
 // convergence loops — just the bare scanner runs. Used by --scanners mode
 // for targeted testing (e.g. Drydock).
 func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) []finding.Finding {
+	// Inject auth context for filtered scanner runs (--scanners mode).
+	// The normal runAsset path does this after evidence collection, but the
+	// filtered path skips evidence — auth must be injected here.
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	if len(m.authCfgs) > 0 {
+		if authedClient, _, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
+			_ = err
+		} else if authedClient != nil {
+			httpClient = authedClient
+		}
+	}
+	ctx = authctx.WithHTTPClient(ctx, httpClient)
+
 	var findings []finding.Finding
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -1417,15 +1457,36 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// Pre-scan authentication: if an AuthConfig matches this asset, wrap the
 	// base http.Client to inject credentials into all scanner requests.
 	httpClient := &http.Client{Timeout: 30 * time.Second}
+	var authHeaders map[string]string
 	if len(m.authCfgs) > 0 {
 		if authedClient, session, err := auth.Authenticate(ctx, m.authCfgs, asset, httpClient); err != nil {
 			// Log but don't abort — fall back to unauthenticated scan.
 			_ = err
 		} else if authedClient != nil {
 			httpClient = authedClient
-			_ = session // session.Label available for logging if verbose
+			if session != nil && len(session.Headers) > 0 {
+				authHeaders = session.Headers
+			}
 		}
 	}
+
+	// Wrap the HTTP transport with the evasion MonitoredTransport so every
+	// scanner request is checked for WAF/IDS/rate-limit signals automatically.
+	// The monitor is stored in context so scanners can call monitor.Blocked()
+	// before sending additional probes.
+	evasionMonitor := evasion.NewMonitor(m.evasionStrategy)
+	adaptiveRate := evasion.NewAdaptiveRate(0, 30*time.Second) // start unlimited, max 30s between requests
+	baseTransport := httpClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	httpClient.Transport = &evasion.MonitoredTransport{
+		Base:    baseTransport,
+		Monitor: evasionMonitor,
+		Rate:    adaptiveRate,
+	}
+	ctx = evasion.WithMonitor(ctx, evasionMonitor)
+
 	ctx = authctx.WithHTTPClient(ctx, httpClient)
 
 	// Post-auth re-classify: if we authenticated, re-fingerprint the asset with
@@ -1462,6 +1523,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// evidence) to scanners via scan.FromContext(ctx). Coexists with authctx
 	// for backward compatibility.
 	sctx := scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+	if authHeaders != nil {
+		sctx.WithAuthHeaders(authHeaders)
+	}
 	ctx = sctx.Inject(ctx)
 
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
@@ -2054,6 +2118,37 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		findings = append(findings, *aifpUnknownFinding)
 	}
 
+	// ── Parameter discovery from crawl results ───────────────────────────────
+	// Extract URLs from crawler findings and discover parameters from URL query
+	// strings so web vuln scanners triggered in the convergence loop (sqli, ssrf,
+	// cmdinj, ssti, xxe, pathtraversal) can probe discovered parameters alongside
+	// their hardcoded lists. Runs after Phase B (crawler has finished) and before
+	// the convergence loop (web vuln scanners may be triggered there).
+	{
+		var crawlURLs []string
+		for _, f := range findings {
+			if f.CheckID != finding.CheckAssetCrawlEndpoints {
+				continue
+			}
+			switch v := f.Evidence["endpoints"].(type) {
+			case []string:
+				crawlURLs = append(crawlURLs, v...)
+			case []interface{}:
+				for _, item := range v {
+					if s, ok := item.(string); ok {
+						crawlURLs = append(crawlURLs, s)
+					}
+				}
+			}
+		}
+		if len(crawlURLs) > 0 {
+			discoveredParams := paramdiscovery.ExtractFromURLs(crawlURLs)
+			if len(discoveredParams) > 0 {
+				ctx = paramdiscovery.WithDiscoveredParams(ctx, discoveredParams)
+			}
+		}
+	}
+
 	// ── Evidence convergence loop ─────────────────────────────────────────────
 	// After Phase B completes, extract new check IDs from findings and re-match
 	// playbooks. Run any newly matched scanners that haven't run yet. Also runs
@@ -2195,9 +2290,17 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}
 	}
 
+	// ── Evasion monitor findings ─────────────────────────────────────────────
+	// Collect any IDS/WAF/rate-limit detections the monitor observed during all
+	// scanner phases and append them to the findings list.
+	if monitorFindings := evasionMonitor.Findings(); len(monitorFindings) > 0 {
+		findings = append(findings, monitorFindings...)
+	}
+
 	// ── Post-scan classify helpers (after wg.Wait — no concurrent writes) ─────
 	// Run after goroutines finish to avoid data races on the findings slice.
 	findings = append(findings, classify.CheckVersions(ev, asset)...)
+	findings = append(findings, classify.CheckOSVVersions(ctx, ev, asset)...)
 	if tf := classify.EmitTechStackFinding(ev, asset); tf != nil {
 		findings = append(findings, *tf)
 	}
@@ -2435,6 +2538,49 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			FindingsCount:     len(findings),
 			CreatedAt:         time.Now(),
 		})
+	}
+
+	// Auto-upload findings to vulndb if configured.
+	// This populates the database with every scan's results automatically:
+	// fingerprints, findings, verified payloads, credentials, topology.
+	if m.vulndbURL != "" {
+		go func() {
+			vc := vulndb.NewClient(m.vulndbURL)
+			if err := func() error { b, err := json.Marshal(findings); if err != nil { return err }; return vc.UploadFindings(rootDomain, b) }(); err != nil {
+				// Non-fatal — vulndb may not be running
+				_ = err
+			}
+			// Save fingerprints from classify/detection findings
+			for _, f := range findings {
+				if svc, ok := f.Evidence[finding.EvidenceService].(string); ok && svc != "" {
+					ver, _ := f.Evidence[finding.EvidenceVersion].(string)
+					_ = vc.SaveFingerprint(vulndb.ServiceFingerprint{
+						Domain:  rootDomain,
+						Service: svc,
+						Version: ver,
+						LastSeen: time.Now(),
+					})
+				}
+			}
+			// Save verified payloads
+			for _, f := range findings {
+				if f.Confidence == finding.ConfidenceVerified {
+					svc, _ := f.Evidence[finding.EvidenceService].(string)
+					ver, _ := f.Evidence[finding.EvidenceVersion].(string)
+					if svc != "" {
+						_ = vc.SavePayload(vulndb.VerifiedPayload{
+							Service:    svc,
+							Version:    ver,
+							VulnClass:  string(f.CheckID),
+							CVEID:      fmt.Sprintf("%v", f.Evidence["cve_id"]),
+							Payload:    fmt.Sprintf("%v", f.Evidence[finding.EvidencePayload]),
+							ProofCommand:   f.ProofCommand,
+							Confidence: f.Confidence,
+						})
+					}
+				}
+			}
+		}()
 	}
 
 	return findings

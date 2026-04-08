@@ -46,7 +46,7 @@ assertions:
   - name: exploit-bypass-returns-real-content
     type: command
     expect:
-      command: "curl -s -X POST http://localhost:9310/admin | grep -q 'Admin panel accessible'"
+      command: "curl -s -X POST http://localhost:9310/admin | grep -q 'Admin panel accessible via verb tampering'"
       exit_code: 0
 
   - name: exploit-second-protected-path-also-bypassable

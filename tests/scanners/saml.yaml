@@ -77,6 +77,6 @@ assertions:
     target: localhost:9268
     args: ["--no-enrich", "--scanners", "saml"]
     expect:
-      check_id: saml.endpoint_exposed
+      check_id: saml.metadata_exposed
 
 timeout: 10m

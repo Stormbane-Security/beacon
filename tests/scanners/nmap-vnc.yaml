@@ -20,8 +20,8 @@ ready:
 assertions:
   - name: nmap-vnc-info-noauth
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "15900"]
+    target: localhost:15900
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.vnc_no_auth
 

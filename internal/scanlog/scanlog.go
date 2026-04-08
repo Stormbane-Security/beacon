@@ -203,6 +203,23 @@ func (l *Logger) ProbeAttempt(scanner, target, probeType string, success bool, d
 	)
 }
 
+// ProbeTimed logs a probe with its duration for performance analysis.
+func (l *Logger) ProbeTimed(scanner, target, probe string, duration time.Duration, status int, err error) {
+	attrs := []any{
+		slog.String("scanner", scanner),
+		slog.String("target", target),
+		slog.String("probe", probe),
+		slog.Duration("duration", duration),
+	}
+	if status > 0 {
+		attrs = append(attrs, slog.Int("status", status))
+	}
+	if err != nil {
+		attrs = append(attrs, slog.String("error", err.Error()))
+	}
+	l.Debug("probe.timed", attrs...)
+}
+
 // ParseLevel converts a string level name to slog.Level.
 func ParseLevel(s string) slog.Level {
 	switch s {

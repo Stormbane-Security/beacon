@@ -20,8 +20,31 @@ type nmapRun struct {
 }
 
 type nmapHost struct {
-	Ports []nmapPort `xml:"ports>port"`
-	OS    nmapOS     `xml:"os"`
+	Addresses []nmapAddress `xml:"address"`
+	Status    nmapStatus    `xml:"status"`
+	Ports     []nmapPort    `xml:"ports>port"`
+	OS        nmapOS        `xml:"os"`
+	Trace     nmapTrace     `xml:"trace"`
+}
+
+type nmapAddress struct {
+	Addr     string `xml:"addr,attr"`
+	AddrType string `xml:"addrtype,attr"`
+}
+
+type nmapStatus struct {
+	State string `xml:"state,attr"`
+}
+
+type nmapTrace struct {
+	Hops []nmapHop `xml:"hop"`
+}
+
+type nmapHop struct {
+	TTL    int    `xml:"ttl,attr"`
+	IPAddr string `xml:"ipaddr,attr"`
+	RTT    string `xml:"rtt,attr"`
+	Host   string `xml:"host,attr"`
 }
 
 type nmapOS struct {
@@ -98,32 +121,69 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 		"-p", portList,
 	}
 
-	// Surface mode: add targeted NSE scripts for common misconfigs.
-	// Scripts used are information-gathering only (no exploitation).
-	surfaceScripts := []string{
-		// Existing
-		"ssh-auth-methods",
-		"ssh2-enum-algos",
-		"dns-recursion",
-		"ftp-anon",
-		"snmp-info",
-		"banner",
-		// Fingerprinting
-		"smb-os-discovery",  // OS, domain, hostname from SMB
-		"ssl-cert",          // TLS certificate details (expiry, CN, issuer)
-		"http-title",        // HTML page title
-		"http-robots.txt",   // robots.txt disallowed paths
-		"nbstat",            // NetBIOS name/domain/MAC
-		"smtp-commands",     // SMTP VRFY/EXPN enumeration
-		"vnc-info",          // VNC auth type (none = open desktop)
-		"rdp-enum-encryption", // RDP encryption level (NLA check)
-		"telnet-encryption", // Telnet without encryption
-		// Vulnerability detection
-		"smb-security-mode", // SMB signing not required
-		"http-methods",      // Dangerous methods (PUT/DELETE/TRACE)
-		"ntp-monlist",       // NTP amplification (DDoS)
+	// Surface mode: add targeted NSE scripts based on IDENTIFIED services.
+	// Only run scripts relevant to what we already found — don't run SSH
+	// scripts against HTTP ports or SMB scripts against Redis.
+	var surfaceScripts []string
+
+	// Always run these lightweight scripts
+	surfaceScripts = append(surfaceScripts, "banner")
+
+	// Add service-specific scripts based on what portscan identified
+	for _, svc := range openPorts {
+		switch svc {
+		case "http", "https":
+			surfaceScripts = append(surfaceScripts, "http-title", "http-robots.txt",
+				"http-server-header", "http-headers")
+		case "ssh":
+			surfaceScripts = append(surfaceScripts, "ssh-auth-methods", "ssh2-enum-algos")
+		case "smtp":
+			surfaceScripts = append(surfaceScripts, "smtp-commands")
+		case "ftp":
+			surfaceScripts = append(surfaceScripts, "ftp-anon")
+		case "smb":
+			surfaceScripts = append(surfaceScripts, "smb-os-discovery", "smb-security-mode",
+				"smb2-security-mode", "nbstat")
+		case "dns":
+			surfaceScripts = append(surfaceScripts, "dns-recursion")
+		case "snmp":
+			surfaceScripts = append(surfaceScripts, "snmp-info")
+		case "vnc":
+			surfaceScripts = append(surfaceScripts, "vnc-info")
+		case "rdp":
+			surfaceScripts = append(surfaceScripts, "rdp-enum-encryption")
+		case "telnet":
+			surfaceScripts = append(surfaceScripts, "telnet-encryption")
+		case "mysql", "postgres", "mssql":
+			surfaceScripts = append(surfaceScripts, "ms-sql-info", "mongodb-info")
+		}
 	}
-	args = append(args, "--script", strings.Join(surfaceScripts, ","))
+	// TLS scripts for any HTTPS or TLS-detected service
+	for port := range openPorts {
+		if port == 443 || port == 8443 || port == 9443 {
+			surfaceScripts = append(surfaceScripts, "ssl-cert", "ssl-enum-ciphers")
+			break
+		}
+	}
+	// Deduplicate
+	seen := map[string]bool{}
+	deduped := surfaceScripts[:0]
+	for _, s := range surfaceScripts {
+		if !seen[s] {
+			seen[s] = true
+			deduped = append(deduped, s)
+		}
+	}
+	surfaceScripts = deduped
+
+	// Legacy full list for reference (was running ALL of these on every port):
+	// ssh-auth-methods, ssh2-enum-algos, dns-recursion, ftp-anon, snmp-info,
+	// banner, smb-os-discovery, ssl-cert, http-title, http-robots.txt, nbstat,
+	// smtp-commands, vnc-info, rdp-enum-encryption, telnet-encryption,
+	// http-server-header, http-headers
+	if len(surfaceScripts) > 0 {
+		args = append(args, "--script", strings.Join(surfaceScripts, ","))
+	}
 
 	// Deep mode: add NSE vulnerability scripts and OS detection.
 	// These probe for specific CVEs — only allowed with explicit permission.
@@ -261,6 +321,37 @@ func parseNmapXML(asset string, data []byte, scanType module.ScanType, proofCmd 
 			if osF := buildOSFinding(asset, host.OS, proofCmd, now); osF != nil {
 				findings = append(findings, *osF)
 			}
+		}
+
+		// Traceroute finding (populated when --traceroute was used)
+		if len(host.Trace.Hops) > 0 {
+			hops := make([]map[string]any, 0, len(host.Trace.Hops))
+			for _, h := range host.Trace.Hops {
+				hop := map[string]any{
+					"ttl":    h.TTL,
+					"ipaddr": h.IPAddr,
+					"rtt":    h.RTT,
+				}
+				if h.Host != "" {
+					hop["host"] = h.Host
+				}
+				hops = append(hops, hop)
+			}
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckNmapTraceroute,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityInfo,
+				Asset:       asset,
+				Title:       fmt.Sprintf("Traceroute: %d hops to %s", len(host.Trace.Hops), asset),
+				Description: fmt.Sprintf("nmap traceroute discovered %d network hops to %s. Hop data reveals intermediate routers and network topology.", len(host.Trace.Hops), asset),
+				Evidence: map[string]any{
+					"hops":      hops,
+					"hop_count": len(host.Trace.Hops),
+				},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			})
 		}
 
 		for _, port := range host.Ports {
@@ -744,6 +835,245 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 			}}
 		}
 
+	// ── Additional NSE script parsing (surface) ─────────────────────────
+
+	case "http-server-header":
+		// Server header reveals software name/version — useful for fingerprinting.
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapHTTPServerHeader,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("HTTP server header on port %d: %s", port, truncate(output, 80)),
+			Description:  fmt.Sprintf("The HTTP Server header reveals software information: %s. This assists attackers in identifying known vulnerabilities for the specific software version.", truncate(output, 200)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "server_header": output},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "http-headers":
+		// Parse response headers for missing security headers.
+		var issues []string
+		if !strings.Contains(lower, "x-frame-options") {
+			issues = append(issues, "X-Frame-Options missing")
+		}
+		if !strings.Contains(lower, "x-content-type-options") {
+			issues = append(issues, "X-Content-Type-Options missing")
+		}
+		if !strings.Contains(lower, "content-security-policy") {
+			issues = append(issues, "Content-Security-Policy missing")
+		}
+		if !strings.Contains(lower, "strict-transport-security") {
+			issues = append(issues, "Strict-Transport-Security missing")
+		}
+		if len(issues) > 0 {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapHTTPHeaders,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityInfo,
+				Asset:        asset,
+				Title:        fmt.Sprintf("HTTP security headers missing on port %d: %s", port, strings.Join(issues, ", ")),
+				Description:  fmt.Sprintf("HTTP response headers analysis on port %d found missing security headers: %s. These headers protect against clickjacking, MIME-sniffing, and protocol downgrade attacks.", port, strings.Join(issues, ", ")),
+				Evidence:     map[string]any{"port": port, "script": script.ID, "missing_headers": issues, "output": truncate(output, 500)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "ssl-enum-ciphers":
+		// Flag weak protocol versions or export/weak cipher suites.
+		var weakProtos []string
+		weakCipherPatterns := []string{"export", "des-cbc", "rc4", "null", "anon"}
+		if strings.Contains(lower, "sslv3") {
+			weakProtos = append(weakProtos, "SSLv3")
+		}
+		if strings.Contains(lower, "tlsv1.0") {
+			weakProtos = append(weakProtos, "TLSv1.0")
+		}
+		var weakCiphersFound []string
+		for _, wc := range weakCipherPatterns {
+			if strings.Contains(lower, wc) {
+				weakCiphersFound = append(weakCiphersFound, wc)
+			}
+		}
+		if len(weakProtos) > 0 || len(weakCiphersFound) > 0 {
+			desc := fmt.Sprintf("TLS cipher enumeration on port %d found weak configurations.", port)
+			if len(weakProtos) > 0 {
+				desc += fmt.Sprintf(" Deprecated protocols: %s.", strings.Join(weakProtos, ", "))
+			}
+			if len(weakCiphersFound) > 0 {
+				desc += fmt.Sprintf(" Weak cipher patterns: %s.", strings.Join(weakCiphersFound, ", "))
+			}
+			desc += " Disable deprecated protocols and weak cipher suites to prevent downgrade and cryptographic attacks."
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapSSLEnumCiphers,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Title:        fmt.Sprintf("Weak TLS ciphers/protocols on port %d", port),
+				Description:  desc,
+				Evidence:     map[string]any{"port": port, "script": script.ID, "weak_protocols": weakProtos, "weak_ciphers": weakCiphersFound, "output": truncate(output, 500)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "ssh-hostkey":
+		// Check for weak key types (DSA) or small key sizes.
+		var weakKeys []string
+		if strings.Contains(lower, "ssh-dss") {
+			weakKeys = append(weakKeys, "DSA")
+		}
+		// Look for RSA keys < 2048 bits: pattern like "1024" before "ssh-rsa"
+		if strings.Contains(lower, "1024") && strings.Contains(lower, "ssh-rsa") {
+			weakKeys = append(weakKeys, "RSA-1024")
+		}
+		sev := finding.SeverityInfo
+		title := fmt.Sprintf("SSH host key info on port %d", port)
+		if len(weakKeys) > 0 {
+			sev = finding.SeverityHigh
+			title = fmt.Sprintf("SSH weak host key on port %d: %s", port, strings.Join(weakKeys, ", "))
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapSSHHostKey,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     sev,
+			Asset:        asset,
+			Title:        title,
+			Description:  fmt.Sprintf("SSH host key information on port %d. %s. DSA keys are deprecated and RSA keys under 2048 bits are considered weak.", port, truncate(output, 200)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "weak_keys": weakKeys, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "http-auth":
+		// HTTP basic/digest authentication found — credential attack surface.
+		authType := "unknown"
+		if strings.Contains(lower, "basic") {
+			authType = "Basic"
+		} else if strings.Contains(lower, "digest") {
+			authType = "Digest"
+		} else if strings.Contains(lower, "ntlm") {
+			authType = "NTLM"
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapHTTPAuth,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityInfo,
+			Asset:        asset,
+			Title:        fmt.Sprintf("HTTP %s authentication on port %d", authType, port),
+			Description:  fmt.Sprintf("The web server on port %d requires %s authentication. Basic auth transmits credentials in Base64 (effectively cleartext without TLS). This endpoint is a target for brute-force attacks.", port, authType),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "auth_type": authType, "output": truncate(output, 300)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "vulners":
+		// Parse CVE identifiers from vulners script output.
+		// Output typically contains lines like: "CVE-2021-44228  10.0  ..."
+		var cves []string
+		for _, line := range strings.Split(output, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "CVE-") {
+				parts := strings.Fields(trimmed)
+				if len(parts) > 0 {
+					cves = append(cves, parts[0])
+				}
+			}
+		}
+		if len(cves) == 0 {
+			return nil
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapVulners,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityHigh,
+			Asset:        asset,
+			Title:        fmt.Sprintf("CVE matches from vulners on port %d: %s", port, truncate(strings.Join(cves, ", "), 80)),
+			Description:  fmt.Sprintf("The vulners NSE script matched %d CVE(s) against the service on port %d based on version detection. Verify these against the actual installed version and patch status.", len(cves), port),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "cves": cves, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "http-cookie-flags":
+		// Check for missing Secure or HttpOnly flags.
+		var issues []string
+		if strings.Contains(lower, "httponly flag is not set") || (strings.Contains(lower, "httponly") && strings.Contains(lower, "not set")) {
+			issues = append(issues, "HttpOnly missing")
+		}
+		if strings.Contains(lower, "secure flag is not set") || (strings.Contains(lower, "secure") && strings.Contains(lower, "not set")) {
+			issues = append(issues, "Secure missing")
+		}
+		if len(issues) == 0 {
+			return nil
+		}
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapHTTPCookieFlags,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityMedium,
+			Asset:        asset,
+			Title:        fmt.Sprintf("Cookie flag issues on port %d: %s", port, strings.Join(issues, ", ")),
+			Description:  fmt.Sprintf("HTTP cookies on port %d are missing security flags: %s. Without HttpOnly, cookies are accessible via JavaScript (XSS theft). Without Secure, cookies are sent over unencrypted HTTP connections.", port, strings.Join(issues, ", ")),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "issues": issues, "output": truncate(output, 400)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "smb2-security-mode":
+		// SMB2/3 signing not required — relay attack risk.
+		if strings.Contains(lower, "message signing enabled but not required") || strings.Contains(lower, "message signing is disabled") {
+			return []finding.Finding{{
+				CheckID:      finding.CheckNmapSMB2SecurityMode,
+				Module:       "surface",
+				Scanner:      scannerName,
+				Severity:     finding.SeverityHigh,
+				Asset:        asset,
+				Title:        fmt.Sprintf("SMB2 signing not required on port %d", port),
+				Description:  "SMB2/3 message signing is enabled but not required (or disabled). This allows man-in-the-middle and SMB relay attacks. Configure the server to require SMB signing via Group Policy or registry.",
+				Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 300)},
+				ProofCommand: proofCmd,
+				DiscoveredAt: now,
+			}}
+		}
+
+	case "ms-sql-info":
+		// Any successful info dump means MSSQL is exposed and responding.
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapMSSQLInfo,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityHigh,
+			Asset:        asset,
+			Title:        fmt.Sprintf("Exposed MSSQL instance on port %d", port),
+			Description:  fmt.Sprintf("An MSSQL server on port %d is responding to information queries, exposing instance name, version, and configuration details. Database servers should not be directly accessible from the internet. %s", port, truncate(output, 200)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
+	case "mongodb-info":
+		// Any successful info dump means MongoDB is exposed.
+		return []finding.Finding{{
+			CheckID:      finding.CheckNmapMongoDBInfo,
+			Module:       "surface",
+			Scanner:      scannerName,
+			Severity:     finding.SeverityHigh,
+			Asset:        asset,
+			Title:        fmt.Sprintf("Exposed MongoDB instance on port %d", port),
+			Description:  fmt.Sprintf("A MongoDB server on port %d is responding to information queries. Exposed MongoDB instances are frequently targeted for data theft and ransomware. Restrict network access and enable authentication. %s", port, truncate(output, 200)),
+			Evidence:     map[string]any{"port": port, "script": script.ID, "output": truncate(output, 500)},
+			ProofCommand: proofCmd,
+			DiscoveredAt: now,
+		}}
+
 	// ── Deep-mode vulnerability scripts ──────────────────────────────────
 
 	case "smtp-open-relay":
@@ -832,6 +1162,64 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+// nmapPingSweep runs `nmap -sn` against a CIDR range and returns the IP
+// addresses of hosts that responded to ping (ICMP echo, TCP SYN to 443/80,
+// ICMP timestamp). This is used for subnet scanning — discovering which hosts
+// are alive before port scanning them.
+// Returns nil when nmapBin is "" or nmap fails.
+func (s *Scanner) nmapPingSweep(ctx context.Context, cidr string) ([]string, error) {
+	if s.nmapBin == "" {
+		return nil, fmt.Errorf("nmap binary not configured")
+	}
+
+	args := []string{
+		"-sn",
+		"-oX", "-",
+		cidr,
+	}
+
+	sweepTimeout := 5 * time.Minute
+	sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(sweepCtx, s.nmapBin, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if stdout.Len() == 0 {
+			return nil, fmt.Errorf("nmap ping sweep failed: %w: %s", err, stderr.String())
+		}
+		// nmap may exit non-zero but still produce partial XML — parse what we have.
+	}
+
+	return parsePingSweepXML(stdout.Bytes())
+}
+
+// parsePingSweepXML extracts live host IPs from nmap -sn XML output.
+func parsePingSweepXML(data []byte) ([]string, error) {
+	var run nmapRun
+	if err := xml.Unmarshal(data, &run); err != nil {
+		return nil, fmt.Errorf("parse nmap ping sweep XML: %w", err)
+	}
+
+	var hosts []string
+	for _, host := range run.Hosts {
+		// Only include hosts that are up.
+		if host.Status.State != "up" {
+			continue
+		}
+		for _, addr := range host.Addresses {
+			if addr.AddrType == "ipv4" || addr.AddrType == "ipv6" {
+				hosts = append(hosts, addr.Addr)
+				break // one IP per host is sufficient
+			}
+		}
+	}
+	return hosts, nil
 }
 
 // extractField pulls a value from "key=value" or "key: value" patterns in

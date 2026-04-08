@@ -66,12 +66,12 @@ assertions:
       command: "curl -sf http://localhost:18072/sonarqube/ | grep -qi sonarqube"
       exit_code: 0
 
-  # Scanner: detect gateway/proxy
-  - name: detects-nginx-proxy
+  # Scanner: detect server header leak (nginx version disclosure)
+  - name: detects-server-header-leak
     type: beacon
     target: localhost:18072
-    args: ["--no-enrich", "--scanners", "gateway"]
+    args: ["--no-enrich", "--scanners", "secheaders"]
     expect:
-      check_id: gateway.nginx_default_page
+      check_id: headers.server_info_leak
 
 timeout: 10m

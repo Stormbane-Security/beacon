@@ -1,0 +1,52 @@
+name: oauth-misconfigured
+description: >
+  OAuth2 provider (Keycloak) with misconfigured client — implicit flow allowed,
+  missing PKCE, weak state parameter. Beacon should detect OAuth misconfigurations
+  including open redirect in redirect_uri, missing state validation, and
+  token exposure in URL fragments.
+tags: [oauth, auth, keycloak, misconfiguration, deep]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    ports: ["18180:8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    command: ["start-dev"]
+
+ready:
+  cmd: "curl -sf http://localhost:18180/health/ready 2>/dev/null | grep -q UP"
+  timeout: 180s
+  interval: 10s
+
+run:
+  # Create a realm and misconfigured client via admin API
+  - "TOKEN=$(curl -sf -X POST http://localhost:18180/realms/master/protocol/openid-connect/token -d 'grant_type=password&client_id=admin-cli&username=admin&password=admin' | grep -o '\"access_token\":\"[^\"]*' | cut -d'\"' -f4) && curl -sf -X POST http://localhost:18180/admin/realms -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"realm\":\"test\",\"enabled\":true}' -o /dev/null && curl -sf -X POST http://localhost:18180/admin/realms/test/clients -H \"Authorization: Bearer $TOKEN\" -H 'Content-Type: application/json' -d '{\"clientId\":\"vuln-app\",\"enabled\":true,\"publicClient\":true,\"implicitFlowEnabled\":true,\"standardFlowEnabled\":true,\"directAccessGrantsEnabled\":true,\"redirectUris\":[\"*\"],\"webOrigins\":[\"*\"]}' -o /dev/null"
+
+assertions:
+  # Pre-flight: Keycloak is running
+  - name: keycloak-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:18180/realms/test/.well-known/openid-configuration | grep -q authorization_endpoint"
+      exit_code: 0
+
+  # Beacon detects OIDC/OAuth endpoints
+  - name: detects-oidc-discovery
+    type: beacon
+    target: localhost:18180
+    args: ["--no-enrich", "--scanners", "oauth,wellknown"]
+    expect:
+      check_id: wellknown.oidc_discovery
+
+  # Deep: detects implicit flow
+  - name: detects-implicit-flow
+    type: beacon
+    target: localhost:18180
+    args: ["--no-enrich", "--scanners", "oauth", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: oauth.implicit_flow_accepted
+
+timeout: 10m

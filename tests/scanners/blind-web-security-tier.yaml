@@ -1,0 +1,128 @@
+name: blind-web-security-tier
+description: >
+  Blind scan of 8 web services testing security header detection, CORS,
+  exposed files, cache behavior, and CMS fingerprinting. Exercises the
+  web security scanners (secheaders, cors, exposedfiles, cookie, etc.)
+  across different web stacks.
+tags: [blind, web, headers, cors, cookies, cms, integration, accuracy]
+
+services:
+  # nginx — missing security headers, CORS wildcard
+  nginx-vuln:
+    image: nginx:alpine
+    ports: ["19820:80"]
+    volumes:
+      - ./blind-web-security/nginx-vuln.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # nginx — properly secured (negative test)
+  nginx-secure:
+    image: nginx:alpine
+    ports: ["19821:80"]
+    volumes:
+      - ./blind-web-security/nginx-secure.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # WordPress
+  wordpress-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wppass
+
+  wordpress:
+    image: wordpress:6.4-apache
+    ports: ["19822:80"]
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wppass
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      - wordpress-db
+
+  # Ghost CMS
+  ghost:
+    image: ghost:5-alpine
+    ports: ["19823:2368"]
+    environment:
+      NODE_ENV: development
+      url: "http://localhost:19823"
+
+  # Spring Boot (actuator)
+  springboot:
+    image: arey/springboot-petclinic:latest
+    ports: ["19824:8080"]
+
+  # httpbin (for header/cors testing)
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19825:8080"]
+    environment:
+      PORT: "8080"
+
+  # Apache with .htaccess
+  apache:
+    image: httpd:alpine
+    ports: ["19826:80"]
+
+  # Drupal
+  drupal:
+    image: drupal:10-apache
+    ports: ["19827:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19820/ -o /dev/null && curl -sf http://localhost:19821/ -o /dev/null && curl -sf http://localhost:19822/ -o /dev/null && curl -sf http://localhost:19824/ -o /dev/null"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # --- Vulnerable nginx: missing HSTS ---
+  - name: vuln-nginx-missing-hsts
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # --- Vulnerable nginx: server info leak ---
+  - name: vuln-nginx-server-leak
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # --- Vulnerable nginx: CORS wildcard ---
+  - name: vuln-nginx-cors-wildcard
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  # --- Secure nginx: no missing HSTS (negative) ---
+  - name: secure-nginx-no-hsts-finding
+    type: beacon
+    target: localhost:19821
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      not_check_id: headers.missing_hsts
+
+  # --- Spring Boot: actuator exposed ---
+  - name: springboot-actuator-exposed
+    type: beacon
+    target: localhost:19824
+    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    expect:
+      check_id: exposure.spring_actuator
+
+  # --- WordPress: CMS detected ---
+  - name: wordpress-detected
+    type: beacon
+    target: localhost:19822
+    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.plugin_found
+
+timeout: 15m

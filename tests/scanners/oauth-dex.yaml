@@ -1,0 +1,52 @@
+name: oauth-dex-oidc
+description: >
+  Dex OIDC provider (Go-based, fast startup). Tests OIDC discovery document
+  analysis, JWKS exposure, token endpoint probing. Dex starts in <2s vs
+  Keycloak's 60s+.
+tags: [oauth, scanner, web, dex, oidc, iam, fast]
+
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.38.0
+    ports: ["5556:5556"]
+    volumes:
+      - ./fixtures/oauth-dex/config.yaml:/etc/dex/config.yaml:ro
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+
+ready:
+  cmd: "curl -sf http://localhost:5556/.well-known/openid-configuration | grep -q issuer"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: OIDC discovery works
+  - name: oidc-discovery-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5556/.well-known/openid-configuration | grep -q authorization_endpoint"
+      exit_code: 0
+
+  # Pre-flight: JWKS endpoint accessible
+  - name: jwks-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5556/keys | grep -q keys"
+      exit_code: 0
+
+  # Beacon detects OIDC discovery
+  - name: detects-oidc-discovery
+    type: beacon
+    target: localhost:5556
+    args: ["--no-enrich", "--scanners", "oauth,wellknown"]
+    expect:
+      check_id: wellknown.oidc_discovery
+
+  # Beacon detects JWKS exposure
+  - name: detects-jwks-exposed
+    type: beacon
+    target: localhost:5556
+    args: ["--no-enrich", "--scanners", "oauth"]
+    expect:
+      check_id: oauth.token_in_url_fragment
+
+timeout: 3m

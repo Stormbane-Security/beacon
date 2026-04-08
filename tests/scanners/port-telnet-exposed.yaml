@@ -1,0 +1,32 @@
+name: port-telnet-exposed
+description: >
+  Busybox telnetd on port 23. Beacon should detect the exposed
+  telnet service.
+tags: [portscan, telnet, plaintext, detection]
+
+services:
+  telnet:
+    image: alpine:3.19
+    ports: ["23:23"]
+    command: ["sh", "-c", "apk add --no-cache busybox-extras && busybox telnetd -F -l /bin/sh -p 23"]
+
+ready:
+  cmd: "nc -z localhost 23"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: telnet-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 23"
+      exit_code: 0
+
+  - name: detects-telnet-exposed
+    type: beacon
+    target: localhost:23
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "23"]
+    expect:
+      check_id: port.telnet_exposed
+
+timeout: 5m

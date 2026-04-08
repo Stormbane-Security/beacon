@@ -1,0 +1,36 @@
+name: ntlm-info-leak
+description: >
+  Python server simulating NTLM authentication. Returns a valid NTLM
+  Type 2 challenge containing leaked domain/server names when a client
+  sends a Type 1 negotiate message. Beacon ntlm scanner should extract
+  the internal domain and server info from the challenge.
+tags: [ntlm, info-leak, scanner, windows]
+
+services:
+  app:
+    image: python:3.11-slim
+    ports: ["19902:8080"]
+    volumes:
+      - ./fixtures/ntlm-info-leak/app.py:/app/app.py:ro
+    command: ["python", "/app/app.py"]
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19902/ | grep -q 401"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  - name: exploit-ntlm-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19902/ | grep -qi 'WWW-Authenticate.*NTLM'"
+      exit_code: 0
+
+  - name: detects-ntlm-info-leak
+    type: beacon
+    target: localhost:19902
+    args: ["--no-enrich", "--scanners", "ntlm"]
+    expect:
+      check_id: ntlm.info_leak
+
+timeout: 3m

@@ -357,6 +357,56 @@ func TestParseOutput_EvidenceFields(t *testing.T) {
 	}
 }
 
+func TestParseOutput_CurlCommandAsProof(t *testing.T) {
+	input := []byte(`{"template-id":"expired-ssl","info":{"name":"Expired SSL","severity":"high","description":"desc","tags":["ssl","tls"],"reference":["https://example.com/advisory"]},"host":"https://example.com","matched-at":"https://example.com:443","curl-command":"curl -k https://example.com","matcher-name":"expired","type":"ssl","timestamp":"2025-01-15T10:00:00Z"}`)
+
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+
+	// ProofCommand should be populated from curl-command.
+	if findings[0].ProofCommand != "curl -k https://example.com" {
+		t.Errorf("ProofCommand = %q, want %q", findings[0].ProofCommand, "curl -k https://example.com")
+	}
+
+	// Evidence should include the new fields.
+	ev := findings[0].Evidence
+	if ev["matcher_name"] != "expired" {
+		t.Errorf("evidence matcher_name = %v, want %q", ev["matcher_name"], "expired")
+	}
+	if ev["type"] != "ssl" {
+		t.Errorf("evidence type = %v, want %q", ev["type"], "ssl")
+	}
+	tags, ok := ev["tags"].([]string)
+	if !ok || len(tags) != 2 {
+		t.Errorf("evidence tags = %v, want [ssl tls]", ev["tags"])
+	}
+	refs, ok := ev["references"].([]string)
+	if !ok || len(refs) != 1 {
+		t.Errorf("evidence references = %v, want [https://example.com/advisory]", ev["references"])
+	}
+}
+
+func TestParseOutput_NoCurlCommand(t *testing.T) {
+	input := []byte(`{"template-id":"test","info":{"name":"Test","severity":"info","description":"d"},"host":"h","matched-at":"m","timestamp":"2025-01-15T10:00:00Z"}`)
+
+	findings, err := parseOutput("example.com", input)
+	if err != nil {
+		t.Fatalf("parseOutput returned error: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	// ProofCommand should be empty when curl-command is absent.
+	if findings[0].ProofCommand != "" {
+		t.Errorf("ProofCommand = %q, want empty", findings[0].ProofCommand)
+	}
+}
+
 // ── TemplateAge tests ──────────────────────────────────────────────────────
 
 func TestTemplateAge_NoTemplateDir(t *testing.T) {

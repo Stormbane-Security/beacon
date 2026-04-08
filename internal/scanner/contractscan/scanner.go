@@ -44,6 +44,9 @@ func init() {
 		scan.Check(finding.CheckContractSelfDestruct, finding.SeverityCritical, finding.ModeDeep),
 		scan.Check(finding.CheckContractSourceExposed, finding.SeverityMedium, finding.ModeSurface),
 		scan.Check(finding.CheckContractUncheckedCall, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckContractUnprotectedWithdraw, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckContractApprovalUnlimited, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckContractFlashloanCallback, finding.SeverityHigh, finding.ModeDeep),
 	)
 }
 const scannerName = "contractscan"
@@ -248,7 +251,116 @@ func analyseSource(ctx context.Context, client *http.Client, address, apiKey str
 		}
 	}
 
+	// Unprotected withdraw/transfer functions — no access control modifier.
+	if containsUnprotectedWithdraw(source) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckContractUnprotectedWithdraw,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("Unprotected withdraw/transfer function in contract %s", result.ContractName),
+			Description: fmt.Sprintf(
+				"The contract %s (%s) contains a withdraw() or transfer() function that lacks "+
+					"access control modifiers (onlyOwner, require(msg.sender == ...), or a custom modifier). "+
+					"Any address may be able to call the function and drain contract funds.",
+				result.ContractName, address),
+			Asset: address,
+			Evidence: map[string]any{
+				"address":       address,
+				"contract_name": result.ContractName,
+				"pattern":       "unprotected_withdraw",
+			},
+			ProofCommand: fmt.Sprintf("slither %s --detect unprotected-ether-withdrawal 2>/dev/null", address),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Unlimited ERC20 approval patterns.
+	if containsUnlimitedApproval(sourceLower) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckContractApprovalUnlimited,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("Unlimited ERC20 approval pattern in contract %s", result.ContractName),
+			Description: fmt.Sprintf(
+				"The contract %s (%s) sets an ERC20 allowance to the maximum uint256 value "+
+					"(type(uint256).max, 2**256-1, or uint(-1)). If the approved spender contract is "+
+					"compromised or malicious, it can drain all tokens from the approving address in "+
+					"a single transaction.",
+				result.ContractName, address),
+			Asset: address,
+			Evidence: map[string]any{
+				"address":       address,
+				"contract_name": result.ContractName,
+				"pattern":       "unlimited_approval",
+			},
+			ProofCommand: fmt.Sprintf("slither %s --detect arbitrary-send-erc20 2>/dev/null", address),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	// Flash loan callback functions.
+	if containsFlashloanCallback(sourceLower) {
+		findings = append(findings, finding.Finding{
+			CheckID:  finding.CheckContractFlashloanCallback,
+			Module:   "deep",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("Flash loan callback function detected in contract %s", result.ContractName),
+			Description: fmt.Sprintf(
+				"The contract %s (%s) implements a flash loan callback (flashLoan, executeOperation, "+
+					"or onFlashLoan). If the callback does not properly validate the initiator or the "+
+					"lending pool address, an attacker can invoke it directly with crafted parameters "+
+					"to manipulate token balances or execute unauthorized operations.",
+				result.ContractName, address),
+			Asset: address,
+			Evidence: map[string]any{
+				"address":       address,
+				"contract_name": result.ContractName,
+				"pattern":       "flashloan_callback",
+			},
+			ProofCommand: fmt.Sprintf("slither %s --detect unchecked-transfer 2>/dev/null", address),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings
+}
+
+// containsUnprotectedWithdraw returns true when the source defines a withdraw
+// or transfer function without an access control modifier or inline require
+// check on msg.sender.
+func containsUnprotectedWithdraw(source string) bool {
+	lower := strings.ToLower(source)
+	hasFn := strings.Contains(lower, "function withdraw") ||
+		strings.Contains(lower, "function transfer")
+	if !hasFn {
+		return false
+	}
+	hasGuard := strings.Contains(lower, "onlyowner") ||
+		strings.Contains(lower, "require(msg.sender") ||
+		strings.Contains(lower, "modifier")
+	return !hasGuard
+}
+
+// containsUnlimitedApproval returns true when the (lowered) source contains
+// an ERC20 approve call that grants the maximum uint256 allowance.
+func containsUnlimitedApproval(sourceLower string) bool {
+	if !strings.Contains(sourceLower, "approve") {
+		return false
+	}
+	return strings.Contains(sourceLower, "type(uint256).max") ||
+		strings.Contains(sourceLower, "2**256") ||
+		strings.Contains(sourceLower, "uint(-1)")
+}
+
+// containsFlashloanCallback returns true when the (lowered) source defines
+// a flash loan callback function that could be invoked externally.
+func containsFlashloanCallback(sourceLower string) bool {
+	return strings.Contains(sourceLower, "function flashloan") ||
+		strings.Contains(sourceLower, "function executeoperation") ||
+		strings.Contains(sourceLower, "function onflashloan")
 }
 
 // containsReentrancyPattern returns true when the source contains an external

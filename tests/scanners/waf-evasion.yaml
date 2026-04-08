@@ -1,0 +1,79 @@
+name: waf-evasion-modsecurity
+description: >
+  ModSecurity WAF with OWASP CRS protecting a vulnerable httpbin backend.
+  Tests that beacon's evasion monitor detects the WAF, adapts scanning rate,
+  and still finds vulnerabilities behind the WAF where possible. Also tests
+  that beacon completes cleanly without crashing when WAF blocks payloads.
+tags: [waf, evasion, modsecurity, integration, accuracy]
+
+services:
+  # Backend: httpbin (vulnerable to header injection, SSRF, etc.)
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    environment:
+      PORT: "8080"
+
+  # WAF: ModSecurity with OWASP CRS (paranoia level 1)
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19900:8080"]
+    environment:
+      PARANOIA: "1"
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://httpbin:8080"
+      PORT: "8080"
+    depends_on:
+      - httpbin
+
+  # Unprotected: same httpbin without WAF (for comparison)
+  httpbin-direct:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19901:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19900/ >/dev/null && curl -sf http://localhost:19901/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: WAF is active and blocking SQLi
+  - name: waf-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19900/?q=%27%20OR%201%3D1--' | grep -q '403'"
+      exit_code: 0
+
+  # Pre-flight: unprotected httpbin allows the same request
+  - name: direct-allows-sqli-payload
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19901/?q=%27%20OR%201%3D1--' | grep -qE '200|400'"
+      exit_code: 0
+
+  # Beacon detects WAF on protected endpoint
+  - name: beacon-detects-waf
+    type: beacon
+    target: localhost:19900
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+  # Beacon scan completes cleanly behind WAF (no crash)
+  - name: beacon-completes-behind-waf
+    type: beacon
+    target: localhost:19900
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,exposedfiles"]
+    expect:
+      min_findings: 1
+
+  # Beacon finds more on unprotected endpoint than WAF endpoint
+  - name: beacon-finds-more-without-waf
+    type: beacon
+    target: localhost:19901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

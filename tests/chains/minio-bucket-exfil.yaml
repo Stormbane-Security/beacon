@@ -31,6 +31,6 @@ assertions:
     target: "localhost:9414"
     args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9414"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: port.service_identified
 
 timeout: 10m

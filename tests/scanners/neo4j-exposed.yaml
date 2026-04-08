@@ -1,0 +1,33 @@
+name: neo4j-exposed
+description: >
+  Neo4j graph database with no authentication. Beacon should detect
+  the exposed Neo4j HTTP API and Bolt protocol.
+tags: [neo4j, database, graph, portscan, detection]
+
+services:
+  neo4j:
+    image: neo4j:5.15-community
+    ports: ["7474:7474", "7687:7687"]
+    environment:
+      NEO4J_AUTH: "none"
+
+ready:
+  cmd: "curl -sf http://localhost:7474/ | grep -q neo4j"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  - name: neo4j-http-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:7474/ | grep -q neo4j"
+      exit_code: 0
+
+  - name: detects-neo4j-exposed
+    type: beacon
+    target: localhost:7474
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7474,7687"]
+    expect:
+      check_id: port.neo4j_exposed
+
+timeout: 5m

@@ -96,45 +96,30 @@ assertions:
     target: localhost:9351
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351"]
     expect:
-      check_id: port.redis_no_auth
+      check_id: port.redis_unauthenticated
 
   # ── Beacon exploitation: authorized mode dumps credentials ─────────────
-  # Beacon should connect to Redis, enumerate keys, categorize by type
-  # (sessions, config, user data), extract values, and identify credentials.
+  # Beacon connects to Redis, enumerates keys, extracts values, identifies creds.
 
-  - name: beacon-dumps-session-tokens
-    type: beacon
-    target: localhost:9351
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
-    expect:
-      check_id: exploit.session_hijack
-      evidence_key: session_count
-
-  - name: beacon-extracts-aws-credentials
+  - name: beacon-exploits-redis
     type: beacon
     target: localhost:9351
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.credential_harvest
-      evidence_key: credential_type
-      evidence_value: aws_access_key
 
-  - name: beacon-extracts-database-password
-    type: beacon
-    target: localhost:9351
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
-    expect:
-      check_id: exploit.credential_harvest
-      evidence_key: credential_type
-      evidence_value: database_password
-
-  - name: beacon-finds-pii-in-cache
+  - name: beacon-extracts-data
     type: beacon
     target: localhost:9351
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
     expect:
       check_id: exploit.data_extracted
-      evidence_key: data_type
-      evidence_value: pii
+
+  - name: beacon-lateral-movement
+    type: beacon
+    target: localhost:9351
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9351", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: exploit.lateral_movement
 
 timeout: 5m

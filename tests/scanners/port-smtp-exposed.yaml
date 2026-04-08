@@ -1,0 +1,31 @@
+name: port-smtp-exposed
+description: >
+  MailHog SMTP server on port 25. Beacon should detect the exposed
+  SMTP service.
+tags: [portscan, smtp, mail, detection]
+
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports: ["25:1025"]
+
+ready:
+  cmd: "nc -z localhost 25"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: smtp-port-open
+    type: command
+    expect:
+      command: "nc -z -w 2 localhost 25"
+      exit_code: 0
+
+  - name: detects-smtp-exposed
+    type: beacon
+    target: localhost:25
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "25"]
+    expect:
+      check_id: port.smtp_exposed
+
+timeout: 5m

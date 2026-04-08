@@ -318,6 +318,102 @@ func severityFromScore(score float64) string {
 	}
 }
 
+// Query checks a single package for known vulnerabilities. Convenience wrapper
+// around QueryBatch for the common case of one package at a time.
+func (c *Client) Query(ctx context.Context, q PackageQuery) (*PackageResult, error) {
+	results, err := c.QueryBatch(ctx, []PackageQuery{q})
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return &PackageResult{Query: q}, nil
+	}
+	return &results[0], nil
+}
+
+// ServiceToOSVQueries maps a beacon service name + version string to zero or
+// more OSV PackageQuery values. Server software like nginx or Apache is queried
+// against the NVD ecosystem (no ecosystem filter — OSV matches by CPE). For
+// language libraries detected in dependency manifests the ecosystem is set
+// directly (npm, PyPI, etc.).
+//
+// Returns nil if the service name is not mapped.
+func ServiceToOSVQueries(serviceName, version string) []PackageQuery {
+	if version == "" {
+		return nil
+	}
+
+	type mapping struct {
+		osvName   string
+		ecosystem string // empty = no ecosystem filter (uses commit/version matching)
+	}
+
+	// Map from beacon service tag / header value prefix to OSV query parameters.
+	// For C/C++ server software we omit ecosystem so OSV matches via NVD/CVE entries.
+	table := map[string]mapping{
+		// Web servers
+		"apache":        {osvName: "apache", ecosystem: ""},
+		"nginx":         {osvName: "nginx", ecosystem: ""},
+		"microsoft-iis": {osvName: "microsoft-iis", ecosystem: ""},
+		"tomcat":        {osvName: "apache-tomcat", ecosystem: ""},
+		"lighttpd":      {osvName: "lighttpd", ecosystem: ""},
+		"openresty":     {osvName: "openresty", ecosystem: ""},
+
+		// Language runtimes
+		"php": {osvName: "php", ecosystem: ""},
+
+		// CMS / platforms
+		"wordpress": {osvName: "wordpress", ecosystem: ""},
+		"drupal":    {osvName: "drupal", ecosystem: ""},
+		"joomla":    {osvName: "joomla", ecosystem: ""},
+
+		// Services detected by classify
+		"jenkins":    {osvName: "jenkins", ecosystem: ""},
+		"grafana":    {osvName: "grafana", ecosystem: ""},
+		"gitlab":     {osvName: "gitlab", ecosystem: ""},
+		"nextcloud":  {osvName: "nextcloud", ecosystem: ""},
+		"confluence": {osvName: "confluence", ecosystem: ""},
+		"jira":       {osvName: "jira", ecosystem: ""},
+		"gitea":      {osvName: "gitea", ecosystem: ""},
+		"kibana":     {osvName: "kibana", ecosystem: ""},
+		"sonarqube":  {osvName: "sonarqube", ecosystem: ""},
+		"harbor":     {osvName: "harbor", ecosystem: ""},
+		"rabbitmq":   {osvName: "rabbitmq", ecosystem: ""},
+
+		// npm packages
+		"express":  {osvName: "express", ecosystem: "npm"},
+		"lodash":   {osvName: "lodash", ecosystem: "npm"},
+		"next":     {osvName: "next", ecosystem: "npm"},
+		"nuxt":     {osvName: "nuxt", ecosystem: "npm"},
+		"react":    {osvName: "react", ecosystem: "npm"},
+		"angular":  {osvName: "@angular/core", ecosystem: "npm"},
+		"vue":      {osvName: "vue", ecosystem: "npm"},
+		"jquery":   {osvName: "jquery", ecosystem: "npm"},
+		"backbone": {osvName: "backbone", ecosystem: "npm"},
+
+		// Python frameworks
+		"django": {osvName: "django", ecosystem: "PyPI"},
+		"flask":  {osvName: "flask", ecosystem: "PyPI"},
+
+		// Ruby frameworks
+		"rails": {osvName: "rails", ecosystem: "RubyGems"},
+
+		// SSH servers
+		"openssh": {osvName: "openssh", ecosystem: ""},
+	}
+
+	m, ok := table[strings.ToLower(serviceName)]
+	if !ok {
+		return nil
+	}
+
+	return []PackageQuery{{
+		Name:      m.osvName,
+		Version:   version,
+		Ecosystem: m.ecosystem,
+	}}
+}
+
 // CVEIDs returns the CVE identifiers from a vulnerability's aliases.
 func (v *Vulnerability) CVEIDs() []string {
 	var cves []string
