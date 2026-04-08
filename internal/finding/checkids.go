@@ -316,6 +316,12 @@ const (
 	CheckBingDorkExposure CheckID = "asset.dork_exposure"
 
 	// CMS plugin enumeration — HTTP probe on well-known CMS paths → Surface
+	// Authentication surface — login forms, registration, SSO endpoints
+	CheckAuthLoginFormDetected   CheckID = "auth.login_form_detected"   // Login form found — credentials needed for deeper scanning
+	CheckAuthRegistrationOpen    CheckID = "auth.registration_open"     // Self-registration available — ephemeral account possible
+	CheckAuthSSOEndpoint         CheckID = "auth.sso_endpoint"          // SSO/OAuth/SAML login detected — needs SSO credentials
+	CheckAuthMFADetected         CheckID = "auth.mfa_detected"          // MFA/2FA required — automated login limited
+
 	CheckCMSPluginFound          CheckID = "cms.plugin_found"           // CMS plugin detected
 	CheckCMSPluginVulnerable     CheckID = "cms.plugin_vulnerable"      // plugin version has known CVE
 	CheckCMSWordPressUserEnum    CheckID = "cms.wordpress_user_enum"    // WordPress user enumeration via author archives or REST API
@@ -2031,6 +2037,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckBingDorkExposure: {CheckBingDorkExposure, SeverityHigh, ModeSurface},
 
 	// CMS plugins → Surface
+	CheckAuthLoginFormDetected:   {CheckAuthLoginFormDetected, SeverityInfo, ModeSurface},
+	CheckAuthRegistrationOpen:   {CheckAuthRegistrationOpen, SeverityMedium, ModeSurface},
+	CheckAuthSSOEndpoint:        {CheckAuthSSOEndpoint, SeverityInfo, ModeSurface},
+	CheckAuthMFADetected:        {CheckAuthMFADetected, SeverityInfo, ModeSurface},
 	CheckCMSPluginFound:          {CheckCMSPluginFound, SeverityInfo, ModeSurface},
 	CheckCMSPluginVulnerable:     {CheckCMSPluginVulnerable, SeverityHigh, ModeSurface},
 	CheckCMSWordPressUserEnum:    {CheckCMSWordPressUserEnum, SeverityMedium, ModeSurface},
