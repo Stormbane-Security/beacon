@@ -1,0 +1,44 @@
+name: variant-nosql-mongodb
+description: >
+  NoSQL variant test using MongoDB without auth. Tests that beacon detects
+  the exposed database and identifies the service. Compare with CouchDB
+  variant for cross-NoSQL coverage.
+tags: [variant, nosql, mongodb, database, integration]
+
+services:
+  mongodb:
+    image: mongo:7
+    command: ["mongod", "--bind_ip_all"]
+    ports: ["19302:27017"]
+
+ready:
+  cmd: "echo | nc -zw2 localhost 19302 2>/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # MongoDB detected as exposed database
+  - name: mongodb-detected
+    type: beacon
+    target: localhost:19302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.database_exposed
+
+  # Service identified
+  - name: mongodb-identified
+    type: beacon
+    target: localhost:19302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: no Redis finding on MongoDB port
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
