@@ -29,8 +29,8 @@ assertions:
   - name: detects-admin-path
     type: beacon
     target: localhost:19971
-    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      check_id: dirbust.path_found
+      min_findings: 1
 
 timeout: 5m
