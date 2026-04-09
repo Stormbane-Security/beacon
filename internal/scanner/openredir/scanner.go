@@ -10,7 +10,6 @@ package openredir
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,15 +98,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(10 * time.Second)
 
 	scheme := detectScheme(ctx, client, asset)
 	if scheme == "" {

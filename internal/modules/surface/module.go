@@ -247,6 +247,9 @@ type Module struct {
 	// wordlistPath is a custom wordlist file path for brute-force scanners.
 	wordlistPath string
 
+	// screenshotsEnabled controls whether the screenshot scanner runs.
+	screenshotsEnabled bool
+
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
 
@@ -351,6 +354,11 @@ type Config struct {
 	OktaDomain string
 	// OktaToken is the Okta API token for IAM configuration scanning.
 	OktaToken string
+
+	// ScreenshotsEnabled enables the screenshot scanner. When false (default),
+	// the screenshot scanner is skipped entirely, saving ~2.7s per asset.
+	// Set from --screenshots flag.
+	ScreenshotsEnabled bool
 }
 
 const (
@@ -506,9 +514,10 @@ func New(cfg Config) (*Module, error) {
 		evasionStrategy:   evasionStrat,
 		adaptiveRecon:     cfg.AdaptiveRecon,
 		claudeModel:       claudeModel,
-		wordlistPath:      cfg.WordlistPath,
-		authCfgs:          cfg.Auth,
-		enricher:          enricher,
+		wordlistPath:       cfg.WordlistPath,
+		authCfgs:           cfg.Auth,
+		enricher:           enricher,
+		screenshotsEnabled: cfg.ScreenshotsEnabled,
 	}, nil
 }
 
@@ -1687,6 +1696,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if m.wordlistPath != "" {
 		sctx.WithWordlist(m.wordlistPath)
 	}
+	sctx.WithScreenshots(m.screenshotsEnabled)
 	ctx = sctx.Inject(ctx)
 
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
@@ -2041,6 +2051,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				if m.wordlistPath != "" {
 					sctx.WithWordlist(m.wordlistPath)
 				}
+				sctx.WithScreenshots(m.screenshotsEnabled)
 				ctx = sctx.Inject(ctx)
 
 				if progressFn != nil {

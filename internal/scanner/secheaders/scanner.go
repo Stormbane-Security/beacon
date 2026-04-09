@@ -6,7 +6,6 @@ package secheaders
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,10 +50,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	log := scanlog.FromContext(ctx)
 
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
+		Timeout:   10 * time.Second,
+		Transport: scan.SharedTransport(),
 		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {
 				return http.ErrUseLastResponse

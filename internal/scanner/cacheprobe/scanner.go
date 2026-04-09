@@ -30,7 +30,6 @@ package cacheprobe
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"math/rand"
@@ -89,15 +88,7 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
+	client := scan.SharedClient(10 * time.Second)
 
 	scheme := detectScheme(ctx, client, asset)
 	if scheme == "" {

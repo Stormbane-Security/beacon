@@ -77,16 +77,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	client := &http.Client{
-		Timeout: httpTimeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
-		},
-		// Do not follow redirects — a redirect means the path is protected.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 
 	var findings []finding.Finding
 

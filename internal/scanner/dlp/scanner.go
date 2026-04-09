@@ -337,12 +337,7 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 20 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(20 * time.Second)
 
 	// ── Crawl-feed side-scan ──────────────────────────────────────────────────
 	// If the crawler placed a URL channel in context, scan crawled pages as they

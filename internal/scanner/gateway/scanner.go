@@ -52,12 +52,7 @@ func (s *Scanner) Name() string { return scannerName }
 
 // Run executes all gateway/LB/CDN/mesh probes appropriate for the scan type.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(10 * time.Second)
 
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset

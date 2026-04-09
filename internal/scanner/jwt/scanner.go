@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -92,9 +91,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		},
 	}
 	if client.Transport == nil {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		}
+		client.Transport = scan.SharedTransport()
 	}
 
 	var resp *http.Response

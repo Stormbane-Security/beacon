@@ -795,6 +795,7 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 		OktaDomain:           cfg.OktaDomain,
 		OktaToken:            cfg.OktaToken,
 		WordlistPath:         wordlistPath,
+		ScreenshotsEnabled:   screenshotDir != "",
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -1385,6 +1386,7 @@ file upload bypass, token forgery. Do you have written authorization? [y/N] `, l
 		OktaDomain:           strOr(oktaDomain, cfg.OktaDomain),
 		OktaToken:            strOr(oktaToken, cfg.OktaToken),
 		WordlistPath:         wordlistPath,
+		ScreenshotsEnabled:   screenshotDir != "",
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)

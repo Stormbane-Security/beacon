@@ -6,7 +6,6 @@ package hostheader
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,9 +56,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		},
 	}
 	if client.Transport == nil {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		}
+		client.Transport = scan.SharedTransport()
 	}
 
 	// Test BOTH HTTP and HTTPS independently. A common host header injection
