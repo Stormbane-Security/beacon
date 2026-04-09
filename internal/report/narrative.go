@@ -14,30 +14,30 @@ import (
 func GenerateNarrative(chainFinding finding.Finding, allFindings []finding.Finding) string {
 	id := string(chainFinding.CheckID)
 
-	switch {
-	case id == "correlation.session_hijack_chain":
+	switch id {
+	case "correlation.session_hijack_chain":
 		return narrativeSessionHijack(chainFinding, allFindings)
-	case id == "correlation.credential_theft_chain":
+	case "correlation.credential_theft_chain":
 		return narrativeCredentialTheft(chainFinding, allFindings)
-	case id == "chain.ssrf_to_cloud_creds":
+	case "chain.ssrf_to_cloud_creds":
 		return narrativeSSRFToCloudCreds(chainFinding, allFindings)
-	case id == "chain.default_creds_to_admin_access":
+	case "chain.default_creds_to_admin_access":
 		return narrativeDefaultCredsToAdmin(chainFinding, allFindings)
-	case id == "chain.env_to_database_access":
+	case "chain.env_to_database_access":
 		return narrativeEnvToDatabase(chainFinding, allFindings)
-	case id == "chain.sqli_to_credential_dump":
+	case "chain.sqli_to_credential_dump":
 		return narrativeSQLiToCredentialDump(chainFinding, allFindings)
-	case id == "chain.xss_to_session_theft_poc":
+	case "chain.xss_to_session_theft_poc":
 		return narrativeXSSToSessionTheft(chainFinding, allFindings)
-	case id == "correlation.full_compromise_chain":
+	case "correlation.full_compromise_chain":
 		return narrativeFullCompromise(chainFinding, allFindings)
-	case id == "correlation.lateral_movement_chain":
+	case "correlation.lateral_movement_chain":
 		return narrativeLateralMovement(chainFinding, allFindings)
-	case id == "correlation.cache_poisoning_chain":
+	case "correlation.cache_poisoning_chain":
 		return narrativeCachePoison(chainFinding, allFindings)
-	case id == "correlation.dns_rebinding_chain":
+	case "correlation.dns_rebinding_chain":
 		return narrativeDNSRebinding(chainFinding, allFindings)
-	case id == "correlation.auth_bypass_chain":
+	case "correlation.auth_bypass_chain":
 		return narrativeAuthBypass(chainFinding, allFindings)
 	default:
 		return narrativeGeneric(chainFinding, allFindings)

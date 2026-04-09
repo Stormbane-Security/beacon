@@ -14,52 +14,52 @@ func GenerateChainPoC(chainFinding finding.Finding, allFindings []finding.Findin
 	id := string(chainFinding.CheckID)
 	safe := sanitizeFilename(chainFinding.Asset)
 
-	switch {
-	case id == "correlation.session_hijack_chain":
+	switch id {
+	case "correlation.session_hijack_chain":
 		return chainPoCSessionHijack(chainFinding, allFindings),
 			fmt.Sprintf("chain-session-hijack-%s.html", safe), "html"
 
-	case id == "chain.ssrf_to_cloud_creds":
+	case "chain.ssrf_to_cloud_creds":
 		return chainPoCSSRFToCloud(chainFinding, allFindings),
 			fmt.Sprintf("chain-ssrf-cloud-%s.py", safe), "python"
 
-	case id == "chain.sqli_to_credential_dump":
+	case "chain.sqli_to_credential_dump":
 		return chainPoCSQLiDump(chainFinding, allFindings),
 			fmt.Sprintf("chain-sqli-dump-%s.py", safe), "python"
 
-	case id == "chain.env_to_database_access":
+	case "chain.env_to_database_access":
 		return chainPoCEnvToDatabase(chainFinding, allFindings),
 			fmt.Sprintf("chain-env-db-%s.sh", safe), "bash"
 
-	case id == "chain.default_creds_to_admin_access":
+	case "chain.default_creds_to_admin_access":
 		return chainPoCDefaultCreds(chainFinding, allFindings),
 			fmt.Sprintf("chain-default-creds-%s.sh", safe), "bash"
 
-	case id == "chain.xss_to_session_theft_poc":
+	case "chain.xss_to_session_theft_poc":
 		return chainPoCXSSSessionTheft(chainFinding, allFindings),
 			fmt.Sprintf("chain-xss-session-%s.html", safe), "html"
 
-	case id == "correlation.credential_theft_chain":
+	case "correlation.credential_theft_chain":
 		return chainPoCCredentialTheft(chainFinding, allFindings),
 			fmt.Sprintf("chain-cred-theft-%s.sh", safe), "bash"
 
-	case id == "correlation.full_compromise_chain":
+	case "correlation.full_compromise_chain":
 		return chainPoCFullCompromise(chainFinding, allFindings),
 			fmt.Sprintf("chain-full-compromise-%s.py", safe), "python"
 
-	case id == "correlation.lateral_movement_chain":
+	case "correlation.lateral_movement_chain":
 		return chainPoCLateralMovement(chainFinding, allFindings),
 			fmt.Sprintf("chain-lateral-%s.py", safe), "python"
 
-	case id == "correlation.cache_poisoning_chain":
+	case "correlation.cache_poisoning_chain":
 		return chainPoCCachePoison(chainFinding, allFindings),
 			fmt.Sprintf("chain-cache-poison-%s.sh", safe), "bash"
 
-	case id == "correlation.dns_rebinding_chain":
+	case "correlation.dns_rebinding_chain":
 		return chainPoCDNSRebinding(chainFinding, allFindings),
 			fmt.Sprintf("chain-dns-rebind-%s.html", safe), "html"
 
-	case id == "correlation.auth_bypass_chain":
+	case "correlation.auth_bypass_chain":
 		return chainPoCAuthBypass(chainFinding, allFindings),
 			fmt.Sprintf("chain-auth-bypass-%s.py", safe), "python"
 
