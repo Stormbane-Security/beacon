@@ -1,0 +1,81 @@
+name: keycloak-saml-oauth
+description: >
+  Keycloak in dev mode exposes both SAML and OAuth/OIDC endpoints out of
+  the box. Tests auth protocol detection: SAML metadata exposure, security
+  headers, and admin console availability. Keycloak latest enforces HTTPS on
+  OIDC discovery, so OAuth scanner cannot discover issues via HTTP alone.
+tags: [keycloak, saml, oauth, oidc, iam, auth, integration]
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    ports: ["20140:8080"]
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: "admin"
+      KEYCLOAK_ADMIN_PASSWORD: "admin"
+
+ready:
+  cmd: "curl -sf http://localhost:20140/realms/master | grep -q master"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Keycloak endpoints are accessible
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-realm-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20140/realms/master | grep -q token-service"
+      exit_code: 0
+
+  - name: preflight-saml-descriptor
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20140/realms/master/protocol/saml/descriptor | grep -q EntityDescriptor"
+      exit_code: 0
+
+  - name: preflight-admin-console
+    type: command
+    expect:
+      command: "curl -sL -o /dev/null -w '%{http_code}' http://localhost:20140/admin/ | grep -qE '200|302'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BEACON: SAML detection — Keycloak exposes SAML metadata at
+  # /realms/master/protocol/saml/descriptor
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-saml-metadata
+    type: beacon
+    target: localhost:20140
+    args: ["--no-nmap", "--yes", "--scanners", "saml"]
+    expect:
+      check_id: saml.metadata_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BEACON: Security headers — Keycloak sets HSTS and X-Frame-Options
+  # but lacks Permissions-Policy
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-missing-permissions-policy
+    type: beacon
+    target: localhost:20140
+    args: ["--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: should not detect unrelated services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20140
+    args: ["--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m
