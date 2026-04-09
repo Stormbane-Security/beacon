@@ -96,8 +96,11 @@ func probePHPDeserialization(ctx context.Context, client *http.Client, asset, ba
 			if err != nil {
 				continue
 			}
-			req2.AddCookie(&http.Cookie{Name: "session", Value: payload})
-			req2.AddCookie(&http.Cookie{Name: "data", Value: payload})
+			// URL-encode to avoid Go's net/http cookie validation log spam
+			// for characters like " in PHP serialized objects.
+			encoded := url.QueryEscape(payload)
+			req2.AddCookie(&http.Cookie{Name: "session", Value: encoded})
+			req2.AddCookie(&http.Cookie{Name: "data", Value: encoded})
 
 			resp2, err := client.Do(req2)
 			if err != nil {
