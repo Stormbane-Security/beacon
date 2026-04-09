@@ -1,32 +1,58 @@
 name: netdata-monitoring-exposed
 description: >
-  Netdata monitoring agent with no authentication. Beacon should detect
-  the exposed monitoring dashboard and API.
-tags: [netdata, monitoring, dashboard, detection]
+  Netdata real-time monitoring dashboard exposed without authentication.
+  Beacon portscan should detect the exposed monitoring dashboard via
+  port.netdata_exposed. Also validates missing HSTS header detection.
+tags: [netdata, monitoring, dashboard, detection, secheaders]
 
 services:
   netdata:
-    image: netdata/netdata:stable
-    ports: ["19999:19999"]
+    image: netdata/netdata:latest
+    ports: ["20044:19999"]
     cap_add: ["SYS_PTRACE"]
 
 ready:
-  cmd: "curl -sf http://localhost:19999/api/v1/info | grep -q version"
+  cmd: "curl -sf http://localhost:20044/api/v1/info | grep -q version"
   timeout: 60s
   interval: 3s
 
 assertions:
-  - name: netdata-api-accessible
+  # Pre-flight: Netdata API accessible
+  - name: exploit-netdata-api-info
     type: command
     expect:
-      command: "curl -sf http://localhost:19999/api/v1/info | grep -q version"
+      command: "curl -sf http://localhost:20044/api/v1/info | grep -q 'os_name'"
       exit_code: 0
 
+  # Pre-flight: Netdata alarms endpoint accessible
+  - name: exploit-netdata-alarms-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20044/api/v1/alarms | grep -q 'alarms'"
+      exit_code: 0
+
+  # Scanner: detect exposed Netdata
   - name: detects-netdata-exposed
     type: beacon
-    target: localhost:19999
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19999"]
+    target: localhost:20044
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19999"]
     expect:
       check_id: port.netdata_exposed
 
-timeout: 3m
+  # Scanner: detect missing HSTS
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20044
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no Redis false positive
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20044
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
