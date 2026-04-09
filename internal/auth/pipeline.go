@@ -200,7 +200,7 @@ func parseCookieHeader(raw string) []*http.Cookie {
 	for _, part := range strings.Split(raw, ";") {
 		part = strings.TrimSpace(part)
 		if eq := strings.IndexByte(part, '='); eq > 0 {
-			cookies = append(cookies, &http.Cookie{
+			cookies = append(cookies, &http.Cookie{ // #nosec G124 -- injecting session cookies for auth testing, not serving them
 				Name:  part[:eq],
 				Value: part[eq+1:],
 			})
