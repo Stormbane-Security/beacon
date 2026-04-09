@@ -718,6 +718,7 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			Description:  description,
 			Asset:        asset,
 			Evidence:     evidence,
+			Visibility:   finding.VisibilityPublic, // port scan = reachable from outside
 			DiscoveredAt: now,
 		}
 	}
