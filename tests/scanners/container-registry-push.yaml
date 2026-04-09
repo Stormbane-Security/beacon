@@ -1,0 +1,71 @@
+name: container-registry-push
+description: >
+  Docker registry:2 with anonymous access allowing unauthenticated push.
+  Beacon containerimage scanner should detect both registry exposure and
+  anonymous push capability.
+tags: [container, registry, push, scanner]
+
+services:
+  registry:
+    image: registry:2
+    ports: ["20048:5000"]
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+
+ready:
+  cmd: "curl -sf http://localhost:20048/v2/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify anonymous access ---
+  - name: exploit-registry-v2-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20048/v2/ | grep -q '200'"
+      exit_code: 0
+
+  - name: exploit-catalog-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20048/v2/_catalog | grep -q 'repositories'"
+      exit_code: 0
+
+  # Verify anonymous push works by initiating a blob upload
+  - name: exploit-anonymous-push-allowed
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:20048/v2/test-push/blobs/uploads/ | grep -q '202'"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-registry-exposed
+    type: beacon
+    target: localhost:20048
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
+    expect:
+      check_id: container.registry_exposed
+
+  - name: detects-anonymous-push
+    type: beacon
+    target: localhost:20048
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
+    expect:
+      check_id: container.registry_anonymous_push
+
+  # --- Negative: no false positives ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20048
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-no-k8s
+    type: beacon
+    target: localhost:20048
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
+    expect:
+      not_check_id: container.k8s_api_exposed
+
+timeout: 5m

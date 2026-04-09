@@ -1,0 +1,62 @@
+name: dlp-sensitive-data
+description: >
+  Nginx serving an HTML page and JSON API containing credit card numbers,
+  SSNs, and internal email addresses. Beacon DLP scanner should detect
+  sensitive data leaking in HTTP responses.
+tags: [dlp, scanner, data-leak, pii]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20046:80"]
+    volumes:
+      - ./dlp-sensitive-data/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20046/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify sensitive data is in responses ---
+  - name: exploit-credit-card-in-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20046/ | grep -q '4111111111111111'"
+      exit_code: 0
+
+  - name: exploit-ssn-in-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20046/ | grep -qE '[0-9]{3}-[0-9]{2}-[0-9]{4}'"
+      exit_code: 0
+
+  - name: exploit-email-in-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20046/ | grep -q 'admin@internal.corp'"
+      exit_code: 0
+
+  - name: exploit-api-leaks-ssn
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20046/api/employees | grep -qE '[0-9]{3}-[0-9]{2}-[0-9]{4}'"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-dlp-findings
+    type: beacon
+    target: localhost:20046
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      min_findings: 1
+
+  # --- Negative: no false positives ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20046
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

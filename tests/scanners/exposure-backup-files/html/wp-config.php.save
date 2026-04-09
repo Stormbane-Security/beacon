@@ -1,0 +1,6 @@
+<?php
+define('DB_NAME', 'wordpress_prod');
+define('DB_USER', 'wp_admin');
+define('DB_PASSWORD', 'Wr0dPr3ss!2024');
+define('DB_HOST', 'mysql.internal');
+define('AUTH_KEY', 'put-your-unique-phrase-here');
