@@ -29,4 +29,11 @@ assertions:
     expect:
       check_id: tls.cert_expiry_7d
 
+  - name: detects-expired-cert-via-portscan
+    type: beacon
+    target: localhost:19960
+    args: ["--no-enrich", "--ports", "443"]
+    expect:
+      check_id: tls.expired_cert_detected
+
 timeout: 5m

@@ -33,13 +33,21 @@ assertions:
     expect:
       check_id: port.service_identified
 
-  # Scanner: detect phpMyAdmin default creds
+  # Scanner: detect phpMyAdmin default creds (portscan)
   - name: detects-phpmyadmin-default-creds
     type: beacon
     target: localhost:20065
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
     expect:
       check_id: port.phpmyadmin_default_credentials
+
+  # Scanner: detect phpMyAdmin default creds (exposedfiles)
+  - name: detects-phpmyadmin-web-default-creds
+    type: beacon
+    target: localhost:20065
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--yes"]
+    expect:
+      check_id: web.default_credentials
 
   # Negative: not flagged as redis
   - name: negative-not-redis
