@@ -470,6 +470,9 @@ const (
 	CheckAIToolAbuse        CheckID = "ai.tool_abuse"          // agent tool call triggered by injected prompt
 	CheckAIModelInfoExposed CheckID = "ai.model_info_exposed"  // model name/version disclosed unauthenticated
 	CheckAIIndirectInjection CheckID = "ai.indirect_injection" // LLM honored instructions injected via fetched content
+	CheckAIModelDownloadable CheckID = "ai.model_downloadable" // AI model weights downloadable without authentication
+	CheckAIPromptExtraction  CheckID = "ai.prompt_extraction"  // system prompt extractable from model serving endpoint
+	CheckAINoRateLimit       CheckID = "ai.no_rate_limit"      // AI inference endpoint has no rate limiting
 
 	// JWT / OIDC / JWKS — advanced token security checks
 	CheckJWTAlgorithmConfusion  CheckID = "jwt.algorithm_confusion"   // RS256 public key used as HS256 HMAC secret
@@ -796,6 +799,8 @@ const (
 	CheckChainNodePeerCountLeak   CheckID = "chain.peer_count_leak"       // net_peerCount leaks network topology
 	CheckChainNodeWSExposed       CheckID = "chain.node_ws_exposed"       // WebSocket JSON-RPC port accessible
 	CheckChainNodeGrafanaExposed  CheckID = "chain.node_grafana_exposed"  // node monitoring dashboard exposed without auth
+	CheckChainUnlockedAccounts   CheckID = "chain.unlocked_accounts"     // eth_accounts returns non-empty list of unlocked wallets
+	CheckChainPendingTxExposed   CheckID = "chain.pending_tx_exposed"    // pending transactions visible via eth_getBlockByNumber("pending")
 
 	// Web3 / SIWE authenticated security testing — Deep (requires --permission-confirmed)
 	// Surface: detect SIWE/SIWS login pages and nonce endpoints
@@ -809,6 +814,8 @@ const (
 	CheckWeb3SIWEURIMismatch       CheckID = "web3.siwe_uri_mismatch"        // server accepts message with wrong URI field
 	CheckWeb3SIWEOverHTTP          CheckID = "web3.siwe_over_http"           // SIWE/SIWS auth accessible over plain HTTP (signature interception)
 	CheckWeb3HorizontalEscalation  CheckID = "web3.horizontal_escalation"    // session allows access to another wallet's resources
+	CheckWeb3DefiAdminExposed      CheckID = "web3.defi_admin_exposed"       // DeFi protocol admin/owner function callable without restriction
+	CheckWeb3NFTMetadataExposed    CheckID = "web3.nft_metadata_exposed"     // NFT metadata endpoint exposed without authentication
 
 	// ── Recent high-severity CVEs (2025) ──────────────────────────────────────
 	CheckPortFTPWingRCE               CheckID = "port.ftp_wing_rce"                // CVE-2025-47812 Wing FTP Server ≤ 7.4.3 pre-auth RCE (CISA KEV)
@@ -1057,6 +1064,15 @@ const (
 	CheckCorrelationXSSCSRFChain        CheckID = "correlation.xss_csrf_chain"           // XSS + missing CSRF protection = account takeover
 	CheckCorrelationTLSSessionHijack    CheckID = "correlation.tls_session_hijack"       // weak TLS + insecure cookies = session hijack
 	CheckCorrelationCloudMetadataChain  CheckID = "correlation.cloud_metadata_chain"     // SSRF + cloud metadata accessible = IAM takeover
+
+	// ── Expanded attack chain correlation ──────────────────────────────────
+	CheckCorrelationSessionHijackChain    CheckID = "correlation.session_hijack_chain"      // CORS misconfig + XSS + missing HttpOnly = session steal via cross-origin JS
+	CheckCorrelationCredentialTheftChain  CheckID = "correlation.credential_theft_chain"    // exposed .env/config or .git + secrets = direct credential harvest
+	CheckCorrelationFullCompromiseChain   CheckID = "correlation.full_compromise_chain"     // SQLi + exposed DB or SSRF + cloud metadata = full data exfiltration
+	CheckCorrelationAuthBypassChain       CheckID = "correlation.auth_bypass_chain"         // JWT weak alg + no rotation or default creds + admin panel = persistent unauth access
+	CheckCorrelationCachePoisoningChain   CheckID = "correlation.cache_poisoning_chain"     // host header injection + cache or unkeyed header + XSS = mass user redirect/stored XSS
+	CheckCorrelationLateralMovementChain  CheckID = "correlation.lateral_movement_chain"    // unauthenticated service + web app on same network = pivot to data store
+	CheckCorrelationDNSRebindingChain     CheckID = "correlation.dns_rebinding_chain"       // DNS rebinding + internal services = bypass network restrictions
 
 	// Terraform / IaC static analysis
 	CheckTerraformS3BucketPublic       CheckID = "terraform.s3_bucket_public"
@@ -2633,6 +2649,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckChainNodePeerCountLeak:    {CheckChainNodePeerCountLeak, SeverityMedium, ModeSurface},
 	CheckChainNodeWSExposed:        {CheckChainNodeWSExposed, SeverityHigh, ModeSurface},
 	CheckChainNodeGrafanaExposed:   {CheckChainNodeGrafanaExposed, SeverityHigh, ModeSurface},
+	CheckChainUnlockedAccounts:    {CheckChainUnlockedAccounts, SeverityCritical, ModeSurface},
+	CheckChainPendingTxExposed:    {CheckChainPendingTxExposed, SeverityMedium, ModeSurface},
 
 	// Web3 / SIWE + SIWS authenticated security testing
 	CheckWeb3SIWEEndpoint:         {CheckWeb3SIWEEndpoint, SeverityInfo, ModeSurface},
@@ -2644,6 +2662,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWeb3SIWEURIMismatch:      {CheckWeb3SIWEURIMismatch, SeverityMedium, ModeDeep},
 	CheckWeb3SIWEOverHTTP:         {CheckWeb3SIWEOverHTTP, SeverityHigh, ModeSurface},
 	CheckWeb3HorizontalEscalation: {CheckWeb3HorizontalEscalation, SeverityCritical, ModeDeep},
+	CheckWeb3DefiAdminExposed:     {CheckWeb3DefiAdminExposed, SeverityCritical, ModeSurface},
+	CheckWeb3NFTMetadataExposed:   {CheckWeb3NFTMetadataExposed, SeverityMedium, ModeSurface},
 
 	// Cross-asset correlation findings — batch AI analysis only, always surfaced
 	CheckCorrelationCICDToProd:         {CheckCorrelationCICDToProd, SeverityCritical, ModeSurface},
@@ -2665,6 +2685,15 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCorrelationXSSCSRFChain:       {CheckCorrelationXSSCSRFChain, SeverityCritical, ModeSurface},
 	CheckCorrelationTLSSessionHijack:   {CheckCorrelationTLSSessionHijack, SeverityHigh, ModeSurface},
 	CheckCorrelationCloudMetadataChain: {CheckCorrelationCloudMetadataChain, SeverityCritical, ModeSurface},
+
+	// Expanded attack chain correlation
+	CheckCorrelationSessionHijackChain:   {CheckCorrelationSessionHijackChain, SeverityCritical, ModeSurface},
+	CheckCorrelationCredentialTheftChain: {CheckCorrelationCredentialTheftChain, SeverityCritical, ModeSurface},
+	CheckCorrelationFullCompromiseChain:  {CheckCorrelationFullCompromiseChain, SeverityCritical, ModeSurface},
+	CheckCorrelationAuthBypassChain:      {CheckCorrelationAuthBypassChain, SeverityHigh, ModeSurface},
+	CheckCorrelationCachePoisoningChain:  {CheckCorrelationCachePoisoningChain, SeverityHigh, ModeSurface},
+	CheckCorrelationLateralMovementChain: {CheckCorrelationLateralMovementChain, SeverityCritical, ModeSurface},
+	CheckCorrelationDNSRebindingChain:    {CheckCorrelationDNSRebindingChain, SeverityCritical, ModeSurface},
 
 	// Terraform / IaC static analysis — always ModeSurface (file analysis, no network probing)
 	CheckTerraformS3BucketPublic:    {CheckTerraformS3BucketPublic, SeverityHigh, ModeSurface},
@@ -2973,6 +3002,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAIDataExfil:          {CheckAIDataExfil, SeverityCritical, ModeDeep},
 	CheckAIToolAbuse:          {CheckAIToolAbuse, SeverityHigh, ModeDeep},
 	CheckAIIndirectInjection:  {CheckAIIndirectInjection, SeverityHigh, ModeDeep},
+	CheckAIModelDownloadable:  {CheckAIModelDownloadable, SeverityHigh, ModeSurface},
+	CheckAIPromptExtraction:   {CheckAIPromptExtraction, SeverityHigh, ModeSurface},
+	CheckAINoRateLimit:        {CheckAINoRateLimit, SeverityMedium, ModeSurface},
 
 	// UDP/protocol exposure — Surface (port probing)
 	CheckPortNTPExposed:        {CheckPortNTPExposed, SeverityLow, ModeSurface},

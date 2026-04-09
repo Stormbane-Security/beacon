@@ -1020,3 +1020,173 @@ func TestWsProofPythonHostSanitization(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Test: probeUnlockedAccounts — non-empty eth_accounts → finding
+// ---------------------------------------------------------------------------
+
+func TestProbeUnlockedAccounts_NonEmpty_EmitsFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		defer func() { _ = r.Body.Close() }()
+
+		var rpc struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(body, &rpc)
+
+		if rpc.Method == "eth_accounts" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      1,
+				"result":  []string{"0x1234567890abcdef1234567890abcdef12345678", "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	client := &http.Client{}
+	f := probeUnlockedAccounts(context.Background(), client, ts.URL, "test-host")
+	if f == nil {
+		t.Fatal("expected finding for non-empty eth_accounts")
+	}
+	if f.CheckID != finding.CheckChainUnlockedAccounts {
+		t.Errorf("expected CheckChainUnlockedAccounts, got %s", f.CheckID)
+	}
+	if f.Severity != finding.SeverityCritical {
+		t.Errorf("expected SeverityCritical, got %v", f.Severity)
+	}
+	if f.Evidence["count"] != 2 {
+		t.Errorf("expected 2 accounts, got %v", f.Evidence["count"])
+	}
+	if f.ProofCommand == "" {
+		t.Error("expected non-empty ProofCommand")
+	}
+}
+
+func TestProbeUnlockedAccounts_EmptyList_NoFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  []string{},
+		})
+	}))
+	defer ts.Close()
+
+	client := &http.Client{}
+	f := probeUnlockedAccounts(context.Background(), client, ts.URL, "test-host")
+	if f != nil {
+		t.Error("expected no finding for empty eth_accounts")
+	}
+}
+
+func TestProbeUnlockedAccounts_ErrorResponse_NoFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"error":   map[string]any{"code": -32601, "message": "Method not found"},
+		})
+	}))
+	defer ts.Close()
+
+	client := &http.Client{}
+	f := probeUnlockedAccounts(context.Background(), client, ts.URL, "test-host")
+	if f != nil {
+		t.Error("expected no finding for RPC error response")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: probePendingTransactions — non-empty pending block → finding
+// ---------------------------------------------------------------------------
+
+func TestProbePendingTransactions_WithTx_EmitsFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		defer func() { _ = r.Body.Close() }()
+
+		var rpc struct {
+			Method string `json:"method"`
+		}
+		_ = json.Unmarshal(body, &rpc)
+
+		if rpc.Method == "eth_getBlockByNumber" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      1,
+				"result": map[string]any{
+					"number": "0x10",
+					"transactions": []map[string]any{
+						{"hash": "0xabc123", "from": "0x1111", "to": "0x2222", "value": "0xde0b6b3a7640000"},
+						{"hash": "0xdef456", "from": "0x3333", "to": "0x4444", "value": "0x1"},
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	client := &http.Client{}
+	f := probePendingTransactions(context.Background(), client, ts.URL, "test-host")
+	if f == nil {
+		t.Fatal("expected finding for pending transactions")
+	}
+	if f.CheckID != finding.CheckChainPendingTxExposed {
+		t.Errorf("expected CheckChainPendingTxExposed, got %s", f.CheckID)
+	}
+	if f.Severity != finding.SeverityMedium {
+		t.Errorf("expected SeverityMedium, got %v", f.Severity)
+	}
+	if f.Evidence["tx_count"] != 2 {
+		t.Errorf("expected tx_count 2, got %v", f.Evidence["tx_count"])
+	}
+}
+
+func TestProbePendingTransactions_EmptyBlock_NoFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result": map[string]any{
+				"number":       "0x10",
+				"transactions": []any{},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	client := &http.Client{}
+	f := probePendingTransactions(context.Background(), client, ts.URL, "test-host")
+	if f != nil {
+		t.Error("expected no finding for empty pending block")
+	}
+}
+
+func TestProbePendingTransactions_NullResult_NoFinding(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  nil,
+		})
+	}))
+	defer ts.Close()
+
+	client := &http.Client{}
+	f := probePendingTransactions(context.Background(), client, ts.URL, "test-host")
+	if f != nil {
+		t.Error("expected no finding for null result")
+	}
+}

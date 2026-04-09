@@ -108,6 +108,8 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/swagger"
 	_ "github.com/stormbane-security/beacon/internal/scanner/contractscan"
 	_ "github.com/stormbane-security/beacon/internal/scanner/chainnode"
+	_ "github.com/stormbane-security/beacon/internal/scanner/aimodelsec"
+	_ "github.com/stormbane-security/beacon/internal/scanner/web3defi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/ghactions"
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
