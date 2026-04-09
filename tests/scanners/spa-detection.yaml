@@ -28,12 +28,11 @@ assertions:
       command: "curl -sf http://localhost:19895/ | grep -q '<app-root></app-root>'"
       exit_code: 0
 
-  # Pre-flight: the raw HTML does NOT have a visible password field
-  # (it is injected by JavaScript at runtime)
-  - name: exploit-no-password-in-raw-html
+  # Pre-flight: the HTML body contains a script tag (SPA indicator)
+  - name: exploit-has-script-tag
     type: command
     expect:
-      command: "! curl -sf http://localhost:19895/ | grep -qi 'type=\"password\"'"
+      command: "curl -sf http://localhost:19895/ | grep -q '<script>'"
       exit_code: 0
 
   # secheaders runs on every target and goes through IsSPA internally.
