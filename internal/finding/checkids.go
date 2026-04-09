@@ -236,6 +236,8 @@ const (
 	CheckPortSMBExposed          CheckID = "port.smb_exposed"                   // SMB/Windows filesharing exposed
 	CheckPortSMBNullSession      CheckID = "port.smb_null_session"              // SMB accepts null session (unauthenticated share list)
 	CheckPortSMBv1Enabled        CheckID = "port.smb_v1_enabled"                // SMBv1 protocol accepted — EternalBlue/WannaCry risk (CVE-2017-0144)
+	CheckPortSMBOSDiscovery      CheckID = "port.smb_os_discovery"             // SMB OS/domain/hostname via native probe (replaces nmap smb-os-discovery)
+	CheckPortSMBSigningNotReq    CheckID = "port.smb_signing_not_required"     // SMB signing not required — relay attack risk
 	CheckPortDatabaseExposed     CheckID = "port.database_exposed"              // Database port exposed (MySQL/Postgres/MSSQL/Oracle)
 	CheckPortK8sAPIExposed       CheckID = "port.k8s_api_exposed"               // Kubernetes API server exposed
 	CheckK8sAnonymousRBAC        CheckID = "port.k8s_anonymous_rbac"            // K8s API allows anonymous namespace listing
@@ -2082,6 +2084,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortSMBExposed:          {CheckPortSMBExposed, SeverityHigh, ModeSurface},
 	CheckPortSMBNullSession:      {CheckPortSMBNullSession, SeverityCritical, ModeSurface},
 	CheckPortSMBv1Enabled:        {CheckPortSMBv1Enabled, SeverityCritical, ModeSurface},
+	CheckPortSMBOSDiscovery:      {CheckPortSMBOSDiscovery, SeverityInfo, ModeSurface},
+	CheckPortSMBSigningNotReq:    {CheckPortSMBSigningNotReq, SeverityHigh, ModeSurface},
 	CheckPortDatabaseExposed:     {CheckPortDatabaseExposed, SeverityHigh, ModeSurface},
 	CheckPortK8sAPIExposed:       {CheckPortK8sAPIExposed, SeverityCritical, ModeSurface},
 	CheckK8sAnonymousRBAC:        {CheckK8sAnonymousRBAC, SeverityCritical, ModeSurface},
