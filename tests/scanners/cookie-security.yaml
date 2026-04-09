@@ -1,0 +1,63 @@
+name: cookie-security
+description: >
+  Nginx that sets a session cookie missing Secure, HttpOnly, and SameSite
+  flags. Beacon secheaders and cookie scanners should detect insecure
+  cookie attributes and missing security headers.
+tags: [cookie, secheaders, scanner, web]
+
+services:
+  cookie-app:
+    image: nginx:alpine
+    ports: ["20013:80"]
+    volumes:
+      - ./cookie-security/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20013/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-cookie-missing-secure-flag
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20013/ | grep -i 'Set-Cookie' | grep -qi 'session=abc123'"
+      exit_code: 0
+
+  - name: exploit-cookie-lacks-httponly
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20013/ | grep -i 'Set-Cookie' | grep -qiv 'HttpOnly'"
+      exit_code: 0
+
+  - name: exploit-cookie-lacks-secure
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20013/ | grep -i 'Set-Cookie' | grep -qiv 'Secure'"
+      exit_code: 0
+
+  # --- Beacon scanner detections ---
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: secheaders-min-findings
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cookie", "--yes"]
+    expect:
+      min_findings: 1
+
+  # --- Negative ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cookie", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
