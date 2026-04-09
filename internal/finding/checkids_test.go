@@ -717,6 +717,8 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckNmapSMTPOpenRelay:   true,
 		finding.CheckNmapMySQLNoPassword: true,
 		finding.CheckNmapIPMICipherZero:  true,
+		// CVE-2019-9193 PostgreSQL COPY RCE — requires authenticated superuser access
+		finding.CheckCVEPostgreSQLCopyRCE2019: true,
 	}
 
 	for id, meta := range finding.Registry {

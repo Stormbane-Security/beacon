@@ -1048,6 +1048,15 @@ const (
 	CheckWebSocketOpen            CheckID = "websocket.endpoint_open"       // WebSocket endpoint accepts upgrade — potential CSWSH if no origin validation
 	CheckWellKnownOIDC            CheckID = "wellknown.oidc_discovery"      // OIDC discovery document exposed — reveals auth infrastructure (info)
 	CheckWellKnownJWKS            CheckID = "wellknown.jwks_exposed"        // JWKS endpoint exposed — public key enumeration (info)
+
+	// ── New service exposure checks ──────────────────────────────────────
+	CheckPortCassandraExposed     CheckID = "port.cassandra_exposed"        // Cassandra CQL native transport exposed without auth (port 9042)
+
+	// ── Missing CVEs for existing service chains ─────────────────────────
+	CheckCVEMongoDBAuthBypass2017 CheckID = "cve.mongodb_auth_bypass_2017" // CVE-2017-2604 MongoDB < 3.6.0 auth bypass via crafted wire protocol — unauthenticated cluster access (CVSS 9.1)
+	CheckCVEMySQLAuthBypass2012   CheckID = "cve.mysql_auth_bypass_2012"   // CVE-2012-2122 MySQL 5.1/5.5/5.6 memcmp timing auth bypass — ~1/256 chance per attempt (CVSS 5.3)
+	CheckCVEPostgreSQLCopyRCE2019 CheckID = "cve.postgresql_copy_rce_2019" // CVE-2019-9193 PostgreSQL 9.3–11.2 COPY TO/FROM PROGRAM — authenticated RCE via SQL (CVSS 9.8)
+	CheckCVEConsulSSRF2022        CheckID = "cve.consul_ssrf_2022"         // CVE-2022-29153 Consul < 1.9.17/1.10.10/1.11.5 HTTP API SSRF via -redirect-traffic-to (CVSS 7.5)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -3130,6 +3139,13 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortMongoExpressDefaultCreds: {CheckPortMongoExpressDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortPhpMyAdminDefaultCreds:   {CheckPortPhpMyAdminDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortKibanaDefaultCreds:       {CheckPortKibanaDefaultCreds, SeverityCritical, ModeDeep},
+	CheckPortCassandraExposed:         {CheckPortCassandraExposed, SeverityCritical, ModeSurface},
+
+	// Missing CVEs for existing service chains
+	CheckCVEMongoDBAuthBypass2017: {CheckCVEMongoDBAuthBypass2017, SeverityCritical, ModeSurface},
+	CheckCVEMySQLAuthBypass2012:   {CheckCVEMySQLAuthBypass2012, SeverityHigh, ModeSurface},
+	CheckCVEPostgreSQLCopyRCE2019: {CheckCVEPostgreSQLCopyRCE2019, SeverityCritical, ModeDeep},
+	CheckCVEConsulSSRF2022:        {CheckCVEConsulSSRF2022, SeverityHigh, ModeSurface},
 
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},

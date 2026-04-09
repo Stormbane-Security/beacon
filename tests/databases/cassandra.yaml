@@ -1,0 +1,42 @@
+name: cassandra-no-auth
+description: "Cassandra 4.1 with authenticator disabled exposes CQL native transport"
+tags: [cassandra, database, cql]
+
+services:
+  cassandra:
+    image: cassandra:4.1
+    ports: ["9042:9042"]
+    environment:
+      CASSANDRA_AUTHENTICATOR: AllowAllAuthenticator
+      CASSANDRA_AUTHORIZER: AllowAllAuthorizer
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+
+ready:
+  cmd: "nc -z localhost 9042"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-cassandra-cql-responds
+    type: command
+    expect:
+      # Send a raw CQL OPTIONS frame and check for response.
+      # Cassandra CQL native protocol responds to OPTIONS with SUPPORTED.
+      command: "echo -ne '\\x04\\x00\\x00\\x00\\x05\\x00\\x00\\x00\\x00' | nc -w 3 localhost 9042 | od -A x -t x1z | head -1 | grep -q '84'"
+      exit_code: 0
+
+  - name: exploit-cassandra-cqlsh
+    type: command
+    expect:
+      command: "docker exec $(docker ps -qf name=cassandra) cqlsh -e 'DESCRIBE KEYSPACES' 2>/dev/null | grep -q system"
+      exit_code: 0
+
+  - name: detects-cassandra-exposed
+    type: beacon
+    target: localhost:9042
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9042"]
+    expect:
+      check_id: port.cassandra_exposed
+
+timeout: 10m

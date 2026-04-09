@@ -1,0 +1,44 @@
+name: neo4j-no-auth
+description: "Neo4j 5.x Community with auth disabled exposes graph database HTTP API"
+tags: [neo4j, database, graph]
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    ports: ["7474:7474", "7687:7687"]
+    environment:
+      NEO4J_AUTH: none
+      NEO4J_PLUGINS: '[]'
+
+ready:
+  cmd: "curl -sf http://localhost:7474/ | grep -q neo4j"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  - name: exploit-neo4j-root
+    type: command
+    expect:
+      command: "curl -sf http://localhost:7474/ | grep -q neo4j"
+      exit_code: 0
+
+  - name: exploit-neo4j-cypher-labels
+    type: command
+    expect:
+      command: "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"statements\":[{\"statement\":\"CALL db.labels()\"}]}' http://localhost:7474/db/neo4j/tx/commit | grep -q results"
+      exit_code: 0
+
+  - name: exploit-neo4j-cypher-count
+    type: command
+    expect:
+      command: "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"statements\":[{\"statement\":\"MATCH (n) RETURN count(n) as total\"}]}' http://localhost:7474/db/neo4j/tx/commit | grep -q total"
+      exit_code: 0
+
+  - name: detects-neo4j-exposed
+    type: beacon
+    target: localhost:7474
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7474"]
+    expect:
+      check_id: port.neo4j_exposed
+
+timeout: 10m

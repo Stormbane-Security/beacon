@@ -1,0 +1,77 @@
+name: gitlab-mock-api
+description: "Mock GitLab API server exposes version, projects, users, and snippets"
+tags: [gitlab, cicd, mock]
+
+# GitLab is too heavy for drydock (~4GB RAM). Use a mock HTTP server
+# that responds to the GitLab API endpoints beacon probes.
+
+services:
+  gitlab-mock:
+    image: nginx:alpine
+    ports: ["8929:80"]
+    volumes:
+      - ./gitlab-mock-conf:/etc/nginx/conf.d:ro
+      - ./gitlab-mock-data:/usr/share/nginx/html:ro
+
+setup:
+  - cmd: |
+      mkdir -p tests/cicd/gitlab-mock-conf tests/cicd/gitlab-mock-data/api/v4
+      cat > tests/cicd/gitlab-mock-conf/default.conf << 'CONF'
+      server {
+        listen 80;
+        location /api/v4/version {
+          default_type application/json;
+          return 200 '{"version":"17.0.0","revision":"abc123"}';
+        }
+        location /api/v4/projects {
+          default_type application/json;
+          return 200 '[{"id":1,"path_with_namespace":"test/repo","http_url_to_repo":"http://localhost:8929/test/repo.git","visibility":"public"}]';
+        }
+        location /api/v4/users {
+          default_type application/json;
+          return 200 '[{"id":1,"username":"root","name":"Administrator","state":"active"}]';
+        }
+        location /api/v4/snippets/public {
+          default_type application/json;
+          return 200 '[{"id":1,"title":"config.env","author":{"username":"root"},"file_name":"config.env"}]';
+        }
+        location /api/v4/groups {
+          default_type application/json;
+          return 200 '[{"id":1,"full_path":"engineering","visibility":"public"}]';
+        }
+      }
+      CONF
+    timeout: 10s
+
+ready:
+  cmd: "curl -sf http://localhost:8929/api/v4/version | grep -q version"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-gitlab-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8929/api/v4/version | grep -q '17.0.0'"
+      exit_code: 0
+
+  - name: exploit-gitlab-projects
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8929/api/v4/projects | grep -q path_with_namespace"
+      exit_code: 0
+
+  - name: exploit-gitlab-users
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8929/api/v4/users | grep -q username"
+      exit_code: 0
+
+  - name: detects-gitlab-exposed
+    type: beacon
+    target: localhost:8929
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8929"]
+    expect:
+      check_id: port.gitlab_exposed
+
+timeout: 5m
