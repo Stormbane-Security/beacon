@@ -1797,6 +1797,7 @@ const (
 	CheckChainEnvToDatabaseAccess    CheckID = "chain.env_to_database_access"     // Exposed .env parsed → database credentials extracted and connection verified
 	CheckChainSQLiToCredentialDump   CheckID = "chain.sqli_to_credential_dump"    // SQL injection exploited → credential rows extracted from users table
 	CheckChainXSSToSessionTheftPoC   CheckID = "chain.xss_to_session_theft_poc"   // XSS + missing HttpOnly cookie → session theft PoC generated
+	CheckChainNucleiToExploit        CheckID = "chain.nuclei_to_exploit"          // Nuclei CVE detection routed to exploit playbook for post-exploitation
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -3567,6 +3568,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckChainEnvToDatabaseAccess:  {CheckChainEnvToDatabaseAccess, SeverityCritical, ModeDeep},
 	CheckChainSQLiToCredentialDump: {CheckChainSQLiToCredentialDump, SeverityCritical, ModeDeep},
 	CheckChainXSSToSessionTheftPoC: {CheckChainXSSToSessionTheftPoC, SeverityHigh, ModeDeep},
+	CheckChainNucleiToExploit:      {CheckChainNucleiToExploit, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
