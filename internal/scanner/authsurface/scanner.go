@@ -97,6 +97,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	// Fetch main page and extract links as supplementary source
 	mainBody, mainStatus := fetchPage(ctx, client, base+"/")
 	if mainStatus == 200 {
+		// If the main page is a SPA, render it to find links and password fields.
+		if scan.IsSPA(mainBody) {
+			if rendered, err := scan.RenderSPA(ctx, base+"/"); err == nil && rendered != "" {
+				mainBody = rendered
+			}
+		}
+
 		// Extract href links from HTML
 		lower := strings.ToLower(mainBody)
 		for _, attr := range []string{`href="`, `href='`} {
@@ -149,6 +156,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		body, status := fetchPage(ctx, client, scheme+"://"+asset+path)
 		if status == 0 || status >= 400 {
 			continue
+		}
+
+		// If the page looks like a SPA (Angular/React/Vue), render it in
+		// headless Chrome to get the actual DOM with login forms that are
+		// built client-side by JavaScript.
+		if scan.IsSPA(body) {
+			if rendered, err := scan.RenderSPA(ctx, scheme+"://"+asset+path); err == nil && rendered != "" {
+				body = rendered
+			}
 		}
 
 		lower := strings.ToLower(body)
@@ -229,6 +245,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		body, status := fetchPage(ctx, client, scheme+"://"+asset+path)
 		if status == 0 || status >= 400 {
 			continue
+		}
+
+		// SPA rendering for registration pages too.
+		if scan.IsSPA(body) {
+			if rendered, err := scan.RenderSPA(ctx, scheme+"://"+asset+path); err == nil && rendered != "" {
+				body = rendered
+			}
 		}
 
 		lower := strings.ToLower(body)

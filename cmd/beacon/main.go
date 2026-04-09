@@ -69,10 +69,11 @@ SCAN FLAGS:
   --permission-confirmed     Acknowledge you have permission to run active probes
   --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
   --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
-  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph, pdf
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
   --poc-dir <path>           Generate standalone PoC files for each finding into <path>
+  --screenshots <dir>        Capture screenshots of finding URLs into <dir> (requires Chrome)
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --quiet                    Suppress informational stderr (missing API keys, nmap warnings, progress)
@@ -103,8 +104,9 @@ ENRICH FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph, pdf
   --out <path>               Write report to file instead of stdout
+  --screenshots <dir>        Capture screenshots of finding URLs into <dir> (requires Chrome)
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
 EXAMPLES:
@@ -275,6 +277,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		outPath             string
 		outputRawPath       string
 		pocDir              string
+		screenshotDir       string
 		format              string
 		severityFlag        string
 		verbose             bool
@@ -348,6 +351,11 @@ func cmdScan(cfg *config.Config, args []string) {
 			i++
 			if i < len(args) {
 				pocDir = args[i]
+			}
+		case "--screenshots":
+			i++
+			if i < len(args) {
+				screenshotDir = args[i]
 			}
 		case "--format":
 			i++
@@ -632,7 +640,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel, wordlistPath)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel, wordlistPath, screenshotDir)
 		return
 	}
 
@@ -1165,23 +1173,46 @@ Type exactly: I have written authorization for %s
 		fatalf("save report: %v", err)
 	}
 
+	// Capture screenshots if requested.
+	if screenshotDir != "" {
+		info("beacon: capturing screenshots...\n")
+		if err := report.CaptureScreenshots(findings, screenshotDir); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: screenshot capture: %v\n", err)
+		} else {
+			info("beacon: screenshots saved to %s\n", screenshotDir)
+		}
+	}
+
 	// Deliver in the requested format.
 	// Retrieve persisted graph JSON so renderFormat can include it in JSON
 	// reports or render DOT output for --format graph.
 	persistedGraphJSON, _ := st.GetAssetGraph(ctx, run.ID)
 	executions, _ := st.ListAssetExecutions(ctx, run.ID)
-	output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON)
-	if err != nil {
-		fatalf("render report: %v", err)
-	}
 
-	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
-			fatalf("write report file: %v", err)
+	// PDF format is handled separately since it writes a binary file.
+	if strings.EqualFold(format, "pdf") {
+		pdfPath := outPath
+		if pdfPath == "" {
+			pdfPath = fmt.Sprintf("beacon-report-%s.pdf", run.Domain)
 		}
-		info("beacon: report written to %s\n", outPath)
+		if err := report.RenderPDF(*run, enriched, summary, executions, screenshotDir, pdfPath); err != nil {
+			fatalf("render PDF: %v", err)
+		}
+		info("beacon: PDF report written to %s\n", pdfPath)
 	} else {
-		fmt.Print(output)
+		output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON, screenshotDir)
+		if err != nil {
+			fatalf("render report: %v", err)
+		}
+
+		if outPath != "" {
+			if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
+				fatalf("write report file: %v", err)
+			}
+			info("beacon: report written to %s\n", outPath)
+		} else {
+			fmt.Print(output)
+		}
 	}
 
 	// PoC bundle generation: write standalone exploit scripts for each finding.
@@ -1265,6 +1296,7 @@ func cmdScanMultiAsset(
 	dryRun bool,
 	logFile, logLevel string,
 	wordlistPath string,
+	screenshotDir string,
 ) {
 	scanType := module.ScanSurface
 	if deep {

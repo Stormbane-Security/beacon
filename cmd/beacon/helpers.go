@@ -264,13 +264,20 @@ func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedF
 // format is one of: "text" (default), "html", "json", "markdown", "ocsf", "har", "graph".
 // graphJSON is the persisted asset graph blob; it is included in the JSON report
 // when non-nil and used to render DOT output for the "graph" format.
-func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte) (string, error) {
+func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte, screenshotDirOpts ...string) (string, error) {
+	screenshotDir := ""
+	if len(screenshotDirOpts) > 0 {
+		screenshotDir = screenshotDirOpts[0]
+	}
 	switch strings.ToLower(format) {
 	case "html":
 		return rep.HTMLContent, nil
 	case "json":
 		return report.RenderJSON(run, enriched, summary, graphJSON)
 	case "markdown", "md":
+		if screenshotDir != "" {
+			return report.RenderEnhancedMarkdown(run, enriched, summary, executions, screenshotDir), nil
+		}
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
 	case "bounty":
 		return report.RenderBounty(run, enriched, summary, executions), nil

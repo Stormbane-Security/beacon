@@ -26,7 +26,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
-	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scan" // IsSPA + RenderSPA
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 )
@@ -344,9 +344,20 @@ func (s *Scanner) testStepBypass(ctx context.Context, client *http.Client, base,
 	return findings
 }
 
-// probe performs a GET request and classifies the response.
+// probe performs a GET request and classifies the response. If the page is a
+// SPA (Angular/React/Vue), it renders it in headless Chrome to get the actual
+// DOM content for accurate classification.
 func probe(ctx context.Context, client *http.Client, url string) probeResult {
 	status, body := doRequest(ctx, client, url)
+
+	// If the page looks like a SPA, render it in headless Chrome so that
+	// JS-rendered dashboards/admin panels are detected correctly.
+	if status == http.StatusOK && scan.IsSPA(body) {
+		if rendered, err := scan.RenderSPA(ctx, url); err == nil && rendered != "" {
+			body = rendered
+		}
+	}
+
 	h := sha256.Sum256([]byte(body))
 	return probeResult{
 		path:        url,
