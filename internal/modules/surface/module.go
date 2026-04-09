@@ -590,6 +590,20 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 
 		fs := m.runAsset(ctx, rootDomain, rootDomain, scanType, input.ScanRunID, 0, input.Progress, map[string]bool{rootDomain: true}, &sync.Mutex{})
+
+		// Active attack path chaining in fast-path mode.
+		if chainEng, err := chainengine.New(scanType); err == nil {
+			for _, f := range fs {
+				if ctx.Err() != nil {
+					break
+				}
+				chainResults := chainEng.OnFinding(ctx, f)
+				if len(chainResults) > 0 {
+					fs = append(fs, chainResults...)
+				}
+			}
+		}
+
 		return fs, ctx.Err()
 	}
 

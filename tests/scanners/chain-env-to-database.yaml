@@ -1,0 +1,77 @@
+name: chain-env-to-database
+description: >
+  Full attack chain: exposed .env file contains database credentials,
+  chain engine parses them and confirms database is accessible.
+  Tests detection -> chain engine -> chain finding pipeline.
+tags: [chain, env, database, postgresql, exploit, full-chain, integration]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20070:80"]
+    volumes:
+      - ./chain-env-to-database/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./chain-env-to-database/env-file:/usr/share/nginx/html/.env:ro
+
+  db:
+    image: postgres:12
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["20071:5432"]
+
+ready:
+  cmd: "curl -sf http://localhost:20070/.env 2>/dev/null | grep -q DATABASE_URL"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT — prove the vulnerability exists manually
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-env-file-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20070/.env | grep -q DATABASE_URL"
+      exit_code: 0
+
+  - name: preflight-postgres-accessible
+    type: command
+    expect:
+      command: "docker exec $(docker ps -q --filter 'ancestor=postgres:12' --filter 'status=running' | head -1) psql -U postgres -c 'SELECT 1' 2>/dev/null | grep -q '1'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION — Beacon finds the exposed .env file
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-env-file-exposed
+    type: beacon
+    target: localhost:20070
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--exploit", "--yes"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CHAIN — chain engine parses .env and finds database credentials
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: chain-env-to-database-access
+    type: beacon
+    target: localhost:20070
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--exploit", "--yes"]
+    expect:
+      check_id: chain.env_to_database_access
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no Redis on this setup
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20070
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--exploit", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

@@ -1,0 +1,66 @@
+name: chain-default-creds-grafana
+description: >
+  Full attack chain: Grafana default credentials (admin/admin) detected,
+  chain engine logs in and discovers authenticated admin endpoints.
+  Tests detection -> chain engine -> chain finding pipeline.
+tags: [chain, grafana, defaultcreds, exploit, full-chain, integration]
+
+services:
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["20072:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+ready:
+  cmd: "curl -sf http://localhost:20072/api/health 2>/dev/null | grep -q database"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT — prove default credentials work
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-grafana-default-creds-work
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20072/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}' | grep -qi 'logged in\\|changePassword'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION — Beacon finds default credentials via portscan
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-grafana-default-credentials
+    type: beacon
+    target: localhost:20072
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20072", "--exploit", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CHAIN — chain engine logs in and discovers admin surface
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: chain-default-creds-to-admin-access
+    type: beacon
+    target: localhost:20072
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20072", "--exploit", "--yes"]
+    expect:
+      check_id: chain.default_creds_to_admin_access
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no Redis on Grafana port
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20072
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20072", "--exploit", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 8m

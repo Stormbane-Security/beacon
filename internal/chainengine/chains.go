@@ -326,9 +326,14 @@ var chainEnvToDatabaseAccess = Chain{
 		}
 
 		// Extract .env content from trigger evidence.
+		// The exposedfiles scanner stores the file body as "snippet",
+		// while other sources may use "content" or "body".
 		envContent, _ := trigger.Evidence["content"].(string)
 		if envContent == "" {
 			envContent, _ = trigger.Evidence["body"].(string)
+		}
+		if envContent == "" {
+			envContent, _ = trigger.Evidence["snippet"].(string)
 		}
 		if envContent == "" {
 			log.Printf("[chain] env_to_database_access: no .env content in trigger evidence")

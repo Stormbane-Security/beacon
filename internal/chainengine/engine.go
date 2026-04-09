@@ -68,6 +68,12 @@ func (e *Engine) OnFinding(ctx context.Context, f finding.Finding) []finding.Fin
 		return nil
 	}
 
+	// Store every incoming finding so cross-finding chains (e.g. XSS +
+	// missing HttpOnly) can look up related findings on the same asset.
+	e.mu.Lock()
+	e.findings = append(e.findings, f)
+	e.mu.Unlock()
+
 	var results []finding.Finding
 	for _, chain := range DefaultChains {
 		if !chain.Matches(f) {

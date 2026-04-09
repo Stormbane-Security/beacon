@@ -1,0 +1,70 @@
+name: chain-xss-session-theft
+description: >
+  Full attack chain: reflected XSS + missing HttpOnly cookie = session
+  theft PoC. Chain engine detects both conditions on the same asset and
+  generates a session theft proof-of-concept.
+tags: [chain, xss, cookie, session-theft, exploit, full-chain, integration]
+
+services:
+  phpapp:
+    image: php:8.2-apache
+    ports: ["20073:80"]
+    volumes:
+      - ./chain-xss-session-theft/app.php:/var/www/html/index.php:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20073/?q=test 2>/dev/null | grep -q 'Search'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT — prove XSS reflection exists
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-xss-reflected
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20073/?q=<script>alert(1)</script>' | grep -q '<script>alert(1)</script>'"
+      exit_code: 0
+
+  - name: preflight-cookie-lacks-httponly
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:20073/' | grep -i 'set-cookie' | grep -iv 'httponly'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION — Beacon finds reflected XSS
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-reflected-xss
+    type: beacon
+    target: localhost:20073
+    args: ["--no-enrich", "--no-nmap", "--scanners", "rxss,cookie", "--exploit", "--yes", "--ports", "20073"]
+    expect:
+      check_id: web.reflected_xss
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CHAIN — XSS + missing HttpOnly = session theft PoC
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: chain-xss-to-session-theft-poc
+    type: beacon
+    target: localhost:20073
+    args: ["--no-enrich", "--no-nmap", "--scanners", "rxss,cookie", "--exploit", "--yes", "--ports", "20073"]
+    expect:
+      check_id: chain.xss_to_session_theft_poc
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no Redis on this setup
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20073
+    args: ["--no-enrich", "--no-nmap", "--scanners", "rxss,cookie", "--exploit", "--yes", "--ports", "20073"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
