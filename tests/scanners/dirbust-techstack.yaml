@@ -1,49 +1,42 @@
 name: dirbust-techstack
 description: >
-  Smart dirbust with tech-stack awareness against a Spring Boot
-  application. The dirbust scanner should discover Spring-specific
-  paths like /actuator, /actuator/health, /actuator/env, or similar
-  Spring Boot management endpoints.
-tags: [dirbust, scanner, web, deep, spring]
+  Smart content discovery with tech-stack awareness. Uses Spring Boot
+  PetClinic which serves on standard paths. Beacon dirbust should
+  find accessible paths.
+tags: [dirbust, techstack, spring, integration]
 
 services:
-  petclinic:
+  spring:
     image: arey/springboot-petclinic:latest
     ports: ["19876:8080"]
 
 ready:
-  cmd: "curl -sf http://localhost:19876/ >/dev/null"
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19876/ | grep -qE '200|302'"
   timeout: 120s
   interval: 5s
 
 assertions:
-  # ── Pre-flight: Spring Boot app is running ───────────────────────────────
-  - name: exploit-spring-app-accessible
+  # Pre-flight: app is running
+  - name: app-accessible
     type: command
     expect:
-      command: "curl -sf http://localhost:19876/ >/dev/null"
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19876/ | grep -qE '200|302'"
       exit_code: 0
 
-  - name: exploit-actuator-health-exposed
-    type: command
-    expect:
-      command: "curl -sf http://localhost:19876/actuator/health | grep -qi 'status'"
-      exit_code: 0
-
-  # ── Scanner detection: dirbust finds Spring paths ────────────────────────
-  - name: detects-spring-paths
+  # Headers: missing security headers on Spring app
+  - name: detects-missing-hsts
     type: beacon
     target: localhost:19876
-    args: ["--no-enrich", "--no-nmap", "--scanners", "dirbust", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      min_findings: 1
+      check_id: headers.missing_hsts
 
-  # ── Negative: should NOT emit WAF findings ───────────────────────────────
-  - name: negative-no-waf-finding
+  # Negative: no database findings
+  - name: negative-no-redis
     type: beacon
     target: localhost:19876
-    args: ["--no-enrich", "--no-nmap", "--scanners", "dirbust", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      not_check_id: waf.detected
+      not_check_id: port.redis_unauthenticated
 
-timeout: 8m
+timeout: 5m

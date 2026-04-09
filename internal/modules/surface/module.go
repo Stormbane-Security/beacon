@@ -88,6 +88,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/dnsrebind"
 	_ "github.com/stormbane-security/beacon/internal/scanner/hostheader"
 	_ "github.com/stormbane-security/beacon/internal/scanner/rxss"
+	_ "github.com/stormbane-security/beacon/internal/scanner/secondorder"
 	_ "github.com/stormbane-security/beacon/internal/scanner/jwt"
 	"github.com/stormbane-security/beacon/internal/scanner/nuclei"
 	"github.com/stormbane-security/beacon/internal/scanner/passivedns"
