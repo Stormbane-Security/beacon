@@ -47,6 +47,21 @@ assertions:
     expect:
       check_id: port.service_identified
 
+  # ── Exploit mode: data extraction and network discovery ───────────────
+  - name: etcd-exploit-chain
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19885", "--exploit"]
+    expect:
+      check_id: port.etcd_exposed
+
+  - name: etcd-exploit-min-findings
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19885", "--exploit"]
+    expect:
+      min_findings: 2
+
   # ── Negative: no redis findings ──────────────────────────────────────
   - name: negative-no-redis
     type: beacon

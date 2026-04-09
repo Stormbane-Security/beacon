@@ -57,7 +57,22 @@ assertions:
     expect:
       check_id: port.service_identified
 
-  # Negative: no Redis on a Tomcat port
+  # ── Deep/exploit mode: exploit chain findings ─────────────────────────
+  - name: tomcat-exploit-chain
+    type: beacon
+    target: localhost:20023
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20023", "--exploit"]
+    expect:
+      check_id: port.tomcat_default_credentials
+
+  - name: tomcat-exploit-min-findings
+    type: beacon
+    target: localhost:20023
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20023", "--exploit"]
+    expect:
+      min_findings: 2
+
+  # ── Negative: no Redis on a Tomcat port ──────────────────────────────
   - name: negative-no-redis
     type: beacon
     target: localhost:20023

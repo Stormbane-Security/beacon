@@ -48,6 +48,23 @@ assertions:
       check_id: port.service_identified
 
   # ══════════════════════════════════════════════════════════════════════
+  # Exploit mode: data extraction from ClickHouse
+  # ══════════════════════════════════════════════════════════════════════
+  - name: clickhouse-exploit-chain
+    type: beacon
+    target: localhost:19837
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19837", "--exploit"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+  - name: clickhouse-exploit-min-findings
+    type: beacon
+    target: localhost:19837
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19837", "--exploit"]
+    expect:
+      min_findings: 2
+
+  # ══════════════════════════════════════════════════════════════════════
   # NEGATIVE: no cross-contamination
   # ══════════════════════════════════════════════════════════════════════
   - name: negative-no-redis-on-clickhouse
