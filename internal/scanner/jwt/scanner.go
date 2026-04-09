@@ -1002,13 +1002,6 @@ func checkJWKSKeys(ctx context.Context, client *http.Client, asset, base string)
 	return findings
 }
 
-// isCatchAll returns true when the server responds 200 to a path that cannot
-// exist on any real application — indicating a wildcard / catch-all config.
-// Delegates to the shared scan.DetectCatchAll utility.
-func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	return scan.DetectCatchAll(ctx, client, base).IsCatchAll
-}
-
 // ── Deep-mode active JWT probes ──────────────────────────────────────────────
 
 // algNoneVariants are case variations of "none" that bypass naive string

@@ -36,7 +36,7 @@ func TestRun_DeepMode_CanaryReflected_FindingEmitted(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		// Reflect the parameter value without encoding.
-		fmt.Fprintf(w, "<html><body>Results for: %s</body></html>", q)
+		_, _ = fmt.Fprintf(w, "<html><body>Results for: %s</body></html>", q)
 	}))
 	defer srv.Close()
 
@@ -67,7 +67,7 @@ func TestRun_DeepMode_HTMLPayloadReflected_Verified(t *testing.T) {
 			q = r.FormValue("q")
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "<html><body>Search: %s</body></html>", q)
+		_, _ = fmt.Fprintf(w, "<html><body>Search: %s</body></html>", q)
 	}))
 	defer srv.Close()
 
@@ -100,7 +100,7 @@ func TestRun_DeepMode_JSContext_CriticalSeverity(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		// Reflect in all contexts so the JS payload also reflects.
-		fmt.Fprintf(w, "<html><script>var x = '%s';</script></html>", q)
+		_, _ = fmt.Fprintf(w, "<html><script>var x = '%s';</script></html>", q)
 	}))
 	defer srv.Close()
 
@@ -135,7 +135,7 @@ func TestRun_DeepMode_EncodedOutput_NoFinding(t *testing.T) {
 		q = strings.ReplaceAll(q, "<", "&lt;")
 		q = strings.ReplaceAll(q, ">", "&gt;")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "<html><body>Results for: %s</body></html>", q)
+		_, _ = fmt.Fprintf(w, "<html><body>Results for: %s</body></html>", q)
 	}))
 	defer srv.Close()
 
@@ -164,7 +164,7 @@ func TestRun_DeepMode_POSTReflection_FindingEmitted(t *testing.T) {
 			q = ""
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "<html><body>%s</body></html>", q)
+		_, _ = fmt.Fprintf(w, "<html><body>%s</body></html>", q)
 	}))
 	defer srv.Close()
 
@@ -196,7 +196,7 @@ func TestRun_DeepMode_ProofCommandHasHost(t *testing.T) {
 			q = r.FormValue("q")
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "<html>%s</html>", q)
+		_, _ = fmt.Fprintf(w, "<html>%s</html>", q)
 	}))
 	defer srv.Close()
 
@@ -247,7 +247,7 @@ func TestRun_DeepMode_DiscoveredParams_Used(t *testing.T) {
 			v = r.FormValue("custom_param")
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "<html>%s</html>", v)
+		_, _ = fmt.Fprintf(w, "<html>%s</html>", v)
 	}))
 	defer srv.Close()
 

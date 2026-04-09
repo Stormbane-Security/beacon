@@ -116,7 +116,7 @@ func tryLogin(
 		return nil, nil, err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Success indicators:
 	// 1. Response sets a session cookie

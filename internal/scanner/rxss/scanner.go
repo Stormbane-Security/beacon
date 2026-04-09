@@ -315,7 +315,7 @@ func (s *Scanner) inject(ctx context.Context, client *http.Client, method, baseU
 	if err != nil {
 		return "", "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	return string(body), reqURL, nil

@@ -86,15 +86,6 @@ var methodBypassMethods = []string{
 	http.MethodPatch,
 }
 
-// endpointResult records a response from probing an endpoint.
-type endpointResult struct {
-	path       string
-	status     int
-	bodyHash   string
-	bodyLen    int
-	body       string
-}
-
 // Scanner detects privilege escalation via access control comparison.
 type Scanner struct{}
 

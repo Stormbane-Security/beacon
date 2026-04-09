@@ -23,7 +23,7 @@ import (
 func AutoRegister(ctx context.Context, target string, client *http.Client) (string, error) {
 	// Generate random credentials
 	randBytes := make([]byte, 8)
-	rand.Read(randBytes)
+	_, _ = rand.Read(randBytes)
 	suffix := hex.EncodeToString(randBytes)
 	email := fmt.Sprintf("beacon-test-%s@test.beacon.local", suffix)
 	username := fmt.Sprintf("beacon_test_%s", suffix[:8])
@@ -74,7 +74,7 @@ func AutoRegister(ctx context.Context, target string, client *http.Client) (stri
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// Check for successful registration (200, 201, 302)
 		if resp.StatusCode == 200 || resp.StatusCode == 201 || resp.StatusCode == 302 {
@@ -131,7 +131,7 @@ func loginWithCreds(ctx context.Context, target string, client *http.Client, ema
 			continue
 		}
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if resp.StatusCode == 200 || resp.StatusCode == 302 {
 			// Check for token in response

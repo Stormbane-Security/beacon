@@ -135,15 +135,6 @@ var openRedirectCheckIDs = []string{
 	finding.CheckOAuthOpenRedirect,
 }
 
-// oauthCheckIDs are check IDs indicating an OAuth/OIDC endpoint is present.
-var oauthCheckIDs = []string{
-	finding.CheckOAuthOpenRedirect,
-	"oauth.insecure_redirect_uri",
-	"oauth.missing_state",
-	"oauth.missing_pkce",
-	"auth.oidc_detected",
-}
-
 func checkAuthBypassViaProxy(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
 	if !hasAny(byCheckID, openRedirectCheckIDs...) {
 		return nil

@@ -68,7 +68,7 @@ func TestRun_SkipsSurfaceMode(t *testing.T) {
 func TestRun_RunsInDeepMode(t *testing.T) {
 	// Spin up a server that always returns the same thing regardless of Host.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "same content for everyone")
+		_, _ = fmt.Fprint(w, "same content for everyone")
 	}))
 	defer srv.Close()
 
@@ -97,7 +97,7 @@ func TestRun_RunsInDeepMode(t *testing.T) {
 func TestProbe_HostUnvalidated(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always returns same body regardless of Host.
-		fmt.Fprint(w, "Welcome to my app")
+		_, _ = fmt.Fprint(w, "Welcome to my app")
 	}))
 	defer srv.Close()
 
@@ -131,7 +131,7 @@ func TestProbe_HostValidated_NoFinding(t *testing.T) {
 			http.Error(w, "Invalid Host", http.StatusBadRequest)
 			return
 		}
-		fmt.Fprint(w, "Welcome to my app")
+		_, _ = fmt.Fprint(w, "Welcome to my app")
 	}))
 	defer srv.Close()
 
@@ -157,7 +157,7 @@ func TestProbe_HostValidated_NoFinding(t *testing.T) {
 func TestProbe_CORSAmplification(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		fmt.Fprint(w, "open CORS and open Host")
+		_, _ = fmt.Fprint(w, "open CORS and open Host")
 	}))
 	defer srv.Close()
 
@@ -195,9 +195,9 @@ func TestProbe_InternalServiceExposure(t *testing.T) {
 		// Simulate a reverse proxy routing to different backends.
 		switch r.Host {
 		case "metadata.google.internal":
-			fmt.Fprint(w, `{"instance":{"id":"12345","zone":"us-central1-a"}}`)
+			_, _ = fmt.Fprint(w, `{"instance":{"id":"12345","zone":"us-central1-a"}}`)
 		default:
-			fmt.Fprint(w, "Welcome to the public site")
+			_, _ = fmt.Fprint(w, "Welcome to the public site")
 		}
 	}))
 	defer srv.Close()
@@ -233,7 +233,7 @@ func TestProbe_InternalServiceExposure(t *testing.T) {
 func TestProbe_InternalServiceExposure_SameContent_NoFinding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always the same content — no internal routing.
-		fmt.Fprint(w, "same content for everyone")
+		_, _ = fmt.Fprint(w, "same content for everyone")
 	}))
 	defer srv.Close()
 
@@ -258,7 +258,7 @@ func TestProbe_InternalServiceExposure_SameContent_NoFinding(t *testing.T) {
 
 func TestProbe_LocalhostHostAccepted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "same content for everyone")
+		_, _ = fmt.Fprint(w, "same content for everyone")
 	}))
 	defer srv.Close()
 

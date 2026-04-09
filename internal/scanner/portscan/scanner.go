@@ -400,7 +400,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			_ = conn.SetDeadline(time.Now().Add(bannerTimeout)) // full 500ms timeout
 			buf := make([]byte, 512)
 			n, _ := conn.Read(buf)
-			conn.Close()
+			_ = conn.Close()
 			if n > 0 {
 				banner := strings.TrimSpace(string(buf[:n]))
 				// Update the open port entry with the deferred banner
