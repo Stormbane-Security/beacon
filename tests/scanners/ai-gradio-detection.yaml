@@ -1,0 +1,61 @@
+name: ai-gradio-detection
+description: >
+  Gradio ML demo server running without authentication. Beacon should detect
+  the unauthenticated Gradio interface and flag it as an exposed AI endpoint.
+  Uses a minimal custom Gradio app built from the co-located Dockerfile.
+tags: [ai, gradio, ml, noauth, surface]
+
+# NOTE: Gradio installs dependencies at build time which makes the image large
+# (~1GB). The container also takes 10-20s to start serving after launch.
+
+services:
+  gradio:
+    build:
+      context: ./ai-gradio-detection
+      dockerfile: Dockerfile
+    ports: ["19888:7860"]
+
+ready:
+  cmd: "curl -sf http://localhost:19888/ | grep -qi gradio"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: Gradio web UI is accessible ─────────────────────────
+  - name: preflight-gradio-ui
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19888/ | grep -qi gradio"
+      exit_code: 0
+
+  - name: preflight-gradio-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19888/info -o /dev/null -w '%{http_code}' | grep -qE '200|404'"
+      exit_code: 0
+
+  # ── Beacon detects unauthenticated Gradio ───────────────────────────
+  - name: detects-gradio-unauthenticated
+    type: beacon
+    target: localhost:19888
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aidetect"]
+    expect:
+      check_id: ai.gradio_unauthenticated
+
+  # ── Portscan identifies Gradio service ──────────────────────────────
+  - name: detects-gradio-port
+    type: beacon
+    target: localhost:19888
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19888"]
+    expect:
+      check_id: port.gradio_exposed
+
+  # ── Negative: no database findings ──────────────────────────────────
+  - name: negative-no-database
+    type: beacon
+    target: localhost:19888
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aidetect"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m

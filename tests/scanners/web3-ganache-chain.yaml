@@ -1,0 +1,66 @@
+name: web3-ganache-chain
+description: >
+  Ganache Ethereum test node with deterministic accounts. Tests the full
+  web3 scanning pipeline: RPC endpoint detection, unlocked account discovery,
+  and dangerous method exposure. Verifies beacon detects the chain node and
+  its insecure default configuration.
+tags: [web3, blockchain, ganache, ethereum, chainnode, surface]
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["19887:8545"]
+    command: ["--host", "0.0.0.0", "--port", "8545", "--accounts", "5", "--deterministic"]
+
+ready:
+  cmd: "curl -sf -X POST http://localhost:19887/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | grep -q result"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ── Pre-flight: RPC is accessible ───────────────────────────────────
+  - name: preflight-rpc-blocknumber
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19887/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  - name: preflight-rpc-accounts
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19887/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_accounts\",\"params\":[],\"id\":1}' | grep -q '0x'"
+      exit_code: 0
+
+  # ── Surface: chainnode detects exposed RPC ──────────────────────────
+  - name: detects-rpc-exposed
+    type: beacon
+    target: localhost:19887
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.node_rpc_exposed
+
+  # ── Surface: detects unlocked accounts ──────────────────────────────
+  - name: detects-unlocked-accounts
+    type: beacon
+    target: localhost:19887
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.unlocked_accounts
+
+  # ── Surface: peer count leak ────────────────────────────────────────
+  - name: detects-peer-count-leak
+    type: beacon
+    target: localhost:19887
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.peer_count_leak
+
+  # ── Negative: no HTTP header findings (this is JSON-RPC, not a web app)
+  - name: negative-no-hsts
+    type: beacon
+    target: localhost:19887
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      not_check_id: headers.missing_hsts
+
+timeout: 5m
