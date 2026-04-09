@@ -1,0 +1,52 @@
+name: mqtt-detection
+description: >
+  Eclipse Mosquitto MQTT broker with anonymous access enabled. Beacon
+  portscan MQTT probe should detect port.mqtt_exposed via MQTT CONNECT
+  handshake on port 1883.
+tags: [mqtt, scanner, portscan, messaging, detection]
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    ports: ["20026:1883"]
+    volumes:
+      - ./mqtt-detection/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+ready:
+  cmd: "nc -z localhost 20026"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: MQTT port is open
+  - name: mqtt-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 20026"
+      exit_code: 0
+
+  # Scanner: detect MQTT exposed
+  - name: detects-mqtt-exposed
+    type: beacon
+    target: localhost:20026
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20026"]
+    expect:
+      check_id: port.mqtt_exposed
+
+  # Scanner: service identified
+  - name: detects-service-identified
+    type: beacon
+    target: localhost:20026
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20026"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: no Redis on an MQTT port
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20026
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20026"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 3m

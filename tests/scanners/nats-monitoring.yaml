@@ -8,11 +8,11 @@ tags: [nats, scanner, fingerprint, exposed, monitoring]
 services:
   nats:
     image: nats:latest
-    ports: ["18222:8222"]
+    ports: ["20024:4222", "20025:8222"]
     command: ["--http_port", "8222"]
 
 ready:
-  cmd: "curl -sf http://localhost:18222/ | grep -qi nats"
+  cmd: "curl -sf http://localhost:20025/ | grep -qi nats"
   timeout: 30s
   interval: 3s
 
@@ -20,7 +20,7 @@ assertions:
   # Classification: beacon identifies NATS
   - name: classify-detects-nats
     type: classify
-    target: localhost:18222
+    target: localhost:20025
     expect:
       service: NATS
 
@@ -28,21 +28,37 @@ assertions:
   - name: nats-connz-accessible
     type: command
     expect:
-      command: "curl -sf http://localhost:18222/connz | grep -q num_connections"
+      command: "curl -sf http://localhost:20025/connz | grep -q num_connections"
       exit_code: 0
 
   - name: nats-varz-accessible
     type: command
     expect:
-      command: "curl -sf http://localhost:18222/varz | grep -q server_id"
+      command: "curl -sf http://localhost:20025/varz | grep -q server_id"
       exit_code: 0
 
-  # Scanner: detect exposed monitoring
-  - name: detects-nats-exposed
+  # Scanner: detect service on client port 4222
+  - name: detects-nats-client-service
     type: beacon
-    target: localhost:18222
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18222"]
+    target: localhost:20024
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20024"]
     expect:
       check_id: port.service_identified
+
+  # Scanner: detect exposed monitoring on 8222
+  - name: detects-nats-monitoring-exposed
+    type: beacon
+    target: localhost:20025
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20025"]
+    expect:
+      check_id: port.nats_monitoring_exposed
+
+  # Negative: no Redis on NATS ports
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20025
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20025"]
+    expect:
+      not_check_id: port.redis_unauthenticated
 
 timeout: 5m

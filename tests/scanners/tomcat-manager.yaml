@@ -1,0 +1,68 @@
+name: tomcat-manager-exposed
+description: >
+  Apache Tomcat 9 with manager app and default tomcat:tomcat credentials.
+  Beacon portscan should detect the Tomcat default credentials via HTTP
+  Basic Auth on /manager/html and flag missing HSTS.
+tags: [tomcat, scanner, portscan, defaultcreds, detection]
+
+services:
+  tomcat:
+    image: tomcat:9.0-jdk17
+    ports: ["20023:8080"]
+    volumes:
+      - ./tomcat-defaultcreds/tomcat-users.xml:/usr/local/tomcat/conf/tomcat-users.xml:ro
+      - ./tomcat-defaultcreds/context.xml:/opt/context.xml:ro
+    command: ["bash", "-c", "cp -r /usr/local/tomcat/webapps.dist/* /usr/local/tomcat/webapps/ && cp /opt/context.xml /usr/local/tomcat/webapps/manager/META-INF/context.xml && catalina.sh run"]
+
+ready:
+  cmd: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20023/ | grep -qE '200|302'"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  # Pre-flight: Tomcat root page accessible
+  - name: tomcat-root-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20023/ -o /dev/null -w '%{http_code}' | grep -q '200'"
+      exit_code: 0
+
+  # Pre-flight: Manager requires auth
+  - name: tomcat-manager-requires-auth
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20023/manager/html | grep -q '401'"
+      exit_code: 0
+
+  # Pre-flight: Default creds work
+  - name: tomcat-default-creds-work
+    type: command
+    expect:
+      command: "curl -sf -u tomcat:tomcat http://localhost:20023/manager/html | grep -qi 'tomcat'"
+      exit_code: 0
+
+  # Scanner: detect default credentials
+  - name: detects-tomcat-default-creds
+    type: beacon
+    target: localhost:20023
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20023", "--deep"]
+    expect:
+      check_id: port.tomcat_default_credentials
+
+  # Scanner: service identified on the Tomcat port
+  - name: detects-service-identified
+    type: beacon
+    target: localhost:20023
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20023"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: no Redis on a Tomcat port
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20023
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20023"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
