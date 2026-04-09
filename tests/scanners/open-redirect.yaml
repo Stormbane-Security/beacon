@@ -37,7 +37,7 @@ assertions:
   - name: detects-missing-hsts
     type: beacon
     target: localhost:19881
-    args: ["--no-enrich", "--scanners", "headers"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
 

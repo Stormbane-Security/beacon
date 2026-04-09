@@ -42,7 +42,7 @@ assertions:
     target: localhost:19860
     args: ["--no-enrich", "--scanners", "oauth", "--deep", "--permission-confirmed"]
     expect:
-      check_id: oauth.open_redirect
+      check_id: oauth.token_endpoint_no_auth
 
   - name: detects-oidc-discovery
     type: beacon

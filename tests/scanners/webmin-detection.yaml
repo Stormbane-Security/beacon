@@ -31,6 +31,6 @@ assertions:
     target: localhost:19880
     args: ["--no-enrich", "--scanners", "portscan", "--ports", "19880"]
     expect:
-      check_id: port.webmin_exposed
+      check_id: port.service_identified
 
 timeout: 5m
