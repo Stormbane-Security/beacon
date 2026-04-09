@@ -217,7 +217,7 @@ func encodeJSONSmuggle(payload string) string {
 
 // encodeMultipartWrap wraps the payload in a multipart/form-data body.
 func encodeMultipartWrap(payload string) string {
-	boundary := "----BeaconBoundary" + fmt.Sprintf("%08x", rand.Int31())
+	boundary := "----BeaconBoundary" + fmt.Sprintf("%08x", rand.Int31()) // #nosec G404 -- boundary randomness for WAF bypass, not crypto
 	return fmt.Sprintf("--%s\r\nContent-Disposition: form-data; name=\"q\"\r\n\r\n%s\r\n--%s--", boundary, payload, boundary)
 }
 

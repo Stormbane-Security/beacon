@@ -269,8 +269,7 @@ func abs(x int) int {
 // deterministic source seeded per-call so values vary between requests but
 // are not cryptographically unpredictable (not needed here).
 func randomValue() string {
-	//nolint:gosec // not security-sensitive — just probe values
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404 -- probe values, not crypto
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 8)
 	for i := range b {

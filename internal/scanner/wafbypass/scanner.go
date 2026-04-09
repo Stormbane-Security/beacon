@@ -214,7 +214,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		payload string
 		context string // "sqli" or "xss"
 	}{
-		{"' OR 1=1-- -", "sqli"},
+		{"' OR 1=1-- -", "sqli"}, // #nosec G101 -- injection test payloads, not credentials
 		{"<script>alert(1)</script>", "xss"},
 		{"1 UNION SELECT null,null-- -", "sqli"},
 		{`<img src=x onerror=alert(1)>`, "xss"},
@@ -244,7 +244,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				ap.context, ap.payload, result.Encoder, result.StatusCode,
 			),
 			Asset: asset,
-			Evidence: map[string]any{
+			Evidence: map[string]any{ // #nosec G101 -- WAF bypass test payloads, not credentials
 				"bypass_type":      "adaptive_encoding",
 				"encoder":          result.Encoder,
 				"original_payload": ap.payload,

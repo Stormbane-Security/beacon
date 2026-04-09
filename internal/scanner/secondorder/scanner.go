@@ -109,7 +109,7 @@ func New() *Scanner {
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true, //nolint:gosec
+					InsecureSkipVerify: true, // #nosec G402 -- security scanner must accept any cert
 				},
 			},
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {

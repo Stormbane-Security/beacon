@@ -553,9 +553,9 @@ func (s *Scanner) fetchCanaryHash(ctx context.Context, baseURL string) string {
 	// Probe multiple canary patterns — different prefixes may yield different
 	// soft-404 pages, and we want to catch the most common one.
 	canaryPaths := []string{
-		fmt.Sprintf("/beacon-canary-404-test-%d", rand.Int63()),
-		fmt.Sprintf("/admin/beacon-canary-%d", rand.Int63()),
-		fmt.Sprintf("/api/beacon-canary-%d", rand.Int63()),
+		fmt.Sprintf("/beacon-canary-404-test-%d", rand.Int63()), // #nosec G404 -- canary path, not crypto
+		fmt.Sprintf("/admin/beacon-canary-%d", rand.Int63()),    // #nosec G404
+		fmt.Sprintf("/api/beacon-canary-%d", rand.Int63()),      // #nosec G404
 	}
 
 	hashCounts := make(map[string]int)
@@ -625,7 +625,7 @@ func deduplicatePaths(paths []string) []string {
 // Each line is treated as a path; a leading "/" is added if missing.
 // Blank lines and lines starting with "#" are skipped.
 func loadWordlistPaths(path string) ([]string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- user-provided wordlist file path
 	if err != nil {
 		return nil, err
 	}

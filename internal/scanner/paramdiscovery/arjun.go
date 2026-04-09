@@ -44,7 +44,7 @@ func runArjun(ctx context.Context, targetURL string, arjunBin string, wordlistPa
 		args = append(args, "-w", wordlistPath)
 	}
 
-	cmd := exec.CommandContext(ctx, binPath, args...)
+	cmd := exec.CommandContext(ctx, binPath, args...) // #nosec G204 -- intentional: running arjun tool
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -59,7 +59,7 @@ func runArjun(ctx context.Context, targetURL string, arjunBin string, wordlistPa
 // parseArjunOutput reads and parses arjun's JSON output file.
 // Returns a deduplicated, sorted list of discovered parameter names.
 func parseArjunOutput(outputFile string) ([]string, error) {
-	data, err := os.ReadFile(outputFile)
+	data, err := os.ReadFile(outputFile) // #nosec G304 -- reading arjun's temp output file
 	if err != nil {
 		return nil, nil
 	}

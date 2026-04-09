@@ -76,7 +76,7 @@ func runFfuf(ctx context.Context, ffufBin, asset string, paths []string) []Resul
 
 	target := scheme + "://" + asset + "/FUZZ"
 
-	cmd := exec.CommandContext(ctx, ffufBin,
+	cmd := exec.CommandContext(ctx, ffufBin, // #nosec G204 -- intentional: running ffuf tool
 		"-u", target,
 		"-w", wl.Name(),
 		"-mc", "200,201,301,302,401,403",
@@ -95,7 +95,7 @@ func runFfuf(ctx context.Context, ffufBin, asset string, paths []string) []Resul
 		}
 	}
 
-	data, err := os.ReadFile(outName)
+	data, err := os.ReadFile(outName) // #nosec G304 -- reading ffuf's temp output file
 	if err != nil || len(data) == 0 {
 		return nil
 	}
