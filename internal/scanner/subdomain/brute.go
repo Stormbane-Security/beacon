@@ -149,6 +149,12 @@ func loadWordlistPrefixes(path string) ([]string, error) {
 // When a custom wordlist is set in the ScanContext, its entries are used in
 // addition to the built-in commonPrefixes list.
 func bruteForceSubdomains(ctx context.Context, domain string) []string {
+	// Skip brute-force for private/loopback targets — *.localhost all resolve
+	// to 127.0.0.1 and would generate hundreds of false "subdomain" results.
+	if scan.IsPrivateTarget(domain) {
+		return nil
+	}
+
 	const concurrency = 50
 
 	// Detect wildcard DNS before the main loop.

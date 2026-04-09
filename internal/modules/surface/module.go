@@ -3675,6 +3675,7 @@ const (
 	ServiceClassMonitoring                 // Prometheus, Grafana, Kibana, Jaeger
 	ServiceClassCICD                       // Jenkins, GitLab, TeamCity
 	ServiceClassInfra                      // Docker, Kubernetes, Consul, Vault, etcd
+	ServiceClassCloudStorage               // S3, GCS, Azure Blob — skip injection scanners
 )
 
 // classifyService maps a service name (from portscan evidence) to a ServiceClass.
@@ -3740,6 +3741,17 @@ func classifyService(openPorts map[int]string) ServiceClass {
 			return ServiceClassCICD
 		}
 	}
+	// Cloud storage: detected from service name patterns in portscan evidence.
+	// S3/GCS/Azure responses have distinctive Server headers that portscan may capture.
+	cloudStorageServices := map[string]bool{
+		"s3": true, "gcs": true, "azure-blob": true, "minio": true,
+		"AmazonS3": true, "UploadServer": true, // Google Cloud Storage Server header
+	}
+	for _, svc := range openPorts {
+		if cloudStorageServices[svc] {
+			return ServiceClassCloudStorage
+		}
+	}
 
 	return ServiceClassUnknown
 }
@@ -3759,6 +3771,8 @@ func serviceScannerRelevant(svcClass ServiceClass, scannerName string) bool {
 		return cicdRelevantScanners[scannerName]
 	case ServiceClassInfra:
 		return infraRelevantScanners[scannerName]
+	case ServiceClassCloudStorage:
+		return cloudStorageRelevantScanners[scannerName]
 	default:
 		return true
 	}
@@ -3834,6 +3848,16 @@ var infraRelevantScanners = map[string]bool{
 	"webcontent": true, "screenshot": true, "crawler": true,
 	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
 	"autoprobe": true, "gateway": true, "containerimage": true,
+}
+
+var cloudStorageRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// Cloud storage: check bucket permissions, headers, TLS — skip injection scanners
+	"secheaders": true, "cloudbuckets": true, "wellknown": true,
+	"exposedfiles": true, "screenshot": true,
 }
 
 // saveScanMetricElapsed records a scanner run's timing and finding counts to the store.
