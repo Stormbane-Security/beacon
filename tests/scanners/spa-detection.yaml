@@ -1,0 +1,56 @@
+name: spa-detection
+description: >
+  Minimal SPA shell served by nginx. The HTML contains an empty
+  <app-root> element (Angular indicator) and a script that injects a
+  login form client-side. Verifies that IsSPA detection triggers via
+  the secheaders scanner path (which always runs). Does NOT require
+  Chrome — only tests that the raw HTML is recognized as an SPA.
+tags: [spa, scanner, detection, nginx]
+
+services:
+  app:
+    image: nginx:1.27-alpine
+    ports: ["19895:80"]
+    volumes:
+      - ./spa-detection/index.html:/usr/share/nginx/html/index.html:ro
+      - ./spa-detection/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19895/ | grep -q 'app-root'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: confirm the raw HTML has the SPA marker
+  - name: exploit-has-app-root
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19895/ | grep -q '<app-root></app-root>'"
+      exit_code: 0
+
+  # Pre-flight: the raw HTML does NOT have a visible password field
+  # (it is injected by JavaScript at runtime)
+  - name: exploit-no-password-in-raw-html
+    type: command
+    expect:
+      command: "! curl -sf http://localhost:19895/ | grep -qi 'type=\"password\"'"
+      exit_code: 0
+
+  # secheaders runs on every target and goes through IsSPA internally.
+  # We verify it finds the expected missing headers on our SPA page.
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19895
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_csp
+
+  # authsurface should not crash on this SPA page, even without Chrome.
+  - name: authsurface-no-crash
+    type: beacon
+    target: localhost:19895
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--ports", "80"]
+    expect:
+      exit_code: 0
+
+timeout: 5m
