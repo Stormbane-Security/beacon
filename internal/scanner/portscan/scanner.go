@@ -418,6 +418,30 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// ── Parallel nmap: launch nmap concurrently with native probes ─────
+	// nmap -sV takes 10-30s. By starting it now (on all open ports) and
+	// running native probes in parallel, total wall time becomes
+	// max(native, nmap) instead of native + nmap.
+	// In surface mode we post-filter nmap results to only unidentified ports.
+	// In deep/authorized mode we keep all nmap results (OS detection, vuln scripts).
+	type nmapResult struct {
+		findings []finding.Finding
+	}
+	nmapDone := make(chan nmapResult, 1)
+	if len(s.Ports) == 0 && s.nmapBin != "" && len(open) > 0 {
+		// Build the full open port map for nmap (before probes identify services).
+		nmapAllPorts := make(map[int]string, len(open))
+		for _, op := range open {
+			nmapAllPorts[op.entry.port] = op.entry.service
+		}
+		go func() {
+			nmapDone <- nmapResult{findings: s.runNmap(ctx, asset, nmapAllPorts, scanType)}
+		}()
+	} else {
+		// No nmap needed — close channel immediately.
+		nmapDone <- nmapResult{}
+	}
+
 	// Probe open ports concurrently — each port's probes run independently.
 	type probeResult struct {
 		port     int
@@ -483,9 +507,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// Authorized mode: run post-exploit chain against discovered services.
-	// This runs BEFORE nmap because chain findings (credential harvest,
-	// data extraction, lateral movement) are higher value and faster than
-	// nmap vuln scripts. Nmap is supplementary and can take 5+ minutes.
+	// This runs BEFORE nmap results are merged because chain findings
+	// (credential harvest, data extraction, lateral movement) are higher
+	// value and faster. Nmap is supplementary and may still be running.
 	log := scanlog.FromContext(ctx)
 	if scanType == module.ScanAuthorized && ctx.Err() == nil {
 		host, _ := parseAssetPort(asset)
@@ -523,20 +547,29 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Run nmap against open ports that our native probes couldn't fully identify.
-	// Skip ports where Go probes already identified the service (Redis, MySQL, etc.)
-	// to avoid redundant 5-30s nmap -sV on already-known services.
-	// Always run nmap in deep/authorized mode for OS detection + vuln scripts.
-	if len(s.Ports) == 0 {
-		nmapPorts := openPorts
+	// ── Collect nmap results ───────────────────────────────────────────────
+	// Wait for the nmap goroutine launched earlier. In surface mode, filter
+	// to only unidentified ports (native probes already covered the rest).
+	// In deep/authorized mode, keep all nmap results for OS/vuln info.
+	nmapRes := <-nmapDone
+	if len(nmapRes.findings) > 0 {
 		if scanType == module.ScanSurface {
-			// Surface mode: skip nmap on already-identified ports
-			nmapPorts = filterUnidentifiedPorts(openPorts, findings)
-		}
-		if len(nmapPorts) > 0 {
-			if nmapFs := s.runNmap(ctx, asset, nmapPorts, scanType); len(nmapFs) > 0 {
-				findings = append(findings, nmapFs...)
+			// Only keep nmap findings for ports that native probes didn't identify.
+			unidentified := filterUnidentifiedPorts(openPorts, findings)
+			var filtered []finding.Finding
+			for _, f := range nmapRes.findings {
+				if port, ok := f.Evidence["port"].(int); ok {
+					if _, needsNmap := unidentified[port]; needsNmap {
+						filtered = append(filtered, f)
+					}
+				} else {
+					// Non-port-specific nmap findings (OS detection, etc.) — keep.
+					filtered = append(filtered, f)
+				}
 			}
+			findings = append(findings, filtered...)
+		} else {
+			findings = append(findings, nmapRes.findings...)
 		}
 	}
 

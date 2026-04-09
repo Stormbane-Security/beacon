@@ -185,8 +185,12 @@ type Module struct {
 	// Nuclei scanner (handles both surface and deep tag lists)
 	nucleiScanner *nuclei.Scanner
 
-	// Playbook registry
-	registry *playbook.Registry
+	// Playbook registry — lazy-loaded on first use so --scanners mode
+	// (which never matches playbooks) skips the parsing cost entirely.
+	registry     *playbook.Registry
+	registryOnce sync.Once
+	registryErr  error
+	userPlaybookDir string // path to ~/.config/beacon/playbooks
 
 	// Store for writing audit records (optional — nil = skip)
 	st store.Store
@@ -414,15 +418,11 @@ func New(cfg Config) (*Module, error) {
 		deepList = defaultNucleiDeepList
 	}
 
-	reg, err := playbook.Load()
-	if err != nil {
-		return nil, fmt.Errorf("surface: load playbooks: %w", err)
-	}
+	// Playbook registry is lazy-loaded on first use (via getRegistry()).
+	// This avoids parsing YAML playbooks when --scanners mode is active,
+	// since that path never matches playbooks.
 	homeDir, _ := os.UserHomeDir()
 	userPlaybookDir := filepath.Join(homeDir, ".config", "beacon", "playbooks")
-	if err := reg.LoadUserDir(userPlaybookDir); err != nil {
-		return nil, fmt.Errorf("surface: load user playbooks: %w", err)
-	}
 
 	nucl := nuclei.New(cfg.NucleiBin, surfaceList, deepList)
 
@@ -491,7 +491,7 @@ func New(cfg Config) (*Module, error) {
 		bgpScanner:        bgp.New(),
 		scanners:          scannerMap,
 		nucleiScanner:     nucl,
-		registry:          reg,
+		userPlaybookDir:   userPlaybookDir,
 		st:                cfg.Store,
 		anthropicKey:      cfg.AnthropicAPIKey,
 		discoveryAdvisor:  analyze.NewDiscoveryAdvisor(cfg.AnthropicAPIKey),
@@ -514,6 +514,27 @@ func New(cfg Config) (*Module, error) {
 
 func (m *Module) Name() string                       { return "surface" }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputDomain} }
+
+// getRegistry returns the playbook registry, loading it on first call.
+// This defers the cost of parsing embedded + user YAML playbooks until
+// they are actually needed, which means --scanners mode never pays it.
+func (m *Module) getRegistry() (*playbook.Registry, error) {
+	m.registryOnce.Do(func() {
+		reg, err := playbook.Load()
+		if err != nil {
+			m.registryErr = fmt.Errorf("surface: load playbooks: %w", err)
+			return
+		}
+		if m.userPlaybookDir != "" {
+			if err := reg.LoadUserDir(m.userPlaybookDir); err != nil {
+				m.registryErr = fmt.Errorf("surface: load user playbooks: %w", err)
+				return
+			}
+		}
+		m.registry = reg
+	})
+	return m.registry, m.registryErr
+}
 
 // isDeepOrAuthorized returns true for ScanDeep and ScanAuthorized.
 // Use this to gate checks that need active probing but are not exploitation-class.
@@ -1700,8 +1721,12 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		})
 	}
 
-	// Match playbooks
-	matched := m.registry.Match(ev)
+	// Match playbooks (lazy-loaded on first use)
+	reg, err := m.getRegistry()
+	if err != nil {
+		return nil // playbook load failure — degrade gracefully
+	}
+	matched := reg.Match(ev)
 
 	// Playbook-driven discovery (e.g. Cloudflare origin probing) runs up to
 	// maxPlaybookDepth levels deep. Stops at the configured ceiling to prevent
@@ -1903,7 +1928,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		for _, pb := range matched {
 			existingPlaybooks[pb.Name] = true
 		}
-		newMatches := m.registry.Match(ev)
+		newMatches := reg.Match(ev)
 		for _, pb := range newMatches {
 			if !existingPlaybooks[pb.Name] {
 				matched = append(matched, pb)
@@ -2415,7 +2440,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			// (a) Re-match playbooks with newly discovered check IDs.
 			if len(newCheckIDs) > 0 {
 				ev.PhaseACheckIDs = append(ev.PhaseACheckIDs, newCheckIDs...)
-				for _, pb := range m.registry.Match(ev) {
+				for _, pb := range reg.Match(ev) {
 					for _, s := range playbook.BuildRunPlan([]*playbook.Playbook{pb}).Scanners {
 						if !ranScanners[s] && !seen[s] {
 							newScanners = append(newScanners, s)
