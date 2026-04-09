@@ -1775,6 +1775,17 @@ const (
 	CheckWebSocketNoOriginCheck CheckID = "websocket.no_origin_check"   // WebSocket accepts any Origin header
 )
 
+// Active attack path chaining — chain engine (ScanAuthorized only).
+// These findings are produced by exploiting one vulnerability to discover or
+// confirm a subsequent one. Every chain step is gated behind exploit.CheckSafety.
+const (
+	CheckChainSSRFToCloudCreds       CheckID = "chain.ssrf_to_cloud_creds"        // SSRF exploited to reach cloud metadata → IAM credential extraction
+	CheckChainDefaultCredsToAdmin    CheckID = "chain.default_creds_to_admin_access" // Default credentials used to log in → authenticated admin surface discovered
+	CheckChainEnvToDatabaseAccess    CheckID = "chain.env_to_database_access"     // Exposed .env parsed → database credentials extracted and connection verified
+	CheckChainSQLiToCredentialDump   CheckID = "chain.sqli_to_credential_dump"    // SQL injection exploited → credential rows extracted from users table
+	CheckChainXSSToSessionTheftPoC   CheckID = "chain.xss_to_session_theft_poc"   // XSS + missing HttpOnly cookie → session theft PoC generated
+)
+
 // ScanMode indicates which scan mode a check requires.
 //
 // ModeSurface — safe without explicit permission. Makes only the kinds of
@@ -3525,6 +3536,13 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebSocketInjection:     {CheckWebSocketInjection, SeverityHigh, ModeDeep},
 	CheckWebSocketAuthBypass:    {CheckWebSocketAuthBypass, SeverityCritical, ModeDeep},
 	CheckWebSocketNoOriginCheck: {CheckWebSocketNoOriginCheck, SeverityMedium, ModeSurface},
+
+	// Active attack path chaining — ScanAuthorized exploitation chains
+	CheckChainSSRFToCloudCreds:     {CheckChainSSRFToCloudCreds, SeverityCritical, ModeDeep},
+	CheckChainDefaultCredsToAdmin:  {CheckChainDefaultCredsToAdmin, SeverityCritical, ModeDeep},
+	CheckChainEnvToDatabaseAccess:  {CheckChainEnvToDatabaseAccess, SeverityCritical, ModeDeep},
+	CheckChainSQLiToCredentialDump: {CheckChainSQLiToCredentialDump, SeverityCritical, ModeDeep},
+	CheckChainXSSToSessionTheftPoC: {CheckChainXSSToSessionTheftPoC, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

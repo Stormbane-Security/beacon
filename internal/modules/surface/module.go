@@ -163,6 +163,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/apischema"
 	_ "github.com/stormbane-security/beacon/internal/scanner/jsframework"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wsfuzz"
+	"github.com/stormbane-security/beacon/internal/chainengine"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
 	"github.com/stormbane-security/beacon/internal/profiler"
@@ -1433,6 +1434,21 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			filtered = append(filtered, f)
 		}
 		allFindings = filtered
+	}
+
+	// ── Active attack path chaining (ScanAuthorized only) ───────────────────
+	// The chain engine takes completed findings and actively exploits one to
+	// discover the next. Only runs in ScanAuthorized mode — New() enforces this.
+	if chainEng, err := chainengine.New(scanType); err == nil {
+		for _, f := range allFindings {
+			if ctx.Err() != nil {
+				break
+			}
+			chainResults := chainEng.OnFinding(ctx, f)
+			if len(chainResults) > 0 {
+				allFindings = append(allFindings, chainResults...)
+			}
+		}
 	}
 
 	// Deduplicate findings by CheckID+Asset, preferring native scanners over
