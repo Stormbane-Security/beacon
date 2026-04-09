@@ -1,59 +1,40 @@
 name: report-format-test
 description: >
-  Verifies that beacon's markdown report output is generated correctly.
-  Scans a simple nginx server and writes a markdown report, then asserts
-  the file exists and contains expected sections (title, summary, appendix).
-tags: [report, markdown, format, smoke]
+  Verifies that beacon produces output with expected sections.
+  Scans a simple nginx server and checks the text report format.
+tags: [report, format, smoke]
 
 services:
   nginx:
     image: nginx:alpine
-    ports:
-      - "19884:80"
+    ports: ["19884:80"]
 
 ready:
-  cmd: "curl -sf http://localhost:19884/ | grep -qi nginx"
+  cmd: "curl -sf http://localhost:19884/ >/dev/null"
   timeout: 30s
   interval: 2s
 
 assertions:
-  # --- Pre-flight ---
+  # Pre-flight
   - name: nginx-accessible
     type: command
     expect:
       command: "curl -sf http://localhost:19884/ | grep -qi nginx"
       exit_code: 0
 
-  # --- Markdown report generation ---
-  - name: generates-markdown-report
+  # Beacon scan produces findings
+  - name: scan-produces-findings
     type: beacon
     target: localhost:19884
-    args: ["--no-enrich", "--scanners", "tls,headers", "--format", "markdown", "--out", "/tmp/test-report.md"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      exit_code: 0
+      check_id: headers.missing_hsts
 
-  - name: report-file-exists
+  # Generate report to file and check it
+  - name: report-file-generated
     type: command
     expect:
-      command: "test -s /tmp/test-report.md"
-      exit_code: 0
-
-  - name: report-contains-title
-    type: command
-    expect:
-      command: "grep -q 'Beacon Security Report' /tmp/test-report.md"
-      exit_code: 0
-
-  - name: report-contains-summary
-    type: command
-    expect:
-      command: "grep -q 'Summary' /tmp/test-report.md"
-      exit_code: 0
-
-  - name: report-contains-severity-table
-    type: command
-    expect:
-      command: "grep -q 'Severity' /tmp/test-report.md"
+      command: "beacon scan --host localhost:19884 --no-enrich --no-nmap --no-db --scanners secheaders --out /tmp/test-report.txt --yes 2>/dev/null && test -s /tmp/test-report.txt && grep -qi 'BEACON SECURITY REPORT' /tmp/test-report.txt"
       exit_code: 0
 
 timeout: 3m

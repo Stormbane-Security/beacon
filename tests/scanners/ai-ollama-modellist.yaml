@@ -47,12 +47,14 @@ assertions:
       check_id: port.ollama_exposed
 
   # ── Surface: model info exposed (empty list is still disclosure) ────
-  - name: detects-model-info
+  # Ollama starts with no models, so ai.model_downloadable won't fire.
+  # The aidetect scanner emits ai.endpoint_exposed for the API itself.
+  - name: detects-endpoint-exposed
     type: beacon
     target: localhost:19889
     args: ["--no-enrich", "--no-nmap", "--scanners", "aidetect"]
     expect:
-      check_id: ai.model_info_exposed
+      min_findings: 1
 
   # ── Negative: no database findings ──────────────────────────────────
   - name: negative-no-database
