@@ -60,6 +60,7 @@ jobs:
 
       - name: Install tools
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nmap >/dev/null 2>&1
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
           git clone --depth 1 --branch v0.3.0 https://github.com/stormbane-security/drydock.git /tmp/drydock-src
           cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
@@ -149,6 +150,7 @@ jobs:
 
       - name: Install tools
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nmap >/dev/null 2>&1
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
           git clone --depth 1 --branch v0.3.0 https://github.com/stormbane-security/drydock.git /tmp/drydock-src
           cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
