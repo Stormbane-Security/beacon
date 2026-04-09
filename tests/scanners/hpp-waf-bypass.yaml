@@ -1,0 +1,60 @@
+name: hpp-waf-bypass
+description: >
+  Nginx that reflects query parameters in response body. Beacon hpp
+  scanner in deep mode should detect HTTP parameter pollution potential
+  and missing security headers.
+tags: [hpp, scanner, web, deep]
+
+services:
+  hpp-app:
+    image: nginx:alpine
+    ports: ["20034:80"]
+    volumes:
+      - ./hpp-waf-bypass/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20034/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: server reflects query params
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-param-reflected
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20034/?id=123' | grep -q 'id=123'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detection
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20034
+    args: ["--no-enrich", "--no-nmap", "--scanners", "hpp,secheaders", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-min-findings
+    type: beacon
+    target: localhost:20034
+    args: ["--no-enrich", "--no-nmap", "--scanners", "hpp,secheaders", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20034
+    args: ["--no-enrich", "--no-nmap", "--scanners", "hpp,secheaders", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

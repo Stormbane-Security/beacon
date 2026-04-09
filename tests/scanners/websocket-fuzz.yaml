@@ -1,0 +1,61 @@
+name: websocket-fuzz-origin
+description: >
+  WebSocket echo server with no Origin validation. Beacon wsfuzz scanner
+  in deep mode should detect that any Origin header is accepted and emit
+  websocket.no_origin_check.
+tags: [websocket, wsfuzz, scanner, deep]
+
+services:
+  ws-echo:
+    image: node:20-alpine
+    ports: ["20033:3000"]
+    volumes:
+      - ./websocket-detection/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20033/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: WebSocket upgrade accepted from evil origin
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-ws-upgrade-any-origin
+    type: command
+    expect:
+      command: "curl -sI -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' -H 'Origin: https://evil.com' http://localhost:20033/ | grep -qi '101\\|Switching'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detection
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-ws-no-origin-check
+    type: beacon
+    target: localhost:20033
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wsfuzz", "--deep", "--yes"]
+    expect:
+      check_id: websocket.no_origin_check
+
+  - name: detects-min-findings
+    type: beacon
+    target: localhost:20033
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wsfuzz", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20033
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wsfuzz", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
