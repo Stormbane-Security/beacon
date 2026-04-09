@@ -631,13 +631,53 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 
 	progress("enumerating subdomains...")
 
+	// ── Improvement 3: Discovery cache ──────────────────────────────────────
+	// Check the subdomain discovery cache before launching scanners. On a cache
+	// hit (within 24h TTL), use cached results immediately and launch discovery
+	// in the background to detect drift (new/removed subdomains).
+	discoveryCache := scan.NewDiscoveryCache()
+	var cachedAssets []string
+	cacheHit := false
+	if discoveryCache != nil {
+		if cached, ok := discoveryCache.Get(rootDomain); ok {
+			cachedAssets = cached
+			cacheHit = true
+			progress(fmt.Sprintf("cache hit: %d subdomains from previous scan — launching background refresh...", len(cached)))
+		}
+	}
+
+	// ── Improvement 5: Wildcard DNS detection (pipeline-level) ──────────────
+	// Detect wildcard DNS early. If detected, brute-force inside the subdomain
+	// scanner is already skipped (it has its own detection), but we log the
+	// warning here for pipeline-level visibility.
+	wildcardDetected, wildcardIP := scan.DetectWildcard(ctx, rootDomain)
+	if wildcardDetected {
+		progress(fmt.Sprintf("wildcard DNS detected for *.%s (resolves to %s) — brute-force results will be filtered", rootDomain, wildcardIP))
+	}
+
 	type discoveryBatch struct {
 		findings []finding.Finding
 		source   string
 	}
-	batchResults := make(chan discoveryBatch, 2)
+	// ── Improvement 4: Smart source prioritization ──────────────────────────
+	// Launch discovery sources in priority order: cache (instant), passivedns
+	// (fast), subdomain scanner (slower — queries crt.sh, subfinder, OTX,
+	// urlscan, brute-force). Process results from each as they arrive so fast
+	// sources feed the scan pipeline while slow sources are still running.
+	batchResults := make(chan discoveryBatch, 4)
 
-	wgDiscover.Add(2)
+	// Source priority 2: Passive DNS (fast, single HTTP call)
+	wgDiscover.Add(1)
+	go func() {
+		defer wgDiscover.Done()
+		discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
+		fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
+		discScanDone("passivedns", fs)
+		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
+	}()
+
+	// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
+	wgDiscover.Add(1)
 	go func() {
 		defer wgDiscover.Done()
 		subfinderFlags := "-silent -passive"
@@ -649,13 +689,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		discScanDone("subdomain", fs)
 		batchResults <- discoveryBatch{findings: fs, source: "subdomain"}
 	}()
-	go func() {
-		defer wgDiscover.Done()
-		discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
-		fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
-		discScanDone("passivedns", fs)
-		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
-	}()
+
 	// Close the channel when all discovery goroutines finish — in a separate
 	// goroutine so that processing of each batch can begin as soon as it
 	// arrives (e.g. passivedns completes in seconds; subfinder may take minutes).
@@ -668,90 +702,90 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	seen := map[string]struct{}{rootDomain: {}}
 	assetSource := map[string]string{rootDomain: "root"}
 
-	discStart := time.Now()
-	for batch := range batchResults {
-		appendFindings(batch.findings)
-		for _, f := range batch.findings {
-			subs := subdomain.Subdomains(f)
-			subs = append(subs, passivedns.Subdomains(f)...)
-			for _, sub := range subs {
-				if sub == "" || !isValidHostname(sub) {
-					continue // reject empty or malformed hostnames from discovery
-				}
-				if _, ok := seen[sub]; !ok {
-					seen[sub] = struct{}{}
-					assets = append(assets, sub)
-					assetSource[sub] = batch.source
-				}
-			}
-			// CDN origin IPs: historical IPs that still respond directly for the
-			// domain bypass CDN/WAF protections entirely. Add each as a scan asset
-			// so the full scanner suite runs against the unprotected origin server.
-			for _, ip := range passivedns.RespondingIPs(f) {
-				if _, ok := seen[ip]; !ok {
-					seen[ip] = struct{}{}
-					assets = append(assets, ip)
-					assetSource[ip] = "cdn_origin"
-				}
-			}
-		}
-	}
-	discDuration := time.Since(discStart)
+	// ── Improvement 1: Streaming results ────────────────────────────────────
+	// Set up the scan semaphore and shared state BEFORE the discovery loop so
+	// we can launch runAsset goroutines for new assets as each discovery batch
+	// arrives, rather than waiting for all discovery to finish first.
+	const maxConcurrentAssets = 10
+	streamSem := make(chan struct{}, maxConcurrentAssets)
+	expandSeen := map[string]bool{}
+	var expandSeenMu sync.Mutex
+	expandSeen[rootDomain] = true
 
-	// Filter out hostnames that don't resolve — saves scanning dead assets.
-	// dnsx probes all at once; fallback uses parallel stdlib DNS.
-	if len(assets) > 1 { // skip single-asset (root domain) — always scan root
-		dnsxCmd := "dnsx -silent (batch DNS resolution)"
-		if m.dnsxBin == "" {
-			dnsxCmd = "stdlib net.LookupHost (parallel DNS resolution — install dnsx for faster results)"
-		}
-		discScanStart("resolve", fmt.Sprintf("%s — filtering %d candidates", dnsxCmd, len(assets)))
-		preResolve := len(assets)
-		assets = subdomain.ResolveBatch(ctx, assets, m.dnsxBin)
-		discScanDone("resolve", nil)
-		_ = preResolve
-		// Ensure root domain is always included even if DNS is flaky.
-		hasRoot := false
-		for _, a := range assets {
-			if a == rootDomain {
-				hasRoot = true
-				break
-			}
-		}
-		if !hasRoot {
-			assets = append([]string{rootDomain}, assets...)
-		}
-	}
+	var assetsDone int64
+	var wgStream sync.WaitGroup
 
-	// Zone transfer (AXFR): run against root domain during Phase 1 so that
-	// any hostnames revealed by the zone data are added to the asset queue
-	// before scanning starts. The finding is also emitted immediately.
-	{
-		discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
-		axfrFinding, axfrHosts := dns.ZoneTransferDiscovery(ctx, rootDomain, rootDomain)
-		var axfrFindings []finding.Finding
-		if axfrFinding != nil {
-			axfrFindings = append(axfrFindings, *axfrFinding)
-			appendFindings(axfrFindings)
-			for _, h := range axfrHosts {
-				if h == "" || !isValidHostname(h) {
-					continue
-				}
-				if _, ok := seen[h]; !ok {
-					seen[h] = struct{}{}
-					assets = append(assets, h)
-					assetSource[h] = "axfr"
-				}
-			}
+	// launchAssetScan starts scanning a single asset via runAsset. Called from
+	// the streaming discovery loop AND from the later BGP/AXFR/CIDR phases.
+	// Thread-safe: uses streamSem for concurrency control.
+	launchAssetScan := func(asset string) {
+		select {
+		case streamSem <- struct{}{}:
+		case <-ctx.Done():
+			return
 		}
-		discScanDone("dns-axfr", axfrFindings)
+		if ctx.Err() != nil {
+			<-streamSem
+			return
+		}
+		if input.PauseCheck != nil {
+			input.PauseCheck(ctx)
+		}
+		wgStream.Add(1)
+		go func() {
+			defer wgStream.Done()
+			defer func() { <-streamSem }()
+			if input.Progress != nil {
+				input.Progress(module.ProgressEvent{
+					Phase:       "scanning",
+					AssetsTotal: len(assets), // approximate — still discovering
+					AssetsDone:  int(atomic.LoadInt64(&assetsDone)),
+					ActiveAsset: asset,
+				})
+			}
+			fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
+			done := int(atomic.AddInt64(&assetsDone, 1))
+			if input.Progress != nil {
+				mu.Lock()
+				fc := len(allFindings)
+				mu.Unlock()
+				input.Progress(module.ProgressEvent{
+					Phase:        "asset_done",
+					AssetsTotal:  len(assets),
+					AssetsDone:   done,
+					FindingCount: fc + len(fs),
+				})
+			}
+			appendFindings(fs)
+		}()
 	}
 
-	progress(fmt.Sprintf("found %d assets — running root-domain scanners (whois, bgp)...", len(assets)))
+	// Source priority 1: Use cached subdomains immediately. Start scanning
+	// them while live discovery sources are still running.
+	if cacheHit && len(cachedAssets) > 0 {
+		// Resolve cached assets to confirm they're still live.
+		resolved := subdomain.ResolveBatch(ctx, cachedAssets, m.dnsxBin)
+		for _, sub := range resolved {
+			if sub == "" || !isValidHostname(sub) {
+				continue
+			}
+			if _, ok := seen[sub]; !ok {
+				seen[sub] = struct{}{}
+				assets = append(assets, sub)
+				assetSource[sub] = "cache"
+				expandSeenMu.Lock()
+				expandSeen[sub] = true
+				expandSeenMu.Unlock()
+				launchAssetScan(sub)
+			}
+		}
+		progress(fmt.Sprintf("launched scans for %d cached assets — waiting for live discovery...", len(resolved)))
+	}
 
-	// Root-only scanners (WHOIS, BGP) — always run, not playbook-driven.
-	// BGP findings are captured separately so we can extract discovered IPs
-	// and PTR hostnames and add them to the asset list for full scanning.
+	// Start scanning the root domain immediately while discovery runs.
+	launchAssetScan(rootDomain)
+
+	// Start WHOIS and BGP in parallel with discovery — no need to wait.
 	var wgRoot sync.WaitGroup
 	var bgpFindings []finding.Finding
 	var bgpMu sync.Mutex
@@ -775,6 +809,112 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		discScanDone("bgp", fs)
 		appendFindings(fs)
 	}()
+
+	// Zone transfer runs concurrently with discovery too.
+	var axfrAssets []string
+	var wgAXFR sync.WaitGroup
+	wgAXFR.Add(1)
+	go func() {
+		defer wgAXFR.Done()
+		discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
+		axfrFinding, axfrHosts := dns.ZoneTransferDiscovery(ctx, rootDomain, rootDomain)
+		var axfrFindings []finding.Finding
+		if axfrFinding != nil {
+			axfrFindings = append(axfrFindings, *axfrFinding)
+			appendFindings(axfrFindings)
+			for _, h := range axfrHosts {
+				if h == "" || !isValidHostname(h) {
+					continue
+				}
+				mu.Lock()
+				if _, ok := seen[h]; !ok {
+					seen[h] = struct{}{}
+					assets = append(assets, h)
+					assetSource[h] = "axfr"
+					axfrAssets = append(axfrAssets, h)
+				}
+				mu.Unlock()
+			}
+		}
+		discScanDone("dns-axfr", axfrFindings)
+		// Launch scans for AXFR-discovered assets immediately.
+		for _, h := range axfrAssets {
+			expandSeenMu.Lock()
+			expandSeen[h] = true
+			expandSeenMu.Unlock()
+			launchAssetScan(h)
+		}
+	}()
+
+	discStart := time.Now()
+	// ── Improvement 1 (continued): Process batches as they arrive ───────────
+	// Each batch of discovery results is processed immediately. New assets are
+	// DNS-resolved and scanning starts right away — we don't wait for all
+	// discovery sources to finish before the first subdomain scan begins.
+	for batch := range batchResults {
+		appendFindings(batch.findings)
+		var batchNew []string
+		for _, f := range batch.findings {
+			subs := subdomain.Subdomains(f)
+			subs = append(subs, passivedns.Subdomains(f)...)
+			for _, sub := range subs {
+				if sub == "" || !isValidHostname(sub) {
+					continue // reject empty or malformed hostnames from discovery
+				}
+				if _, ok := seen[sub]; !ok {
+					seen[sub] = struct{}{}
+					assets = append(assets, sub)
+					assetSource[sub] = batch.source
+					batchNew = append(batchNew, sub)
+				}
+			}
+			// CDN origin IPs: historical IPs that still respond directly for the
+			// domain bypass CDN/WAF protections entirely. Add each as a scan asset
+			// so the full scanner suite runs against the unprotected origin server.
+			for _, ip := range passivedns.RespondingIPs(f) {
+				if _, ok := seen[ip]; !ok {
+					seen[ip] = struct{}{}
+					assets = append(assets, ip)
+					assetSource[ip] = "cdn_origin"
+					batchNew = append(batchNew, ip)
+				}
+			}
+		}
+		// ── Improvement 2: DNS resolution for each batch ────────────────────
+		// Resolve new hostnames from this batch immediately (concurrent, 50
+		// goroutines). Only resolved hostnames get scanned.
+		if len(batchNew) > 0 {
+			resolved := subdomain.ResolveBatch(ctx, batchNew, m.dnsxBin)
+			resolvedSet := make(map[string]struct{}, len(resolved))
+			for _, r := range resolved {
+				resolvedSet[r] = struct{}{}
+			}
+			for _, h := range batchNew {
+				if _, ok := resolvedSet[h]; ok {
+					expandSeenMu.Lock()
+					expandSeen[h] = true
+					expandSeenMu.Unlock()
+					launchAssetScan(h)
+				}
+			}
+			progress(fmt.Sprintf("%s: +%d assets (%d resolved) — scanning immediately", batch.source, len(batchNew), len(resolved)))
+		}
+	}
+	discDuration := time.Since(discStart)
+
+	// Update the discovery cache with all discovered subdomains.
+	if discoveryCache != nil {
+		var allSubs []string
+		for sub := range seen {
+			if sub != rootDomain {
+				allSubs = append(allSubs, sub)
+			}
+		}
+		discoveryCache.Put(rootDomain, allSubs)
+	}
+
+	// Wait for AXFR, WHOIS, and BGP to complete before processing BGP assets.
+	wgAXFR.Wait()
 	wgRoot.Wait()
 
 	// Extract IPs and PTR hostnames discovered by BGP range scanning and add
@@ -898,75 +1038,29 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	// ── Phase 2 & 3: Classify + Execute per asset ────────────────────────────
-	// Semaphore limits parallel asset scans to avoid flooding the target.
-	// Each asset scan spawns ~12 goroutines and the crawler uses concurrency-5,
-	// so without a limit a large domain (50+ subdomains) could send thousands of
-	// simultaneous connections and cause a service disruption.
-	const maxConcurrentAssets = 10
-	sem := make(chan struct{}, maxConcurrentAssets)
-
-	// expandSeen is shared across ALL runAsset goroutines to prevent two
-	// concurrent parent assets from independently discovering and scanning
-	// the same cert-SAN / port-service / body-subdomain child asset.
-	expandSeen := map[string]bool{}
-	var expandSeenMu sync.Mutex
-	// Pre-populate with all initial assets so depth+1 expansion never
-	// re-scans something already in the initial asset list.
-	for _, a := range assets {
-		expandSeen[a] = true
-	}
-
-	var assetsDone int64 // incremented atomically when each asset goroutine completes
-
+	// ── Phase 2 & 3: Wait for streaming asset scans to complete ─────────────
+	// Asset scanning was already launched incrementally in Phase 1 via
+	// launchAssetScan as each discovery batch arrived. Now we also launch
+	// scans for any assets added by BGP/CIDR that weren't launched yet,
+	// then wait for everything to finish.
 	scanStart := time.Now()
-	var wgAssets sync.WaitGroup
-assetLoop:
-	for _, asset := range assets {
-		asset := asset
-		// Acquire a semaphore slot, but respect context cancellation so we
-		// don't leak goroutines when the scan is cancelled mid-flight.
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			break assetLoop
+
+	// Launch scans for BGP/CIDR-discovered assets that were added after the
+	// streaming discovery loop. These were added to `assets` and `seen` above
+	// but haven't had launchAssetScan called yet.
+	for _, a := range assets {
+		expandSeenMu.Lock()
+		alreadyLaunched := expandSeen[a]
+		if !alreadyLaunched {
+			expandSeen[a] = true
 		}
-		if ctx.Err() != nil {
-			break assetLoop
+		expandSeenMu.Unlock()
+		if !alreadyLaunched {
+			launchAssetScan(a)
 		}
-		// Allow the user to pause between assets.
-		if input.PauseCheck != nil {
-			input.PauseCheck(ctx)
-		}
-		wgAssets.Add(1)
-		go func() {
-			defer wgAssets.Done()
-			defer func() { <-sem }() // release slot
-			if input.Progress != nil {
-				input.Progress(module.ProgressEvent{
-					Phase:       "scanning",
-					AssetsTotal: len(assets),
-					AssetsDone:  int(atomic.LoadInt64(&assetsDone)),
-					ActiveAsset: asset,
-				})
-			}
-			fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
-			done := int(atomic.AddInt64(&assetsDone, 1))
-			if input.Progress != nil {
-				mu.Lock()
-				fc := len(allFindings)
-				mu.Unlock()
-				input.Progress(module.ProgressEvent{
-					Phase:        "asset_done",
-					AssetsTotal:  len(assets),
-					AssetsDone:   done,
-					FindingCount: fc + len(fs),
-				})
-			}
-			appendFindings(fs)
-		}()
 	}
-	wgAssets.Wait()
+
+	wgStream.Wait()
 	scanDuration := time.Since(scanStart)
 
 	// ── Crawler-discovered hostname expansion ──────────────────────────────────
@@ -995,7 +1089,7 @@ assetLoop:
 		for _, asset := range crawlAssets {
 			asset := asset
 			select {
-			case sem <- struct{}{}:
+			case streamSem <- struct{}{}:
 			case <-ctx.Done():
 				break crawlLoop
 			}
@@ -1005,7 +1099,7 @@ assetLoop:
 			wgCrawl.Add(1)
 			go func() {
 				defer wgCrawl.Done()
-				defer func() { <-sem }()
+				defer func() { <-streamSem }()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1039,7 +1133,7 @@ assetLoop:
 		for _, asset := range harvesterAssets {
 			asset := asset
 			select {
-			case sem <- struct{}{}:
+			case streamSem <- struct{}{}:
 			case <-ctx.Done():
 				break harvesterLoop
 			}
@@ -1049,7 +1143,7 @@ assetLoop:
 			wgHarvester.Add(1)
 			go func() {
 				defer wgHarvester.Done()
-				defer func() { <-sem }()
+				defer func() { <-streamSem }()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1156,7 +1250,7 @@ assetLoop:
 			for _, asset := range roundAssets {
 				asset := asset
 				select {
-				case sem <- struct{}{}:
+				case streamSem <- struct{}{}:
 				case <-ctx.Done():
 					break roundLoop
 				}
@@ -1166,7 +1260,7 @@ assetLoop:
 				wgRound.Add(1)
 				go func() {
 					defer wgRound.Done()
-					defer func() { <-sem }()
+					defer func() { <-streamSem }()
 					if input.Progress != nil {
 						input.Progress(module.ProgressEvent{
 							Phase:       "scanning",
