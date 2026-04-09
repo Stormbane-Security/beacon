@@ -433,9 +433,9 @@ func TestRun_JWTInLargeBody_Detected(t *testing.T) {
 	body := padding + `<script>var token="` + token + `";</script>`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Return 404 for the catch-all canary path so the scanner does not
-		// bail out with "catch-all server" detection.
-		if strings.Contains(r.URL.Path, "beacon-probe-") {
+		// Return 404 for the catch-all canary paths so the scanner does not
+		// treat this as a catch-all server.
+		if strings.Contains(r.URL.Path, "beacon-probe-") || strings.Contains(r.URL.Path, "beacon-catchall-") {
 			http.NotFound(w, r)
 			return
 		}

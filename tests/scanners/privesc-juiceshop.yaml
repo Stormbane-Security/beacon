@@ -1,0 +1,51 @@
+name: privesc-juiceshop
+description: >
+  Privilege escalation test against Juice Shop. Tests broken access
+  control detection on admin endpoints accessible without auth.
+tags: [privesc, juiceshop, auth, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19891:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19891/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: admin API accessible without auth (the vulnerability)
+  - name: exploit-admin-api-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19891/api/Users/ | grep -q 'email'"
+      exit_code: 0
+
+  # Beacon detects broken access control (authorized mode)
+  - name: detects-broken-access-control
+    type: beacon
+    target: localhost:19891
+    args: ["--no-enrich", "--no-nmap", "--scanners", "privesc", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: web.broken_access_control
+
+  # Also detects missing headers
+  - name: detects-missing-headers
+    type: beacon
+    target: localhost:19891
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no database exposure on HTTP port
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19891
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
