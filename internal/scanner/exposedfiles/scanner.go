@@ -1050,13 +1050,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
-	// Wildcard / catch-all detection: probe a path that cannot exist on any
-	// real application. If the server returns 200, it serves the same response
-	// for every path (install script CDNs, catch-all SPA configs, etc.) and
-	// all path-based findings would be false positives.
-	if isCatchAll(ctx, client, base) {
-		return nil, nil
-	}
+	// Wildcard / catch-all detection: use the shared baseline to filter
+	// individual responses instead of bailing entirely.
+	baseline := scan.DetectCatchAll(ctx, client, base)
 
 	var findings []finding.Finding
 
@@ -1092,6 +1088,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
 		_ = resp.Body.Close()
+
+		// On catch-all servers, skip responses identical to the baseline.
+		if !baseline.IsDifferentFromBaseline(resp, body) {
+			continue
+		}
 
 		// Confirm it's a real file, not a soft 404 or CMS catch-all.
 		if t.bodyContains != "" && !strings.Contains(string(body), t.bodyContains) {
@@ -1558,23 +1559,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return findings, nil
 }
 
-// isCatchAll returns true when the server responds with 200 to a randomly
-// named path that cannot exist on any real application. This detects install
-// script CDNs, SPA catch-alls, and wildcard configs where every path returns
-// the same content — path-based findings would all be false positives.
-func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	u := base + "/beacon-probe-c4a7f2d9b3e1-doesnotexist"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
 
 // probeTomcatPartialPUT tests for CVE-2025-24813 (Apache Tomcat partial PUT
 // deserialization). It first fingerprints Tomcat via the Server header, then
