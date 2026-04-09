@@ -21,6 +21,7 @@ var (
 func SharedTransport() *http.Transport {
 	sharedTransportOnce.Do(func() {
 		sharedTransport = &http.Transport{
+			DialContext:         CachedDialContext(), // DNS cache: deduplicate lookups across scanners
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 20, // multiple scanners hit same host
 			IdleConnTimeout:     90 * time.Second,

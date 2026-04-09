@@ -1846,6 +1846,11 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	var phaseAFindings []finding.Finding
 	var phaseAWg sync.WaitGroup
 
+	// Per-scanner done channels allow streaming: portscan results are available
+	// immediately (for service classification and HTTP alt-port recovery) while
+	// slower Phase A scanners (wafdetect, authsurface) continue in parallel.
+	phaseADoneCh := make(map[string]chan struct{}, len(phaseANames))
+
 	for _, name := range phaseANames {
 		if !planContains(plan.Scanners, name) {
 			continue
@@ -1855,6 +1860,8 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			continue
 		}
 		phaseADone[name] = true
+		doneCh := make(chan struct{})
+		phaseADoneCh[name] = doneCh
 		name, sc := name, sc
 		phaseAWg.Add(1)
 		go func() {
@@ -1863,15 +1870,28 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			phaseAMu.Lock()
 			phaseAFindings = append(phaseAFindings, result.Findings...)
 			phaseAMu.Unlock()
+			close(doneCh)
 			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, result.Metrics.Duration, result.Findings, result.Error)
 		}()
 	}
+
+	// Stream portscan results: extract open ports as soon as portscan finishes,
+	// overlapping with wafdetect/aidetect/authsurface still running.
+	if ch, ok := phaseADoneCh["portscan"]; ok {
+		<-ch
+	}
+
+	// Extract port intelligence immediately — don't wait for wafdetect/authsurface.
+	phaseAMu.Lock()
+	openPorts := extractOpenPorts(phaseAFindings)
+	phaseAMu.Unlock()
+
+	// Now wait for the remaining Phase A scanners to finish.
 	phaseAWg.Wait()
 
-	// Extract WAF, origin IP, port, and AI endpoint intelligence from Phase A results.
+	// Extract WAF, origin IP, and AI endpoint intelligence from all Phase A results.
 	behindWAF, wafVendor := extractWAFInfo(phaseAFindings)
 	originIP := extractOriginIP(phaseAFindings)
-	openPorts := extractOpenPorts(phaseAFindings)
 	// Feed WAF/IDS vendor back into evidence for playbook matching and AI enrichment.
 	if wafVendor != "" {
 		ev.WAFVendor = wafVendor
@@ -1884,6 +1904,25 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if eps := extractAIEndpoints(phaseAFindings); len(eps) > 0 {
 		ev.AIEndpoints = eps
 	}
+	// Classify the service type from portscan results — used to skip irrelevant
+	// scanners (e.g., skip all HTTP scanners for a CouchDB/Redis target).
+	svcClass := classifyService(openPorts)
+	if svcClass != ServiceClassUnknown && svcClass != ServiceClassWebApp && progressFn != nil {
+		classNames := map[ServiceClass]string{
+			ServiceClassDatabase:     "database",
+			ServiceClassMessageQueue: "message_queue",
+			ServiceClassMonitoring:   "monitoring",
+			ServiceClassCICD:         "cicd",
+			ServiceClassInfra:        "infrastructure",
+			ServiceClassAPI:          "api",
+		}
+		progressFn(module.ProgressEvent{
+			Phase:       "service_class",
+			ActiveAsset: asset,
+			StatusMsg:   fmt.Sprintf("%s → service class: %s (irrelevant scanners will be skipped)", asset, classNames[svcClass]),
+		})
+	}
+
 	// Propagate portscan-identified service versions into Evidence so Phase B
 	// scanners and nuclei template selection can use them. Portscan probes
 	// identify services via banner fingerprinting (e.g., "redis", "ssh", "mysql").
@@ -2144,7 +2183,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		if phaseADone[name] {
 			continue // already ran in Phase A
 		}
-		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners)
+		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 		if skipReason != "" {
 			m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
 			continue
@@ -2496,7 +2535,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				if !ok {
 					continue
 				}
-				skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners)
+				skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 				if skipReason != "" {
 					m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
 					continue
@@ -3593,6 +3632,7 @@ func scannerSkipReason(
 	originIP string,
 	httpDep map[string]bool,
 	scanners map[string]sc.Scanner,
+	svcClass ServiceClass,
 ) string {
 	// Scanner not in the registry — nothing to run.
 	if _, ok := scanners[name]; !ok {
@@ -3613,7 +3653,187 @@ func scannerSkipReason(
 	if name == "cdnbypass" && !behindWAF {
 		return "no_cdn_detected"
 	}
+	// Service type mismatch — skip scanners irrelevant to the detected service class.
+	if svcClass != ServiceClassUnknown && svcClass != ServiceClassWebApp {
+		if !serviceScannerRelevant(svcClass, name) {
+			return "service_type_mismatch"
+		}
+	}
+
 	return ""
+}
+
+// ServiceClass categorizes what kind of service the target runs.
+type ServiceClass int
+
+const (
+	ServiceClassUnknown      ServiceClass = iota
+	ServiceClassWebApp                     // HTML-serving web application (nginx, Apache, Express)
+	ServiceClassAPI                        // REST/GraphQL/gRPC API
+	ServiceClassDatabase                   // MySQL, PostgreSQL, MongoDB, CouchDB, Redis, Elasticsearch
+	ServiceClassMessageQueue               // RabbitMQ, Kafka, MQTT, NATS
+	ServiceClassMonitoring                 // Prometheus, Grafana, Kibana, Jaeger
+	ServiceClassCICD                       // Jenkins, GitLab, TeamCity
+	ServiceClassInfra                      // Docker, Kubernetes, Consul, Vault, etcd
+)
+
+// classifyService maps a service name (from portscan evidence) to a ServiceClass.
+// Returns ServiceClassUnknown for unrecognized services.
+func classifyService(openPorts map[int]string) ServiceClass {
+	// Database services — strongest signal, skip all HTTP scanners.
+	dbServices := map[string]bool{
+		"mysql": true, "postgresql": true, "postgres": true,
+		"mongodb": true, "couchdb": true, "redis": true,
+		"Elasticsearch": true, "OpenSearch": true,
+		"memcached": true, "influxdb": true, "cassandra": true,
+		"neo4j": true, "splunk": true, "mssql": true,
+		"oracle": true, "clickhouse": true, "cockroachdb": true,
+	}
+	mqServices := map[string]bool{
+		"rabbitmq": true, "kafka": true, "mqtt": true,
+		"nats": true, "activemq": true, "mosquitto": true,
+	}
+	monServices := map[string]bool{
+		"prometheus": true, "grafana": true, "kibana": true,
+		"jaeger": true, "zabbix": true, "nagios": true,
+		"wazuh": true,
+	}
+	cicdServices := map[string]bool{
+		"jenkins": true, "gitlab": true, "teamcity": true,
+		"drone": true, "bamboo": true, "concourse": true,
+	}
+	infraServices := map[string]bool{
+		"docker": true, "kubernetes": true, "kubelet": true,
+		"kubelet-readonly": true, "consul": true, "vault": true,
+		"etcd": true, "envoy": true, "istio": true,
+		"proxmox": true, "nomad": true,
+	}
+
+	// Check all open ports — if ANY port runs a known service, classify.
+	// Priority: database > mq > infra > monitoring > cicd.
+	// If multiple classes are present, the most restrictive wins.
+	for _, svc := range openPorts {
+		if svc == "" {
+			continue
+		}
+		if dbServices[svc] {
+			return ServiceClassDatabase
+		}
+	}
+	for _, svc := range openPorts {
+		if mqServices[svc] {
+			return ServiceClassMessageQueue
+		}
+	}
+	for _, svc := range openPorts {
+		if infraServices[svc] {
+			return ServiceClassInfra
+		}
+	}
+	for _, svc := range openPorts {
+		if monServices[svc] {
+			return ServiceClassMonitoring
+		}
+	}
+	for _, svc := range openPorts {
+		if cicdServices[svc] {
+			return ServiceClassCICD
+		}
+	}
+
+	return ServiceClassUnknown
+}
+
+// serviceScannerRelevant returns true if the named scanner is relevant for the
+// given service class. WebApp allows ALL scanners. Unknown allows ALL.
+func serviceScannerRelevant(svcClass ServiceClass, scannerName string) bool {
+	switch svcClass {
+	case ServiceClassDatabase, ServiceClassMessageQueue:
+		// Only portscan-phase and asset-level scanners are useful.
+		return databaseRelevantScanners[scannerName]
+	case ServiceClassAPI:
+		return apiRelevantScanners[scannerName]
+	case ServiceClassMonitoring:
+		return monitoringRelevantScanners[scannerName]
+	case ServiceClassCICD:
+		return cicdRelevantScanners[scannerName]
+	case ServiceClassInfra:
+		return infraRelevantScanners[scannerName]
+	default:
+		return true
+	}
+}
+
+// Scanner relevance maps per service class.
+// These define which Phase B scanners are worth running.
+// Phase A scanners (portscan, wafdetect, aidetect, authsurface) are never
+// subject to service-class filtering — they run unconditionally.
+var databaseRelevantScanners = map[string]bool{
+	// Phase A (always run, but listed for completeness)
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	// Asset intel / DNS — always relevant
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true,
+	// Nuclei covers database-specific CVEs via tags
+	"nuclei": true,
+}
+
+var apiRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// API-relevant HTTP scanners
+	"cors": true, "jwt": true, "graphql": true, "swagger": true,
+	"authfuzz": true, "rxss": true, "ratelimit": true, "oauth": true,
+	"secheaders": true, "exposedfiles": true, "apiversions": true,
+	"apifuzz": true, "apischema": true, "grpcreflect": true,
+	"hostheader": true, "smuggling": true, "websocket": true,
+	"wsfuzz": true, "httpmethods": true, "cookie": true,
+	"wellknown": true, "h2c": true, "http2": true,
+	"crawler": true, "screenshot": true, "webcontent": true,
+	"autoprobe": true, "idor": true, "accesscontrol": true,
+	"sqli": true, "nosqli": true, "ssrf": true, "ssti": true,
+	"cmdinj": true, "xxe": true, "deserial": true,
+	"errordisclosure": true, "verbtamper": true,
+}
+
+var monitoringRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// Monitoring dashboards often expose sensitive data
+	"secheaders": true, "exposedfiles": true, "swagger": true,
+	"webcontent": true, "screenshot": true, "crawler": true,
+	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
+	"autoprobe": true, "clickjacking": true,
+}
+
+var cicdRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// CI/CD-relevant scanners
+	"secheaders": true, "exposedfiles": true, "jenkins": true,
+	"webcontent": true, "screenshot": true, "crawler": true,
+	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
+	"autoprobe": true, "ghactions": true, "bitbucket": true,
+	"circleci": true, "okta": true,
+}
+
+var infraRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// Infrastructure scanners
+	"secheaders": true, "exposedfiles": true, "swagger": true,
+	"webcontent": true, "screenshot": true, "crawler": true,
+	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
+	"autoprobe": true, "gateway": true, "containerimage": true,
 }
 
 // saveScanMetricElapsed records a scanner run's timing and finding counts to the store.
