@@ -197,7 +197,7 @@ func fetchRawHTML(ctx context.Context, url string, cookies []*http.Cookie) (stri
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	buf := make([]byte, 256*1024)
 	n, _ := resp.Body.Read(buf)

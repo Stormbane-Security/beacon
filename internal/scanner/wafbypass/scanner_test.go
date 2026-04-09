@@ -1,7 +1,10 @@
 package wafbypass
 
 import (
+	"context"
+	"net/http"
 	"testing"
+	"time"
 )
 
 func TestDoubleEncode(t *testing.T) {
@@ -36,9 +39,10 @@ func TestUnicodeEncode_PreservesSpaces(t *testing.T) {
 	}
 }
 
-func TestIsBlocked_NilClient(t *testing.T) {
+func TestIsBlocked_InvalidURL(t *testing.T) {
 	// isBlocked with invalid URL should return false, not panic
-	result := isBlocked(nil, nil, "not-a-valid-url")
+	client := &http.Client{Timeout: 1 * time.Second}
+	result := isBlocked(context.TODO(), client, "not-a-valid-url")
 	if result {
 		t.Error("invalid URL should not be considered blocked")
 	}

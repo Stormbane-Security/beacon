@@ -166,6 +166,8 @@ const (
 	CheckWAFBypassPath         CheckID = "waf.bypass_via_path"       // WAF bypassable via path normalization tricks (authorized)
 	CheckWAFBypassMethod       CheckID = "waf.bypass_via_method"     // WAF bypassable via HTTP method override headers (authorized)
 	CheckWAFBypassContentType  CheckID = "waf.bypass_via_ctype"      // WAF body inspection bypassable via Content-Type confusion (authorized)
+	CheckWAFBypassFound        CheckID = "waf.bypass_found"          // WAF bypass succeeded via adaptive payload encoding (deep)
+	CheckWAFBypassDoubleEncode CheckID = "waf.bypass_double_encode"  // WAF bypassed via double URL encoding (deep)
 	CheckIDSDetected           CheckID = "ids.detected"              // IDS/NGFW vendor identified from response patterns
 
 	// Proxy chain / multi-layer infrastructure detection
@@ -536,6 +538,11 @@ const (
 	CheckWebAPIFuzz           CheckID = "web.api_fuzz_error"         // API endpoint returns 500 on fuzz input
 	CheckHTTPClickjacking     CheckID = "http.clickjacking"          // missing X-Frame-Options / CSP frame-ancestors
 	CheckWebSocketCSWSH       CheckID = "websocket.cswsh"            // cross-site WebSocket hijacking
+
+	// Second-order injection — payload injected in endpoint A, observed in endpoint B → Authorized
+	CheckSecondOrderXSS        CheckID = "web.second_order_xss"        // stored XSS via second-order injection (Critical)
+	CheckSecondOrderSQLi       CheckID = "web.second_order_sqli"       // stored SQLi via second-order injection (Critical)
+	CheckSecondOrderReflection CheckID = "web.second_order_reflection" // canary reflected but not confirmed executable (High)
 	CheckCVELog4Shell              CheckID = "cve.log4shell"                   // CVE-2021-44228 Log4j JNDI injection
 	CheckCVEN8nRCE                 CheckID = "cve.n8n_rce"                     // CVE-2026-21858/CVE-2025-68613 n8n pre-auth RCE
 	CheckCVECraftCMSRCE            CheckID = "cve.craftcms_rce"                // CVE-2025-32432 Craft CMS pre-auth code injection
@@ -1705,6 +1712,14 @@ const (
 	// ── JS Service References ──────────────────────────────────────────
 	CheckJSExternalServiceRef  CheckID = "js.external_service_ref"  // external API/service URL discovered in JS bundle
 
+	// ── JS Bundle Deep Analysis ────────────────────────────────────────
+	CheckJSAPIEndpointDiscovered CheckID = "js.api_endpoint_discovered" // API route extracted from JS bundle (fetch/axios/XHR/GraphQL)
+	CheckJSInternalURLLeaked     CheckID = "js.internal_url_leaked"     // internal/staging/dev URL exposed in JS source
+	CheckJSWebSocketEndpoint     CheckID = "js.websocket_endpoint"      // WebSocket endpoint URL found in JS bundle
+
+	// ── Native Parameter Discovery ─────────────────────────────────────
+	CheckParamDiscovered CheckID = "param.discovered" // hidden parameter discovered via response differential analysis
+
 	// ── Dirbust (expanded) ──────────────────────────────────────────────
 	CheckDirbustTechExtension  CheckID = "dirbust.tech_extension_found" // path found via tech-specific extension probing
 	CheckDirbustRecursive      CheckID = "dirbust.recursive_found"      // path found via recursive directory probing
@@ -1956,6 +1971,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWAFBypassPath:         {CheckWAFBypassPath, SeverityHigh, ModeDeep},
 	CheckWAFBypassMethod:       {CheckWAFBypassMethod, SeverityMedium, ModeDeep},
 	CheckWAFBypassContentType:  {CheckWAFBypassContentType, SeverityHigh, ModeDeep},
+	CheckWAFBypassFound:        {CheckWAFBypassFound, SeverityHigh, ModeDeep},
+	CheckWAFBypassDoubleEncode: {CheckWAFBypassDoubleEncode, SeverityHigh, ModeDeep},
 	CheckIDSDetected:           {CheckIDSDetected, SeverityInfo, ModeSurface},
 
 	// Proxy chain detection — passive header analysis → Surface
@@ -3118,6 +3135,14 @@ var Registry = map[CheckID]CheckMeta{
 	CheckJSAPIKeyInSourceMap:  {CheckJSAPIKeyInSourceMap, SeverityHigh, ModeSurface},
 	CheckJSExternalServiceRef: {CheckJSExternalServiceRef, SeverityInfo, ModeSurface},
 
+	// JS Bundle Deep Analysis — Surface (passive scan of served JS content)
+	CheckJSAPIEndpointDiscovered: {CheckJSAPIEndpointDiscovered, SeverityInfo, ModeSurface},
+	CheckJSInternalURLLeaked:     {CheckJSInternalURLLeaked, SeverityMedium, ModeSurface},
+	CheckJSWebSocketEndpoint:     {CheckJSWebSocketEndpoint, SeverityInfo, ModeSurface},
+
+	// Native Parameter Discovery — Deep (sends probing requests)
+	CheckParamDiscovered: {CheckParamDiscovered, SeverityInfo, ModeDeep},
+
 	// DigitalOcean Cloud — Deep (requires API token)
 	CheckCloudDOScanError:          {CheckCloudDOScanError, SeverityInfo, ModeDeep},
 	CheckCloudDOSpacesPublic:       {CheckCloudDOSpacesPublic, SeverityCritical, ModeDeep},
@@ -3457,6 +3482,11 @@ var Registry = map[CheckID]CheckMeta{
 
 	// Container Runtime Detection
 	CheckContainerDockerSocketExposed: {CheckContainerDockerSocketExposed, SeverityCritical, ModeDeep},
+
+	// Second-order injection (ScanAuthorized — all Deep)
+	CheckSecondOrderXSS:        {CheckSecondOrderXSS, SeverityCritical, ModeDeep},
+	CheckSecondOrderSQLi:       {CheckSecondOrderSQLi, SeverityCritical, ModeDeep},
+	CheckSecondOrderReflection: {CheckSecondOrderReflection, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

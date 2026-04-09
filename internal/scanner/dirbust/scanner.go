@@ -216,6 +216,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 		}
 	}
 
+	// Merge tech-stack aware paths when classify evidence is available.
+	if sctx, ok := scan.FromContext(ctx); ok {
+		if ev := sctx.Evidence(); ev != nil {
+			techEvidence := buildTechEvidence(ev)
+			if extra := TechStackWordlist(techEvidence); len(extra) > 0 {
+				paths = append(paths, extra...)
+			}
+		}
+	}
+
 	// Deduplicate input paths: normalize trailing slashes and case so that
 	// "/admin" and "/admin/" are not probed (and reported) twice.
 	paths = deduplicatePaths(paths)
@@ -619,7 +629,7 @@ func loadWordlistPaths(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var paths []string
 	sc := bufio.NewScanner(f)
