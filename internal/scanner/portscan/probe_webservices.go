@@ -488,15 +488,34 @@ func detectWebLogic(ctx context.Context, host string, port int, banner string, m
 	if !strings.Contains(lb, "weblogic") {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	ev := map[string]any{"port": port, "service": "weblogic"}
+	confidence := finding.ConfidenceProbable
+
+	// Try to extract version from the console login page.
+	if ver := parseWebLogicVersion(body); ver != "" {
+		ev["weblogic_version"] = ver
+		// CVE-2020-14882/14883 affects WebLogic < 14.1.1.0.0 and < 12.2.1.4.0
+		// (with Oct 2020 CPU patch). Conservatively: anything < 14.1.1.1 or < 12.2.1.5.
+		vulnerable := versionBefore(ver, "14.1.1.1") // covers 12.x, 10.x, etc.
+		if vulnerable {
+			confidence = finding.ConfidenceVerified
+		} else {
+			// Patched — still exposed but CVE not exploitable.
+			return nil
+		}
+	}
+
+	f := makeF(
 		finding.CheckCVEWebLogicConsole,
 		finding.SeverityCritical,
 		fmt.Sprintf("Oracle WebLogic admin console exposed on port %d (CVE-2020-14882 KEV)", port),
 		"Oracle WebLogic admin console at /console/login/LoginForm.jsp is internet-accessible. "+
 			"CVE-2020-14882/14883 (CVSS 9.8, KEV) allows unauthenticated RCE via double URL-encoded "+
 			"paths. The WebLogic admin console must never be internet-facing regardless of patch level.",
-		map[string]any{"port": port, "service": "weblogic"},
-	)}
+		ev,
+	)
+	f.Confidence = confidence
+	return []finding.Finding{f}
 }
 
 func detectJetDirect(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -547,7 +566,22 @@ func detectSaltAPI(ctx context.Context, host string, port int, banner string, ma
 	if !ok || !strings.Contains(body, "wheel_async") {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	ev := map[string]any{"port": port, "service": "salt-api", "authenticated": false}
+	confidence := finding.ConfidenceProbable
+
+	// Try to extract Salt version from the API response.
+	if ver := parseSaltVersion(body); ver != "" {
+		ev["salt_version"] = ver
+		// CVE-2021-25281/25282 affects Salt < 3002.5, < 3001.6, < 3000.8.
+		// Simplified: anything < 3002.5 is vulnerable.
+		if versionBefore(ver, "3002.5") {
+			confidence = finding.ConfidenceVerified
+		} else {
+			return nil // patched
+		}
+	}
+
+	f := makeF(
 		finding.CheckCVESaltStackAPI,
 		finding.SeverityCritical,
 		fmt.Sprintf("CVE-2021-25281/25282: SaltStack Salt API exposed on port %d", port),
@@ -556,8 +590,10 @@ func detectSaltAPI(ctx context.Context, host string, port int, banner string, ma
 			"and CVE-2021-25282 is an arbitrary file write via wheel.pillar_roots.write — "+
 			"an attacker can write to /etc/crontab or any system file to achieve root RCE. "+
 			"Salt API must never be exposed to the internet. Restrict to internal management networks.",
-		map[string]any{"port": port, "service": "salt-api", "authenticated": false},
-	)}
+		ev,
+	)
+	f.Confidence = confidence
+	return []finding.Finding{f}
 }
 
 func detectVLLM(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -682,15 +718,29 @@ func detectMLflow(ctx context.Context, host string, port int, banner string, mak
 	)}
 	// CVE-2023-6014: check if account creation API is open.
 	if probeHTTP(ctx, host, port, false, "/api/2.0/mlflow/experiments/list") {
-		findings = append(findings, makeF(
-			finding.CheckCVEMLflowAuthBypass,
-			finding.SeverityCritical,
-			fmt.Sprintf("CVE-2023-6014: MLflow unauthenticated REST API confirmed on port %d", port),
-			"The MLflow experiments list API (/api/2.0/mlflow/experiments/list) returns data "+
-				"without authentication. CVE-2023-6014 (CVSS 9.1) allows unauthenticated account "+
-				"creation on MLflow < 2.8.0. Upgrade MLflow and restrict network access.",
-			ev,
-		))
+		emitMLflowCVE := true
+		mlflowConfidence := finding.ConfidenceProbable
+		// Version was already extracted above into ev["mlflow_version"].
+		if ver, ok := ev["mlflow_version"].(string); ok && ver != "" {
+			if versionBefore(ver, "2.8.0") {
+				mlflowConfidence = finding.ConfidenceVerified
+			} else {
+				emitMLflowCVE = false // patched MLflow
+			}
+		}
+		if emitMLflowCVE {
+			mlF := makeF(
+				finding.CheckCVEMLflowAuthBypass,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2023-6014: MLflow unauthenticated REST API confirmed on port %d", port),
+				"The MLflow experiments list API (/api/2.0/mlflow/experiments/list) returns data "+
+					"without authentication. CVE-2023-6014 (CVSS 9.1) allows unauthenticated account "+
+					"creation on MLflow < 2.8.0. Upgrade MLflow and restrict network access.",
+				ev,
+			)
+			mlF.Confidence = mlflowConfidence
+			findings = append(findings, mlF)
+		}
 	}
 	return findings
 }
@@ -700,7 +750,7 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 	if !ok || !strings.Contains(strings.ToLower(body), "intel") {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	f := makeF(
 		finding.CheckCVEIntelAMTAuthBypass,
 		finding.SeverityCritical,
 		fmt.Sprintf("CVE-2017-5689: Intel AMT management interface exposed on port %d", port),
@@ -712,7 +762,10 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 			"A compromised AMT instance survives OS reinstalls and disk wipes. "+
 			"Disable AMT if not needed, update firmware, and block port 16992/16993 at the firewall.",
 		map[string]any{"port": port, "service": "intel-amt"},
-	)}
+	)
+	// Intel AMT firmware version is rarely extractable from HTTP — confidence is probable.
+	f.Confidence = finding.ConfidenceProbable
+	return []finding.Finding{f}
 }
 
 func detectViteDev(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -727,6 +780,7 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 	// CVE-2025-30208: /@fs/ path traversal with double-? query confusion.
 	if body, ok := probeHTTPBody(ctx, host, port, false, "/@fs/etc/passwd?import&raw??"); ok &&
 		strings.Contains(body, "export default") && strings.Contains(body, "root:") {
+		// The file read itself confirms the CVE is exploitable — verified confidence.
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckCVEViteFileRead,
 			Module:   "surface",
@@ -751,6 +805,7 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 				"curl -s 'http://%s:%d/@fs/etc/passwd?import&raw??'",
 				host, port,
 			),
+			Confidence:   finding.ConfidenceVerified,
 			DiscoveredAt: now,
 		})
 	}
@@ -773,6 +828,7 @@ func detectIngressNginxAdmission(ctx context.Context, host string, port int, ban
 		return nil
 	}
 	now := time.Now()
+	// Version is rarely extractable from the admission webhook response — probable confidence.
 	return []finding.Finding{{
 		CheckID:  finding.CheckCVEIngressNightmare,
 		Module:   "surface",
@@ -798,6 +854,7 @@ func detectIngressNginxAdmission(ctx context.Context, host string, port int, ban
 				`-d '{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview"}'`,
 			host, port,
 		),
+		Confidence:   finding.ConfidenceProbable,
 		DiscoveredAt: now,
 	}}
 }

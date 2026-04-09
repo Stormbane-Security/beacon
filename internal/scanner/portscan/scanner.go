@@ -742,6 +742,21 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		title, description string,
 		evidence map[string]any,
 	) finding.Finding {
+		// Default confidence based on check ID category:
+		//   CVE checks → probable (could be patched; version-verified probes override to verified)
+		//   Port exposure → observed (the service is provably there)
+		//   Config/header/cookie/CORS → verified (we confirmed the misconfiguration)
+		confidence := ""
+		switch {
+		case strings.HasPrefix(checkID, "cve."):
+			confidence = finding.ConfidenceProbable
+		case strings.HasPrefix(checkID, "port."):
+			confidence = finding.ConfidenceObserved
+		case strings.HasPrefix(checkID, "headers."),
+			strings.HasPrefix(checkID, "cookie."),
+			strings.HasPrefix(checkID, "web.cors_"):
+			confidence = finding.ConfidenceVerified
+		}
 		return finding.Finding{
 			CheckID:      checkID,
 			Module:       "surface",
@@ -751,6 +766,7 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			Description:  description,
 			Asset:        asset,
 			Evidence:     evidence,
+			Confidence:   confidence,
 			Visibility:   finding.VisibilityPublic, // port scan = reachable from outside
 			DiscoveredAt: now,
 		}

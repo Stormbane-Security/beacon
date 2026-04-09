@@ -109,7 +109,8 @@ func detectWazuhAPI(ctx context.Context, host string, port int, banner string, m
 }
 
 func detectVeeam(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	if !probeHTTP(ctx, host, port, true, "/api/v1/serverInfo") {
+	body, ok := probeHTTPBody(ctx, host, port, true, "/api/v1/serverInfo")
+	if !ok && !probeHTTP(ctx, host, port, true, "/api/v1/serverInfo") {
 		return nil
 	}
 	label := "Veeam Backup & Replication"
@@ -119,7 +120,26 @@ func detectVeeam(ctx context.Context, host string, port int, banner string, make
 	case 9419:
 		label = "Veeam Catalog Service"
 	}
-	return []finding.Finding{makeF(
+	ev := map[string]any{"port": port, "service": "veeam", "banner": banner}
+
+	// Try to extract version from the serverInfo JSON response.
+	confidence := finding.ConfidenceProbable
+	if ok && body != "" {
+		// Veeam API returns JSON like {"version":"12.0.0.1420",...}
+		if ver := extractJSONField(body, "version"); ver != "" {
+			ev["veeam_version"] = ver
+			// CVE-2025-23120 affects Veeam < 12.3.0.310 (patch P20250119).
+			if versionBefore(ver, "12.3.0.310") {
+				confidence = finding.ConfidenceVerified
+			} else {
+				// Patched version — still exposed, but CVE not applicable.
+				// Emit only the exposure finding, not the CVE finding.
+				return nil
+			}
+		}
+	}
+
+	f := makeF(
 		finding.CheckCVEVeeamBackupExposed,
 		finding.SeverityCritical,
 		fmt.Sprintf("%s exposed on port %d", label, port),
@@ -128,8 +148,10 @@ func detectVeeam(ctx context.Context, host string, port int, banner string, make
 			"Veeam Backup & Replication servers via deserialization. Veeam stores backup credentials "+
 			"for all protected infrastructure — compromise allows full domain credential extraction. "+
 			"Restrict to trusted backup networks immediately.",
-		map[string]any{"port": port, "service": "veeam", "banner": banner},
-	)}
+		ev,
+	)
+	f.Confidence = confidence
+	return []finding.Finding{f}
 }
 
 // detectWingFTPPlaceholder is a no-op. Wing FTP detection is handled in the FTP probe

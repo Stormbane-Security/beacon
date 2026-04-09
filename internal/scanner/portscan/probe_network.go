@@ -210,7 +210,30 @@ func detectSSH(ctx context.Context, host string, port int, banner string, makeF 
 			ev,
 		))
 	case strings.Contains(lsv, "erlang"):
-		netDevFindings = append(netDevFindings, makeF(
+		confidence := finding.ConfidenceProbable
+		otpVer := parseErlangOTPVersion(banner)
+		if otpVer != "" {
+			ev["erlang_otp_version"] = otpVer
+			// CVE-2025-32433 fixed in OTP-27.3.3, OTP-26.2.5.11, OTP-25.3.2.20.
+			// Check major branch to pick the right fix version.
+			parts := strings.SplitN(otpVer, ".", 2)
+			major := 0
+			fmt.Sscanf(parts[0], "%d", &major)
+			vulnerable := false
+			switch {
+			case major >= 27:
+				vulnerable = versionBefore(otpVer, "27.3.3")
+			case major == 26:
+				vulnerable = versionBefore(otpVer, "26.2.5.11")
+			case major <= 25:
+				vulnerable = versionBefore(otpVer, "25.3.2.20")
+			}
+			if !vulnerable {
+				break // patched version, skip CVE finding
+			}
+			confidence = finding.ConfidenceVerified
+		}
+		f := makeF(
 			finding.CheckCVEErlangOTPSSH,
 			finding.SeverityCritical,
 			"Erlang/OTP SSH server detected — CVE-2025-32433 unauthenticated RCE",
@@ -220,7 +243,9 @@ func detectSSH(ctx context.Context, host string, port int, banner string, makeF 
 				"RabbitMQ, CouchDB, Riak, and custom Erlang services commonly use this SSH implementation. "+
 				"Update Erlang/OTP immediately and restrict SSH access to trusted networks.",
 			ev,
-		))
+		)
+		f.Confidence = confidence
+		netDevFindings = append(netDevFindings, f)
 	}
 
 	// CVE-2018-15473: OpenSSH < 7.7 username enumeration via malformed public-key auth packet.
@@ -408,19 +433,22 @@ func detectTelnet(ctx context.Context, host string, port int, banner string, mak
 	// CVE-2011-4862: BSD telnetd Kerberos encryption buffer overflow.
 	if strings.Contains(banner, "\xFF\xFB\x26") || strings.Contains(banner, "\xFF\xFD\x26") {
 		ev["telnet_encrypt_option"] = true
+		bsdF := makeF(
+			finding.CheckCVETelnetBSDEncrypt,
+			finding.SeverityCritical,
+			fmt.Sprintf("BSD telnetd with Kerberos ENCRYPT option detected on port %d — CVE-2011-4862", port),
+			"The Telnet server offers IAC WILL/DO ENCRYPT (option 38) in its initial negotiation, "+
+				"identifying this as BSD telnetd with Kerberos encryption support. "+
+				"CVE-2011-4862 (CVSS 10.0) is a buffer overflow in the BSD telnetd AES key exchange handler "+
+				"that allows an unauthenticated attacker to execute arbitrary code as root before login. "+
+				"Affected: FreeBSD (all supported releases before 2011-12-23), NetBSD, and other BSD-derived systems. "+
+				"Disable telnetd immediately and use SSH instead.",
+			ev,
+		)
+		// Version cannot be extracted from the Telnet negotiation — confidence is probable.
+		bsdF.Confidence = finding.ConfidenceProbable
 		return []finding.Finding{
-			makeF(
-				finding.CheckCVETelnetBSDEncrypt,
-				finding.SeverityCritical,
-				fmt.Sprintf("BSD telnetd with Kerberos ENCRYPT option detected on port %d — CVE-2011-4862", port),
-				"The Telnet server offers IAC WILL/DO ENCRYPT (option 38) in its initial negotiation, "+
-					"identifying this as BSD telnetd with Kerberos encryption support. "+
-					"CVE-2011-4862 (CVSS 10.0) is a buffer overflow in the BSD telnetd AES key exchange handler "+
-					"that allows an unauthenticated attacker to execute arbitrary code as root before login. "+
-					"Affected: FreeBSD (all supported releases before 2011-12-23), NetBSD, and other BSD-derived systems. "+
-					"Disable telnetd immediately and use SSH instead.",
-				ev,
-			),
+			bsdF,
 			makeF(
 				finding.CheckPortTelnetExposed,
 				finding.SeverityHigh,
@@ -904,7 +932,40 @@ func detectAJPTomcat(ctx context.Context, host string, port int, banner string, 
 	if !probeAJP(ctx, host, port) {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	ev := map[string]any{"port": port, "service": "ajp", "protocol": "AJP/1.3"}
+	confidence := finding.ConfidenceProbable
+
+	// Try to extract Tomcat version from an HTTP port on the same host.
+	// Tomcat error pages and Server header often reveal the version.
+	for _, httpPort := range []int{8080, 80, 443} {
+		if body, ok := probeHTTPAnyBody(ctx, host, httpPort, httpPort == 443, "/nonexistent-beacon-probe"); ok {
+			if ver := extractTomcatVersion(body); ver != "" {
+				ev["tomcat_version"] = ver
+				// CVE-2020-1938 affects Tomcat < 9.0.31, < 8.5.51, < 7.0.100.
+				parts := strings.SplitN(ver, ".", 2)
+				major := 0
+				fmt.Sscanf(parts[0], "%d", &major)
+				vulnerable := false
+				switch {
+				case major >= 9:
+					vulnerable = versionBefore(ver, "9.0.31")
+				case major == 8:
+					vulnerable = versionBefore(ver, "8.5.51")
+				case major <= 7:
+					vulnerable = versionBefore(ver, "7.0.100")
+				}
+				if vulnerable {
+					confidence = finding.ConfidenceVerified
+				} else {
+					// Patched Tomcat — AJP is still exposed but CVE not exploitable.
+					return nil
+				}
+				break
+			}
+		}
+	}
+
+	f := makeF(
 		finding.CheckCVETomcatGhostCat,
 		finding.SeverityCritical,
 		fmt.Sprintf("CVE-2020-1938: Tomcat AJP connector exposed on port %d (GhostCat)", port),
@@ -915,6 +976,8 @@ func detectAJPTomcat(ctx context.Context, host string, port int, banner string, 
 			"for communication between Tomcat and a front-end web server (Apache httpd) — it must "+
 			"never be exposed to the internet. Disable the AJP connector in server.xml "+
 			"(comment out or delete the Connector port=\"8009\" element) and apply all Tomcat patches.",
-		map[string]any{"port": port, "service": "ajp", "protocol": "AJP/1.3"},
-	)}
+		ev,
+	)
+	f.Confidence = confidence
+	return []finding.Finding{f}
 }

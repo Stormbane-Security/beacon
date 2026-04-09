@@ -141,6 +141,138 @@ func extractProductVersion(s string) (string, string) {
 	return s, ""
 }
 
+// extractJSONField does a lightweight extraction of a top-level string field
+// from a JSON object without a full unmarshal. Returns "" when the field is
+// missing or the body is not JSON.
+func extractJSONField(body, field string) string {
+	// Look for "field":"value" or "field": "value".
+	needle := `"` + field + `"`
+	idx := strings.Index(body, needle)
+	if idx < 0 {
+		return ""
+	}
+	rest := body[idx+len(needle):]
+	// Skip optional whitespace and colon.
+	rest = strings.TrimLeft(rest, " \t\r\n")
+	if len(rest) == 0 || rest[0] != ':' {
+		return ""
+	}
+	rest = strings.TrimLeft(rest[1:], " \t\r\n")
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	rest = rest[1:] // skip opening quote
+	end := strings.IndexByte(rest, '"')
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+// versionBefore parses two dot-separated version strings and returns true when
+// a < b. Each segment is compared numerically when possible, lexicographically
+// otherwise. Missing trailing segments are treated as 0 (e.g. "2.7" < "2.7.1").
+func versionBefore(a, b string) bool {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	maxLen := len(aParts)
+	if len(bParts) > maxLen {
+		maxLen = len(bParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		av, bv := 0, 0
+		if i < len(aParts) {
+			// Strip non-numeric suffix (e.g. "3rc1" → 3).
+			numStr := aParts[i]
+			for j, c := range numStr {
+				if c < '0' || c > '9' {
+					numStr = numStr[:j]
+					break
+				}
+			}
+			fmt.Sscanf(numStr, "%d", &av)
+		}
+		if i < len(bParts) {
+			numStr := bParts[i]
+			for j, c := range numStr {
+				if c < '0' || c > '9' {
+					numStr = numStr[:j]
+					break
+				}
+			}
+			fmt.Sscanf(numStr, "%d", &bv)
+		}
+		if av < bv {
+			return true
+		}
+		if av > bv {
+			return false
+		}
+	}
+	return false // equal
+}
+
+// parseErlangOTPVersion extracts an OTP version from an SSH banner.
+// Erlang SSH banners look like "SSH-2.0-Erlang/OTP" (no version) or
+// "SSH-2.0-Erlang-OTP_27.3.2" or similar patterns.
+// Returns the OTP version string (e.g. "27.3.2") or "".
+func parseErlangOTPVersion(banner string) string {
+	lower := strings.ToLower(banner)
+	// Pattern: Erlang/OTP followed by space or underscore then version.
+	for _, prefix := range []string{"erlang/otp_", "erlang-otp_", "erlang/otp ", "erlang-otp "} {
+		if idx := strings.Index(lower, prefix); idx >= 0 {
+			rest := banner[idx+len(prefix):]
+			// Version is digits and dots until space or end.
+			end := strings.IndexAny(rest, " \t\r\n")
+			if end < 0 {
+				end = len(rest)
+			}
+			ver := strings.TrimSpace(rest[:end])
+			if ver != "" && ver[0] >= '0' && ver[0] <= '9' {
+				return ver
+			}
+		}
+	}
+	return ""
+}
+
+// parseWebLogicVersion extracts the WebLogic version from console login page HTML.
+// Looks for patterns like "WebLogic Server Version: 12.2.1.4.0" or
+// "WebLogic Server 14.1.1.0" in the page body.
+var weblogicVersionRe = regexp.MustCompile(`(?i)WebLogic\s+(?:Server\s+)?(?:Version:?\s*)?(\d+\.\d+[\d.]*)`)
+
+func parseWebLogicVersion(body string) string {
+	m := weblogicVersionRe.FindStringSubmatch(body)
+	if m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// parseSaltVersion extracts the Salt version from the Salt API root response.
+// The Salt API typically returns JSON with a "return" field containing version info.
+var saltVersionRe = regexp.MustCompile(`(?i)(?:salt|version)["\s:]*(\d+\.\d+[\d.]*)`)
+
+func parseSaltVersion(body string) string {
+	m := saltVersionRe.FindStringSubmatch(body)
+	if m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// extractTomcatVersion extracts the Apache Tomcat version from an HTTP response
+// body. Tomcat error pages typically contain "Apache Tomcat/9.0.30" or similar.
+var tomcatVersionRe = regexp.MustCompile(`(?i)Apache Tomcat/(\d+\.\d+[\d.]*)`)
+
+func extractTomcatVersion(body string) string {
+	m := tomcatVersionRe.FindStringSubmatch(body)
+	if m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 // ExtractHTTPTitle extracts the content of the <title> tag from an HTML body.
 // Returns "" if no title is found.
 func ExtractHTTPTitle(body string) string {
