@@ -56,6 +56,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/nginx"
 	_ "github.com/stormbane-security/beacon/internal/scanner/hpp"
 	_ "github.com/stormbane-security/beacon/internal/scanner/harvester"
+	_ "github.com/stormbane-security/beacon/internal/scanner/honeypot"
 	_ "github.com/stormbane-security/beacon/internal/scanner/aidetect"
 	"github.com/stormbane-security/beacon/internal/scanner/aillm"
 	_ "github.com/stormbane-security/beacon/internal/scanner/apiversions"

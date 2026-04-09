@@ -37,6 +37,8 @@ type ScanContext struct {
 
 	screenshotEnabled bool // true when --screenshots is set
 
+	honeypotDetected bool // true when the honeypot scanner identifies the asset as a honeypot
+
 	// oobServer is the out-of-band callback server, lazily initialized on
 	// first call to OOBServer(). Scanners use it to generate callback URLs
 	// for blind SSRF, blind XXE, blind SQLi OOB, etc.
@@ -151,6 +153,13 @@ func (sc *ScanContext) WithScreenshots(enabled bool) *ScanContext {
 
 // ScreenshotsEnabled reports whether the --screenshots flag was set.
 func (sc *ScanContext) ScreenshotsEnabled() bool { return sc.screenshotEnabled }
+
+// SetHoneypotDetected marks the asset as a honeypot so downstream scanners
+// (chain engine, exploit playbooks) can skip exploitation to avoid detection.
+func (sc *ScanContext) SetHoneypotDetected(v bool) { sc.honeypotDetected = v }
+
+// HoneypotDetected reports whether the honeypot scanner flagged this asset.
+func (sc *ScanContext) HoneypotDetected() bool { return sc.honeypotDetected }
 
 // SharedClient returns a pooled HTTP client using the shared transport.
 // When no auth client is configured, this avoids redundant TCP+TLS handshakes

@@ -777,6 +777,10 @@ const (
 	CheckCensysHostData       CheckID = "intel.censys_host"
 	CheckGreyNoiseContext     CheckID = "intel.greynoise"
 
+	// Honeypot detection (passive)
+	CheckHoneypotDetected  CheckID = "intel.honeypot_detected"  // High-confidence honeypot identification
+	CheckHoneypotSuspected CheckID = "intel.honeypot_suspected" // Behavioral indicators suggest honeypot
+
 	// Infrastructure layer: API gateways, load balancers, CDN edges, service mesh
 	// Surface: passive detection and admin interface exposure
 	// Deep: route enumeration, auth bypass probing
@@ -3536,6 +3540,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebSocketInjection:     {CheckWebSocketInjection, SeverityHigh, ModeDeep},
 	CheckWebSocketAuthBypass:    {CheckWebSocketAuthBypass, SeverityCritical, ModeDeep},
 	CheckWebSocketNoOriginCheck: {CheckWebSocketNoOriginCheck, SeverityMedium, ModeSurface},
+
+	// Honeypot detection (passive)
+	CheckHoneypotDetected:  {CheckHoneypotDetected, SeverityInfo, ModeSurface},
+	CheckHoneypotSuspected: {CheckHoneypotSuspected, SeverityInfo, ModeSurface},
 
 	// Active attack path chaining — ScanAuthorized exploitation chains
 	CheckChainSSRFToCloudCreds:     {CheckChainSSRFToCloudCreds, SeverityCritical, ModeDeep},

@@ -23,6 +23,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/exploit"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 // Engine orchestrates active attack path chaining.
@@ -65,6 +66,14 @@ func New(scanType module.ScanType) (*Engine, error) {
 // executes the next step. Returns new findings discovered through chaining.
 func (e *Engine) OnFinding(ctx context.Context, f finding.Finding) []finding.Finding {
 	if ctx.Err() != nil {
+		return nil
+	}
+
+	// Skip exploitation entirely when the honeypot scanner has flagged this
+	// asset — continuing would alert the honeypot operator and waste time on
+	// intentionally-exposed vulnerabilities.
+	if sctx, ok := scan.FromContext(ctx); ok && sctx.HoneypotDetected() {
+		log.Printf("[chain] skipping chain evaluation on %s — honeypot detected", f.Asset)
 		return nil
 	}
 
