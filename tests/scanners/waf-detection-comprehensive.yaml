@@ -10,9 +10,7 @@ services:
     image: owasp/modsecurity-crs:nginx-alpine
     ports: ["19863:80"]
     environment:
-      PARANOIA: "2"
-      ANOMALY_INBOUND: "5"
-      ANOMALY_OUTBOUND: "4"
+      MODSEC_RULE_ENGINE: "On"
 
   plain-nginx:
     image: nginx:alpine
