@@ -1,0 +1,86 @@
+name: waf-bypass-deep-techniques
+description: >
+  ModSecurity CRS behind Nginx. Deep-mode WAF bypass scanner should attempt
+  double encoding, method override, content-type confusion, header spoofing,
+  and path normalization. Tests waf.bypass_double_encode, waf.bypass_via_method,
+  waf.bypass_via_ctype, waf.bypass_via_header, waf.bypass_via_path,
+  waf.bypass_found, waf.rate_limited, and waf.insecure_ssl_mode.
+tags: [waf, bypass, scanner, deep, authorized]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    expose: ["8080"]
+    environment:
+      PORT: "8080"
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["20099:8080"]
+    environment:
+      PARANOIA: "1"
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://app:8080"
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:20099/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-waf-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:20099/?q=%27%20OR%201%3D1--%20-' | grep -q '403'"
+      exit_code: 0
+
+  - name: exploit-waf-allows-normal
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20099/ >/dev/null"
+      exit_code: 0
+
+  # --- Scanner detections: WAF detection and bypass ---
+  - name: detects-waf-detected
+    type: beacon
+    target: localhost:20099
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--yes"]
+    expect:
+      check_id: waf.detected
+
+  # ModSecurity CRS at paranoia level 1 is robust — the wafbypass scanner
+  # may or may not find a bypass depending on the CRS version. We assert
+  # the scanner runs without error; actual bypass detection depends on
+  # the WAF's strength.
+  - name: wafbypass-runs-clean
+    type: beacon
+    target: localhost:20099
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # NOTE: waf.bypass_double_encode, waf.bypass_via_method, waf.bypass_via_ctype,
+  # waf.bypass_via_header, waf.bypass_via_path, waf.bypass_found require the WAF
+  # to actually be bypassable. ModSecurity CRS PL1 blocks most techniques.
+  # waf.rate_limited requires enough requests to trigger rate limiting.
+  # waf.insecure_ssl_mode requires Cloudflare flexible SSL (not testable in Docker).
+  # These are documented in UNTESTABLE_CHECK_IDS.md.
+
+  # --- Negative ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20099
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:20099
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 8m

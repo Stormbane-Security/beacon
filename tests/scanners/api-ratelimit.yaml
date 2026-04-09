@@ -1,0 +1,77 @@
+name: api-rate-limit-bola-mass-assignment
+description: >
+  API server with no rate limiting, BOLA (broken object-level auth),
+  mass assignment, and API fuzz error responses. Beacon ratelimit,
+  apischema, and apifuzz scanners should detect api.rate_limit_missing,
+  api.bola, api.mass_assignment, and web.api_fuzz_error.
+tags: [api, scanner, ratelimit, bola, deep]
+
+services:
+  api:
+    image: node:20-alpine
+    ports: ["20100:3000"]
+    volumes:
+      - ./api-ratelimit/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20100/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-no-rate-limit
+    type: command
+    expect:
+      command: "for i in $(seq 1 20); do curl -sf http://localhost:20100/api/users/1 >/dev/null; done; curl -sf http://localhost:20100/api/users/1 | grep -q 'Alice'"
+      exit_code: 0
+
+  - name: exploit-bola-access-other-user
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20100/api/users/2 | grep -q 'Bob'"
+      exit_code: 0
+
+  - name: exploit-mass-assignment-role
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20100/api/users -H 'Content-Type: application/json' -d '{\"name\":\"Eve\",\"role\":\"admin\"}' | grep -q 'admin'"
+      exit_code: 0
+
+  - name: exploit-fuzz-500-error
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:20100/api/process -H 'Content-Type: application/json' -d '{\"invalid\":true}' | grep -q '500'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-rate-limit-missing
+    type: beacon
+    target: localhost:20100
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ratelimit", "--deep", "--yes"]
+    expect:
+      check_id: api.rate_limit_missing
+
+  - name: detects-idor-sequential-id
+    type: beacon
+    target: localhost:20100
+    args: ["--no-enrich", "--no-nmap", "--scanners", "idor", "--deep", "--yes"]
+    expect:
+      check_id: api.idor_sequential_id
+
+  # NOTE: web.api_fuzz_error requires apifuzz scanner to discover API endpoints
+  # via crawl. In isolated mode without crawl, apifuzz has no endpoints to fuzz.
+  # api.mass_assignment requires the apischema scanner to detect OpenAPI spec
+  # and test extra fields — not yet triggered without crawl discovery.
+  # These are documented in UNTESTABLE_CHECK_IDS.md.
+
+  # --- Negative ---
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20100
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ratelimit,idor", "--deep", "--yes"]
+    expect:
+      not_check_id: web.xss
+
+timeout: 5m

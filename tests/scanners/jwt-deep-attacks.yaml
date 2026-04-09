@@ -57,12 +57,24 @@ assertions:
     expect:
       check_id: jwt.no_encryption
 
+  # NOTE: jwt.alg_none_variant and jwt.empty_secret require the scanner to
+  # actively send modified JWTs to the server, which the current JWT scanner
+  # does not do. The server fixture above accepts these, ready for when the
+  # scanner is extended. Documented in UNTESTABLE_CHECK_IDS.md.
+
+  - name: detects-jwt-sensitive-payload
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.sensitive_payload
+
   - name: deep-mode-min-findings
     type: beacon
     target: localhost:20010
     args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
     expect:
-      min_findings: 3
+      min_findings: 4
 
   # --- Negative ---
   - name: negative-no-sqli

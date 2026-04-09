@@ -1,0 +1,77 @@
+name: dlp-private-key-database-url
+description: >
+  Nginx serving pages with PEM private keys, database connection strings,
+  and bulk email addresses. Beacon DLP scanner should detect dlp.private_key,
+  dlp.database_url, and dlp.email_list.
+tags: [dlp, scanner, data-leak, privkey, database]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20093:80"]
+    volumes:
+      - ./dlp-privkey-dburl/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20093/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-private-key-in-response
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20093/ | grep -q 'BEGIN RSA PRIVATE KEY'"
+      exit_code: 0
+
+  - name: exploit-database-url-in-response
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20093/ | grep -q 'postgresql://'"
+      exit_code: 0
+
+  - name: exploit-emails-in-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20093/api/config | grep -c '@corp.com' | grep -qE '^[0-9]+'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-dlp-private-key
+    type: beacon
+    target: localhost:20093
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.private_key
+
+  - name: detects-dlp-database-url
+    type: beacon
+    target: localhost:20093
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.database_url
+
+  - name: detects-dlp-api-key
+    type: beacon
+    target: localhost:20093
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.api_key
+
+  - name: dlp-min-findings
+    type: beacon
+    target: localhost:20093
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      min_findings: 2
+
+  # --- Negative ---
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20093
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      not_check_id: web.xss
+
+timeout: 5m

@@ -1,0 +1,64 @@
+name: web-tech-detected-outdated
+description: >
+  Nginx advertising old Server/X-Powered-By headers and WordPress meta tag.
+  Beacon classify/webcontent scanner should detect web.tech_detected and
+  web.outdated_software from version fingerprints.
+tags: [web, scanner, tech, outdated, fingerprint]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20091:80"]
+    volumes:
+      - ./web-tech-outdated/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20091/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-old-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20091/ | grep -qi 'Server.*nginx/1.14'"
+      exit_code: 0
+
+  - name: exploit-old-php-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20091/ | grep -qi 'X-Powered-By.*PHP/5.6'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-tech-detected
+    type: beacon
+    target: localhost:20091
+    args: ["--no-enrich", "--no-nmap", "--yes"]
+    expect:
+      check_id: web.tech_detected
+
+  - name: detects-outdated-software
+    type: beacon
+    target: localhost:20091
+    args: ["--no-enrich", "--no-nmap", "--yes"]
+    expect:
+      check_id: version.outdated_software
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:20091
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # --- Negative ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20091
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent,secheaders", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

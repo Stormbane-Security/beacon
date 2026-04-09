@@ -54,6 +54,12 @@ assertions:
     expect:
       check_id: waf.detected
 
+  # NOTE: waf.endpoint_blocked and waf.product_version require the scanner to
+  # send specific probes and parse WAF product identification from response
+  # headers. The wafdetect scanner currently emits waf.detected as a general
+  # fingerprint. Product version and endpoint blocking are tracked separately
+  # during WAF bypass attempts (wafbypass scanner).
+
   # Negative: no WAF on plain nginx
   - name: negative-no-waf-on-plain-nginx
     type: beacon

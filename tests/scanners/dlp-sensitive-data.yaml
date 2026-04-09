@@ -44,12 +44,36 @@ assertions:
       exit_code: 0
 
   # --- Scanner detection ---
-  - name: detects-dlp-findings
+  - name: detects-dlp-credit-card
     type: beacon
     target: localhost:20046
     args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
     expect:
-      min_findings: 1
+      check_id: dlp.credit_card
+
+  - name: detects-dlp-ssn-pattern
+    type: beacon
+    target: localhost:20046
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.ssn_pattern
+
+  - name: detects-dlp-api-key
+    type: beacon
+    target: localhost:20046
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.api_key
+
+  # NOTE: dlp.email_list requires >10 email addresses in the response body.
+  # The fixture has only 2 emails, so the threshold is not met.
+
+  - name: dlp-min-findings
+    type: beacon
+    target: localhost:20046
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      min_findings: 2
 
   # --- Negative: no false positives ---
   - name: negative-no-redis

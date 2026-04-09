@@ -45,12 +45,33 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-cookie-missing-secure
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie", "--yes"]
+    expect:
+      check_id: cookie.missing_secure
+
+  - name: detects-cookie-missing-httponly
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie", "--yes"]
+    expect:
+      check_id: cookie.missing_httponly
+
+  - name: detects-cookie-missing-samesite
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie", "--yes"]
+    expect:
+      check_id: cookie.missing_samesite
+
   - name: secheaders-min-findings
     type: beacon
     target: localhost:20013
     args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cookie", "--yes"]
     expect:
-      min_findings: 1
+      min_findings: 3
 
   # --- Negative ---
   - name: negative-no-redis

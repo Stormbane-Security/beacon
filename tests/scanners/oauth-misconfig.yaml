@@ -37,31 +37,85 @@ assertions:
       command: "curl -sf -X POST http://localhost:19860/token -d 'grant_type=authorization_code&code=anything' | grep -q 'access_token'"
       exit_code: 0
 
-  - name: detects-oauth-open-redirect
+  - name: detects-oauth-token-endpoint-no-auth
     type: beacon
     target: localhost:19860
-    args: ["--no-enrich", "--scanners", "oauth", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
     expect:
       check_id: oauth.token_endpoint_no_auth
+
+  - name: detects-oauth-token-in-url-fragment
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.token_in_url_fragment
+
+  - name: detects-jwt-no-server-verification
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: jwt.no_server_verification
+
+  - name: detects-oauth-refresh-not-rotated
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.refresh_not_rotated
+
+  - name: detects-oauth-jwks-exposed
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.jwks_exposed
+
+  # NOTE: oauth.open_redirect, oauth.implicit_flow, oauth.missing_state are
+  # not emitted by the scanner against this fixture. The scanner analyzes
+  # the OIDC discovery doc and token endpoint but does not currently perform
+  # redirect_uri probing or state parameter checking.
+
+  - name: detects-oauth-missing-pkce
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.missing_pkce
+
+  - name: detects-oauth-token-long-expiry
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.token_long_expiry
+
+  - name: detects-oidc-weak-signing-alg
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oidc.weak_signing_alg
 
   - name: detects-oidc-discovery
     type: beacon
     target: localhost:19860
-    args: ["--no-enrich", "--scanners", "wellknown"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
     expect:
       check_id: wellknown.oidc_discovery
 
   - name: detects-missing-hsts
     type: beacon
     target: localhost:19860
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "3000"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "3000"]
     expect:
       check_id: headers.missing_hsts
 
   - name: negative-no-sqli
     type: beacon
     target: localhost:19860
-    args: ["--no-enrich", "--scanners", "oauth,wellknown,secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth,wellknown,secheaders"]
     expect:
       not_check_id: sqli.error_based
 

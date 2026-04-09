@@ -62,25 +62,29 @@ assertions:
   - name: detects-robots-sensitive-path
     type: beacon
     target: localhost:19843
-    args: ["--no-enrich", "--scanners", "robotsmap"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap", "--yes"]
     expect:
       check_id: exposure.robots_sensitive_path
 
-  # Negative: no false positive SQL injection on static file server
-
+  - name: exposure-min-findings
+    type: beacon
+    target: localhost:19843
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      min_findings: 2
 
   # --- Negative: no database findings on a static nginx ---
   - name: negative-no-sqli
     type: beacon
     target: localhost:19843
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
     expect:
       not_check_id: web.sqli
 
   - name: negative-no-nosqli
     type: beacon
     target: localhost:19843
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
     expect:
       not_check_id: web.nosqli
 

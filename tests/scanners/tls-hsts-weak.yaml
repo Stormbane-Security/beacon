@@ -1,0 +1,90 @@
+name: tls-hsts-weak-config
+description: >
+  Nginx with HSTS header set but with short max-age, no includeSubDomains,
+  and no preload. Self-signed cert with no OCSP URL, no SCT, and no CRL
+  distribution point. Beacon tlscheck scanner should detect tls.hsts_short_max_age,
+  tls.hsts_no_subdomains, tls.hsts_no_preload, tls.cert_no_ocsp, tls.cert_no_sct,
+  and tls.cert_no_crl.
+tags: [tls, hsts, certificate, scanner]
+
+services:
+  nginx-tls:
+    build:
+      context: ./tls-hsts-weak
+      dockerfile: Dockerfile
+    ports: ["20094:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:20094/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-hsts-short-max-age
+    type: command
+    expect:
+      command: "curl -skI https://localhost:20094/ | grep -i 'Strict-Transport-Security' | grep -q 'max-age=2592000'"
+      exit_code: 0
+
+  - name: exploit-hsts-no-includesubdomains
+    type: command
+    expect:
+      command: "curl -skI https://localhost:20094/ | grep -i 'Strict-Transport-Security' | grep -qiv 'includeSubDomains'"
+      exit_code: 0
+
+  - name: exploit-hsts-no-preload
+    type: command
+    expect:
+      command: "curl -skI https://localhost:20094/ | grep -i 'Strict-Transport-Security' | grep -qiv 'preload'"
+      exit_code: 0
+
+  - name: exploit-cert-no-ocsp
+    type: command
+    expect:
+      command: "! openssl s_client -connect localhost:20094 </dev/null 2>/dev/null | openssl x509 -noout -text 2>/dev/null | grep -qi 'OCSP'"
+      exit_code: 0
+
+  # NOTE: tls.hsts_short_max_age, tls.hsts_no_subdomains, tls.hsts_no_preload
+  # require a trusted HTTPS response (the TLS scanner's HSTS HTTP client does NOT
+  # skip cert verification). Since self-signed certs fail the HTTPS fetch, HSTS
+  # checks cannot fire in drydock with self-signed certs. The exploit proofs above
+  # verify the HSTS header content; the scanner unit tests cover the detection.
+
+  - name: detects-cert-no-ocsp
+    type: beacon
+    target: localhost:20094
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_no_ocsp
+
+  - name: detects-cert-no-sct
+    type: beacon
+    target: localhost:20094
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_no_sct
+
+  - name: detects-cert-no-crl
+    type: beacon
+    target: localhost:20094
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_no_crl
+
+  - name: detects-self-signed
+    type: beacon
+    target: localhost:20094
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_self_signed
+
+  # --- Negative ---
+  - name: negative-no-weak-cipher
+    type: beacon
+    target: localhost:20094
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      not_check_id: tls.protocol_sslv3
+
+timeout: 5m

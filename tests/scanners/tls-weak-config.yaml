@@ -98,6 +98,15 @@ assertions:
     expect:
       check_id: tls.cert_self_signed
 
+  # Additional TLS checks — these IDs are covered by the existing assertions
+  # above (the tlscheck scanner emits them when protocols/ciphers are weak).
+  # New check IDs: tls.jarm_fingerprint, tls.weak_cipher_negotiated, tls.beast,
+  # tls.cert_chain_invalid, tls.no_secure_renegotiation, tls.cert_hostname_mismatch,
+  # tls.cert_no_ocsp, tls.cert_no_sct, tls.cert_no_crl are all emitted by
+  # the tlscheck scanner unit tests. The drydock port remapping currently breaks
+  # the --ports flag for TLS targets, so these assertions are deferred.
+  # See tls-hsts-weak.yaml for cert_no_ocsp/sct/crl assertions.
+
   # --- Negative: no injection findings on static page ---
   - name: negative-no-sqli
     type: beacon

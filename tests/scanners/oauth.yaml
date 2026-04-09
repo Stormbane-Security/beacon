@@ -65,13 +65,13 @@ assertions:
   - name: exploit-token-endpoint-exists
     type: command
     expect:
-      command: "curl -s -X POST http://localhost:8180/realms/master/protocol/openid-connect/token -d 'grant_type=client_credentials' -o /dev/null -w '%{http_code}' | grep -qP '400|401|200'"
+      command: "curl -s -X POST http://localhost:8180/realms/master/protocol/openid-connect/token -d 'grant_type=client_credentials' -o /dev/null -w '%{http_code}' | grep -qE '400|401|200'"
       exit_code: 0
 
   - name: exploit-auth-endpoint-exists
     type: command
     expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:8180/realms/master/protocol/openid-connect/auth?response_type=code&client_id=test&redirect_uri=http://localhost' | grep -qP '200|302|400'"
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:8180/realms/master/protocol/openid-connect/auth?response_type=code&client_id=test&redirect_uri=http://localhost' | grep -qE '200|302|400'"
       exit_code: 0
 
   # --- Negative: userinfo requires authorization ---
@@ -92,21 +92,35 @@ assertions:
   - name: detects-token-in-fragment
     type: beacon
     target: localhost:8180
-    args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--ports", "8080", "--yes"]
     expect:
       check_id: oauth.token_in_url_fragment
 
   - name: detects-implicit-flow
     type: beacon
     target: localhost:8180
-    args: ["--no-enrich", "--scanners", "oauth", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--ports", "8080", "--yes"]
     expect:
-      check_id: oauth.token_in_url_fragment
+      check_id: oauth.implicit_flow
+
+  - name: detects-oauth-refresh-not-rotated
+    type: beacon
+    target: localhost:8180
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--ports", "8080", "--deep", "--yes"]
+    expect:
+      check_id: oauth.refresh_not_rotated
+
+  - name: detects-oauth-weak-state
+    type: beacon
+    target: localhost:8180
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--ports", "8080", "--deep", "--yes"]
+    expect:
+      check_id: oauth.weak_state
 
   - name: detects-idp-admin-exposed
     type: beacon
     target: localhost:8180
-    args: ["--no-enrich", "--scanners", "iam", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "iam", "--ports", "8080", "--yes"]
     expect:
       check_id: iam.idp_admin_exposed
 
