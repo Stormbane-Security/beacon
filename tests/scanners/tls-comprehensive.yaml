@@ -1,0 +1,131 @@
+name: tls-comprehensive
+description: >
+  Nginx with an expired certificate (signed by a throwaway CA, expired Jan 2025),
+  weak non-PFS ciphers, and a deliberately misconfigured HSTS header (max-age=60,
+  no includeSubDomains, no preload). Tests TLS scanner detections for expired cert,
+  invalid cert chain, weak ciphers, JARM fingerprint, and missing cert metadata
+  (OCSP/SCT/CRL).
+tags: [tls, certificate, expired, hsts, cipher, scanner]
+
+services:
+  nginx-tls:
+    build:
+      context: ./tls-comprehensive
+      dockerfile: Dockerfile
+    ports: ["20143:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:20143/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Pre-flight: TLS endpoint responds ---
+  - name: tls-endpoint-responds
+    type: command
+    expect:
+      command: "curl -sk -o /dev/null -w '%{http_code}' https://localhost:20143/ | grep -q '200'"
+      exit_code: 0
+
+  # --- Exploit proof: cert is expired ---
+  - name: exploit-cert-expired
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20143 </dev/null 2>/dev/null | openssl x509 -noout -checkend 0 2>/dev/null; test $? -eq 1"
+      exit_code: 0
+
+  # --- Exploit proof: HSTS header is weak ---
+  - name: exploit-hsts-short-max-age
+    type: command
+    expect:
+      command: "curl -skI https://localhost:20143/ | grep -i 'Strict-Transport-Security' | grep -q 'max-age=60'"
+      exit_code: 0
+
+  - name: exploit-hsts-no-includesubdomains
+    type: command
+    expect:
+      command: "curl -skI https://localhost:20143/ | grep -i 'Strict-Transport-Security' | grep -qiv 'includeSubDomains'"
+      exit_code: 0
+
+  - name: exploit-hsts-no-preload
+    type: command
+    expect:
+      command: "curl -skI https://localhost:20143/ | grep -i 'Strict-Transport-Security' | grep -qiv 'preload'"
+      exit_code: 0
+
+  # --- Exploit proof: non-PFS cipher negotiated ---
+  - name: exploit-non-pfs-cipher
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20143 </dev/null 2>&1 | grep -i 'cipher' | grep -qi 'AES.*-SHA\\|DES-CBC3-SHA'"
+      exit_code: 0
+
+  # --- Beacon: expired cert detection ---
+  - name: detects-expired-cert
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.expired_cert_detected
+
+  # --- Beacon: untrusted cert chain (signed by throwaway CA) ---
+  - name: detects-cert-chain-invalid
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_chain_invalid
+
+  # --- Beacon: no PFS ---
+  - name: detects-no-pfs
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.no_pfs
+
+  # --- Beacon: JARM fingerprint emitted ---
+  - name: detects-jarm-fingerprint
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.jarm_fingerprint
+
+  # --- Beacon: cert missing OCSP/SCT/CRL ---
+  - name: detects-cert-no-ocsp
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_no_ocsp
+
+  - name: detects-cert-no-sct
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_no_sct
+
+  - name: detects-cert-no-crl
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443", "--yes"]
+    expect:
+      check_id: tls.cert_no_crl
+
+  # NOTE: tls.hsts_short_max_age, tls.hsts_no_subdomains, tls.hsts_no_preload
+  # require a trusted HTTPS response (the TLS scanner's HSTS client does NOT skip
+  # cert verification). Self-signed + expired certs fail the HTTPS fetch, so HSTS
+  # checks cannot fire in drydock. The exploit proofs above verify the header
+  # content; scanner unit tests cover HSTS detection logic.
+
+  # --- Negative: no redis findings on a TLS-only nginx ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20143
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
