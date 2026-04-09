@@ -55,6 +55,28 @@ assertions:
     expect:
       check_id: chain.peer_count_leak
 
+  # ── Deep: detects active mining via eth_mining ──────────────────────
+  - name: preflight-eth-mining-returns-result
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19887/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_mining\",\"params\":[],\"id\":1}' | grep -q result"
+      exit_code: 0
+
+  - name: detects-miner-rpc-exposed
+    type: beacon
+    target: localhost:19887
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode", "--deep", "--yes"]
+    expect:
+      check_id: chain.miner_rpc_exposed
+
+  # ── Deep: detects dangerous RPC methods ─────────────────────────────
+  - name: detects-rpc-dangerous-method
+    type: beacon
+    target: localhost:19887
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode", "--deep", "--yes"]
+    expect:
+      check_id: chain.rpc_dangerous_method
+
   # ── Negative: no HTTP header findings (this is JSON-RPC, not a web app)
   - name: negative-no-hsts
     type: beacon

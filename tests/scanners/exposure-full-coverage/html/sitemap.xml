@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://localhost:20120/</loc></url>
+  <url><loc>http://localhost:20120/admin/settings</loc></url>
+  <url><loc>http://localhost:20120/api/internal/debug</loc></url>
+  <url><loc>http://localhost:20120/grafana/d/overview</loc></url>
+</urlset>

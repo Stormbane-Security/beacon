@@ -54,17 +54,33 @@ assertions:
     expect:
       check_id: graphql.no_depth_limit
 
-  # NOTE: graphql.batch_query_enabled, graphql.get_enabled, graphql.alias_dos
-  # are defined as check IDs but the scanner emits graphql.no_depth_limit and
-  # graphql.persisted_query_bypass instead. The server fixture supports GET and
-  # batch queries, but the scanner does not currently test for these patterns.
+  - name: detects-graphql-batch-query-enabled
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.batch_query_enabled
+
+  # Pre-flight: batch query works (array of operations returns JSON array)
+  - name: exploit-batch-query-accepted
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20031/graphql -H 'Content-Type: application/json' -d '[{\"query\":\"{__schema{types{name}}}\"},{\"query\":\"{users{id}}\"}]' | grep -q '__schema'"
+      exit_code: 0
+
+  # Pre-flight: GET query works
+  - name: exploit-get-query-accepted
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20031/graphql?query={__typename}' | grep -q 'data'"
+      exit_code: 0
 
   - name: graphql-deep-min-findings
     type: beacon
     target: localhost:20031
     args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
     expect:
-      min_findings: 3
+      min_findings: 4
 
   # ══════════════════════════════════════════════════════════════════════
   # Negative: no unrelated findings

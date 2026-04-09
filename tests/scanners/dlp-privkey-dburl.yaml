@@ -59,6 +59,10 @@ assertions:
     expect:
       check_id: dlp.api_key
 
+  # NOTE: dlp.email_list requires 25+ unique emails on the root page.
+  # The /api/config endpoint has 26 emails but the DLP scanner only fetches /.
+  # See dlp-email-wifi.yaml for the dlp.email_list drydock test.
+
   - name: dlp-min-findings
     type: beacon
     target: localhost:20093

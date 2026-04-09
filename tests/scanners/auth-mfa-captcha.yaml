@@ -1,0 +1,87 @@
+name: auth-mfa-captcha
+description: >
+  Nginx serving a login page with reCAPTCHA protection, a registration
+  page, and SSO-style indicators. Beacon authsurface scanner should
+  detect auth.login_form_detected, auth.mfa_detected (CAPTCHA counts
+  as an MFA signal), and auth.registration_open.
+tags: [auth, scanner, mfa, captcha, authsurface]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20123:80"]
+    volumes:
+      - ./auth-mfa-captcha/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20123/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: verify pages exist with expected content
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-login-has-password-field
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20123/login | grep -qi 'type=\"password\"'"
+      exit_code: 0
+
+  - name: exploit-login-has-recaptcha
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20123/login | grep -qi 'recaptcha'"
+      exit_code: 0
+
+  - name: exploit-register-page-exists
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20123/register | grep -qi 'type=\"password\"'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — authsurface
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-login-form
+    type: beacon
+    target: localhost:20123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--yes"]
+    expect:
+      check_id: auth.login_form_detected
+
+  - name: detects-mfa-captcha
+    type: beacon
+    target: localhost:20123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--yes"]
+    expect:
+      check_id: auth.mfa_detected
+
+  - name: detects-registration-open
+    type: beacon
+    target: localhost:20123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--yes"]
+    expect:
+      check_id: auth.registration_open
+
+  - name: authsurface-min-findings
+    type: beacon
+    target: localhost:20123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--yes"]
+    expect:
+      min_findings: 2
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no injection findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

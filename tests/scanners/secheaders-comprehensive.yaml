@@ -85,6 +85,33 @@ assertions:
     expect:
       check_id: headers.server_info_leak
 
+  - name: detects-missing-referrer-policy
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes", "--ports", "80"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: detects-missing-permissions-policy
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes", "--ports", "80"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  # --- Exploit proofs: confirm referrer/permissions policy absent ---
+  - name: exploit-no-referrer-policy
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'Referrer-Policy'"
+      exit_code: 0
+
+  - name: exploit-no-permissions-policy
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'Permissions-Policy'"
+      exit_code: 0
+
   # --- Negative: no injection findings on bare nginx ---
   - name: negative-no-sqli
     type: beacon

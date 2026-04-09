@@ -90,6 +90,16 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         try {
           const parsed = JSON.parse(body);
+          // Support batch queries (array of operations)
+          if (Array.isArray(parsed)) {
+            const results = parsed.map(op => {
+              const q = (op && op.query) || '';
+              return handleGraphQLSync(q);
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(results));
+            return;
+          }
           handleGraphQL(parsed.query || '', res);
         } catch {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -104,18 +114,18 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'not found' }));
 });
 
-function handleGraphQL(query, res) {
-  let result;
-
+function handleGraphQLSync(query) {
   if (query.includes('__schema') || query.includes('__type')) {
-    // Introspection — return full schema
-    result = { data: { __schema: SCHEMA } };
+    return { data: { __schema: SCHEMA } };
   } else if (query.includes('users')) {
-    result = { data: { users: USERS } };
+    return { data: { users: USERS } };
   } else {
-    result = { data: null, errors: [{ message: 'Unknown query' }] };
+    return { data: null, errors: [{ message: 'Unknown query' }] };
   }
+}
 
+function handleGraphQL(query, res) {
+  const result = handleGraphQLSync(query);
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(result));
 }

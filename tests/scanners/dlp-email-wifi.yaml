@@ -1,0 +1,73 @@
+name: dlp-email-wifi-credentials
+description: >
+  Nginx serving a page with 28 unique email addresses (above the 25
+  threshold) and WiFi PSK credentials. Beacon DLP scanner should detect
+  dlp.email_list and dlp.wifi_credential.
+tags: [dlp, scanner, data-leak, email, wifi]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20122:80"]
+    volumes:
+      - ./dlp-email-wifi/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20122/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: verify content is present
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-emails-in-page
+    type: command
+    expect:
+      command: "test $(curl -sf http://localhost:20122/ | grep -oE '[a-zA-Z0-9.+_-]+@[a-zA-Z0-9.-]+' | sort -u | wc -l | tr -d ' ') -ge 25"
+      exit_code: 0
+
+  - name: exploit-wifi-passphrase-in-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20122/ | grep -qi 'wpa_passphrase'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — DLP
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-dlp-email-list
+    type: beacon
+    target: localhost:20122
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.email_list
+
+  - name: detects-dlp-wifi-credential
+    type: beacon
+    target: localhost:20122
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      check_id: dlp.wifi_credential
+
+  - name: dlp-min-findings
+    type: beacon
+    target: localhost:20122
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      min_findings: 2
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no false positives
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20122
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m
