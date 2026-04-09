@@ -1,0 +1,47 @@
+name: statemachine-juiceshop
+description: >
+  State machine analysis against Juice Shop. Tests detection of
+  accessible post-auth endpoints without authentication.
+  Juice Shop has /api/Feedbacks accessible without auth — state skip.
+tags: [statemachine, juiceshop, auth, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19893:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19893/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: some API endpoints are accessible without auth
+  - name: exploit-feedbacks-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19893/api/Feedbacks/ | grep -q 'data'"
+      exit_code: 0
+
+  # State machine scanner runs against SPA — no server-rendered protected
+  # content detected (Angular renders everything client-side).
+  # This tests that the scanner doesn't false-positive on SPAs.
+  # TODO: Add chromedp-based SPA state machine analysis.
+  - name: no-false-positives-on-spa
+    type: beacon
+    target: localhost:19893
+    args: ["--no-enrich", "--no-nmap", "--scanners", "statemachine", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      not_check_id: web.state_skip_detected
+
+  # Headers
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19893
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

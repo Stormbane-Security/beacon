@@ -1,0 +1,50 @@
+name: dnsrebind-detection
+description: >
+  DNS rebinding detection test. Nginx accepts any Host header by default
+  (server_name _), so beacon should detect unvalidated Host headers.
+  Tests against real nginx:alpine — no custom fixtures.
+tags: [dnsrebind, web, deep, integration]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19892:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19892/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: nginx accepts arbitrary Host header
+  - name: exploit-host-accepted
+    type: command
+    expect:
+      command: "curl -sf -H 'Host: attacker.com' http://localhost:19892/ | grep -q 'Welcome to nginx'"
+      exit_code: 0
+
+  # Beacon detects unvalidated Host header (deep mode)
+  - name: detects-host-unvalidated
+    type: beacon
+    target: localhost:19892
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dnsrebind", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.dns_rebinding_host_unvalidated
+
+  # Headers check
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19892
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no database findings
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19892
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
