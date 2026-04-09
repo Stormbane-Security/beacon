@@ -78,14 +78,21 @@ http.createServer((req, res) => {
         return;
     }
 
-    // Default: serve a page with a JWT in a cookie
-    const token = makeJWT(
-        { alg: 'none', typ: 'JWT' },
-        { sub: 'guest', role: 'viewer', iat: Math.floor(Date.now() / 1000), exp: 9999999999 }
-    );
-    res.writeHead(200, {
-        'Content-Type': 'text/html',
-        'Set-Cookie': 'session=' + token + '; Path=/; HttpOnly',
-    });
-    res.end('<html><body><h1>JWT App</h1></body></html>');
+    // Root path: serve a page with a JWT in a cookie
+    if (req.url === '/') {
+        const token = makeJWT(
+            { alg: 'none', typ: 'JWT' },
+            { sub: 'guest', role: 'viewer', iat: Math.floor(Date.now() / 1000), exp: 9999999999 }
+        );
+        res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'Set-Cookie': 'session=' + token + '; Path=/; HttpOnly',
+        });
+        res.end('<html><body><h1>JWT App</h1></body></html>');
+        return;
+    }
+
+    // Unknown paths: 404 (prevents catch-all false positive detection)
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
 }).listen(3000);

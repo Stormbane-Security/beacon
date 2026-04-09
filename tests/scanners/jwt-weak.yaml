@@ -32,16 +32,14 @@ assertions:
       exit_code: 0
 
   # --- Beacon scanner detections ---
-  # NOTE: The JWT scanner currently doesn't extract JWTs from Set-Cookie
-  # headers (it looks for Authorization headers and response bodies).
-  # TODO: Enhance JWT scanner to extract and analyze cookies containing JWTs.
-  # For now, we verify headers detection works on this endpoint.
-  - name: detects-missing-security-headers
+  # JWT scanner extracts tokens from Set-Cookie and analyzes the header.
+  # alg:none should trigger CheckJWTWeakAlg (Critical).
+  - name: detects-jwt-weak-algorithm
     type: beacon
     target: localhost:19842
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
-      min_findings: 1
+      check_id: jwt.weak_algorithm
 
   - name: detects-missing-hsts
     type: beacon
