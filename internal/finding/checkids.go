@@ -266,7 +266,10 @@ const (
 	CheckDNSNSRecords  CheckID = "dns.ns_records"    // authoritative nameservers (may reveal internal infra)
 
 	// TLS Fingerprinting — standard TLS handshake probing → Surface
-	CheckTLSJARM CheckID = "tls.jarm_fingerprint" // JARM TLS fingerprint identifies server software
+	CheckTLSJARM                 CheckID = "tls.jarm_fingerprint"         // JARM TLS fingerprint identifies server software
+	CheckTLSJA3SFingerprint      CheckID = "tls.ja3s_fingerprint"        // JA3S hash of server TLS parameters
+	CheckTLSWeakCipherNegotiated CheckID = "tls.weak_cipher_negotiated"  // server negotiated a weak/insecure cipher suite
+	CheckTLSExpiredCertDetected  CheckID = "tls.expired_cert_detected"   // TLS certificate has expired
 
 	// Shodan host intelligence — passive API query → Surface (requires API key)
 	CheckShodanHostInfo CheckID = "asset.shodan_host" // Shodan host record: open ports, banners, CVEs
@@ -684,6 +687,18 @@ const (
 	// ── SNMP defaults ────────────────────────────────────────────────────────
 	CheckPortSNMPPublicCommunity   CheckID = "port.snmp_public_community"   // SNMP 'public' community string valid (unauthenticated read)
 	CheckPortSNMPWritableCommunity CheckID = "port.snmp_writable_community" // SNMP 'private' community string allows SET operations
+
+	// ── SSH algorithm security (native NSE replacement) ──────────────────────
+	CheckPortSSHWeakKex    CheckID = "port.ssh_weak_kex"    // weak key exchange algorithms (diffie-hellman-group1-sha1, etc.)
+	CheckPortSSHWeakCipher CheckID = "port.ssh_weak_cipher" // weak ciphers (3des-cbc, arcfour, blowfish-cbc, CBC mode)
+	CheckPortSSHWeakMAC    CheckID = "port.ssh_weak_mac"    // weak MAC algorithms (hmac-md5, hmac-sha1-96)
+
+	// ── VNC authentication (native NSE replacement) ──────────────────────────
+	CheckPortVNCNoAuth CheckID = "port.vnc_no_auth" // VNC security type None — no authentication required
+
+	// ── RDP encryption (native NSE replacement) ──────────────────────────────
+	CheckPortRDPWeakEncryption CheckID = "port.rdp_weak_encryption" // RDP standard security only — no TLS/NLA
+	CheckPortRDPNoNLA          CheckID = "port.rdp_no_nla"          // RDP TLS without Network Level Authentication
 
 	// ── UDP service exposure ──────────────────────────────────────────────────
 	// All probed via pure-Go UDP sockets — no root/nmap required.
@@ -2037,7 +2052,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckDNSNSRecords:  {CheckDNSNSRecords, SeverityInfo, ModeSurface},
 
 	// TLS Fingerprinting — standard TLS handshake only → Surface
-	CheckTLSJARM: {CheckTLSJARM, SeverityInfo, ModeSurface},
+	CheckTLSJARM:                 {CheckTLSJARM, SeverityInfo, ModeSurface},
+	CheckTLSJA3SFingerprint:      {CheckTLSJA3SFingerprint, SeverityInfo, ModeSurface},
+	CheckTLSWeakCipherNegotiated: {CheckTLSWeakCipherNegotiated, SeverityHigh, ModeSurface},
+	CheckTLSExpiredCertDetected:  {CheckTLSExpiredCertDetected, SeverityHigh, ModeSurface},
 
 	// Shodan — passive public API query → Surface
 	CheckShodanHostInfo: {CheckShodanHostInfo, SeverityInfo, ModeSurface},
@@ -2350,6 +2368,18 @@ var Registry = map[CheckID]CheckMeta{
 	// SNMP default credentials
 	CheckPortSNMPPublicCommunity:   {CheckPortSNMPPublicCommunity, SeverityHigh, ModeSurface},
 	CheckPortSNMPWritableCommunity: {CheckPortSNMPWritableCommunity, SeverityCritical, ModeSurface},
+
+	// SSH algorithm security (native NSE replacement) → Surface
+	CheckPortSSHWeakKex:    {CheckPortSSHWeakKex, SeverityMedium, ModeSurface},
+	CheckPortSSHWeakCipher: {CheckPortSSHWeakCipher, SeverityMedium, ModeSurface},
+	CheckPortSSHWeakMAC:    {CheckPortSSHWeakMAC, SeverityLow, ModeSurface},
+
+	// VNC authentication (native NSE replacement) → Surface
+	CheckPortVNCNoAuth: {CheckPortVNCNoAuth, SeverityCritical, ModeSurface},
+
+	// RDP encryption (native NSE replacement) → Surface
+	CheckPortRDPWeakEncryption: {CheckPortRDPWeakEncryption, SeverityHigh, ModeSurface},
+	CheckPortRDPNoNLA:          {CheckPortRDPNoNLA, SeverityMedium, ModeSurface},
 
 	// Jenkins — active Groovy payload probe → Deep
 	CheckJenkinsGroovyRCE: {CheckJenkinsGroovyRCE, SeverityCritical, ModeDeep},

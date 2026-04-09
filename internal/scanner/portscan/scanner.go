@@ -997,14 +997,11 @@ func isTLSCapable(ctx context.Context, host string, port int) bool {
 	}
 	tlsCapableCacheMu.Unlock()
 
-	// Quick TLS handshake with 500ms timeout
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	dialer := &net.Dialer{Timeout: 500 * time.Millisecond}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
-	capable := err == nil
-	if conn != nil {
-		_ = conn.Close()
-	}
+	// Perform the TLS handshake via JA3SFingerprint which caches the full
+	// result (version, cipher, cert info). This avoids a second handshake
+	// later when we need the JA3S hash.
+	result := JA3SFingerprint(ctx, host, port)
+	capable := result != nil
 
 	tlsCapableCacheMu.Lock()
 	tlsCapableCache[key] = capable

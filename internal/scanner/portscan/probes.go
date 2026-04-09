@@ -140,6 +140,12 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	// TLS probes are skipped entirely on non-TLS ports, saving 5s+ per probe.
 	portIsTLS := isTLSCapable(ctx, host, port)
 
+	// Capture JA3S fingerprint for TLS-enabled ports (uses cache, no extra handshake).
+	var ja3s *JA3SResult
+	if portIsTLS {
+		ja3s = JA3SFingerprint(ctx, host, port)
+	}
+
 	// Split probes into protocol (run in parallel) and non-protocol (run after).
 	var protocolProbes, otherProbes []ServiceProbe
 	for _, probe := range probeRegistry {
@@ -295,6 +301,10 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				if banner != "" {
 					ev["banner"] = banner
 				}
+				// For HTTP-category probes, enrich with Server header and page title.
+				if probe.Category == ProbeCatHTTP {
+					enrichHTTPEvidence(ctx, host, port, ev)
+				}
 				title := fmt.Sprintf("%s identified on port %d", service, port)
 				if version != "" {
 					title = fmt.Sprintf("%s %s identified on port %d", service, version, port)
@@ -324,6 +334,8 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		if banner != "" {
 			ev["banner"] = banner
 		}
+		// Extract HTTP title and Server header version for the fallback HTTP finding.
+		enrichHTTPEvidence(ctx, host, port, ev)
 		findings = append(findings, makeF(
 			finding.CheckPortServiceIdentified,
 			finding.SeverityInfo,
@@ -332,6 +344,62 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				"web application was identified.", port),
 			ev,
 		))
+	}
+
+	// Enrich all service_identified findings with JA3S / cert evidence and
+	// emit TLS-specific findings (weak cipher, expired cert) when applicable.
+	if ja3s != nil {
+		tlsEv := TLSInfoEvidence(ja3s)
+
+		// Merge JA3S evidence into every service_identified finding for this port.
+		for i := range findings {
+			if findings[i].CheckID == finding.CheckPortServiceIdentified {
+				for k, v := range tlsEv {
+					findings[i].Evidence[k] = v
+				}
+			}
+		}
+
+		// Check: server negotiated a weak / insecure cipher suite.
+		if isWeakCipherSuite(ja3s.CipherSuite) {
+			name := cipherSuiteName(ja3s.CipherSuite)
+			findings = append(findings, makeF(
+				finding.CheckTLSWeakCipherNegotiated,
+				finding.SeverityHigh,
+				fmt.Sprintf("Weak TLS cipher negotiated on port %d: %s", port, name),
+				fmt.Sprintf("The server on port %d negotiated cipher suite %s (0x%04X) which is "+
+					"considered insecure. An attacker on the network path may be able to "+
+					"decrypt or tamper with traffic.", port, name, ja3s.CipherSuite),
+				map[string]any{
+					"port":            port,
+					"cipher_suite":    name,
+					"cipher_suite_id": ja3s.CipherSuite,
+					"tls_version":     tlsVersionName(ja3s.TLSVersion),
+					"ja3s_hash":       ja3s.Hash,
+					"proof_command":   fmt.Sprintf("openssl s_client -connect %s:%d", host, port),
+				},
+			))
+		}
+
+		// Check: certificate has expired.
+		if !ja3s.NotAfter.IsZero() && ja3s.NotAfter.Before(time.Now()) {
+			findings = append(findings, makeF(
+				finding.CheckTLSExpiredCertDetected,
+				finding.SeverityHigh,
+				fmt.Sprintf("Expired TLS certificate on port %d", port),
+				fmt.Sprintf("The TLS certificate on port %d expired on %s. Expired certificates "+
+					"cause browser warnings, break automated clients, and indicate the service "+
+					"may be unmaintained.", port, ja3s.NotAfter.Format("2006-01-02")),
+				map[string]any{
+					"port":           port,
+					"cert_cn":        ja3s.ServerName,
+					"cert_issuer":    ja3s.Issuer,
+					"cert_not_after": ja3s.NotAfter.Format(time.RFC3339),
+					"ja3s_hash":      ja3s.Hash,
+					"proof_command":  fmt.Sprintf("openssl s_client -connect %s:%d | openssl x509 -noout -dates", host, port),
+				},
+			))
+		}
 	}
 
 	return findings
