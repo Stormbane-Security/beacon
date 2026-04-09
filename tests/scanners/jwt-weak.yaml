@@ -48,6 +48,41 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-jwt-long-expiry
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.long_expiry
+
+  - name: detects-jwt-sensitive-payload
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.sensitive_payload
+
+  - name: detects-jwt-no-encryption
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.no_encryption
+
+  - name: detects-jwt-replay-missing
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.replay_missing
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
   # --- Negative ---
   - name: negative-no-sqli
     type: beacon

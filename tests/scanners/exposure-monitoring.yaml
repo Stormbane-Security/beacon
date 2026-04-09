@@ -33,4 +33,18 @@ assertions:
     expect:
       check_id: exposure.monitoring_panel
 
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19972
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19972
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
 timeout: 5m

@@ -44,6 +44,27 @@ assertions:
     expect:
       check_id: headers.missing_csp
 
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19895
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:19895
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:19895
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.server_info_leak
+
   # authsurface should not crash on this SPA page, even without Chrome.
   - name: authsurface-no-crash
     type: beacon

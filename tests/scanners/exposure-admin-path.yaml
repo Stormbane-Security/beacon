@@ -31,6 +31,20 @@ assertions:
     target: localhost:19971
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      min_findings: 1
+      check_id: exposure.admin_path
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19971
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:19971
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
 
 timeout: 5m

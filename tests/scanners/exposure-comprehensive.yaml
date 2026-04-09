@@ -66,6 +66,34 @@ assertions:
     expect:
       check_id: exposure.robots_sensitive_path
 
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19843
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:19843
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19843
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:19843
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
   - name: exposure-min-findings
     type: beacon
     target: localhost:19843

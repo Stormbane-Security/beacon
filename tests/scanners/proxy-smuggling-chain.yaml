@@ -58,6 +58,20 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-missing-csp-via-proxy
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-via-proxy
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
   # Beacon detects the backend directly — different fingerprint than proxy
   - name: detects-backend-direct
     type: beacon

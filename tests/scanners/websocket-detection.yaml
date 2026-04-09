@@ -34,6 +34,20 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:20012
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:20012
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
   - name: detects-service-or-websocket
     type: beacon
     target: localhost:20012

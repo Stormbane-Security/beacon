@@ -38,7 +38,21 @@ assertions:
     target: localhost:20045
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--yes"]
     expect:
-      min_findings: 1
+      check_id: exposure.sensitive_file
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20045
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:20045
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
 
   # --- Negative: no false positives from unrelated scanners ---
   - name: negative-no-redis

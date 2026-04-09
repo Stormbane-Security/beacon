@@ -66,12 +66,40 @@ assertions:
     expect:
       check_id: cookie.missing_samesite
 
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  - name: detects-missing-x-content-type
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:20013
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
   - name: secheaders-min-findings
     type: beacon
     target: localhost:20013
     args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cookie", "--yes"]
     expect:
-      min_findings: 3
+      min_findings: 5
 
   # --- Negative ---
   - name: negative-no-redis

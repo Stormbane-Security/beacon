@@ -101,6 +101,30 @@ assertions:
     expect:
       check_id: web.cors_misconfiguration
 
+  # --- Vulnerable nginx: missing CSP ---
+  - name: vuln-nginx-missing-csp
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  # --- Vulnerable nginx: missing X-Frame-Options ---
+  - name: vuln-nginx-missing-x-frame-options
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  # --- Vulnerable nginx: missing X-Content-Type ---
+  - name: vuln-nginx-missing-x-content-type
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_x_content_type
+
   # --- Secure nginx: no missing HSTS (negative) ---
   - name: secure-nginx-no-hsts-finding
     type: beacon

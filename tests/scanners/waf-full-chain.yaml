@@ -98,6 +98,13 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: finds-missing-csp-behind-waf
+    type: beacon
+    target: localhost:19940
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
   # ══════════════════════════════════════════════════════════════════════
   # POSITIVE: Exploit chain on unprotected service
   # ══════════════════════════════════════════════════════════════════════

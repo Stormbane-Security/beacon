@@ -53,6 +53,20 @@ assertions:
     expect:
       check_id: web.cors_credentialed_reflection
 
+  - name: detects-cors-null-origin
+    type: beacon
+    target: localhost:19841
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_null_origin
+
+  - name: detects-cors-preflight-misconfiguration
+    type: beacon
+    target: localhost:19841
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_preflight_misconfiguration
+
   # --- Negative: no CORS finding on properly configured server ---
   - name: negative-no-sqli
     type: beacon

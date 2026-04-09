@@ -39,6 +39,20 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19892
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:19892
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
+
   # Negative: no database findings
   - name: negative-no-redis
     type: beacon

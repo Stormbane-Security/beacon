@@ -112,6 +112,13 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19860
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "3000"]
+    expect:
+      check_id: headers.missing_csp
+
   - name: negative-no-sqli
     type: beacon
     target: localhost:19860
