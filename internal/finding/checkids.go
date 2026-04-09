@@ -231,6 +231,9 @@ const (
 	CheckPortSMBv1Enabled        CheckID = "port.smb_v1_enabled"                // SMBv1 protocol accepted — EternalBlue/WannaCry risk (CVE-2017-0144)
 	CheckPortDatabaseExposed     CheckID = "port.database_exposed"              // Database port exposed (MySQL/Postgres/MSSQL/Oracle)
 	CheckPortK8sAPIExposed       CheckID = "port.k8s_api_exposed"               // Kubernetes API server exposed
+	CheckK8sAnonymousRBAC        CheckID = "port.k8s_anonymous_rbac"            // K8s API allows anonymous namespace listing
+	CheckK8sSecretsExposed       CheckID = "port.k8s_secrets_exposed"           // K8s secrets enumerable without auth
+	CheckK8sIstioAdminExposed    CheckID = "port.k8s_istio_admin_exposed"       // Istio/Envoy admin interface exposed
 	CheckPortWinRMExposed        CheckID = "port.winrm_exposed"                 // WinRM remote management exposed
 	CheckPortAMQPExposed         CheckID = "port.amqp_exposed"                  // AMQP message broker exposed
 	CheckPortKafkaExposed        CheckID = "port.kafka_exposed"                 // Apache Kafka broker exposed
@@ -1973,6 +1976,9 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortSMBv1Enabled:        {CheckPortSMBv1Enabled, SeverityCritical, ModeSurface},
 	CheckPortDatabaseExposed:     {CheckPortDatabaseExposed, SeverityHigh, ModeSurface},
 	CheckPortK8sAPIExposed:       {CheckPortK8sAPIExposed, SeverityCritical, ModeSurface},
+	CheckK8sAnonymousRBAC:        {CheckK8sAnonymousRBAC, SeverityCritical, ModeSurface},
+	CheckK8sSecretsExposed:       {CheckK8sSecretsExposed, SeverityCritical, ModeSurface},
+	CheckK8sIstioAdminExposed:    {CheckK8sIstioAdminExposed, SeverityHigh, ModeSurface},
 	CheckPortWinRMExposed:        {CheckPortWinRMExposed, SeverityHigh, ModeSurface},
 	CheckPortAMQPExposed:         {CheckPortAMQPExposed, SeverityHigh, ModeSurface},
 	CheckPortKafkaExposed:        {CheckPortKafkaExposed, SeverityHigh, ModeSurface},

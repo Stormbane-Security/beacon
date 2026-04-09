@@ -226,6 +226,16 @@ var extendedPorts = []portEntry{
 	// ── CI/CD & Container Management ────────────────────────────────────────
 	{8111, "teamcity", false},           // JetBrains TeamCity server — CVE-2023-42793 pre-auth admin token (CVSS 9.8, KEV)
 	{9443, "portainer", false},          // Portainer CE/EE container management UI (HTTPS default)
+	// ── Kubernetes / Service Mesh ───────────────────────────────────────────
+	{15000, "envoy-admin", false},       // Envoy proxy admin interface (Istio sidecar)
+	{15001, "envoy-outbound", false},    // Envoy outbound listener (Istio)
+	{15006, "istio-inbound", false},     // Istio inbound capture listener
+	{15014, "istiod-debug", false},      // Istio control plane debug endpoint
+	// Common K8s NodePort range samples — services exposed via NodePort land here
+	{30080, "k8s-nodeport", false},
+	{30443, "k8s-nodeport-tls", false},
+	{31000, "k8s-nodeport", false},
+	{32000, "k8s-nodeport", false},
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
