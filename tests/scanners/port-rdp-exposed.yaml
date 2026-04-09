@@ -24,8 +24,16 @@ assertions:
   - name: detects-rdp-exposed
     type: beacon
     target: localhost:3389
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3389"]
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "3389"]
     expect:
       check_id: port.rdp_exposed
+
+  # xrdp accepts TLS but does not require NLA
+  - name: detects-rdp-no-nla
+    type: beacon
+    target: localhost:3389
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "3389"]
+    expect:
+      check_id: port.rdp_no_nla
 
 timeout: 5m

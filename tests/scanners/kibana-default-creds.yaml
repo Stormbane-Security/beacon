@@ -1,0 +1,55 @@
+name: kibana-default-creds
+description: >
+  Kibana 7.17.0 with Elasticsearch security enabled and default
+  elastic:changeme credentials. Beacon deep scan should detect the
+  default credentials via the security API.
+tags: [kibana, scanner, portscan, default-creds, deep]
+
+services:
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    ports: ["20083:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: changeme
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  kibana:
+    image: kibana:7.17.0
+    ports: ["20084:5601"]
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+      ELASTICSEARCH_USERNAME: elastic
+      ELASTICSEARCH_PASSWORD: changeme
+
+ready:
+  cmd: "curl -sf -u elastic:changeme http://localhost:20084/api/security/v1/me | grep -q elastic"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # Pre-flight: Kibana security API accessible with default creds
+  - name: kibana-default-creds-work
+    type: command
+    expect:
+      command: "curl -sf -u elastic:changeme http://localhost:20084/api/security/v1/me | grep -q elastic"
+      exit_code: 0
+
+  # Scanner: detect Kibana default credentials (deep mode)
+  - name: detects-kibana-default-credentials
+    type: beacon
+    target: localhost:20084
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--deep"]
+    expect:
+      check_id: port.kibana_default_credentials
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20084
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--deep"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m

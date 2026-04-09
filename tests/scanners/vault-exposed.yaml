@@ -61,7 +61,7 @@ assertions:
   - name: detects-vault-exposed
     type: beacon
     target: localhost:9313
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
     expect:
       check_id: port.vault_exposed
 

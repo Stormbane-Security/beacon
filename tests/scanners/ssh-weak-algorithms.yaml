@@ -45,13 +45,37 @@ assertions:
     expect:
       check_id: port.service_identified
 
-  # Scanner: should emit at least 2 findings total (ssh_exposed + service_identified + any weak algo findings)
+  # Scanner: SSH weak key exchange
+  - name: detects-ssh-weak-kex
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_weak_kex
+
+  # Scanner: SSH weak cipher
+  - name: detects-ssh-weak-cipher
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_weak_cipher
+
+  # Scanner: SSH weak MAC
+  - name: detects-ssh-weak-mac
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_weak_mac
+
+  # Scanner: should emit at least 4 findings total (ssh_exposed + service_identified + weak algo findings)
   - name: min-findings-check
     type: beacon
     target: localhost:20020
     args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
     expect:
-      min_findings: 2
+      min_findings: 4
 
   # Negative: no Redis findings on an SSH port
   - name: negative-no-redis

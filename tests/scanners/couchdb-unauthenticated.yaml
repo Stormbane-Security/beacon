@@ -1,0 +1,42 @@
+name: couchdb-unauthenticated
+description: >
+  CouchDB 2.3 in admin party mode (no COUCHDB_USER set). The /_all_dbs
+  endpoint is accessible without authentication, triggering the
+  port.couchdb_unauthenticated check ID.
+tags: [couchdb, scanner, portscan, noauth, database]
+
+services:
+  couchdb:
+    image: couchdb:2.3
+    ports: ["20081:5984"]
+
+ready:
+  cmd: "curl -sf http://localhost:20081/_all_dbs | grep -q '\\['"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: CouchDB /_all_dbs accessible without auth
+  - name: couchdb-all-dbs-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20081/_all_dbs | grep -q '\\['"
+      exit_code: 0
+
+  # Scanner: detect unauthenticated CouchDB
+  - name: detects-couchdb-unauthenticated
+    type: beacon
+    target: localhost:20081
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      check_id: port.couchdb_unauthenticated
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20081
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

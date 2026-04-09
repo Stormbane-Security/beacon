@@ -18,11 +18,18 @@ assertions:
   # ══════════════════════════════════════════════════════════════════════
   # Modbus: service identification
   # ══════════════════════════════════════════════════════════════════════
-  - name: modbus-detected
+  - name: modbus-service-detected
     type: beacon
     target: localhost:19836
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
     expect:
       check_id: port.service_identified
+
+  - name: modbus-protocol-detected
+    type: beacon
+    target: localhost:19836
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      check_id: port.modbus_exposed
 
 timeout: 10m

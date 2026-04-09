@@ -31,4 +31,20 @@ assertions:
     expect:
       check_id: nmap.smb_signing_disabled
 
+  # Portscan probe: SMB exposed detection
+  - name: detects-smb-exposed
+    type: beacon
+    target: localhost:10445
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "10445"]
+    expect:
+      check_id: port.smb_exposed
+
+  # Portscan probe: SMB null session (dperson/samba with guest access)
+  - name: detects-smb-null-session
+    type: beacon
+    target: localhost:10445
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "10445"]
+    expect:
+      check_id: port.smb_null_session
+
 timeout: 5m
