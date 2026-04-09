@@ -20,8 +20,8 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:19863/ >/dev/null && curl -sf http://localhost:19864/ >/dev/null"
-  timeout: 60s
-  interval: 3s
+  timeout: 180s
+  interval: 5s
 
 assertions:
   - name: exploit-modsec-blocks-sqli

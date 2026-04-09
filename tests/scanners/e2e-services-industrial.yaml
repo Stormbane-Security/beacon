@@ -7,7 +7,7 @@ tags: [e2e, services, industrial, ics, integration]
 services:
   modbus:
     image: oitc/modbus-server:latest
-    ports: ["19836:502"]
+    ports: ["19836:5020"]
 
 ready:
   cmd: "nc -z localhost 19836"
