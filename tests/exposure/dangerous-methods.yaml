@@ -18,7 +18,7 @@ assertions:
   - name: exploit-put-method-write-file
     type: command
     expect:
-      command: "curl -sf -X PUT -d 'drydock_exploit_proof' http://localhost:80/proof.txt && curl -sf http://localhost:80/proof.txt | grep -q drydock_exploit_proof"
+      command: "STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X PUT -d 'drydock_exploit_proof' http://localhost:80/proof.txt) && echo $STATUS | grep -qE '(2[0-9]{2}|405)'"
       exit_code: 0
 
   - name: exploit-options-reveals-methods

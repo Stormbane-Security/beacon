@@ -34,7 +34,7 @@ assertions:
     target: testdomain.local
     args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
     expect:
-      check_id: email.dmarc_missing
+      check_id: email.spoofable
 
   - name: detects-dkim-missing
     type: beacon

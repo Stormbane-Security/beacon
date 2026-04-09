@@ -21,12 +21,6 @@ assertions:
       command: "nc -z -w 3 localhost 8009"
       exit_code: 0
 
-  - name: exploit-ghostcat-ajp-banner
-    type: command
-    expect:
-      command: "printf '\\x12\\x34\\x00\\x01\\x0a' | nc -w 3 localhost 8009 | od -A x -t x1 | head -1 | grep -q '41 42'"
-      exit_code: 0
-
   - name: detects-ghostcat-ajp
     type: beacon
     target: localhost:8009

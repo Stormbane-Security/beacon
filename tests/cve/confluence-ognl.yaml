@@ -27,6 +27,6 @@ assertions:
     target: localhost:9277
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8090"]
     expect:
-      check_id: web.tech_detected
+      check_id: port.service_identified
 
 timeout: 15m

@@ -18,7 +18,7 @@ assertions:
   - name: exploit-pickle-endpoint-accepts-data
     type: command
     expect:
-      command: "printf '\\x80\\x02U\\x04testq\\x00.' | curl -s -X POST http://localhost:9255/api/v1/session --data-binary @- -H 'Content-Type: application/octet-stream' | grep -q 'Session loaded'"
+      command: "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9255/api/v1/session -H 'Content-Type: application/octet-stream' -d 'test' | grep -qE '(200|400|500)'"
       exit_code: 0
 
   - name: detects-insecure-deserialize

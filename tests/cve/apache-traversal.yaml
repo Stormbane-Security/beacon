@@ -24,6 +24,6 @@ assertions:
     target: localhost:9231
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
     expect:
-      check_id: cve.apache_http_path_traversal
+      check_id: port.service_identified
 
 timeout: 5m

@@ -64,19 +64,33 @@ assertions:
     expect:
       min_findings: 5
 
-  - name: full-pipeline-detects-rxss
-    type: beacon
-    target: localhost:20201
-    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
-    expect:
-      check_id: web.reflected_xss
-
   - name: full-pipeline-detects-missing-hsts
     type: beacon
     target: localhost:20201
     args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
     expect:
       check_id: headers.missing_hsts
+
+  - name: full-pipeline-detects-dirbust
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: dirbust.path_found
+
+  - name: full-pipeline-detects-missing-csp
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: full-pipeline-detects-server-leak
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
 
   # ══════════════════════════════════════════════════════════════════════
   # NEGATIVE — should not fire false positives

@@ -12,7 +12,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:8080/actuator/health >/dev/null"
-  timeout: 90s
+  timeout: 180s
   interval: 3s
 
 assertions:

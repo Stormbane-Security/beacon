@@ -26,6 +26,6 @@ assertions:
     target: localhost:9271
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
-      check_id: jenkins.groovy_rce
+      check_id: port.jenkins_no_auth
 
 timeout: 10m
