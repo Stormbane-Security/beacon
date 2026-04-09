@@ -102,8 +102,10 @@ const (
 	CheckNucleiStaleTemplates    CheckID = "nuclei.stale_templates" // templates >30 days old
 
 	// Subdomain / Asset Discovery
-	CheckSubdomainTakeover      CheckID = "subdomain.takeover"
-	CheckSubdomainsDiscovered   CheckID = "asset.subdomains_discovered"
+	CheckSubdomainTakeover              CheckID = "subdomain.takeover"
+	CheckSubdomainNSDelegationTakeover  CheckID = "subdomain.ns_delegation_takeover"  // NS records point to provider where zone is claimable
+	CheckSubdomainNSDelegationStale     CheckID = "subdomain.ns_delegation_stale"     // NS records point to non-responding nameservers
+	CheckSubdomainsDiscovered           CheckID = "asset.subdomains_discovered"
 	CheckDomainTyposquat        CheckID = "domain.typosquat" // registered lookalike domain
 
 	// Web Application Security (deep only)
@@ -114,6 +116,7 @@ const (
 	CheckWebXSS               CheckID = "web.xss"
 	CheckWebReflectedXSS     CheckID = "web.reflected_xss"
 	CheckWebSQLi              CheckID = "web.sqli"
+	CheckWebBlindSQLiTime     CheckID = "web.blind_sqli_time"        // time-based blind SQL injection via SLEEP/WAITFOR/pg_sleep
 	CheckWebOpenRedirect      CheckID = "web.open_redirect"
 	CheckWebSSRF              CheckID = "web.ssrf"
 	CheckWebPathTraversal          CheckID = "web.path_traversal"
@@ -529,6 +532,7 @@ const (
 	CheckWebDotNetDeserialize      CheckID = "web.dotnet_deserialize"      // .NET ViewState/EventValidation deserialization surface
 	CheckWebSSRFRedirectMetadata   CheckID = "web.ssrf_redirect_metadata"  // SSRF via redirect to cloud metadata endpoint
 	CheckWebHPP               CheckID = "web.http_parameter_pollution" // HTTP parameter pollution
+	CheckWebHPPWAFBypass      CheckID = "web.hpp_waf_bypass"          // HPP bypasses WAF filter by splitting payload across duplicate params
 	CheckWebNginxAliasTraversal CheckID = "web.nginx_alias_traversal" // nginx alias path traversal
 	CheckWebIISShortname      CheckID = "web.iis_shortname"          // IIS 8.3 shortname enumeration
 	CheckWebIISVersionLeak    CheckID = "web.iis_version_leak"       // IIS detailed version from error pages or debug endpoints
@@ -1755,6 +1759,20 @@ const (
 
 	// ── Container Runtime Detection (from within exploited containers) ──
 	CheckContainerDockerSocketExposed  CheckID = "container.docker_socket_exposed"    // Docker socket mounted in container — full host escape path
+
+	// ── GraphQL Depth/Complexity (expanded) ─────────────────────────────
+	CheckGraphQLNoDepthLimit  CheckID = "graphql.no_depth_limit"  // server allows deeply nested queries without depth limit
+	CheckGraphQLBatchNoLimit  CheckID = "graphql.batch_no_limit"  // server processes unlimited batched queries
+
+	// ── Deserialization (language-specific) ──────────────────────────────
+	CheckWebJavaDeserialization  CheckID = "web.java_deserialization"    // Java serialized objects accepted — RCE via gadget chains
+	CheckWebPHPDeserialization   CheckID = "web.php_deserialization"     // PHP unserialize() with user input — object injection
+	CheckWebViewstateUnprotected CheckID = "web.viewstate_unprotected"  // .NET ViewState without MAC — tamperable
+
+	// ── WebSocket Fuzzing (expanded) ────────────────────────────────────
+	CheckWebSocketInjection     CheckID = "websocket.injection"         // injection payload caused different response via WebSocket
+	CheckWebSocketAuthBypass    CheckID = "websocket.auth_bypass"       // WebSocket accepts messages without authentication
+	CheckWebSocketNoOriginCheck CheckID = "websocket.no_origin_check"   // WebSocket accepts any Origin header
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -1905,8 +1923,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNucleiStaleTemplates:     {CheckNucleiStaleTemplates, SeverityMedium, ModeSurface},
 
 	// Subdomain takeover — DNS observation only → Surface
-	CheckSubdomainTakeover:    {CheckSubdomainTakeover, SeverityCritical, ModeSurface},
-	CheckSubdomainsDiscovered: {CheckSubdomainsDiscovered, SeverityInfo, ModeSurface},
+	CheckSubdomainTakeover:              {CheckSubdomainTakeover, SeverityCritical, ModeSurface},
+	CheckSubdomainNSDelegationTakeover:  {CheckSubdomainNSDelegationTakeover, SeverityCritical, ModeSurface},
+	CheckSubdomainNSDelegationStale:     {CheckSubdomainNSDelegationStale, SeverityHigh, ModeSurface},
+	CheckSubdomainsDiscovered:           {CheckSubdomainsDiscovered, SeverityInfo, ModeSurface},
 	// Typosquat — DNS lookups only → Surface
 	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityHigh, ModeSurface},
 
@@ -1920,6 +1940,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebXSS:                {CheckWebXSS, SeverityHigh, ModeDeep},
 	CheckWebReflectedXSS:       {CheckWebReflectedXSS, SeverityHigh, ModeDeep},
 	CheckWebSQLi:               {CheckWebSQLi, SeverityCritical, ModeDeep},
+	CheckWebBlindSQLiTime:      {CheckWebBlindSQLiTime, SeverityCritical, ModeDeep},
 	CheckWebOpenRedirect:       {CheckWebOpenRedirect, SeverityMedium, ModeDeep},
 	CheckWebSSRF:               {CheckWebSSRF, SeverityCritical, ModeDeep},
 	CheckWebPathTraversal:      {CheckWebPathTraversal, SeverityHigh, ModeDeep},
@@ -2630,6 +2651,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebDotNetDeserialize:   {CheckWebDotNetDeserialize, SeverityHigh, ModeDeep},
 	CheckWebSSRFRedirectMetadata: {CheckWebSSRFRedirectMetadata, SeverityCritical, ModeDeep},
 	CheckWebHPP:                {CheckWebHPP, SeverityMedium, ModeDeep},
+	CheckWebHPPWAFBypass:       {CheckWebHPPWAFBypass, SeverityHigh, ModeDeep},
 	CheckWebNginxAliasTraversal: {CheckWebNginxAliasTraversal, SeverityCritical, ModeDeep},
 	CheckWebIISShortname:       {CheckWebIISShortname, SeverityMedium, ModeSurface},
 	CheckWebIISVersionLeak:     {CheckWebIISVersionLeak, SeverityMedium, ModeSurface},
@@ -3489,6 +3511,20 @@ var Registry = map[CheckID]CheckMeta{
 	CheckSecondOrderXSS:        {CheckSecondOrderXSS, SeverityCritical, ModeDeep},
 	CheckSecondOrderSQLi:       {CheckSecondOrderSQLi, SeverityCritical, ModeDeep},
 	CheckSecondOrderReflection: {CheckSecondOrderReflection, SeverityHigh, ModeDeep},
+
+	// GraphQL Depth/Complexity (expanded)
+	CheckGraphQLNoDepthLimit: {CheckGraphQLNoDepthLimit, SeverityMedium, ModeDeep},
+	CheckGraphQLBatchNoLimit: {CheckGraphQLBatchNoLimit, SeverityMedium, ModeDeep},
+
+	// Deserialization (language-specific)
+	CheckWebJavaDeserialization:  {CheckWebJavaDeserialization, SeverityCritical, ModeDeep},
+	CheckWebPHPDeserialization:   {CheckWebPHPDeserialization, SeverityHigh, ModeDeep},
+	CheckWebViewstateUnprotected: {CheckWebViewstateUnprotected, SeverityHigh, ModeSurface},
+
+	// WebSocket Fuzzing (expanded)
+	CheckWebSocketInjection:     {CheckWebSocketInjection, SeverityHigh, ModeDeep},
+	CheckWebSocketAuthBypass:    {CheckWebSocketAuthBypass, SeverityCritical, ModeDeep},
+	CheckWebSocketNoOriginCheck: {CheckWebSocketNoOriginCheck, SeverityMedium, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

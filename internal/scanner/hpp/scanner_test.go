@@ -124,6 +124,79 @@ func TestHppBodyDiffSignificant(t *testing.T) {
 	}
 }
 
+// TestHPP_WAFBypass verifies that when a WAF blocks a single malicious param
+// (403) but allows duplicate params to pass, a CheckWebHPPWAFBypass finding
+// is emitted.
+func TestHPP_WAFBypass(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ids := r.URL.Query()["id"]
+		// Simulate WAF: if only one param and it looks malicious, block.
+		if len(ids) == 1 && strings.Contains(ids[0], "OR") {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = fmt.Fprintln(w, "Blocked by WAF")
+			return
+		}
+		// Simulate app: with duplicate params, WAF only checks the first (clean)
+		// value but app uses the second.
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "OK — query processed")
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	var wafFindings []finding.Finding
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebHPPWAFBypass {
+			wafFindings = append(wafFindings, f)
+		}
+	}
+	if len(wafFindings) == 0 {
+		t.Fatal("expected at least 1 CheckWebHPPWAFBypass finding, got none")
+	}
+	f := wafFindings[0]
+	if f.Severity != finding.SeverityHigh {
+		t.Errorf("expected High severity, got %s", f.Severity)
+	}
+	if f.Evidence["blocked_status"] != 403 {
+		t.Errorf("expected blocked_status 403, got %v", f.Evidence["blocked_status"])
+	}
+}
+
+// TestHPP_WAFBypass_NoBypass verifies that when WAF blocks both single and
+// duplicate params, no WAF bypass finding is emitted.
+func TestHPP_WAFBypass_NoBypass(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ids := r.URL.Query()["id"]
+		for _, id := range ids {
+			if strings.Contains(id, "OR") {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = fmt.Fprintln(w, "Blocked")
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "OK")
+	}))
+	defer srv.Close()
+
+	asset := strings.TrimPrefix(srv.URL, "http://")
+	findings, err := New().Run(context.Background(), asset, module.ScanDeep)
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	for _, f := range findings {
+		if f.CheckID == finding.CheckWebHPPWAFBypass {
+			t.Errorf("expected no WAF bypass finding when WAF checks all params, got: %s", f.Title)
+		}
+	}
+}
+
 // TestHPP_DeepModeOnly verifies that no probes are sent and no findings
 // are returned when running in surface mode.
 func TestHPP_DeepModeOnly(t *testing.T) {

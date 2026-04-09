@@ -33,6 +33,8 @@ func init() {
 		return New()
 	},
 		scan.Check(finding.CheckSubdomainTakeover, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckSubdomainNSDelegationTakeover, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckSubdomainNSDelegationStale, finding.SeverityHigh, finding.ModeSurface),
 	)
 }
 const scannerName = "takeover"
@@ -229,11 +231,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	if scan.IsPrivateTarget(asset) {
 		return nil, nil
 	}
+
+	// Check NS delegation takeover (independent of CNAME checks).
+	var findings []finding.Finding
+	if nsFindings := CheckNSDelegation(ctx, asset); len(nsFindings) > 0 {
+		findings = append(findings, nsFindings...)
+	}
+
 	// Resolve the CNAME chain. An NXDOMAIN or empty result means the
 	// subdomain has no DNS record — no takeover vector via CNAME.
 	cname, err := resolveCNAME(ctx, asset)
 	if err != nil || cname == "" {
-		return nil, nil
+		return findings, nil
 	}
 	cnameLower := strings.ToLower(cname)
 
@@ -274,7 +283,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	}
 
 	if !dangling {
-		return nil, nil
+		return findings, nil
 	}
 
 	severity := finding.SeverityHigh
@@ -291,7 +300,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		description += " The platform's unclaimed-resource fingerprint was confirmed in the HTTP response."
 	}
 
-	return []finding.Finding{{
+	findings = append(findings, finding.Finding{
 		CheckID:  finding.CheckSubdomainTakeover,
 		Module:   "surface",
 		Scanner:  scannerName,
@@ -307,7 +316,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			"confirmed_by_http":  confirmed,
 		},
 		DiscoveredAt: time.Now(),
-	}}, nil
+	})
+	return findings, nil
 }
 
 // resolveCNAME follows the CNAME chain for hostname and returns the final

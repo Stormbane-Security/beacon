@@ -38,6 +38,7 @@ func init() {
 		scan.Check(finding.CheckExploitCredentialHarvest, finding.SeverityCritical, finding.ModeDeep),
 		scan.Check(finding.CheckExploitDataExtracted, finding.SeverityCritical, finding.ModeDeep),
 		scan.Check(finding.CheckWebSQLi, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebBlindSQLiTime, finding.SeverityCritical, finding.ModeDeep),
 	)
 }
 const scannerName = "sqli"

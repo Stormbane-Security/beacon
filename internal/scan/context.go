@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/oob"
 	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
@@ -35,6 +36,12 @@ type ScanContext struct {
 	wordlistPath string            // custom wordlist file path for brute-force scanners
 
 	screenshotEnabled bool // true when --screenshots is set
+
+	// oobServer is the out-of-band callback server, lazily initialized on
+	// first call to OOBServer(). Scanners use it to generate callback URLs
+	// for blind SSRF, blind XXE, blind SQLi OOB, etc.
+	oobOnce   sync.Once
+	oobServer *oob.Server
 
 	// responseCache is lazily initialized on first call to ResponseCache().
 	responseCacheOnce sync.Once
@@ -153,6 +160,29 @@ func (sc *ScanContext) SharedClient() *http.Client {
 		return sc.client
 	}
 	return SharedClient(15 * time.Second)
+}
+
+// OOBServer returns the out-of-band callback server, lazily initializing it
+// on first call. Scanners use it to generate unique callback tokens and URLs
+// for blind vulnerability confirmation (SSRF, XXE, SQLi OOB, etc.).
+// Returns nil if the server cannot be started.
+func (sc *ScanContext) OOBServer() *oob.Server {
+	sc.oobOnce.Do(func() {
+		srv := oob.NewServer("oob.beacon.local", "127.0.0.1:0")
+		if err := srv.Start(context.Background()); err != nil {
+			return
+		}
+		sc.oobServer = srv
+	})
+	return sc.oobServer
+}
+
+// WithOOBServer sets an externally-configured OOB server (e.g., one with a
+// public domain and tunnel). Overrides the lazy-init default.
+func (sc *ScanContext) WithOOBServer(srv *oob.Server) *ScanContext {
+	sc.oobServer = srv
+	sc.oobOnce.Do(func() {}) // mark as initialized
+	return sc
 }
 
 // ResponseCache returns the per-scan response cache (lazily initialized).

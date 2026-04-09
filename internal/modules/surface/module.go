@@ -162,6 +162,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/ipv6"
 	_ "github.com/stormbane-security/beacon/internal/scanner/apischema"
 	_ "github.com/stormbane-security/beacon/internal/scanner/jsframework"
+	_ "github.com/stormbane-security/beacon/internal/scanner/wsfuzz"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
 	"github.com/stormbane-security/beacon/internal/profiler"
