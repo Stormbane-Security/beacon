@@ -72,6 +72,7 @@ SCAN FLAGS:
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
   --poc-dir <path>           Generate standalone PoC files for each finding into <path>
+  --narratives               Include attack narratives and chain PoCs in markdown reports
   --screenshots <dir>        Capture screenshots of finding URLs into <dir> (requires Chrome)
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
@@ -307,6 +308,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		wordlistPath        string
 		logFile             string
 		logLevel            string
+		narratives          bool
 	)
 
 	// --quiet can also be set via env var for automation.
@@ -383,6 +385,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			anonymize = true
 		case "--dry-run":
 			dryRun = true
+		case "--narratives":
+			narratives = true
 		case "--no-nmap":
 			noNmap = true
 		case "--no-nuclei":
@@ -1172,7 +1176,11 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 		}
 		info("beacon: PDF report written to %s\n", pdfPath)
 	} else {
-		output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON, screenshotDir)
+		renderOpts := []string{screenshotDir}
+		if narratives {
+			renderOpts = append(renderOpts, "narratives")
+		}
+		output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON, renderOpts...)
 		if err != nil {
 			fatalf("render report: %v", err)
 		}

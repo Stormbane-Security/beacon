@@ -10,6 +10,26 @@ import (
 	"github.com/stormbane-security/beacon/internal/store"
 )
 
+// markdownOpts holds optional configuration for enhanced markdown rendering.
+type markdownOpts struct {
+	narratives bool
+}
+
+// MarkdownOption configures enhanced markdown rendering.
+type MarkdownOption func(*markdownOpts)
+
+// WithNarratives enables attack narrative generation for chain/correlation findings.
+func WithNarratives() MarkdownOption {
+	return func(o *markdownOpts) { o.narratives = true }
+}
+
+// isChainFinding returns true if the finding is a chain or correlation finding
+// that can produce an attack narrative.
+func isChainFinding(f finding.Finding) bool {
+	id := string(f.CheckID)
+	return strings.HasPrefix(id, "chain.") || strings.HasPrefix(id, "correlation.")
+}
+
 // RenderMarkdown returns the scan results as a Markdown document.
 func RenderMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, executions []store.AssetExecution) string {
 	// Filter omitted findings before rendering.
@@ -157,8 +177,13 @@ func severityBadge(s finding.Severity) string {
 // - Embedded screenshot references
 // - Proof commands in code blocks
 // - Remediation sections
+// - Attack narratives for chain/correlation findings (when narratives=true)
 // - Appendix with scan metadata
-func RenderEnhancedMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, executions []store.AssetExecution, screenshotDir string) string {
+func RenderEnhancedMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, executions []store.AssetExecution, screenshotDir string, opts ...MarkdownOption) string {
+	var mo markdownOpts
+	for _, o := range opts {
+		o(&mo)
+	}
 	// Filter omitted findings before rendering.
 	filtered := make([]enrichment.EnrichedFinding, 0, len(enriched))
 	for _, ef := range enriched {
@@ -230,6 +255,12 @@ func RenderEnhancedMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFin
 		b.WriteString("\n")
 	}
 
+	// Collect all raw findings for narrative cross-referencing.
+	allFindings := make([]finding.Finding, 0, len(enriched))
+	for _, ef := range enriched {
+		allFindings = append(allFindings, ef.Finding)
+	}
+
 	// Findings
 	if len(enriched) == 0 {
 		b.WriteString("## Findings\n\nNo findings.\n")
@@ -250,7 +281,7 @@ func RenderEnhancedMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFin
 					continue
 				}
 				findingIdx++
-				renderEnhancedFinding(&b, ef, findingIdx, screenshotDir)
+				renderEnhancedFinding(&b, ef, findingIdx, screenshotDir, mo.narratives, allFindings)
 			}
 		}
 	}
@@ -278,7 +309,9 @@ func RenderEnhancedMarkdown(run store.ScanRun, enriched []enrichment.EnrichedFin
 }
 
 // renderEnhancedFinding writes a single finding section for the enhanced markdown report.
-func renderEnhancedFinding(b *strings.Builder, ef enrichment.EnrichedFinding, idx int, screenshotDir string) {
+// When narratives is true and the finding is a chain/correlation type, an attack narrative
+// and inline PoC are appended after the description.
+func renderEnhancedFinding(b *strings.Builder, ef enrichment.EnrichedFinding, idx int, screenshotDir string, narratives bool, allFindings []finding.Finding) {
 	f := ef.Finding
 	badge := severityBadge(f.Severity)
 
@@ -299,6 +332,20 @@ func renderEnhancedFinding(b *strings.Builder, ef enrichment.EnrichedFinding, id
 		b.WriteString(ef.Explanation + "\n\n")
 	} else if f.Description != "" {
 		b.WriteString(f.Description + "\n\n")
+	}
+
+	// Attack narrative and chain PoC for chain/correlation findings.
+	if narratives && isChainFinding(f) {
+		narrative := GenerateNarrative(f, allFindings)
+		if narrative != "" {
+			b.WriteString("#### Attack Narrative\n\n")
+			b.WriteString(narrative + "\n\n")
+		}
+		pocContent, pocFilename, pocLang := GenerateChainPoC(f, allFindings)
+		if pocContent != "" {
+			_, _ = fmt.Fprintf(b, "#### Chain PoC (`%s`)\n\n", pocFilename)
+			_, _ = fmt.Fprintf(b, "```%s\n%s\n```\n\n", pocLang, pocContent)
+		}
 	}
 
 	// Impact

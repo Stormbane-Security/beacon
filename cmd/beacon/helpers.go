@@ -173,9 +173,17 @@ func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedF
 // graphJSON is the persisted asset graph blob; it is included in the JSON report
 // when non-nil and used to render DOT output for the "graph" format.
 func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte, screenshotDirOpts ...string) (string, error) {
-	screenshotDir := ""
-	if len(screenshotDirOpts) > 0 {
-		screenshotDir = screenshotDirOpts[0]
+	// The last variadic string may be a screenshotDir, or "narratives" flag.
+	// We parse both: first non-empty path-like string is screenshotDir,
+	// and the literal "narratives" enables attack narratives.
+	var screenshotDir string
+	var narrativesEnabled bool
+	for _, opt := range screenshotDirOpts {
+		if opt == "narratives" {
+			narrativesEnabled = true
+		} else if opt != "" && screenshotDir == "" {
+			screenshotDir = opt
+		}
 	}
 	switch strings.ToLower(format) {
 	case "html":
@@ -183,8 +191,15 @@ func renderFormat(format string, run store.ScanRun, enriched []enrichment.Enrich
 	case "json":
 		return report.RenderJSON(run, enriched, summary, graphJSON)
 	case "markdown", "md":
+		var opts []report.MarkdownOption
+		if narrativesEnabled {
+			opts = append(opts, report.WithNarratives())
+		}
 		if screenshotDir != "" {
-			return report.RenderEnhancedMarkdown(run, enriched, summary, executions, screenshotDir), nil
+			return report.RenderEnhancedMarkdown(run, enriched, summary, executions, screenshotDir, opts...), nil
+		}
+		if narrativesEnabled {
+			return report.RenderEnhancedMarkdown(run, enriched, summary, executions, "", opts...), nil
 		}
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
 	case "bounty":
