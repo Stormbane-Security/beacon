@@ -6,8 +6,9 @@ tags: [splunk, monitoring, portscan, detection]
 
 services:
   splunk:
+    # NOTE: splunk/splunk has no ARM64 image. This test only runs on x86_64.
+    # On ARM Macs, drydock will report an error (not a test failure).
     image: splunk/splunk:latest
-    platform: linux/amd64
     ports: ["19879:8089"]
     environment:
       SPLUNK_START_ARGS: "--accept-license"
