@@ -67,15 +67,15 @@ func TestOnFinding_NonTriggerReturnsEmpty(t *testing.T) {
 func TestOnFinding_SSRFChainExecutes(t *testing.T) {
 	// Set up a mock server that simulates the SSRF + metadata endpoint.
 	roleName := "test-iam-role"
-	credJSON := fmt.Sprintf(`{"AccessKeyId":"AKIA1234567890ABCDEF","SecretAccessKey":"secret","Token":"tok"}`)
+	credJSON := `{"AccessKeyId":"AKIA1234567890ABCDEF","SecretAccessKey":"secret","Token":"tok"}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := r.URL.Query().Get("url")
 		switch {
 		case strings.Contains(target, "/latest/meta-data/iam/security-credentials/"+roleName):
-			fmt.Fprint(w, credJSON)
+			_, _ = fmt.Fprint(w, credJSON)
 		case strings.Contains(target, "/latest/meta-data/iam/security-credentials/"):
-			fmt.Fprint(w, roleName)
+			_, _ = fmt.Fprint(w, roleName)
 		default:
 			http.NotFound(w, r)
 		}
@@ -129,9 +129,9 @@ func TestOnFinding_ChainDepthAndEnabledBy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := r.URL.Query().Get("url")
 		if strings.Contains(target, "/latest/meta-data/iam/security-credentials/"+roleName) {
-			fmt.Fprint(w, `{"AccessKeyId":"AKIAXXXXXXXXYYYYYYYY","SecretAccessKey":"s"}`)
+			_, _ = fmt.Fprint(w, `{"AccessKeyId":"AKIAXXXXXXXXYYYYYYYY","SecretAccessKey":"s"}`)
 		} else if strings.Contains(target, "/latest/meta-data/iam/security-credentials/") {
-			fmt.Fprint(w, roleName)
+			_, _ = fmt.Fprint(w, roleName)
 		} else {
 			http.NotFound(w, r)
 		}
@@ -214,7 +214,7 @@ DB_NAME=production
 func TestOnFinding_DefaultCredsChainMatches(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "admin panel")
+		_, _ = fmt.Fprint(w, "admin panel")
 	}))
 	defer srv.Close()
 

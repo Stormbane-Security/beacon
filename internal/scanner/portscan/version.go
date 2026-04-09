@@ -190,7 +190,7 @@ func versionBefore(a, b string) bool {
 					break
 				}
 			}
-			fmt.Sscanf(numStr, "%d", &av)
+			_, _ = fmt.Sscanf(numStr, "%d", &av)
 		}
 		if i < len(bParts) {
 			numStr := bParts[i]
@@ -200,7 +200,7 @@ func versionBefore(a, b string) bool {
 					break
 				}
 			}
-			fmt.Sscanf(numStr, "%d", &bv)
+			_, _ = fmt.Sscanf(numStr, "%d", &bv)
 		}
 		if av < bv {
 			return true

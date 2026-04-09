@@ -91,7 +91,7 @@ var chainSSRFToCloudCreds = Chain{
 		if err != nil {
 			return nil
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if err != nil || resp.StatusCode != http.StatusOK {
@@ -116,7 +116,7 @@ var chainSSRFToCloudCreds = Chain{
 		if err != nil {
 			return nil
 		}
-		defer credsResp.Body.Close()
+		defer func() { _ = credsResp.Body.Close() }()
 
 		credsBody, _ := io.ReadAll(io.LimitReader(credsResp.Body, 4096))
 
@@ -243,7 +243,7 @@ var chainDefaultCredsToAdmin = Chain{
 			if err != nil {
 				continue
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 				endpoints = append(endpoints, path)
@@ -506,7 +506,7 @@ var chainSQLiToCredentialDump = Chain{
 		if err != nil {
 			return nil
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		if err != nil {

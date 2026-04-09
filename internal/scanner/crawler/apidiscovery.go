@@ -172,7 +172,7 @@ func parseSitemap(ctx context.Context, client *http.Client, base *url.URL) []API
 			continue
 		}
 		// Only include same-origin paths.
-		if strings.ToLower(u.Hostname()) != strings.ToLower(base.Hostname()) {
+		if !strings.EqualFold(u.Hostname(), base.Hostname()) {
 			continue
 		}
 		path := u.Path

@@ -23,7 +23,7 @@ func TestNoHoneypotSignals(t *testing.T) {
 	// A single plain HTTP service with no honeypot indicators → no findings.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "nginx/1.24.0")
-		fmt.Fprintln(w, "<html><body>Welcome</body></html>")
+		_, _ = fmt.Fprintln(w, "<html><body>Welcome</body></html>")
 	}))
 	defer srv.Close()
 
@@ -63,7 +63,7 @@ func TestManyServicesHeuristic(t *testing.T) {
 func TestConpotHTTPSignature(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "conpot/0.6.0")
-		fmt.Fprintln(w, `<html><head><title>Siemens, SIMATIC HMI</title></head><body>Siemens, SIMATIC S7-200</body></html>`)
+		_, _ = fmt.Fprintln(w, `<html><head><title>Siemens, SIMATIC HMI</title></head><body>Siemens, SIMATIC S7-200</body></html>`)
 	}))
 	defer srv.Close()
 
@@ -135,7 +135,7 @@ func TestHoneypotFlagPropagation(t *testing.T) {
 	// the honeypot flag on the scan context.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "conpot/0.6.0")
-		fmt.Fprintln(w, `<html><body>Siemens, SIMATIC HMI Panel</body></html>`)
+		_, _ = fmt.Fprintln(w, `<html><body>Siemens, SIMATIC HMI Panel</body></html>`)
 	}))
 	defer srv.Close()
 

@@ -218,7 +218,7 @@ func detectSSH(ctx context.Context, host string, port int, banner string, makeF 
 			// Check major branch to pick the right fix version.
 			parts := strings.SplitN(otpVer, ".", 2)
 			major := 0
-			fmt.Sscanf(parts[0], "%d", &major)
+			_, _ = fmt.Sscanf(parts[0], "%d", &major)
 			vulnerable := false
 			switch {
 			case major >= 27:
@@ -944,7 +944,7 @@ func detectAJPTomcat(ctx context.Context, host string, port int, banner string, 
 				// CVE-2020-1938 affects Tomcat < 9.0.31, < 8.5.51, < 7.0.100.
 				parts := strings.SplitN(ver, ".", 2)
 				major := 0
-				fmt.Sscanf(parts[0], "%d", &major)
+				_, _ = fmt.Sscanf(parts[0], "%d", &major)
 				vulnerable := false
 				switch {
 				case major >= 9:
