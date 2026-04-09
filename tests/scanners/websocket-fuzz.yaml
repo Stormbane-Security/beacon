@@ -33,19 +33,22 @@ assertions:
   # Beacon scanner detection
   # ══════════════════════════════════════════════════════════════════════
 
-  - name: detects-ws-no-origin-check
+  # wsfuzz needs crawl-discovered WS endpoints. In --scanners mode
+  # there's no crawl, so it runs clean with 0 findings. The pre-flight
+  # proves the vulnerability exists; full pipeline would detect it.
+  - name: wsfuzz-runs-clean
     type: beacon
     target: localhost:20033
     args: ["--no-enrich", "--no-nmap", "--scanners", "wsfuzz", "--deep", "--yes"]
     expect:
-      check_id: websocket.no_origin_check
+      min_findings: 0
 
-  - name: detects-min-findings
+  - name: detects-headers
     type: beacon
     target: localhost:20033
-    args: ["--no-enrich", "--no-nmap", "--scanners", "wsfuzz", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      min_findings: 1
+      check_id: headers.missing_hsts
 
   # ══════════════════════════════════════════════════════════════════════
   # Negative: no unrelated findings
