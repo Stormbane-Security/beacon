@@ -122,13 +122,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	var findings []finding.Finding
-	seen := map[string]bool{} // deduplicate by param+path
+	pathDone := map[string]bool{} // track paths where a redirect was already found
 
 	for _, path := range probePaths {
+		if pathDone[path] {
+			continue
+		}
 		for _, param := range redirectParams {
-			key := path + ":" + param
-			if seen[key] {
-				continue
+			if pathDone[path] {
+				break // already found a redirect on this path, move on
 			}
 			for _, payload := range payloads {
 				if ctx.Err() != nil {
@@ -136,62 +138,62 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				}
 
 				targetURL := fmt.Sprintf("%s://%s%s?%s=%s", scheme, asset, path, param, url.QueryEscape(payload.value))
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-			if err != nil {
-				continue
-			}
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+				if err != nil {
+					continue
+				}
 
-			resp, err := client.Do(req)
-			if err != nil {
-				continue
-			}
-			_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
-			_ = resp.Body.Close()
+				resp, err := client.Do(req)
+				if err != nil {
+					continue
+				}
+				_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
+				_ = resp.Body.Close()
 
-			if !isRedirect(resp.StatusCode) {
-				continue
-			}
+				if !isRedirect(resp.StatusCode) {
+					continue
+				}
 
-			location := resp.Header.Get("Location")
-			if location == "" {
-				continue
-			}
+				location := resp.Header.Get("Location")
+				if location == "" {
+					continue
+				}
 
-			if redirectsToCanary(location) {
-				seen[key] = true
-				findings = append(findings, finding.Finding{
-					CheckID:     finding.CheckWebOpenRedirect,
-					Module:      "deep",
-					Scanner:     scannerName,
-					Severity:    finding.SeverityMedium,
-					Title:       fmt.Sprintf("Open redirect via %s?%s= (%s)", path, param, payload.label),
-					Description: fmt.Sprintf(
-						"The parameter %q on path %s accepts an external URL and the server responds with a "+
-							"3xx redirect to that URL. An attacker can craft a link on the trusted "+
-							"domain %s that redirects victims to a phishing site. This also enables "+
-							"OAuth token theft if the redirect endpoint is used in an authorization flow, "+
-							"and SSRF escalation if internal services follow redirects.",
-						param, path, asset,
-					),
-					Asset:    asset,
-					DeepOnly: true,
-					Evidence: map[string]any{
-						"parameter":    param,
-						"path":         path,
-						"payload":      payload.value,
-						"bypass_type":  payload.label,
-						"redirect_url": location,
-						"status_code":  resp.StatusCode,
-						"url":          targetURL,
-					},
-					ProofCommand: fmt.Sprintf("curl -sI '%s://%s%s?%s=%s' | grep -i location",
-						scheme, asset, path, param, url.QueryEscape(payload.value)),
-					DiscoveredAt: time.Now(),
-				})
-				break // found redirect for this param, try next param
+				if redirectsToCanary(location) {
+					pathDone[path] = true
+					findings = append(findings, finding.Finding{
+						CheckID:     finding.CheckWebOpenRedirect,
+						Module:      "deep",
+						Scanner:     scannerName,
+						Severity:    finding.SeverityMedium,
+						Title:       fmt.Sprintf("Open redirect via %s?%s= (%s)", path, param, payload.label),
+						Description: fmt.Sprintf(
+							"The parameter %q on path %s accepts an external URL and the server responds with a "+
+								"3xx redirect to that URL. An attacker can craft a link on the trusted "+
+								"domain %s that redirects victims to a phishing site. This also enables "+
+								"OAuth token theft if the redirect endpoint is used in an authorization flow, "+
+								"and SSRF escalation if internal services follow redirects.",
+							param, path, asset,
+						),
+						Asset:    asset,
+						DeepOnly: true,
+						Evidence: map[string]any{
+							"parameter":    param,
+							"path":         path,
+							"payload":      payload.value,
+							"bypass_type":  payload.label,
+							"redirect_url": location,
+							"status_code":  resp.StatusCode,
+							"url":          targetURL,
+						},
+						ProofCommand: fmt.Sprintf("curl -sI '%s://%s%s?%s=%s' | grep -i location",
+							scheme, asset, path, param, url.QueryEscape(payload.value)),
+						DiscoveredAt: time.Now(),
+					})
+					break // found redirect for this param+path, skip remaining payloads AND params
+				}
 			}
 		}
-	}
 	}
 
 	return findings, nil

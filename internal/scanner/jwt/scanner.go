@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/chromedp"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -149,6 +150,13 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if auth := resp.Header.Get("Authorization"); auth != "" {
 			candidates = append(candidates, jwtPattern.FindAllString(auth, -1)...)
 		}
+	}
+
+	// SPAs commonly store JWTs in localStorage or sessionStorage rather than
+	// cookies. Use headless Chrome to extract them when available.
+	if scan.IsSPA(bodyStr) && scan.ChromeAvailable() {
+		storageTokens := extractBrowserStorageJWTs(ctx, workingScheme+"://"+asset)
+		candidates = append(candidates, storageTokens...)
 	}
 
 	// Deduplicate by header.payload (ignore signature).
@@ -1175,4 +1183,54 @@ func checkKidSQLInjection(ctx context.Context, client *http.Client, asset, base 
 	}
 
 	return findings
+}
+
+// extractBrowserStorageJWTs navigates to the URL in headless Chrome and
+// extracts any JWT tokens found in localStorage or sessionStorage.
+// Returns nil if Chrome errors or no JWTs are found.
+func extractBrowserStorageJWTs(ctx context.Context, targetURL string) []string {
+	renderCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("ignore-certificate-errors", true),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(renderCtx, opts...)
+	defer allocCancel()
+
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
+	defer browserCancel()
+
+	var storageJSON string
+	err := chromedp.Run(browserCtx,
+		chromedp.Navigate(targetURL),
+		chromedp.Sleep(2*time.Second),
+		chromedp.Evaluate(`JSON.stringify({localStorage: {...localStorage}, sessionStorage: {...sessionStorage}})`, &storageJSON),
+	)
+	if err != nil || storageJSON == "" {
+		return nil
+	}
+
+	// Parse the JSON and scan all values for JWT patterns.
+	var storage struct {
+		LocalStorage   map[string]string `json:"localStorage"`
+		SessionStorage map[string]string `json:"sessionStorage"`
+	}
+	if err := json.Unmarshal([]byte(storageJSON), &storage); err != nil {
+		// Fall back to regex scan of the raw JSON string.
+		return jwtPattern.FindAllString(storageJSON, -1)
+	}
+
+	var tokens []string
+	for _, v := range storage.LocalStorage {
+		tokens = append(tokens, jwtPattern.FindAllString(v, -1)...)
+	}
+	for _, v := range storage.SessionStorage {
+		tokens = append(tokens, jwtPattern.FindAllString(v, -1)...)
+	}
+	return tokens
 }

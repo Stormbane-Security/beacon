@@ -133,8 +133,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			}
 		}
 
-		// If main page itself has a password field, it's the login page
-		if strings.Contains(lower, `type="password"`) || strings.Contains(lower, `type='password'`) {
+		// If main page itself has a login form, it's the login page
+		if hasLoginForm(lower) {
 			loginPaths = append([]string{"/"}, loginPaths...)
 		}
 	}
@@ -169,8 +169,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 		lower := strings.ToLower(body)
 
-		// Detect password input = login form
-		if strings.Contains(lower, `type="password"`) || strings.Contains(lower, `type='password'`) {
+		// Detect login form — use multiple heuristics beyond type="password"
+		// because SPAs (Angular Material, React) often use non-standard patterns.
+		if hasLoginForm(lower) {
 			formAction := extractFormAction(body)
 			fields := extractInputNames(body)
 
@@ -255,7 +256,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 
 		lower := strings.ToLower(body)
-		if strings.Contains(lower, `type="password"`) &&
+		if hasLoginForm(lower) &&
 			(strings.Contains(lower, "register") || strings.Contains(lower, "sign up") ||
 				strings.Contains(lower, "create account") || strings.Contains(lower, "join")) {
 			findings = append(findings, finding.Finding{
@@ -346,6 +347,66 @@ func extractInputNames(html string) []string {
 		lower = rest[end:]
 	}
 	return names
+}
+
+// hasLoginForm detects login/auth forms using multiple heuristics beyond just
+// type="password". SPAs (Angular Material, React, Vue) use varied patterns:
+//   - Standard password inputs: type="password"
+//   - Angular reactive forms: formcontrolname="password"
+//   - Angular template-driven: [(ngmodel)]="password"
+//   - Elements with id/name containing password-related words
+//   - Form actions pointing to auth endpoints
+//   - Buttons with login/sign-in text
+func hasLoginForm(lower string) bool {
+	// 1. Standard password input (covers React className too since we check lowercase HTML).
+	if strings.Contains(lower, `type="password"`) || strings.Contains(lower, `type='password'`) {
+		return true
+	}
+
+	// 2. Elements with id or name containing password-related words.
+	pwFields := []string{"password", "passwd", "pass_word", "user_pass"}
+	for _, pw := range pwFields {
+		if strings.Contains(lower, `id="`+pw) || strings.Contains(lower, `id='`+pw) ||
+			strings.Contains(lower, `name="`+pw) || strings.Contains(lower, `name='`+pw) {
+			return true
+		}
+	}
+
+	// 3. Angular reactive forms and template-driven forms.
+	if strings.Contains(lower, `formcontrolname="password"`) ||
+		strings.Contains(lower, `formcontrolname='password'`) ||
+		strings.Contains(lower, `[(ngmodel)]="password"`) ||
+		strings.Contains(lower, `[(ngmodel)]='password'`) {
+		return true
+	}
+
+	// 4. Form action pointing to auth endpoints combined with a submit-like button.
+	authActions := []string{"/login", "/auth", "/api/login", "/signin", "/api/auth", "/session"}
+	hasAuthAction := false
+	for _, action := range authActions {
+		if strings.Contains(lower, `action="`+action) || strings.Contains(lower, `action='`+action) {
+			hasAuthAction = true
+			break
+		}
+	}
+
+	// 5. Buttons with login/sign-in text.
+	loginButtons := []string{">sign in<", ">log in<", ">login<", ">submit<", ">sign-in<"}
+	hasLoginButton := false
+	for _, btn := range loginButtons {
+		if strings.Contains(lower, btn) {
+			hasLoginButton = true
+			break
+		}
+	}
+
+	// A form action to an auth endpoint with a submit button is a login form
+	// even without a visible password field (e.g., multi-step login).
+	if hasAuthAction && hasLoginButton {
+		return true
+	}
+
+	return false
 }
 
 func detectSSO(html string) []string {

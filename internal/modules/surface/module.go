@@ -127,6 +127,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/circleci"
 	_ "github.com/stormbane-security/beacon/internal/scanner/okta"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 	_ "github.com/stormbane-security/beacon/internal/scanner/cmdinj"
 	_ "github.com/stormbane-security/beacon/internal/scanner/verbtamper"
 	_ "github.com/stormbane-security/beacon/internal/scanner/pathtraversal"
@@ -1374,6 +1375,31 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 	}
 	ctx = authctx.WithHTTPClient(ctx, httpClient)
 
+	// If any injection scanner is in the filter, run native param discovery first
+	// so discovered parameters are available in context.
+	if isDeepOrAuthorized(scanType) {
+		needsParamDiscovery := false
+		for _, name := range m.scannerFilter {
+			if injectionScannerNames[name] {
+				needsParamDiscovery = true
+				break
+			}
+		}
+		if needsParamDiscovery {
+			base := schemedetect.Base(ctx, httpClient, asset)
+			nativeFound := paramdiscovery.DiscoverParams(ctx, httpClient, base+"/", "GET")
+			if len(nativeFound) > 0 {
+				params := make(map[string][]string)
+				var names []string
+				for _, p := range nativeFound {
+					names = append(names, p.Name)
+				}
+				params["/"] = names
+				ctx = paramdiscovery.WithDiscoveredParams(ctx, params)
+			}
+		}
+	}
+
 	var findings []finding.Finding
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -2191,13 +2217,20 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		findings = append(findings, *aifpUnknownFinding)
 	}
 
-	// ── Parameter discovery from crawl results ───────────────────────────────
+	// ── Parameter discovery from crawl results + native brute-force ─────────
 	// Extract URLs from crawler findings and discover parameters from URL query
 	// strings so web vuln scanners triggered in the convergence loop (sqli, ssrf,
 	// cmdinj, ssti, xxe, pathtraversal) can probe discovered parameters alongside
 	// their hardcoded lists. Runs after Phase B (crawler has finished) and before
 	// the convergence loop (web vuln scanners may be triggered there).
+	//
+	// Also runs native Arjun-style brute-force param discovery on the asset root
+	// so injection scanners have discovered params even when crawl results are
+	// sparse.
 	{
+		allParams := make(map[string][]string)
+
+		// 1. Extract params from crawl result URLs.
 		var crawlURLs []string
 		for _, f := range findings {
 			if f.CheckID != finding.CheckAssetCrawlEndpoints {
@@ -2215,10 +2248,32 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 		if len(crawlURLs) > 0 {
-			discoveredParams := paramdiscovery.ExtractFromURLs(crawlURLs)
-			if len(discoveredParams) > 0 {
-				ctx = paramdiscovery.WithDiscoveredParams(ctx, discoveredParams)
+			for path, params := range paramdiscovery.ExtractFromURLs(crawlURLs) {
+				allParams[path] = params
 			}
+		}
+
+		// 2. Native brute-force param discovery on asset root (deep/authorized only).
+		if isDeepOrAuthorized(scanType) && !noHTTP {
+			nativeClient := &http.Client{Timeout: 10 * time.Second}
+			if authctx.IsAuthenticated(ctx) {
+				nativeClient = authctx.HTTPClient(ctx)
+			}
+			base := schemedetect.Base(ctx, nativeClient, asset)
+			nativeFound := paramdiscovery.DiscoverParams(ctx, nativeClient, base+"/", "GET")
+			if len(nativeFound) > 0 {
+				var names []string
+				for _, p := range nativeFound {
+					names = append(names, p.Name)
+				}
+				existing := allParams["/"]
+				merged := mergeParamNames(existing, names)
+				allParams["/"] = merged
+			}
+		}
+
+		if len(allParams) > 0 {
+			ctx = paramdiscovery.WithDiscoveredParams(ctx, allParams)
 		}
 	}
 
@@ -3562,4 +3617,30 @@ func httpAltPort(openPorts map[int]string) int {
 		}
 	}
 	return 0
+}
+
+// mergeParamNames combines two parameter name slices, deduplicating by name.
+func mergeParamNames(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	var merged []string
+	for _, s := range a {
+		if !seen[s] {
+			seen[s] = true
+			merged = append(merged, s)
+		}
+	}
+	for _, s := range b {
+		if !seen[s] {
+			seen[s] = true
+			merged = append(merged, s)
+		}
+	}
+	return merged
+}
+
+// injectionScannerNames lists scanners that benefit from param discovery results.
+var injectionScannerNames = map[string]bool{
+	"sqli": true, "nosqli": true, "rxss": true, "ssrf": true,
+	"cmdinj": true, "ssti": true, "xxe": true, "pathtraversal": true,
+	"pdfssrf": true, "elinjection": true,
 }

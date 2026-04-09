@@ -164,6 +164,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				continue
 			}
 
+			// SPA fallback: if the initial HTML does not contain the canary
+			// but the page is a SPA, render it with headless Chrome and
+			// check the fully rendered DOM.
+			if !strings.Contains(body, canary) && scan.IsSPA(body) {
+				if rendered, err := scan.RenderSPA(ctx, base+outputPath); err == nil && rendered != "" {
+					body = rendered
+				}
+			}
+
 			if !strings.Contains(body, canary) {
 				continue
 			}
@@ -295,6 +304,12 @@ func (s *Scanner) testPayloads(ctx context.Context, base, inputPath, outputPath 
 			}
 
 			body := s.fetchBody(ctx, base, outputPath)
+			// SPA fallback for payload reflection check.
+			if !strings.Contains(body, payload) && body != "" && scan.IsSPA(body) {
+				if rendered, err := scan.RenderSPA(ctx, base+outputPath); err == nil && rendered != "" {
+					body = rendered
+				}
+			}
 			if strings.Contains(body, payload) {
 				return payload
 			}

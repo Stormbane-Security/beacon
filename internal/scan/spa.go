@@ -204,6 +204,10 @@ func fetchRawHTML(ctx context.Context, url string, cookies []*http.Cookie) (stri
 	return string(buf[:n]), nil
 }
 
+// ChromeAvailable reports whether headless Chrome can be used for SPA rendering.
+// Scanners should check this before attempting browser-based extraction.
+func ChromeAvailable() bool { return chromeInstalled() }
+
 // chromeInstalled checks if Chrome or Chromium is on the PATH.
 func chromeInstalled() bool {
 	candidates := []string{

@@ -1,0 +1,59 @@
+name: report-format-test
+description: >
+  Verifies that beacon's markdown report output is generated correctly.
+  Scans a simple nginx server and writes a markdown report, then asserts
+  the file exists and contains expected sections (title, summary, appendix).
+tags: [report, markdown, format, smoke]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "19884:80"
+
+ready:
+  cmd: "curl -sf http://localhost:19884/ | grep -qi nginx"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Pre-flight ---
+  - name: nginx-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19884/ | grep -qi nginx"
+      exit_code: 0
+
+  # --- Markdown report generation ---
+  - name: generates-markdown-report
+    type: beacon
+    target: localhost:19884
+    args: ["--no-enrich", "--scanners", "tls,headers", "--format", "markdown", "--out", "/tmp/test-report.md"]
+    expect:
+      exit_code: 0
+
+  - name: report-file-exists
+    type: command
+    expect:
+      command: "test -s /tmp/test-report.md"
+      exit_code: 0
+
+  - name: report-contains-title
+    type: command
+    expect:
+      command: "grep -q 'Beacon Security Report' /tmp/test-report.md"
+      exit_code: 0
+
+  - name: report-contains-summary
+    type: command
+    expect:
+      command: "grep -q 'Summary' /tmp/test-report.md"
+      exit_code: 0
+
+  - name: report-contains-severity-table
+    type: command
+    expect:
+      command: "grep -q 'Severity' /tmp/test-report.md"
+      exit_code: 0
+
+timeout: 3m

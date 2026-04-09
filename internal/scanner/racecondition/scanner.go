@@ -361,16 +361,36 @@ func checkIdempotencyHeaders(headers http.Header) bool {
 	return false
 }
 
+// fallbackTargets are common state-changing endpoints tested when no crawl
+// results are available (e.g. --scanners racecondition mode). These cover the
+// most common race-prone patterns in web applications.
+var fallbackTargets = []raceTarget{
+	{"/api/transfer", http.MethodPost, "application/json", `{"amount":1,"to":"test"}`, "balance transfer"},
+	{"/api/purchase", http.MethodPost, "application/json", `{}`, "purchase"},
+	{"/api/checkout", http.MethodPost, "application/json", `{}`, "checkout"},
+	{"/api/vote", http.MethodPost, "application/json", `{"id":"1"}`, "vote/like"},
+	{"/api/like", http.MethodPost, "application/json", `{"id":"1"}`, "vote/like"},
+	{"/api/apply", http.MethodPost, "application/json", `{"id":"1"}`, "action application"},
+	{"/register", http.MethodPost, "application/json", `{"username":"beacon-race-test","password":"test"}`, "user registration"},
+	{"/signup", http.MethodPost, "application/json", `{"username":"beacon-race-test","password":"test"}`, "user registration"},
+	{"/login", http.MethodPost, "application/json", `{"username":"test","password":"test"}`, "login"},
+	{"/api/redeem", http.MethodPost, "application/json", `{"code":"BEACON-RACE-TEST"}`, "coupon/code redemption"},
+	{"/api/claim", http.MethodPost, "application/json", `{"id":"1"}`, "reward claim"},
+	{"/api/coupon", http.MethodPost, "application/json", `{"code":"BEACON-RACE-TEST"}`, "coupon application"},
+}
+
 // discoverFromCrawlFeed drains the crawl feed channel and returns race
 // targets for any POST-capable endpoints found at race-prone paths.
+// When no crawl feed is available, returns fallback targets so the scanner
+// still has endpoints to test in --scanners mode.
 func discoverFromCrawlFeed(ctx context.Context) []raceTarget {
 	v := ctx.Value(module.CrawlFeedKey)
 	if v == nil {
-		return nil
+		return fallbackTargets
 	}
 	ch, ok := v.(chan string)
 	if !ok {
-		return nil
+		return fallbackTargets
 	}
 
 	var targets []raceTarget
@@ -380,6 +400,9 @@ func discoverFromCrawlFeed(ctx context.Context) []raceTarget {
 		select {
 		case rawURL, ok := <-ch:
 			if !ok {
+				if len(targets) == 0 {
+					return fallbackTargets
+				}
 				return targets
 			}
 			parsed, err := url.Parse(rawURL)
@@ -406,6 +429,9 @@ func discoverFromCrawlFeed(ctx context.Context) []raceTarget {
 				description: "crawl-discovered endpoint",
 			})
 		default:
+			if len(targets) == 0 {
+				return fallbackTargets
+			}
 			return targets
 		}
 	}
