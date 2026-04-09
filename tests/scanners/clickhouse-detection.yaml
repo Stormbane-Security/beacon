@@ -1,0 +1,60 @@
+name: clickhouse-detection
+description: >
+  ClickHouse service detection on HTTP and native TCP interfaces.
+  Verifies exposed instance identification and missing security headers.
+tags: [e2e, services, clickhouse, integration]
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "19837:8123"
+      - "19838:9000"
+
+ready:
+  cmd: "curl -sf http://localhost:19837/ | grep -qi 'ok'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # ClickHouse HTTP: exposed instance
+  # ══════════════════════════════════════════════════════════════════════
+  - name: clickhouse-http-exposed
+    type: beacon
+    target: localhost:19837
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # ClickHouse HTTP: missing HSTS on HTTP interface
+  # ══════════════════════════════════════════════════════════════════════
+  - name: clickhouse-missing-hsts
+    type: beacon
+    target: localhost:19837
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # ClickHouse native: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: clickhouse-native-detected
+    type: beacon
+    target: localhost:19838
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-redis-on-clickhouse
+    type: beacon
+    target: localhost:19837
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m

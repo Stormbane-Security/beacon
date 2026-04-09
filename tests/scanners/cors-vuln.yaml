@@ -1,0 +1,64 @@
+name: cors-credentialed-reflection
+description: >
+  Node.js server that reflects any Origin header with
+  Access-Control-Allow-Credentials: true — the most dangerous CORS
+  misconfiguration pattern (allows cross-site credential theft).
+tags: [cors, scanner, web]
+
+services:
+  cors-app:
+    image: node:20-alpine
+    ports: ["19841:3000"]
+    volumes:
+      - ./cors-vuln/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:19841/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-origin-reflected
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:19841/ | grep -qi 'Access-Control-Allow-Origin: https://evil.com'"
+      exit_code: 0
+
+  - name: exploit-credentials-allowed
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:19841/ | grep -qi 'Access-Control-Allow-Credentials: true'"
+      exit_code: 0
+
+  - name: exploit-preflight-reflects
+    type: command
+    expect:
+      command: "curl -sI -X OPTIONS -H 'Origin: https://attacker.com' -H 'Access-Control-Request-Method: POST' http://localhost:19841/ | grep -qi 'Access-Control-Allow-Origin: https://attacker.com'"
+      exit_code: 0
+
+  # --- Beacon scanner detections ---
+  - name: detects-cors-misconfiguration
+    type: beacon
+    target: localhost:19841
+    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  - name: detects-cors-credentialed-reflection
+    type: beacon
+    target: localhost:19841
+    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: web.cors_credentialed_reflection
+
+  # --- Negative: no CORS finding on properly configured server ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:19841
+    args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
+    expect:
+      absent_check_id: web.sqli
+
+timeout: 5m

@@ -1,0 +1,28 @@
+name: auth-pipeline-defaultcreds
+description: >
+  Tests default credential detection against Grafana with admin/admin.
+  Verifies the auth pipeline flags default credentials in deep mode.
+tags: [auth, defaultcreds, grafana, deep, integration]
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["19804:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19804/login | grep -q 200"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: grafana-default-creds
+    type: beacon
+    target: localhost:19804
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan,defaultcreds", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+timeout: 5m

@@ -1,0 +1,34 @@
+name: hazelcast-detection
+description: Tests Hazelcast service detection and exposure check
+tags: [hazelcast, cache, detection, integration]
+
+services:
+  hazelcast:
+    image: hazelcast/hazelcast:latest
+    ports: ["19805:5701"]
+
+  nginx-control:
+    image: nginx:alpine
+    ports: ["19806:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19805/ >/dev/null || nc -z localhost 19805"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  - name: hazelcast-exposed
+    type: beacon
+    target: localhost:19805
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.hazelcast_exposed
+
+  - name: negative-no-hazelcast-on-nginx
+    type: beacon
+    target: localhost:19806
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.hazelcast_exposed
+
+timeout: 5m

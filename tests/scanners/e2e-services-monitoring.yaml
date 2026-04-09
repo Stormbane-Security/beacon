@@ -1,0 +1,73 @@
+name: e2e-services-monitoring
+description: >
+  Service detection for monitoring stack. Tests Prometheus, Elasticsearch,
+  and Kibana identification and unauthenticated access detection.
+tags: [e2e, services, monitoring, integration]
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["19824:9090"]
+
+  elasticsearch:
+    image: elasticsearch:7.17.0
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    ports: ["19826:9200"]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.0
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+    ports: ["19825:5601"]
+    depends_on:
+      - elasticsearch
+
+ready:
+  cmd: "curl -sf http://localhost:19824/-/ready | grep -q 'Prometheus' && curl -sf http://localhost:19826/ | grep -q cluster_name"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Prometheus: unauthenticated access
+  # ══════════════════════════════════════════════════════════════════════
+  - name: prometheus-unauth
+    type: beacon
+    target: localhost:19824
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.prometheus_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Elasticsearch: unauthenticated access
+  # ══════════════════════════════════════════════════════════════════════
+  - name: elasticsearch-unauth
+    type: beacon
+    target: localhost:19826
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Kibana: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: kibana-detected
+    type: beacon
+    target: localhost:19825
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-prometheus-on-es
+    type: beacon
+    target: localhost:19826
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.prometheus_unauthenticated
+
+timeout: 12m

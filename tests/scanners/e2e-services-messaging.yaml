@@ -1,0 +1,86 @@
+name: e2e-services-messaging
+description: >
+  Service detection for messaging infrastructure. Tests RabbitMQ (AMQP + mgmt),
+  MQTT (Mosquitto), and NATS protocol identification and security checks.
+tags: [e2e, services, messaging, integration]
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "19820:5672"
+      - "19821:15672"
+
+  mqtt:
+    image: eclipse-mosquitto:latest
+    command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
+    ports: ["19822:1883"]
+
+  nats:
+    image: nats:latest
+    ports: ["19823:4222"]
+
+ready:
+  cmd: "curl -sf -u guest:guest http://localhost:19821/api/overview | grep -q rabbitmq_version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # RabbitMQ: AMQP service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: rabbitmq-amqp-detected
+    type: beacon
+    target: localhost:19820
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # RabbitMQ: management UI exposed
+  # ══════════════════════════════════════════════════════════════════════
+  - name: rabbitmq-mgmt-exposed
+    type: beacon
+    target: localhost:19821
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.rabbitmq_management_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # MQTT: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: mqtt-detected
+    type: beacon
+    target: localhost:19822
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NATS: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: nats-detected
+    type: beacon
+    target: localhost:19823
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-rabbitmq-on-mqtt
+    type: beacon
+    target: localhost:19822
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.rabbitmq_management_exposed
+
+  - name: negative-no-mqtt-on-nats
+    type: beacon
+    target: localhost:19823
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.rabbitmq_management_exposed
+
+timeout: 10m

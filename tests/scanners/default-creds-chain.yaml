@@ -1,0 +1,116 @@
+name: default-creds-chain
+description: >
+  Default credentials across multiple services: Grafana admin/admin and
+  RabbitMQ guest/guest. Proves detection of default credentials and
+  management interface exposure across different service types.
+tags: [defaultcreds, full-chain, exploit, grafana, rabbitmq, integration]
+
+services:
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["19858:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports: ["19859:15672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+ready:
+  cmd: "curl -sf http://localhost:19858/api/health >/dev/null && curl -sf http://localhost:19859/api/overview -u guest:guest >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # GRAFANA — default credentials exploit chain
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-grafana-login-default-creds
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19858/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}' | grep -qi 'logged in\\|changePassword'"
+      exit_code: 0
+
+  - name: exploit-grafana-api-with-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:19858/api/org | grep -q 'name'"
+      exit_code: 0
+
+  - name: exploit-grafana-users-list
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:19858/api/org/users | grep -q 'login'"
+      exit_code: 0
+
+  - name: detects-grafana-default-credentials
+    type: beacon
+    target: localhost:19858
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19858", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # ══════════════════════════════════════════════════════════════════════
+  # RABBITMQ — management interface exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-rabbitmq-default-creds
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:19859/api/overview | grep -q 'rabbitmq_version'"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-list-queues
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:19859/api/queues -o /dev/null -w '%{http_code}' | grep -q '200'"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-list-users
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:19859/api/users | grep -q 'guest'"
+      exit_code: 0
+
+  - name: detects-rabbitmq-management-exposed
+    type: beacon
+    target: localhost:19859
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19859"]
+    expect:
+      check_id: port.rabbitmq_management_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no Grafana creds on RabbitMQ port
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-grafana-creds-on-rabbitmq
+    type: beacon
+    target: localhost:19859
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19859", "--deep", "--permission-confirmed"]
+    expect:
+      check_id: port.grafana_default_credentials
+      absent: true
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — wrong password rejected on both services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-grafana-wrong-password-rejected
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19858/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"wrongpass\"}' -o /dev/null -w '%{http_code}' | grep -q '401'"
+      exit_code: 0
+
+  - name: negative-rabbitmq-wrong-password-rejected
+    type: command
+    expect:
+      command: "curl -s -u guest:wrongpass http://localhost:19859/api/overview -o /dev/null -w '%{http_code}' | grep -q '401'"
+      exit_code: 0
+
+timeout: 8m

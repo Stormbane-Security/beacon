@@ -1,0 +1,36 @@
+name: privesc-broken-access
+description: >
+  Tests broken access control detection against OWASP Juice Shop.
+  Verifies unauthenticated access to /api/Users is flagged.
+tags: [privesc, broken-access, juiceshop, authorized, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19802:3000"]
+
+  static-nginx:
+    image: nginx:alpine
+    ports: ["19803:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19802/ | grep -qi juice && curl -sf http://localhost:19803/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: broken-access-juiceshop
+    type: beacon
+    target: localhost:19802
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz,accesscontrol", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      check_id: web.broken_access_control
+
+  - name: negative-no-privesc-on-static
+    type: beacon
+    target: localhost:19803
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz,accesscontrol", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    expect:
+      not_check_id: web.broken_access_control
+
+timeout: 10m
