@@ -35,7 +35,7 @@ assertions:
   - name: detects-vhost
     type: beacon
     target: app.local:19903
-    args: ["--no-enrich", "--scanners", "vhost", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "vhost", "--deep", "--yes"]
     expect:
       check_id: asset.vhost_found
 

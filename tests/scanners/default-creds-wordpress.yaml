@@ -45,7 +45,7 @@ assertions:
   - name: detects-wordpress-default-credentials
     type: beacon
     target: localhost:9404
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9404", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9404", "--deep", "--yes"]
     expect:
       check_id: port.wordpress_default_credentials
 

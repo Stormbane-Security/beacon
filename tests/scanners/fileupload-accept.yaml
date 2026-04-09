@@ -34,7 +34,7 @@ assertions:
   - name: detects-file-upload-bypass
     type: beacon
     target: localhost:9286
-    args: ["--no-enrich", "--scanners", "fileupload", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--scanners", "fileupload", "--exploit", "--yes"]
     expect:
       check_id: web.file_upload_bypass
 

@@ -46,7 +46,7 @@ assertions:
   - name: detects-dangerous-rpc-methods
     type: beacon
     target: localhost:9305
-    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed", "--ports", "8545"]
+    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--yes", "--ports", "8545"]
     expect:
       check_id: chain.rpc_dangerous_method
 

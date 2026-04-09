@@ -34,7 +34,7 @@ assertions:
   - name: detects-ai-model-security-issues
     type: beacon
     target: localhost:19883
-    args: ["--no-enrich", "--no-nmap", "--scanners", "aimodelsec", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aimodelsec", "--deep", "--yes"]
     expect:
       min_findings: 1
 
@@ -42,7 +42,7 @@ assertions:
   - name: negative-no-header-finding
     type: beacon
     target: localhost:19883
-    args: ["--no-enrich", "--no-nmap", "--scanners", "aimodelsec", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aimodelsec", "--deep", "--yes"]
     expect:
       not_check_id: headers.missing_csp
 

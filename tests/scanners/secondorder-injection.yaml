@@ -29,7 +29,7 @@ assertions:
   - name: secondorder-runs-clean
     type: beacon
     target: localhost:19874
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secondorder", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secondorder", "--exploit", "--yes"]
     expect:
       min_findings: 0
 

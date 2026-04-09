@@ -85,7 +85,7 @@ assertions:
   - name: blind-discovers-rabbitmq-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19835", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19835", "--deep", "--yes"]
     expect:
       check_id: port.rabbitmq_default_creds
 
@@ -93,7 +93,7 @@ assertions:
   - name: blind-discovers-minio-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19836", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19836", "--deep", "--yes"]
     expect:
       check_id: port.minio_default_credentials
 

@@ -58,7 +58,7 @@ assertions:
   - name: aillm-prompt-injection
     type: beacon
     target: localhost:11434
-    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--yes"]
     expect:
       check_id: ai.prompt_injection
 
@@ -66,7 +66,7 @@ assertions:
   - name: aillm-model-info
     type: beacon
     target: localhost:11434
-    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--yes"]
     expect:
       check_id: ai.model_info_exposed
 
@@ -74,7 +74,7 @@ assertions:
   - name: negative-no-data-exfil
     type: beacon
     target: localhost:11434
-    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "aillm", "--deep", "--yes"]
     expect:
       not_check_id: ai.data_exfiltration
 

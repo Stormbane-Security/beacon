@@ -52,7 +52,7 @@ assertions:
   - name: detects-grafana-default-credentials
     type: beacon
     target: localhost:19858
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19858", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19858", "--deep", "--yes"]
     expect:
       check_id: port.grafana_default_credentials
 
@@ -92,7 +92,7 @@ assertions:
   - name: negative-no-grafana-creds-on-rabbitmq
     type: beacon
     target: localhost:19859
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19859", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19859", "--deep", "--yes"]
     expect:
       not_check_id: port.grafana_default_credentials
 

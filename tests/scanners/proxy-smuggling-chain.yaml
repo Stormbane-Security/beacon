@@ -70,7 +70,7 @@ assertions:
   - name: deep-proxy-scan
     type: beacon
     target: localhost:18080
-    args: ["--no-enrich", "--scanners", "hopbyhop,httpmethods", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "hopbyhop,httpmethods", "--deep", "--yes"]
     expect:
       check_id: headers.missing_hsts
 

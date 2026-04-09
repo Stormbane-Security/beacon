@@ -31,7 +31,7 @@ assertions:
   - name: racecondition-runs-clean
     type: beacon
     target: localhost:19877
-    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--exploit", "--yes"]
     expect:
       min_findings: 0
 
@@ -47,7 +47,7 @@ assertions:
   - name: negative-no-cors
     type: beacon
     target: localhost:19877
-    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--exploit", "--yes"]
     expect:
       not_check_id: web.cors_misconfiguration
 

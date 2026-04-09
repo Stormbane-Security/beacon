@@ -73,7 +73,7 @@ assertions:
   - name: blind-discovers-grafana-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816", "--deep", "--yes"]
     expect:
       check_id: port.grafana_default_credentials
 

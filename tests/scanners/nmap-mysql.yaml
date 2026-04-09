@@ -21,7 +21,7 @@ assertions:
   - name: nmap-mysql-nopass
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "13306", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "13306", "--exploit", "--yes"]
     expect:
       check_id: port.mysql_no_auth
 

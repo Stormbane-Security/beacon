@@ -40,14 +40,14 @@ assertions:
   - name: detects-error-info-leak
     type: beacon
     target: localhost:9293
-    args: ["--no-enrich", "--scanners", "errordisclosure", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "errordisclosure", "--yes"]
     expect:
       check_id: web.error_info_leak
 
   - name: detects-debug-endpoint
     type: beacon
     target: localhost:9293
-    args: ["--no-enrich", "--scanners", "errordisclosure", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "errordisclosure", "--yes"]
     expect:
       check_id: web.debug_endpoint
 

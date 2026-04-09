@@ -27,7 +27,7 @@ assertions:
   - name: detects-host-unvalidated
     type: beacon
     target: localhost:19892
-    args: ["--no-enrich", "--no-nmap", "--scanners", "dnsrebind", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dnsrebind", "--deep", "--yes"]
     expect:
       check_id: web.dns_rebinding_host_unvalidated
 

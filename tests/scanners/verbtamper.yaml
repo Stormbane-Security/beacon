@@ -66,7 +66,7 @@ assertions:
   - name: detects-verb-tamper-bypass
     type: beacon
     target: localhost:9310
-    args: ["--no-enrich", "--scanners", "verbtamper", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "verbtamper", "--deep", "--yes"]
     expect:
       check_id: web.verb_tamper_auth_bypass
 

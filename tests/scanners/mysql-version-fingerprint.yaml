@@ -59,7 +59,7 @@ assertions:
   - name: mysql-old-exploit-chain
     type: beacon
     target: localhost:19540
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--deep", "--yes"]
     expect:
       check_id: exploit.data_extracted
 
@@ -75,7 +75,7 @@ assertions:
   - name: negative-mysql-new-no-exploit
     type: beacon
     target: localhost:19541
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541", "--deep", "--yes"]
     expect:
       not_check_id: exploit.data_extracted
 

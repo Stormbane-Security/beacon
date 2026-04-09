@@ -22,14 +22,14 @@ assertions:
   - name: broken-access-juiceshop
     type: beacon
     target: localhost:19802
-    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz,accesscontrol", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz,accesscontrol", "--exploit", "--yes"]
     expect:
       check_id: web.broken_access_control
 
   - name: negative-no-privesc-on-static
     type: beacon
     target: localhost:19803
-    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz,accesscontrol", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz,accesscontrol", "--exploit", "--yes"]
     expect:
       not_check_id: web.broken_access_control
 

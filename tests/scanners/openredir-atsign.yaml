@@ -51,7 +51,7 @@ assertions:
   - name: detects-open-redirect
     type: beacon
     target: localhost:9371
-    args: ["--no-enrich", "--scanners", "openredir", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "openredir", "--deep", "--yes"]
     expect:
       check_id: web.open_redirect
 

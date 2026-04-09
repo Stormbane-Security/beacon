@@ -40,7 +40,7 @@ assertions:
   - name: detects-oauth-open-redirect
     type: beacon
     target: localhost:19860
-    args: ["--no-enrich", "--scanners", "oauth", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "oauth", "--deep", "--yes"]
     expect:
       check_id: oauth.token_endpoint_no_auth
 

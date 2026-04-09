@@ -65,10 +65,9 @@ SCAN FLAGS:
   --domain <domain>          Target domain (required unless --host or --targets is used)
   --host <target>            Add a target host; repeatable for multi-host sessions
   --targets <file>           File with one domain per line (enables multi-asset mode)
-  --deep                     Enable active probing (requires --permission-confirmed)
-  --permission-confirmed     Acknowledge you have permission to run active probes
-  --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
-  --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
+  --deep                     Enable active probing (sends payloads — confirms permission interactively)
+  --exploit                  Enable exploitation-class probes (active exploitation + post-exploit chains)
+  --yes                      Skip all confirmation prompts (for CI/automation)
   --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph, pdf
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
@@ -114,9 +113,9 @@ EXAMPLES:
   beacon scan --domain example.com --format json
   beacon scan --domain example.com --severity high
   beacon scan --domain example.com --out report.html --format html
-  beacon scan --domain example.com --deep --permission-confirmed
+  beacon scan --domain example.com --deep
   beacon scan --host example.com --host api.example.com --host cdn.example.com
-  beacon scan --targets hosts.txt --deep --permission-confirmed
+  beacon scan --targets hosts.txt --deep
   beacon scan --domain example.com --output-raw findings.json
   beacon scan --domain example.com --scanners cors,jwt,tls
   beacon enrich --input findings.json --format json --out enriched.json
@@ -329,12 +328,17 @@ func cmdScan(cfg *config.Config, args []string) {
 			}
 		case "--deep":
 			deep = true
-		case "--permission-confirmed":
-			permissionConfirmed = true
-		case "--authorized":
+		case "--exploit":
 			authorized = true
+			deep = true
+			permissionConfirmed = true
+		case "--permission-confirmed":
+			permissionConfirmed = true // backward compat
+		case "--authorized":
+			authorized = true // backward compat
 		case "--yes":
 			autoApprove = true
+			permissionConfirmed = true // --yes implies permission confirmed
 		case "--quiet":
 			quiet = true
 		case "--out":
@@ -648,32 +652,22 @@ func cmdScan(cfg *config.Config, args []string) {
 	domain = assets[0]
 
 	if deep && !permissionConfirmed {
-		fatalf(`--deep requires --permission-confirmed
+		if autoApprove || os.Getenv("BEACON_AUTHORIZED_ACK") == "1" {
+			permissionConfirmed = true
+		} else {
+			_, _ = fmt.Fprintf(os.Stderr, `
+Deep scans send active probes to %s: vulnerability payloads (XSS, SQLi,
+SSRF), credential attempts, and service exploitation. This constitutes
+unauthorized access without explicit written permission from the owner.
 
-Deep scans send active probes to the target: vulnerability payloads (XSS,
-SQLi, SSRF, path traversal), credential attempts, and aggressive TLS cipher
-negotiation. These actions constitute unauthorized computer access in most
-jurisdictions when performed without explicit written consent from the owner.
-
-Applicable laws include (but are not limited to):
-  US:  Computer Fraud and Abuse Act, 18 U.S.C. § 1030
-  UK:  Computer Misuse Act 1990
-  EU:  Directive 2013/40/EU on attacks against information systems
-  DE:  StGB §202a (data espionage), §202c (hacking tools/methods)
-  AU:  Criminal Code Act 1995, Part 10.7 (Computer offences)
-  CA:  Criminal Code R.S.C. 1985, s342.1
-  JP:  Unauthorized Computer Access Law (不正アクセス禁止法)
-  BR:  Lei nº 12.737/2012 (Lei Carolina Dieckmann)
-  SG:  Computer Misuse Act (Cap. 50A)
-  IN:  Information Technology Act 2000, s43/66
-  and equivalent laws in other jurisdictions.
-
-By passing --permission-confirmed you confirm that:
-  1. You have explicit written authorization from the owner of %s
-     to perform active security testing against their systems.
-  2. You understand that performing these scans without authorization
-     may result in civil liability and/or criminal prosecution.
-  3. You accept full legal responsibility for your use of --deep mode.`, domain)
+Do you have written authorization to scan %s? [y/N] `, domain, domain)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+				fatalf("Permission not confirmed. Use --yes to skip prompts in CI.")
+			}
+			permissionConfirmed = true
+		}
 	}
 
 	// --authorized implies --deep and --permission-confirmed.
@@ -681,42 +675,19 @@ By passing --permission-confirmed you confirm that:
 		deep = true
 		permissionConfirmed = true
 	}
-	if authorized {
-		// BEACON_AUTHORIZED_ACK=1 bypasses the interactive prompt for CI/automation.
-		// The operator is still responsible for ensuring authorization exists.
-		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
-			// Interactive legal acknowledgment — cannot be bypassed with a flag.
-			_, _ = fmt.Fprintf(os.Stderr, `
-AUTHORIZED / EXPLOITATION SCAN MODE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This mode enables active exploitation probes against %s, including:
-  • Payload injection (SSTI, XXE, SSRF, Log4Shell, CRLF, prototype pollution)
-  • Real authenticated sessions (SIWE/SIWS wallet login, OAuth flows)
-  • File upload bypass attempts (may leave files on the target server)
-  • Authorization flow mutation (token substitution, redirect_uri abuse)
-  • SAML/JWT forgery attacks against protected endpoints
+	if authorized && !autoApprove && os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
+		_, _ = fmt.Fprintf(os.Stderr, `
+Exploitation mode enables active exploitation against %s: payload injection,
+credential testing, file upload bypass, token forgery.
 
-These actions constitute unauthorized computer access in most jurisdictions
-unless you have EXPLICIT WRITTEN AUTHORIZATION from the system owner.
-
-Applicable laws: US CFAA (18 U.S.C. §1030), UK CMA 1990, EU Dir. 2013/40/EU,
-and equivalent laws in all other jurisdictions.
-
-Type exactly: I have written authorization for %s
-> `, domain, domain)
-			reader := bufio.NewReader(os.Stdin)
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				fatalf("failed to read input: %v", err)
-			}
-			expected := fmt.Sprintf("I have written authorization for %s", domain)
-			if strings.TrimSpace(line) != expected {
-				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
-			}
-			info("Acknowledgment confirmed. Proceeding with authorized scan.\n")
-		} else {
-			info("beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)\n")
+Do you have written authorization to exploit %s? [y/N] `, domain, domain)
+		reader := bufio.NewReader(os.Stdin)
+		line, err := reader.ReadString('\n')
+		if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+			fatalf("Exploitation mode cancelled.")
 		}
+	} else if authorized {
+		info("beacon: exploitation mode (--exploit --yes)\n")
 	}
 
 	scanType := module.ScanSurface
@@ -1306,45 +1277,44 @@ func cmdScanMultiAsset(
 		scanType = module.ScanAuthorized
 	}
 
-	if deep && !permissionConfirmed {
-		fatalf(`--deep requires --permission-confirmed
-
-Deep scans send active probes to ALL listed targets. Only run this against
-systems you own or have explicit written permission to test.
-
-By passing --permission-confirmed you confirm that you have explicit written
-authorization from the owner of every listed target and accept full legal
-responsibility for your use of --deep mode.`)
-	}
-
-	// --authorized implies --deep and --permission-confirmed.
+	// --authorized/--exploit implies --deep.
 	if authorized {
 		deep = true
 		permissionConfirmed = true
 	}
-	if authorized {
-		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
-			targetList := "  • " + strings.Join(targets, "\n  • ")
+
+	if deep && !permissionConfirmed {
+		if autoApproveExploits || os.Getenv("BEACON_AUTHORIZED_ACK") == "1" {
+			permissionConfirmed = true
+		} else {
 			_, _ = fmt.Fprintf(os.Stderr, `
-AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This mode enables active exploitation probes against %d targets:
-%s
+Deep scans send active probes to %d targets. This constitutes unauthorized
+access without explicit written permission from the owner.
 
-These actions constitute unauthorized computer access in most jurisdictions
-unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
-
-Type exactly: I have written authorization for all listed targets
-> `, len(targets), targetList)
+Do you have written authorization to scan all listed targets? [y/N] `, len(targets))
 			reader := bufio.NewReader(os.Stdin)
 			line, err := reader.ReadString('\n')
-			if err != nil {
-				fatalf("failed to read input: %v", err)
+			if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+				fatalf("Permission not confirmed. Use --yes to skip prompts in CI.")
 			}
-			if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
-				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+			permissionConfirmed = true
+		}
+	}
+
+	if authorized {
+		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" && !autoApproveExploits {
+			targetList := "  • " + strings.Join(targets, "\n  • ")
+			_, _ = fmt.Fprintf(os.Stderr, `
+EXPLOITATION MODE — %d targets:
+%s
+
+This enables active exploitation: payload injection, credential testing,
+file upload bypass, token forgery. Do you have written authorization? [y/N] `, len(targets), targetList)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+				fatalf("Exploitation mode cancelled.")
 			}
-			info("Acknowledgment confirmed. Proceeding with authorized scan.\n")
 		} else {
 			info("beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)\n")
 		}

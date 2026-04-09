@@ -32,7 +32,7 @@ assertions:
   - name: no-false-positives-on-spa
     type: beacon
     target: localhost:19893
-    args: ["--no-enrich", "--no-nmap", "--scanners", "statemachine", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "statemachine", "--exploit", "--yes"]
     expect:
       not_check_id: web.state_skip_detected
 

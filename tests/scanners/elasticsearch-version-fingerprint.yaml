@@ -62,7 +62,7 @@ assertions:
   - name: es-old-exploit-chain
     type: beacon
     target: localhost:19520
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--authorized", "--deep", "--permission-confirmed", "--yes"]
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--exploit", "--deep", "--yes", "--yes"]
     expect:
       check_id: exploit.lateral_movement
 

@@ -24,7 +24,7 @@ assertions:
   - name: privesc-no-false-positive
     type: beacon
     target: localhost:19891
-    args: ["--no-enrich", "--no-nmap", "--scanners", "privesc", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "privesc", "--exploit", "--yes"]
     expect:
       not_check_id: web.broken_access_control
 

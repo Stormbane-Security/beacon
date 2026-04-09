@@ -26,7 +26,7 @@ assertions:
   - name: no-hostheader-false-positive
     type: beacon
     target: localhost:9467
-    args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "hostheader", "--deep", "--yes"]
     expect:
       no_check_id: web.host_header_injection
 

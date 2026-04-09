@@ -24,7 +24,7 @@ assertions:
   - name: detects-crlf-injection
     type: beacon
     target: localhost:9202
-    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "crlf", "--deep", "--yes"]
     expect:
       check_id: web.crlf_injection
 

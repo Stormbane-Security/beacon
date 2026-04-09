@@ -86,7 +86,7 @@ assertions:
       method: form
       username: admin
       password: password
-    args: ["--authorized", "--yes", "--scanners", "cmdinj", "--format", "json"]
+    args: ["--exploit", "--yes", "--scanners", "cmdinj", "--format", "json"]
     expect:
       check_id: web.command_injection
 
@@ -98,7 +98,7 @@ assertions:
       method: form
       username: admin
       password: password
-    args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
+    args: ["--no-enrich", "--exploit", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.internal_network_discovered
 
@@ -110,6 +110,6 @@ assertions:
       method: form
       username: admin
       password: password
-    args: ["--no-enrich", "--authorized", "--yes", "--scanners", "cmdinj"]
+    args: ["--no-enrich", "--exploit", "--yes", "--scanners", "cmdinj"]
     expect:
       check_id: exploit.credential_harvest

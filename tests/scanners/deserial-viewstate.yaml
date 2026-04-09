@@ -40,14 +40,14 @@ assertions:
   - name: detects-insecure-deserialize
     type: beacon
     target: localhost:9285
-    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--yes"]
     expect:
       check_id: web.insecure_deserialize
 
   - name: detects-dotnet-deserialize
     type: beacon
     target: localhost:9285
-    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--yes"]
     expect:
       check_id: web.dotnet_deserialize
 

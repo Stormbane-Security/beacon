@@ -47,7 +47,7 @@ assertions:
   - name: wafbypass-runs-clean
     type: beacon
     target: localhost:19873
-    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--yes"]
     expect:
       min_findings: 0
 
@@ -55,7 +55,7 @@ assertions:
   - name: negative-no-cors-finding
     type: beacon
     target: localhost:19873
-    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--yes"]
     expect:
       not_check_id: web.cors_misconfiguration
 

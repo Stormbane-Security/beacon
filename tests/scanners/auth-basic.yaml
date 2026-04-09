@@ -41,7 +41,7 @@ assertions:
   - name: auth-scan-finds-exposed-file
     type: beacon
     target: localhost:9400
-    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--yes"]
     auth:
       method: basic
       username: scanner

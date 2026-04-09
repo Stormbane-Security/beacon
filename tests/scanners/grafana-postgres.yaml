@@ -48,7 +48,7 @@ assertions:
   - name: detects-grafana-default-creds
     type: beacon
     target: localhost:9350
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
     expect:
       check_id: port.grafana_default_credentials
 
@@ -56,7 +56,7 @@ assertions:
   - name: beacon-authorized-exploitation
     type: beacon
     target: localhost:9350
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes"]
     expect:
       check_id: exploit.datasource_exposed
 

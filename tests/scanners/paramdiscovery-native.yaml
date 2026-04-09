@@ -42,7 +42,7 @@ assertions:
   - name: detects-hidden-param
     type: beacon
     target: localhost:19875
-    args: ["--no-enrich", "--no-nmap", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--deep", "--yes"]
     expect:
       min_findings: 1
 
@@ -50,7 +50,7 @@ assertions:
   - name: negative-no-database-finding
     type: beacon
     target: localhost:19875
-    args: ["--no-enrich", "--no-nmap", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--deep", "--yes"]
     expect:
       not_check_id: port.mysql_no_auth
 

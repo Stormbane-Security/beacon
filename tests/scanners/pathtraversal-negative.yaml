@@ -33,7 +33,7 @@ assertions:
   - name: no-pathtraversal-false-positive
     type: beacon
     target: localhost:9466
-    args: ["--no-enrich", "--scanners", "pathtraversal", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "pathtraversal", "--deep", "--yes"]
     expect:
       no_check_id: web.path_traversal
 

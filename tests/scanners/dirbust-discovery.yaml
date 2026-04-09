@@ -34,7 +34,7 @@ assertions:
   - name: detects-dirbust-paths
     type: beacon
     target: localhost:19906
-    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--yes"]
     expect:
       check_id: dirbust.path_found
 

@@ -32,7 +32,7 @@ assertions:
   - name: auth-scan-finds-swagger
     type: beacon
     target: localhost:9401
-    args: ["--no-enrich", "--scanners", "swagger,apiversions", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--scanners", "swagger,apiversions", "--deep", "--yes"]
     auth:
       method: bearer
       token: test-api-token-2024
