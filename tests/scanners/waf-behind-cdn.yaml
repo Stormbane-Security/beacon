@@ -48,7 +48,7 @@ assertions:
   - name: detects-waf-through-cdn
     type: beacon
     target: localhost:18090
-    args: ["--no-enrich", "--scanners", "wafdetect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
     expect:
       check_id: waf.not_detected
 
@@ -56,7 +56,7 @@ assertions:
   - name: detects-missing-headers
     type: beacon
     target: localhost:18090
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
 
@@ -64,7 +64,7 @@ assertions:
   - name: detects-exposed-env-through-chain
     type: beacon
     target: localhost:18090
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.env_file_exposed
 

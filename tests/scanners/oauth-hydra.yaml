@@ -32,14 +32,14 @@ assertions:
   - name: detects-oidc-discovery
     type: beacon
     target: localhost:4444
-    args: ["--no-enrich", "--scanners", "oauth,wellknown"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth,wellknown"]
     expect:
       check_id: wellknown.oidc_discovery
 
   - name: detects-jwks-exposed
     type: beacon
     target: localhost:4444
-    args: ["--no-enrich", "--scanners", "oauth"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth"]
     expect:
       check_id: oauth.jwks_exposed
 

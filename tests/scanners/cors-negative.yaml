@@ -34,7 +34,7 @@ assertions:
   - name: no-cors-false-positive
     type: beacon
     target: localhost:9460
-    args: ["--no-enrich", "--scanners", "cors"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors"]
     expect:
       no_check_id: web.cors_misconfiguration
 

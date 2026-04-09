@@ -36,21 +36,21 @@ assertions:
   - name: detects-ssh-service
     type: beacon
     target: localhost:19869
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19869"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19869"]
     expect:
       check_id: port.ssh_exposed
 
   - name: detects-port-service-identified
     type: beacon
     target: localhost:19869
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19869"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19869"]
     expect:
       check_id: port.service_identified
 
   - name: negative-no-http-findings
     type: beacon
     target: localhost:19869
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19869"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19869"]
     expect:
       not_check_id: headers.missing_hsts
 

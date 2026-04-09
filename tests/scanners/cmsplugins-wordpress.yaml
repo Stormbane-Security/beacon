@@ -50,7 +50,7 @@ assertions:
   - name: detects-cms-plugins
     type: beacon
     target: localhost:9250
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
     expect:
       check_id: cms.plugin_found
 

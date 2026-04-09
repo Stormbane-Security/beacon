@@ -28,7 +28,7 @@ assertions:
   - name: chain-exploits-log4shell
     type: beacon
     target: "localhost:9431"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9431"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9431"]
     expect:
       check_id: exploit.code_execution
 

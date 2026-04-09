@@ -24,7 +24,7 @@ assertions:
   - name: detects-security-txt
     type: beacon
     target: localhost:9244
-    args: ["--no-enrich", "--scanners", "wellknown"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
     expect:
       check_id: wellknown.security_txt
 

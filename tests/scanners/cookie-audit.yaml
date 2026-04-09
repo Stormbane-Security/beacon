@@ -24,7 +24,7 @@ assertions:
   - name: detects-cookie-issues
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "cookie"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie"]
     expect:
       check_id: cookie.missing_secure
 

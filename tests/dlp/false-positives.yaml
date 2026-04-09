@@ -28,7 +28,7 @@ assertions:
   - name: no-false-positive-ssn
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       not_check_id: dlp.ssn_pattern
 
@@ -36,7 +36,7 @@ assertions:
   - name: no-false-positive-private-key
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       not_check_id: dlp.private_key
 
@@ -44,7 +44,7 @@ assertions:
   - name: no-false-positive-database-url
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       not_check_id: dlp.database_url
 
@@ -52,7 +52,7 @@ assertions:
   - name: no-false-positive-email-list
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       not_check_id: dlp.email_list
 

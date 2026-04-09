@@ -86,14 +86,14 @@ assertions:
   - name: grafana-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9630"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9630"]
     expect:
       check_id: port.service_identified
 
   - name: grafana-default-creds-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9630"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9630"]
     expect:
       check_id: exploit.data_extracted
 
@@ -101,14 +101,14 @@ assertions:
   - name: minio-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9631"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9631"]
     expect:
       check_id: port.service_identified
 
   - name: minio-default-creds-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9631"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9631"]
     expect:
       check_id: exploit.data_extracted
 
@@ -116,14 +116,14 @@ assertions:
   - name: gitea-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9632"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9632"]
     expect:
       check_id: port.service_identified
 
   - name: gitea-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9632"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9632"]
     expect:
       check_id: exploit.data_extracted
 
@@ -131,14 +131,14 @@ assertions:
   - name: drone-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9633"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9633"]
     expect:
       check_id: port.service_identified
 
   - name: drone-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9633"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9633"]
     expect:
       check_id: exploit.code_execution
 
@@ -146,14 +146,14 @@ assertions:
   - name: kibana-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9634"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9634"]
     expect:
       check_id: port.service_identified
 
   - name: kibana-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9634"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9634"]
     expect:
       check_id: exploit.data_extracted
 
@@ -161,14 +161,14 @@ assertions:
   - name: apache-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9636"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9636"]
     expect:
       check_id: port.service_identified
 
   - name: apache-rce-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9636"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9636"]
     expect:
       check_id: exploit.code_execution
 
@@ -176,14 +176,14 @@ assertions:
   - name: activemq-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9637"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9637"]
     expect:
       check_id: port.service_identified
 
   - name: activemq-console-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9637,9638"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9637,9638"]
     expect:
       check_id: exploit.code_execution
 
@@ -191,7 +191,7 @@ assertions:
   - name: full-app-scan-finds-all
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
            "--ports", "9630,9631,9632,9633,9634,9635,9636,9637,9638"]
     expect:
       min_findings: 10

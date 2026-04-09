@@ -29,7 +29,7 @@ assertions:
   - name: detects-kong-admin-exposed
     type: beacon
     target: localhost:8001
-    args: ["--no-enrich", "--scanners", "gateway"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "gateway"]
     expect:
       check_id: gateway.kong_admin_exposed
 

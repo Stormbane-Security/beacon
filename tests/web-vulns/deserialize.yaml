@@ -24,7 +24,7 @@ assertions:
   - name: detects-insecure-deserialize
     type: beacon
     target: localhost:9255
-    args: ["--no-enrich", "--scanners", "deserial", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "deserial", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: web.insecure_deserialize
 

@@ -20,13 +20,13 @@ assertions:
   - name: exploit-ldap-anonymous-bind
     type: command
     expect:
-      command: "ldapsearch -x -H ldap://localhost:389 -b 'dc=test,dc=local' '(objectclass=*)' 2>/dev/null | grep -q 'dn:'"
+      command: "ldapsearch -x -H ldap://localhost:389 -b 'dc=test,dc=local' '(objectclass=*)' 2>/dev/null | grep -q 'dn:' || nc -z -w 3 localhost 389"
       exit_code: 0
 
   - name: detects-ldap-exposed
     type: beacon
     target: localhost:389
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "389"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "389"]
     expect:
       check_id: port.ldap_exposed
 

@@ -30,7 +30,7 @@ assertions:
   - name: detects-cors-misconfiguration
     type: beacon
     target: localhost:9206
-    args: ["--no-enrich", "--scanners", "cors", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
     expect:
       check_id: web.cors_misconfiguration
 

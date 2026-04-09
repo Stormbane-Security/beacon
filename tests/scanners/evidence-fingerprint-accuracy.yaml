@@ -35,7 +35,7 @@ assertions:
   - name: nginx-tech-stack-finding
     type: beacon
     target: localhost:19600
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19600"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19600"]
     expect:
       check_id: port.service_identified
 
@@ -43,7 +43,7 @@ assertions:
   - name: redis-version-in-finding
     type: beacon
     target: localhost:19601
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19601", "--format", "json"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19601", "--format", "json"]
     expect:
       check_id: port.redis_unauthenticated
       evidence_key: version
@@ -52,7 +52,7 @@ assertions:
   - name: redis-service-identified
     type: beacon
     target: localhost:19601
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19601"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19601"]
     expect:
       check_id: port.service_identified
       evidence_key: service
@@ -62,7 +62,7 @@ assertions:
   - name: es-version-in-finding
     type: beacon
     target: localhost:19602
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19602", "--format", "json"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19602", "--format", "json"]
     expect:
       check_id: port.elasticsearch_unauthenticated
       evidence_key: version
@@ -72,7 +72,7 @@ assertions:
   - name: es-product-in-finding
     type: beacon
     target: localhost:19602
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19602", "--format", "json"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19602", "--format", "json"]
     expect:
       check_id: port.elasticsearch_unauthenticated
       evidence_key: product

@@ -24,21 +24,21 @@ assertions:
   - name: detects-csp-data-uri
     type: beacon
     target: localhost:9242
-    args: ["--no-enrich", "--scanners", "cspaudit"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cspaudit"]
     expect:
       check_id: csp.data_uri
 
   - name: detects-csp-unsafe-inline
     type: beacon
     target: localhost:9242
-    args: ["--no-enrich", "--scanners", "cspaudit"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cspaudit"]
     expect:
       check_id: csp.unsafe_inline
 
   - name: detects-csp-missing-frame-ancestors
     type: beacon
     target: localhost:9242
-    args: ["--no-enrich", "--scanners", "cspaudit"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cspaudit"]
     expect:
       check_id: csp.frame_ancestors_missing
 

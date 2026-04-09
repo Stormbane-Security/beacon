@@ -78,14 +78,14 @@ assertions:
   - name: jenkins-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9650"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9650"]
     expect:
       check_id: port.service_identified
 
   - name: jenkins-rce-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9650"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9650"]
     expect:
       check_id: exploit.code_execution
 
@@ -93,14 +93,14 @@ assertions:
   - name: sonarqube-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9651"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9651"]
     expect:
       check_id: port.service_identified
 
   - name: sonarqube-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9651"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9651"]
     expect:
       check_id: exploit.data_extracted
 
@@ -108,14 +108,14 @@ assertions:
   - name: airflow-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9652"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9652"]
     expect:
       check_id: port.service_identified
 
   - name: airflow-connections-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9652"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9652"]
     expect:
       check_id: exploit.code_execution
 
@@ -123,14 +123,14 @@ assertions:
   - name: argocd-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9653"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9653"]
     expect:
       check_id: port.service_identified
 
   - name: argocd-apps-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9653"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9653"]
     expect:
       check_id: exploit.code_execution
 
@@ -138,14 +138,14 @@ assertions:
   - name: teamcity-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9654"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9654"]
     expect:
       check_id: port.service_identified
 
   - name: teamcity-data-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9654"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9654"]
     expect:
       check_id: exploit.code_execution
 
@@ -153,14 +153,14 @@ assertions:
   - name: gitlab-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9655"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9655"]
     expect:
       check_id: port.service_identified
 
   - name: gitlab-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9655"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9655"]
     expect:
       check_id: exploit.data_extracted
 
@@ -168,14 +168,14 @@ assertions:
   - name: solr-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9656"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9656"]
     expect:
       check_id: port.service_identified
 
   - name: solr-log4shell-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9656"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9656"]
     expect:
       check_id: exploit.code_execution
 
@@ -183,14 +183,14 @@ assertions:
   - name: confluence-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9657"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9657"]
     expect:
       check_id: port.service_identified
 
   - name: confluence-rce-exploited
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9657"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9657"]
     expect:
       check_id: exploit.code_execution
 
@@ -198,7 +198,7 @@ assertions:
   - name: full-enterprise-scan-finds-all
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
            "--ports", "9650,9651,9652,9653,9654,9655,9656,9657"]
     expect:
       min_findings: 10

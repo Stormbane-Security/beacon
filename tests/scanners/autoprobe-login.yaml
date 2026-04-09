@@ -39,7 +39,7 @@ assertions:
   - name: detects-no-bruteforce-protection
     type: beacon
     target: localhost:9282
-    args: ["--no-enrich", "--scanners", "autoprobe"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "autoprobe"]
     expect:
       check_id: auth.no_bruteforce_protection_signals
 

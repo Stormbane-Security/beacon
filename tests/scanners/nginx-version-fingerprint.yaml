@@ -37,7 +37,7 @@ assertions:
   - name: detects-nginx-old-eol
     type: beacon
     target: localhost:19550
-    args: ["--no-enrich"]
+    args: ["--no-enrich", "--no-nmap"]
     expect:
       check_id: version.outdated_software
 
@@ -45,7 +45,7 @@ assertions:
   - name: negative-nginx-new-not-eol
     type: beacon
     target: localhost:19551
-    args: ["--no-enrich"]
+    args: ["--no-enrich", "--no-nmap"]
     expect:
       not_check_id: version.outdated_software
 

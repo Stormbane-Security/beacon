@@ -28,7 +28,7 @@ assertions:
   - name: chain-detects-teamcity
     type: beacon
     target: "localhost:9423"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9423"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9423"]
     expect:
       check_id: exploit.code_execution
 

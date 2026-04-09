@@ -26,7 +26,7 @@ assertions:
   - name: detects-clickhouse-exposed
     type: beacon
     target: localhost:8123
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8123"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8123"]
     expect:
       check_id: port.clickhouse_exposed
 

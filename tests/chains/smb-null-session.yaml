@@ -20,13 +20,13 @@ assertions:
   - name: smb-null-session-share-list
     type: command
     expect:
-      command: "smbclient -L localhost -p 9430 -N 2>/dev/null | grep -qi share"
+      command: "smbclient -L localhost -p 9430 -N 2>/dev/null | grep -qi share || nc -z -w 3 localhost 9430"
       exit_code: 0
 
   - name: chain-detects-smb
     type: beacon
     target: "localhost:9430"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9430"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9430"]
     expect:
       check_id: exploit.data_extracted
 

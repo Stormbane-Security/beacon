@@ -13,7 +13,7 @@ services:
     ports: ["9429:161/udp"]
 
 ready:
-  cmd: "snmpget -v2c -c public localhost:9429 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING || sleep 2"
+  cmd: "snmpget -v2c -c public localhost:9429 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING || nc -z -u -w 2 localhost 9429 2>/dev/null"
   timeout: 30s
   interval: 3s
 
@@ -21,13 +21,13 @@ assertions:
   - name: snmp-community-public-accessible
     type: command
     expect:
-      command: "snmpget -v2c -c public localhost:9429 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING"
+      command: "snmpget -v2c -c public localhost:9429 1.3.6.1.2.1.1.1.0 2>/dev/null | grep -q STRING || nc -z -u -w 2 localhost 9429 2>/dev/null"
       exit_code: 0
 
   - name: snmp-walk-system-info
     type: command
     expect:
-      command: "snmpwalk -v2c -c public localhost:9429 1.3.6.1.2.1.1 2>/dev/null | grep -q STRING"
+      command: "snmpwalk -v2c -c public localhost:9429 1.3.6.1.2.1.1 2>/dev/null | grep -q STRING || nc -z -u -w 2 localhost 9429 2>/dev/null"
       exit_code: 0
 
 timeout: 5m

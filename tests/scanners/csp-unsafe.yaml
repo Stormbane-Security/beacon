@@ -30,21 +30,21 @@ assertions:
   - name: detects-csp-unsafe-inline
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent", "--deep", "--yes"]
     expect:
       check_id: csp.unsafe_inline
 
   - name: detects-csp-unsafe-eval
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent", "--deep", "--yes"]
     expect:
       check_id: csp.unsafe_eval
 
   - name: detects-csp-wildcard-source
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent", "--deep", "--yes"]
     expect:
       check_id: csp.wildcard_source
 

@@ -35,7 +35,7 @@ assertions:
   - name: detects-cassandra-exposed
     type: beacon
     target: localhost:9042
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9042"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9042"]
     expect:
       check_id: port.cassandra_exposed
 

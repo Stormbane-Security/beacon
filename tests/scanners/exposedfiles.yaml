@@ -41,21 +41,21 @@ assertions:
   - name: detects-env-file
     type: beacon
     target: localhost:9252
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.env_file_exposed
 
   - name: detects-git-exposed
     type: beacon
     target: localhost:9252
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.git_exposed
 
   - name: detects-robots-sensitive-path
     type: beacon
     target: localhost:9252
-    args: ["--no-enrich", "--scanners", "robotsmap"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap"]
     expect:
       check_id: exposure.robots_sensitive_path
 

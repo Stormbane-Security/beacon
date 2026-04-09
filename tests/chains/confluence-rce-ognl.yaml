@@ -29,7 +29,7 @@ assertions:
   - name: chain-exploits-confluence
     type: beacon
     target: "localhost:9432"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9432"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9432"]
     expect:
       check_id: exploit.code_execution
 

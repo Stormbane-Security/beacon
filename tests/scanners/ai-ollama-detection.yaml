@@ -31,21 +31,21 @@ assertions:
   - name: detects-ollama-exposed
     type: beacon
     target: localhost:19865
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11434"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "11434"]
     expect:
       check_id: port.ollama_exposed
 
   - name: detects-ai-endpoint
     type: beacon
     target: localhost:19865
-    args: ["--no-enrich", "--scanners", "aidetect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aidetect"]
     expect:
       check_id: ai.endpoint_exposed
 
   - name: negative-no-database-finding
     type: beacon
     target: localhost:19865
-    args: ["--no-enrich", "--scanners", "portscan,aidetect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan,aidetect"]
     expect:
       not_check_id: port.mysql_no_auth
 

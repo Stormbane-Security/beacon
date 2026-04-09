@@ -38,14 +38,14 @@ assertions:
   - name: detects-oauth-endpoints
     type: beacon
     target: localhost:8080
-    args: ["--no-enrich", "--scanners", "oauth"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth"]
     expect:
       check_id: oauth.jwks_exposed
 
   - name: detects-saml-metadata
     type: beacon
     target: localhost:8080
-    args: ["--no-enrich", "--scanners", "saml"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml"]
     expect:
       check_id: saml.metadata_exposed
 

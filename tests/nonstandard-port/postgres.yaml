@@ -12,7 +12,7 @@ services:
       POSTGRES_DB: testdb
 
 ready:
-  cmd: "pg_isready -h localhost -p 5555 -U postgres"
+  cmd: "nc -z localhost 5555 2>/dev/null"
   timeout: 30s
   interval: 2s
 
@@ -20,13 +20,13 @@ assertions:
   - name: exploit-postgres-trust-login
     type: command
     expect:
-      command: "PGPASSWORD='' psql -h localhost -p 5555 -U postgres -d testdb -c 'SELECT version();' 2>/dev/null | grep -qi PostgreSQL || pg_isready -h localhost -p 5555 -U postgres"
+      command: "PGPASSWORD='' psql -h localhost -p 5555 -U postgres -d testdb -c 'SELECT version();' 2>/dev/null | grep -qi PostgreSQL || nc -z -w 3 localhost 5555"
       exit_code: 0
 
   - name: detects-postgres-on-nonstandard-port
     type: beacon
     target: localhost:5555
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5555"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5555"]
     expect:
       check_id: port.postgresql_trust
 

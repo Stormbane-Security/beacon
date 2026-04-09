@@ -27,7 +27,7 @@ assertions:
   - name: detects-envoy-admin-exposed
     type: beacon
     target: localhost:19969
-    args: ["--no-enrich", "--scanners", "gateway"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "gateway"]
     expect:
       check_id: gateway.envoy_admin_exposed
 

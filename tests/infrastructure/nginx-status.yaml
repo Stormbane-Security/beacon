@@ -24,7 +24,7 @@ assertions:
   - name: detects-nginx-status-exposed
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "gateway"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "gateway"]
     expect:
       check_id: gateway.nginx_status_exposed
 

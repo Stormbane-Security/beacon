@@ -25,7 +25,7 @@ assertions:
   - name: detects-ghost-cms
     type: beacon
     target: localhost:9232
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
     expect:
       check_id: cms.plugin_found
 

@@ -34,7 +34,7 @@ assertions:
   - name: detects-mongo-old-unauth
     type: beacon
     target: localhost:19580
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19580"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19580"]
     expect:
       check_id: port.database_exposed
 
@@ -42,7 +42,7 @@ assertions:
   - name: mongo-old-exploit-chain
     type: beacon
     target: localhost:19580
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19580", "--exploit", "--deep", "--yes", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19580", "--exploit", "--deep", "--yes", "--yes"]
     expect:
       check_id: exploit.lateral_movement
 
@@ -50,7 +50,7 @@ assertions:
   - name: negative-mongo-new-no-unauth
     type: beacon
     target: localhost:19581
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19581"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19581"]
     expect:
       not_check_id: port.database_exposed
 
@@ -58,7 +58,7 @@ assertions:
   - name: negative-mongo-new-no-exploit
     type: beacon
     target: localhost:19581
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19581", "--exploit", "--deep", "--yes", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19581", "--exploit", "--deep", "--yes", "--yes"]
     expect:
       not_check_id: exploit.lateral_movement
 

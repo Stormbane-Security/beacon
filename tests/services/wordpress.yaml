@@ -50,7 +50,7 @@ assertions:
   - name: detects-no-waf
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: waf.not_detected
 

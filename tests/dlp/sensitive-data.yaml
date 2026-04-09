@@ -36,28 +36,28 @@ assertions:
   - name: detects-ssn-pattern
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.ssn_pattern
 
   - name: detects-credit-card
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.credit_card
 
   - name: detects-private-key
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.private_key
 
   - name: detects-email-list
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.email_list
 

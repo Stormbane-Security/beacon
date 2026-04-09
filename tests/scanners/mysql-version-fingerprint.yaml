@@ -35,14 +35,14 @@ assertions:
   - name: detects-mysql-old-exposed
     type: beacon
     target: localhost:19540
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19540"]
     expect:
       check_id: port.database_exposed
 
   - name: detects-mysql-old-noauth
     type: beacon
     target: localhost:19540
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19540"]
     expect:
       check_id: port.mysql_no_auth
 
@@ -50,7 +50,7 @@ assertions:
   - name: mysql-old-version-in-evidence
     type: beacon
     target: localhost:19540
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--format", "json"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19540", "--format", "json"]
     expect:
       check_id: port.database_exposed
       evidence_key: version
@@ -59,7 +59,7 @@ assertions:
   - name: mysql-old-exploit-chain
     type: beacon
     target: localhost:19540
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19540", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19540", "--deep", "--yes"]
     expect:
       check_id: exploit.data_extracted
 
@@ -67,7 +67,7 @@ assertions:
   - name: negative-mysql-new-no-empty-auth
     type: beacon
     target: localhost:19541
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19541"]
     expect:
       not_check_id: port.mysql_no_auth
 
@@ -75,7 +75,7 @@ assertions:
   - name: negative-mysql-new-no-exploit
     type: beacon
     target: localhost:19541
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19541", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19541", "--deep", "--yes"]
     expect:
       not_check_id: exploit.data_extracted
 

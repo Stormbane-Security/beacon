@@ -28,7 +28,7 @@ assertions:
   - name: protopollution-scan-completes
     type: beacon
     target: localhost:9261
-    args: ["--no-enrich", "--scanners", "protopollution", "--exploit", "--deep", "--yes", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "protopollution", "--exploit", "--deep", "--yes", "--yes"]
     expect:
       min_findings: 0
 

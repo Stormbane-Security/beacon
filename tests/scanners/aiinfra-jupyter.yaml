@@ -35,7 +35,7 @@ assertions:
   - name: detects-jupyter-unauthenticated
     type: beacon
     target: localhost:9298
-    args: ["--no-enrich", "--scanners", "aiinfra", "--ports", "8888"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aiinfra", "--ports", "8888"]
     expect:
       check_id: ai.jupyter_unauthenticated
 

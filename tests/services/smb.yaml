@@ -31,7 +31,7 @@ assertions:
   - name: detects-smb-exposed
     type: beacon
     target: localhost:139
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "445"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "445"]
     expect:
       check_id: port.smb_exposed
 

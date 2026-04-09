@@ -37,7 +37,7 @@ assertions:
   - name: detects-neo4j-exposed
     type: beacon
     target: localhost:7474
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7474"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "7474"]
     expect:
       check_id: port.neo4j_exposed
 

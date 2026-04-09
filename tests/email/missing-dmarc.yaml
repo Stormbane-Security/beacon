@@ -32,14 +32,14 @@ assertions:
   - name: detects-missing-dmarc
     type: beacon
     target: testdomain.local
-    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
     expect:
       check_id: email.dmarc_missing
 
   - name: detects-dkim-missing
     type: beacon
     target: testdomain.local
-    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
     expect:
       check_id: email.dkim_missing
 

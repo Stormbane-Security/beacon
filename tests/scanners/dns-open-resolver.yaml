@@ -26,7 +26,7 @@ assertions:
   - name: detects-open-resolver
     type: beacon
     target: localhost:15354
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15354"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15354"]
     expect:
       check_id: port.dns_open_resolver
 

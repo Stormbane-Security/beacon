@@ -28,7 +28,7 @@ assertions:
   - name: detects-elasticsearch-groovy-rce
     type: beacon
     target: localhost:9274
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "9200"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "9200"]
     expect:
       check_id: cve.elasticsearch_groovy_rce
 

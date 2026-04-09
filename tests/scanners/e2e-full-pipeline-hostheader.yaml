@@ -1,0 +1,89 @@
+name: e2e-full-pipeline-hostheader
+description: >
+  Full pipeline E2E test against the host header injection nginx fixture.
+  Runs beacon WITHOUT any --scanners filter so the complete pipeline
+  executes: crawl → classify → Phase A → Phase B → correlation → chain
+  engine. The host header scanner should detect the injection via the
+  redirect that reflects $host in the Location header, proving the full
+  pipeline routes crawl-discovered URLs through the hostheader scanner.
+tags: [e2e, full-pipeline, hostheader, integration]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20203:80"]
+    volumes:
+      - ./hostheader-exploit/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20203/home | grep -q '200'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify host header injection exists
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-host-reflected-in-redirect
+    type: command
+    expect:
+      command: "curl -s -D - -o /dev/null -H 'Host: evil-attacker.com' http://localhost:20203/ | grep -qi 'Location:.*evil-attacker.com'"
+      exit_code: 0
+
+  - name: preflight-arbitrary-host-reflected
+    type: command
+    expect:
+      command: "curl -s -D - -o /dev/null -H 'Host: phishing.example.org' http://localhost:20203/ | grep -qi 'Location:.*phishing.example.org'"
+      exit_code: 0
+
+  - name: preflight-home-page-works
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20203/home | grep -q 'Welcome'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-minimum-findings
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: full-pipeline-detects-hostheader-injection
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.host_header_injection
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — host header app should not fire unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.reflected_xss
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 5m

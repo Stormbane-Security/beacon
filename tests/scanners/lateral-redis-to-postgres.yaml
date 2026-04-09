@@ -49,7 +49,7 @@ assertions:
   - name: beacon-discovers-redis
     type: beacon
     target: localhost:16379
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "16379"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "16379"]
     expect:
       check_id: port.redis_unauthenticated
 
@@ -57,7 +57,7 @@ assertions:
   - name: beacon-extracts-redis-creds
     type: beacon
     target: localhost:16379
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "16379", "--exploit", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "16379", "--exploit", "--deep", "--yes"]
     expect:
       check_id: exploit.credential_harvest
 
@@ -65,7 +65,7 @@ assertions:
   - name: beacon-discovers-postgres
     type: beacon
     target: localhost:15432
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15432"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15432"]
     expect:
       check_id: port.service_identified
 

@@ -23,7 +23,7 @@ assertions:
   - name: detects-gradio-exposed
     type: beacon
     target: localhost:9288
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7860"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "7860"]
     expect:
       check_id: port.gradio_exposed
 

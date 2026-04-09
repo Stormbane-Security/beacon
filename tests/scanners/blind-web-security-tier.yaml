@@ -81,7 +81,7 @@ assertions:
   - name: vuln-nginx-missing-hsts
     type: beacon
     target: localhost:19820
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
 
@@ -89,7 +89,7 @@ assertions:
   - name: vuln-nginx-server-leak
     type: beacon
     target: localhost:19820
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.server_info_leak
 
@@ -97,7 +97,7 @@ assertions:
   - name: vuln-nginx-cors-wildcard
     type: beacon
     target: localhost:19820
-    args: ["--no-enrich", "--scanners", "cors", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
     expect:
       check_id: web.cors_misconfiguration
 
@@ -105,7 +105,7 @@ assertions:
   - name: vuln-nginx-missing-csp
     type: beacon
     target: localhost:19820
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_csp
 
@@ -113,7 +113,7 @@ assertions:
   - name: vuln-nginx-missing-x-frame-options
     type: beacon
     target: localhost:19820
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_x_frame_options
 
@@ -121,7 +121,7 @@ assertions:
   - name: vuln-nginx-missing-x-content-type
     type: beacon
     target: localhost:19820
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_x_content_type
 
@@ -129,7 +129,7 @@ assertions:
   - name: secure-nginx-no-hsts-finding
     type: beacon
     target: localhost:19821
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       not_check_id: headers.missing_hsts
 
@@ -137,7 +137,7 @@ assertions:
   - name: springboot-actuator-exposed
     type: beacon
     target: localhost:19824
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.spring_actuator
 
@@ -145,7 +145,7 @@ assertions:
   - name: wordpress-detected
     type: beacon
     target: localhost:19822
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
     expect:
       check_id: cms.plugin_found
 

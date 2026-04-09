@@ -46,14 +46,14 @@ assertions:
   - name: detects-api-version
     type: beacon
     target: localhost:9284
-    args: ["--no-enrich", "--scanners", "apiversions"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "apiversions"]
     expect:
       check_id: exposure.api_version
 
   - name: detects-api-version-auth-bypass
     type: beacon
     target: localhost:9284
-    args: ["--no-enrich", "--scanners", "apiversions", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "apiversions", "--deep", "--yes"]
     expect:
       check_id: api.version_auth_bypass
 

@@ -29,7 +29,7 @@ assertions:
   - name: detects-clickjacking
     type: beacon
     target: localhost:9253
-    args: ["--no-enrich", "--scanners", "clickjacking", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "clickjacking", "--ports", "80"]
     expect:
       check_id: http.clickjacking
 

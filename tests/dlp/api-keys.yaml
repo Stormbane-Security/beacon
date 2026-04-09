@@ -32,7 +32,7 @@ assertions:
   - name: detects-github-token-on-page
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
       evidence_key: pattern
@@ -41,7 +41,7 @@ assertions:
   - name: detects-gcp-service-account-on-page
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
       evidence_key: pattern
@@ -51,14 +51,14 @@ assertions:
   - name: detects-database-url
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.database_url
 
   - name: detects-aws-access-key
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
       evidence_key: pattern
@@ -67,7 +67,7 @@ assertions:
   - name: detects-jwt-secret
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
       evidence_key: pattern

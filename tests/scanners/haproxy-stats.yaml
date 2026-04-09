@@ -29,7 +29,7 @@ assertions:
   - name: detects-haproxy-stats
     type: beacon
     target: localhost:18404
-    args: ["--no-enrich", "--scanners", "gateway"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "gateway"]
     expect:
       check_id: gateway.haproxy_stats_exposed
 
@@ -37,7 +37,7 @@ assertions:
   - name: negative-no-elasticsearch-fp
     type: beacon
     target: localhost:18404
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18404"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "18404"]
     expect:
       not_check_id: port.elasticsearch_unauthenticated
 

@@ -26,7 +26,7 @@ assertions:
   - name: detects-minio-env-disclosure
     type: beacon
     target: localhost:9272
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9000"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "9000"]
     expect:
       check_id: cve.minio_env_disclosure
 

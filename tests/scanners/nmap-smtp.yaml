@@ -21,7 +21,7 @@ assertions:
   - name: nmap-smtp-vrfy
     type: beacon
     target: localhost:10025
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.smtp_commands
 

@@ -42,7 +42,7 @@ assertions:
   - name: detects-kibana-exposed
     type: beacon
     target: localhost:5601
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5601"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5601"]
     expect:
       check_id: port.kibana_exposed
 

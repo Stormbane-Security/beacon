@@ -24,7 +24,7 @@ assertions:
   - name: detects-outdated-software
     type: beacon
     target: localhost:19965
-    args: ["--no-enrich"]
+    args: ["--no-enrich", "--no-nmap"]
     expect:
       check_id: version.outdated_software
 

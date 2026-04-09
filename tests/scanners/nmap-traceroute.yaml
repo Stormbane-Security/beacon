@@ -24,7 +24,7 @@ assertions:
   - name: detects-traceroute-hops
     type: beacon
     target: localhost:19902
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
     expect:
       check_id: nmap.traceroute
 

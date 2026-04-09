@@ -41,6 +41,6 @@ assertions:
   - name: beacon-bypasses-waf-xss
     type: beacon
     target: localhost
-    args: ["--deep", "--yes", "--scanners", "domxss,ssti", "--format", "json", "/tmp/results.json"]
+    args: ["--deep", "--yes", "--no-nmap", "--scanners", "domxss,ssti", "--format", "json", "/tmp/results.json"]
     expect:
       check_id: web.xss

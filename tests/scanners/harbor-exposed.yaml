@@ -30,7 +30,7 @@ assertions:
   - name: detects-harbor-exposed
     type: beacon
     target: localhost:18880
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18880"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "18880"]
     expect:
       check_id: port.harbor_exposed
 

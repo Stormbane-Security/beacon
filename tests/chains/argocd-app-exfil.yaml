@@ -27,7 +27,7 @@ assertions:
   - name: chain-detects-argocd
     type: beacon
     target: "localhost:9422"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9422"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9422"]
     expect:
       check_id: exploit.code_execution
 

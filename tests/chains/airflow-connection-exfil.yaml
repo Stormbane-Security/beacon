@@ -34,7 +34,7 @@ assertions:
   - name: chain-exploits-airflow-default-creds
     type: beacon
     target: "localhost:9424"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9424"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9424"]
     expect:
       check_id: exploit.code_execution
 

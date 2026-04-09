@@ -24,7 +24,7 @@ assertions:
   - name: unauth-scan-no-swagger
     type: beacon
     target: localhost:9401
-    args: ["--no-enrich", "--scanners", "swagger"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger"]
     expect:
       not_check_id: web.swagger_exposed
 
@@ -32,7 +32,7 @@ assertions:
   - name: auth-scan-finds-swagger
     type: beacon
     target: localhost:9401
-    args: ["--no-enrich", "--scanners", "swagger,apiversions", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger,apiversions", "--deep", "--yes"]
     auth:
       method: bearer
       token: test-api-token-2024

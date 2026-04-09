@@ -24,7 +24,7 @@ assertions:
   - name: elinjection-scan-completes
     type: beacon
     target: localhost:9272
-    args: ["--no-enrich", "--scanners", "elinjection", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "elinjection", "--deep", "--yes"]
     expect:
       min_findings: 0
 

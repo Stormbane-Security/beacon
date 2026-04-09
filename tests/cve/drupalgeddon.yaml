@@ -28,7 +28,7 @@ assertions:
   - name: detects-drupalgeddon
     type: beacon
     target: localhost:9276
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "80"]
     expect:
       check_id: cve.drupal_drupalgeddon1
 

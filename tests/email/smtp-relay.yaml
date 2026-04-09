@@ -25,7 +25,7 @@ assertions:
   - name: detects-smtp-exposed
     type: beacon
     target: localhost:25
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "25"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "25"]
     expect:
       check_id: port.smtp_exposed
 

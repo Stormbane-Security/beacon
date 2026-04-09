@@ -41,14 +41,14 @@ assertions:
   - name: detects-swagger-exposed
     type: beacon
     target: localhost:19868
-    args: ["--no-enrich", "--scanners", "swagger"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger"]
     expect:
       check_id: web.swagger_exposed
 
   - name: negative-no-database-findings
     type: beacon
     target: localhost:19868
-    args: ["--no-enrich", "--scanners", "swagger"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger"]
     expect:
       not_check_id: port.mysql_no_auth
 

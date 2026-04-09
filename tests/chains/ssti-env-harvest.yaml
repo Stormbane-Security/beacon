@@ -32,14 +32,14 @@ assertions:
   - name: detects-ssti
     type: beacon
     target: "localhost:9408"
-    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
     expect:
       check_id: web.ssti
 
   - name: chain-harvests-env-credentials
     type: beacon
     target: "localhost:9408"
-    args: ["--no-enrich", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ssti", "--authorized", "--deep", "--permission-confirmed", "--ports", "9408"]
     expect:
       check_id: exploit.credential_harvest
 

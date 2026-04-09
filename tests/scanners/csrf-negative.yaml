@@ -32,7 +32,7 @@ assertions:
   - name: no-csrf-false-positive
     type: beacon
     target: localhost:9461
-    args: ["--no-enrich", "--scanners", "csrf", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "csrf", "--deep", "--yes"]
     expect:
       no_check_id: web.csrf_token_missing
 

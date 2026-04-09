@@ -40,7 +40,7 @@ assertions:
   - name: detects-traefik-api-exposed
     type: beacon
     target: localhost:8080
-    args: ["--no-enrich", "--scanners", "gateway"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "gateway"]
     expect:
       check_id: gateway.traefik_api_exposed
 

@@ -41,14 +41,14 @@ assertions:
   - name: detects-redis-unauthenticated
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: port.redis_unauthenticated
 
   - name: detects-port-service
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: port.service_identified
 

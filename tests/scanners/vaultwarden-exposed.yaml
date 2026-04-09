@@ -44,7 +44,7 @@ assertions:
   - name: detects-vaultwarden-service
     type: beacon
     target: localhost:18065
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18065"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "18065"]
     expect:
       check_id: port.service_identified
 

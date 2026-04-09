@@ -50,7 +50,7 @@ assertions:
   - name: detects-missing-headers
     type: beacon
     target: localhost:18100
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
 
@@ -58,7 +58,7 @@ assertions:
   - name: deep-accesscontrol-scan
     type: beacon
     target: localhost:18100
-    args: ["--no-enrich", "--scanners", "accesscontrol,pathtraversal", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "accesscontrol,pathtraversal", "--deep", "--yes"]
     expect:
       check_id: headers.missing_hsts
 

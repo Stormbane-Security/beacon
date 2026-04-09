@@ -68,7 +68,7 @@ assertions:
   - name: detects-docker-socket-exposed
     type: beacon
     target: localhost:9353
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9353", "--deep", "--yes"]
     expect:
       check_id: container.docker_socket_exposed
 
@@ -83,7 +83,7 @@ assertions:
   - name: beacon-enumerates-host-containers
     type: beacon
     target: localhost:9353
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9353", "--exploit", "--yes"]
     expect:
       check_id: exploit.container_escape
       evidence_key: escape_method
@@ -92,7 +92,7 @@ assertions:
   - name: beacon-reads-host-filesystem
     type: beacon
     target: localhost:9353
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9353", "--exploit", "--yes"]
     expect:
       check_id: exploit.host_access
       evidence_key: access_level
@@ -101,7 +101,7 @@ assertions:
   - name: beacon-extracts-host-credentials
     type: beacon
     target: localhost:9353
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9353", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9353", "--exploit", "--yes"]
     expect:
       check_id: exploit.credential_harvest
       evidence_key: credential_source

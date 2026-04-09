@@ -29,7 +29,7 @@ assertions:
   - name: detects-gitlab-public-registration
     type: beacon
     target: localhost:9241
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "80"]
     expect:
       check_id: gitlab.public_registration
 

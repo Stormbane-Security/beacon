@@ -124,35 +124,35 @@ assertions:
   - name: detects-weak-jwt-algorithm
     type: beacon
     target: localhost:9205
-    args: ["--no-enrich", "--scanners", "jwt"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
       check_id: jwt.weak_algorithm
 
   - name: detects-sensitive-jwt-payload
     type: beacon
     target: localhost:9205
-    args: ["--no-enrich", "--scanners", "jwt"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
       check_id: jwt.sensitive_payload
 
   - name: detects-jwt-long-expiry
     type: beacon
     target: localhost:9205
-    args: ["--no-enrich", "--scanners", "jwt"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
       check_id: jwt.long_expiry
 
   - name: detects-jwt-no-encryption
     type: beacon
     target: localhost:9205
-    args: ["--no-enrich", "--scanners", "jwt"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
       check_id: jwt.no_encryption
 
   - name: detects-jwt-replay-missing
     type: beacon
     target: localhost:9205
-    args: ["--no-enrich", "--scanners", "jwt"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
       check_id: jwt.replay_missing
 

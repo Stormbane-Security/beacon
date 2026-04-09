@@ -39,14 +39,14 @@ assertions:
   - name: detects-chainnode-exposed
     type: beacon
     target: localhost:9305
-    args: ["--no-enrich", "--scanners", "chainnode", "--ports", "8545"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode", "--ports", "8545"]
     expect:
       check_id: chain.node_rpc_exposed
 
   - name: detects-dangerous-rpc-methods
     type: beacon
     target: localhost:9305
-    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--yes", "--ports", "8545"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode", "--deep", "--yes", "--ports", "8545"]
     expect:
       check_id: chain.rpc_dangerous_method
 

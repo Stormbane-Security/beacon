@@ -25,7 +25,7 @@ assertions:
   - name: chain-detects-ssh
     type: beacon
     target: "localhost:9427"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9427"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9427"]
     expect:
       check_id: exploit.data_extracted
 

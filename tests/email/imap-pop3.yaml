@@ -34,7 +34,7 @@ assertions:
   - name: detects-imap-exposed
     type: beacon
     target: localhost:995
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "143"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "143"]
     expect:
       check_id: port.imap_exposed
 

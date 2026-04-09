@@ -37,7 +37,7 @@ assertions:
   - name: detects-oidc-discovery
     type: beacon
     target: localhost:18180
-    args: ["--no-enrich", "--scanners", "oauth,wellknown"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth,wellknown"]
     expect:
       check_id: wellknown.oidc_discovery
 
@@ -45,7 +45,7 @@ assertions:
   - name: detects-implicit-flow
     type: beacon
     target: localhost:18180
-    args: ["--no-enrich", "--scanners", "oauth", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
     expect:
       check_id: oauth.implicit_flow_accepted
 

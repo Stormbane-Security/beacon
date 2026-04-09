@@ -70,7 +70,7 @@ assertions:
   - name: detects-gitlab-exposed
     type: beacon
     target: localhost:8929
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8929"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8929"]
     expect:
       check_id: port.gitlab_exposed
 

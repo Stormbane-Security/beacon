@@ -25,14 +25,14 @@ assertions:
   - name: detects-sensitive-paths
     type: beacon
     target: localhost:9241
-    args: ["--no-enrich", "--scanners", "robotsmap"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap"]
     expect:
       check_id: exposure.robots_sensitive_path
 
   - name: detects-sitemap-leak
     type: beacon
     target: localhost:9241
-    args: ["--no-enrich", "--scanners", "robotsmap"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap"]
     expect:
       check_id: exposure.sitemap_sensitive_url
 

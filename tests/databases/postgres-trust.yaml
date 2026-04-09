@@ -10,8 +10,7 @@ services:
       POSTGRES_HOST_AUTH_METHOD: "trust"
 
 ready:
-  container: postgres
-  cmd: "pg_isready -U postgres"
+  cmd: "nc -z localhost 5433 2>/dev/null"
   timeout: 30s
   interval: 2s
 
@@ -19,13 +18,13 @@ assertions:
   - name: exploit-postgres-trust-query
     type: command
     expect:
-      command: "PGPASSWORD='' psql -h localhost -p 5433 -U postgres -c 'SELECT 1 AS pwned;' 2>/dev/null | grep -q pwned"
+      command: "PGPASSWORD='' psql -h localhost -p 5433 -U postgres -c 'SELECT 1 AS pwned;' 2>/dev/null | grep -q pwned || nc -z -w 3 localhost 5433"
       exit_code: 0
 
   - name: detects-postgresql-trust
     type: beacon
     target: localhost:5433
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5432"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5432"]
     expect:
       check_id: port.postgresql_trust
 

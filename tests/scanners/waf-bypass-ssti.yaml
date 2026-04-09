@@ -42,6 +42,6 @@ assertions:
   - name: beacon-bypasses-waf-ssti
     type: beacon
     target: localhost
-    args: ["--exploit", "--deep", "--yes", "--yes", "--scanners", "ssti", "--format", "json", "/tmp/results.json"]
+    args: ["--exploit", "--no-nmap", "--deep", "--yes", "--yes", "--scanners", "ssti", "--format", "json", "/tmp/results.json"]
     expect:
       check_id: web.ssti

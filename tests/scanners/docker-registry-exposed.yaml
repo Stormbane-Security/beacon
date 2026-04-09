@@ -32,14 +32,14 @@ assertions:
   - name: detects-registry-exposed
     type: beacon
     target: localhost:19866
-    args: ["--no-enrich", "--scanners", "containerimage", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
     expect:
       check_id: container.registry_exposed
 
   - name: negative-no-kubernetes-findings
     type: beacon
     target: localhost:19866
-    args: ["--no-enrich", "--scanners", "containerimage"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage"]
     expect:
       not_check_id: container.k8s_api_exposed
 

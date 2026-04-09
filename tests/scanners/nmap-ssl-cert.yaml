@@ -32,7 +32,7 @@ assertions:
   - name: detects-ssl-cert-info
     type: beacon
     target: localhost:19905
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: nmap.ssl_cert_info
 

@@ -34,7 +34,7 @@ assertions:
   - name: detects-ping-sweep-host
     type: beacon
     target: localhost:19900
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: nmap.service_version
 

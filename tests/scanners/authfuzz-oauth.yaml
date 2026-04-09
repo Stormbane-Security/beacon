@@ -47,14 +47,14 @@ assertions:
   - name: detects-redirect-uri-abuse
     type: beacon
     target: localhost:9287
-    args: ["--no-enrich", "--scanners", "authfuzz", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz", "--exploit", "--yes"]
     expect:
       check_id: authfuzz.redirect_uri_abuse
 
   - name: detects-token-substitution
     type: beacon
     target: localhost:9287
-    args: ["--no-enrich", "--scanners", "authfuzz", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz", "--exploit", "--yes"]
     expect:
       check_id: authfuzz.token_substitution
 

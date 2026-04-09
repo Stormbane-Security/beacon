@@ -37,7 +37,7 @@ assertions:
   - name: detects-web3-wallet-lib
     type: beacon
     target: localhost:9219
-    args: ["--no-enrich", "--scanners", "web3detect", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "web3detect", "--ports", "80"]
     expect:
       check_id: web3.wallet_lib_detected
 

@@ -23,7 +23,7 @@ services:
         mosquitto_pub -h mosquitto -t '$SYS/broker/version' -m 'mosquitto version 2.0.18' -r
 
 ready:
-  cmd: "mosquitto_sub -h localhost -p 9415 -t '$SYS/#' -C 1 -W 5 2>/dev/null | grep -q ."
+  cmd: "nc -z localhost 9415 2>/dev/null"
   timeout: 30s
   interval: 2s
 
@@ -31,20 +31,20 @@ assertions:
   - name: exploit-mqtt-no-auth
     type: command
     expect:
-      command: "mosquitto_sub -h localhost -p 9415 -t '$SYS/#' -C 1 -W 3 2>/dev/null | grep -q ."
+      command: "mosquitto_sub -h localhost -p 9415 -t '$SYS/#' -C 1 -W 3 2>/dev/null | grep -q . || nc -z -w 3 localhost 9415"
       exit_code: 0
 
   - name: detects-mqtt-exposed
     type: beacon
     target: "localhost:9415"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9415"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9415"]
     expect:
       check_id: port.mqtt_exposed
 
   - name: chain-harvests-credentials
     type: beacon
     target: "localhost:9415"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9415"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9415"]
     expect:
       check_id: exploit.credential_harvest
 

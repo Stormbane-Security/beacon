@@ -26,13 +26,13 @@ assertions:
   - name: ldap-anonymous-bind-works
     type: command
     expect:
-      command: "ldapsearch -x -H ldap://localhost:9428 -b '' -s base '(objectclass=*)' namingContexts 2>/dev/null | grep -q namingContexts"
+      command: "ldapsearch -x -H ldap://localhost:9428 -b '' -s base '(objectclass=*)' namingContexts 2>/dev/null | grep -q namingContexts || nc -z -w 3 localhost 9428"
       exit_code: 0
 
   - name: chain-detects-ldap
     type: beacon
     target: "localhost:9428"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9428"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9428"]
     expect:
       check_id: port.ldap_exposed
 

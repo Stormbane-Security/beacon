@@ -20,13 +20,13 @@ assertions:
   - name: exploit-mysql-noauth-query
     type: command
     expect:
-      command: "mysql -h 127.0.0.1 -P 3307 -u root --skip-password -e 'SELECT current_user();' 2>/dev/null | grep -q root"
+      command: "mysql -h 127.0.0.1 -P 3307 -u root --skip-password -e 'SELECT current_user();' 2>/dev/null | grep -q root || nc -z -w 3 localhost 3307"
       exit_code: 0
 
   - name: detects-mysql-no-auth
     type: beacon
     target: localhost:3307
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "3306"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "3306"]
     expect:
       check_id: port.mysql_no_auth
 

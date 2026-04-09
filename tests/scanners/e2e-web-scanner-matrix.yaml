@@ -161,56 +161,56 @@ assertions:
   - name: detects-env-file
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.env_file_exposed
 
   - name: detects-git-exposed
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.git_exposed
 
   - name: detects-ai-model-file
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.ai_model_file
 
   - name: detects-missing-headers
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
 
   - name: detects-server-leak
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.server_info_leak
 
   - name: detects-cache-behavior
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe"]
     expect:
       check_id: cache.behavior_detected
 
   - name: detects-proxy-hop
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "proxychain"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "proxychain"]
     expect:
       check_id: proxy.hop_detected
 
   - name: detects-cors-misconfig
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich", "--scanners", "cors", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
     expect:
       check_id: web.cors_misconfiguration
 
@@ -218,7 +218,7 @@ assertions:
   - name: detects-waf
     type: beacon
     target: localhost:9241
-    args: ["--no-enrich", "--scanners", "wafdetect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
     expect:
       check_id: waf.detected
 
@@ -226,7 +226,7 @@ assertions:
   - name: detects-wordpress
     type: beacon
     target: localhost:9242
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
     expect:
       check_id: cms.plugin_found
 
@@ -234,7 +234,7 @@ assertions:
   - name: detects-ghost
     type: beacon
     target: localhost:9243
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
     expect:
       check_id: cms.plugin_found
 
@@ -242,7 +242,7 @@ assertions:
   - name: detects-spring-actuator
     type: beacon
     target: localhost:9245
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.spring_actuator
 
@@ -252,7 +252,7 @@ assertions:
   - name: full-pipeline-completes-cleanly
     type: beacon
     target: localhost:9240
-    args: ["--no-enrich"]
+    args: ["--no-enrich", "--no-nmap"]
     expect:
       min_findings: 8
 
@@ -261,7 +261,7 @@ assertions:
   - name: full-pipeline-waf-completes
     type: beacon
     target: localhost:9241
-    args: ["--no-enrich"]
+    args: ["--no-enrich", "--no-nmap"]
     expect:
       min_findings: 3
 

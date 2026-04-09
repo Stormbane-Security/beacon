@@ -42,6 +42,6 @@ assertions:
   - name: beacon-bypasses-waf-cmdinj
     type: beacon
     target: localhost
-    args: ["--exploit", "--deep", "--yes", "--yes", "--scanners", "cmdinj", "--format", "json", "/tmp/results.json"]
+    args: ["--exploit", "--no-nmap", "--deep", "--yes", "--yes", "--scanners", "cmdinj", "--format", "json", "/tmp/results.json"]
     expect:
       check_id: web.command_injection

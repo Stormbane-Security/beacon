@@ -120,7 +120,7 @@ services:
 
 ready:
   cmd: >
-    redis-cli -h localhost -p 9600 PING 2>/dev/null | grep -q PONG &&
+    nc -z localhost 9600 2>/dev/null &&
     curl -sf http://localhost:9605/_cluster/health 2>/dev/null | grep -q status &&
     curl -sf http://localhost:9604/ 2>/dev/null | grep -q couchdb
   timeout: 120s
@@ -131,14 +131,14 @@ assertions:
   - name: redis-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9600"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9600"]
     expect:
       check_id: port.redis_unauthenticated
 
   - name: redis-credentials-harvested
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9600"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9600"]
     expect:
       check_id: exploit.credential_harvest
 
@@ -146,14 +146,14 @@ assertions:
   - name: mongodb-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9601"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9601"]
     expect:
       check_id: port.service_identified
 
   - name: mongodb-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9601"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9601"]
     expect:
       check_id: exploit.data_extracted
 
@@ -161,14 +161,14 @@ assertions:
   - name: postgres-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9602"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9602"]
     expect:
       check_id: port.service_identified
 
   - name: postgres-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9602"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9602"]
     expect:
       check_id: exploit.data_extracted
 
@@ -176,14 +176,14 @@ assertions:
   - name: mysql-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9603"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9603"]
     expect:
       check_id: port.service_identified
 
   - name: mysql-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9603"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9603"]
     expect:
       check_id: exploit.data_extracted
 
@@ -191,14 +191,14 @@ assertions:
   - name: couchdb-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9604"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9604"]
     expect:
       check_id: port.service_identified
 
   - name: couchdb-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9604"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9604"]
     expect:
       check_id: exploit.data_extracted
 
@@ -206,14 +206,14 @@ assertions:
   - name: elasticsearch-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9605"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9605"]
     expect:
       check_id: port.service_identified
 
   - name: elasticsearch-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9605"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9605"]
     expect:
       check_id: exploit.data_extracted
 
@@ -221,14 +221,14 @@ assertions:
   - name: memcached-identified
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9606"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9606"]
     expect:
       check_id: port.service_identified
 
   - name: memcached-data-extracted
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9606"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9606"]
     expect:
       check_id: exploit.data_extracted
 
@@ -236,7 +236,7 @@ assertions:
   - name: full-database-scan-finds-all
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed",
            "--ports", "9600,9601,9602,9603,9604,9605,9606"]
     expect:
       min_findings: 10

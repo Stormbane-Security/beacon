@@ -38,7 +38,7 @@ assertions:
   - name: detects-oauth-on-nonstandard-port
     type: beacon
     target: localhost:8888
-    args: ["--no-enrich", "--scanners", "oauth"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth"]
     expect:
       check_id: oauth.jwks_exposed
 

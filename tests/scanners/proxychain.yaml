@@ -46,7 +46,7 @@ assertions:
   - name: detects-proxy-chain
     type: beacon
     target: localhost:9230
-    args: ["--no-enrich", "--scanners", "proxychain"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "proxychain"]
     expect:
       check_id: proxy.hop_detected
 

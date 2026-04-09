@@ -70,7 +70,7 @@ assertions:
   - name: blind-discovers-nginx
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       check_id: port.service_identified
 
@@ -78,7 +78,7 @@ assertions:
   - name: blind-discovers-redis-unauth
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       check_id: port.redis_unauthenticated
 
@@ -86,7 +86,7 @@ assertions:
   - name: blind-discovers-es-unauth
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       check_id: port.elasticsearch_unauthenticated
 
@@ -94,7 +94,7 @@ assertions:
   - name: blind-discovers-postgres-trust
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       check_id: port.postgresql_trust
 
@@ -102,7 +102,7 @@ assertions:
   - name: blind-discovers-grafana-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--deep", "--yes"]
     expect:
       check_id: port.grafana_default_credentials
 
@@ -110,7 +110,7 @@ assertions:
   - name: blind-discovers-jenkins-noauth
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       check_id: port.jenkins_no_auth
 
@@ -118,14 +118,14 @@ assertions:
   - name: blind-authorized-finds-exploits
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--exploit", "--yes"]
     expect:
       check_id: exploit.lateral_movement
 
   - name: blind-authorized-extracts-data
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706", "--exploit", "--yes"]
     expect:
       check_id: exploit.data_extracted
 
@@ -133,14 +133,14 @@ assertions:
   - name: negative-no-mongodb-detected
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       not_check_id: port.database_exposed
 
   - name: negative-no-mssql-detected
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19700,19701,19702,19703,19704,19705,19706"]
     expect:
       not_check_id: port.mssql_default_creds
 

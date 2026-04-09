@@ -52,49 +52,49 @@ assertions:
   - name: detects-tls10-protocol
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.protocol_tls10
 
   - name: detects-tls11-protocol
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.protocol_tls11
 
   - name: detects-weak-signature
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.cert_weak_sig
 
   - name: detects-long-validity
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.cert_long_validity
 
   - name: detects-san-missing
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.cert_san_missing
 
   - name: detects-no-pfs
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.no_pfs
 
   - name: detects-self-signed
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       check_id: tls.cert_self_signed
 
@@ -111,7 +111,7 @@ assertions:
   - name: negative-no-sqli
     type: beacon
     target: localhost:19840
-    args: ["--no-enrich", "--scanners", "tlscheck", "--ports", "443"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--ports", "443"]
     expect:
       not_check_id: web.sqli
 

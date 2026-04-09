@@ -23,7 +23,7 @@ assertions:
   - name: detects-consul-on-nonstandard-port
     type: beacon
     target: localhost:7500
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "7500"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "7500"]
     expect:
       check_id: port.consul_no_acl
 

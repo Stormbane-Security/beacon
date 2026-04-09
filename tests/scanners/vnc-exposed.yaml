@@ -20,7 +20,7 @@ assertions:
   - name: detects-vnc-exposed
     type: beacon
     target: localhost:5900
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5900"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5900"]
     expect:
       check_id: port.vnc_exposed
 

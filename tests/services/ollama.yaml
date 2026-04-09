@@ -28,7 +28,7 @@ assertions:
   - name: detects-ollama-exposed
     type: beacon
     target: localhost:9285
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11434"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "11434"]
     expect:
       check_id: port.ollama_exposed
 

@@ -39,14 +39,14 @@ assertions:
   - name: detects-vertical-escalation
     type: beacon
     target: localhost:9281
-    args: ["--no-enrich", "--scanners", "accesscontrol", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "accesscontrol", "--deep", "--yes"]
     expect:
       check_id: api.vertical_escalation
 
   - name: detects-method-bypass
     type: beacon
     target: localhost:9281
-    args: ["--no-enrich", "--scanners", "accesscontrol", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "accesscontrol", "--deep", "--yes"]
     expect:
       check_id: api.method_bypass
 

@@ -24,7 +24,7 @@ assertions:
   - name: detects-registry-on-nonstandard-port
     type: beacon
     target: localhost:5050
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5050"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5050"]
     expect:
       check_id: container.registry_exposed
 

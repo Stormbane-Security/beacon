@@ -74,7 +74,7 @@ assertions:
   - name: no-jti-missing-finding
     type: beacon
     target: localhost:9372
-    args: ["--no-enrich", "--scanners", "jwt"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
       no_check_id: jwt.replay_missing
 

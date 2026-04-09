@@ -72,7 +72,7 @@ assertions:
   - name: detects-js-internal-endpoints
     type: beacon
     target: localhost:9311
-    args: ["--no-enrich", "--scanners", "jsendpoints"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsendpoints"]
     expect:
       check_id: js.internal_endpoint
 

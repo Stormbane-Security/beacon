@@ -24,7 +24,7 @@ assertions:
   - name: detects-rate-limit-missing
     type: beacon
     target: localhost:9303
-    args: ["--no-enrich", "--scanners", "ratelimit", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ratelimit", "--deep", "--yes"]
     expect:
       check_id: api.rate_limit_missing
 

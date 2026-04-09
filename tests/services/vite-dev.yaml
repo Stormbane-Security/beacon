@@ -23,7 +23,7 @@ assertions:
   - name: detects-dev-server-exposed
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5173"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5173"]
     expect:
       check_id: port.dev_server_exposed
 

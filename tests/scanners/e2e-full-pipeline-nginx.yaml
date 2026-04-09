@@ -1,0 +1,99 @@
+name: e2e-full-pipeline-nginx
+description: >
+  Full pipeline E2E test against plain nginx. Runs beacon WITHOUT any
+  --scanners filter so the complete pipeline executes: crawl → classify →
+  Phase A → Phase B → correlation → chain engine. This is the lightest
+  full-pipeline smoke test — verifies the pipeline completes without crash
+  and detects basic header issues on a vanilla server.
+tags: [e2e, full-pipeline, integration, smoke]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20200:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:20200/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify server is up and has no security headers
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-server-responds
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20200/ | grep -qi 'HTTP/1.1 200'"
+      exit_code: 0
+
+  - name: preflight-no-hsts
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20200/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
+  - name: preflight-no-csp
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20200/ | grep -qi 'Content-Security-Policy'"
+      exit_code: 0
+
+  - name: preflight-server-header-leaks
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20200/ | grep -qi 'Server: nginx'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-completes
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — plain nginx should not fire injection findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.reflected_xss
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 5m
