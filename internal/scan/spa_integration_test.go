@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,20 +105,13 @@ func TestRenderSPA_Integration_FallbackReturnsRawHTML(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 30s timeout — Chrome startup + 2s render sleep + margin.
+	// CI runners have Chrome pre-installed (google-chrome-stable).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	html, err := RenderSPA(ctx, srv.URL)
 	if err != nil {
-		// On CI without Chrome, RenderSPA may timeout trying Chrome then fallback.
-		// If we got an error, try the raw HTTP fallback directly.
-		t.Logf("RenderSPA returned error (expected on CI without Chrome): %v", err)
-		resp, httpErr := http.Get(srv.URL)
-		if httpErr != nil {
-			t.Fatalf("raw HTTP fallback also failed: %v", httpErr)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		body, _ := io.ReadAll(resp.Body)
-		html = string(body)
+		t.Fatalf("RenderSPA returned error: %v", err)
 	}
 	if html == "" {
 		t.Fatal("RenderSPA returned empty string")
