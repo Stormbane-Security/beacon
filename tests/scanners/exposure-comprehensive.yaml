@@ -11,6 +11,7 @@ services:
     ports: ["19843:80"]
     volumes:
       - ./exposure-comprehensive/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./exposure-comprehensive/html:/usr/share/nginx/html:ro
 
 ready:
   cmd: "curl -sf http://localhost:19843/ >/dev/null"

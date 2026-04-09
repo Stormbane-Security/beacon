@@ -83,7 +83,7 @@ assertions:
     target: localhost:19859
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19859"]
     expect:
-      check_id: port.rabbitmq_management_exposed
+      check_id: port.rabbitmq_mgmt_exposed
 
   # ══════════════════════════════════════════════════════════════════════
   # NEGATIVE — no Grafana creds on RabbitMQ port

@@ -38,10 +38,10 @@ assertions:
 
   - name: detects-smtp-service
     type: beacon
-    target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19870"]
+    target: localhost:19870
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      check_id: port.smtp_exposed
+      check_id: port.smtp_open_relay
 
   - name: detects-missing-hsts-on-http-ui
     type: beacon

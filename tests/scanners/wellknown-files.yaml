@@ -55,12 +55,12 @@ assertions:
     expect:
       check_id: wellknown.security_txt
 
-  - name: detects-jwks-exposed
+  - name: detects-change-password
     type: beacon
     target: localhost:19861
-    args: ["--no-enrich", "--scanners", "wellknown"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
     expect:
-      check_id: wellknown.jwks_exposed
+      check_id: wellknown.change_password
 
   - name: detects-oidc-discovery
     type: beacon

@@ -44,7 +44,7 @@ assertions:
     target: localhost:19821
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      check_id: port.rabbitmq_management_exposed
+      check_id: port.rabbitmq_mgmt_exposed
 
   # ══════════════════════════════════════════════════════════════════════
   # MQTT: service identification
@@ -74,13 +74,13 @@ assertions:
     target: localhost:19822
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      not_check_id: port.rabbitmq_management_exposed
+      not_check_id: port.rabbitmq_mgmt_exposed
 
   - name: negative-no-mqtt-on-nats
     type: beacon
     target: localhost:19823
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      not_check_id: port.rabbitmq_management_exposed
+      not_check_id: port.rabbitmq_mgmt_exposed
 
 timeout: 10m
