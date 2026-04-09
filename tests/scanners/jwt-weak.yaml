@@ -78,6 +78,6 @@ assertions:
     target: localhost:19842
     args: ["--no-enrich", "--scanners", "jwt"]
     expect:
-      absent_check_id: web.sqli
+      not_check_id: web.sqli
 
 timeout: 5m

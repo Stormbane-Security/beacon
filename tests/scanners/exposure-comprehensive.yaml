@@ -90,13 +90,13 @@ assertions:
     target: localhost:19843
     args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
-      absent_check_id: web.sqli
+      not_check_id: web.sqli
 
   - name: negative-no-nosqli
     type: beacon
     target: localhost:19843
     args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
-      absent_check_id: web.nosqli
+      not_check_id: web.nosqli
 
 timeout: 5m

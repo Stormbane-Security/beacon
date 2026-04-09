@@ -11,7 +11,7 @@ import (
 func init() {
 	registerProbe(ServiceProbe{
 		Name:         "kubernetes-api",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{6443, 8001},
 		Detect:       detectKubernetesAPI,
 	})
@@ -23,7 +23,7 @@ func init() {
 	})
 	registerProbe(ServiceProbe{
 		Name:         "kubelet",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{10250},
 		Detect:       detectKubelet,
 	})
@@ -59,13 +59,13 @@ func init() {
 	})
 	registerProbe(ServiceProbe{
 		Name:         "proxmox",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8006},
 		Detect:       detectProxmox,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "istio-envoy",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatHTTP, // Envoy admin is plain HTTP
 		DefaultPorts: []int{15000, 15001, 15006},
 		Detect:       detectIstioEnvoy,
 	})

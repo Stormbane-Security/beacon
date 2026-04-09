@@ -136,9 +136,17 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		hasBanner = true
 	}
 
+	// Check if port speaks TLS (cached — one handshake per host:port).
+	// TLS probes are skipped entirely on non-TLS ports, saving 5s+ per probe.
+	portIsTLS := isTLSCapable(ctx, host, port)
+
 	// Split probes into protocol (run in parallel) and non-protocol (run after).
 	var protocolProbes, otherProbes []ServiceProbe
 	for _, probe := range probeRegistry {
+		// Skip TLS probes on non-TLS ports — avoids 5s handshake timeout per probe.
+		if probe.Category == ProbeCatTLS && !portIsTLS {
+			continue
+		}
 		if hasBanner {
 			if probe.Category == ProbeCatHTTP && !bannerHTTP {
 				continue
@@ -248,6 +256,15 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB/Redis)
 		if identifiedService != "" && probe.Name == "mysql-postgres-mssql-oracle" {
 			continue
+		}
+		// Skip exploit playbook probes that don't match the identified service.
+		// Exploit probes have names like "redis-exploit", "consul-exploit" etc.
+		// If we already know the service (e.g., "couchdb"), skip "redis-exploit".
+		if identifiedService != "" && strings.HasSuffix(probe.Name, "-exploit") {
+			svcPrefix := strings.TrimSuffix(probe.Name, "-exploit")
+			if !strings.Contains(identifiedService, svcPrefix) {
+				continue
+			}
 		}
 		probeStart := time.Now()
 		fs := probe.Detect(ctx, host, port, banner, makeF)

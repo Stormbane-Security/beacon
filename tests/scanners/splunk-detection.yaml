@@ -29,7 +29,7 @@ assertions:
   - name: detects-splunk-mgmt-exposed
     type: beacon
     target: localhost:19879
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19879"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: port.splunk_mgmt_exposed
 
@@ -37,8 +37,8 @@ assertions:
   - name: no-false-positive-elasticsearch
     type: beacon
     target: localhost:19879
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19879"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      absent_check_id: port.elasticsearch_exposed
+      not_check_id: port.elasticsearch_exposed
 
 timeout: 5m

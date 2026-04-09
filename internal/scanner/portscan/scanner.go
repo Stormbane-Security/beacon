@@ -981,7 +981,43 @@ func isVulnerableRedis(version string) bool {
 // probeHTTPBody makes a GET request and returns (body, true) on HTTP 200,
 // ("", false) otherwise. Used when the response body is needed to distinguish
 // between services that share a port (e.g. Elasticsearch vs OpenSearch on 9200).
+// tlsCapable caches whether a host:port speaks TLS. Prevents repeated
+// 5-second TLS handshake timeouts against plain HTTP ports.
+var (
+	tlsCapableCache   = make(map[string]bool)
+	tlsCapableCacheMu sync.Mutex
+)
+
+func isTLSCapable(ctx context.Context, host string, port int) bool {
+	key := fmt.Sprintf("%s:%d", host, port)
+	tlsCapableCacheMu.Lock()
+	if v, ok := tlsCapableCache[key]; ok {
+		tlsCapableCacheMu.Unlock()
+		return v
+	}
+	tlsCapableCacheMu.Unlock()
+
+	// Quick TLS handshake with 500ms timeout
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	dialer := &net.Dialer{Timeout: 500 * time.Millisecond}
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	capable := err == nil
+	if conn != nil {
+		_ = conn.Close()
+	}
+
+	tlsCapableCacheMu.Lock()
+	tlsCapableCache[key] = capable
+	tlsCapableCacheMu.Unlock()
+	return capable
+}
+
 func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path string) (string, bool) {
+	// Skip HTTPS probes against ports that don't speak TLS — avoids 5s
+	// handshake timeouts on every HTTPS probe against plain HTTP ports.
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -1022,6 +1058,9 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 // code (not just 200). Used for services like Tomcat that reveal their identity
 // in 404 error pages.
 func probeHTTPAnyBody(ctx context.Context, host string, port int, useTLS bool, path string) (string, bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -1056,6 +1095,9 @@ func probeHTTPAnyBody(ctx context.Context, host string, port int, useTLS bool, p
 }
 
 func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path string) bool {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -2616,6 +2658,9 @@ func probeSMTPOpenRelay(ctx context.Context, host string, port int) bool {
 // probeHTTPBodyWithAuth makes an authenticated HTTP GET request and returns the body.
 // Returns ("", false) if the response is not 200 OK.
 func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bool, path, user, pass string) (string, bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"

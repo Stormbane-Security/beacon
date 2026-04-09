@@ -94,8 +94,7 @@ assertions:
     target: localhost:19859
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19859", "--deep", "--permission-confirmed"]
     expect:
-      check_id: port.grafana_default_credentials
-      absent: true
+      not_check_id: port.grafana_default_credentials
 
   # ══════════════════════════════════════════════════════════════════════
   # NEGATIVE — wrong password rejected on both services

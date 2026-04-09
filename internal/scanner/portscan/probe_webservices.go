@@ -138,13 +138,13 @@ func init() {
 	})
 	registerProbe(ServiceProbe{
 		Name:         "ingress-nginx-admission",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
 		Detect:       detectIngressNginxAdmission,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "kubernetes-dashboard-8443",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
 		Detect:       detectKubeDashboard8443,
 	})

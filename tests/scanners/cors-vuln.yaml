@@ -59,6 +59,6 @@ assertions:
     target: localhost:19841
     args: ["--no-enrich", "--scanners", "cors", "--deep", "--permission-confirmed"]
     expect:
-      absent_check_id: web.sqli
+      not_check_id: web.sqli
 
 timeout: 5m
