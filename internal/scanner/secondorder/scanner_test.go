@@ -219,7 +219,7 @@ func TestNoReflection_NoFindings(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/admin/users":
 			// Return static content — no reflection.
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, "<html><body>User list: admin, bob</body></html>")
+			_, _ = fmt.Fprint(w, "<html><body>User list: admin, bob</body></html>")
 
 		default:
 			http.NotFound(w, r)

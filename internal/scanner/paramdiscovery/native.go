@@ -70,9 +70,7 @@ func DiscoverParams(ctx context.Context, client *http.Client, targetURL string, 
 
 		// Binary search: narrow down which param(s) in the batch caused change.
 		found := binarySearchParams(ctx, client, targetURL, method, batch, bl)
-		for _, p := range found {
-			discovered = append(discovered, p)
-		}
+		discovered = append(discovered, found...)
 	}
 
 	return discovered

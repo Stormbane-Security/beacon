@@ -271,7 +271,7 @@ func isBlocked(ctx context.Context, client *http.Client, targetURL string) bool 
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	switch resp.StatusCode {
@@ -294,7 +294,7 @@ func bypassesViaHeader(ctx context.Context, client *http.Client, base, payload, 
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	// If we get a non-blocked response (200, 301, 302, 400) the bypass worked
@@ -314,7 +314,7 @@ func bypassesViaMethodOverride(ctx context.Context, client *http.Client, base, p
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	return resp.StatusCode != 403 && resp.StatusCode != 406 && resp.StatusCode != 429 && resp.StatusCode != 503
@@ -333,7 +333,7 @@ func bypassesViaContentType(ctx context.Context, client *http.Client, base, payl
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	return resp.StatusCode != 403 && resp.StatusCode != 406 && resp.StatusCode != 429 && resp.StatusCode != 503

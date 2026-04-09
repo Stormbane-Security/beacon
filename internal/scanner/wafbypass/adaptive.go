@@ -123,7 +123,7 @@ func sendProbe(ctx context.Context, client *http.Client, targetURL, param, paylo
 	if err != nil {
 		return nil, "", 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 	return resp, string(bodyBytes), resp.StatusCode
