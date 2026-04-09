@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stormbane-security/beacon/internal/module"
@@ -155,5 +156,56 @@ func TestDedup(t *testing.T) {
 	result := dedup(input)
 	if len(result) != 3 {
 		t.Errorf("dedup(%v) = %d items, want 3", input, len(result))
+	}
+}
+
+func TestExtractInputNames_FiltersNoise(t *testing.T) {
+	html := `<html>
+	<head><meta name="viewport" content="width"><meta name="description" content="test"></head>
+	<body>
+	<form action="/login">
+		<input type="text" name="email">
+		<input type="password" name="password">
+		<div class="mat-mdc-button-ripple" name="mat-mdc-button-ripple"></div>
+		<button>Login</button>
+	</form>
+	</body></html>`
+	names := extractInputNames(html)
+	for _, n := range names {
+		if n == "viewport" || n == "description" || n == "mat-mdc-button-ripple" {
+			t.Errorf("extractInputNames should not include %q", n)
+		}
+	}
+	hasEmail, hasPassword := false, false
+	for _, n := range names {
+		if n == "email" {
+			hasEmail = true
+		}
+		if n == "password" {
+			hasPassword = true
+		}
+	}
+	if !hasEmail {
+		t.Error("expected 'email' in extracted input names")
+	}
+	if !hasPassword {
+		t.Error("expected 'password' in extracted input names")
+	}
+}
+
+func TestHasLoginForm_AngularReactiveForms(t *testing.T) {
+	// Angular Material reactive form — no type="password" but has formcontrolname="password"
+	html := `<mat-form-field><input matInput formcontrolname="password" type="password"></mat-form-field>`
+	if !hasLoginForm(strings.ToLower(html)) {
+		t.Error("expected Angular reactive form with formcontrolname=password to be detected")
+	}
+}
+
+func TestHasLoginForm_IDPassword(t *testing.T) {
+	// Form with id="password" instead of type="password"
+	html := `<form><input id="password" type="text"><button>Log in</button></form>`
+	lower := strings.ToLower(html)
+	if !hasLoginForm(lower) {
+		t.Error("expected form with id=password to be detected as login form")
 	}
 }

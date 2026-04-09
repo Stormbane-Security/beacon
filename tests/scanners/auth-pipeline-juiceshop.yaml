@@ -1,9 +1,10 @@
 name: auth-pipeline-juiceshop
 description: >
-  Scanning OWASP Juice Shop (Angular SPA). Tests header detection and
-  negative assertions. NOTE: authsurface can't detect JS-rendered login
-  forms — this is a known SPA limitation documented as a TODO.
-tags: [auth, juiceshop, spa, integration]
+  Scanning OWASP Juice Shop (Angular SPA). Tests header detection,
+  SPA login form discovery via chromedp, and negative assertions.
+  authsurface renders the Angular app with headless Chrome to detect
+  the login form at /#/login and registration at /#/register.
+tags: [auth, juiceshop, spa, chromedp, integration]
 
 services:
   juiceshop:
@@ -41,8 +42,22 @@ assertions:
     expect:
       not_check_id: port.redis_unauthenticated
 
-  # TODO: authsurface needs headless browser (chromedp) to detect
-  # JS-rendered login forms in SPAs like Juice Shop. Currently only
-  # parses server-rendered HTML.
+  # authsurface detects the Angular login form via chromedp rendering.
+  # The login form is at /#/login (hash routing) and only visible after
+  # JavaScript execution. Requires Chrome on the test host.
+  - name: detects-spa-login-form
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.login_form_detected
+
+  # authsurface detects open registration at /#/register
+  - name: detects-spa-registration
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.registration_open
 
 timeout: 5m

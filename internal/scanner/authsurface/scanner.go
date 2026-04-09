@@ -139,6 +139,17 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		}
 	}
 
+	// If the main page is a SPA, also probe common hash-fragment login paths.
+	// SPAs with client-side routing (Angular, React Router, Vue Router) use
+	// hash fragments like /#/login that HTTP GETs cannot distinguish.
+	isSPAApp := mainStatus == 200 && scan.IsSPA(mainBody)
+	if isSPAApp {
+		hashLoginPaths := []string{"#/login", "#/signin", "#/sign-in", "#/auth/login", "#/admin"}
+		hashRegisterPaths := []string{"#/register", "#/signup", "#/sign-up", "#/join"}
+		loginPaths = append(loginPaths, hashLoginPaths...)
+		registerPaths = append(registerPaths, hashRegisterPaths...)
+	}
+
 	// Fallback: add common paths if nothing found from crawl/links
 	if len(loginPaths) == 0 {
 		loginPaths = []string{"/login", "/login.php", "/signin", "/auth/login", "/admin",
@@ -153,16 +164,26 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 	registerPaths = dedup(registerPaths)
 
 	for _, path := range loginPaths {
-		body, status := fetchPage(ctx, client, scheme+"://"+asset+path)
+		isHashPath := strings.HasPrefix(path, "#")
+
+		// For hash-fragment paths, fetch the base URL (HTTP ignores fragments).
+		fetchURL := scheme + "://" + asset + path
+		if isHashPath {
+			fetchURL = base + "/"
+		}
+
+		body, status := fetchPage(ctx, client, fetchURL)
 		if status == 0 || status >= 400 {
 			continue
 		}
 
 		// If the page looks like a SPA (Angular/React/Vue), render it in
 		// headless Chrome to get the actual DOM with login forms that are
-		// built client-side by JavaScript.
-		if scan.IsSPA(body) {
-			if rendered, err := scan.RenderSPA(ctx, scheme+"://"+asset+path); err == nil && rendered != "" {
+		// built client-side by JavaScript. Hash-fragment paths always need
+		// rendering since the server returns the same HTML shell for all routes.
+		if scan.IsSPA(body) || isHashPath {
+			renderURL := base + "/" + path
+			if rendered, err := scan.RenderSPA(ctx, renderURL); err == nil && rendered != "" {
 				body = rendered
 			}
 		}
@@ -210,6 +231,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 			}
 
 			// Emit login form finding
+			proofCmd := fmt.Sprintf("curl -s '%s://%s%s' | grep -i 'type=\"password\"'", scheme, asset, path)
+			if isHashPath {
+				// curl ignores URL fragments; suggest using beacon or a browser.
+				proofCmd = fmt.Sprintf("beacon scan --host %s --scanners authsurface --no-enrich --no-nmap --yes  # SPA login at %s", asset, path)
+			}
 			findings = append(findings, finding.Finding{
 				CheckID:     finding.CheckAuthLoginFormDetected,
 				Module:      "surface",
@@ -219,7 +245,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 				Description: fmt.Sprintf("A password-based login form was found at %s. Credentials are needed to scan the authenticated attack surface behind this login. Fields: %s", path, strings.Join(fields, ", ")),
 				Asset:       asset,
 				Evidence:    ev,
-				ProofCommand: fmt.Sprintf("curl -s '%s://%s%s' | grep -i 'type=\"password\"'", scheme, asset, path),
+				ProofCommand: proofCmd,
 				DiscoveredAt: now,
 			})
 
@@ -243,14 +269,22 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	// Detect registration pages
 	for _, path := range registerPaths {
-		body, status := fetchPage(ctx, client, scheme+"://"+asset+path)
+		isHashPath := strings.HasPrefix(path, "#")
+
+		fetchURL := scheme + "://" + asset + path
+		if isHashPath {
+			fetchURL = base + "/"
+		}
+
+		body, status := fetchPage(ctx, client, fetchURL)
 		if status == 0 || status >= 400 {
 			continue
 		}
 
 		// SPA rendering for registration pages too.
-		if scan.IsSPA(body) {
-			if rendered, err := scan.RenderSPA(ctx, scheme+"://"+asset+path); err == nil && rendered != "" {
+		if scan.IsSPA(body) || isHashPath {
+			renderURL := base + "/" + path
+			if rendered, err := scan.RenderSPA(ctx, renderURL); err == nil && rendered != "" {
 				body = rendered
 			}
 		}
@@ -259,6 +293,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 		if hasLoginForm(lower) &&
 			(strings.Contains(lower, "register") || strings.Contains(lower, "sign up") ||
 				strings.Contains(lower, "create account") || strings.Contains(lower, "join")) {
+			regProofCmd := fmt.Sprintf("curl -s '%s://%s%s' | grep -i 'register\\|sign.up\\|create.account'", scheme, asset, path)
+			if isHashPath {
+				regProofCmd = fmt.Sprintf("beacon scan --host %s --scanners authsurface --no-enrich --no-nmap --yes  # SPA registration at %s", asset, path)
+			}
 			findings = append(findings, finding.Finding{
 				CheckID:     finding.CheckAuthRegistrationOpen,
 				Module:      "surface",
@@ -268,7 +306,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 				Description: fmt.Sprintf("The application allows self-registration at %s. An ephemeral test account can be created for authenticated scanning. This is also a finding — open registration may be unintended.", path),
 				Asset:       asset,
 				Evidence:    map[string]any{"path": path, "auto_register_possible": true},
-				ProofCommand: fmt.Sprintf("curl -s '%s://%s%s' | grep -i 'register\\|sign.up\\|create.account'", scheme, asset, path),
+				ProofCommand: regProofCmd,
 				DiscoveredAt: now,
 			})
 			break
@@ -329,22 +367,49 @@ func extractFormAction(html string) string {
 
 func extractInputNames(html string) []string {
 	var names []string
+	seen := make(map[string]bool)
 	lower := strings.ToLower(html)
-	for {
-		idx := strings.Index(lower, `name="`)
-		if idx < 0 {
-			break
+
+	// Only extract name= attributes from input, select, and textarea elements.
+	// This avoids noise from meta tags, divs, and Angular Material components.
+	inputTags := []string{"<input", "<select", "<textarea"}
+	for _, tag := range inputTags {
+		search := lower
+		for {
+			tagIdx := strings.Index(search, tag)
+			if tagIdx < 0 {
+				break
+			}
+			// Find the end of this element's opening tag.
+			closeIdx := strings.IndexByte(search[tagIdx:], '>')
+			if closeIdx < 0 {
+				break
+			}
+			elem := search[tagIdx : tagIdx+closeIdx]
+			// Extract name="..." from within this element.
+			nameIdx := strings.Index(elem, `name="`)
+			if nameIdx >= 0 {
+				rest := elem[nameIdx+6:]
+				end := strings.IndexByte(rest, '"')
+				if end > 0 {
+					name := rest[:end]
+					skip := []string{"", "csrf", "_token", "viewport", "description",
+						"keywords", "robots", "author", "generator"}
+					isSkip := false
+					for _, s := range skip {
+						if name == s {
+							isSkip = true
+							break
+						}
+					}
+					if !isSkip && !seen[name] {
+						seen[name] = true
+						names = append(names, name)
+					}
+				}
+			}
+			search = search[tagIdx+closeIdx:]
 		}
-		rest := lower[idx+6:]
-		end := strings.IndexByte(rest, '"')
-		if end < 0 {
-			break
-		}
-		name := rest[:end]
-		if name != "" && name != "csrf" && name != "_token" {
-			names = append(names, name)
-		}
-		lower = rest[end:]
 	}
 	return names
 }

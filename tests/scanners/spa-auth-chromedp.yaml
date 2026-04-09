@@ -1,0 +1,61 @@
+name: spa-auth-chromedp
+description: >
+  End-to-end test of chromedp SPA auth detection against Juice Shop.
+  Verifies the full pipeline: IsSPA detection on the Angular shell,
+  headless Chrome rendering of hash-routed pages (/#/login, /#/register),
+  and correct finding emission including input field extraction.
+  Requires Chrome/Chromium on the test host.
+tags: [spa, chromedp, authsurface, angular, juiceshop, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19901:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19901/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Juice Shop HTML is an Angular SPA (has <app-root>)
+  - name: html-is-angular-spa
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19901/ | grep -qi 'app-root'"
+      exit_code: 0
+
+  # Pre-flight: raw HTML has NO password field (proves SPA rendering needed)
+  - name: no-password-in-raw-html
+    type: command
+    expect:
+      command: "! curl -sf http://localhost:19901/ | grep -qi 'type=\"password\"'"
+      exit_code: 0
+
+  # Core: authsurface finds the login form at /#/login via chromedp
+  - name: chromedp-detects-login-form
+    type: beacon
+    target: localhost:19901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.login_form_detected
+
+  # Core: authsurface finds open registration at /#/register
+  - name: chromedp-detects-registration
+    type: beacon
+    target: localhost:19901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.registration_open
+
+  # Core: SSO providers detected on the login page (Google, GitHub, etc.)
+  - name: chromedp-detects-sso
+    type: beacon
+    target: localhost:19901
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.sso_endpoint
+
+timeout: 5m
