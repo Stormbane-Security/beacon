@@ -13,7 +13,6 @@ package web3defi
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -318,19 +317,4 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	return "https"
 }
 
-// parseJSONField extracts a string value for the given key from a JSON blob.
-func parseJSONField(data []byte, key string) string {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(data, &m) != nil {
-		return ""
-	}
-	raw, ok := m[key]
-	if !ok {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	return ""
-}
+

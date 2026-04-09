@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -106,6 +107,20 @@ func (rc *ResponseCache) fetch(ctx context.Context, url string, headers map[stri
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       body,
+	}
+}
+
+// AsHTTPResponse converts a CachedResponse into an *http.Response for
+// scanners that expect the standard type. The Body is an io.ReadCloser
+// wrapping the cached bytes. Returns nil if the CachedResponse has an error.
+func (cr *CachedResponse) AsHTTPResponse() *http.Response {
+	if cr.Error != nil {
+		return nil
+	}
+	return &http.Response{
+		StatusCode: cr.StatusCode,
+		Header:     cr.Headers,
+		Body:       io.NopCloser(bytes.NewReader(cr.Body)),
 	}
 }
 

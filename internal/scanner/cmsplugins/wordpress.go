@@ -24,7 +24,7 @@ func probeWordPressUsers(ctx context.Context, client *http.Client, asset, base s
 	if err == nil {
 		resp, err := client.Do(req)
 		if err == nil {
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 			bodyStr := string(body)
 
@@ -66,7 +66,7 @@ func probeWordPressUsers(ctx context.Context, client *http.Client, asset, base s
 		if err != nil {
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// WordPress redirects to /author/<username>/ on valid author IDs
 		if resp.StatusCode == 301 || resp.StatusCode == 302 {
@@ -116,7 +116,7 @@ func probeWordPressThemes(ctx context.Context, client *http.Client, asset, base 
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
 	bodyStr := string(body)
 
@@ -216,7 +216,7 @@ func quickGet(ctx context.Context, client *http.Client, url string) (int, string
 	if err != nil {
 		return 0, ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	return resp.StatusCode, string(body)
 }

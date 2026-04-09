@@ -65,11 +65,11 @@ func startTLSServer(t *testing.T, tlsCfg *tls.Config) (string, int, func()) {
 			}
 			// Complete the handshake then close.
 			_ = conn.(*tls.Conn).Handshake()
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 	addr := l.Addr().(*net.TCPAddr)
-	return addr.IP.String(), addr.Port, func() { l.Close() }
+	return addr.IP.String(), addr.Port, func() { _ = l.Close() }
 }
 
 func TestJA3SFingerprint_ValidTLS(t *testing.T) {
@@ -133,14 +133,14 @@ func TestJA3SFingerprint_NonTLSPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
 				return
 			}
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 	port := l.Addr().(*net.TCPAddr).Port
@@ -314,7 +314,7 @@ func TestRunProbes_JA3SEnrichesServiceIdentified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			conn, err := l.Accept()
@@ -326,7 +326,7 @@ func TestRunProbes_JA3SEnrichesServiceIdentified(t *testing.T) {
 			if tc, ok := conn.(*tls.Conn); ok {
 				_ = tc.Handshake()
 			}
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 	port := l.Addr().(*net.TCPAddr).Port

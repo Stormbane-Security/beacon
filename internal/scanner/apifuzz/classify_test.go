@@ -131,9 +131,10 @@ func TestClassifyAnomaly_NoSQL(t *testing.T) {
 	reasons := []string{"status_change: 401 → 200"}
 	got := classifyAnomaly(reasons, "", "type_confusion_email_str_to_object")
 	// NoSQL object mutation + status change = sqli (NoSQL injection)
+	// auth_bypass takes priority over NoSQL since 401→200 — that's correct,
+	// the auth bypass is the more impactful classification.
 	if got != "auth_bypass" {
-		// Actually auth_bypass takes priority over NoSQL since 401→200
-		// That's correct — the auth bypass is the more impactful classification
+		t.Errorf("expected auth_bypass for NoSQL object mutation + 401→200, got %q", got)
 	}
 }
 

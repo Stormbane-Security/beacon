@@ -186,12 +186,12 @@ func echoWSHandler(w http.ResponseWriter, r *http.Request) {
 	key := r.Header.Get("Sec-WebSocket-Key")
 	accept := computeAcceptKey(key)
 
-	_, _ = bufrw.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(bufrw,
 		"HTTP/1.1 101 Switching Protocols\r\n"+
 			"Upgrade: websocket\r\n"+
 			"Connection: Upgrade\r\n"+
 			"Sec-WebSocket-Accept: %s\r\n"+
-			"\r\n", accept))
+			"\r\n", accept)
 	_ = bufrw.Flush()
 
 	// Read one frame and echo it back (unmasked, from server).

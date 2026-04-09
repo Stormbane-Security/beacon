@@ -33,46 +33,62 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	// Try HTTPS first, fall back to HTTP.
-	var resp *http.Response
+	// Use the shared response cache when available — many scanners fetch
+	// the same root URL, so caching avoids redundant requests.
+	var headers http.Header
 	var scheme string
-	for _, sc := range []string{"https", "http"} {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, sc+"://"+asset, nil)
-		if err != nil {
-			continue
+	if sctx, ok := scan.FromContext(ctx); ok {
+		scheme = sctx.Scheme()
+		url := scheme + "://" + asset
+		cached := sctx.ResponseCache().Get(ctx, url)
+		if cached.Error != nil && scheme == "https" {
+			scheme = "http"
+			url = "http://" + asset
+			cached = sctx.ResponseCache().Get(ctx, url)
 		}
-		r, err := client.Do(req)
-		if err != nil {
-			if r != nil {
-				_ = r.Body.Close()
+		if cached.Error != nil {
+			return nil, nil
+		}
+		headers = cached.Headers
+	} else {
+		// Fallback: no scan context — fetch directly.
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+		for _, sc := range []string{"https", "http"} {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, sc+"://"+asset, nil)
+			if err != nil {
+				continue
 			}
-			continue
+			r, err := client.Do(req)
+			if err != nil {
+				if r != nil {
+					_ = r.Body.Close()
+				}
+				continue
+			}
+			defer func() { _ = r.Body.Close() }() //nolint:gocritic
+			headers = r.Header
+			scheme = sc
+			break
 		}
-		resp = r
-		scheme = sc
-		break
+		if headers == nil {
+			return nil, nil
+		}
 	}
-	if resp == nil {
-		return nil, nil
-	}
-	defer func() { _ = resp.Body.Close() }()
 
 	// Only check pages that return an HTML response — non-HTML assets
 	// (APIs, images, fonts) are not framed and don't need these headers.
-	ct := resp.Header.Get("Content-Type")
+	ct := headers.Get("Content-Type")
 	if ct != "" && !strings.Contains(ct, "text/html") && !strings.Contains(ct, "application/xhtml+xml") {
 		return nil, nil
 	}
 
-	xfo := resp.Header.Get("X-Frame-Options")
-	csp := resp.Header.Get("Content-Security-Policy")
+	xfo := headers.Get("X-Frame-Options")
+	csp := headers.Get("Content-Security-Policy")
 
 	// A CSP with frame-ancestors supersedes X-Frame-Options in modern browsers.
 	hasFrameAncestors := strings.Contains(strings.ToLower(csp), "frame-ancestors")

@@ -44,7 +44,7 @@ func RenderPDF(run store.ScanRun, enriched []enrichment.EnrichedFinding, summary
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	htmlPath := filepath.Join(tmpDir, "report.html")
 	if err := os.WriteFile(htmlPath, []byte(html), 0o644); err != nil {
@@ -248,14 +248,14 @@ func markdownToHTML(md string, domain string) string {
 		}
 		if strings.HasPrefix(line, "## ") {
 			id := slugify(line[3:])
-			b.WriteString(fmt.Sprintf(`<h2 id="%s">`, id))
+			fmt.Fprintf(&b, `<h2 id="%s">`, id)
 			b.WriteString(inlineMarkdown(line[3:]))
 			b.WriteString("</h2>\n")
 			continue
 		}
 		if strings.HasPrefix(line, "### ") {
 			id := slugify(line[4:])
-			b.WriteString(fmt.Sprintf(`<h3 id="%s">`, id))
+			fmt.Fprintf(&b, `<h3 id="%s">`, id)
 			b.WriteString(inlineMarkdown(line[4:]))
 			b.WriteString("</h3>\n")
 			continue

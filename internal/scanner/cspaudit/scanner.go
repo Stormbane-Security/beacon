@@ -41,48 +41,65 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
-	}
-
 	scheme := "https"
 	if sctx, ok := scan.FromContext(ctx); ok {
 		scheme = sctx.Scheme()
 	}
 	url := scheme + "://" + asset + "/"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, nil
-	}
-	resp, err := client.Do(req)
-	if err != nil && scheme == "https" {
-		url = "http://" + asset + "/"
-		req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+
+	// Use the shared response cache for the initial GET — many scanners
+	// fetch the same root URL, so caching avoids redundant requests.
+	var headers http.Header
+	if sctx, ok := scan.FromContext(ctx); ok {
+		cached := sctx.ResponseCache().Get(ctx, url)
+		if cached.Error != nil && scheme == "https" {
+			url = "http://" + asset + "/"
+			cached = sctx.ResponseCache().Get(ctx, url)
+		}
+		if cached.Error != nil {
+			return nil, nil
+		}
+		headers = cached.Headers
+	} else {
+		// Fallback: no scan context — fetch directly.
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 3 {
+					return http.ErrUseLastResponse
+				}
+				return nil
+			},
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, nil
 		}
-		resp, err = client.Do(req)
-		if err != nil {
+		resp, err := client.Do(req)
+		if err != nil && scheme == "https" {
+			url = "http://" + asset + "/"
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if err != nil {
+				return nil, nil
+			}
+			resp, err = client.Do(req)
+			if err != nil {
+				return nil, nil
+			}
+		} else if err != nil {
 			return nil, nil
 		}
-	} else if err != nil {
-		return nil, nil
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		_ = resp.Body.Close()
+		headers = resp.Header
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
-	_ = resp.Body.Close()
 
 	var findings []finding.Finding
 	now := time.Now()
 
 	// Check for CSP in report-only mode.
-	cspRO := resp.Header.Get("Content-Security-Policy-Report-Only")
-	csp := resp.Header.Get("Content-Security-Policy")
+	cspRO := headers.Get("Content-Security-Policy-Report-Only")
+	csp := headers.Get("Content-Security-Policy")
 
 	if cspRO != "" && csp == "" {
 		findings = append(findings, finding.Finding{

@@ -69,10 +69,6 @@ func publicKeyBits(cert *x509.Certificate) int {
 	default:
 		// For ECDSA, Ed25519, etc. use the raw key bit length from x509
 		if cert.PublicKeyAlgorithm == x509.ECDSA {
-			// ECDSA keys: parse from the curve
-			type ecKey interface {
-				Params() interface{ BitSize() int }
-			}
 			// Fallback: estimate from signature algorithm
 			switch {
 			case strings.Contains(cert.SignatureAlgorithm.String(), "256"):
@@ -116,7 +112,7 @@ func JA3SFingerprint(ctx context.Context, host string, port int) *JA3SResult {
 		ja3sCacheMu.Unlock()
 		return nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	state := conn.ConnectionState()
 	hash, raw := ja3sHash(state.Version, state.CipherSuite)
@@ -150,7 +146,7 @@ func JA3SFingerprint(ctx context.Context, host string, port int) *JA3SResult {
 // tlsVersionName returns a human-readable TLS version string.
 func tlsVersionName(v uint16) string {
 	switch v {
-	case tls.VersionSSL30:
+	case 0x0300: //nolint:staticcheck // SSL 3.0 intentionally matched for fingerprinting
 		return "SSL 3.0"
 	case tls.VersionTLS10:
 		return "TLS 1.0"

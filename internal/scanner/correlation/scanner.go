@@ -608,7 +608,7 @@ func checkCredentialTheftChain(byCheckID map[string][]finding.Finding, asset str
 	hasGit := hasAny(byCheckID, finding.CheckExposureGitExposed)
 	hasSensitive := hasAny(byCheckID, envExposureCheckIDs...)
 
-	if !((hasEnv && hasDB) || (hasGit && hasSensitive)) {
+	if !((hasEnv && hasDB) || (hasGit && hasSensitive)) { //nolint:staticcheck
 		return nil
 	}
 
@@ -683,7 +683,7 @@ func checkFullCompromiseChain(byCheckID map[string][]finding.Finding, asset stri
 	hasSSRF := hasAny(byCheckID, ssrfCheckIDs...)
 	hasCloudMeta := hasAny(byCheckID, finding.CheckCloudMetadataSSRF)
 
-	if !((hasSQLi && hasDBExposed) || (hasSSRF && hasCloudMeta)) {
+	if !((hasSQLi && hasDBExposed) || (hasSSRF && hasCloudMeta)) { //nolint:staticcheck
 		return nil
 	}
 
@@ -770,7 +770,7 @@ func checkAuthBypassChain(byCheckID map[string][]finding.Finding, asset string, 
 	hasDefaultCreds := hasAny(byCheckID, defaultCredsCheckIDs...)
 	hasAdminPanel := hasAny(byCheckID, finding.CheckExposureAdminPath, finding.CheckExposureMonitoringPanel, finding.CheckExposureCICDPanel)
 
-	if !((hasJWTWeak && hasNoRotation) || (hasDefaultCreds && hasAdminPanel)) {
+	if !((hasJWTWeak && hasNoRotation) || (hasDefaultCreds && hasAdminPanel)) { //nolint:staticcheck
 		return nil
 	}
 
@@ -843,7 +843,7 @@ func checkCachePoisoningChain(byCheckID map[string][]finding.Finding, asset stri
 	hasUnkeyed := hasAny(byCheckID, finding.CheckCachePoisonUnkeyed)
 	hasXSS := hasAny(byCheckID, xssCheckIDs...)
 
-	if !((hasHostInjection && hasCache) || (hasUnkeyed && hasXSS)) {
+	if !((hasHostInjection && hasCache) || (hasUnkeyed && hasXSS)) {  //nolint:staticcheck
 		return nil
 	}
 

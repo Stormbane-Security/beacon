@@ -105,7 +105,7 @@ func cmdServe(args []string) {
 	}
 
 	db := openDB(flags)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	srv := vulndb.NewServer(db, port)
 	log.Printf("beacon-vulndb serving on :%d", port)
@@ -124,7 +124,7 @@ func cmdServe(args []string) {
 	log.Println("shutting down...")
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	srv.Shutdown(shutCtx)
+	_ = srv.Shutdown(shutCtx)
 }
 
 func cmdSync(args []string) {
@@ -135,7 +135,7 @@ func cmdSync(args []string) {
 	}
 
 	db := openDB(flags)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	switch source {
 	case "osv":
@@ -155,7 +155,7 @@ func cmdSync(args []string) {
 func cmdStatus(args []string) {
 	flags := parseFlags(args)
 	db := openDB(flags)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	stats, err := db.Stats()
 	if err != nil {
@@ -171,7 +171,7 @@ func cmdStatus(args []string) {
 func cmdQuery(args []string) {
 	flags := parseFlags(args)
 	db := openDB(flags)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Positional: query <service> [version]
 	service := flags["_0"]
@@ -194,5 +194,5 @@ func cmdQuery(args []string) {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(cves)
+	_ = enc.Encode(cves)
 }

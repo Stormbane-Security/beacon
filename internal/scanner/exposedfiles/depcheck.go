@@ -420,7 +420,7 @@ func versionLessThan(a, b *semver) bool {
 // like ^, ~, >=, <=, =, and leading 'v' so "^4.17.20" becomes "4.17.20".
 func cleanVersionConstraint(s string) string {
 	s = strings.TrimSpace(s)
-	s = strings.TrimLeft(s, "^~>=<!=v")
+	s = strings.TrimLeft(s, "^~><=!v")
 	return s
 }
 

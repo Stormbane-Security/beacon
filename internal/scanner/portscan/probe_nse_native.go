@@ -552,13 +552,14 @@ func probeRDPEncryption(ctx context.Context, host string, port int) *RDPResult {
 	// The negotiation data starts at offset 11 in the X.224 CC.
 	if n >= 19 {
 		negType := buf[11]
-		if negType == 0x02 {
+		switch negType {
+		case 0x02:
 			// TYPE_RDP_NEG_RSP: server accepted a security protocol
 			result.ProtocolFlags = buf[15]
 			selectedProtocol := binary.LittleEndian.Uint32(buf[15:19])
 			// If PROTOCOL_HYBRID (2) or PROTOCOL_HYBRID_EX (8) is selected, NLA is in use.
 			result.NLARequired = selectedProtocol == 2 || selectedProtocol == 8
-		} else if negType == 0x03 {
+		case 0x03:
 			// TYPE_RDP_NEG_FAILURE: server rejected all requested protocols.
 			// This typically means only standard RDP security (no TLS/NLA) is available.
 			result.WeakEncryption = true

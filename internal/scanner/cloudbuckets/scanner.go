@@ -602,29 +602,6 @@ func probeAzureContainer(ctx context.Context, client *http.Client, asset, url, p
 	return nil
 }
 
-// probePublicRead attempts to download a well-known test path from a bucket URL
-// to confirm that individual objects are publicly readable (not just that the
-// bucket exists). Returns true if any probe returned HTTP 200 with a non-empty body.
-func probePublicRead(ctx context.Context, client *http.Client, baseURL string) bool {
-	testPaths := []string{"index.html", "robots.txt", "favicon.ico"}
-	for _, p := range testPaths {
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL+p, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode == 200 {
-			return true
-		}
-	}
-	return false
-}
-
 // rootDomain strips subdomains, returning e.g. "acme.com" from "app.acme.com".
 func rootDomain(asset string) string {
 	parts := strings.Split(asset, ".")

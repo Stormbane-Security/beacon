@@ -173,7 +173,7 @@ func TestIsSPA_Integration_HTTPTestServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTP GET failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	buf := make([]byte, 64*1024)
 	n, _ := resp.Body.Read(buf)

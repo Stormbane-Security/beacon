@@ -101,7 +101,7 @@ func TestDiscoverParams_POSTMethod(t *testing.T) {
 			_ = r.ParseForm()
 			if r.FormValue("email") != "" {
 				w.WriteHeader(200)
-				_, _ = w.Write([]byte(fmt.Sprintf("found user for %s with extra details and more content", r.FormValue("email"))))
+				_, _ = fmt.Fprintf(w, "found user for %s with extra details and more content", r.FormValue("email"))
 				return
 			}
 		}
@@ -137,7 +137,7 @@ func TestDiscoverParams_SkipsDynamicEndpoints(t *testing.T) {
 		callCount++
 		// Every response is different — endpoint is too dynamic for differential analysis.
 		w.WriteHeader(200)
-		_, _ = w.Write([]byte(fmt.Sprintf("response %d with random content %s", callCount, strings.Repeat("x", callCount*100))))
+		_, _ = fmt.Fprintf(w, "response %d with random content %s", callCount, strings.Repeat("x", callCount*100))
 	}))
 	defer srv.Close()
 
@@ -287,7 +287,7 @@ func TestRandomValue(t *testing.T) {
 	}
 	// Should be alphanumeric.
 	for _, c := range v {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) { //nolint:staticcheck
 			t.Errorf("unexpected char %c in random value", c)
 		}
 	}

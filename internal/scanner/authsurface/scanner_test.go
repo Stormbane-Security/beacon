@@ -15,11 +15,11 @@ func TestDetectsLoginForm(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, `<html><body><form action="/auth"><input type="text" name="email"><input type="password" name="password"><button>Login</button></form></body></html>`)
+			_, _ = fmt.Fprint(w, `<html><body><form action="/auth"><input type="text" name="email"><input type="password" name="password"><button>Login</button></form></body></html>`)
 			return
 		}
 		w.WriteHeader(200)
-		fmt.Fprint(w, `<html><body><a href="/login">Login</a></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><body><a href="/login">Login</a></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -45,11 +45,11 @@ func TestDetectsRegistration(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/register" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, `<html><body><h1>Create Account</h1><form><input type="text" name="email"><input type="password" name="password"><button>Register</button></form></body></html>`)
+			_, _ = fmt.Fprint(w, `<html><body><h1>Create Account</h1><form><input type="text" name="email"><input type="password" name="password"><button>Register</button></form></body></html>`)
 			return
 		}
 		w.WriteHeader(200)
-		fmt.Fprint(w, `<html><body><a href="/register">Sign Up</a></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><body><a href="/register">Sign Up</a></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -75,11 +75,11 @@ func TestDetectsSSO(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, `<html><body><form><input type="password" name="pass"></form><a href="/auth/google">Login with Google</a><a href="/auth/github">Sign in with GitHub</a></body></html>`)
+			_, _ = fmt.Fprint(w, `<html><body><form><input type="password" name="pass"></form><a href="/auth/google">Login with Google</a><a href="/auth/github">Sign in with GitHub</a></body></html>`)
 			return
 		}
 		w.WriteHeader(200)
-		fmt.Fprint(w, `<html><body><a href="/login">Login</a></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><body><a href="/login">Login</a></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -105,11 +105,11 @@ func TestDetectsCAPTCHA(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login" {
 			w.WriteHeader(200)
-			fmt.Fprint(w, `<html><body><form><input type="password" name="pass"><div class="g-recaptcha" data-sitekey="test"></div></form></body></html>`)
+			_, _ = fmt.Fprint(w, `<html><body><form><input type="password" name="pass"><div class="g-recaptcha" data-sitekey="test"></div></form></body></html>`)
 			return
 		}
 		w.WriteHeader(200)
-		fmt.Fprint(w, `<html><body><a href="/login">Login</a></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><body><a href="/login">Login</a></body></html>`)
 	}))
 	defer srv.Close()
 
@@ -134,7 +134,7 @@ func TestDetectsCAPTCHA(t *testing.T) {
 func TestNegative_NoLoginForm(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		fmt.Fprint(w, `<html><body><h1>Welcome</h1><p>No login here.</p></body></html>`)
+		_, _ = fmt.Fprint(w, `<html><body><h1>Welcome</h1><p>No login here.</p></body></html>`)
 	}))
 	defer srv.Close()
 

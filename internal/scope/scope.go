@@ -121,7 +121,7 @@ func fetchHackerOne(ctx context.Context, handle string) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hackerone: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		// Try the public GraphQL-style API
@@ -181,7 +181,7 @@ func fetchHackerOneGraphQL(ctx context.Context, handle string) (*Program, error)
 	if err != nil {
 		return nil, fmt.Errorf("hackerone graphql: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -258,7 +258,7 @@ func fetchBugcrowd(ctx context.Context, handle string) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bugcrowd: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -321,7 +321,7 @@ func fetchIntigriti(ctx context.Context, handle string) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("intigriti: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("intigriti: HTTP %d for program %q", resp.StatusCode, handle)

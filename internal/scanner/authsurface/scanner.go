@@ -337,7 +337,7 @@ func fetchPage(ctx context.Context, client *http.Client, url string) (string, in
 	if err != nil {
 		return "", 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
 	return string(body), resp.StatusCode
 }

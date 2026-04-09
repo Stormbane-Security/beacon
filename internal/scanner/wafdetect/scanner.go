@@ -356,8 +356,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			sqliResp, err2 := client.Do(sqliReq)
 
 			if err1 == nil && err2 == nil {
-				normalResp.Body.Close()
-				sqliResp.Body.Close()
+				_ = normalResp.Body.Close()
+				_ = sqliResp.Body.Close()
 
 				// Normal succeeds (200) but SQLi blocked (403/406/429) = WAF present
 				if normalResp.StatusCode == 200 && (sqliResp.StatusCode == 403 || sqliResp.StatusCode == 406 || sqliResp.StatusCode == 429) {
