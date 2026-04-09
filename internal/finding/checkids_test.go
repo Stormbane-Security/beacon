@@ -719,6 +719,44 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckNmapIPMICipherZero:  true,
 		// CVE-2019-9193 PostgreSQL COPY RCE — requires authenticated superuser access
 		finding.CheckCVEPostgreSQLCopyRCE2019: true,
+		// New scanners added this session
+		finding.CheckWebReflectedXSS:            true,
+		finding.CheckWebBlindSQLiTime:            true,
+		finding.CheckWebHPPWAFBypass:             true,
+		finding.CheckWAFBypassFound:              true,
+		finding.CheckWAFBypassDoubleEncode:       true,
+		finding.CheckWebSocketInjection:          true,
+		finding.CheckWebSocketAuthBypass:          true,
+		finding.CheckWebPHPDeserialization:        true,
+		finding.CheckWebJavaDeserialization:       true,
+		finding.CheckPrivescBrokenAccessControl:   true,
+		finding.CheckPrivescHorizontalPrivesc:     true,
+		finding.CheckPrivescMethodBypass:           true,
+		finding.CheckStateSkipDetected:             true,
+		finding.CheckIncompleteAuthFlow:            true,
+		finding.CheckStepBypass:                    true,
+		finding.CheckSecondOrderXSS:                true,
+		finding.CheckSecondOrderSQLi:               true,
+		finding.CheckSecondOrderReflection:          true,
+		finding.CheckGraphQLNoDepthLimit:            true,
+		finding.CheckGraphQLBatchNoLimit:            true,
+		finding.CheckParamDiscovered:                true,
+		// Chain engine findings
+		finding.CheckChainSSRFToCloudCreds:          true,
+		finding.CheckChainDefaultCredsToAdmin:        true,
+		finding.CheckChainEnvToDatabaseAccess:        true,
+		finding.CheckChainSQLiToCredentialDump:       true,
+		finding.CheckChainXSSToSessionTheftPoC:       true,
+		finding.CheckChainNucleiToExploit:            true,
+		// Default credential probes
+		finding.CheckPortPhpMyAdminDefaultCreds:     true,
+		finding.CheckPortMongoExpressDefaultCreds:    true,
+		finding.CheckPortKibanaDefaultCreds:          true,
+		finding.CheckPortWordPressDefaultCreds:       true,
+		// Smart contract deep checks
+		finding.CheckContractUnprotectedWithdraw:     true,
+		finding.CheckContractFlashloanCallback:       true,
+		finding.CheckContractApprovalUnlimited:       true,
 	}
 
 	for id, meta := range finding.Registry {
