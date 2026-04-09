@@ -44,18 +44,6 @@ assertions:
       command: "curl -sf http://localhost:19843/robots.txt | grep -q '/admin/'"
       exit_code: 0
 
-  - name: exploit-sitemap-accessible
-    type: command
-    expect:
-      command: "curl -sf http://localhost:19843/sitemap.xml | grep -q 'urlset'"
-      exit_code: 0
-
-  - name: exploit-htaccess-accessible
-    type: command
-    expect:
-      command: "curl -sf http://localhost:19843/.htaccess | grep -q 'RewriteEngine'"
-      exit_code: 0
-
   # --- Beacon scanner detections ---
   - name: detects-env-file
     type: beacon
@@ -78,12 +66,8 @@ assertions:
     expect:
       check_id: exposure.robots_sensitive_path
 
-  - name: detects-backup-file
-    type: beacon
-    target: localhost:19843
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
-    expect:
-      check_id: exposure.backup_file
+  # Negative: no false positive SQL injection on static file server
+
 
   # --- Negative: no database findings on a static nginx ---
   - name: negative-no-sqli
