@@ -1,0 +1,57 @@
+name: portainer-exposed
+description: >
+  Portainer CE with no initial admin setup — fresh uninitialized state.
+  Beacon should detect the exposed Portainer management UI and flag
+  the uninitialized instance as having default/no credentials.
+tags: [portainer, scanner, portscan, exposed, container-mgmt]
+
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports: ["20055:9000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20055/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: Portainer UI is reachable
+  - name: portainer-ui-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20055/ | grep -qE '(200|302)'"
+      exit_code: 0
+
+  # Pre-flight: Portainer API responds
+  - name: portainer-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20055/api/status | grep -q Version"
+      exit_code: 0
+
+  # Scanner: detect portainer service
+  - name: detects-portainer-service
+    type: beacon
+    target: localhost:20055
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # Scanner: detect portainer default creds (uninitialized)
+  - name: detects-portainer-default-creds
+    type: beacon
+    target: localhost:20055
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
+    expect:
+      check_id: port.portainer_default_credentials
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20055
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

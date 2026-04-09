@@ -1,0 +1,49 @@
+name: prometheus-targets
+description: >
+  Prometheus with default configuration and targets exposed.
+  Beacon should detect the unauthenticated Prometheus API and flag
+  the exposed metrics/targets configuration endpoint.
+tags: [prometheus, scanner, portscan, noauth, monitoring]
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["20062:9090"]
+
+ready:
+  cmd: "curl -sf http://localhost:20062/api/v1/status/config | grep -q global"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: Prometheus API accessible
+  - name: prometheus-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20062/api/v1/status/config | grep -q global"
+      exit_code: 0
+
+  # Pre-flight: targets endpoint accessible
+  - name: prometheus-targets-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20062/api/v1/targets | grep -q activeTargets"
+      exit_code: 0
+
+  # Scanner: detect unauthenticated Prometheus
+  - name: detects-prometheus-unauthenticated
+    type: beacon
+    target: localhost:20062
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.prometheus_unauthenticated
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20062
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

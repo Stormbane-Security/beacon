@@ -1,0 +1,52 @@
+name: phpmyadmin-exposed
+description: >
+  phpMyAdmin with PMA_ARBITRARY=1 allowing connection to any MySQL
+  server. Beacon should detect the exposed phpMyAdmin login page and
+  flag the default configuration as a security finding.
+tags: [phpmyadmin, scanner, portscan, default-creds, database-admin]
+
+services:
+  phpmyadmin:
+    image: phpmyadmin:latest
+    ports: ["20065:80"]
+    environment:
+      PMA_ARBITRARY: "1"
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20065/ | grep -qE '(200|302)'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: phpMyAdmin login page accessible
+  - name: phpmyadmin-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20065/ | grep -qiE '(phpmyadmin|pma)'"
+      exit_code: 0
+
+  # Scanner: detect phpMyAdmin service
+  - name: detects-phpmyadmin-service
+    type: beacon
+    target: localhost:20065
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # Scanner: detect phpMyAdmin default creds
+  - name: detects-phpmyadmin-default-creds
+    type: beacon
+    target: localhost:20065
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
+    expect:
+      check_id: port.phpmyadmin_default_credentials
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20065
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

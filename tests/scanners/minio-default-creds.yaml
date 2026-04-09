@@ -1,0 +1,63 @@
+name: minio-default-creds
+description: >
+  MinIO object storage with default minioadmin/minioadmin credentials.
+  Beacon should detect the MinIO S3-compatible API and flag the default
+  credentials as a security finding.
+tags: [minio, scanner, portscan, default-creds, s3]
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "20056:9000"
+      - "20057:9001"
+
+ready:
+  cmd: "curl -sf http://localhost:20056/minio/health/live"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: MinIO API health endpoint responds
+  - name: minio-health-live
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20056/minio/health/live"
+      exit_code: 0
+
+  # Pre-flight: MinIO console reachable
+  - name: minio-console-reachable
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20057/ | grep -qE '(200|302)'"
+      exit_code: 0
+
+  # Scanner: detect MinIO service on API port
+  - name: detects-minio-service
+    type: beacon
+    target: localhost:20056
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # Scanner: detect MinIO default credentials (console port)
+  - name: detects-minio-default-creds
+    type: beacon
+    target: localhost:20057
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20057", "--deep", "--yes"]
+    expect:
+      check_id: port.minio_default_credentials
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20056
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m
