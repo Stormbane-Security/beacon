@@ -22,14 +22,13 @@ jobs:
       gosec-excludes: G304,G107,G101,G104
 
   # ── Drydock E2E: runs after CI passes ─────────────────────────────────
-  # Skipped on PRs to dev (too slow for feature branches).
   # Runs on: push to dev, PRs to main.
   drydock:
     name: "E2E: ${{ matrix.category }}"
     needs: ci
     if: github.event_name == 'push' || github.base_ref == 'main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +36,6 @@ jobs:
           - chains
           - databases
           - services
-          - scanners
           - e2e
           - cve
           - fingerprint
@@ -67,7 +65,7 @@ jobs:
           cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
           drydock 2>&1 | head -1 || true
 
-      - name: Skip if category is empty
+      - name: Skip if category dir missing
         id: check
         run: |
           if [ ! -d "tests/${{ matrix.category }}" ]; then
@@ -123,11 +121,116 @@ jobs:
             drydock-output.log
           retention-days: 7
 
+  # ── Scanner tests: split into batches to avoid timeout ────────────────
+  drydock-scanners:
+    name: "Scanners: ${{ matrix.batch }}"
+    needs: ci
+    if: github.event_name == 'push' || github.base_ref == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        batch:
+          - batch-lightweight     # secheaders, cors, jwt, exposure, headers (<10s each)
+          - batch-databases       # redis, mongo, mysql, postgres, ES, couchdb, clickhouse
+          - batch-services        # consul, vault, etcd, rabbitmq, mqtt, nats, prometheus
+          - batch-web-vulns       # rxss, hostheader, cors-vuln, openredir, dnsrebind
+          - batch-exploit-chains  # redis-chain, ES-chain, consul-chain, env-to-db, xss-theft
+          - batch-heavy           # juiceshop, keycloak, grafana, jenkins, tomcat, modbus
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install tools
+        run: |
+          CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
+          git clone --depth 1 --branch v0.3.0 https://github.com/stormbane-security/drydock.git /tmp/drydock-src
+          cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
+
+      - name: Select test files for batch
+        id: select
+        run: |
+          case "${{ matrix.batch }}" in
+            batch-lightweight)
+              TESTS=$(ls tests/scanners/secheaders*.yaml tests/scanners/cors-*.yaml tests/scanners/jwt-*.yaml tests/scanners/exposure-*.yaml tests/scanners/cookie-*.yaml tests/scanners/wellknown-*.yaml tests/scanners/headers-*.yaml tests/scanners/dlp-*.yaml tests/scanners/api-*.yaml 2>/dev/null | tr '\n' ' ')
+              ;;
+            batch-databases)
+              TESTS=$(ls tests/scanners/*redis*.yaml tests/scanners/*mongo*.yaml tests/scanners/*mysql*.yaml tests/scanners/*postgres*.yaml tests/scanners/*elasticsearch*.yaml tests/scanners/*couchdb*.yaml tests/scanners/*clickhouse*.yaml tests/scanners/*influxdb*.yaml tests/scanners/*neo4j*.yaml tests/scanners/*cassandra*.yaml 2>/dev/null | tr '\n' ' ')
+              ;;
+            batch-services)
+              TESTS=$(ls tests/scanners/*consul*.yaml tests/scanners/*vault*.yaml tests/scanners/*etcd*.yaml tests/scanners/*rabbitmq*.yaml tests/scanners/*mqtt*.yaml tests/scanners/*nats*.yaml tests/scanners/*prometheus*.yaml tests/scanners/*kibana*.yaml tests/scanners/*memcached*.yaml tests/scanners/*minio*.yaml tests/scanners/*docker-registry*.yaml 2>/dev/null | tr '\n' ' ')
+              ;;
+            batch-web-vulns)
+              TESTS=$(ls tests/scanners/rxss-*.yaml tests/scanners/hostheader-*.yaml tests/scanners/open-redirect*.yaml tests/scanners/dnsrebind-*.yaml tests/scanners/waf*.yaml tests/scanners/graphql-*.yaml tests/scanners/websocket-*.yaml tests/scanners/hpp-*.yaml tests/scanners/blind-sqli*.yaml tests/scanners/deserialization*.yaml tests/scanners/oob-*.yaml tests/scanners/racecondition*.yaml tests/scanners/secondorder*.yaml 2>/dev/null | tr '\n' ' ')
+              ;;
+            batch-exploit-chains)
+              TESTS=$(ls tests/scanners/chain-*.yaml tests/scanners/*exploit-chain*.yaml tests/scanners/default-creds*.yaml tests/scanners/docker-api-exploit*.yaml 2>/dev/null | tr '\n' ' ')
+              ;;
+            batch-heavy)
+              TESTS=$(ls tests/scanners/*juiceshop*.yaml tests/scanners/keycloak*.yaml tests/scanners/*grafana*.yaml tests/scanners/*jenkins*.yaml tests/scanners/*tomcat*.yaml tests/scanners/e2e-blind-*.yaml tests/scanners/e2e-full-*.yaml tests/scanners/e2e-services-*.yaml tests/scanners/ics-*.yaml tests/scanners/*ollama*.yaml tests/scanners/*ssh-*.yaml tests/scanners/*vnc-*.yaml 2>/dev/null | tr '\n' ' ')
+              ;;
+          esac
+          echo "tests=$TESTS" >> "$GITHUB_OUTPUT"
+          echo "Found $(echo $TESTS | wc -w) test files for ${{ matrix.batch }}"
+
+      - name: Cache Docker images
+        id: docker-cache
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: /tmp/docker-cache
+          key: docker-scanners-${{ matrix.batch }}-${{ hashFiles('tests/scanners/**/*.yaml') }}
+
+      - name: Load cached Docker images
+        if: steps.docker-cache.outputs.cache-hit == 'true'
+        run: |
+          if [ -f /tmp/docker-cache/images.tar.zst ]; then
+            zstd -d /tmp/docker-cache/images.tar.zst --stdout | docker load
+          fi
+
+      - name: Run scanner tests
+        env:
+          BEACON_AUTHORIZED_ACK: "1"
+        run: |
+          set -o pipefail
+          TESTS="${{ steps.select.outputs.tests }}"
+          if [ -z "$TESTS" ]; then
+            echo "No test files found for batch ${{ matrix.batch }}"
+            exit 0
+          fi
+          drydock run $TESTS \
+            --fixed-ports \
+            --artifacts .drydock/runs 2>&1 | tee drydock-output.log
+
+      - name: Save Docker images to cache
+        if: always() && steps.docker-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/docker-cache
+          images=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>')
+          if [ -n "$images" ]; then
+            echo "$images" | xargs docker save | zstd -T0 -3 -o /tmp/docker-cache/images.tar.zst
+          fi
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: drydock-scanners-${{ matrix.batch }}
+          path: |
+            .drydock/runs/
+            drydock-output.log
+          retention-days: 7
+
   # ── Results summary ───────────────────────────────────────────────────
   results:
     name: Drydock Results
-    needs: drydock
-    if: always() && needs.drydock.result != 'skipped' && (github.event_name == 'push' || github.base_ref == 'main')
+    needs: [drydock, drydock-scanners]
+    if: always() && (github.event_name == 'push' || github.base_ref == 'main')
     runs-on: ubuntu-24.04
     steps:
       - name: Download all artifacts
@@ -138,15 +241,25 @@ jobs:
 
       - name: Summarize results
         run: |
-          echo "## Drydock Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Drydock E2E Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Category | Passed | Failed |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|----------|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Category | Passed | Failed | Errors |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|--------|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          total_pass=0
+          total_fail=0
           for dir in results/drydock-*/; do
             category=$(basename "$dir" | sed 's/drydock-//')
             if [ -f "$dir/drydock-output.log" ]; then
-              pass=$(grep -c "PASS" "$dir/drydock-output.log" 2>/dev/null || echo 0)
-              fail=$(grep -c "FAIL" "$dir/drydock-output.log" 2>/dev/null || echo 0)
-              echo "| $category | $pass | $fail |" >> "$GITHUB_STEP_SUMMARY"
+              pass=$(grep -c "PASSED" "$dir/drydock-output.log" 2>/dev/null || echo 0)
+              fail=$(grep -c "FAILED" "$dir/drydock-output.log" 2>/dev/null || echo 0)
+              errors=$(grep -c "ERROR" "$dir/drydock-output.log" 2>/dev/null || echo 0)
+              total_pass=$((total_pass + pass))
+              total_fail=$((total_fail + fail))
+              emoji="✅"
+              [ "$fail" -gt 0 ] && emoji="❌"
+              [ "$errors" -gt 0 ] && emoji="⚠️"
+              echo "| $emoji $category | $pass | $fail | $errors |" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total: ${total_pass} passed, ${total_fail} failed**" >> "$GITHUB_STEP_SUMMARY"
