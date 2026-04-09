@@ -55,6 +55,9 @@ func (s *Scanner) Name() string { return scannerName }
 // Run executes theHarvester against the root domain and emits findings for
 // discovered emails and subdomains. Only runs on root domains (single dot).
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Only run on root domain to avoid N identical OSINT lookups per subdomain.
 	// "example.co.uk" has 2 dots and is a valid ccTLD+SLD root domain.
 	// Anything with more than 2 dots is guaranteed to be a subdomain.

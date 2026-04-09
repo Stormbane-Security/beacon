@@ -38,6 +38,10 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// Skip private/loopback targets — no cloud buckets for private IPs.
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Strip subdomains — bucket names are derived from the root domain.
 	// Only run on the root domain itself to avoid reporting the same guessed
 	// bucket names once per subdomain (api.acme.com, app.acme.com, etc. all

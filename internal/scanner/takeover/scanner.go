@@ -226,6 +226,9 @@ var platforms = []platform{
 //
 // Runs in both surface and deep mode — CNAME lookups are passive DNS queries.
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Resolve the CNAME chain. An NXDOMAIN or empty result means the
 	// subdomain has no DNS record — no takeover vector via CNAME.
 	cname, err := resolveCNAME(ctx, asset)

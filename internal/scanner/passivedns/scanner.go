@@ -142,6 +142,9 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Only run on root domains, not on deep subdomains. The heuristic counts
 	// dot-separated labels: "example.com" has 1 dot, "example.co.uk" has 2
 	// dots (a valid ccTLD root domain). Anything with more than 2 dots is

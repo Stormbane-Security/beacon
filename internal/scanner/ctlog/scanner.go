@@ -42,6 +42,9 @@ type crtEntry struct {
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Only run on root domains to avoid duplicate queries.
 	if strings.Count(asset, ".") > 1 {
 		return nil, nil

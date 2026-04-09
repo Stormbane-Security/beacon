@@ -71,6 +71,9 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Only run on root domain to avoid duplicate ASN lookups per subdomain.
 	// "example.co.uk" has 2 dots and is a valid ccTLD+SLD root domain.
 	// Anything with more than 2 dots is guaranteed to be a subdomain.

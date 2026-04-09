@@ -61,10 +61,11 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
-	// Only run WHOIS on the root domain, not subdomains
-	// (subdomains share the same registration record).
-	// "example.co.uk" has 2 dots and is a valid ccTLD+SLD root domain.
-	// Anything with more than 2 dots is guaranteed to be a subdomain.
+	// Skip private/loopback targets — WHOIS has no data for private IPs.
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
+	// Only run WHOIS on the root domain, not subdomains.
 	if strings.Count(asset, ".") > 2 {
 		return nil, nil
 	}

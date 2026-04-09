@@ -20,6 +20,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
 )
 
@@ -74,6 +75,9 @@ func isValidHostname(s string) bool {
 // Returns findings of type "asset.subdomain_discovered" for each unique subdomain found.
 // The pipeline uses the Evidence field to extract discovered assets for further scanning.
 func (s *PassiveScanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// All sources run concurrently under a single deadline so no single slow or
 	// hung source (subfinder querying GitHub, amass doing zone-walking) can block
 	// the entire discovery phase. Passive: 5 min total. Deep: 12 min total.

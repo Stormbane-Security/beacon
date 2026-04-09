@@ -95,6 +95,10 @@ func (s *Scanner) ActiveSources() []string {
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	// Skip private/loopback targets — external threat intel APIs have no data for them.
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Each lookup gets its own 12s timeout so a slow provider doesn't starve others.
 	// All independent lookups run in parallel; IP-dependent lookups wait only for
 	// DNS resolution, not for each other.
