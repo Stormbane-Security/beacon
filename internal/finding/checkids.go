@@ -134,6 +134,7 @@ const (
 	CheckAssetPassiveDNS    CheckID = "asset.passive_dns"       // historical DNS records via HackerTarget — open, no key
 	CheckAssetHistoricalURLs CheckID = "asset.historical_urls"  // Wayback Machine + OTX via gau — open, no key
 	CheckAssetCrawlEndpoints CheckID = "asset.crawl_endpoints"  // endpoints discovered by katana crawler
+	CheckAssetAPIDiscovery  CheckID = "asset.api_discovery"    // API endpoints discovered from crawl + specs
 	CheckAssetScreenshot    CheckID = "asset.screenshot"        // screenshot captured by gowitness
 
 	// WHOIS / Domain Registration
@@ -1939,6 +1940,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckAssetPassiveDNS:     {CheckAssetPassiveDNS, SeverityInfo, ModeSurface},
 	CheckAssetHistoricalURLs: {CheckAssetHistoricalURLs, SeverityInfo, ModeSurface},
 	CheckAssetCrawlEndpoints: {CheckAssetCrawlEndpoints, SeverityInfo, ModeSurface},
+	CheckAssetAPIDiscovery:  {CheckAssetAPIDiscovery, SeverityInfo, ModeSurface},
 	CheckAssetScreenshot:     {CheckAssetScreenshot, SeverityInfo, ModeSurface},
 
 	// WHOIS / RDAP — queries public registry servers → Surface

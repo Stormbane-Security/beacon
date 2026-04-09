@@ -1078,16 +1078,24 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// Launch scans for BGP/CIDR-discovered assets that were added after the
 	// streaming discovery loop. These were added to `assets` and `seen` above
 	// but haven't had launchAssetScan called yet.
+	// Prioritize unlaunched assets so the most interesting ones scan first.
+	var unlaunched []string
 	for _, a := range assets {
 		expandSeenMu.Lock()
 		alreadyLaunched := expandSeen[a]
-		if !alreadyLaunched {
-			expandSeen[a] = true
-		}
 		expandSeenMu.Unlock()
 		if !alreadyLaunched {
-			launchAssetScan(a)
+			unlaunched = append(unlaunched, a)
 		}
+	}
+	if len(unlaunched) > 1 {
+		unlaunched = scan.PrioritizeTargets(ctx, unlaunched)
+	}
+	for _, a := range unlaunched {
+		expandSeenMu.Lock()
+		expandSeen[a] = true
+		expandSeenMu.Unlock()
+		launchAssetScan(a)
 	}
 
 	wgStream.Wait()
