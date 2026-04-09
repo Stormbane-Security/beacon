@@ -101,8 +101,9 @@ func renderSPA(ctx context.Context, targetURL string, cookies []*http.Cookie) (s
 		return fetchRawHTML(ctx, targetURL, cookies)
 	}
 
-	// 10-second timeout for the render.
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// 20-second timeout for the render. Chrome cold-start on CI runners
+	// can take 5-10s; plus 2s Sleep for JS rendering.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
