@@ -1,0 +1,55 @@
+name: saml-metadata-exposed
+description: >
+  Nginx serving a SAML IdP metadata XML document at /saml/metadata and
+  common alternative paths. Beacon saml scanner should detect the
+  exposed metadata endpoint.
+tags: [saml, scanner, auth, metadata]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["19867:80"]
+    volumes:
+      - ./saml-metadata/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./saml-metadata/metadata.xml:/usr/share/nginx/html/metadata.xml:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19867/saml/metadata >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-saml-metadata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19867/saml/metadata | grep -q 'EntityDescriptor'"
+      exit_code: 0
+
+  - name: exploit-saml-signing-cert-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19867/saml/metadata | grep -q 'X509Certificate'"
+      exit_code: 0
+
+  - name: detects-saml-metadata-exposed
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--scanners", "saml"]
+    expect:
+      check_id: saml.metadata_exposed
+
+  - name: detects-saml-endpoint-exposed
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--scanners", "saml"]
+    expect:
+      check_id: saml.endpoint_exposed
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

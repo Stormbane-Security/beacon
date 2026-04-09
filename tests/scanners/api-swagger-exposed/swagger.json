@@ -1,0 +1,75 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Internal Admin API",
+    "description": "Administrative API for user management and system configuration. NOT FOR PUBLIC USE.",
+    "version": "2.1.0",
+    "contact": {
+      "email": "admin@internal.example.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com/v2",
+      "description": "Production"
+    },
+    {
+      "url": "https://staging-api.example.com/v2",
+      "description": "Staging"
+    }
+  ],
+  "paths": {
+    "/users": {
+      "get": {
+        "summary": "List all users",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "User list"
+          }
+        }
+      }
+    },
+    "/users/{id}/reset-password": {
+      "post": {
+        "summary": "Reset user password (admin only)",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Password reset"}
+        }
+      }
+    },
+    "/admin/config": {
+      "get": {
+        "summary": "Get system configuration",
+        "responses": {
+          "200": {"description": "System config including database credentials"}
+        }
+      }
+    },
+    "/admin/backup": {
+      "post": {
+        "summary": "Trigger database backup",
+        "responses": {
+          "200": {"description": "Backup initiated"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+name: waf-detection-comprehensive
+description: >
+  ModSecurity CRS behind Nginx (WAF-protected) alongside plain Nginx
+  (no WAF). Beacon wafdetect scanner should flag waf.detected on the
+  ModSecurity instance and NOT on the plain Nginx.
+tags: [waf, scanner, web, modsecurity]
+
+services:
+  modsec:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19863:80"]
+    environment:
+      PARANOIA: "2"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+
+  plain-nginx:
+    image: nginx:alpine
+    ports: ["19864:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19863/ >/dev/null && curl -sf http://localhost:19864/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-modsec-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19863/?id=1%20OR%201=1' | grep -qE '403|406'"
+      exit_code: 0
+
+  - name: exploit-plain-allows-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19864/?id=1%20OR%201=1' | grep -q '200'"
+      exit_code: 0
+
+  - name: detects-waf-on-modsec
+    type: beacon
+    target: localhost:19863
+    args: ["--no-enrich", "--scanners", "wafdetect", "--ports", "80"]
+    expect:
+      check_id: waf.detected
+
+  - name: negative-no-waf-on-plain-nginx
+    type: beacon
+    target: localhost:19864
+    args: ["--no-enrich", "--scanners", "wafdetect", "--ports", "80"]
+    expect:
+      not_check_id: waf.detected
+
+timeout: 5m

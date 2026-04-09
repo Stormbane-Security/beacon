@@ -1,0 +1,57 @@
+name: ssh-weak-config
+description: >
+  OpenSSH server with password authentication enabled and a weak
+  password. Beacon portscan scanner should identify the SSH service.
+tags: [ssh, scanner, network, portscan]
+
+services:
+  sshd:
+    image: linuxserver/openssh-server:latest
+    ports: ["19869:2222"]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      PASSWORD_ACCESS: "true"
+      USER_PASSWORD: "password"
+      USER_NAME: "testuser"
+
+ready:
+  cmd: "nc -z localhost 19869"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-ssh-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 19869"
+      exit_code: 0
+
+  - name: exploit-ssh-banner-visible
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 19869 | grep -qi 'SSH'"
+      exit_code: 0
+
+  - name: detects-ssh-service
+    type: beacon
+    target: localhost:19869
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19869"]
+    expect:
+      check_id: port.ssh_exposed
+
+  - name: detects-port-service-identified
+    type: beacon
+    target: localhost:19869
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19869"]
+    expect:
+      check_id: port.service_identified
+
+  - name: negative-no-http-findings
+    type: beacon
+    target: localhost:19869
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19869"]
+    expect:
+      not_check_id: headers.missing_hsts
+
+timeout: 5m

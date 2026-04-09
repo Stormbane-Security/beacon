@@ -1,0 +1,10 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /api/internal/
+Disallow: /backup/
+Disallow: /.git/
+Disallow: /wp-admin/
+Disallow: /phpmyadmin/
+Allow: /
+
+Sitemap: https://example.com/sitemap.xml

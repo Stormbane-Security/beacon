@@ -1,0 +1,55 @@
+name: graphql-introspection-node
+description: >
+  Node.js GraphQL server with introspection enabled. Schema exposes
+  sensitive types (User with password_hash, api_key). Beacon graphql
+  scanner should detect introspection is enabled.
+tags: [graphql, scanner, api, node]
+
+services:
+  app:
+    image: node:20-alpine
+    ports: ["19862:3000"]
+    volumes:
+      - ./graphql-introspection/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:19862/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-graphql-introspection-query
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19862/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{__schema{types{name}}}\"}' | grep -q '__schema'"
+      exit_code: 0
+
+  - name: exploit-schema-leaks-password-field
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19862/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{__schema{types{name fields{name}}}}\"}' | grep -q 'password_hash'"
+      exit_code: 0
+
+  - name: detects-graphql-introspection
+    type: beacon
+    target: localhost:19862
+    args: ["--no-enrich", "--scanners", "graphql", "--ports", "3000"]
+    expect:
+      check_id: graphql.introspection_enabled
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19862
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "3000"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:19862
+    args: ["--no-enrich", "--scanners", "graphql,secheaders"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 5m

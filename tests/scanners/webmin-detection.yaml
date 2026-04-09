@@ -1,0 +1,36 @@
+name: webmin-detection
+description: >
+  Nginx simulating a Webmin login page on port 10000. Beacon should
+  detect the Webmin management panel via the session_login.cgi response
+  containing "webmin" keywords.
+tags: [webmin, admin-panel, portscan, detection]
+
+services:
+  webmin-sim:
+    image: nginx:alpine
+    ports: ["19880:80"]
+    volumes:
+      - ./webmin-detection/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19880/session_login.cgi | grep -qi webmin"
+  timeout: 30s
+  interval: 3s
+
+assertions:
+  # Pre-flight: simulated Webmin login page accessible
+  - name: webmin-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19880/session_login.cgi | grep -qi webmin"
+      exit_code: 0
+
+  # Detection: beacon identifies Webmin service
+  - name: detects-webmin-exposed
+    type: beacon
+    target: localhost:19880
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19880"]
+    expect:
+      check_id: port.webmin_exposed
+
+timeout: 5m

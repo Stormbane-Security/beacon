@@ -1,0 +1,52 @@
+name: ai-ollama-detection
+description: >
+  Ollama LLM server exposed without authentication. Beacon aidetect
+  and portscan scanners should identify the Ollama service and flag
+  it as an exposed AI endpoint.
+tags: [ai, scanner, ollama, detection]
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["19865:11434"]
+
+ready:
+  cmd: "curl -sf http://localhost:19865/api/tags >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  - name: exploit-ollama-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19865/api/tags | grep -q 'models'"
+      exit_code: 0
+
+  - name: exploit-ollama-version-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19865/api/version | grep -q 'version'"
+      exit_code: 0
+
+  - name: detects-ollama-exposed
+    type: beacon
+    target: localhost:19865
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11434"]
+    expect:
+      check_id: port.ollama_exposed
+
+  - name: detects-ai-endpoint
+    type: beacon
+    target: localhost:19865
+    args: ["--no-enrich", "--scanners", "aidetect"]
+    expect:
+      check_id: ai.endpoint_exposed
+
+  - name: negative-no-database-finding
+    type: beacon
+    target: localhost:19865
+    args: ["--no-enrich", "--scanners", "portscan,aidetect"]
+    expect:
+      not_check_id: port.mysql_no_auth
+
+timeout: 10m

@@ -1,0 +1,45 @@
+name: couchdb-detection
+description: >
+  CouchDB with admin credentials on a non-standard port. Beacon should
+  detect the CouchDB service via portscan probes and flag unauthenticated
+  access to the database listing endpoint (admin party mode).
+tags: [couchdb, database, nosql, portscan, detection]
+
+services:
+  couchdb:
+    image: couchdb:latest
+    ports: ["19872:5984"]
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: password
+
+ready:
+  cmd: "curl -sf http://localhost:19872/ | grep -q couchdb"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: CouchDB root endpoint accessible
+  - name: couchdb-root-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19872/ | grep -q couchdb"
+      exit_code: 0
+
+  # Detection: beacon identifies CouchDB on non-standard port
+  - name: detects-couchdb-unauthenticated
+    type: beacon
+    target: localhost:19872
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19872"]
+    expect:
+      check_id: port.couchdb_unauthenticated
+
+  # Negative: should not detect elasticsearch
+  - name: no-false-positive-elasticsearch
+    type: beacon
+    target: localhost:19872
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19872"]
+    expect:
+      absent_check_id: port.elasticsearch_exposed
+
+timeout: 5m
