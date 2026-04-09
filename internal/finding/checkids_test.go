@@ -277,6 +277,8 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCORSNullOrigin:             true,
 		finding.CheckCORSPreflightMisconfig:     true,
 		finding.CheckCORSCredentialedReflection: true,
+		finding.CheckDNSRebindHostUnvalidated:  true,
+		finding.CheckDNSRebindInternalRoutable: true,
 		finding.CheckHostHeaderInjection:    true,
 		finding.CheckRateLimitMissing:       true,
 		finding.CheckRateLimitBypass:        true,
@@ -698,6 +700,7 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		// New scanner gaps — deep mode
 		finding.CheckWebVerbTamperAuthBypass: true,
 		finding.CheckWebRaceCondition:        true,
+		finding.CheckWebRaceNoIdempotency:    true,
 		finding.CheckWebXSDInjection:         true,
 		finding.CheckWebPDFSSRF:              true,
 		// Tier 2 scanner gaps — deep mode

@@ -36,3 +36,9 @@ func HTTPClient(ctx context.Context) *http.Client {
 	}
 	return &http.Client{}
 }
+
+// IsAuthenticated reports whether the context carries an injected auth client.
+func IsAuthenticated(ctx context.Context) bool {
+	c, ok := ctx.Value(contextKey{}).(*http.Client)
+	return ok && c != nil
+}

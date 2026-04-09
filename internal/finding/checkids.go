@@ -121,7 +121,8 @@ const (
 	CheckWebHTTPRequestSmuggling   CheckID = "web.http_request_smuggling"
 	CheckWebDangerousMethodEnabled CheckID = "web.dangerous_method_enabled"   // PUT/DELETE/TRACE enabled on web server
 	CheckWebVerbTamperAuthBypass   CheckID = "web.verb_tamper_auth_bypass"   // alternate HTTP method bypasses authentication/authorization
-	CheckWebRaceCondition          CheckID = "web.race_condition"            // concurrent requests produce inconsistent state (TOCTOU)
+	CheckWebRaceCondition          CheckID = "web.race_condition"               // concurrent requests produce inconsistent state (TOCTOU)
+	CheckWebRaceNoIdempotency      CheckID = "web.race_condition_no_idempotency" // state-changing endpoint has no idempotency protection
 	CheckWebXSDInjection           CheckID = "web.xsd_injection"            // XML Schema (XSD) injection via remote schema reference
 	CheckWebPDFSSRF                CheckID = "web.pdf_ssrf"                 // SSRF via PDF generation endpoint (HTML→PDF with external refs)
 	CheckSecretInResponseHeader    CheckID = "web.secret_in_response_header"  // API key or token leaked in HTTP response header
@@ -288,6 +289,11 @@ const (
 	// regardless of whether a vulnerability was found. Feeds into the asset graph and
 	// classify evidence so downstream scanners know what's running.
 	CheckPortServiceIdentified CheckID = "port.service_identified"
+
+	// DNS rebinding — Host header not validated, server accepts arbitrary origins → Deep
+	CheckDNSRebindHostUnvalidated  CheckID = "web.dns_rebinding_host_unvalidated"
+	// DNS rebinding — internal hosts reachable via Host header through reverse proxy → Deep
+	CheckDNSRebindInternalRoutable CheckID = "web.dns_rebinding_internal_routable"
 
 	// Host header injection — active probe with malicious Host: values → Deep
 	CheckHostHeaderInjection CheckID = "web.host_header_injection"
@@ -1367,6 +1373,11 @@ const (
 	CheckPrivescHorizontalPrivesc   CheckID = "web.horizontal_privesc"    // user A can access user B's data via ID substitution
 	CheckPrivescMethodBypass        CheckID = "web.method_bypass"         // restricted endpoint accessible via alternate HTTP method
 
+	// ── State Machine Analysis — Authorized mode only ──────────────────────
+	CheckStateSkipDetected    CheckID = "web.state_skip_detected"    // auth/authz state can be bypassed by skipping steps
+	CheckIncompleteAuthFlow   CheckID = "web.incomplete_auth_flow"   // protected resource accessible without completing full auth flow
+	CheckStepBypass           CheckID = "web.step_bypass"            // multi-step process can be completed out of order
+
 	// ── API Key Exposure in URLs / JS ───────────────────────────────────────
 	CheckJSAPIKeyInURL       CheckID = "js.api_key_in_url"        // API key passed as URL query parameter in JS bundle
 	CheckJSAPIKeyInSourceMap CheckID = "js.api_key_in_source_map" // API key found in exposed source map
@@ -1870,6 +1881,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebDangerousMethodEnabled: {CheckWebDangerousMethodEnabled, SeverityMedium, ModeSurface},
 	CheckWebVerbTamperAuthBypass:   {CheckWebVerbTamperAuthBypass, SeverityHigh, ModeDeep},
 	CheckWebRaceCondition:          {CheckWebRaceCondition, SeverityCritical, ModeDeep},
+	CheckWebRaceNoIdempotency:      {CheckWebRaceNoIdempotency, SeverityMedium, ModeDeep},
 	CheckWebXSDInjection:           {CheckWebXSDInjection, SeverityCritical, ModeDeep},
 	CheckWebPDFSSRF:                {CheckWebPDFSSRF, SeverityCritical, ModeDeep},
 	CheckSecretInResponseHeader:    {CheckSecretInResponseHeader, SeverityHigh, ModeSurface},
@@ -2027,6 +2039,10 @@ var Registry = map[CheckID]CheckMeta{
 	// Multi-service per-port → Surface
 	CheckPortServiceDiscovered:  {CheckPortServiceDiscovered, SeverityInfo, ModeSurface},
 	CheckPortServiceIdentified: {CheckPortServiceIdentified, SeverityInfo, ModeSurface},
+
+	// DNS rebinding → Deep
+	CheckDNSRebindHostUnvalidated:  {CheckDNSRebindHostUnvalidated, SeverityHigh, ModeDeep},
+	CheckDNSRebindInternalRoutable: {CheckDNSRebindInternalRoutable, SeverityCritical, ModeDeep},
 
 	// Host header injection → Deep
 	CheckHostHeaderInjection: {CheckHostHeaderInjection, SeverityHigh, ModeDeep},
@@ -3029,6 +3045,11 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPrivescBrokenAccessControl: {CheckPrivescBrokenAccessControl, SeverityCritical, ModeDeep},
 	CheckPrivescHorizontalPrivesc:   {CheckPrivescHorizontalPrivesc, SeverityHigh, ModeDeep},
 	CheckPrivescMethodBypass:        {CheckPrivescMethodBypass, SeverityHigh, ModeDeep},
+
+	// State Machine Analysis — Deep (authorized-class testing)
+	CheckStateSkipDetected:  {CheckStateSkipDetected, SeverityHigh, ModeDeep},
+	CheckIncompleteAuthFlow: {CheckIncompleteAuthFlow, SeverityHigh, ModeDeep},
+	CheckStepBypass:         {CheckStepBypass, SeverityMedium, ModeDeep},
 
 	// API Key in URL / JS — Surface (passive scan of response content)
 	CheckJSAPIKeyInURL:        {CheckJSAPIKeyInURL, SeverityHigh, ModeSurface},
