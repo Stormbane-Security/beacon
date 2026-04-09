@@ -83,10 +83,10 @@ func TestRateLimit_BackoffAndNoFinding(t *testing.T) {
 		t.Errorf("expected no CheckDirbustFound findings after 429 exhaustion, got %d", len(found))
 	}
 
-	// The scanner should have made maxRetries (3) probe attempts + 3 canary requests
-	// for soft-404 detection (multiple canary paths) = 6 total requests.
-	if got := requestCount.Load(); got != 6 {
-		t.Errorf("expected 6 attempts (3 canaries + 3 maxRetries) for a 429-only path, got %d", got)
+	// The scanner should have made maxRetries (3) probe attempts + 1 catch-all
+	// baseline request (scan.DetectCatchAll) = 4 total requests.
+	if got := requestCount.Load(); got != 4 {
+		t.Errorf("expected 4 attempts (1 catch-all baseline + 3 maxRetries) for a 429-only path, got %d", got)
 	}
 
 	// With Retry-After: 1 the scanner should wait at least 1 second between retries.
@@ -273,14 +273,13 @@ func TestDirBustRateLimitOnCanary(t *testing.T) {
 
 	ts := quietTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := requestCount.Add(1)
-		// First 3 requests are canary probes — return 429 for all of them.
-		// After canaries, the /admin probe should also get 429.
-		if n <= 6 {
+		// First 4 requests: 1 catch-all baseline + 3 retries of /admin — all 429.
+		if n <= 4 {
 			w.Header().Set("Retry-After", "0") // minimal backoff for test speed
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		// If the scanner retries after the canary 429s, the real path returns 200.
+		// If the scanner retries after the baseline 429, the real path returns 200.
 		if r.URL.Path == "/admin" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("admin panel"))

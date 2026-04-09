@@ -23,10 +23,8 @@ package dirbust
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -249,11 +247,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 	}
 	baseURL := scheme + "://" + asset
 
-	// ── Soft-404 canary ──────────────────────────────────────────────────────
-	// Request a path that is guaranteed not to exist. If the server returns 200
-	// (custom error page without a proper 404 status), hash the body. Any
-	// subsequent 200 response whose body matches the canary hash is a soft-404.
-	canaryHash := s.fetchCanaryHash(ctx, baseURL)
+	// ── Soft-404 / catch-all detection ──────────────────────────────────────
+	// Probe a random nonexistent path. If the server returns 200 (custom error
+	// page without a proper 404 status), capture the baseline response so that
+	// subsequent probe responses can be compared against it.
+	baseline := scan.DetectCatchAll(ctx, s.client, baseURL)
 
 	type work struct{ path string }
 	jobs := make(chan work, len(paths))
@@ -294,7 +292,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			result, waf := s.probe(ctx, baseURL, job.path, canaryHash)
+			result, waf := s.probe(ctx, baseURL, job.path, baseline)
 			if waf {
 				// Stop on first confirmed WAF block — isWAFResponse requires
 				// WAF-specific response headers, so a single hit is reliable.
@@ -365,7 +363,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, paths []string) []findi
 				go func() {
 					defer rwg.Done()
 					defer func() { <-sem }()
-					result, waf := s.probe(ctx, baseURL, rp, canaryHash)
+					result, waf := s.probe(ctx, baseURL, rp, baseline)
 					if waf {
 						mu.Lock()
 						wafStop = true
@@ -445,9 +443,9 @@ func (s *Scanner) buildFindings(asset string, results []Result) []finding.Findin
 // Returns (result, wafDetected). result is nil if the path is uninteresting.
 // wafDetected is true if the response is a 403 with WAF-indicator headers —
 // the caller (Run) accumulates these across paths and stops after 3.
-// canaryHash is the SHA-256 of a known-404 response body; if a 200 response
-// body matches, it is treated as a soft-404 and skipped.
-func (s *Scanner) probe(ctx context.Context, baseURL, path string, canaryHash string) (*Result, bool) {
+// baseline is the catch-all baseline from scan.DetectCatchAll; if the response
+// matches the baseline it is treated as a soft-404 and skipped.
+func (s *Scanner) probe(ctx context.Context, baseURL, path string, baseline *scan.CatchAllBaseline) (*Result, bool) {
 	log := scanlog.FromContext(ctx)
 	url := baseURL + path
 
@@ -499,13 +497,10 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string, canaryHash st
 
 		// Interesting response — but check for soft-404 first.
 		if interestingCodes[resp.StatusCode] {
-			// Soft-404: server returned 200 but the body is identical to the
-			// canary (known-nonexistent) path. This is a custom error page.
-			if resp.StatusCode == http.StatusOK && canaryHash != "" && len(body) > 0 {
-				h := sha256.Sum256(body)
-				if fmt.Sprintf("%x", h) == canaryHash {
-					return nil, false // soft-404 — skip
-				}
+			// Soft-404: if the response matches the catch-all baseline
+			// (same hash, similar length, same headers), skip it.
+			if resp.StatusCode == http.StatusOK && !baseline.IsDifferentFromBaseline(resp, body) {
+				return nil, false // soft-404 — skip
 			}
 			return &Result{Path: path, StatusCode: resp.StatusCode}, false
 		}
@@ -542,60 +537,6 @@ func backoffDuration(attempt int, resp *http.Response) time.Duration {
 		d = maxBackoff
 	}
 	return d
-}
-
-// fetchCanaryHash requests multiple known-nonexistent paths with different
-// URL patterns and returns the SHA-256 hex digest of the response body.
-// Using multiple canary paths catches servers that return different soft-404
-// pages for different URL prefixes (e.g. /admin/x vs /api/x).
-// If the server returns proper 404 status codes, it returns "" (no filtering needed).
-func (s *Scanner) fetchCanaryHash(ctx context.Context, baseURL string) string {
-	// Probe multiple canary patterns — different prefixes may yield different
-	// soft-404 pages, and we want to catch the most common one.
-	canaryPaths := []string{
-		fmt.Sprintf("/beacon-canary-404-test-%d", rand.Int63()), // #nosec G404 -- canary path, not crypto
-		fmt.Sprintf("/admin/beacon-canary-%d", rand.Int63()),    // #nosec G404
-		fmt.Sprintf("/api/beacon-canary-%d", rand.Int63()),      // #nosec G404
-	}
-
-	hashCounts := make(map[string]int)
-	for _, canaryPath := range canaryPaths {
-		u := baseURL + canaryPath
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
-
-		resp, err := s.client.Do(req)
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
-		_ = resp.Body.Close()
-
-		// If the server returns a proper 404, no soft-404 filtering needed.
-		if resp.StatusCode != http.StatusOK {
-			continue
-		}
-		if len(body) == 0 {
-			continue
-		}
-		h := sha256.Sum256(body)
-		hashCounts[fmt.Sprintf("%x", h)]++
-	}
-
-	// Return the most common hash — this is the likely soft-404 template.
-	// If no canaries returned 200, return "" (no filtering needed).
-	var bestHash string
-	bestCount := 0
-	for hash, count := range hashCounts {
-		if count > bestCount {
-			bestHash = hash
-			bestCount = count
-		}
-	}
-	return bestHash
 }
 
 // deduplicatePaths normalizes and deduplicates paths so that "/admin" and

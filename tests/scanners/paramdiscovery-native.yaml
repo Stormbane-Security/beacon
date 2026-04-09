@@ -1,0 +1,57 @@
+name: paramdiscovery-native
+description: >
+  Native parameter discovery test. PHP app responds differently when a
+  hidden 'debug' parameter is present (body changes from "Normal page"
+  to "DEBUG MODE: ..."). The parameter discovery scanner should detect
+  this differential and flag the hidden parameter.
+tags: [paramdiscovery, scanner, web, deep]
+
+services:
+  app:
+    image: php:8.2-apache
+    ports: ["19875:80"]
+    volumes:
+      - ./paramdiscovery-native/app.php:/var/www/html/index.php:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19875/ | grep -q 'Normal page'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ── Pre-flight: verify differential behaviour ───────────────────────────
+  - name: exploit-normal-response
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19875/ | grep -q 'Normal page'"
+      exit_code: 0
+
+  - name: exploit-debug-param-changes-response
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:19875/?debug=1' | grep -q 'DEBUG MODE'"
+      exit_code: 0
+
+  - name: exploit-response-bodies-differ
+    type: command
+    expect:
+      command: "test \"$(curl -sf http://localhost:19875/)\" != \"$(curl -sf 'http://localhost:19875/?debug=1')\""
+      exit_code: 0
+
+  # ── Scanner detection: deep scan discovers hidden param ──────────────────
+  - name: detects-hidden-param
+    type: beacon
+    target: localhost:19875
+    args: ["--no-enrich", "--no-nmap", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 1
+
+  # ── Negative: should NOT emit database findings ──────────────────────────
+  - name: negative-no-database-finding
+    type: beacon
+    target: localhost:19875
+    args: ["--no-enrich", "--no-nmap", "--deep", "--permission-confirmed"]
+    expect:
+      not_check_id: port.mysql_no_auth
+
+timeout: 5m

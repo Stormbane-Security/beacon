@@ -1,0 +1,51 @@
+name: secondorder-injection
+description: >
+  Second-order injection test against Juice Shop. The app stores user
+  feedback and displays it later, creating potential for stored XSS or
+  second-order injection. Scanner should at minimum detect the injection
+  surface (feedback form that stores and reflects input).
+tags: [secondorder, scanner, web, authorized, juiceshop]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19874:3000"]
+    environment:
+      NODE_ENV: "unsafe"
+
+ready:
+  cmd: "curl -sf http://localhost:19874/ | grep -qi 'juice'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: Juice Shop is running and has input forms ────────────────
+  - name: exploit-juiceshop-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19874/ | grep -qi 'juice'"
+      exit_code: 0
+
+  - name: exploit-feedback-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19874/api/Feedbacks/ | grep -q 'data'"
+      exit_code: 0
+
+  # ── Scanner detection: secondorder scans stored-input surfaces ───────────
+  - name: detects-secondorder-surface
+    type: beacon
+    target: localhost:19874
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secondorder", "--authorized"]
+    expect:
+      min_findings: 1
+
+  # ── Negative: should NOT emit cloud findings ─────────────────────────────
+  - name: negative-no-cloud-finding
+    type: beacon
+    target: localhost:19874
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secondorder", "--authorized"]
+    expect:
+      not_check_id: cloud.public_bucket
+
+timeout: 10m

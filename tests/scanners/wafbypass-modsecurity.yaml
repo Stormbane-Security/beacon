@@ -1,0 +1,59 @@
+name: wafbypass-modsecurity
+description: >
+  WAF bypass scanner against ModSecurity with OWASP CRS. ModSecurity blocks
+  common SQLi and XSS payloads at paranoia level 1; wafbypass scanner should
+  detect that adaptive encoding or header tricks can evade the WAF.
+tags: [wafbypass, scanner, web, deep, modsecurity]
+
+services:
+  app:
+    image: mccutchen/go-httpbin:latest
+    expose: ["8080"]
+    environment:
+      PORT: "8080"
+
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19873:8080"]
+    environment:
+      PARANOIA: "1"
+      MODSEC_RULE_ENGINE: "On"
+      BACKEND: "http://app:8080"
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19873/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: verify WAF blocks SQLi ──────────────────────────────────
+  - name: exploit-waf-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19873/?q=%27%20OR%201%3D1--%20-' | grep -q '403'"
+      exit_code: 0
+
+  - name: exploit-waf-allows-normal-requests
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19873/ >/dev/null"
+      exit_code: 0
+
+  # ── Scanner detection: wafbypass finds bypass techniques ─────────────────
+  - name: detects-waf-bypass
+    type: beacon
+    target: localhost:19873
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--permission-confirmed"]
+    expect:
+      min_findings: 1
+
+  # ── Negative: bypass scanner should NOT emit unrelated findings ──────────
+  - name: negative-no-cors-finding
+    type: beacon
+    target: localhost:19873
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafbypass", "--deep", "--permission-confirmed"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 8m
