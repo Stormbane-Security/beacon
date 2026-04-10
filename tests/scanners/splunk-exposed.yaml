@@ -34,4 +34,19 @@ assertions:
     expect:
       min_findings: 1
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-splunk
+    type: beacon
+    target: localhost:20110
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20110"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-splunk
+    type: beacon
+    target: localhost:20110
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20110"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

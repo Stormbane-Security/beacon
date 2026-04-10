@@ -30,4 +30,19 @@ assertions:
     expect:
       min_findings: 1
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-hazelcast
+    type: beacon
+    target: localhost:20115
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20115"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-hazelcast
+    type: beacon
+    target: localhost:20115
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20115"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

@@ -51,4 +51,18 @@ assertions:
     expect:
       check_id: port.wordpress_detected
 
+  - name: deep-mode-wordpress
+    type: beacon
+    target: localhost:20304
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20304"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-wordpress
+    type: beacon
+    target: localhost:20304
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20304"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

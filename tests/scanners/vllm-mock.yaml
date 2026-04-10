@@ -38,4 +38,19 @@ assertions:
     expect:
       min_findings: 0
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-vllm
+    type: beacon
+    target: localhost:20119
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20119"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-vllm
+    type: beacon
+    target: localhost:20119
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20119"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

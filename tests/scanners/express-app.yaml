@@ -32,4 +32,19 @@ assertions:
     expect:
       check_id: port.express_detected
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-express
+    type: beacon
+    target: localhost:20302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20302"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-express
+    type: beacon
+    target: localhost:20302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20302"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

@@ -51,4 +51,18 @@ assertions:
     expect:
       check_id: port.joomla_detected
 
+  - name: deep-mode-joomla
+    type: beacon
+    target: localhost:20306
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20306"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-joomla
+    type: beacon
+    target: localhost:20306
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20306"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

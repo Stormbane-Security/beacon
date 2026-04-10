@@ -41,4 +41,18 @@ assertions:
     expect:
       check_id: port.neo4j_exposed
 
+  - name: deep-mode-neo4j
+    type: beacon
+    target: localhost:7474
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "7474"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-neo4j
+    type: beacon
+    target: localhost:7474
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "7474"]
+    expect:
+      min_findings: 0
+
 timeout: 10m

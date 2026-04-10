@@ -32,4 +32,18 @@ assertions:
     expect:
       min_findings: 1
 
+  - name: deep-mode-jboss
+    type: beacon
+    target: localhost:20114
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20113,20114"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-jboss
+    type: beacon
+    target: localhost:20114
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20113,20114"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

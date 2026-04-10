@@ -40,4 +40,19 @@ assertions:
     expect:
       check_id: port.ghost_detected
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-ghost
+    type: beacon
+    target: localhost:20305
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20305"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-ghost
+    type: beacon
+    target: localhost:20305
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20305"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

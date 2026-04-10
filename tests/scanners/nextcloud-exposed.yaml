@@ -37,4 +37,19 @@ assertions:
     expect:
       check_id: port.nextcloud_detected
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-nextcloud
+    type: beacon
+    target: localhost:20307
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20307"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-nextcloud
+    type: beacon
+    target: localhost:20307
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20307"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

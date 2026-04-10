@@ -34,4 +34,19 @@ assertions:
     expect:
       min_findings: 0
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-nifi
+    type: beacon
+    target: localhost:20118
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20118"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-nifi
+    type: beacon
+    target: localhost:20118
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20118"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

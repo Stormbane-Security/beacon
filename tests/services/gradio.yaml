@@ -27,4 +27,18 @@ assertions:
     expect:
       check_id: port.gradio_exposed
 
+  - name: deep-mode-gradio
+    type: beacon
+    target: localhost:9288
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "9288"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-gradio
+    type: beacon
+    target: localhost:9288
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "9288"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

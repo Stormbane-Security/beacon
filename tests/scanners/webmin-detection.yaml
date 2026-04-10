@@ -51,4 +51,18 @@ assertions:
     expect:
       check_id: port.webmin_exposed
 
+  - name: deep-mode-webmin
+    type: beacon
+    target: localhost:19880
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "19880"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-webmin
+    type: beacon
+    target: localhost:19880
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "19880"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

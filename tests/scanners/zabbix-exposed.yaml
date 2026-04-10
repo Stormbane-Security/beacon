@@ -42,4 +42,18 @@ assertions:
     expect:
       min_findings: 1
 
+  - name: deep-mode-zabbix
+    type: beacon
+    target: localhost:20111
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20111"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-zabbix
+    type: beacon
+    target: localhost:20111
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20111"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

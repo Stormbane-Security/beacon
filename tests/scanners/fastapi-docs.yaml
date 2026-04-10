@@ -39,4 +39,19 @@ assertions:
     expect:
       check_id: port.fastapi_detected
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-fastapi
+    type: beacon
+    target: localhost:20301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20301"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-fastapi
+    type: beacon
+    target: localhost:20301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20301"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

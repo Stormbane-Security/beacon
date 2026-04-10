@@ -39,4 +39,19 @@ assertions:
     expect:
       check_id: port.rails_detected
 
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-rails
+    type: beacon
+    target: localhost:20308
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20308"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-rails
+    type: beacon
+    target: localhost:20308
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20308"]
+    expect:
+      min_findings: 0
+
 timeout: 5m
