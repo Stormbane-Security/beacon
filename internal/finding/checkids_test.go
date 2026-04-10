@@ -943,6 +943,27 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVEConfluenceAuthRCE:               true,
 		finding.CheckCVEVeeamAgentRCE:                   true,
 		finding.CheckCVECheckPointInfoLeak:              true,
+		// WordPress plugin CVEs
+		finding.CheckCVEWPFileManagerRCE:                 true,
+		finding.CheckCVEWPDiscuzRCE:                      true,
+		finding.CheckCVEWPContactForm7RCE:                true,
+		finding.CheckCVEWPDuplicatorRCE:                  true,
+		finding.CheckCVEWPPHPMailerRCE:                   true,
+		finding.CheckCVEWPRankMathPrivEsc:                true,
+		finding.CheckCVEWPGDPRComplianceBypass:           true,
+		finding.CheckCVEWPEasySMTPBypass:                 true,
+		finding.CheckCVEWPContactForm7Upload:             true,
+		finding.CheckCVEWPModernEventsCal:                true,
+		finding.CheckCVEWPBackupBuddyDownload:            true,
+		finding.CheckCVEWPFlavorUpload:                    true,
+		finding.CheckCVEWPSPProjectUpload:                 true,
+		finding.CheckCVEWPFlavorUpload2:                    true,
+		finding.CheckCVEWPCargoRCE:                         true,
+		finding.CheckCVEWPProfilePressUpload:                true,
+		finding.CheckCVEWPBookingPressSQLi:                  true,
+		finding.CheckCVEWPElementorRCE:                      true,
+		finding.CheckCVEWPStarterTemplatesUpload:             true,
+		finding.CheckCVEWPRoyalStarterUpload:                 true,
 	}
 
 	for id, meta := range finding.Registry {

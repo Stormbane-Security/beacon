@@ -1304,6 +1304,26 @@ const (
 	CheckPortWordPressXMLRPCExposed  CheckID = "port.wordpress_xmlrpc_exposed"     // WordPress XML-RPC enabled — amplified brute force, pingback SSRF, DDoS
 	CheckCVEWPHostHeaderReset        CheckID = "cve.wp_host_header_reset"          // CVE-2017-8295 WordPress host header password reset poisoning (CVSS 5.9)
 	CheckCVEWPCropImageRCE           CheckID = "cve.wp_crop_image_rce"             // CVE-2019-8942 WordPress crop-image path traversal → authenticated RCE (CVSS 8.8)
+	CheckCVEWPFileManagerRCE         CheckID = "cve.wp_file_manager_rce"           // CVE-2020-25213 WordPress File Manager < 6.9 unauthenticated file upload → RCE (CVSS 9.8)
+	CheckCVEWPDiscuzRCE              CheckID = "cve.wp_wpdiscuz_rce"              // CVE-2020-24186 WordPress wpDiscuz < 7.0.4 unauthenticated file upload → RCE (CVSS 10.0)
+	CheckCVEWPContactForm7RCE        CheckID = "cve.wp_contact_form_7_rce"        // CVE-2020-12800 WordPress Contact Form 7 unrestricted file upload → RCE (CVSS 9.8)
+	CheckCVEWPDuplicatorRCE          CheckID = "cve.wp_duplicator_rce"            // CVE-2018-17207 WordPress Duplicator < 1.2.42 arbitrary code execution (CVSS 9.8)
+	CheckCVEWPPHPMailerRCE           CheckID = "cve.wp_phpmailer_rce"             // CVE-2016-10033 PHPMailer < 5.2.18 extra params RCE via mail() (CVSS 9.8)
+	CheckCVEWPRankMathPrivEsc        CheckID = "cve.wp_rank_math_privesc"         // CVE-2020-11514 WordPress Rank Math SEO unauthenticated privilege escalation via REST API (CVSS 9.8)
+	CheckCVEWPGDPRComplianceBypass   CheckID = "cve.wp_gdpr_compliance_bypass"    // CVE-2018-19207 WordPress WP GDPR Compliance unauthenticated options update (CVSS 9.8)
+	CheckCVEWPEasySMTPBypass         CheckID = "cve.wp_easy_smtp_bypass"          // CVE-2019-25141 WordPress Easy WP SMTP arbitrary options update → admin takeover (CVSS 9.8)
+	CheckCVEWPContactForm7Upload     CheckID = "cve.wp_contact_form_7_upload"     // CVE-2020-35489 WordPress Contact Form 7 < 5.3.2 unrestricted file upload (CVSS 9.8)
+	CheckCVEWPModernEventsCal        CheckID = "cve.wp_modern_events_cal_upload"  // CVE-2021-24145 WordPress Modern Events Calendar arbitrary file upload (CVSS 9.8)
+	CheckCVEWPBackupBuddyDownload    CheckID = "cve.wp_backupbuddy_download"      // CVE-2021-24155 WordPress BackupBuddy arbitrary file download (CVSS 7.5)
+	CheckCVEWPFlavorUpload           CheckID = "cve.wp_flavor_upload"             // CVE-2021-24284 WordPress flavor theme arbitrary file upload (CVSS 9.8)
+	CheckCVEWPSPProjectUpload        CheckID = "cve.wp_sp_project_upload"         // CVE-2021-24347 WordPress SP Project & Document Manager arbitrary file upload (CVSS 8.8)
+	CheckCVEWPFlavorUpload2          CheckID = "cve.wp_flavor_unrestricted_upload" // CVE-2021-24499 WordPress flavor theme unrestricted file upload (CVSS 9.8)
+	CheckCVEWPCargoRCE               CheckID = "cve.wp_wpcargo_rce"              // CVE-2021-25003 WordPress WPCargo unauthenticated RCE (CVSS 9.8)
+	CheckCVEWPProfilePressUpload     CheckID = "cve.wp_profilepress_upload"       // CVE-2021-34624 WordPress ProfilePress unauthenticated file upload (CVSS 9.8)
+	CheckCVEWPBookingPressSQLi       CheckID = "cve.wp_bookingpress_sqli"         // CVE-2022-0739 WordPress BookingPress unauthenticated SQL injection (CVSS 9.8)
+	CheckCVEWPElementorRCE           CheckID = "cve.wp_elementor_builder_rce"     // CVE-2022-1329 WordPress Elementor Website Builder authenticated RCE (CVSS 8.8)
+	CheckCVEWPStarterTemplatesUpload CheckID = "cve.wp_starter_templates_upload"  // CVE-2022-3982 WordPress Starter Templates arbitrary file upload (CVSS 9.8)
+	CheckCVEWPRoyalStarterUpload     CheckID = "cve.wp_royal_starter_upload"      // CVE-2023-5360 WordPress Royal Starter Templates unauthenticated file upload (CVSS 9.8)
 
 	// Nextcloud
 	CheckPortNextcloudDefaultCreds   CheckID = "port.nextcloud_default_credentials" // Nextcloud accepts default admin credentials (admin/admin)
@@ -4127,6 +4147,26 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortWordPressXMLRPCExposed:  {CheckPortWordPressXMLRPCExposed, SeverityHigh, ModeSurface},
 	CheckCVEWPHostHeaderReset:        {CheckCVEWPHostHeaderReset, SeverityMedium, ModeDeep},
 	CheckCVEWPCropImageRCE:           {CheckCVEWPCropImageRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPFileManagerRCE:         {CheckCVEWPFileManagerRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPDiscuzRCE:              {CheckCVEWPDiscuzRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPContactForm7RCE:        {CheckCVEWPContactForm7RCE, SeverityCritical, ModeDeep},
+	CheckCVEWPDuplicatorRCE:          {CheckCVEWPDuplicatorRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPPHPMailerRCE:           {CheckCVEWPPHPMailerRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPRankMathPrivEsc:        {CheckCVEWPRankMathPrivEsc, SeverityCritical, ModeDeep},
+	CheckCVEWPGDPRComplianceBypass:   {CheckCVEWPGDPRComplianceBypass, SeverityCritical, ModeDeep},
+	CheckCVEWPEasySMTPBypass:         {CheckCVEWPEasySMTPBypass, SeverityCritical, ModeDeep},
+	CheckCVEWPContactForm7Upload:     {CheckCVEWPContactForm7Upload, SeverityCritical, ModeDeep},
+	CheckCVEWPModernEventsCal:        {CheckCVEWPModernEventsCal, SeverityCritical, ModeDeep},
+	CheckCVEWPBackupBuddyDownload:    {CheckCVEWPBackupBuddyDownload, SeverityHigh, ModeDeep},
+	CheckCVEWPFlavorUpload:           {CheckCVEWPFlavorUpload, SeverityCritical, ModeDeep},
+	CheckCVEWPSPProjectUpload:        {CheckCVEWPSPProjectUpload, SeverityHigh, ModeDeep},
+	CheckCVEWPFlavorUpload2:          {CheckCVEWPFlavorUpload2, SeverityCritical, ModeDeep},
+	CheckCVEWPCargoRCE:               {CheckCVEWPCargoRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPProfilePressUpload:     {CheckCVEWPProfilePressUpload, SeverityCritical, ModeDeep},
+	CheckCVEWPBookingPressSQLi:       {CheckCVEWPBookingPressSQLi, SeverityCritical, ModeDeep},
+	CheckCVEWPElementorRCE:           {CheckCVEWPElementorRCE, SeverityHigh, ModeDeep},
+	CheckCVEWPStarterTemplatesUpload: {CheckCVEWPStarterTemplatesUpload, SeverityCritical, ModeDeep},
+	CheckCVEWPRoyalStarterUpload:     {CheckCVEWPRoyalStarterUpload, SeverityCritical, ModeDeep},
 	CheckPortNextcloudDefaultCreds:   {CheckPortNextcloudDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortNextcloudStatusExposed:  {CheckPortNextcloudStatusExposed, SeverityLow, ModeSurface},
 	CheckCVENextcloudSSRFPreview:     {CheckCVENextcloudSSRFPreview, SeverityHigh, ModeDeep},
