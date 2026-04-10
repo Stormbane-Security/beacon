@@ -3222,6 +3222,37 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVETomcatPutRCE:           {CheckCVETomcatPutRCE, SeverityCritical, ModeDeep},
 	CheckCVESpringCloudFunctionRCE: {CheckCVESpringCloudFunctionRCE, SeverityCritical, ModeDeep},
 
+	// Database & cache CVEs
+	CheckCVERedisLuaSandboxEscape:    {CheckCVERedisLuaSandboxEscape, SeverityCritical, ModeDeep},
+	CheckCVERedisHINCRAuthBypass:     {CheckCVERedisHINCRAuthBypass, SeverityHigh, ModeDeep},
+	CheckCVERedisSocketRace:          {CheckCVERedisSocketRace, SeverityHigh, ModeSurface},
+	CheckCVEMongoDBBSONRCE:           {CheckCVEMongoDBBSONRCE, SeverityCritical, ModeDeep},
+	CheckCVEMySQLConfigManip:         {CheckCVEMySQLConfigManip, SeverityHigh, ModeDeep},
+	CheckCVEPostgreSQLExtInjection:   {CheckCVEPostgreSQLExtInjection, SeverityHigh, ModeDeep},
+	CheckCVEMemcachedUDPAmplify:      {CheckCVEMemcachedUDPAmplify, SeverityHigh, ModeSurface},
+	CheckCVECouchDBErlangCookie:      {CheckCVECouchDBErlangCookie, SeverityCritical, ModeDeep},
+	CheckCVECouchDBPrivEsc:           {CheckCVECouchDBPrivEsc, SeverityCritical, ModeDeep},
+
+	// Infrastructure CVEs
+	CheckCVERuncContainerEscape:      {CheckCVERuncContainerEscape, SeverityCritical, ModeSurface},
+	CheckCVEContainerdHostNetEscape:  {CheckCVEContainerdHostNetEscape, SeverityCritical, ModeSurface},
+	CheckCVEKibanaTimelionRCE:        {CheckCVEKibanaTimelionRCE, SeverityCritical, ModeDeep},
+	CheckCVEKibanaSecurityInfoLeak:   {CheckCVEKibanaSecurityInfoLeak, SeverityMedium, ModeDeep},
+	CheckCVEErlangOTPAuthBypass:      {CheckCVEErlangOTPAuthBypass, SeverityCritical, ModeSurface},
+	CheckCVEVaultPKISSRF:             {CheckCVEVaultPKISSRF, SeverityHigh, ModeDeep},
+	CheckCVEPrometheusOpenRedirect:   {CheckCVEPrometheusOpenRedirect, SeverityMedium, ModeDeep},
+	CheckCVEGitLabAccountTakeover:    {CheckCVEGitLabAccountTakeover, SeverityCritical, ModeDeep},
+	CheckCVEGitLabCILintSSRF:         {CheckCVEGitLabCILintSSRF, SeverityHigh, ModeDeep},
+	CheckCVEAirflowExampleDAGRCE:     {CheckCVEAirflowExampleDAGRCE, SeverityCritical, ModeDeep},
+	CheckCVEAirflowConfigInfoLeak:    {CheckCVEAirflowConfigInfoLeak, SeverityHigh, ModeDeep},
+	CheckCVESonarQubeSSRF:            {CheckCVESonarQubeSSRF, SeverityHigh, ModeDeep},
+
+	// Web server CVEs
+	CheckCVENginxResolverRCE:         {CheckCVENginxResolverRCE, SeverityCritical, ModeSurface},
+	CheckCVENginxRangeInfoLeak:       {CheckCVENginxRangeInfoLeak, SeverityMedium, ModeDeep},
+	CheckCVEApacheTraversal2021:      {CheckCVEApacheTraversal2021, SeverityCritical, ModeDeep},
+	CheckCVEApacheTraversalBypass2021: {CheckCVEApacheTraversalBypass2021, SeverityCritical, ModeDeep},
+
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},
 
