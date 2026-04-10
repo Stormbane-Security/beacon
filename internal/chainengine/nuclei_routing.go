@@ -117,6 +117,14 @@ var nucleiTagToService = map[string]string{
 	"snmp":    "snmp",
 	"ldap":    "ldap",
 	"dns":     "dns",
+	"ntp":     "ntp",
+	"smb":     "smb",
+	"samba":   "smb",
+	"tftp":    "tftp",
+
+	// Database admin / tracing
+	"adminer": "adminer",
+	"jaeger":  "jaeger",
 
 	// WordPress aliases (covers ~1700 nuclei templates)
 	"wp":         "wordpress",
@@ -513,8 +521,8 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2018-6789":  "smtp",             // Exim base64d heap overflow RCE
 	"CVE-2025-26794": "smtp",             // Exim < 4.98.1 SQL injection
 
-	// DNS / NTP
-	"CVE-2013-5211":  "dns",              // NTP monlist DDoS amplification
+	// NTP
+	"CVE-2013-5211":  "ntp",              // NTP monlist DDoS amplification
 
 	// Cisco IOS XE / ASA / NX-OS / FMC
 	"CVE-2018-0171":  "cisco_ios_xe",     // Cisco Smart Install unauth config RW
@@ -681,6 +689,10 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === SMB ===
 	"CVE-2017-0144":  "smb",              // EternalBlue SMBv1 RCE
+	"CVE-2020-0796":  "smb",              // SMBGhost compression RCE
+
+	// === Adminer ===
+	"CVE-2021-21311": "adminer",          // Adminer SSRF via redirect
 
 	// === Intel AMT ===
 	"CVE-2017-5689":  "amt",              // Intel AMT empty-digest auth bypass
