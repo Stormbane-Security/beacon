@@ -96,7 +96,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	// Skip catch-all servers that return 200 for any path — WS probes would
 	// all be false positives on such servers.
-	if isCatchAll(ctx, client, scheme+"://"+asset) {
+	baseline := scan.DetectCatchAll(ctx, client, scheme+"://"+asset)
+	if baseline.IsCatchAll {
 		return nil, nil
 	}
 
@@ -120,21 +121,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return findings, nil
 }
 
-// isCatchAll returns true when the server responds HTTP 200 to a path that
-// cannot exist on any real application, indicating a wildcard / catch-all
-// config where all path-based probes would be false positives.
-func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
 
 // looksLikeSessionCookie returns true when a cookie's name matches common
 // session / auth token patterns. These indicate the site uses cookie-based

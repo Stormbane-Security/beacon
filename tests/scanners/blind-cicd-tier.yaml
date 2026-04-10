@@ -65,7 +65,7 @@ assertions:
   - name: blind-discovers-jenkins
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
     expect:
       check_id: port.jenkins_no_auth
 
@@ -73,7 +73,7 @@ assertions:
   - name: blind-discovers-grafana-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816", "--deep", "--yes"]
     expect:
       check_id: port.grafana_default_credentials
 
@@ -81,7 +81,7 @@ assertions:
   - name: blind-identifies-cicd-services
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
     expect:
       check_id: port.service_identified
 
@@ -89,7 +89,7 @@ assertions:
   - name: negative-no-database-on-cicd
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19810,19811,19812,19813,19814,19815,19816"]
     expect:
       not_check_id: port.redis_unauthenticated
 

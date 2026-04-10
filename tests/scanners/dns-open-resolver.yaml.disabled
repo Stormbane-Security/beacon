@@ -1,0 +1,33 @@
+name: dns-open-resolver-detection
+description: >
+  CoreDNS configured as an open resolver (forwards all queries).
+  Beacon should detect the DNS amplification risk.
+tags: [dns, resolver, amplification, detection]
+
+services:
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["15354:53/udp", "15354:53/tcp"]
+    volumes:
+      - ./fixtures/dns-open-resolver/Corefile:/etc/coredns/Corefile:ro
+
+ready:
+  cmd: "dig @localhost -p 15354 google.com A +short 2>/dev/null | grep -qE '[0-9]+\\.[0-9]+'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: resolver-works
+    type: command
+    expect:
+      command: "dig @localhost -p 15354 google.com A +short | grep -qE '[0-9]+\\.[0-9]+'"
+      exit_code: 0
+
+  - name: detects-open-resolver
+    type: beacon
+    target: localhost:15354
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15354"]
+    expect:
+      check_id: port.dns_open_resolver
+
+timeout: 3m

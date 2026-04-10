@@ -24,7 +24,7 @@ assertions:
   - name: detects-nexus-exposed
     type: beacon
     target: localhost:8081
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8081"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8081"]
     expect:
       check_id: port.nexus_exposed
 

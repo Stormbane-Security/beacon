@@ -9,6 +9,14 @@ const (
 	ConfidenceVerified = "verified" // Confirmed via active exploitation or proof-of-concept
 )
 
+// Visibility describes how the finding is reachable.
+const (
+	VisibilityPublic        = "public"         // Reachable from the internet without authentication
+	VisibilityAuthenticated = "authenticated"   // Requires valid credentials to reach
+	VisibilityInternal      = "internal"        // Only reachable from internal network (discovered via SSRF, pivot, etc.)
+	VisibilityUnknown       = "unknown"         // Visibility could not be determined
+)
+
 // Finding is the canonical normalized finding produced by any scanner.
 // All scanners return []Finding regardless of the underlying tool.
 type Finding struct {
@@ -54,6 +62,13 @@ type Finding struct {
 	//   "verified"  — finding confirmed via active exploitation or proof-of-concept
 	// Empty string means confidence was not assessed (legacy findings).
 	Confidence string `json:"confidence,omitempty"`
+
+	// Visibility describes how the finding is reachable:
+	//   "public"         — reachable from the internet without auth
+	//   "authenticated"  — requires valid credentials
+	//   "internal"       — only reachable from internal network (SSRF pivot, etc.)
+	//   "unknown"        — could not be determined
+	Visibility string `json:"visibility,omitempty"`
 }
 
 // Meta returns the CheckMeta for this finding's CheckID.

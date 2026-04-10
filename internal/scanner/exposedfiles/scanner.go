@@ -60,6 +60,7 @@ func init() {
 		scan.Check(finding.CheckCVEFortiOSAuthBypass, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSCredLeak, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSSSLVPN, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSXORtigateRCE, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSSSOBypass, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSWSAuthBypass, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiWebAuthBypass, finding.SeverityCritical, finding.ModeSurface),
@@ -1000,6 +1001,28 @@ var targets = []sensitiveFile{
 			"Affected models include D-Link DIR-655, DIR-806, DIR-859, and others running firmware prior to October 2019. " +
 			"Disable remote management and apply firmware updates from D-Link immediately.",
 	},
+
+	// Admin panels — unauthenticated access to management interfaces
+	{path: "/admin/", title: "Admin panel accessible", severity: finding.SeverityHigh,
+		bodyContains: "admin", checkID: finding.CheckExposureAdminPath,
+		description: "An administrative panel is accessible without authentication at /admin/. " +
+			"Admin panels provide configuration access, user management, and potentially code execution."},
+	{path: "/admin", title: "Admin panel accessible", severity: finding.SeverityHigh,
+		bodyContains: "admin", checkID: finding.CheckExposureAdminPath},
+	{path: "/dashboard/", title: "Dashboard accessible", severity: finding.SeverityMedium,
+		bodyContains: "dashboard", checkID: finding.CheckExposureAdminPath},
+	{path: "/wp-admin/", title: "WordPress admin panel", severity: finding.SeverityMedium,
+		checkID: finding.CheckExposureAdminPath},
+	{path: "/administrator/", title: "Joomla admin panel", severity: finding.SeverityMedium,
+		bodyContains: "administrator", checkID: finding.CheckExposureAdminPath},
+	{path: "/manager/html", title: "Tomcat Manager accessible", severity: finding.SeverityHigh,
+		bodyContains: "manager", checkID: finding.CheckExposureAdminPath},
+	{path: "/_config/", title: "Application config endpoint", severity: finding.SeverityHigh,
+		checkID: finding.CheckExposureAdminPath},
+	{path: "/phpmyadmin/", title: "phpMyAdmin accessible", severity: finding.SeverityHigh,
+		bodyContains: "phpmyadmin", checkID: finding.CheckExposureAdminPath},
+	{path: "/adminer/", title: "Adminer accessible", severity: finding.SeverityHigh,
+		bodyContains: "adminer", checkID: finding.CheckExposureAdminPath},
 }
 
 // Scanner actively probes for exposed sensitive files.
@@ -1010,12 +1033,7 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(10 * time.Second)
 	if c := authctx.HTTPClient(ctx); c != nil {
 		// Use the auth transport but keep our redirect policy.
 		ac := *c
@@ -1028,13 +1046,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	scheme := detectScheme(ctx, client, asset)
 	base := scheme + "://" + asset
 
-	// Wildcard / catch-all detection: probe a path that cannot exist on any
-	// real application. If the server returns 200, it serves the same response
-	// for every path (install script CDNs, catch-all SPA configs, etc.) and
-	// all path-based findings would be false positives.
-	if isCatchAll(ctx, client, base) {
-		return nil, nil
-	}
+	// Wildcard / catch-all detection: use the shared baseline to filter
+	// individual responses instead of bailing entirely.
+	baseline := scan.DetectCatchAll(ctx, client, base)
 
 	var findings []finding.Finding
 
@@ -1070,6 +1084,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, readLimit))
 		_ = resp.Body.Close()
+
+		// On catch-all servers, skip responses identical to the baseline.
+		if !baseline.IsDifferentFromBaseline(resp, body) {
+			continue
+		}
 
 		// Confirm it's a real file, not a soft 404 or CMS catch-all.
 		if t.bodyContains != "" && !strings.Contains(string(body), t.bodyContains) {
@@ -1536,23 +1555,6 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	return findings, nil
 }
 
-// isCatchAll returns true when the server responds with 200 to a randomly
-// named path that cannot exist on any real application. This detects install
-// script CDNs, SPA catch-alls, and wildcard configs where every path returns
-// the same content — path-based findings would all be false positives.
-func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	u := base + "/beacon-probe-c4a7f2d9b3e1-doesnotexist"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
 
 // probeTomcatPartialPUT tests for CVE-2025-24813 (Apache Tomcat partial PUT
 // deserialization). It first fingerprints Tomcat via the Server header, then
@@ -1802,6 +1804,30 @@ func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, a
 		})
 	}
 
+	// CVE-2023-27997 (XORtigate): heap buffer overflow in SSL VPN → pre-auth RCE (CVSS 9.8, KEV).
+	// Affects FortiOS < 7.2.5, < 7.0.12, < 6.4.13, < 6.2.15.
+	if isFortiOSXORtigateVulnerable(ver) {
+		out = append(out, finding.Finding{
+			CheckID:  finding.CheckCVEFortiOSXORtigateRCE,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2023-27997: FortiOS %s XORtigate SSL VPN heap overflow RCE", ver),
+			Description: fmt.Sprintf(
+				"%s is running FortiOS %s with SSL VPN exposed. CVE-2023-27997 (CVSS 9.8, KEV) "+
+					"is a heap buffer overflow in the SSL VPN pre-authentication handler, enabling "+
+					"unauthenticated remote code execution. Named 'XORtigate' by the researcher who "+
+					"discovered XOR-based heap manipulation. Affects FortiOS < 7.2.5, < 7.0.12, "+
+					"< 6.4.13, < 6.2.15. Upgrade immediately and rotate all VPN credentials.",
+				asset, ver,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proof,
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	// CVE-2024-21762: out-of-bounds write in SSL VPN HTTP handler → unauthenticated RCE (CVSS 9.6, KEV).
 	// Affects FortiOS 6.x through 7.4.2.
 	if isFortiOSSSLVPNVulnerable(ver) {
@@ -1894,6 +1920,41 @@ func isFortiOSSSLVPNVulnerable(ver string) bool {
 			_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 		}
 		return patch < 3
+	}
+	return false
+}
+
+// isFortiOSXORtigateVulnerable returns true for FortiOS versions affected by
+// CVE-2023-27997 (XORtigate): < 7.2.5, < 7.0.12, < 6.4.13, < 6.2.15.
+func isFortiOSXORtigateVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
+
+	switch {
+	case maj == 7 && min == 2:
+		return patch < 5 // < 7.2.5
+	case maj == 7 && min == 0:
+		return patch < 12 // < 7.0.12
+	case maj == 6 && min == 4:
+		return patch < 13 // < 6.4.13
+	case maj == 6 && min == 2:
+		return patch < 15 // < 6.2.15
+	case maj == 7 && min == 1:
+		return true // 7.1.x — no fix released, must upgrade to 7.2.5+
+	case maj == 7 && min >= 3:
+		return false // 7.3+ / 7.4+ not affected by XORtigate
+	case maj < 6:
+		return false // ancient versions not in advisory scope
+	case maj == 6 && min < 2:
+		return false // 6.0.x / 6.1.x not listed in advisory
+	case maj == 6 && min == 3:
+		return true // 6.3.x — no fix, must upgrade
 	}
 	return false
 }

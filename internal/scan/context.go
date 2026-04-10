@@ -14,9 +14,11 @@ package scan
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/oob"
 	"github.com/stormbane-security/beacon/internal/playbook"
 )
 
@@ -26,11 +28,26 @@ type contextKey struct{}
 // It is injected by the surface module before scanner execution and retrieved
 // by scanners via FromContext.
 type ScanContext struct {
-	asset       string
-	scanType    module.ScanType
-	client      *http.Client
-	evidence    *playbook.Evidence
-	authHeaders map[string]string // raw auth headers for subprocess tools (katana, ffuf, etc.)
+	asset        string
+	scanType     module.ScanType
+	client       *http.Client
+	evidence     *playbook.Evidence
+	authHeaders  map[string]string // raw auth headers for subprocess tools (katana, ffuf, etc.)
+	wordlistPath string            // custom wordlist file path for brute-force scanners
+
+	screenshotEnabled bool // true when --screenshots is set
+
+	honeypotDetected bool // true when the honeypot scanner identifies the asset as a honeypot
+
+	// oobServer is the out-of-band callback server, lazily initialized on
+	// first call to OOBServer(). Scanners use it to generate callback URLs
+	// for blind SSRF, blind XXE, blind SQLi OOB, etc.
+	oobOnce   sync.Once
+	oobServer *oob.Server
+
+	// responseCache is lazily initialized on first call to ResponseCache().
+	responseCacheOnce sync.Once
+	responseCache     *ResponseCache
 }
 
 // NewContext creates a ScanContext for the given asset and scan type.
@@ -72,12 +89,12 @@ func (sc *ScanContext) Asset() string { return sc.asset }
 func (sc *ScanContext) ScanType() module.ScanType { return sc.scanType }
 
 // HTTPClient returns the auth-wrapped HTTP client, or a default 15s-timeout
-// client if none was injected.
+// client using the shared connection-pooled transport if none was injected.
 func (sc *ScanContext) HTTPClient() *http.Client {
 	if sc.client != nil {
 		return sc.client
 	}
-	return &http.Client{Timeout: 15 * time.Second}
+	return SharedClient(15 * time.Second)
 }
 
 // Evidence returns the classify-phase evidence for this asset, or nil
@@ -117,3 +134,71 @@ func (sc *ScanContext) WithAuthHeaders(headers map[string]string) *ScanContext {
 
 // AuthHeaders returns the raw auth headers, or nil if no auth is configured.
 func (sc *ScanContext) AuthHeaders() map[string]string { return sc.authHeaders }
+
+// WithWordlist sets a custom wordlist file path for brute-force scanners
+// (directory brute-force, subdomain brute-force, parameter discovery).
+func (sc *ScanContext) WithWordlist(path string) *ScanContext {
+	sc.wordlistPath = path
+	return sc
+}
+
+// WordlistPath returns the custom wordlist file path, or "" if none was set.
+func (sc *ScanContext) WordlistPath() string { return sc.wordlistPath }
+
+// WithScreenshots marks the scan as having screenshots enabled.
+func (sc *ScanContext) WithScreenshots(enabled bool) *ScanContext {
+	sc.screenshotEnabled = enabled
+	return sc
+}
+
+// ScreenshotsEnabled reports whether the --screenshots flag was set.
+func (sc *ScanContext) ScreenshotsEnabled() bool { return sc.screenshotEnabled }
+
+// SetHoneypotDetected marks the asset as a honeypot so downstream scanners
+// (chain engine, exploit playbooks) can skip exploitation to avoid detection.
+func (sc *ScanContext) SetHoneypotDetected(v bool) { sc.honeypotDetected = v }
+
+// HoneypotDetected reports whether the honeypot scanner flagged this asset.
+func (sc *ScanContext) HoneypotDetected() bool { return sc.honeypotDetected }
+
+// SharedClient returns a pooled HTTP client using the shared transport.
+// When no auth client is configured, this avoids redundant TCP+TLS handshakes
+// across scanners hitting the same target.
+func (sc *ScanContext) SharedClient() *http.Client {
+	if sc.client != nil {
+		return sc.client
+	}
+	return SharedClient(15 * time.Second)
+}
+
+// OOBServer returns the out-of-band callback server, lazily initializing it
+// on first call. Scanners use it to generate unique callback tokens and URLs
+// for blind vulnerability confirmation (SSRF, XXE, SQLi OOB, etc.).
+// Returns nil if the server cannot be started.
+func (sc *ScanContext) OOBServer() *oob.Server {
+	sc.oobOnce.Do(func() {
+		srv := oob.NewServer("oob.beacon.local", "127.0.0.1:0")
+		if err := srv.Start(context.Background()); err != nil {
+			return
+		}
+		sc.oobServer = srv
+	})
+	return sc.oobServer
+}
+
+// WithOOBServer sets an externally-configured OOB server (e.g., one with a
+// public domain and tunnel). Overrides the lazy-init default.
+func (sc *ScanContext) WithOOBServer(srv *oob.Server) *ScanContext {
+	sc.oobServer = srv
+	sc.oobOnce.Do(func() {}) // mark as initialized
+	return sc
+}
+
+// ResponseCache returns the per-scan response cache (lazily initialized).
+// Multiple scanners sharing a cache avoid duplicate fetches of the same URL.
+func (sc *ScanContext) ResponseCache() *ResponseCache {
+	sc.responseCacheOnce.Do(func() {
+		sc.responseCache = NewResponseCache(sc.SharedClient())
+	})
+	return sc.responseCache
+}

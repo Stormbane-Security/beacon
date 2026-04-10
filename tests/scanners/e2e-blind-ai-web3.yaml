@@ -1,0 +1,51 @@
+name: e2e-blind-ai-web3
+description: >
+  Blind scan of AI and Web3 services. Tests ML infrastructure detection,
+  blockchain node identification, and service fingerprinting.
+tags: [e2e, blind, ai, web3, blockchain, integration]
+
+services:
+  # Ganache (Ethereum test node)
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports: ["19780:8545"]
+    command: ["--host", "0.0.0.0", "--port", "8545", "--accounts", "5", "--deterministic"]
+
+  # httpbin as mock AI API
+  aiapi:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19781:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf -X POST http://localhost:19780/ -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}' | grep -q result && curl -sf http://localhost:19781/ >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # Ganache: RPC endpoint detected
+  - name: ganache-rpc-detected
+    type: beacon
+    target: localhost:19780
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      check_id: chain.node_rpc_exposed
+
+  # httpbin: headers found
+  - name: aiapi-headers
+    type: beacon
+    target: localhost:19781
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # negative: no blockchain on httpbin
+  - name: negative-no-chain-on-httpbin
+    type: beacon
+    target: localhost:19781
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
+    expect:
+      not_check_id: chain.node_rpc_exposed
+
+timeout: 10m

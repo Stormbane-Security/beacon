@@ -22,14 +22,14 @@ assertions:
   - name: nmap-http-title
     type: beacon
     target: localhost:18080
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.http_title
 
   - name: nmap-http-robots
     type: beacon
     target: localhost:18080
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "portscan"]
     expect:
       check_id: nmap.http_robots
 

@@ -16,6 +16,9 @@ package authctx
 import (
 	"context"
 	"net/http"
+	"time"
+
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 type contextKey struct{}
@@ -28,11 +31,18 @@ func WithHTTPClient(ctx context.Context, client *http.Client) context.Context {
 }
 
 // HTTPClient retrieves the authenticated HTTP client from the context.
-// If no client was injected (unauthenticated scan), returns a default http.Client.
-// Callers never need to nil-check the return value.
+// If no client was injected (unauthenticated scan), returns a client backed
+// by the shared connection-pooled transport. Callers never need to nil-check
+// the return value.
 func HTTPClient(ctx context.Context) *http.Client {
 	if c, ok := ctx.Value(contextKey{}).(*http.Client); ok && c != nil {
 		return c
 	}
-	return &http.Client{}
+	return scan.SharedClient(15 * time.Second)
+}
+
+// IsAuthenticated reports whether the context carries an injected auth client.
+func IsAuthenticated(ctx context.Context) bool {
+	c, ok := ctx.Value(contextKey{}).(*http.Client)
+	return ok && c != nil
 }

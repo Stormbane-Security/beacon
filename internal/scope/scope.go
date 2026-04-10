@@ -98,8 +98,10 @@ func FetchProgram(ctx context.Context, platform, handle string) (*Program, error
 		return fetchHackerOne(ctx, handle)
 	case "bugcrowd", "bc":
 		return fetchBugcrowd(ctx, handle)
+	case "intigriti", "ig":
+		return fetchIntigriti(ctx, handle)
 	default:
-		return nil, fmt.Errorf("unsupported platform %q (use hackerone or bugcrowd)", platform)
+		return nil, fmt.Errorf("unsupported platform %q (use hackerone, bugcrowd, or intigriti)", platform)
 	}
 }
 
@@ -119,7 +121,7 @@ func fetchHackerOne(ctx context.Context, handle string) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hackerone: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		// Try the public GraphQL-style API
@@ -179,7 +181,7 @@ func fetchHackerOneGraphQL(ctx context.Context, handle string) (*Program, error)
 	if err != nil {
 		return nil, fmt.Errorf("hackerone graphql: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -256,7 +258,7 @@ func fetchBugcrowd(ctx context.Context, handle string) (*Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bugcrowd: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -298,6 +300,60 @@ func fetchBugcrowd(ctx context.Context, handle string) (*Program, error) {
 			Identifier: t.Name,
 			Type:       t.Type,
 			InScope:    false,
+		})
+	}
+	return prog, nil
+}
+
+// fetchIntigriti queries the Intigriti public program API.
+// Public programs are accessible without authentication.
+func fetchIntigriti(ctx context.Context, handle string) (*Program, error) {
+	url := fmt.Sprintf("https://app.intigriti.com/api/v1/programs/%s", handle)
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("intigriti: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("intigriti: HTTP %d for program %q", resp.StatusCode, handle)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Name    string `json:"name"`
+		Domains []struct {
+			Endpoint string `json:"endpoint"`
+			Type     string `json:"type"`
+		} `json:"domains"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("intigriti: parse: %w", err)
+	}
+
+	prog := &Program{
+		Platform:  "intigriti",
+		Handle:    handle,
+		Name:      result.Name,
+		FetchedAt: time.Now(),
+	}
+	for _, d := range result.Domains {
+		prog.Assets = append(prog.Assets, Asset{
+			Identifier: d.Endpoint,
+			Type:       d.Type,
+			InScope:    true,
 		})
 	}
 	return prog, nil

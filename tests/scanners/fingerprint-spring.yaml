@@ -28,7 +28,7 @@ assertions:
   - name: detects-spring-actuator
     type: beacon
     target: localhost:9216
-    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--yes"]
     expect:
       check_id: exposure.spring_actuator
 

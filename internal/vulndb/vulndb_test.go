@@ -15,7 +15,7 @@ func testDB(t *testing.T) *DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -205,7 +205,7 @@ func testServer(t *testing.T) (*DB, *httptest.Server) {
 
 func TestAPIGetCVEs(t *testing.T) {
 	db, ts := testServer(t)
-	db.UpsertCVE(CVEEntry{
+	_ = db.UpsertCVE(CVEEntry{
 		ID: "CVE-2023-0001", AffectedProduct: "nginx",
 		Severity: "high", CVSSScore: 7.5, UpdatedAt: time.Now(),
 	})
@@ -214,12 +214,12 @@ func TestAPIGetCVEs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	var cves []CVEEntry
-	json.NewDecoder(resp.Body).Decode(&cves)
+	_ = json.NewDecoder(resp.Body).Decode(&cves)
 	if len(cves) != 1 {
 		t.Fatalf("expected 1 cve, got %d", len(cves))
 	}
@@ -231,7 +231,7 @@ func TestAPIGetCVEsBadRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
@@ -239,7 +239,7 @@ func TestAPIGetCVEsBadRequest(t *testing.T) {
 
 func TestAPIGetPayloads(t *testing.T) {
 	db, ts := testServer(t)
-	db.UpsertPayload(VerifiedPayload{
+	_ = db.UpsertPayload(VerifiedPayload{
 		Service: "apache", Version: "2.4.49", CVEID: "CVE-2021-41773",
 		Payload: "test", LastVerified: time.Now(),
 	})
@@ -247,12 +247,12 @@ func TestAPIGetPayloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	var payloads []VerifiedPayload
-	json.NewDecoder(resp.Body).Decode(&payloads)
+	_ = json.NewDecoder(resp.Body).Decode(&payloads)
 	if len(payloads) != 1 {
 		t.Fatalf("expected 1 payload, got %d", len(payloads))
 	}
@@ -265,7 +265,7 @@ func TestAPIPostFindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 201 {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
@@ -282,7 +282,7 @@ func TestAPIPostPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 201 {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
@@ -294,9 +294,9 @@ func TestAPIStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var stats DBStats
-	json.NewDecoder(resp.Body).Decode(&stats)
+	_ = json.NewDecoder(resp.Body).Decode(&stats)
 	if stats.CVECount != 0 {
 		t.Fatalf("expected 0 CVEs, got %d", stats.CVECount)
 	}
@@ -304,7 +304,7 @@ func TestAPIStats(t *testing.T) {
 
 func TestAPIFingerprints(t *testing.T) {
 	db, ts := testServer(t)
-	db.UpsertFingerprint(ServiceFingerprint{
+	_ = db.UpsertFingerprint(ServiceFingerprint{
 		Domain: "test.com", Service: "nginx", Version: "1.24",
 		LastSeen: time.Now(),
 	})
@@ -312,9 +312,9 @@ func TestAPIFingerprints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var fps []ServiceFingerprint
-	json.NewDecoder(resp.Body).Decode(&fps)
+	_ = json.NewDecoder(resp.Body).Decode(&fps)
 	if len(fps) != 1 {
 		t.Fatalf("expected 1 fingerprint, got %d", len(fps))
 	}
@@ -327,11 +327,11 @@ func TestClientRoundTrip(t *testing.T) {
 	client := NewClient(ts.URL)
 
 	// Seed data.
-	db.UpsertCVE(CVEEntry{
+	_ = db.UpsertCVE(CVEEntry{
 		ID: "CVE-2023-9999", AffectedProduct: "redis",
 		Severity: "critical", CVSSScore: 9.8, UpdatedAt: time.Now(),
 	})
-	db.UpsertPayload(VerifiedPayload{
+	_ = db.UpsertPayload(VerifiedPayload{
 		Service: "redis", Version: "6.0", CVEID: "CVE-2023-9999",
 		Payload: "AUTH test", LastVerified: time.Now(),
 	})

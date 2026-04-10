@@ -18,7 +18,8 @@ type arjunOutput map[string][]string
 // runArjun shells out to arjun for parameter discovery using its battle-tested
 // wordlists. Returns discovered parameter names. Returns nil if arjun is not
 // installed or the --no-arjun flag was used (arjunBin == "").
-func runArjun(ctx context.Context, targetURL string, arjunBin string) ([]string, error) {
+// When wordlistPath is non-empty, arjun uses that file as its wordlist (-w flag).
+func runArjun(ctx context.Context, targetURL string, arjunBin string, wordlistPath string) ([]string, error) {
 	if arjunBin == "" {
 		return nil, nil
 	}
@@ -39,8 +40,11 @@ func runArjun(ctx context.Context, targetURL string, arjunBin string) ([]string,
 		"--stable",
 		"-oJ", outputFile,
 	}
+	if wordlistPath != "" {
+		args = append(args, "-w", wordlistPath)
+	}
 
-	cmd := exec.CommandContext(ctx, binPath, args...)
+	cmd := exec.CommandContext(ctx, binPath, args...) // #nosec G204 -- intentional: running arjun tool
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -55,7 +59,7 @@ func runArjun(ctx context.Context, targetURL string, arjunBin string) ([]string,
 // parseArjunOutput reads and parses arjun's JSON output file.
 // Returns a deduplicated, sorted list of discovered parameter names.
 func parseArjunOutput(outputFile string) ([]string, error) {
-	data, err := os.ReadFile(outputFile)
+	data, err := os.ReadFile(outputFile) // #nosec G304 -- reading arjun's temp output file
 	if err != nil {
 		return nil, nil
 	}

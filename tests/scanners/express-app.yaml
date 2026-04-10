@@ -1,0 +1,50 @@
+name: express-app
+description: >
+  Express.js app with default X-Powered-By: Express header enabled.
+  Beacon portscan scanner should fingerprint Express via this header.
+tags: [express, scanner, portscan, framework]
+
+services:
+  express:
+    build:
+      context: ./express-app
+      dockerfile: Dockerfile
+    ports: ["20302:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20302/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-x-powered-by-express
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20302/ | grep -qi 'X-Powered-By: Express'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-express-framework
+    type: beacon
+    target: localhost:20302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20302"]
+    expect:
+      check_id: port.express_detected
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-express
+    type: beacon
+    target: localhost:20302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20302"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-express
+    type: beacon
+    target: localhost:20302
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20302"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

@@ -1,0 +1,36 @@
+name: consul-ssrf-cve-2022-29153
+description: "Consul 1.9.0 vulnerable to CVE-2022-29153 SSRF via redirect-traffic-to"
+tags: [cve, consul, ssrf]
+
+services:
+  consul:
+    image: hashicorp/consul:1.9.0
+    ports: ["8500:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:8500/v1/status/leader | grep -q ':'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-consul-version-vulnerable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8500/v1/agent/self | grep -q '1.9.0'"
+      exit_code: 0
+
+  - name: exploit-consul-kv-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:8500/v1/kv/?recurse=true 2>/dev/null; test $? -eq 0 || curl -sf http://localhost:8500/v1/catalog/services | grep -q consul"
+      exit_code: 0
+
+  - name: detects-consul-no-acl
+    type: beacon
+    target: localhost:8500
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8500"]
+    expect:
+      check_id: port.consul_no_acl
+
+timeout: 5m

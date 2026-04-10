@@ -1,0 +1,127 @@
+name: e2e-full-pipeline-rxss
+description: >
+  Full pipeline E2E test against the PHP reflected XSS app. Runs beacon
+  WITHOUT any --scanners filter so the complete pipeline executes:
+  crawl → param discovery → classify → Phase A (injection) → Phase B →
+  correlation → chain engine. The crawl should discover /search.php from
+  the index page link, param discovery should find ?q=, and the rxss
+  scanner should detect the reflected XSS — proving the full pipeline
+  chains crawl results into injection testing.
+tags: [e2e, full-pipeline, rxss, crawl, param-discovery, integration]
+
+services:
+  vuln-app:
+    image: php:8.2-apache
+    ports: ["20201:80"]
+    volumes:
+      - ./rxss/search.php:/var/www/html/search.php:ro
+      - ./rxss/index.php:/var/www/html/index.php:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20201/ | grep -q 'Demo Store'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify the vulnerable app works
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-index-has-link
+    type: command
+    expect:
+      command: "curl -s http://localhost:20201/ | grep -q '/search.php'"
+      exit_code: 0
+
+  - name: preflight-reflection-works
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:20201/search.php?q=CANARY123' | grep -q CANARY123"
+      exit_code: 0
+
+  - name: preflight-xss-payload-reflects
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:20201/search.php?q=<script>alert(1)</script>' | grep -q '<script>alert(1)</script>'"
+      exit_code: 0
+
+  - name: preflight-no-hsts
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20201/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # Crawl discovers /search.php → param discovery finds ?q= →
+  # rxss scanner tests it → finding emitted
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-minimum-findings
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 5
+
+  - name: full-pipeline-detects-missing-hsts
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: full-pipeline-detects-dirbust
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: dirbust.path_found
+
+  - name: full-pipeline-detects-missing-csp
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: full-pipeline-detects-server-leak
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  - name: full-pipeline-detects-rxss
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.reflected_xss
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — should not fire false positives
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+  - name: negative-no-hostheader
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.host_header_injection
+
+timeout: 5m

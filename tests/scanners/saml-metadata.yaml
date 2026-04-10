@@ -1,0 +1,68 @@
+name: saml-metadata-exposed
+description: >
+  Nginx serving a SAML IdP metadata XML document at /saml/metadata and
+  common alternative paths. Beacon saml scanner should detect the
+  exposed metadata endpoint.
+tags: [saml, scanner, auth, metadata]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["19867:80"]
+    volumes:
+      - ./saml-metadata/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./saml-metadata/metadata.xml:/usr/share/nginx/html/metadata.xml:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19867/saml/metadata >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-saml-metadata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19867/saml/metadata | grep -q 'EntityDescriptor'"
+      exit_code: 0
+
+  - name: exploit-saml-signing-cert-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19867/saml/metadata | grep -q 'X509Certificate'"
+      exit_code: 0
+
+  # NOTE: The SAML scanner requires a real SAML IdP/SP with SSO redirects,
+  # not just a static XML file. A static nginx serving metadata.xml won't
+  # trigger SAML detection. This test validates the preflight (metadata
+  # accessible) and headers (missing HSTS) but not SAML-specific checks.
+  # TODO: Replace with a real SAML IdP container (e.g., keycloak) for
+  # proper SAML detection testing.
+  - name: detects-headers-on-saml-endpoint
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.server_info_leak
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:19867
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+timeout: 5m

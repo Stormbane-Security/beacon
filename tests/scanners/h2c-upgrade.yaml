@@ -33,7 +33,7 @@ assertions:
   - name: detects-h2c-smuggling
     type: beacon
     target: localhost:9297
-    args: ["--no-enrich", "--scanners", "h2c", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "h2c", "--deep", "--yes"]
     expect:
       check_id: web.h2c_smuggling
 

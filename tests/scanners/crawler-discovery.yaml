@@ -33,7 +33,7 @@ assertions:
   - name: detects-crawl-endpoints
     type: beacon
     target: localhost:19905
-    args: ["--no-enrich", "--scanners", "crawler"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "crawler"]
     expect:
       check_id: asset.crawl_endpoints
 

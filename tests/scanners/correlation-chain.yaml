@@ -1,0 +1,124 @@
+name: correlation-chain
+description: >
+  Cross-finding correlation test. Nginx configured with both permissive
+  CORS (reflects any origin with credentials) and missing security
+  headers (no CSP, HSTS, X-Frame-Options). Running secheaders + cors
+  scanners together should produce findings from both scanners, and the
+  correlation engine may chain them into a compound attack path.
+tags: [correlation, scanner, web, cors, secheaders]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19878:80"]
+    volumes:
+      - ./correlation-chain/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19878/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ── Pre-flight: verify CORS reflects origin ──────────────────────────────
+  - name: exploit-cors-reflects-origin
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:19878/ | grep -qi 'Access-Control-Allow-Origin'"
+      exit_code: 0
+
+  - name: exploit-cors-credentials-with-reflection
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:19878/ | grep -qi 'Access-Control-Allow-Credentials'"
+      exit_code: 0
+
+  - name: exploit-no-csp-header
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19878/ | grep -qi 'Content-Security-Policy'"
+      exit_code: 0
+
+  # ── Scanner detection: CORS misconfiguration ─────────────────────────────
+  - name: detects-cors-misconfiguration
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  # ── Scanner detection: missing security headers ──────────────────────────
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ── Combined scan: multiple scanners produce findings ────────────────────
+  - name: combined-scan-produces-findings
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors,secheaders", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  # ── Full pipeline: runs correlation scanner after all others ─────────────
+  - name: full-pipeline-produces-findings
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 5
+
+  - name: full-pipeline-cors-credentialed
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_credentialed_reflection
+
+  - name: full-pipeline-missing-referrer-policy
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: full-pipeline-missing-permissions-policy
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  - name: full-pipeline-missing-x-content-type
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: full-pipeline-missing-x-frame-options
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  # ── Negative: should NOT emit database findings ──────────────────────────
+  - name: negative-no-database-finding
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors,secheaders"]
+    expect:
+      not_check_id: port.mysql_no_auth
+
+timeout: 5m

@@ -1,0 +1,54 @@
+name: racecondition-test
+description: >
+  Race condition scanner test. Verifies the scanner runs without error
+  against a Node.js app with a non-idempotent counter endpoint.
+  The scanner needs crawl-discovered POST endpoints to test, so in
+  isolated --scanners mode it verifies no crash and no false positives.
+tags: [racecondition, scanner, web, authorized]
+
+services:
+  app:
+    image: node:20-alpine
+    ports: ["19877:3000"]
+    volumes:
+      - ./racecondition-test/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:19877/ | grep -q 'ok'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: endpoints work
+  - name: app-accessible
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:19877/increment | grep -q 'count'"
+      exit_code: 0
+
+  # Scanner runs clean in authorized mode
+  - name: racecondition-runs-clean
+    type: beacon
+    target: localhost:19877
+    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # Headers detected
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19877
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:19877
+    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--exploit", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 5m

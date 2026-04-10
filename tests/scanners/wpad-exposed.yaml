@@ -24,7 +24,7 @@ assertions:
   - name: detects-wpad-exposed
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "wellknown"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
     expect:
       check_id: wellknown.wpad_exposed
 

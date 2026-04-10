@@ -24,7 +24,7 @@ assertions:
   - name: detects-mqtt-exposed
     type: beacon
     target: localhost:1883
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "1883"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "1883"]
     expect:
       check_id: port.mqtt_exposed
 

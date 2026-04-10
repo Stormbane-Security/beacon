@@ -1,0 +1,46 @@
+name: splunk-detection
+description: >
+  Splunk Enterprise with management API exposed on port 8089. Beacon
+  should detect the Splunk management REST API via portscan probes.
+tags: [splunk, monitoring, portscan, detection]
+
+services:
+  splunk:
+    # NOTE: splunk/splunk has no ARM64 image. This test only runs on x86_64.
+    # On ARM Macs, drydock will report an error (not a test failure).
+    image: splunk/splunk:latest
+    ports: ["19879:8089"]
+    environment:
+      SPLUNK_START_ARGS: "--accept-license"
+      SPLUNK_PASSWORD: "changeme123"
+
+ready:
+  cmd: "curl -sfk https://localhost:19879/services/server/info >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Splunk management API accessible
+  - name: splunk-mgmt-accessible
+    type: command
+    expect:
+      command: "curl -sfk https://localhost:19879/services/server/info | grep -qi splunk"
+      exit_code: 0
+
+  # Detection: beacon identifies Splunk management API
+  - name: detects-splunk-mgmt-exposed
+    type: beacon
+    target: localhost:19879
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.splunk_mgmt_exposed
+
+  # Negative: should not detect elasticsearch
+  - name: no-false-positive-elasticsearch
+    type: beacon
+    target: localhost:19879
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.elasticsearch_exposed
+
+timeout: 5m

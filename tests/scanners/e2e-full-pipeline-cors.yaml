@@ -1,0 +1,102 @@
+name: e2e-full-pipeline-cors
+description: >
+  Full pipeline E2E test against the CORS-vulnerable Node.js app that
+  reflects any Origin with credentials: true. Runs beacon WITHOUT any
+  --scanners filter so the complete pipeline executes. The CORS scanner
+  should detect both wildcard misconfiguration and credentialed origin
+  reflection without needing an explicit --scanners cors filter.
+tags: [e2e, full-pipeline, cors, integration]
+
+services:
+  cors-app:
+    image: node:20-alpine
+    ports: ["20202:3000"]
+    volumes:
+      - ./cors-vuln/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20202/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify CORS vulnerability exists
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-origin-reflected
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:20202/ | grep -qi 'Access-Control-Allow-Origin: https://evil.com'"
+      exit_code: 0
+
+  - name: preflight-credentials-allowed
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:20202/ | grep -qi 'Access-Control-Allow-Credentials: true'"
+      exit_code: 0
+
+  - name: preflight-preflight-reflects
+    type: command
+    expect:
+      command: "curl -sI -X OPTIONS -H 'Origin: https://attacker.com' -H 'Access-Control-Request-Method: POST' http://localhost:20202/ | grep -qi 'Access-Control-Allow-Origin: https://attacker.com'"
+      exit_code: 0
+
+  - name: preflight-api-key-in-response
+    type: command
+    expect:
+      command: "curl -s http://localhost:20202/ | grep -q 'sk-1234567890'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-minimum-findings
+    type: beacon
+    target: localhost:20202
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: full-pipeline-detects-cors-misconfig
+    type: beacon
+    target: localhost:20202
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  - name: full-pipeline-detects-cors-credentialed
+    type: beacon
+    target: localhost:20202
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_credentialed_reflection
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — CORS app should not fire unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20202
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.reflected_xss
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20202
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-hostheader
+    type: beacon
+    target: localhost:20202
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.host_header_injection
+
+timeout: 5m

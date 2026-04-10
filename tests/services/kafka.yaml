@@ -42,14 +42,14 @@ assertions:
   - name: detects-zookeeper-exposed
     type: beacon
     target: localhost:2181
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2181"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "2181"]
     expect:
       check_id: port.zookeeper_exposed
 
   - name: detects-kafka-exposed
     type: beacon
     target: localhost:9092
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9092"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9092"]
     expect:
       check_id: port.kafka_exposed
 

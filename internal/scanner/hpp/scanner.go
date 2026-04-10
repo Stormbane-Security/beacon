@@ -26,6 +26,7 @@ func init() {
 		return New()
 	},
 		scan.Check(finding.CheckWebHPP, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckWebHPPWAFBypass, finding.SeverityHigh, finding.ModeDeep),
 	)
 }
 const (
@@ -71,6 +72,24 @@ type roleProbe struct {
 
 var roleProbes = []roleProbe{
 	{dual: "role=user&role=admin", single: "role=user", signal: "admin"},
+}
+
+// wafBypassProbe tests whether duplicate parameters can smuggle a malicious
+// value past a WAF that only inspects the first parameter occurrence.
+type wafBypassProbe struct {
+	param     string // the parameter name to duplicate
+	clean     string // safe value (first param — what the WAF sees)
+	malicious string // malicious value (second param — what the app uses)
+	signal    string // optional: string in response body confirming the app used the malicious value
+}
+
+var wafBypassProbes = []wafBypassProbe{
+	// Classic SQLi payload — WAF should block the single-param version.
+	{param: "id", clean: "1", malicious: "1'+OR+1%3d1--+-", signal: ""},
+	// XSS payload variant.
+	{param: "q", clean: "test", malicious: "%3Cscript%3Ealert(1)%3C%2Fscript%3E", signal: "<script>"},
+	// Path traversal.
+	{param: "file", clean: "report.pdf", malicious: "..%2F..%2Fetc%2Fpasswd", signal: "root:"},
 }
 
 // Scanner probes for HTTP Parameter Pollution vulnerabilities.
@@ -222,6 +241,69 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				DiscoveredAt: time.Now(),
 			})
 		}
+
+		// Probe 4: WAF bypass via HPP.
+		// If a WAF blocks a malicious payload sent as a single param, but
+		// duplicate params let the payload reach the app (WAF checks first
+		// value, app uses second), that's a WAF bypass.
+		for _, wp := range wafBypassProbes {
+			if ctx.Err() != nil {
+				break
+			}
+
+			// Step 1: Send the malicious payload alone — expect WAF block (403/406).
+			blockedURL := base + path + "?" + wp.param + "=" + wp.malicious
+			blockedStatus := fetchStatus(ctx, client, blockedURL)
+			if blockedStatus == 0 || !isWAFBlock(blockedStatus) {
+				continue // WAF didn't block — nothing to bypass
+			}
+
+			// Step 2: Send duplicate params — clean first, malicious second.
+			bypassURL := base + path + "?" + wp.param + "=" + wp.clean + "&" + wp.param + "=" + wp.malicious
+			bypassStatus := fetchStatus(ctx, client, bypassURL)
+			if bypassStatus == 0 || isWAFBlock(bypassStatus) {
+				continue // WAF still blocks with duplicate params
+			}
+
+			// Step 3: Confirm the app processed the malicious value by checking
+			// the response body for the signal string.
+			bypassBody := fetchBody(ctx, client, bypassURL)
+			if wp.signal != "" && !strings.Contains(bypassBody, wp.signal) {
+				continue
+			}
+
+			findings = append(findings, finding.Finding{
+				CheckID:  finding.CheckWebHPPWAFBypass,
+				Module:   "deep",
+				Scanner:  scannerName,
+				Severity: finding.SeverityHigh,
+				Title:    fmt.Sprintf("HPP WAF bypass on %s%s (%s parameter)", asset, path, wp.param),
+				Description: fmt.Sprintf(
+					"The WAF blocked %s=%s (HTTP %d) but allowed the same payload when "+
+						"sent as a duplicate parameter (%s=%s&%s=%s → HTTP %d). The WAF "+
+						"likely inspects only the first parameter value while the application "+
+						"uses the second, enabling the attacker to bypass WAF protections.",
+					wp.param, wp.malicious, blockedStatus,
+					wp.param, wp.clean, wp.param, wp.malicious, bypassStatus),
+				Asset:    asset,
+				DeepOnly: true,
+				ProofCommand: fmt.Sprintf(
+					`# Blocked: curl -s -o /dev/null -w '%%{http_code}' "%s"
+# Bypass:  curl -s -o /dev/null -w '%%{http_code}' "%s"`,
+					blockedURL, bypassURL),
+				Evidence: map[string]any{
+					"blocked_url":    blockedURL,
+					"blocked_status": blockedStatus,
+					"bypass_url":     bypassURL,
+					"bypass_status":  bypassStatus,
+					"param":          wp.param,
+					"path":           path,
+					"payload":        wp.malicious,
+				},
+				DiscoveredAt: time.Now(),
+			})
+			break // one WAF bypass per path is sufficient
+		}
 	}
 
 	return findings, nil
@@ -270,6 +352,29 @@ func detectScheme(ctx context.Context, client *http.Client, asset string) string
 	}
 	_ = resp.Body.Close()
 	return "https"
+}
+
+// fetchStatus makes a GET request and returns the HTTP status code.
+// Returns 0 on error.
+func fetchStatus(ctx context.Context, client *http.Client, rawURL string) int {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; BeaconScanner/1.0)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// isWAFBlock returns true if the HTTP status code indicates a WAF or server
+// rejected the request (403 Forbidden, 406 Not Acceptable, 429 Too Many
+// Requests, or a custom 499 status sometimes used by nginx WAF modules).
+func isWAFBlock(status int) bool {
+	return status == 403 || status == 406 || status == 429 || status == 499
 }
 
 // hppBodyDiffSignificant returns true when the difference between two response

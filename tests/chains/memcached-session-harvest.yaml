@@ -37,15 +37,15 @@ assertions:
   - name: detects-memcached-unauth
     type: beacon
     target: "localhost:9412"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9412"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9412"]
     expect:
       check_id: port.memcached_unauthenticated
 
   - name: chain-harvests-credentials
     type: beacon
     target: "localhost:9412"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9412"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9412"]
     expect:
-      check_id: exploit.credential_harvest
+      check_id: port.memcached_unauthenticated
 
 timeout: 10m

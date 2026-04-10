@@ -27,7 +27,7 @@ assertions:
   - name: detects-hpp
     type: beacon
     target: localhost:9258
-    args: ["--no-enrich", "--scanners", "hpp", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "hpp", "--deep", "--yes"]
     expect:
       check_id: web.http_parameter_pollution
 

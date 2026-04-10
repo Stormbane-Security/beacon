@@ -1,0 +1,85 @@
+name: cors-advanced
+description: >
+  Tests CORS edge cases — null origin handling, preflight misconfiguration,
+  credentialed origin reflection — against the cors-vuln Node.js fixture
+  that reflects any Origin with Allow-Credentials: true.
+tags: [cors, scanner, web]
+
+services:
+  cors-app:
+    image: node:20-alpine
+    ports: ["20011:3000"]
+    volumes:
+      - ./cors-vuln/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20011/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-null-origin-reflected
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: null' http://localhost:20011/ | grep -qi 'Access-Control-Allow-Origin: null'"
+      exit_code: 0
+
+  - name: exploit-preflight-reflects-bad-origin
+    type: command
+    expect:
+      command: "curl -sI -X OPTIONS -H 'Origin: https://evil.com' -H 'Access-Control-Request-Method: DELETE' -H 'Access-Control-Request-Headers: X-Custom' http://localhost:20011/ | grep -qi 'Access-Control-Allow-Origin: https://evil.com'"
+      exit_code: 0
+
+  - name: exploit-credentials-with-arbitrary-origin
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://attacker.com' http://localhost:20011/ | grep -qi 'Access-Control-Allow-Credentials: true'"
+      exit_code: 0
+
+  # --- Beacon scanner detections ---
+  - name: detects-cors-misconfiguration
+    type: beacon
+    target: localhost:20011
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  - name: detects-cors-credentialed-reflection
+    type: beacon
+    target: localhost:20011
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_credentialed_reflection
+
+  - name: detects-cors-null-origin
+    type: beacon
+    target: localhost:20011
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_null_origin
+
+  - name: detects-cors-preflight-misconfiguration
+    type: beacon
+    target: localhost:20011
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_preflight_misconfiguration
+
+  - name: cors-min-findings
+    type: beacon
+    target: localhost:20011
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  # --- Negative ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20011
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

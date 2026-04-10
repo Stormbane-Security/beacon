@@ -29,11 +29,46 @@ assertions:
       command: "curl -sI http://localhost:9463/ | grep -qi 'content-security-policy'"
       exit_code: 0
 
-  - name: no-missing-headers-finding
+  - name: no-missing-hsts
     type: beacon
     target: localhost:9463
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       no_check_id: headers.missing_hsts
+
+  - name: no-missing-csp
+    type: beacon
+    target: localhost:9463
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      no_check_id: headers.missing_csp
+
+  - name: no-missing-x-frame-options
+    type: beacon
+    target: localhost:9463
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      no_check_id: headers.missing_x_frame_options
+
+  - name: no-missing-x-content-type
+    type: beacon
+    target: localhost:9463
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      no_check_id: headers.missing_x_content_type
+
+  - name: no-missing-referrer-policy
+    type: beacon
+    target: localhost:9463
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      no_check_id: headers.missing_referrer_policy
+
+  - name: no-missing-permissions-policy
+    type: beacon
+    target: localhost:9463
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      no_check_id: headers.missing_permissions_policy
 
 timeout: 3m

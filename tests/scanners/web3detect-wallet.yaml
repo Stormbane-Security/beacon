@@ -24,14 +24,14 @@ assertions:
   - name: detects-wallet-lib
     type: beacon
     target: localhost:9249
-    args: ["--no-enrich", "--scanners", "web3detect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "web3detect"]
     expect:
       check_id: web3.wallet_lib_detected
 
   - name: detects-rpc-endpoint
     type: beacon
     target: localhost:9249
-    args: ["--no-enrich", "--scanners", "web3detect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "web3detect"]
     expect:
       check_id: web3.rpc_endpoint_exposed
 

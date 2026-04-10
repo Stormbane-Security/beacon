@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "kid": "prod-signing-key-1",
+      "use": "sig",
+      "alg": "RS256",
+      "n": "sXchDaQebHnPiGvhGPEzLSqJzEd2RGGQ2wFHNq5V9H4Vh6r",
+      "e": "AQAB"
+    }
+  ]
+}

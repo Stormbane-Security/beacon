@@ -46,7 +46,7 @@ assertions:
   - name: detects-haproxy
     type: beacon
     target: localhost:18080
-    args: ["--no-enrich", "--scanners", "gateway,secheaders,wafdetect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "gateway,secheaders,wafdetect"]
     expect:
       check_id: headers.server_info_leak
 
@@ -54,15 +54,29 @@ assertions:
   - name: detects-missing-headers-via-proxy
     type: beacon
     target: localhost:18080
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
+
+  - name: detects-missing-csp-via-proxy
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-via-proxy
+    type: beacon
+    target: localhost:18080
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_x_frame_options
 
   # Beacon detects the backend directly — different fingerprint than proxy
   - name: detects-backend-direct
     type: beacon
     target: localhost:18081
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.missing_hsts
 
@@ -70,7 +84,7 @@ assertions:
   - name: deep-proxy-scan
     type: beacon
     target: localhost:18080
-    args: ["--no-enrich", "--scanners", "hopbyhop,httpmethods", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "hopbyhop,httpmethods", "--deep", "--yes"]
     expect:
       check_id: headers.missing_hsts
 

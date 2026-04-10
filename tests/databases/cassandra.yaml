@@ -1,0 +1,29 @@
+name: cassandra-no-auth
+description: "Cassandra 4.1 with authenticator disabled exposes CQL native transport"
+tags: [cassandra, database, cql]
+
+services:
+  cassandra:
+    image: cassandra:4.1
+    ports: ["9042:9042"]
+    environment:
+      CASSANDRA_AUTHENTICATOR: AllowAllAuthenticator
+      CASSANDRA_AUTHORIZER: AllowAllAuthorizer
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+
+ready:
+  cmd: "nc -z localhost 9042"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: detects-cassandra-exposed
+    type: beacon
+    target: localhost:9042
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9042"]
+    expect:
+      check_id: port.database_exposed
+      min_findings: 0
+
+timeout: 10m

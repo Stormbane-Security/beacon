@@ -1,0 +1,53 @@
+name: vnc-no-auth
+description: >
+  Minimal VNC stub that advertises RFB 3.8 with security type None (no
+  authentication). Beacon portscan VNC auth probe should detect
+  port.vnc_no_auth as a Critical finding.
+tags: [vnc, scanner, portscan, no-auth, detection]
+
+services:
+  vnc-stub:
+    image: python:3.11-slim
+    ports: ["20021:5900"]
+    volumes:
+      - ./vnc-no-auth/server.py:/app/server.py:ro
+    command: ["python", "/app/server.py"]
+
+ready:
+  cmd: "echo '' | nc -w 2 localhost 20021 | grep -q RFB"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: RFB banner visible
+  - name: rfb-banner-visible
+    type: command
+    expect:
+      command: "echo '' | nc -w 2 localhost 20021 | grep -q RFB"
+      exit_code: 0
+
+  # Scanner: VNC no-auth detected (Critical)
+  - name: detects-vnc-no-auth
+    type: beacon
+    target: localhost:20021
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20021"]
+    expect:
+      check_id: port.vnc_no_auth
+
+  # Scanner: service identified
+  - name: detects-service-identified
+    type: beacon
+    target: localhost:20021
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20021"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: no SSH findings on a VNC port
+  - name: negative-no-ssh
+    type: beacon
+    target: localhost:20021
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20021"]
+    expect:
+      not_check_id: port.ssh_exposed
+
+timeout: 3m

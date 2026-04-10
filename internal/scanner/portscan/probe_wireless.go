@@ -11,37 +11,37 @@ import (
 func init() {
 	registerProbe(ServiceProbe{
 		Name:         "unifi-8443",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
 		Detect:       detectUniFi8443,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "unifi-8880",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatHTTP, // 8880 is plain HTTP portal
 		DefaultPorts: []int{8880},
 		Detect:       detectUniFi8880,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "unifi-8843",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8843},
 		Detect:       detectUniFi8843,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "aruba-instant-4343",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{4343},
 		Detect:       detectArubaInstant4343,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "aruba-instant-8443",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
 		Detect:       detectArubaInstant8443,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "tplink-omada",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8043},
 		Detect:       detectTPLinkOmada,
 	})

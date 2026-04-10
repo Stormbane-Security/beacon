@@ -11,9 +11,8 @@ services:
     environment:
       NFS_EXPORT_0: "/srv/nfs *(ro,no_subtree_check,fsid=0)"
     cap_add: ["SYS_ADMIN"]
-    volumes:
-      - type: tmpfs
-        target: /srv/nfs
+    tmpfs:
+      - /srv/nfs
 
 ready:
   cmd: "nc -z localhost 2049"
@@ -30,7 +29,7 @@ assertions:
   - name: detects-nfs-exports-exposed
     type: beacon
     target: localhost:2049
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2049"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "2049"]
     expect:
       check_id: port.nfs_exports_exposed
 

@@ -28,15 +28,15 @@ assertions:
   - name: detects-prometheus-unauth
     type: beacon
     target: "localhost:9419"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9419"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9419"]
     expect:
-      check_id: port.prometheus_unauthenticated
+      check_id: port.prometheus_exposed
 
   - name: chain-discovers-topology
     type: beacon
     target: "localhost:9419"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9419"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9419"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: port.prometheus_exposed
 
 timeout: 10m

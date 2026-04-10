@@ -1,0 +1,52 @@
+name: splunk-exposed
+description: >
+  Splunk Enterprise with default credentials (admin/changeme). Beacon
+  should detect the exposed Splunk web UI login page.
+tags: [splunk, default-creds, monitoring, detection]
+
+services:
+  splunk:
+    # NOTE: splunk/splunk has no ARM64 image. This test only runs on x86_64.
+    image: splunk/splunk:latest
+    ports: ["20110:8000"]
+    environment:
+      SPLUNK_START_ARGS: "--accept-license"
+      SPLUNK_PASSWORD: "changeme"
+
+ready:
+  cmd: "curl -sf http://localhost:20110/en-US/account/login >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Splunk login page accessible
+  - name: splunk-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20110/en-US/account/login | grep -qi Splunk"
+      exit_code: 0
+
+  # Scanner: beacon detects something on the Splunk port
+  - name: detects-splunk-exposed
+    type: beacon
+    target: localhost:20110
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      min_findings: 1
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-splunk
+    type: beacon
+    target: localhost:20110
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20110"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-splunk
+    type: beacon
+    target: localhost:20110
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20110"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

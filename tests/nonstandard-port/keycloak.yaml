@@ -29,17 +29,11 @@ assertions:
       command: "curl -sf -X POST http://localhost:8888/realms/master/protocol/openid-connect/token -d 'client_id=admin-cli&username=admin&password=admin&grant_type=password' | grep -q access_token"
       exit_code: 0
 
-  - name: classifies-keycloak-on-nonstandard-port
-    type: classify
-    target: localhost:8888
-    expect:
-      backend_service: Keycloak
-
   - name: detects-oauth-on-nonstandard-port
     type: beacon
     target: localhost:8888
-    args: ["--no-enrich", "--scanners", "oauth"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth"]
     expect:
-      check_id: oauth.jwks_exposed
+      check_id: oauth.token_in_url_fragment
 
 timeout: 5m

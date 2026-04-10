@@ -1,0 +1,53 @@
+name: rxss-reflected
+description: >
+  Tests reflected XSS detection against a PHP application that echoes
+  user input without htmlspecialchars(). This is a real reflected XSS
+  vulnerability — the same class that appears in production web apps.
+tags: [rxss, xss, web, injection, integration]
+
+services:
+  vuln-app:
+    image: php:8.2-apache
+    ports: ["19795:80"]
+    volumes:
+      - ./rxss/search.php:/var/www/html/search.php:ro
+      - ./rxss/index.php:/var/www/html/index.php:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19795/ | grep -q 'Demo Store'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: confirm the reflection works
+  - name: preflight-reflection
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:19795/search.php?q=TESTCANARY' | grep -q TESTCANARY"
+      exit_code: 0
+
+  # Beacon detects reflected XSS
+  - name: beacon-detects-rxss
+    type: beacon
+    target: localhost:19795
+    args: ["--no-enrich", "--no-nmap", "--scanners", "rxss", "--deep", "--yes"]
+    expect:
+      check_id: web.reflected_xss
+
+  # Beacon also finds missing security headers
+  - name: beacon-finds-headers
+    type: beacon
+    target: localhost:19795
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no XSS on the index page (no reflection)
+  - name: negative-no-xss-index
+    type: beacon
+    target: localhost:19795
+    args: ["--no-enrich", "--no-nmap", "--scanners", "rxss", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+timeout: 5m

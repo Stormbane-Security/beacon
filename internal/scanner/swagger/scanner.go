@@ -120,12 +120,7 @@ func (s *Scanner) Name() string { return scannerName }
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
 	log := scanlog.FromContext(ctx)
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(10 * time.Second)
 	if c := authctx.HTTPClient(ctx); c != nil {
 		ac := *c
 		ac.CheckRedirect = client.CheckRedirect

@@ -31,7 +31,7 @@ assertions:
   - name: detects-minio-default-creds
     type: beacon
     target: localhost:9002
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9001"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9001"]
     expect:
       check_id: port.minio_default_credentials
 

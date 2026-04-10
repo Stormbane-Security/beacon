@@ -1,0 +1,96 @@
+name: exposure-admin-api-monitoring
+description: >
+  Nginx serving /admin/, /swagger.json, /api-docs, /metrics, /actuator
+  endpoints without authentication. Beacon should detect exposure.admin_path,
+  exposure.api_docs, exposure.monitoring_panel, and exposure.spring_actuator.
+tags: [exposure, admin, api-docs, monitoring, actuator, scanner]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20095:80"]
+    volumes:
+      - ./exposure-admin-api-monitoring/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20095/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-admin-path-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20095/admin/ | grep -qi 'Admin Panel'"
+      exit_code: 0
+
+  - name: exploit-swagger-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20095/swagger.json | grep -q 'swagger'"
+      exit_code: 0
+
+  - name: exploit-metrics-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20095/metrics | grep -q 'http_requests_total'"
+      exit_code: 0
+
+  - name: exploit-actuator-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20095/actuator | grep -q '_links'"
+      exit_code: 0
+
+  - name: exploit-actuator-env-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20095/actuator/env | grep -q 'propertySources'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-admin-path
+    type: beacon
+    target: localhost:20095
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      check_id: exposure.admin_path
+
+  - name: detects-swagger-exposed
+    type: beacon
+    target: localhost:20095
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger", "--yes"]
+    expect:
+      check_id: web.swagger_exposed
+
+  - name: detects-spring-actuator
+    type: beacon
+    target: localhost:20095
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      check_id: exposure.spring_actuator
+
+  - name: detects-sensitive-file
+    type: beacon
+    target: localhost:20095
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      check_id: exposure.sensitive_file
+
+  - name: exposure-min-findings
+    type: beacon
+    target: localhost:20095
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles,swagger", "--yes"]
+    expect:
+      min_findings: 3
+
+  # --- Negative ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20095
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

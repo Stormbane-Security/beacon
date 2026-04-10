@@ -33,7 +33,7 @@ assertions:
   - name: detects-bigip-cookie-leak
     type: beacon
     target: localhost:9294
-    args: ["--no-enrich", "--scanners", "bigip"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "bigip"]
     expect:
       check_id: lb.bigip_cookie_leak
 

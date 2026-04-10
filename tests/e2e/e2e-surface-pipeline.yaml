@@ -26,7 +26,7 @@ assertions:
   - name: pipeline-finds-multiple-issues
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "8080"]
     expect:
       min_findings: 5
 
@@ -34,7 +34,7 @@ assertions:
   - name: pipeline-detects-api-keys
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "dlp", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp", "--ports", "8080"]
     expect:
       check_id: dlp.api_key
 
@@ -42,7 +42,7 @@ assertions:
   - name: pipeline-detects-service
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8080"]
     expect:
       check_id: port.service_identified
 
@@ -50,7 +50,7 @@ assertions:
   - name: pipeline-detects-missing-csp
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "8080"]
     expect:
       check_id: headers.missing_csp
 
@@ -58,7 +58,7 @@ assertions:
   - name: pipeline-detects-missing-hsts
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "8080"]
     expect:
       check_id: headers.missing_hsts
 
@@ -66,7 +66,7 @@ assertions:
   - name: pipeline-detects-powered-by
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "8080"]
     expect:
       check_id: headers.server_info_leak
 
@@ -74,7 +74,7 @@ assertions:
   - name: pipeline-detects-open-redirect
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "openredir", "--ports", "8080", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "openredir", "--ports", "8080", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.open_redirect
 
@@ -82,7 +82,7 @@ assertions:
   - name: pipeline-detects-cors-misconfig
     type: beacon
     target: "localhost:9880"
-    args: ["--no-enrich", "--scanners", "cors", "--ports", "8080", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors", "--ports", "8080", "--deep", "--permission-confirmed"]
     expect:
       check_id: web.cors_misconfiguration
 

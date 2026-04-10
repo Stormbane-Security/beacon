@@ -38,6 +38,10 @@ func New() *Scanner { return &Scanner{} }
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
+	// Skip private/loopback targets — no cloud buckets for private IPs.
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Strip subdomains — bucket names are derived from the root domain.
 	// Only run on the root domain itself to avoid reporting the same guessed
 	// bucket names once per subdomain (api.acme.com, app.acme.com, etc. all
@@ -596,29 +600,6 @@ func probeAzureContainer(ctx context.Context, client *http.Client, asset, url, p
 	}
 
 	return nil
-}
-
-// probePublicRead attempts to download a well-known test path from a bucket URL
-// to confirm that individual objects are publicly readable (not just that the
-// bucket exists). Returns true if any probe returned HTTP 200 with a non-empty body.
-func probePublicRead(ctx context.Context, client *http.Client, baseURL string) bool {
-	testPaths := []string{"index.html", "robots.txt", "favicon.ico"}
-	for _, p := range testPaths {
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, baseURL+p, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Beacon Security Scanner)")
-		resp, err := client.Do(req)
-		if err != nil {
-			continue
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode == 200 {
-			return true
-		}
-	}
-	return false
 }
 
 // rootDomain strips subdomains, returning e.g. "acme.com" from "app.acme.com".

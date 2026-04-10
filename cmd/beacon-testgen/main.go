@@ -357,25 +357,6 @@ type Filter struct {
 	Severities map[string]bool
 }
 
-func parseFilter(raw string) Filter {
-	f := Filter{Severities: map[string]bool{}}
-	if raw == "" {
-		return f
-	}
-	for _, part := range strings.Split(raw, ",") {
-		kv := strings.SplitN(part, ":", 2)
-		if len(kv) == 2 && kv[0] == "severity" {
-			for _, s := range strings.Split(kv[1], ",") {
-				f.Severities[strings.TrimSpace(strings.ToLower(s))] = true
-			}
-		} else {
-			// Allow bare values after "severity:" prefix already consumed.
-			f.Severities[strings.TrimSpace(strings.ToLower(part))] = true
-		}
-	}
-	return f
-}
-
 // parseFilterFlag splits "severity:critical,high" into the Filter struct.
 // It handles both "severity:critical,high" and "severity:critical,severity:high".
 func parseFilterFlag(raw string) Filter {
@@ -384,15 +365,10 @@ func parseFilterFlag(raw string) Filter {
 		return f
 	}
 	// Strip leading key if present.
-	s := raw
-	if strings.HasPrefix(s, "severity:") {
-		s = strings.TrimPrefix(s, "severity:")
-	}
+	s := strings.TrimPrefix(raw, "severity:")
 	for _, v := range strings.Split(s, ",") {
 		v = strings.TrimSpace(strings.ToLower(v))
-		if strings.HasPrefix(v, "severity:") {
-			v = strings.TrimPrefix(v, "severity:")
-		}
+		v = strings.TrimPrefix(v, "severity:")
 		if v != "" {
 			f.Severities[v] = true
 		}
@@ -618,7 +594,7 @@ func main() {
 		if err := tmplToUse.Execute(f, spec); err != nil {
 			log.Printf("warning: template exec for %s: %v", tmpl.ID, err)
 		}
-		f.Close()
+		_ = f.Close()
 	}
 
 	summary.Print()

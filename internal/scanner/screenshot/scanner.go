@@ -34,6 +34,12 @@ type Scanner struct{}
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	// Skip entirely unless --screenshots was passed. Saves ~2.7s per asset
+	// by avoiding Chrome startup when screenshots aren't needed.
+	if sctx, ok := scan.FromContext(ctx); !ok || !sctx.ScreenshotsEnabled() {
+		return nil, nil
+	}
+
 	if !hasBrowser() {
 		return nil, nil
 	}

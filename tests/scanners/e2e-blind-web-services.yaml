@@ -1,0 +1,82 @@
+name: e2e-blind-web-services
+description: >
+  Blind scan of 5 web services. Beacon discovers and fingerprints each
+  without hints. Tests HTTP detection, CMS identification, headers,
+  exposed files, and service differentiation.
+tags: [e2e, blind, web, full-pipeline, integration]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["19740:80"]
+
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19741:8080"]
+    environment:
+      PORT: "8080"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["19742:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+  ghost:
+    image: ghost:5-alpine
+    ports: ["19743:2368"]
+    environment:
+      NODE_ENV: development
+      url: "http://localhost:19743"
+
+  spring:
+    image: arey/springboot-petclinic:latest
+    ports: ["19744:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:19740/ >/dev/null && curl -sf http://localhost:19741/ >/dev/null && curl -sf http://localhost:19742/ >/dev/null && curl -sf -o /dev/null -w '%{http_code}' http://localhost:19744/ | grep -qE '200|302'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # nginx: missing headers
+  - name: nginx-headers
+    type: beacon
+    target: localhost:19740
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # httpbin: missing headers
+  - name: httpbin-headers
+    type: beacon
+    target: localhost:19741
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # grafana: default creds (deep)
+  - name: grafana-default-creds
+    type: beacon
+    target: localhost:19742
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # spring: service identified (actuator not enabled on this image)
+  - name: spring-service-detected
+    type: beacon
+    target: localhost:19744
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # negative: no grafana on nginx
+  - name: negative-no-grafana-on-nginx
+    type: beacon
+    target: localhost:19740
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.grafana_default_credentials
+
+timeout: 10m

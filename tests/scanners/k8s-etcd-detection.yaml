@@ -1,0 +1,73 @@
+name: k8s-etcd-detection
+description: >
+  Standalone etcd instance exposed without authentication. Tests beacon's
+  ability to detect etcd on its default port and flag unauthenticated access.
+  This covers the K8s component detection scenario where etcd is reachable
+  outside the cluster.
+tags: [k8s, etcd, portscan, noauth, surface]
+
+services:
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.5.0
+    ports: ["19885:2379"]
+    command: ["etcd", "--listen-client-urls", "http://0.0.0.0:2379", "--advertise-client-urls", "http://0.0.0.0:2379"]
+
+ready:
+  cmd: "curl -sf http://localhost:19885/version | grep -q etcdcluster"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ── Pre-flight: etcd API is accessible ──────────────────────────────
+  - name: preflight-etcd-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19885/version | grep -q etcdcluster"
+      exit_code: 0
+
+  - name: preflight-etcd-keys-readable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19885/v2/keys/ -o /dev/null -w '%{http_code}' | grep -qE '200|404'"
+      exit_code: 0
+
+  # ── Beacon detects etcd exposed ──────────────────────────────────────
+  - name: detects-etcd-exposed
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19885"]
+    expect:
+      check_id: port.etcd_exposed
+
+  # ── Beacon identifies service ────────────────────────────────────────
+  - name: detects-service-identified
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19885"]
+    expect:
+      check_id: port.service_identified
+
+  # ── Exploit mode: data extraction and network discovery ───────────────
+  - name: etcd-exploit-chain
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19885", "--exploit"]
+    expect:
+      check_id: port.etcd_exposed
+
+  - name: etcd-exploit-min-findings
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "19885", "--exploit"]
+    expect:
+      min_findings: 2
+
+  # ── Negative: no redis findings ──────────────────────────────────────
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19885
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19885"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

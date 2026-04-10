@@ -34,7 +34,7 @@ assertions:
   - name: detects-ray-unauthenticated
     type: beacon
     target: localhost:8265
-    args: ["--no-enrich", "--scanners", "aiinfra"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aiinfra"]
     expect:
       check_id: ai.ray_dashboard_unauthenticated
 
@@ -42,7 +42,7 @@ assertions:
   - name: portscan-identifies-ray
     type: beacon
     target: localhost:8265
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8265"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8265"]
     expect:
       check_id: port.ray_dashboard_exposed
 

@@ -25,7 +25,7 @@ assertions:
   - name: detects-vulnerable-dependency
     type: beacon
     target: localhost:9402
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: exposure.vulnerable_dependency
 

@@ -50,8 +50,52 @@ assertions:
   - name: detects-cms-plugins
     type: beacon
     target: localhost:9250
-    args: ["--no-enrich", "--scanners", "cms-plugins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
     expect:
       check_id: cms.plugin_found
+
+  # WordPress REST API exposes user data at /wp-json/wp/v2/users
+  - name: detects-wordpress-rest-api
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.wordpress_rest_api
+
+  # WordPress user enumeration via REST API or author archives
+  - name: detects-wordpress-user-enum
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.wordpress_user_enum
+
+  # WordPress theme detected with version
+  - name: detects-wordpress-theme
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.wordpress_theme_found
+
+  # WordPress XML-RPC enabled (pingback/brute-force surface)
+  - name: detects-wordpress-xmlrpc
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.wordpress_xmlrpc
+
+  # WordPress wp-content/plugins directory listing
+  - name: detects-wordpress-dir-listing
+    type: beacon
+    target: localhost:9250
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cms-plugins"]
+    expect:
+      check_id: cms.wordpress_dir_listing
+
+  # WordPress debug.log may not exist on a fresh install — check it as negative.
+  # The debug.log check fires only when /wp-content/debug.log returns 200 with
+  # PHP-style error output, which a fresh install doesn't produce.
 
 timeout: 5m

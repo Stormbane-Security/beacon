@@ -70,7 +70,7 @@ assertions:
   - name: detects-server-header-leak
     type: beacon
     target: localhost:18072
-    args: ["--no-enrich", "--scanners", "secheaders"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
       check_id: headers.server_info_leak
 

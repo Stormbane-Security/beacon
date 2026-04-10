@@ -60,7 +60,7 @@ assertions:
   - name: detects-coldfusion-admin-exposed
     type: beacon
     target: localhost:9320
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9320"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9320"]
     expect:
       check_id: port.coldfusion_admin_exposed
 

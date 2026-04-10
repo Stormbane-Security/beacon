@@ -1,0 +1,57 @@
+name: katana-auth-endpoint-compare
+description: >
+  Tests that authenticated crawling discovers more than unauthenticated.
+  App behind basic auth has multiple pages. Without auth, only 401.
+  With auth, beacon should find security headers on the actual app.
+tags: [auth, crawler, katana, compare, integration]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["19204:80"]
+    volumes:
+      - ./auth-katana-crawl/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./auth-katana-crawl/htpasswd:/etc/nginx/.htpasswd:ro
+      - ./auth-katana-crawl/pages:/var/www/html:ro
+
+ready:
+  cmd: "curl -sf -u admin:crawlpass http://localhost:19204/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Without auth: 401
+  - name: no-auth-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:19204/ | grep -q '401'"
+      exit_code: 0
+
+  # With auth: content visible
+  - name: auth-content-visible
+    type: command
+    expect:
+      command: "curl -sf -u admin:crawlpass http://localhost:19204/ | grep -q 'Welcome'"
+      exit_code: 0
+
+  # Beacon WITHOUT auth: limited findings (401 response)
+  - name: beacon-no-auth-limited
+    type: beacon
+    target: localhost:19204
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      min_findings: 0
+
+  # Beacon WITH auth: finds headers on real app
+  - name: beacon-auth-finds-more
+    type: beacon
+    target: localhost:19204
+    auth:
+      method: basic
+      username: admin
+      password: crawlpass
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

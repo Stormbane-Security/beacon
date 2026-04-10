@@ -1,0 +1,67 @@
+name: kibana-no-auth
+description: >
+  Kibana 7.17.0 with Elasticsearch backend, security disabled.
+  Beacon should detect the unauthenticated Kibana dashboard and
+  identify it as an exposed monitoring/analytics interface.
+tags: [kibana, scanner, portscan, noauth, monitoring, elasticsearch]
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+    ports: ["20067:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.0
+    ports: ["20063:5601"]
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+
+ready:
+  cmd: "curl -sf http://localhost:20063/api/status | grep -q number"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # Pre-flight: Kibana API status accessible
+  - name: kibana-status-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20063/api/status | grep -q '7.17.0'"
+      exit_code: 0
+
+  # Pre-flight: Kibana kbn-name header present
+  - name: kibana-kbn-name-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20063/ | grep -qi kbn-name"
+      exit_code: 0
+
+  # Scanner: detect exposed Kibana
+  - name: detects-kibana-exposed
+    type: beacon
+    target: localhost:20063
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.kibana_exposed
+
+  # Scanner: service identification
+  - name: detects-kibana-service
+    type: beacon
+    target: localhost:20063
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20063
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m

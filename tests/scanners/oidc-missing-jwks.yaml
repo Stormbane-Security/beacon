@@ -1,0 +1,34 @@
+name: oidc-missing-jwks-uri
+description: >
+  OIDC discovery document without jwks_uri field. Beacon oauth scanner
+  should detect oidc.missing_jwks_uri since relying parties cannot
+  retrieve signing keys without this field.
+tags: [oidc, oauth, scanner, auth]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20240:80"]
+    volumes:
+      - ./oidc-missing-jwks/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20240/.well-known/openid-configuration | grep -q issuer"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-oidc-discovery-no-jwks-uri
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20240/.well-known/openid-configuration | python3 -c 'import sys,json; d=json.load(sys.stdin); sys.exit(0 if \"jwks_uri\" not in d else 1)'"
+      exit_code: 0
+
+  - name: detects-oidc-missing-jwks-uri
+    type: beacon
+    target: localhost:20240
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth"]
+    expect:
+      check_id: oidc.missing_jwks_uri
+
+timeout: 3m

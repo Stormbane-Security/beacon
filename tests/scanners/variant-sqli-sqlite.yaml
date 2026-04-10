@@ -1,0 +1,43 @@
+name: variant-sqli-sqlite
+description: >
+  SQLi variant test using SQLite backend (Juice Shop). Tests that beacon
+  detects SQL injection regardless of database engine. Compare with
+  variant-sqli-mysql and variant-sqli-postgres for cross-DB coverage.
+tags: [variant, sqli, sqlite, juiceshop, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19300:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19300/rest/admin/application-version 2>/dev/null | grep -q version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # SQLi works on SQLite-backed Juice Shop search
+  - name: sqli-sqlite-search
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:19300/rest/products/search?q=x%27))--' | grep -qE 'data|error'"
+      exit_code: 0
+
+  # UNION SQLi extracts data from SQLite
+  - name: sqli-sqlite-union
+    type: command
+    expect:
+      command: "curl -s 'http://localhost:19300/rest/products/search?q=x%27))%20UNION%20SELECT%201,2,3,4,5,6,7,8,9--' | grep -q 'data'"
+      exit_code: 0
+
+  # Beacon detects headers
+  - name: beacon-headers
+    type: beacon
+    target: localhost:19300
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 10m

@@ -7,7 +7,6 @@ services:
     image: fauria/vsftpd
     ports:
       - "2121:21"
-      - "21100-21110:21100-21110"
     environment:
       FTP_USER: testuser
       FTP_PASS: testpass
@@ -30,7 +29,7 @@ assertions:
   - name: detects-ftp-on-nonstandard-port
     type: beacon
     target: localhost:2121
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "2121"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "2121"]
     expect:
       check_id: port.ftp_exposed
 

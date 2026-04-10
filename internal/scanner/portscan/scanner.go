@@ -58,8 +58,9 @@ func withScanType(ctx context.Context, st module.ScanType) context.Context {
 // timeouts for the various probe stages.
 const (
 	dialTimeout   = 3 * time.Second
-	bannerTimeout = 2 * time.Second
+	bannerTimeout = 500 * time.Millisecond // safe for high-latency (satellite, VPN, Tor); HTTP ports skip entirely
 	httpTimeout   = 5 * time.Second
+	dbProbeTimeout = 1 * time.Second // DB protocol greetings arrive in <100ms; 1s is generous
 )
 
 // defaultConcurrency is the number of ports probed simultaneously.
@@ -225,6 +226,16 @@ var extendedPorts = []portEntry{
 	// ── CI/CD & Container Management ────────────────────────────────────────
 	{8111, "teamcity", false},           // JetBrains TeamCity server — CVE-2023-42793 pre-auth admin token (CVSS 9.8, KEV)
 	{9443, "portainer", false},          // Portainer CE/EE container management UI (HTTPS default)
+	// ── Kubernetes / Service Mesh ───────────────────────────────────────────
+	{15000, "envoy-admin", false},       // Envoy proxy admin interface (Istio sidecar)
+	{15001, "envoy-outbound", false},    // Envoy outbound listener (Istio)
+	{15006, "istio-inbound", false},     // Istio inbound capture listener
+	{15014, "istiod-debug", false},      // Istio control plane debug endpoint
+	// Common K8s NodePort range samples — services exposed via NodePort land here
+	{30080, "k8s-nodeport", false},
+	{30443, "k8s-nodeport-tls", false},
+	{31000, "k8s-nodeport", false},
+	{32000, "k8s-nodeport", false},
 }
 
 // Scanner is a pure-Go TCP connect port scanner.
@@ -291,6 +302,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		for _, p := range s.Ports {
 			ports = append(ports, portEntry{p, "unknown", true})
 		}
+	} else if targetPort > 0 {
+		// Domain includes a port (e.g. localhost:19902) — scan only that port.
+		// Don't waste time scanning 60+ default ports when the user specified one.
+		ports = []portEntry{{targetPort, "unknown", true}}
 	} else {
 		ports = buildPortList(scanType)
 	}
@@ -359,12 +374,72 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		banner string
 	}
 	var open []openPort
+	var noBannerPorts []openPort // ports open but no banner — retry with longer timeout
 	totalScanned := 0
 	for r := range results {
 		totalScanned++
 		if r.open {
 			open = append(open, openPort{entry: r.entry, banner: r.banner})
+			if r.banner == "" && !isLikelyHTTPPort(r.entry.port) {
+				noBannerPorts = append(noBannerPorts, openPort{entry: r.entry})
+			}
 		}
+	}
+
+	// Deferred banner retry: re-probe ports that were open but had no banner
+	// with a longer timeout. On slow networks, the initial 100ms timeout may
+	// miss banners that arrive in 200-500ms. Only retry non-HTTP ports since
+	// HTTP ports intentionally don't send banners.
+	if len(noBannerPorts) > 0 && ctx.Err() == nil {
+		for i, nbp := range noBannerPorts {
+			addr := net.JoinHostPort(host, strconv.Itoa(nbp.entry.port))
+			conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+			if err != nil {
+				continue
+			}
+			_ = conn.SetDeadline(time.Now().Add(bannerTimeout)) // full 500ms timeout
+			buf := make([]byte, 512)
+			n, _ := conn.Read(buf)
+			_ = conn.Close()
+			if n > 0 {
+				banner := strings.TrimSpace(string(buf[:n]))
+				// Update the open port entry with the deferred banner
+				for j := range open {
+					if open[j].entry.port == nbp.entry.port {
+						open[j].banner = banner
+						break
+					}
+				}
+				noBannerPorts[i].banner = banner
+				scanlog.FromContext(ctx).ProbeTimed(scannerName, asset,
+					fmt.Sprintf("deferred-banner:%d", nbp.entry.port),
+					bannerTimeout, 0, nil)
+			}
+		}
+	}
+
+	// ── Parallel nmap: launch nmap concurrently with native probes ─────
+	// nmap -sV takes 10-30s. By starting it now (on all open ports) and
+	// running native probes in parallel, total wall time becomes
+	// max(native, nmap) instead of native + nmap.
+	// In surface mode we post-filter nmap results to only unidentified ports.
+	// In deep/authorized mode we keep all nmap results (OS detection, vuln scripts).
+	type nmapResult struct {
+		findings []finding.Finding
+	}
+	nmapDone := make(chan nmapResult, 1)
+	if len(s.Ports) == 0 && s.nmapBin != "" && len(open) > 0 {
+		// Build the full open port map for nmap (before probes identify services).
+		nmapAllPorts := make(map[int]string, len(open))
+		for _, op := range open {
+			nmapAllPorts[op.entry.port] = op.entry.service
+		}
+		go func() {
+			nmapDone <- nmapResult{findings: s.runNmap(ctx, asset, nmapAllPorts, scanType)}
+		}()
+	} else {
+		// No nmap needed — close channel immediately.
+		nmapDone <- nmapResult{}
 	}
 
 	// Probe open ports concurrently — each port's probes run independently.
@@ -432,9 +507,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// Authorized mode: run post-exploit chain against discovered services.
-	// This runs BEFORE nmap because chain findings (credential harvest,
-	// data extraction, lateral movement) are higher value and faster than
-	// nmap vuln scripts. Nmap is supplementary and can take 5+ minutes.
+	// This runs BEFORE nmap results are merged because chain findings
+	// (credential harvest, data extraction, lateral movement) are higher
+	// value and faster. Nmap is supplementary and may still be running.
 	log := scanlog.FromContext(ctx)
 	if scanType == module.ScanAuthorized && ctx.Err() == nil {
 		host, _ := parseAssetPort(asset)
@@ -472,14 +547,29 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
-	// Run nmap against confirmed open ports for service version + NSE scripts.
-	// Nmap results supplement (not replace) the pure-Go scan findings — Go TCP
-	// findings are always emitted regardless of whether nmap is available.
-	// Skip nmap when using explicit --ports (targeted scan mode) — the caller
-	// wants fast results on specific ports, not a full nmap fingerprint pass.
-	if len(s.Ports) == 0 {
-		if nmapFs := s.runNmap(ctx, asset, openPorts, scanType); len(nmapFs) > 0 {
-			findings = append(findings, nmapFs...)
+	// ── Collect nmap results ───────────────────────────────────────────────
+	// Wait for the nmap goroutine launched earlier. In surface mode, filter
+	// to only unidentified ports (native probes already covered the rest).
+	// In deep/authorized mode, keep all nmap results for OS/vuln info.
+	nmapRes := <-nmapDone
+	if len(nmapRes.findings) > 0 {
+		if scanType == module.ScanSurface {
+			// Only keep nmap findings for ports that native probes didn't identify.
+			unidentified := filterUnidentifiedPorts(openPorts, findings)
+			var filtered []finding.Finding
+			for _, f := range nmapRes.findings {
+				if port, ok := f.Evidence["port"].(int); ok {
+					if _, needsNmap := unidentified[port]; needsNmap {
+						filtered = append(filtered, f)
+					}
+				} else {
+					// Non-port-specific nmap findings (OS detection, etc.) — keep.
+					filtered = append(filtered, f)
+				}
+			}
+			findings = append(findings, filtered...)
+		} else {
+			findings = append(findings, nmapRes.findings...)
 		}
 	}
 
@@ -564,19 +654,76 @@ func buildPortList(scanType module.ScanType) []portEntry {
 func probePort(ctx context.Context, host string, port int) (bool, string) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: dialTimeout}
+
+	connectStart := time.Now()
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	connectTime := time.Since(connectStart)
 	if err != nil {
 		return false, ""
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Attempt a passive banner grab: set a short read deadline and read whatever
-	// the server sends before we've said anything.
-	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+	// Skip banner reading for ports that are almost certainly HTTP — these
+	// services don't send banners (they wait for the client's request).
+	if isLikelyHTTPPort(port) {
+		return true, ""
+	}
+
+	// Adaptive banner timeout based on network latency:
+	// - Local/Docker (connect <10ms): use 100ms timeout
+	// - LAN (connect 10-50ms): use 200ms timeout
+	// - Internet (connect 50-300ms): use 500ms timeout
+	// - High latency (connect >300ms): use 1s timeout
+	// This ensures we catch banners on slow connections while staying fast locally.
+	bannerWait := 100 * time.Millisecond
+	if connectTime > 300*time.Millisecond {
+		bannerWait = 1000 * time.Millisecond
+	} else if connectTime > 50*time.Millisecond {
+		bannerWait = 500 * time.Millisecond
+	} else if connectTime > 10*time.Millisecond {
+		bannerWait = 200 * time.Millisecond
+	}
+
+	_ = conn.SetDeadline(time.Now().Add(bannerWait))
 	buf := make([]byte, 512)
 	n, _ := conn.Read(buf)
-	banner := strings.TrimSpace(string(buf[:n]))
-	return true, banner
+	if n > 0 {
+		return true, strings.TrimSpace(string(buf[:n]))
+	}
+	return true, ""
+}
+
+// isLikelyHTTPPort returns true for ports that almost always run HTTP services
+// and don't send banners. Skipping banner read on these saves 500ms each.
+// filterUnidentifiedPorts returns only ports from openPorts that were NOT
+// already identified by Go-native probes (i.e., no port.service_identified
+// finding exists for that port). This avoids redundant nmap -sV on ports
+// where we already know the service.
+func filterUnidentifiedPorts(openPorts map[int]string, findings []finding.Finding) map[int]string {
+	identified := make(map[int]bool)
+	for _, f := range findings {
+		if f.CheckID == finding.CheckPortServiceIdentified {
+			if port, ok := f.Evidence["port"].(int); ok {
+				identified[port] = true
+			}
+		}
+	}
+	result := make(map[int]string)
+	for port, svc := range openPorts {
+		if !identified[port] {
+			result[port] = svc
+		}
+	}
+	return result
+}
+
+func isLikelyHTTPPort(port int) bool {
+	switch port {
+	case 80, 443, 8080, 8443, 3000, 5000, 8000, 8001, 8888, 9000, 9090,
+		9200, 9443, 15672, 5601, 8200, 8500, 7474, 4200, 11434, 9001:
+		return true
+	}
+	return false
 }
 
 // buildFindings interprets an open port and returns the appropriate findings.
@@ -595,6 +742,21 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 		title, description string,
 		evidence map[string]any,
 	) finding.Finding {
+		// Default confidence based on check ID category:
+		//   CVE checks → probable (could be patched; version-verified probes override to verified)
+		//   Port exposure → observed (the service is provably there)
+		//   Config/header/cookie/CORS → verified (we confirmed the misconfiguration)
+		confidence := ""
+		switch {
+		case strings.HasPrefix(checkID, "cve."):
+			confidence = finding.ConfidenceProbable
+		case strings.HasPrefix(checkID, "port."):
+			confidence = finding.ConfidenceObserved
+		case strings.HasPrefix(checkID, "headers."),
+			strings.HasPrefix(checkID, "cookie."),
+			strings.HasPrefix(checkID, "web.cors_"):
+			confidence = finding.ConfidenceVerified
+		}
 		return finding.Finding{
 			CheckID:      checkID,
 			Module:       "surface",
@@ -604,6 +766,8 @@ func buildFindings(ctx context.Context, asset string, entry portEntry, banner st
 			Description:  description,
 			Asset:        asset,
 			Evidence:     evidence,
+			Confidence:   confidence,
+			Visibility:   finding.VisibilityPublic, // port scan = reachable from outside
 			DiscoveredAt: now,
 		}
 	}
@@ -866,7 +1030,40 @@ func isVulnerableRedis(version string) bool {
 // probeHTTPBody makes a GET request and returns (body, true) on HTTP 200,
 // ("", false) otherwise. Used when the response body is needed to distinguish
 // between services that share a port (e.g. Elasticsearch vs OpenSearch on 9200).
+// tlsCapable caches whether a host:port speaks TLS. Prevents repeated
+// 5-second TLS handshake timeouts against plain HTTP ports.
+var (
+	tlsCapableCache   = make(map[string]bool)
+	tlsCapableCacheMu sync.Mutex
+)
+
+func isTLSCapable(ctx context.Context, host string, port int) bool {
+	key := fmt.Sprintf("%s:%d", host, port)
+	tlsCapableCacheMu.Lock()
+	if v, ok := tlsCapableCache[key]; ok {
+		tlsCapableCacheMu.Unlock()
+		return v
+	}
+	tlsCapableCacheMu.Unlock()
+
+	// Perform the TLS handshake via JA3SFingerprint which caches the full
+	// result (version, cipher, cert info). This avoids a second handshake
+	// later when we need the JA3S hash.
+	result := JA3SFingerprint(ctx, host, port)
+	capable := result != nil
+
+	tlsCapableCacheMu.Lock()
+	tlsCapableCache[key] = capable
+	tlsCapableCacheMu.Unlock()
+	return capable
+}
+
 func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path string) (string, bool) {
+	// Skip HTTPS probes against ports that don't speak TLS — avoids 5s
+	// handshake timeouts on every HTTPS probe against plain HTTP ports.
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -893,7 +1090,7 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 		return "", false
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", false
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -903,10 +1100,91 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 	return string(b), true
 }
 
+// probeHTTPBodyAndHeaders is like probeHTTPBody but returns the full header map and
+// accepts any 2xx/3xx/4xx status (not just 200). Useful for fingerprinting probes that
+// need to inspect X-Powered-By, Set-Cookie, or custom server headers.
+func probeHTTPBodyAndHeaders(ctx context.Context, host string, port int, useTLS bool, path string) (body string, headers http.Header, ok bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", nil, false
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", nil, false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return string(b), resp.Header, true
+}
+
+// probeHTTPBodyAndServer is like probeHTTPBody but also returns the Server header.
+func probeHTTPBodyAndServer(ctx context.Context, host string, port int, useTLS bool, path string) (body string, server string, ok bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", "", false
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "", false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", resp.Header.Get("Server"), true
+	}
+	return string(b), resp.Header.Get("Server"), true
+}
+
 // probeHTTPAnyBody is like probeHTTPBody but returns the body for any status
 // code (not just 200). Used for services like Tomcat that reveal their identity
 // in 404 error pages.
 func probeHTTPAnyBody(ctx context.Context, host string, port int, useTLS bool, path string) (string, bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -941,6 +1219,9 @@ func probeHTTPAnyBody(ctx context.Context, host string, port int, useTLS bool, p
 }
 
 func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path string) bool {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -2501,6 +2782,9 @@ func probeSMTPOpenRelay(ctx context.Context, host string, port int) bool {
 // probeHTTPBodyWithAuth makes an authenticated HTTP GET request and returns the body.
 // Returns ("", false) if the response is not 200 OK.
 func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bool, path, user, pass string) (string, bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", false
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -2546,7 +2830,7 @@ func probeMySQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(dbProbeTimeout)) //nolint:errcheck
 
 	// Read the server greeting (initial handshake packet).
 	// MySQL packet format: 3-byte length (LE) + 1-byte sequence number + payload
@@ -2702,7 +2986,7 @@ func probePostgreSQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(dbProbeTimeout)) //nolint:errcheck
 
 	// PostgreSQL startup message: Int32(length) + Int32(196608 = protocol 3.0) + key=value pairs + NUL
 	user := "postgres"
@@ -2753,7 +3037,7 @@ func probeMSSQL(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	defer func() { _ = conn.Close() }()
-	conn.SetDeadline(time.Now().Add(httpTimeout)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(dbProbeTimeout)) //nolint:errcheck
 
 	// TDS 7.0 PRELOGIN packet.
 	// Header: type(1)=0x12, status(1)=0x01, length(2), SPID(2)=0, PacketID(1)=1, Window(1)=0
@@ -3433,6 +3717,95 @@ func probeRPCBind(ctx context.Context, host string, port int) bool {
 		return false
 	}
 	return binary.BigEndian.Uint32(buf[4:8]) == 1 && binary.BigEndian.Uint32(buf[8:12]) == 1
+}
+
+// probeNFSNull sends an RPC NULL call (procedure 0) to NFS program 100003.
+// The NULL procedure is defined for every RPC program and requires no auth.
+// A valid reply confirms an NFS service is listening.
+func probeNFSNull(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	// RPC call: xid=1, CALL(0), RPC v2, program=100003 (NFS), version=3, procedure=0 (NULL)
+	// AUTH_NULL for both credentials and verifier.
+	rpcCall := []byte{
+		0x00, 0x00, 0x00, 0x01, // xid
+		0x00, 0x00, 0x00, 0x00, // message type: CALL
+		0x00, 0x00, 0x00, 0x02, // RPC version 2
+		0x00, 0x01, 0x86, 0xA3, // program: 100003 (NFS)
+		0x00, 0x00, 0x00, 0x03, // program version: 3
+		0x00, 0x00, 0x00, 0x00, // procedure: 0 (NULL)
+		0x00, 0x00, 0x00, 0x00, // credential flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // credential length: 0
+		0x00, 0x00, 0x00, 0x00, // verifier flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // verifier length: 0
+	}
+	tcpMsg := make([]byte, 4+len(rpcCall))
+	binary.BigEndian.PutUint32(tcpMsg[:4], uint32(len(rpcCall))|0x80000000) // last fragment
+	copy(tcpMsg[4:], rpcCall)
+	if _, err := conn.Write(tcpMsg); err != nil {
+		return false
+	}
+	buf := make([]byte, 32)
+	n, _ := conn.Read(buf)
+	if n < 16 {
+		return false
+	}
+	// Check: reply (1) + accepted (0) in the RPC reply header.
+	return binary.BigEndian.Uint32(buf[4:8]) == 1 && binary.BigEndian.Uint32(buf[8:12]) == 0
+}
+
+// probeNFSExport sends a MOUNT EXPORT call (program 100005, procedure 5) to check
+// whether NFS exports can be enumerated. A successful reply with export data means
+// the server lists its exports without authentication.
+func probeNFSExport(ctx context.Context, host string, port int) bool {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	// RPC call: xid=2, CALL(0), RPC v2, program=100005 (MOUNT), version=3, procedure=5 (EXPORT)
+	rpcCall := []byte{
+		0x00, 0x00, 0x00, 0x02, // xid
+		0x00, 0x00, 0x00, 0x00, // message type: CALL
+		0x00, 0x00, 0x00, 0x02, // RPC version 2
+		0x00, 0x01, 0x86, 0xA5, // program: 100005 (MOUNT)
+		0x00, 0x00, 0x00, 0x03, // program version: 3
+		0x00, 0x00, 0x00, 0x05, // procedure: 5 (EXPORT)
+		0x00, 0x00, 0x00, 0x00, // credential flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // credential length: 0
+		0x00, 0x00, 0x00, 0x00, // verifier flavor: AUTH_NULL
+		0x00, 0x00, 0x00, 0x00, // verifier length: 0
+	}
+	tcpMsg := make([]byte, 4+len(rpcCall))
+	binary.BigEndian.PutUint32(tcpMsg[:4], uint32(len(rpcCall))|0x80000000)
+	copy(tcpMsg[4:], rpcCall)
+	if _, err := conn.Write(tcpMsg); err != nil {
+		return false
+	}
+	buf := make([]byte, 256)
+	n, _ := conn.Read(buf)
+	if n < 28 {
+		return false
+	}
+	// Check RPC reply accepted and there is export data beyond the reply header.
+	// The reply header is: fragment(4) + xid(4) + type(4) + status(4) + verifier(8) + accept(4) = 28 bytes.
+	// Any additional bytes indicate export list entries.
+	if binary.BigEndian.Uint32(buf[4:8]) != 1 { // not a reply
+		return false
+	}
+	if binary.BigEndian.Uint32(buf[8:12]) != 0 { // not accepted
+		return false
+	}
+	return n > 28
 }
 
 // probeJetDirect sends a PJL INFO ID command and checks for PJL response.

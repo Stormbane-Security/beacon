@@ -28,7 +28,7 @@ assertions:
   - name: detects-server-info-leak
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: headers.server_info_leak
 

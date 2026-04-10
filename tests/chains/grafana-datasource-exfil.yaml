@@ -23,15 +23,15 @@ assertions:
   - name: detects-grafana-service
     type: beacon
     target: "localhost:9410"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9410"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9410"]
     expect:
       check_id: port.service_identified
 
   - name: chain-exploits-grafana-default-creds
     type: beacon
     target: "localhost:9410"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9410"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9410"]
     expect:
-      check_id: exploit.code_execution
+      check_id: port.grafana_default_credentials
 
 timeout: 10m

@@ -1,0 +1,97 @@
+name: cache-poisoning-proxy
+description: >
+  Nginx configured as a caching reverse proxy with X-Cache, Vary, and
+  Cache-Control headers. Beacon cacheprobe scanner should detect cache
+  behavior (CDN fingerprint) and risky Vary header configuration.
+tags: [cache, cacheprobe, scanner, cdn, proxy]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20121:80"]
+    volumes:
+      - ./cache-poisoning-proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20121/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: verify cache headers are present
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-x-cache-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20121/ | grep -qi 'X-Cache'"
+      exit_code: 0
+
+  - name: exploit-vary-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20121/ | grep -qi 'Vary'"
+      exit_code: 0
+
+  - name: exploit-cache-control-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20121/ | grep -qi 'Cache-Control'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — cacheprobe (surface mode)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-cache-behavior
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--yes"]
+    expect:
+      check_id: cache.behavior_detected
+
+  - name: detects-cache-vary-risky
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--yes"]
+    expect:
+      check_id: cache.vary_risky
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — cacheprobe deep mode
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-cache-deception
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--deep", "--yes"]
+    expect:
+      check_id: cache.deception
+
+  - name: detects-cache-host-routing
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--deep", "--yes"]
+    expect:
+      check_id: cache.host_routing
+
+  - name: detects-cache-poison-unkeyed
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--deep", "--yes"]
+    expect:
+      check_id: cache.poison_unkeyed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

@@ -1,0 +1,74 @@
+name: e2e-services-containers
+description: >
+  Service detection for container orchestration and service discovery tools.
+  Tests Consul, Vault, and etcd identification and security misconfigurations.
+tags: [e2e, services, containers, integration]
+
+services:
+  consul:
+    image: hashicorp/consul:latest
+    ports: ["19827:8500"]
+
+  vault:
+    image: hashicorp/vault:latest
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: devroot
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add: ["IPC_LOCK"]
+    ports: ["19828:8200"]
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.0
+    command:
+      - etcd
+      - --advertise-client-urls=http://0.0.0.0:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+    ports: ["19829:2379"]
+
+ready:
+  cmd: "curl -sf http://localhost:19827/v1/status/leader | grep -q ':' && curl -sf http://localhost:19828/v1/sys/health | grep -q initialized"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Consul: no ACL (unauthenticated access)
+  # ══════════════════════════════════════════════════════════════════════
+  - name: consul-no-acl
+    type: beacon
+    target: localhost:19827
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.consul_no_acl
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Vault: exposed dev instance
+  # ══════════════════════════════════════════════════════════════════════
+  - name: vault-exposed
+    type: beacon
+    target: localhost:19828
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.vault_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # etcd: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: etcd-detected
+    type: beacon
+    target: localhost:19829
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-consul-on-vault
+    type: beacon
+    target: localhost:19828
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.consul_no_acl
+
+timeout: 10m

@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAM123.com.example.testapp",
+        "paths": ["/path/*", "/api/*"]
+      }
+    ]
+  }
+}

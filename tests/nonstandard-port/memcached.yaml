@@ -22,7 +22,7 @@ assertions:
   - name: detects-memcached-on-nonstandard-port
     type: beacon
     target: localhost:12345
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "12345"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "12345"]
     expect:
       check_id: port.memcached_unauthenticated
 

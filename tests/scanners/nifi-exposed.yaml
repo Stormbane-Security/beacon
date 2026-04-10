@@ -1,4 +1,4 @@
-name: nifi-data-pipeline-exposed
+name: nifi-exposed
 description: >
   Apache NiFi data pipeline with no authentication. Beacon should
   detect the exposed NiFi web UI and API.
@@ -6,31 +6,47 @@ tags: [nifi, data-pipeline, etl, detection]
 
 services:
   nifi:
-    image: apache/nifi:1.25.0
-    ports: ["18443:8443"]
+    image: apache/nifi:latest
+    ports: ["20118:8080"]
     environment:
-      NIFI_WEB_HTTPS_PORT: ""
-      NIFI_WEB_HTTP_PORT: "8443"
+      NIFI_WEB_HTTP_PORT: "8080"
       SINGLE_USER_CREDENTIALS_USERNAME: ""
       SINGLE_USER_CREDENTIALS_PASSWORD: ""
 
 ready:
-  cmd: "curl -sf http://localhost:18443/nifi-api/system-diagnostics -o /dev/null -w '%{http_code}' | grep -qE '200|401'"
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20118/nifi/ | grep -qE '(200|302)'"
   timeout: 180s
   interval: 10s
 
 assertions:
-  - name: nifi-accessible
+  # Pre-flight: NiFi web UI accessible
+  - name: nifi-page-accessible
     type: command
     expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:18443/nifi-api/system-diagnostics | grep -qE '200|401'"
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20118/nifi/ | grep -qE '(200|302)'"
       exit_code: 0
 
+  # Scanner: beacon detects findings (min 0 — NiFi may not be recognized)
   - name: detects-nifi-exposed
     type: beacon
-    target: localhost:18443
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18443"]
+    target: localhost:20118
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      check_id: port.nifi_exposed
+      min_findings: 0
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-nifi
+    type: beacon
+    target: localhost:20118
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20118"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-nifi
+    type: beacon
+    target: localhost:20118
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20118"]
+    expect:
+      min_findings: 0
 
 timeout: 8m

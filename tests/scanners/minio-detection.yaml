@@ -1,0 +1,44 @@
+name: minio-detection
+description: >
+  MinIO object storage detection. Verifies service identification and
+  default credential detection on the S3-compatible API endpoint.
+tags: [e2e, services, minio, s3, integration]
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "19839:9000"
+      - "19840:9001"
+
+ready:
+  cmd: "curl -sf http://localhost:19839/minio/health/live"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # MinIO: service identification or default credentials
+  # ══════════════════════════════════════════════════════════════════════
+  - name: minio-detected
+    type: beacon
+    target: localhost:19839
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-elasticsearch-on-minio
+    type: beacon
+    target: localhost:19839
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.elasticsearch_unauthenticated
+
+timeout: 10m

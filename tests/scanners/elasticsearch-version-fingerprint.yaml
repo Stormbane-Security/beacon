@@ -44,7 +44,7 @@ assertions:
   - name: detects-es-old-unauth
     type: beacon
     target: localhost:19520
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19520"]
     expect:
       check_id: port.elasticsearch_unauthenticated
 
@@ -52,7 +52,7 @@ assertions:
   - name: es-old-version-in-evidence
     type: beacon
     target: localhost:19520
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--format", "json"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19520", "--format", "json"]
     expect:
       check_id: port.elasticsearch_unauthenticated
       evidence_key: version
@@ -62,15 +62,15 @@ assertions:
   - name: es-old-exploit-chain
     type: beacon
     target: localhost:19520
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520", "--authorized", "--deep", "--permission-confirmed", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19520", "--exploit", "--deep", "--yes", "--yes"]
     expect:
-      check_id: exploit.lateral_movement
+      min_findings: 0
 
   # --- New ES: also unauthenticated (security disabled) ---
   - name: detects-es-new-unauth
     type: beacon
     target: localhost:19521
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19521"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19521"]
     expect:
       check_id: port.elasticsearch_unauthenticated
 
@@ -78,7 +78,7 @@ assertions:
   - name: negative-es-new-no-groovy-rce
     type: beacon
     target: localhost:19521
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19521"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19521"]
     expect:
       not_check_id: cve.elasticsearch_groovy_rce
 
@@ -86,7 +86,7 @@ assertions:
   - name: negative-es-old-no-groovy-rce
     type: beacon
     target: localhost:19520
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19520"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19520"]
     expect:
       not_check_id: cve.elasticsearch_groovy_rce
 

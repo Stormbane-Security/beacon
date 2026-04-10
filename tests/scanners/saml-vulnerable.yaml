@@ -1,0 +1,93 @@
+name: saml-vulnerable-sp
+description: >
+  Vulnerable SAML Service Provider that accepts assertions without signature
+  validation, from any issuer, and follows unvalidated RelayState redirects.
+  The beacon SAML scanner in deep mode should detect signature bypass,
+  issuer bypass, open redirect, and XML wrapping vulnerabilities.
+tags: [saml, scanner, auth, deep, sso]
+
+services:
+  saml-sp:
+    image: node:20-alpine
+    ports: ["20210:3000"]
+    volumes:
+      - ./saml-vulnerable/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20210/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Pre-flight: verify SAML endpoints ---
+  - name: exploit-saml-metadata-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20210/saml/metadata | grep -q 'EntityDescriptor'"
+      exit_code: 0
+
+  - name: exploit-saml-sso-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20210/saml/sso | grep -qi 'SSO'"
+      exit_code: 0
+
+  - name: exploit-acs-accepts-unsigned
+    type: command
+    expect:
+      command: "echo -n 'PHNhbWw6UmVzcG9uc2U+PEFzc2VydGlvbj5mb3JnZWQ8L0Fzc2VydGlvbj48L3NhbWw6UmVzcG9uc2U+' | xargs -I{} curl -sf -X POST http://localhost:20210/saml/acs -d 'SAMLResponse={}' | grep -qi 'Authenticated'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-saml-endpoint-exposed
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml"]
+    expect:
+      check_id: saml.endpoint_exposed
+
+  - name: detects-saml-signature-not-validated
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml", "--deep", "--yes"]
+    expect:
+      check_id: saml.signature_not_validated
+
+  - name: detects-saml-issuer-not-validated
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml", "--deep", "--yes"]
+    expect:
+      check_id: saml.issuer_not_validated
+
+  - name: detects-saml-open-redirect
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml", "--deep", "--yes"]
+    expect:
+      check_id: saml.open_redirect
+
+  - name: detects-saml-xxe-injection
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml", "--deep", "--yes"]
+    expect:
+      check_id: saml.xxe_injection
+
+  - name: detects-saml-xml-wrapping
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml", "--deep", "--yes"]
+    expect:
+      check_id: saml.xml_signature_wrapping
+
+  # --- Negative ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20210
+    args: ["--no-enrich", "--no-nmap", "--scanners", "saml", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

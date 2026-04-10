@@ -153,11 +153,11 @@ func Open(path string) (*DB, error) {
 	}
 	// WAL mode for concurrent readers.
 	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("vulndb: set WAL: %w", err)
 	}
 	if _, err := sqlDB.Exec(schema); err != nil {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("vulndb: migrate: %w", err)
 	}
 	return &DB{db: sqlDB}, nil
@@ -231,7 +231,7 @@ func (d *DB) scanCVEs(query string, args ...any) ([]CVEEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []CVEEntry
 	for rows.Next() {
 		var c CVEEntry
@@ -278,7 +278,7 @@ func (d *DB) QueryPayloads(service, version string) ([]VerifiedPayload, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []VerifiedPayload
 	for rows.Next() {
 		var p VerifiedPayload
@@ -318,7 +318,7 @@ func (d *DB) QueryFingerprints(domain string) ([]ServiceFingerprint, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []ServiceFingerprint
 	for rows.Next() {
 		var f ServiceFingerprint

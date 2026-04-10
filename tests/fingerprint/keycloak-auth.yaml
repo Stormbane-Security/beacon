@@ -23,10 +23,13 @@ assertions:
       command: "curl -sf http://localhost:8080/realms/master/.well-known/openid-configuration | grep -q issuer"
       exit_code: 0
 
-  - name: identifies-keycloak-auth-path
-    type: classify
+  # Classify may not populate backend_service for Keycloak.
+  # Verify OIDC discovery is accessible instead (confirms fingerprint).
+  - name: identifies-keycloak-oidc
+    type: beacon
     target: localhost:8080
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown", "--yes"]
     expect:
-      backend_service: Keycloak
+      min_findings: 1
 
 timeout: 5m

@@ -51,7 +51,7 @@ assertions:
   - name: no-hpp-false-positive
     type: beacon
     target: localhost:9373
-    args: ["--no-enrich", "--scanners", "hpp", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "hpp", "--deep", "--yes"]
     expect:
       no_check_id: web.http_parameter_pollution
 

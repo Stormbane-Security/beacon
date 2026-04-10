@@ -1,0 +1,68 @@
+name: joomla-admin
+description: >
+  Joomla CMS with MariaDB backend. Beacon portscan scanner should
+  detect Joomla via /administrator/ login page, /media/jui/ references,
+  or Joomla-specific meta tags.
+tags: [joomla, scanner, portscan, cms]
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: joomla
+      MARIADB_USER: joomla
+      MARIADB_PASSWORD: joomla
+
+  joomla:
+    image: joomla:latest
+    ports: ["20306:80"]
+    environment:
+      JOOMLA_DB_HOST: db
+      JOOMLA_DB_USER: joomla
+      JOOMLA_DB_PASSWORD: joomla
+      JOOMLA_DB_NAME: joomla
+    depends_on: [db]
+
+ready:
+  cmd: "curl -sf http://localhost:20306/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-joomla-administrator-accessible
+    type: command
+    expect:
+      command: "curl -sL -o /dev/null -w '%{http_code}' http://localhost:20306/administrator/ | grep -qE '200|302'"
+      exit_code: 0
+
+  - name: exploit-joomla-meta-generator
+    type: command
+    expect:
+      command: "curl -sL http://localhost:20306/ | grep -qiE 'joomla|/media/jui/'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-joomla-cms
+    type: beacon
+    target: localhost:20306
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20306"]
+    expect:
+      check_id: port.joomla_detected
+
+  - name: deep-mode-joomla
+    type: beacon
+    target: localhost:20306
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20306"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-joomla
+    type: beacon
+    target: localhost:20306
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20306"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

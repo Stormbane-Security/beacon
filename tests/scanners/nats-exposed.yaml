@@ -25,7 +25,7 @@ assertions:
   - name: detects-nats-monitoring
     type: beacon
     target: localhost:8222
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8222"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8222"]
     expect:
       check_id: port.nats_monitoring_exposed
 

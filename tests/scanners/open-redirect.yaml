@@ -1,0 +1,66 @@
+name: open-redirect
+description: >
+  Python app that redirects to any user-supplied URL without validation.
+  Beacon in deep mode should detect the open redirect vulnerability via
+  the apifuzz scanner's redirect classification.
+tags: [open-redirect, web, apifuzz, deep]
+
+services:
+  redirect-app:
+    build:
+      context: ./open-redirect
+      dockerfile: Dockerfile
+    ports: ["19881:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:19881/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: confirm redirect behavior works
+  - name: redirect-works
+    type: command
+    expect:
+      command: "curl -sD- -o/dev/null 'http://localhost:19881/redirect?url=https://evil.com' | grep -qi 'Location: https://evil.com'"
+      exit_code: 0
+
+  # Detection: beacon detects open redirect in deep mode
+  - name: detects-open-redirect
+    type: beacon
+    target: localhost:19881
+    args: ["--no-enrich", "--no-nmap", "--scanners", "openredir", "--deep", "--yes"]
+    expect:
+      check_id: web.open_redirect
+
+  # Detection: missing HSTS header
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19881
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19881
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:19881
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  # Negative: should not detect XSS
+  - name: no-false-positive-xss
+    type: beacon
+    target: localhost:19881
+    args: ["--no-enrich", "--scanners", "apifuzz", "--deep", "--yes"]
+    expect:
+      not_check_id: web.xss
+
+timeout: 5m

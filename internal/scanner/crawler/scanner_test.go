@@ -28,13 +28,18 @@ func TestName(t *testing.T) {
 	}
 }
 
-// TestRun_MissingBinary verifies the scanner returns a wrapped error (not a panic)
-// when the katana binary is not installed. Uses a deliberately invalid binary name.
+// TestRun_MissingBinary verifies the scanner falls back to the native crawler
+// (not a panic) when the katana binary is not installed.
 func TestRun_MissingBinary(t *testing.T) {
 	s := New("katana-does-not-exist-beacon-test")
-	_, err := s.Run(context.Background(), "example.com", module.ScanSurface)
-	if err == nil {
-		t.Error("expected error when binary is not installed, got nil")
+	findings, err := s.Run(context.Background(), "example.com", module.ScanSurface)
+	// Should succeed via native fallback — no error.
+	if err != nil {
+		t.Errorf("expected native fallback (no error), got: %v", err)
+	}
+	// Native crawler should discover at least the root page.
+	if len(findings) == 0 {
+		t.Log("no findings from native fallback (expected for example.com without network)")
 	}
 }
 

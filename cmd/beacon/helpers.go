@@ -29,98 +29,6 @@ func fatalf(format string, args ...any) {
 	os.Exit(1)
 }
 
-// checkExternalTools checks for important and optional external tools in PATH,
-// collecting all warnings and printing them as a single grouped block.
-// Critical tools (nmap) are checked earlier and cause hard errors.
-// Important tools warn with an opt-out flag; optional tools warn only.
-func checkExternalTools(cfg *config.Config, noNuclei, noTestssl bool) {
-	if quiet {
-		return
-	}
-
-	type toolWarning struct {
-		name    string
-		message string
-	}
-	var warnings []toolWarning
-
-	// Important tools (warn if missing, --no-X to opt out).
-	if !noNuclei && cfg.NucleiBin != "" {
-		if _, err := exec.LookPath(cfg.NucleiBin); err != nil {
-			warnings = append(warnings, toolWarning{
-				name:    "nuclei",
-				message: "nuclei not found. Install: go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
-			})
-			cfg.NucleiBin = ""
-		}
-	}
-	if !noTestssl && cfg.TestsslBin != "" {
-		if _, err := exec.LookPath(cfg.TestsslBin); err != nil {
-			warnings = append(warnings, toolWarning{
-				name:    "testssl",
-				message: "testssl.sh not found. Install: brew install testssl or https://testssl.sh/",
-			})
-			cfg.TestsslBin = ""
-		}
-	}
-
-	// Deprecation warnings for tools replaced by native functionality.
-	if cfg.HttpxBin != "" {
-		if _, err := exec.LookPath(cfg.HttpxBin); err == nil {
-			warnings = append(warnings, toolWarning{
-				name:    "httpx",
-				message: "httpx integration deprecated — classify scanner provides equivalent functionality",
-			})
-		}
-	}
-	if cfg.DnsxBin != "" {
-		if _, err := exec.LookPath(cfg.DnsxBin); err == nil {
-			warnings = append(warnings, toolWarning{
-				name:    "dnsx",
-				message: "dnsx integration deprecated — beacon performs bulk DNS resolution natively",
-			})
-		}
-	}
-
-	// Optional tools (warn only, no flag needed).
-	type optionalTool struct {
-		bin  string
-		name string
-	}
-	optionals := []optionalTool{
-		{cfg.KatanaBin, "katana"},
-		{cfg.FfufBin, "ffuf"},
-		{cfg.GowitnessBin, "gowitness"},
-		{cfg.GitleaksBin, "gitleaks"},
-		{cfg.SqlmapBin, "sqlmap"},
-		{cfg.WpscanBin, "wpscan"},
-		{cfg.MasscanBin, "masscan"},
-		{cfg.ArjunBin, "arjun"},
-	}
-	// dig is not in the config — check PATH directly.
-	optionals = append(optionals, optionalTool{"dig", "dig"})
-
-	for _, t := range optionals {
-		if t.bin == "" {
-			continue
-		}
-		if _, err := exec.LookPath(t.bin); err != nil {
-			warnings = append(warnings, toolWarning{
-				name:    t.name,
-				message: fmt.Sprintf("%s not found in PATH — some scan features will be reduced", t.name),
-			})
-		}
-	}
-
-	if len(warnings) > 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "beacon: missing external tools:\n")
-		for _, w := range warnings {
-			_, _ = fmt.Fprintf(os.Stderr, "  %-16s  %s\n", w.name, w.message)
-		}
-		_, _ = fmt.Fprintf(os.Stderr, "\n")
-	}
-}
-
 // warnMissingAPIKeys prints a one-time pre-scan notice listing any optional
 // API keys that are not configured. Each missing key reduces scan coverage in
 // a specific way; the message explains what is skipped so the user can decide
@@ -261,19 +169,54 @@ func filterOmitted(enriched []enrichment.EnrichedFinding) []enrichment.EnrichedF
 }
 
 // renderFormat produces the report string in the requested format.
-// format is one of: "text" (default), "html", "json", "markdown", "ocsf", "graph".
+// format is one of: "text" (default), "html", "json", "markdown", "ocsf", "har", "graph".
 // graphJSON is the persisted asset graph blob; it is included in the JSON report
 // when non-nil and used to render DOT output for the "graph" format.
-func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte) (string, error) {
+func renderFormat(format string, run store.ScanRun, enriched []enrichment.EnrichedFinding, summary string, rep *store.Report, executions []store.AssetExecution, graphJSON []byte, screenshotDirOpts ...string) (string, error) {
+	// The last variadic string may be a screenshotDir, or "narratives" flag.
+	// We parse both: first non-empty path-like string is screenshotDir,
+	// and the literal "narratives" enables attack narratives.
+	var screenshotDir string
+	var narrativesEnabled bool
+	for _, opt := range screenshotDirOpts {
+		if opt == "narratives" {
+			narrativesEnabled = true
+		} else if opt != "" && screenshotDir == "" {
+			screenshotDir = opt
+		}
+	}
 	switch strings.ToLower(format) {
 	case "html":
 		return rep.HTMLContent, nil
 	case "json":
 		return report.RenderJSON(run, enriched, summary, graphJSON)
 	case "markdown", "md":
+		var opts []report.MarkdownOption
+		if narrativesEnabled {
+			opts = append(opts, report.WithNarratives())
+		}
+		if screenshotDir != "" {
+			return report.RenderEnhancedMarkdown(run, enriched, summary, executions, screenshotDir, opts...), nil
+		}
+		if narrativesEnabled {
+			return report.RenderEnhancedMarkdown(run, enriched, summary, executions, "", opts...), nil
+		}
 		return report.RenderMarkdown(run, enriched, summary, executions), nil
 	case "bounty":
 		return report.RenderBounty(run, enriched, summary, executions), nil
+	case "har":
+		// HAR 1.2 — importable by Burp Suite, ZAP, and other proxy tools.
+		rawFindings := make([]finding.Finding, 0, len(enriched))
+		for _, ef := range enriched {
+			if !ef.Omit {
+				rawFindings = append(rawFindings, ef.Finding)
+			}
+		}
+		b, err := report.RenderHAR(rawFindings)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
 	case "ocsf":
 		// OCSF 1.4.0 NDJSON — one Vulnerability Finding event per line.
 		// Compatible with AWS Security Lake, Splunk, OpenSearch Security Analytics,

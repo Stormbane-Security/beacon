@@ -1,0 +1,57 @@
+name: tomcat-exposed
+description: >
+  Apache Tomcat default page exposed. Beacon portscan should detect the
+  Tomcat server via port.tomcat_exposed by probing for "tomcat" or
+  "apache-coyote" in the HTTP response body.
+tags: [tomcat, scanner, portscan, exposed, java]
+
+services:
+  tomcat:
+    image: tomcat:10-jdk17
+    ports: ["20043:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:20043/ -o /dev/null || curl -sf -o /dev/null -w '%{http_code}' http://localhost:20043/ | grep -qE '404|200'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: Tomcat responds with identifying content
+  - name: exploit-tomcat-identifies-itself
+    type: command
+    expect:
+      command: "curl -s http://localhost:20043/ | grep -qi tomcat"
+      exit_code: 0
+
+  # Pre-flight: Tomcat 404 page also identifies itself
+  - name: exploit-tomcat-404-identifies
+    type: command
+    expect:
+      command: "curl -s http://localhost:20043/nonexistent-probe | grep -qi 'tomcat\\|apache-coyote'"
+      exit_code: 0
+
+  # Scanner: detect exposed Tomcat
+  - name: detects-tomcat-exposed
+    type: beacon
+    target: localhost:20043
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "8080"]
+    expect:
+      check_id: port.tomcat_exposed
+
+  # Scanner: detect missing HSTS
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20043
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no Redis false positive
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20043
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

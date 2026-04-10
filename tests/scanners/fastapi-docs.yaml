@@ -1,0 +1,57 @@
+name: fastapi-docs
+description: >
+  FastAPI app with default /docs and /openapi.json endpoints exposed.
+  Beacon portscan scanner should fingerprint FastAPI via the
+  auto-generated OpenAPI spec and Swagger UI.
+tags: [fastapi, scanner, portscan, framework]
+
+services:
+  fastapi:
+    build:
+      context: ./fastapi-docs
+      dockerfile: Dockerfile
+    ports: ["20301:8000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20301/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-openapi-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20301/openapi.json | grep -q 'openapi'"
+      exit_code: 0
+
+  - name: exploit-docs-swagger-ui-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20301/docs | grep -q '200'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-fastapi-framework
+    type: beacon
+    target: localhost:20301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20301"]
+    expect:
+      check_id: port.fastapi_detected
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-fastapi
+    type: beacon
+    target: localhost:20301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20301"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-fastapi
+    type: beacon
+    target: localhost:20301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20301"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

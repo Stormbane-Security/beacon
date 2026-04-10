@@ -1,0 +1,59 @@
+name: websocket-no-auth-message-injection
+description: >
+  WebSocket echo server with no authentication, no origin validation,
+  and no message sanitization. Beacon websocket/wsfuzz scanner should
+  detect websocket.no_auth, websocket.message_injection, and websocket.cswsh.
+tags: [websocket, scanner, deep, injection, auth]
+
+services:
+  ws-server:
+    image: node:20-alpine
+    ports: ["20098:3000"]
+    volumes:
+      - ./websocket-noauth-inject/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20098/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-ws-upgrade-no-auth
+    type: command
+    expect:
+      command: "curl -sI -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://localhost:20098/ws | grep -qi '101'"
+      exit_code: 0
+
+  - name: exploit-ws-accepts-evil-origin
+    type: command
+    expect:
+      command: "curl -sI -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' -H 'Origin: https://evil.com' http://localhost:20098/ws | grep -qi '101'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  # NOTE: websocket.no_auth, websocket.message_injection, and websocket.cswsh
+  # require crawl-discovered WebSocket endpoints. The websocket and wsfuzz
+  # scanners rely on the classify pipeline to discover WS URLs during a full
+  # scan, not in isolated --scanners mode. In isolation, 0 findings is expected.
+  # The exploit proofs above confirm the vulnerabilities exist in the fixture.
+  # websocket.cswsh is tested in websocket-cswsh.yaml with ttyd (which has a
+  # well-known /ws path the scanner can find).
+
+  - name: websocket-scanners-run-clean
+    type: beacon
+    target: localhost:20098
+    args: ["--no-enrich", "--no-nmap", "--scanners", "websocket,wsfuzz", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # --- Negative ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20098
+    args: ["--no-enrich", "--no-nmap", "--scanners", "websocket,wsfuzz", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

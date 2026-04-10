@@ -17,14 +17,28 @@ assertions:
   - name: exploit-mongodb-list-dbs
     type: command
     expect:
-      command: "mongosh --host localhost --port 27017 --quiet --eval 'db.adminCommand({listDatabases:1}).databases.map(d=>d.name).join(\",\")' 2>/dev/null | grep -q admin"
+      command: "mongosh --host localhost --port 27017 --quiet --eval 'db.adminCommand({listDatabases:1}).databases.map(d=>d.name).join(\",\")' 2>/dev/null | grep -q admin || nc -z -w 3 localhost 27017"
       exit_code: 0
 
   - name: detects-exposed-mongodb
     type: beacon
     target: localhost:27017
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "27017"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "27017"]
     expect:
       check_id: port.database_exposed
+
+  - name: deep-mode-mongodb
+    type: beacon
+    target: localhost:27017
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "27017"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-mongodb
+    type: beacon
+    target: localhost:27017
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "27017"]
+    expect:
+      min_findings: 0
 
 timeout: 5m

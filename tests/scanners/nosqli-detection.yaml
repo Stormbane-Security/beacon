@@ -1,0 +1,78 @@
+name: nosqli-detection-e2e
+description: >
+  NoSQL injection scanner E2E test. Reuses the nosqli-mongo nginx fixture
+  that simulates MongoDB operator injection responses. Validates that the
+  nosqli scanner runs without crash and that header findings fire on the
+  bare nginx server.
+tags: [nosqli, scanner, web, e2e]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["20223:80"]
+    volumes:
+      - ./nosqli-mongo/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20223/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify server responds
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-server-responds
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20223/ | grep -qi 'HTTP/1.1'"
+      exit_code: 0
+
+  - name: preflight-api-login-exists
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20223/api/login | grep -q '405'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SCANNER: nosqli runs without crash
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: nosqli-scanner-runs-clean
+    type: beacon
+    target: localhost:20223
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "nosqli", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # HEADERS: missing security headers on bare nginx
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20223
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:20223
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — should not fire unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20223
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "nosqli", "--deep", "--yes"]
+    expect:
+      not_check_id: web.reflected_xss
+
+timeout: 5m

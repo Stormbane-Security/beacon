@@ -24,14 +24,14 @@ assertions:
   - name: detects-js-framework
     type: beacon
     target: localhost:9243
-    args: ["--no-enrich", "--scanners", "jsframework"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsframework"]
     expect:
       check_id: js.framework_detected
 
   - name: detects-vulnerable-framework
     type: beacon
     target: localhost:9243
-    args: ["--no-enrich", "--scanners", "jsframework"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsframework"]
     expect:
       check_id: js.framework_vulnerable
 

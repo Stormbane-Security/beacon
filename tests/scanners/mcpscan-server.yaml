@@ -40,14 +40,14 @@ assertions:
   - name: detects-mcp-unauthenticated
     type: beacon
     target: localhost:9299
-    args: ["--no-enrich", "--scanners", "mcpscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "mcpscan"]
     expect:
       check_id: mcp.unauthenticated
 
   - name: detects-mcp-tool-poisoning
     type: beacon
     target: localhost:9299
-    args: ["--no-enrich", "--scanners", "mcpscan", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "mcpscan", "--deep", "--yes"]
     expect:
       check_id: mcp.tool_poisoning
 

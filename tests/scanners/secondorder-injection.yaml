@@ -1,0 +1,58 @@
+name: secondorder-injection
+description: >
+  Second-order injection test against Juice Shop. Verifies the scanner
+  runs without error. Juice Shop's feedback API stores user input but
+  rendering is JS-only so second-order detection requires chromedp.
+tags: [secondorder, juiceshop, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19874:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19874/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: feedback API accessible
+  - name: exploit-feedback-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19874/api/Feedbacks/ | grep -q 'data'"
+      exit_code: 0
+
+  # Scanner runs without crash (authorized mode)
+  - name: secondorder-runs-clean
+    type: beacon
+    target: localhost:19874
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secondorder", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # Headers still detected
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19874
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19874
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:19874
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+timeout: 5m

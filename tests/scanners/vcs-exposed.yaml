@@ -39,4 +39,18 @@ assertions:
     expect:
       check_id: exposure.git_exposed
 
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:9325
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:9325
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.server_info_leak
+
 timeout: 5m

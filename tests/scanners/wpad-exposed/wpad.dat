@@ -1,0 +1,6 @@
+function FindProxyForURL(url, host) {
+  if (shExpMatch(host, "*.internal.corp")) {
+    return "PROXY proxy.internal.corp:8080";
+  }
+  return "PROXY gateway.corp:3128; DIRECT";
+}

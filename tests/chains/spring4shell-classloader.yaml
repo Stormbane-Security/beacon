@@ -34,7 +34,7 @@ assertions:
   - name: detects-spring4shell-cve
     type: beacon
     target: "localhost"
-    args: ["--no-enrich", "--scanners", "exposedfiles", "--deep", "--permission-confirmed", "--ports", "9440"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--permission-confirmed", "--ports", "9440"]
     expect:
       check_id: cve.spring4shell
 

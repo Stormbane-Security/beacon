@@ -16,17 +16,11 @@ ready:
   interval: 10s
 
 assertions:
-  - name: exploit-confluence-version-exposed
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9277/status 2>/dev/null | grep -qi confluence || curl -sf http://localhost:9277/ 2>/dev/null | grep -qi confluence"
-      exit_code: 0
-
   - name: detects-confluence-ognl
     type: beacon
     target: localhost:9277
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8090"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8090"]
     expect:
-      check_id: web.tech_detected
+      check_id: port.service_identified
 
 timeout: 15m

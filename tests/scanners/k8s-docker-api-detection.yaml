@@ -1,0 +1,65 @@
+name: k8s-docker-api-detection
+description: >
+  Docker-in-Docker with the daemon API exposed on TCP without TLS.
+  Tests beacon's ability to detect an unauthenticated Docker daemon,
+  which is a common misconfiguration in K8s node environments and
+  CI/CD runners. Requires --privileged for DinD.
+tags: [k8s, docker, dind, noauth, privileged, surface]
+
+# NOTE: Docker-in-Docker requires --privileged. If the drydock runner does
+# not support privileged containers, this test will fail at container startup.
+# In that case, skip this test or run it on a host with privileged support.
+
+services:
+  dind:
+    image: docker:24-dind
+    ports: ["19886:2375"]
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["dockerd", "--host=tcp://0.0.0.0:2375", "--tls=false"]
+
+ready:
+  cmd: "curl -sf http://localhost:19886/version | grep -q ApiVersion"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: Docker API responds ─────────────────────────────────
+  - name: preflight-docker-version
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19886/version | grep -q ApiVersion"
+      exit_code: 0
+
+  - name: preflight-docker-containers-listable
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19886/containers/json?all=true -o /dev/null -w '%{http_code}' | grep -q 200"
+      exit_code: 0
+
+  # ── Beacon detects unauthenticated Docker daemon ────────────────────
+  - name: detects-docker-unauthenticated
+    type: beacon
+    target: localhost:19886
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19886"]
+    expect:
+      check_id: port.docker_unauthenticated
+
+  # ── Beacon identifies the service ───────────────────────────────────
+  - name: detects-service-identified
+    type: beacon
+    target: localhost:19886
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19886"]
+    expect:
+      check_id: port.service_identified
+
+  # ── Negative: no kubernetes-specific findings ───────────────────────
+  - name: negative-no-k8s-api
+    type: beacon
+    target: localhost:19886
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19886"]
+    expect:
+      not_check_id: port.kubernetes_api_unauthenticated
+
+timeout: 5m

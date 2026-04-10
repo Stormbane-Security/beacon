@@ -102,7 +102,7 @@ func (c *Client) getJSON(path string, dest any) error {
 	if err != nil {
 		return fmt.Errorf("vulndb client: GET %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("vulndb client: GET %s: %d: %s", path, resp.StatusCode, string(b))
@@ -120,7 +120,7 @@ func (c *Client) postJSON(path string, body any) error {
 	if err != nil {
 		return fmt.Errorf("vulndb client: POST %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("vulndb client: POST %s: %d: %s", path, resp.StatusCode, string(b))
@@ -143,7 +143,7 @@ func (c *Client) SaveFingerprint(fp ServiceFingerprint) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("vulndb: save fingerprint: %d", resp.StatusCode)
 	}

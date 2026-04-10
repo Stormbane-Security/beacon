@@ -22,7 +22,7 @@ assertions:
   - name: detects-websocket-cswsh
     type: beacon
     target: localhost:9302
-    args: ["--no-enrich", "--scanners", "websocket", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "websocket", "--exploit", "--yes"]
     expect:
       check_id: websocket.cswsh
 

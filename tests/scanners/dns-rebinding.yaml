@@ -25,7 +25,7 @@ assertions:
   - name: detects-rebinding-risk
     type: beacon
     target: internal.testcorp.local
-    args: ["--no-enrich", "--scanners", "dns", "--dns-server", "localhost:5553"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dns", "--dns-server", "localhost:5553"]
     expect:
       check_id: dns.rebinding_vulnerable
 

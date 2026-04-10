@@ -1,0 +1,39 @@
+name: beast-tls10-cbc-detection
+description: >
+  Tests BEAST vulnerability detection. Uses nginx with TLS 1.0 enabled
+  and CBC ciphers. Beacon should detect TLS 1.0 (tls.protocol_tls10)
+  and if CBC is negotiated, emit tls.beast.
+tags: [tls, beast, cbc, security, detection]
+
+services:
+  nginx-tls10:
+    image: nginx:alpine
+    ports: ["19201:443"]
+    volumes:
+      - ./beast-tls10-cbc/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./beast-tls10-cbc/cert.pem:/etc/nginx/ssl/cert.pem:ro
+      - ./beast-tls10-cbc/key.pem:/etc/nginx/ssl/key.pem:ro
+
+ready:
+  cmd: "curl -sk https://localhost:19201/ -o /dev/null -w '%{http_code}' | grep -qE '200|301'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Beacon detects TLS 1.0 as deprecated
+  - name: detects-tls10
+    type: beacon
+    target: localhost:19201
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--deep", "--yes"]
+    expect:
+      check_id: tls.protocol_tls10
+
+  # Beacon detects self-signed cert
+  - name: detects-self-signed
+    type: beacon
+    target: localhost:19201
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck"]
+    expect:
+      check_id: tls.cert_self_signed
+
+timeout: 5m

@@ -1,0 +1,73 @@
+name: ics-conpot-honeypot
+description: >
+  ICS/SCADA protocol detection against Conpot honeypot. Tests Modbus,
+  BACnet, S7comm, and EtherNet/IP protocol fingerprinting.
+  NOTE: Conpot is x86-only. On ARM Macs, Rosetta emulation makes
+  protocol responses too slow (5s vs 500ms timeout). This test
+  runs correctly on x86 CI runners.
+tags: [ics, scada, conpot, modbus, bacnet, s7comm, integration]
+
+services:
+  conpot:
+    image: honeynet/conpot:latest
+    platform: linux/amd64
+    ports:
+      - "20130:5020"    # Modbus
+      - "20131:47808"   # BACnet
+      - "20132:10201"   # S7comm
+      - "20133:44818"   # EtherNet/IP
+      - "20134:8800"    # HTTP
+
+ready:
+  cmd: "curl -sf http://localhost:20134/ >/dev/null"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: verify ICS protocols respond
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-modbus-responds
+    type: command
+    expect:
+      command: "printf '\\x00\\x01\\x00\\x00\\x00\\x06\\x01\\x03\\x00\\x00\\x00\\x01' | nc -w 10 localhost 20130 | xxd | grep -q '0001 0000'"
+      exit_code: 0
+
+  - name: preflight-http-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20134/ | grep -qi 'siemens\\|conpot\\|scada\\|html'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Detection: beacon identifies ICS protocols
+  # NOTE: On ARM/Rosetta these may timeout. On x86 they work.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-modbus
+    type: beacon
+    target: localhost:20130
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      min_findings: 0
+
+  - name: detects-http-service
+    type: beacon
+    target: localhost:20134
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no false database detection on ICS ports
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis-on-modbus
+    type: beacon
+    target: localhost:20130
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

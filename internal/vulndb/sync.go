@@ -114,7 +114,7 @@ func queryOSV(ecosystem, pkg string) ([]osvVuln, error) {
 	if err != nil {
 		return nil, fmt.Errorf("osv query: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("osv: %d: %s", resp.StatusCode, string(b))
@@ -165,7 +165,7 @@ func osvToCVE(v osvVuln, ecosystem string) CVEEntry {
 	severity := classifySeverity(0) // default; we parse CVSS below
 	var cvss float64
 	if len(v.Severity) > 0 {
-		fmt.Sscanf(v.Severity[0].Score, "%f", &cvss)
+		_, _ = fmt.Sscanf(v.Severity[0].Score, "%f", &cvss)
 		severity = classifySeverity(cvss)
 	}
 

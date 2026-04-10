@@ -8,7 +8,6 @@ package apiversions
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"net"
@@ -17,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 
@@ -93,10 +92,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	base := scheme + "://" + asset
 
 	// Gate: if the server returns 200 for a path that cannot exist, every probe
-	// path will look "active". Skip the entire scan on catch-all servers.
-	if isCatchAll(ctx, client, base) {
-		return nil, nil
-	}
+	// path will look "active". Use the shared catch-all baseline to filter
+	// individual responses instead of bailing entirely.
+	baseline := scan.DetectCatchAll(ctx, client, base)
 
 	// Collect active versions — probe all paths concurrently (max 10 in flight).
 	type result struct {
@@ -158,6 +156,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			// Skip HTML responses — almost certainly a catch-all redirect/landing page.
 			ct := resp.Header.Get("Content-Type")
 			if strings.Contains(ct, "text/html") {
+				return
+			}
+
+			// On catch-all servers, skip responses identical to the baseline.
+			if !baseline.IsDifferentFromBaseline(resp, body) {
 				return
 			}
 
@@ -505,43 +508,3 @@ func isNonStandardPort(port string) bool {
 	return port != "" && port != "80" && port != "443"
 }
 
-// isCatchAll returns true when two distinct nonsense paths return HTTP 200
-// with identical response bodies — a reliable signal that the server is a
-// wildcard/catch-all (SPA, reverse proxy, etc.) where every probe is noise.
-// A single-probe check has a high false-positive rate: some servers legitimately
-// return 200 for unknown paths but still have distinct, real API endpoints.
-func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	probeA := base + "/beacon-probe-a1b2c3d4e5f6-doesnotexist"
-	probeB := base + "/beacon-probe-f6e5d4c3b2a1-alsonotreal"
-
-	hashOf := func(rawURL string) ([]byte, int) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-		if err != nil {
-			return nil, 0
-		}
-		req.Header.Set("Accept", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, 0
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, resp.StatusCode
-		}
-		h := sha256.Sum256(body)
-		return h[:], resp.StatusCode
-	}
-
-	hashA, statusA := hashOf(probeA)
-	hashB, statusB := hashOf(probeB)
-
-	// Both must be 200 and have identical bodies to be considered a catch-all.
-	if statusA != http.StatusOK || statusB != http.StatusOK {
-		return false
-	}
-	if hashA == nil || hashB == nil {
-		return false
-	}
-	return string(hashA) == string(hashB)
-}

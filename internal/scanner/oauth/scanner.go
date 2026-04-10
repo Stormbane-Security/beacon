@@ -1161,7 +1161,7 @@ func checkTokenLeakReferer(ctx context.Context, client *http.Client, asset, auth
 func checkJWTNoVerification(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
 	// Skip catch-all / wildcard servers that return 200 for any path — all
 	// probes would be false positives on such servers.
-	if oauthIsCatchAll(ctx, client, base) {
+	if baseline := scan.DetectCatchAll(ctx, client, base); baseline.IsCatchAll {
 		return nil
 	}
 
@@ -1519,19 +1519,4 @@ func baseURL(ctx context.Context, client *http.Client, asset string) string {
 	return ""
 }
 
-// oauthIsCatchAll returns true when the server responds HTTP 200 to a path
-// that cannot exist on any real application, indicating a wildcard / catch-all
-// configuration where JWT probe responses would all be false positives.
-func oauthIsCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
 

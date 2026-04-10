@@ -1,49 +1,57 @@
 name: jaeger-exposed
 description: >
-  Jaeger distributed tracing UI exposed without authentication. Beacon should
-  fingerprint Jaeger from the Traceresponse header and body content, and
-  detect the exposed tracing dashboard which leaks service topology and
-  trace data.
-tags: [jaeger, scanner, fingerprint, exposed, monitoring, tracing]
+  Jaeger distributed tracing UI exposed without authentication. Beacon
+  portscan should detect the exposed tracing dashboard via
+  port.jaeger_exposed by probing /api/services.
+tags: [jaeger, scanner, portscan, exposed, monitoring, tracing]
 
 services:
   jaeger:
     image: jaegertracing/all-in-one:latest
-    ports: ["18686:16686"]
+    ports: ["20041:16686"]
 
 ready:
-  cmd: "curl -sf http://localhost:18686/ -o /dev/null"
-  timeout: 30s
+  cmd: "curl -sf http://localhost:20041/"
+  timeout: 60s
   interval: 3s
 
 assertions:
-  # Classification: beacon identifies Jaeger
-  - name: classify-detects-jaeger
-    type: classify
-    target: localhost:18686
+  # Pre-flight: Jaeger API returns service list
+  - name: exploit-jaeger-api-services
+    type: command
     expect:
-      service: Jaeger
+      command: "curl -sf http://localhost:20041/api/services | grep -q 'data'"
+      exit_code: 0
 
   # Pre-flight: Traceresponse header present
-  - name: jaeger-traceresponse-header
+  - name: exploit-jaeger-traceresponse-header
     type: command
     expect:
-      command: "curl -sI http://localhost:18686/ | grep -qi traceresponse"
+      command: "curl -sI http://localhost:20041/ | grep -qi traceresponse"
       exit_code: 0
 
-  # Pre-flight: Jaeger API accessible
-  - name: jaeger-api-services
-    type: command
-    expect:
-      command: "curl -sf http://localhost:18686/api/services | grep -q data"
-      exit_code: 0
-
-  # Scanner: detect exposed tracing dashboard
+  # Scanner: detect exposed Jaeger
   - name: detects-jaeger-exposed
     type: beacon
-    target: localhost:18686
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "18686"]
+    target: localhost:20041
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "16686"]
     expect:
-      check_id: port.service_identified
+      check_id: port.jaeger_exposed
+
+  # Scanner: detect missing HSTS
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20041
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no Redis false positive
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20041
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
 
 timeout: 5m

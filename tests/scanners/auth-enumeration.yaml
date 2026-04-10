@@ -1,0 +1,70 @@
+name: auth-username-enumeration-no-lockout
+description: >
+  Login form with different error messages for valid vs invalid usernames
+  and no account lockout. Beacon authfuzz/authsurface scanner should detect
+  auth.username_enumeration and auth.no_lockout.
+tags: [auth, scanner, enumeration, lockout, deep]
+
+services:
+  app:
+    image: node:20-alpine
+    ports: ["20096:3000"]
+    volumes:
+      - ./auth-enumeration/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20096/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-different-error-valid-user
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:20096/login -d 'username=admin&password=wrong' | grep -q 'Invalid password'"
+      exit_code: 0
+
+  - name: exploit-different-error-invalid-user
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:20096/login -d 'username=nonexistent&password=wrong' | grep -q 'User not found'"
+      exit_code: 0
+
+  - name: exploit-no-lockout-after-10-attempts
+    type: command
+    expect:
+      command: "for i in $(seq 1 10); do curl -s -X POST http://localhost:20096/login -d 'username=admin&password=wrong' >/dev/null; done; curl -s -X POST http://localhost:20096/login -d 'username=admin&password=wrong' | grep -q 'Invalid password'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-login-form
+    type: beacon
+    target: localhost:20096
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface", "--yes"]
+    expect:
+      check_id: auth.login_form_detected
+
+  - name: detects-no-lockout
+    type: beacon
+    target: localhost:20096
+    args: ["--no-enrich", "--no-nmap", "--scanners", "autoprobe", "--deep", "--yes"]
+    expect:
+      check_id: auth.no_lockout
+
+  # NOTE: auth.username_enumeration requires discoveredEmails from prior recon
+  # (e.g., harvester). In isolated scanner mode, autoprobe sends two synthetic
+  # non-existent emails and gets identical responses. The fixture above has
+  # differential error messages (valid user vs non-existent) ready for when
+  # the scanner has real emails to compare against.
+
+  # --- Negative ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20096
+    args: ["--no-enrich", "--no-nmap", "--scanners", "autoprobe", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

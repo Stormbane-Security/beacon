@@ -34,6 +34,8 @@ func init() {
 		scan.Check(finding.CheckGraphQLGETEnabled, finding.SeverityMedium, finding.ModeDeep),
 		scan.Check(finding.CheckGraphQLIntrospection, finding.SeverityMedium, finding.ModeSurface),
 		scan.Check(finding.CheckGraphQLPersistedQueryBypass, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLNoDepthLimit, finding.SeverityMedium, finding.ModeDeep),
+		scan.Check(finding.CheckGraphQLBatchNoLimit, finding.SeverityMedium, finding.ModeDeep),
 	)
 }
 const scannerName = "graphql"
@@ -77,16 +79,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		return nil, nil
 	}
 
-	client := &http.Client{
-		Timeout: httpTimeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
-		},
-		// Do not follow redirects — a redirect means the path is protected.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 
 	var findings []finding.Finding
 
@@ -157,6 +150,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 				findings = append(findings, *f)
 			}
 			if f := checkDeepNesting(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkNoDepthLimit(ctx, client, asset, endpointURL); f != nil {
+				findings = append(findings, *f)
+			}
+			if f := checkBatchNoLimit(ctx, client, asset, endpointURL); f != nil {
 				findings = append(findings, *f)
 			}
 		}

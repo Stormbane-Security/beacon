@@ -1,0 +1,43 @@
+name: ai-api-key-exposed
+description: >
+  Tests detection of exposed AI/LLM API keys in HTTP responses.
+  A mock API returns an OpenAI-style API key in the response headers.
+tags: [ai, api-key, exposure, integration]
+
+services:
+  mock-api:
+    image: nginx:alpine
+    ports: ["19790:80"]
+    volumes:
+      - ./ai-api-key-exposed/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19790/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: API key visible in response
+  - name: preflight-key-in-response
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19790/ | grep -qi 'x-api-key'"
+      exit_code: 0
+
+  # Beacon detects exposed API key
+  - name: beacon-detects-key
+    type: beacon
+    target: localhost:19790
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      min_findings: 1
+
+  # Beacon finds missing headers too
+  - name: beacon-finds-headers
+    type: beacon
+    target: localhost:19790
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

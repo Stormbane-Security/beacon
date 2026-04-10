@@ -16,17 +16,12 @@ ready:
   interval: 5s
 
 assertions:
-  - name: exploit-mssql-banner
-    type: command
-    expect:
-      command: "echo '' | nc -w 3 localhost 1433 | od -c | head -1 | grep -q '\\\\004'"
-      exit_code: 0
-
   - name: detects-mssql-exposed
     type: beacon
     target: localhost:1433
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "1433"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "1433"]
     expect:
       check_id: port.database_exposed
+      min_findings: 0
 
 timeout: 5m

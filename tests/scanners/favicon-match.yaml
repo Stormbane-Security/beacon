@@ -25,7 +25,7 @@ assertions:
   - name: detects-favicon-fingerprint
     type: beacon
     target: localhost:9245
-    args: ["--no-enrich", "--scanners", "favicon"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "favicon"]
     expect:
       check_id: favicon.hash_match
 

@@ -35,14 +35,14 @@ assertions:
   - name: detects-nginx-service-version
     type: beacon
     target: localhost:19903
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: nmap.service_version
 
   - name: detects-redis-service-version
     type: beacon
     target: localhost:19904
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: nmap.service_version
 

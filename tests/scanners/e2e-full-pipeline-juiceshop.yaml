@@ -1,0 +1,122 @@
+name: e2e-full-pipeline-juiceshop
+description: >
+  Full pipeline E2E test against OWASP Juice Shop with NO --scanners filter.
+  Triggers the complete pipeline: discovery → classify → Phase A → Phase B →
+  correlation → chain engine. This is the only way to test check IDs that
+  depend on the crawl pipeline. Validates that the unfiltered scan produces
+  a meaningful set of findings across multiple scanner categories.
+tags: [e2e, full-pipeline, juiceshop, integration, crawl, correlation]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["20141:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:20141/ | grep -q 'OWASP Juice Shop'"
+  timeout: 300s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Juice Shop is accessible and functional
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-homepage-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20141/ | grep -q 'OWASP Juice Shop'"
+      exit_code: 0
+
+  - name: preflight-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20141/rest/products/search?q=juice | grep -q data"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # TARGETED CHECKS: run lightweight scanners first (before full pipeline
+  # hammers the app). Juice Shop is single-threaded Node.js and may become
+  # unresponsive after an aggressive full-pipeline scan.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: should not detect unrelated services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE: no --scanners filter, exercises entire scan path.
+  # This runs LAST because the full pipeline scan is aggressive and may
+  # stress the single-threaded Node.js app.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-minimum-findings
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      min_findings: 10
+
+  # Full pipeline should discover API endpoints via crawler
+  - name: full-pipeline-api-discovery
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: asset.api_discovery
+
+  # Full pipeline should discover crawl endpoints
+  - name: full-pipeline-crawl-endpoints
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: asset.crawl_endpoints
+
+  # Full pipeline should detect server info leak
+  - name: full-pipeline-server-info
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # Full pipeline should detect missing security headers
+  - name: full-pipeline-missing-referrer-policy
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: full-pipeline-missing-permissions-policy
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+timeout: 10m

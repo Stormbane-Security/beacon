@@ -47,21 +47,21 @@ assertions:
   - name: detects-proxy-chain
     type: beacon
     target: localhost:9290
-    args: ["--no-enrich", "--scanners", "proxychain"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "proxychain"]
     expect:
       check_id: proxy.chain_detected
 
   - name: detects-proxy-hop
     type: beacon
     target: localhost:9290
-    args: ["--no-enrich", "--scanners", "proxychain"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "proxychain"]
     expect:
       check_id: proxy.hop_detected
 
   - name: detects-xff-leak
     type: beacon
     target: localhost:9290
-    args: ["--no-enrich", "--scanners", "proxychain"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "proxychain"]
     expect:
       check_id: proxy.xff_leak
 

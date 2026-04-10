@@ -393,6 +393,25 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// If the server accepts these deprecated protocols, emit a finding.
 	if f := checkDeprecatedProtocol(ctx, host, port, asset, tls.VersionTLS10, "TLS 1.0", finding.CheckTLSProtocolTLS10, finding.SeverityHigh, now); f != nil {
 		findings = append(findings, *f)
+		// BEAST: TLS 1.0 + CBC cipher = vulnerable to BEAST attack
+		if cipher, ok := f.Evidence["cipher_suite"].(string); ok && strings.Contains(strings.ToUpper(cipher), "CBC") {
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckTLSBEAST,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityLow,
+				Title:       fmt.Sprintf("BEAST vulnerability: TLS 1.0 + CBC cipher on %s", asset),
+				Description: "The server negotiates TLS 1.0 with a CBC cipher suite, making it vulnerable to the BEAST attack (CVE-2011-3389). An attacker can decrypt HTTPS traffic by exploiting a flaw in CBC mode initialization vectors.",
+				Asset:       asset,
+				Evidence: map[string]any{
+					"protocol": "TLS 1.0",
+					"cipher":   cipher,
+					"cve":      "CVE-2011-3389",
+				},
+				ProofCommand: fmt.Sprintf("openssl s_client -connect %s:%s -tls1 -cipher 'CBC'", host, port),
+				DiscoveredAt: now,
+			})
+		}
 	}
 	if f := checkDeprecatedProtocol(ctx, host, port, asset, tls.VersionTLS11, "TLS 1.1", finding.CheckTLSProtocolTLS11, finding.SeverityMedium, now); f != nil {
 		findings = append(findings, *f)

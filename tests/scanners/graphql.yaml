@@ -24,7 +24,7 @@ assertions:
   - name: detects-graphql-introspection
     type: beacon
     target: localhost:9201
-    args: ["--no-enrich", "--scanners", "graphql", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--ports", "8080"]
     expect:
       check_id: graphql.introspection_enabled
 

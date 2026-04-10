@@ -210,6 +210,45 @@ func TestRenderFormat_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestRenderFormat_Bounty_FiltersLowSeverity(t *testing.T) {
+	enriched := []enrichment.EnrichedFinding{
+		{
+			Finding: finding.Finding{
+				CheckID:  "web.sqli",
+				Severity: finding.SeverityCritical,
+				Title:    "SQL Injection",
+				Asset:    "target.com",
+			},
+			Explanation: "SQLi found",
+			Impact:      "Database access",
+		},
+		{
+			Finding: finding.Finding{
+				CheckID:  "headers.info",
+				Severity: finding.SeverityInfo,
+				Title:    "Info leak",
+				Asset:    "target.com",
+			},
+		},
+	}
+	out, err := renderFormat("bounty", scanRun(), enriched, "", fakeReport(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "SQL Injection") {
+		t.Error("bounty format should include critical findings")
+	}
+	if strings.Contains(out, "Info leak") {
+		t.Error("bounty format should NOT include info-severity findings")
+	}
+	if !strings.Contains(out, "CVSS") {
+		t.Error("bounty format should include CVSS estimate")
+	}
+	if !strings.Contains(out, "Steps to Reproduce") {
+		t.Error("bounty format should include steps to reproduce")
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

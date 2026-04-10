@@ -47,21 +47,21 @@ assertions:
   - name: detects-cache-behavior
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe"]
     expect:
       check_id: cache.behavior_detected
 
   - name: detects-purge-unauthenticated
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe"]
     expect:
       check_id: cache.purge_unauthenticated
 
   - name: detects-vary-risky
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "cacheprobe"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe"]
     expect:
       check_id: cache.vary_risky
 

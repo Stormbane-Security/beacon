@@ -1,0 +1,35 @@
+name: chain-gitlab-project-exfil
+description: >
+  Exploit chain: GitLab unauthenticated project listing → CI/CD variable extraction.
+  GitLab CE with default settings exposes public projects and may expose
+  CI/CD variables to unauthenticated users.
+tags: [chain, postexploit, gitlab, data-extraction, authorized]
+weight: 100
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:16.4.0-ce.0
+    ports: ["9420:80"]
+    environment:
+      - GITLAB_OMNIBUS_CONFIG=gitlab_rails['initial_root_password'] = 'password123'; gitlab_rails['gitlab_shell_ssh_port'] = 2222;
+
+ready:
+  cmd: "curl -sf http://localhost:9420/api/v4/version 2>/dev/null | grep -q version"
+  timeout: 300s
+  interval: 10s
+
+assertions:
+  - name: gitlab-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9420/api/v4/version | grep -q version"
+      exit_code: 0
+
+  - name: chain-detects-gitlab
+    type: beacon
+    target: "localhost:9420"
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9420"]
+    expect:
+      check_id: exposure.cicd_panel
+
+timeout: 15m

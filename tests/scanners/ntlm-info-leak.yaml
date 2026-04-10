@@ -29,7 +29,7 @@ assertions:
   - name: detects-ntlm-info-leak
     type: beacon
     target: localhost:19902
-    args: ["--no-enrich", "--scanners", "ntlm"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ntlm"]
     expect:
       check_id: ntlm.info_leak
 

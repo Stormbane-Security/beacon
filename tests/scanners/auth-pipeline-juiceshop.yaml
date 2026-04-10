@@ -1,0 +1,63 @@
+name: auth-pipeline-juiceshop
+description: >
+  Scanning OWASP Juice Shop (Angular SPA). Tests header detection,
+  SPA login form discovery via chromedp, and negative assertions.
+  authsurface renders the Angular app with headless Chrome to detect
+  the login form at /#/login and registration at /#/register.
+tags: [auth, juiceshop, spa, chromedp, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19890:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19890/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Beacon detects missing security headers
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  # Negative: no database on HTTP port
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  # authsurface detects the Angular login form via chromedp rendering.
+  # The login form is at /#/login (hash routing) and only visible after
+  # JavaScript execution. Requires Chrome on the test host.
+  - name: detects-spa-login-form
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.login_form_detected
+
+  # authsurface detects open registration at /#/register
+  - name: detects-spa-registration
+    type: beacon
+    target: localhost:19890
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.registration_open
+
+timeout: 5m

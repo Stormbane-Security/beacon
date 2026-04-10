@@ -1,0 +1,35 @@
+name: e2e-services-industrial
+description: >
+  Service detection for ICS/SCADA protocols. Tests Modbus simulator
+  identification on the standard Modbus TCP port.
+tags: [e2e, services, industrial, ics, integration]
+
+services:
+  modbus:
+    image: oitc/modbus-server:latest
+    ports: ["19836:5020"]
+
+ready:
+  cmd: "nc -z localhost 19836"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Modbus: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: modbus-service-detected
+    type: beacon
+    target: localhost:19836
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  - name: modbus-protocol-detected
+    type: beacon
+    target: localhost:19836
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      check_id: port.modbus_exposed
+
+timeout: 10m

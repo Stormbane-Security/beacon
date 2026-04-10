@@ -1,0 +1,42 @@
+name: dirbust-techstack
+description: >
+  Smart content discovery with tech-stack awareness. Uses Spring Boot
+  PetClinic which serves on standard paths. Beacon dirbust should
+  find accessible paths.
+tags: [dirbust, techstack, spring, integration]
+
+services:
+  spring:
+    image: arey/springboot-petclinic:latest
+    ports: ["19876:8080"]
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19876/ | grep -qE '200|302'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: app is running
+  - name: app-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19876/ | grep -qE '200|302'"
+      exit_code: 0
+
+  # Headers: missing security headers on Spring app
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19876
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no database findings
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19876
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

@@ -39,7 +39,7 @@ assertions:
   - name: detects-default-dev-token
     type: beacon
     target: localhost:8200
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: web.default_credentials
 

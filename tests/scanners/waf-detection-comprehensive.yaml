@@ -1,0 +1,90 @@
+name: waf-detection-comprehensive
+description: >
+  ModSecurity CRS behind Nginx (WAF-protected) proxying to a backend,
+  alongside plain Nginx (no WAF). Beacon wafdetect scanner should flag
+  waf.detected on the ModSecurity instance and NOT on the plain Nginx.
+tags: [waf, scanner, web, modsecurity]
+
+services:
+  # Backend app that ModSecurity proxies to
+  backend:
+    image: nginx:alpine
+    expose: ["80"]
+
+  # ModSecurity CRS reverse proxy → backend
+  modsec:
+    image: owasp/modsecurity-crs:nginx-alpine
+    ports: ["19863:8080"]
+    environment:
+      BACKEND: "http://backend:80"
+      MODSEC_RULE_ENGINE: "On"
+    depends_on:
+      - backend
+
+  # Plain nginx (no WAF) for negative test
+  plain-nginx:
+    image: nginx:alpine
+    ports: ["19864:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:19863/ >/dev/null && curl -sf http://localhost:19864/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ModSecurity blocks SQLi payload (403 or 406)
+  - name: exploit-modsec-blocks-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19863/?id=1%20OR%201=1' | grep -qE '403|406'"
+      exit_code: 0
+
+  # Plain nginx allows the same request (200)
+  - name: exploit-plain-allows-sqli
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:19864/?id=1%20OR%201=1' | grep -q '200'"
+      exit_code: 0
+
+  # Beacon detects WAF on ModSecurity
+  - name: detects-waf-on-modsec
+    type: beacon
+    target: localhost:19863
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.detected
+
+  # WAF product version — wafdetect extracts version from Server header
+  # when the vendor is identifiable (e.g., ModSecurity version string).
+  - name: detects-waf-product-version
+    type: beacon
+    target: localhost:19863
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.product_version
+
+  # Dirbust WAF blocked — dirbust scanner detects WAF blocking path probes
+  - name: detects-dirbust-waf-blocked
+    type: beacon
+    target: localhost:19863
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dirbust", "--deep", "--yes"]
+    expect:
+      check_id: dirbust.waf_blocked
+
+  # Plain nginx has no security.txt — fires wellknown.security_txt_missing
+  - name: detects-security-txt-missing
+    type: beacon
+    target: localhost:19864
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.security_txt_missing
+
+  # Negative: no WAF on plain nginx
+  - name: negative-no-waf-on-plain-nginx
+    type: beacon
+    target: localhost:19864
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      not_check_id: waf.detected
+
+timeout: 5m

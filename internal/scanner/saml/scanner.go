@@ -92,12 +92,7 @@ var acsGuesses = []string{
 
 // Run executes the SAML scanner against the given asset.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(10 * time.Second)
 
 	base := detectBase(ctx, client, asset)
 	if base == "" {
@@ -105,8 +100,8 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	// Catch-all / wildcard detection: if the server returns 200 for a random
-	// path (GET or POST), all endpoint probes will be false positives.
-	if catchAllGET(ctx, client, base) || catchAllPOST(ctx, client, base) {
+	// path, all endpoint probes will be false positives.
+	if baseline := scan.DetectCatchAll(ctx, client, base); baseline.IsCatchAll {
 		return nil, nil
 	}
 
@@ -721,38 +716,6 @@ func probeXXEHostname(ctx context.Context, client *http.Client, asset, acsURL st
 	return nil
 }
 
-// catchAllGET returns true if the server responds 200 to a GET request for a
-// path that cannot exist — indicating a wildcard / catch-all configuration
-// where path-based findings would be false positives.
-func catchAllGET(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
-
-// catchAllPOST returns true if the server responds 200 to a POST request for a
-// path that cannot exist — catches servers that return 200 for any POST too
-// (e.g. install script CDNs that ignore method and path entirely).
-func catchAllPOST(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", strings.NewReader(""))
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
 
 // detectBase attempts HTTPS first, falling back to HTTP.
 func detectBase(ctx context.Context, client *http.Client, asset string) string {

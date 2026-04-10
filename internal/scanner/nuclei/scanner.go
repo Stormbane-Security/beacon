@@ -210,6 +210,12 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		"-no-color",
 		"-timeout", "30",
 		"-retries", "1",
+		"-no-interactsh",       // skip OOB interaction server (saves 2-3s startup)
+		"-disable-update-check", // skip version check (saves 1s)
+		"-no-httpx",            // we already probed HTTP, skip nuclei's httpx check
+		"-concurrency", "15",   // parallel template execution
+		"-bulk-size", "15",     // batch requests
+		"-rate-limit", "50",    // 50 req/s max
 		// Never run denial-of-service or crash templates regardless of mode.
 		// These could disrupt the target service even with authorization.
 		"-etags", "dos,crash,destructive",

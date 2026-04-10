@@ -1,0 +1,93 @@
+name: jwt-advanced-deep-checks
+description: >
+  JWT server with algorithm confusion, missing audience/issuer validation,
+  no server verification, weak JWKS key, and missing kid. Tests the full
+  range of deep JWT check IDs.
+tags: [jwt, scanner, auth, deep, advanced]
+
+services:
+  jwt-app:
+    image: node:20-alpine
+    ports: ["20097:3000"]
+    volumes:
+      - ./jwt-advanced-deep/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20097/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-jwt-issued
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20097/login | grep -q 'token'"
+      exit_code: 0
+
+  - name: exploit-login-returns-jwt
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20097/login | grep -q 'eyJ'"
+      exit_code: 0
+
+  - name: exploit-jwks-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20097/.well-known/jwks.json | grep -q 'keys'"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  # Passive surface checks that fire from JWT observation
+  - name: detects-jwt-weak-algorithm
+    type: beacon
+    target: localhost:20097
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.weak_algorithm
+
+  - name: detects-jwt-long-expiry
+    type: beacon
+    target: localhost:20097
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.long_expiry
+
+  - name: detects-jwt-replay-missing
+    type: beacon
+    target: localhost:20097
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.replay_missing
+
+  - name: detects-jwt-jwks-missing-kid
+    type: beacon
+    target: localhost:20097
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.jwks_missing_kid
+
+  # NOTE: The following deep JWT checks are defined as check IDs but the JWT scanner
+  # does not yet implement active probing for them. The vulnerable server fixture
+  # above is ready for when the scanner is extended:
+  #   jwt.audience_missing, jwt.issuer_not_validated, jwt.algorithm_confusion,
+  #   jwt.no_server_verification, jwt.jwks_weak_key, jwt.kid_sql_injection
+  # These are documented in UNTESTABLE_CHECK_IDS.md.
+
+  - name: jwt-advanced-min-findings
+    type: beacon
+    target: localhost:20097
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  # --- Negative ---
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20097
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      not_check_id: web.xss
+
+timeout: 5m

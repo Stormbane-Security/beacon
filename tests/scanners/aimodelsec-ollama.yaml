@@ -1,0 +1,49 @@
+name: aimodelsec-ollama
+description: >
+  AI model security scanner against Ollama. Ollama exposes an API for
+  listing models and pulling weights without authentication. The
+  aimodelsec scanner should detect that model information is exposed
+  and models are downloadable without auth.
+tags: [ai, aimodelsec, scanner, ollama, authorized]
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["19883:11434"]
+
+ready:
+  cmd: "curl -sf http://localhost:19883/api/tags >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # ── Pre-flight: Ollama API is accessible without auth ────────────────────
+  - name: exploit-ollama-api-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19883/api/tags | grep -q 'models'"
+      exit_code: 0
+
+  - name: exploit-ollama-version-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19883/api/version | grep -q 'version'"
+      exit_code: 0
+
+  # ── Scanner detection: aimodelsec finds exposed endpoints ────────────────
+  - name: detects-ai-model-security-issues
+    type: beacon
+    target: localhost:19883
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aimodelsec", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ── Negative: should NOT emit web header findings ────────────────────────
+  - name: negative-no-header-finding
+    type: beacon
+    target: localhost:19883
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aimodelsec", "--deep", "--yes"]
+    expect:
+      not_check_id: headers.missing_csp
+
+timeout: 10m

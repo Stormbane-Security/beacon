@@ -1,0 +1,59 @@
+name: zabbix-exposed
+description: >
+  Zabbix monitoring with default credentials (Admin/zabbix). Beacon
+  should detect the exposed Zabbix web frontend.
+tags: [zabbix, default-creds, monitoring, detection]
+
+services:
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: "zabbix"
+      MYSQL_DATABASE: "zabbix"
+
+  zabbix:
+    image: zabbix/zabbix-web-nginx-mysql:latest
+    ports: ["20111:8080"]
+    environment:
+      DB_SERVER_HOST: "mysql"
+      MYSQL_USER: "root"
+      MYSQL_PASSWORD: "zabbix"
+    depends_on:
+      - mysql
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20111/ | grep -qE '(200|302)'"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Zabbix login page accessible
+  - name: zabbix-login-accessible
+    type: command
+    expect:
+      command: "curl -sfL http://localhost:20111/ | grep -qi Zabbix"
+      exit_code: 0
+
+  # Scanner: beacon detects something on the Zabbix port
+  - name: detects-zabbix-exposed
+    type: beacon
+    target: localhost:20111
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      min_findings: 1
+
+  - name: deep-mode-zabbix
+    type: beacon
+    target: localhost:20111
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20111"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-zabbix
+    type: beacon
+    target: localhost:20111
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20111"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

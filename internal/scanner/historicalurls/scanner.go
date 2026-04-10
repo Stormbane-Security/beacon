@@ -44,9 +44,11 @@ func New(bin string) *Scanner {
 func (s *Scanner) Name() string { return scannerName }
 
 func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]finding.Finding, error) {
+	// Skip private/loopback targets — external APIs have no historical data for them.
+	if scan.IsPrivateTarget(asset) {
+		return nil, nil
+	}
 	// Only run on root domain — gau recurses into subdomains itself.
-	// "example.co.uk" has 2 dots and is a valid ccTLD+SLD root domain.
-	// Anything with more than 2 dots is guaranteed to be a subdomain.
 	if strings.Count(asset, ".") > 2 {
 		return nil, nil
 	}

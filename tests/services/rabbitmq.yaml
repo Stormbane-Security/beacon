@@ -39,14 +39,14 @@ assertions:
   - name: detects-default-credentials
     type: beacon
     target: localhost:15672
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15672"]
     expect:
       check_id: port.rabbitmq_default_creds
 
   - name: detects-management-exposed
     type: beacon
     target: localhost:15672
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15672"]
     expect:
       check_id: port.rabbitmq_mgmt_exposed
 

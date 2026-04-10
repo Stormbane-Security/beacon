@@ -1,0 +1,57 @@
+name: rails-app
+description: >
+  Minimal Ruby WEBrick server mimicking Rails fingerprints: X-Runtime
+  header, X-Request-Id, _session_id cookie, and csrf-token meta tags.
+  Beacon portscan scanner should detect Rails via these signals.
+tags: [rails, scanner, portscan, framework]
+
+services:
+  rails:
+    build:
+      context: ./rails-app
+      dockerfile: Dockerfile
+    ports: ["20308:3000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20308/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-x-runtime-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20308/ | grep -qi 'X-Runtime'"
+      exit_code: 0
+
+  - name: exploit-x-request-id-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20308/ | grep -qi 'X-Request-Id'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-rails-framework
+    type: beacon
+    target: localhost:20308
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20308"]
+    expect:
+      check_id: port.rails_detected
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-rails
+    type: beacon
+    target: localhost:20308
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20308"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-rails
+    type: beacon
+    target: localhost:20308
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20308"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

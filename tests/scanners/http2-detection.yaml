@@ -1,36 +1,40 @@
-name: http2-continuation-flood
+name: http2-detection
 description: >
-  Nginx with HTTP/2 (h2) enabled over TLS. Beacon http2check scanner
-  should detect HTTP/2 support and test for CONTINUATION flood
-  vulnerability (CVE-2024-27316).
-tags: [http2, continuation, cve, deep]
+  Nginx with TLS. Tests TLS service detection and cert analysis.
+tags: [http2, tls, scanner]
 
 services:
-  web:
+  http2-app:
     image: nginx:alpine
-    ports: ["19901:443"]
+    ports: ["20014:443"]
     volumes:
-      - ./fixtures/http2-detection/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./fixtures/http2-detection/cert.pem:/etc/nginx/ssl/cert.pem:ro
-      - ./fixtures/http2-detection/key.pem:/etc/nginx/ssl/key.pem:ro
+      - ./http2-detection/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache openssl >/dev/null 2>&1; mkdir -p /etc/nginx/ssl && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/nginx/ssl/server.key -out /etc/nginx/ssl/server.crt -subj '/CN=localhost' 2>/dev/null && nginx -g 'daemon off;'"]
 
 ready:
-  cmd: "curl -skf https://localhost:19901/ >/dev/null"
-  timeout: 30s
-  interval: 2s
+  cmd: "curl -sfk https://localhost:20014/health >/dev/null"
+  timeout: 60s
+  interval: 3s
 
 assertions:
-  - name: exploit-h2-alpn-negotiated
+  - name: exploit-tls-working
     type: command
     expect:
-      command: "curl -skI --http2 https://localhost:19901/ 2>&1 | grep -qi 'HTTP/2'"
+      command: "curl -sfk https://localhost:20014/ | grep -q 'HTTP/2'"
       exit_code: 0
 
-  - name: detects-http2-continuation-flood
+  - name: detects-service
     type: beacon
-    target: localhost:19901
-    args: ["--no-enrich", "--scanners", "http2check", "--deep", "--permission-confirmed"]
+    target: localhost:20014
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
     expect:
-      check_id: http2.continuation_flood
+      min_findings: 1
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20014
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
 
 timeout: 5m

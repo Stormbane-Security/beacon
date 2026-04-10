@@ -1,0 +1,55 @@
+name: api-swagger-exposed
+description: >
+  Nginx serving Swagger/OpenAPI spec at multiple common paths
+  (/swagger.json, /v2/api-docs, /openapi.json). The spec reveals
+  internal admin endpoints and auth schemes. Beacon swagger scanner
+  should detect the exposed documentation.
+tags: [swagger, scanner, api, openapi]
+
+services:
+  app:
+    image: nginx:alpine
+    ports: ["19868:80"]
+    volumes:
+      - ./api-swagger-exposed/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./api-swagger-exposed/swagger.json:/usr/share/nginx/html/swagger.json:ro
+
+ready:
+  cmd: "curl -sf http://localhost:19868/swagger.json >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-swagger-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19868/swagger.json | grep -q 'openapi'"
+      exit_code: 0
+
+  - name: exploit-v2-api-docs-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19868/v2/api-docs | grep -q 'openapi'"
+      exit_code: 0
+
+  - name: exploit-admin-endpoints-visible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19868/swagger.json | grep -q 'admin/config'"
+      exit_code: 0
+
+  - name: detects-swagger-exposed
+    type: beacon
+    target: localhost:19868
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger"]
+    expect:
+      check_id: web.swagger_exposed
+
+  - name: negative-no-database-findings
+    type: beacon
+    target: localhost:19868
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger"]
+    expect:
+      not_check_id: port.mysql_no_auth
+
+timeout: 5m

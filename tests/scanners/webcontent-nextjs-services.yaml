@@ -50,7 +50,7 @@ assertions:
   - name: detects-stripe-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "Stripe"
@@ -58,7 +58,7 @@ assertions:
   - name: detects-sentry-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "Sentry"
@@ -66,7 +66,7 @@ assertions:
   - name: detects-helius-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "Helius"
@@ -74,7 +74,7 @@ assertions:
   - name: detects-auth0-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "Auth0"
@@ -82,7 +82,7 @@ assertions:
   - name: detects-supabase-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "Supabase"
@@ -90,7 +90,7 @@ assertions:
   - name: detects-segment-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "Segment"
@@ -98,7 +98,7 @@ assertions:
   - name: detects-sendgrid-service-ref
     type: beacon
     target: localhost:9291
-    args: ["--no-enrich", "--scanners", "webcontent"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent"]
     expect:
       check_id: js.external_service_ref
       evidence_contains: "SendGrid"

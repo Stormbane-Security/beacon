@@ -51,7 +51,7 @@ assertions:
   - name: detects-grpc-reflection-enabled
     type: beacon
     target: localhost:9318
-    args: ["--no-enrich", "--scanners", "grpcreflect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "grpcreflect"]
     expect:
       check_id: port.grpc_reflection_enabled
 

@@ -29,6 +29,13 @@ func init() {
 		scan.Check(finding.CheckCorrelationCloudMetadataChain, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCorrelationCredentialReuse, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCorrelationStagingToProd, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationSessionHijackChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationCredentialTheftChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationFullCompromiseChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationAuthBypassChain, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationCachePoisoningChain, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationLateralMovementChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationDNSRebindingChain, finding.SeverityCritical, finding.ModeSurface),
 	)
 }
 
@@ -89,6 +96,27 @@ func (s *Scanner) Run(_ context.Context, asset string, _ module.ScanType) ([]fin
 	// Chain 6: Exposed .git + source code = secret extraction
 	results = append(results, checkStagingToProdExposure(byCheckID, asset, now)...)
 
+	// Chain 7: CORS misconfig + XSS + missing HttpOnly = session hijack
+	results = append(results, checkSessionHijackChain(byCheckID, asset, now)...)
+
+	// Chain 8: Exposed .env/config or .git + database creds = credential theft
+	results = append(results, checkCredentialTheftChain(byCheckID, asset, now)...)
+
+	// Chain 9: SQLi + exposed DB or SSRF + cloud metadata = full compromise
+	results = append(results, checkFullCompromiseChain(byCheckID, asset, now)...)
+
+	// Chain 10: JWT weak algorithm + no rotation or default creds + admin panel = auth bypass
+	results = append(results, checkAuthBypassChain(byCheckID, asset, now)...)
+
+	// Chain 11: Host header injection + cache or unkeyed header + XSS = cache poisoning
+	results = append(results, checkCachePoisoningChain(byCheckID, asset, now)...)
+
+	// Chain 12: Unauthenticated service + web app = lateral movement
+	results = append(results, checkLateralMovementChain(byCheckID, asset, now)...)
+
+	// Chain 13: DNS rebinding + internal services = network bypass
+	results = append(results, checkDNSRebindingChain(byCheckID, asset, now)...)
+
 	return results, nil
 }
 
@@ -133,15 +161,6 @@ func assetHasCheckID(byAsset map[string][]finding.Finding, asset string, checkID
 var openRedirectCheckIDs = []string{
 	finding.CheckWebOpenRedirect,
 	finding.CheckOAuthOpenRedirect,
-}
-
-// oauthCheckIDs are check IDs indicating an OAuth/OIDC endpoint is present.
-var oauthCheckIDs = []string{
-	finding.CheckOAuthOpenRedirect,
-	"oauth.insecure_redirect_uri",
-	"oauth.missing_state",
-	"oauth.missing_pkce",
-	"auth.oidc_detected",
 }
 
 func checkAuthBypassViaProxy(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
@@ -502,6 +521,516 @@ func checkStagingToProdExposure(byCheckID map[string][]finding.Finding, asset st
 			"chain_type":   "git_secret_extraction",
 		},
 		ProofCommand: fmt.Sprintf("# Git exposure:\n%s\n# Sensitive file:\ncurl -sk 'https://%s/.env'", git.ProofCommand, git.Asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 7: CORS misconfig + XSS + missing HttpOnly = session hijack
+// ---------------------------------------------------------------------------
+
+var corsCheckIDs = []string{
+	finding.CheckCORSMisconfiguration,
+	finding.CheckCORSNullOrigin,
+	finding.CheckCORSPreflightMisconfig,
+	finding.CheckCORSCredentialedReflection,
+}
+
+func checkSessionHijackChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, corsCheckIDs...) {
+		return nil
+	}
+	if !hasAny(byCheckID, xssCheckIDs...) {
+		return nil
+	}
+	if !hasAny(byCheckID, finding.CheckCookieMissingHTTPOnly) {
+		return nil
+	}
+
+	cors := firstFinding(byCheckID, corsCheckIDs...)
+	xss := firstFinding(byCheckID, xssCheckIDs...)
+	cookie := firstFinding(byCheckID, finding.CheckCookieMissingHTTPOnly)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", cors.CheckID, cors.Asset),
+		fmt.Sprintf("%s|%s", xss.CheckID, xss.Asset),
+		fmt.Sprintf("%s|%s", cookie.CheckID, cookie.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationSessionHijackChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: CORS + XSS + missing HttpOnly = session hijack on %s", asset),
+		Description: fmt.Sprintf(
+			"A CORS misconfiguration (%s on %s) allows cross-origin requests with credentials. "+
+				"Combined with a cross-site scripting vulnerability (%s on %s) and session cookies "+
+				"missing the HttpOnly flag (%s on %s), an attacker can: (1) host a malicious page that "+
+				"makes credentialed cross-origin requests, (2) inject JavaScript via XSS to read "+
+				"document.cookie, (3) exfiltrate the session token to their server. This is a complete "+
+				"session hijack chain requiring no user interaction beyond visiting a crafted URL.",
+			cors.CheckID, cors.Asset, xss.CheckID, xss.Asset, cookie.CheckID, cookie.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"cors_check":   cors.CheckID,
+			"cors_asset":   cors.Asset,
+			"xss_check":    xss.CheckID,
+			"xss_asset":    xss.Asset,
+			"cookie_check": cookie.CheckID,
+			"cookie_asset": cookie.Asset,
+			"chain_type":   "session_hijack",
+		},
+		ProofCommand: fmt.Sprintf("# CORS proof:\ncurl -sI -H 'Origin: https://evil.com' '%s'\n# XSS proof:\n%s\n# Cookie proof:\ncurl -sI '%s' | grep -i set-cookie",
+			cors.Asset, xss.ProofCommand, cookie.Asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 8: Exposed .env/config or .git + secrets = credential theft
+// ---------------------------------------------------------------------------
+
+var envExposureCheckIDs = []string{
+	finding.CheckExposureEnvFile,
+	finding.CheckExposureSensitiveFile,
+	finding.CheckExposureBackupFile,
+}
+
+func checkCredentialTheftChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Path A: exposed .env/config + database port exposed → direct DB access
+	hasEnv := hasAny(byCheckID, envExposureCheckIDs...)
+	hasDB := hasAny(byCheckID, finding.CheckPortDatabaseExposed)
+
+	// Path B: exposed .git + sensitive files → credential harvest from repo
+	hasGit := hasAny(byCheckID, finding.CheckExposureGitExposed)
+	hasSensitive := hasAny(byCheckID, envExposureCheckIDs...)
+
+	if !((hasEnv && hasDB) || (hasGit && hasSensitive)) { //nolint:staticcheck
+		return nil
+	}
+
+	var primary, secondary finding.Finding
+	var chainVariant string
+	if hasEnv && hasDB {
+		primary = firstFinding(byCheckID, envExposureCheckIDs...)
+		secondary = firstFinding(byCheckID, finding.CheckPortDatabaseExposed)
+		chainVariant = "env_plus_database"
+	} else {
+		primary = firstFinding(byCheckID, finding.CheckExposureGitExposed)
+		secondary = firstFinding(byCheckID, envExposureCheckIDs...)
+		chainVariant = "git_plus_secrets"
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", primary.CheckID, primary.Asset),
+		fmt.Sprintf("%s|%s", secondary.CheckID, secondary.Asset),
+	}
+
+	var desc string
+	if chainVariant == "env_plus_database" {
+		desc = fmt.Sprintf(
+			"An exposed configuration file (%s on %s) likely contains database credentials, and a "+
+				"database port is directly accessible (%s on %s). An attacker can read credentials from "+
+				"the exposed file and connect directly to the database for full data exfiltration.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	} else {
+		desc = fmt.Sprintf(
+			"An exposed .git directory (%s on %s) combined with sensitive file exposure (%s on %s) "+
+				"enables credential harvesting. An attacker can reconstruct the Git repository history, "+
+				"extract hardcoded secrets (API keys, database passwords, cloud credentials), and use "+
+				"them to access backend systems.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	}
+
+	return []finding.Finding{{
+		CheckID:    finding.CheckCorrelationCredentialTheftChain,
+		Module:     "surface",
+		Scanner:    scannerName,
+		Severity:   finding.SeverityCritical,
+		Title:      fmt.Sprintf("Attack chain: credential theft via %s on %s", chainVariant, asset),
+		Description: desc,
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"primary_check":   primary.CheckID,
+			"primary_asset":   primary.Asset,
+			"secondary_check": secondary.CheckID,
+			"secondary_asset": secondary.Asset,
+			"chain_variant":   chainVariant,
+			"chain_type":      "credential_theft",
+		},
+		ProofCommand: fmt.Sprintf("# Primary:\n%s\n# Secondary:\n%s", primary.ProofCommand, secondary.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 9: SQLi + exposed DB or SSRF + cloud metadata = full compromise
+// ---------------------------------------------------------------------------
+
+func checkFullCompromiseChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Path A: SQLi + database exposed → data exfiltration
+	hasSQLi := hasAny(byCheckID, finding.CheckWebSQLi)
+	hasDBExposed := hasAny(byCheckID, finding.CheckPortDatabaseExposed)
+
+	// Path B: SSRF + cloud metadata → IAM credential theft → cloud takeover
+	// (This is distinct from chain 4 because it specifically looks for the
+	// direct cloud metadata SSRF finding, indicating confirmed exploitation.)
+	hasSSRF := hasAny(byCheckID, ssrfCheckIDs...)
+	hasCloudMeta := hasAny(byCheckID, finding.CheckCloudMetadataSSRF)
+
+	if !((hasSQLi && hasDBExposed) || (hasSSRF && hasCloudMeta)) { //nolint:staticcheck
+		return nil
+	}
+
+	var primary, secondary finding.Finding
+	var chainVariant string
+	if hasSQLi && hasDBExposed {
+		primary = firstFinding(byCheckID, finding.CheckWebSQLi)
+		secondary = firstFinding(byCheckID, finding.CheckPortDatabaseExposed)
+		chainVariant = "sqli_plus_database"
+	} else {
+		primary = firstFinding(byCheckID, ssrfCheckIDs...)
+		secondary = firstFinding(byCheckID, finding.CheckCloudMetadataSSRF)
+		chainVariant = "ssrf_plus_cloud_takeover"
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", primary.CheckID, primary.Asset),
+		fmt.Sprintf("%s|%s", secondary.CheckID, secondary.Asset),
+	}
+
+	var desc string
+	if chainVariant == "sqli_plus_database" {
+		desc = fmt.Sprintf(
+			"A SQL injection vulnerability (%s on %s) combined with a directly accessible database "+
+				"(%s on %s) enables complete data exfiltration. The attacker can extract credentials "+
+				"via SQLi and then connect directly to the exposed database for bulk data theft, or "+
+				"use the SQLi to read/write arbitrary data including other users' credentials.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	} else {
+		desc = fmt.Sprintf(
+			"A server-side request forgery vulnerability (%s on %s) combined with confirmed cloud "+
+				"metadata access (%s on %s) enables full cloud account takeover. The attacker can "+
+				"extract IAM credentials from the metadata endpoint and use them to access S3 buckets, "+
+				"databases, secrets managers, and potentially pivot to other cloud services.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	}
+
+	return []finding.Finding{{
+		CheckID:    finding.CheckCorrelationFullCompromiseChain,
+		Module:     "surface",
+		Scanner:    scannerName,
+		Severity:   finding.SeverityCritical,
+		Title:      fmt.Sprintf("Attack chain: full compromise via %s on %s", chainVariant, asset),
+		Description: desc,
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"primary_check":   primary.CheckID,
+			"primary_asset":   primary.Asset,
+			"secondary_check": secondary.CheckID,
+			"secondary_asset": secondary.Asset,
+			"chain_variant":   chainVariant,
+			"chain_type":      "full_compromise",
+		},
+		ProofCommand: fmt.Sprintf("# Primary:\n%s\n# Secondary:\n%s", primary.ProofCommand, secondary.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 10: JWT weak algorithm + no rotation OR default creds + admin panel = auth bypass
+// ---------------------------------------------------------------------------
+
+var jwtWeakCheckIDs = []string{
+	finding.CheckJWTWeakAlg,
+	finding.CheckJWTAlgNoneVariant,
+	finding.CheckJWTEmptySecret,
+	finding.CheckJWTAlgorithmConfusion,
+	finding.CheckJWTNoVerification,
+}
+
+var jwtNoRotationCheckIDs = []string{
+	finding.CheckJWTReplayMissing,
+	finding.CheckJWTLongExpiry,
+}
+
+func checkAuthBypassChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Path A: JWT weak algorithm + no token rotation → persistent unauth access
+	hasJWTWeak := hasAny(byCheckID, jwtWeakCheckIDs...)
+	hasNoRotation := hasAny(byCheckID, jwtNoRotationCheckIDs...)
+
+	// Path B: default credentials + admin panel exposed → full app control
+	hasDefaultCreds := hasAny(byCheckID, defaultCredsCheckIDs...)
+	hasAdminPanel := hasAny(byCheckID, finding.CheckExposureAdminPath, finding.CheckExposureMonitoringPanel, finding.CheckExposureCICDPanel)
+
+	if !((hasJWTWeak && hasNoRotation) || (hasDefaultCreds && hasAdminPanel)) { //nolint:staticcheck
+		return nil
+	}
+
+	var primary, secondary finding.Finding
+	var chainVariant string
+	if hasJWTWeak && hasNoRotation {
+		primary = firstFinding(byCheckID, jwtWeakCheckIDs...)
+		secondary = firstFinding(byCheckID, jwtNoRotationCheckIDs...)
+		chainVariant = "jwt_weak_plus_no_rotation"
+	} else {
+		primary = firstFinding(byCheckID, defaultCredsCheckIDs...)
+		secondary = firstFinding(byCheckID, finding.CheckExposureAdminPath, finding.CheckExposureMonitoringPanel, finding.CheckExposureCICDPanel)
+		chainVariant = "default_creds_plus_admin"
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", primary.CheckID, primary.Asset),
+		fmt.Sprintf("%s|%s", secondary.CheckID, secondary.Asset),
+	}
+
+	var desc string
+	if chainVariant == "jwt_weak_plus_no_rotation" {
+		desc = fmt.Sprintf(
+			"A JWT weakness (%s on %s) allows token forgery, and the lack of token rotation "+
+				"(%s on %s) means forged tokens remain valid indefinitely. An attacker can craft "+
+				"arbitrary JWT tokens with any claims (admin role, any user ID) and maintain "+
+				"persistent unauthorized access without detection.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	} else {
+		desc = fmt.Sprintf(
+			"Default credentials (%s on %s) provide initial access, and an exposed admin panel "+
+				"(%s on %s) gives full application control. The attacker logs in with known default "+
+				"credentials and gains administrative access to manage users, data, and configuration.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	}
+
+	return []finding.Finding{{
+		CheckID:    finding.CheckCorrelationAuthBypassChain,
+		Module:     "surface",
+		Scanner:    scannerName,
+		Severity:   finding.SeverityHigh,
+		Title:      fmt.Sprintf("Attack chain: auth bypass via %s on %s", chainVariant, asset),
+		Description: desc,
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"primary_check":   primary.CheckID,
+			"primary_asset":   primary.Asset,
+			"secondary_check": secondary.CheckID,
+			"secondary_asset": secondary.Asset,
+			"chain_variant":   chainVariant,
+			"chain_type":      "auth_bypass",
+		},
+		ProofCommand: fmt.Sprintf("# Primary:\n%s\n# Secondary:\n%s", primary.ProofCommand, secondary.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 11: Host header injection + cache OR unkeyed header + XSS = cache poisoning
+// ---------------------------------------------------------------------------
+
+func checkCachePoisoningChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Path A: Host header injection + cache detected → mass user redirect
+	hasHostInjection := hasAny(byCheckID, finding.CheckHostHeaderInjection)
+	hasCache := hasAny(byCheckID, finding.CheckCacheBehaviorDetected, finding.CheckCacheHostRouting)
+
+	// Path B: Unkeyed header + XSS → stored XSS via cache
+	hasUnkeyed := hasAny(byCheckID, finding.CheckCachePoisonUnkeyed)
+	hasXSS := hasAny(byCheckID, xssCheckIDs...)
+
+	if !((hasHostInjection && hasCache) || (hasUnkeyed && hasXSS)) {  //nolint:staticcheck
+		return nil
+	}
+
+	var primary, secondary finding.Finding
+	var chainVariant string
+	if hasHostInjection && hasCache {
+		primary = firstFinding(byCheckID, finding.CheckHostHeaderInjection)
+		secondary = firstFinding(byCheckID, finding.CheckCacheBehaviorDetected, finding.CheckCacheHostRouting)
+		chainVariant = "host_injection_plus_cache"
+	} else {
+		primary = firstFinding(byCheckID, finding.CheckCachePoisonUnkeyed)
+		secondary = firstFinding(byCheckID, xssCheckIDs...)
+		chainVariant = "unkeyed_header_plus_xss"
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", primary.CheckID, primary.Asset),
+		fmt.Sprintf("%s|%s", secondary.CheckID, secondary.Asset),
+	}
+
+	var desc string
+	if chainVariant == "host_injection_plus_cache" {
+		desc = fmt.Sprintf(
+			"A Host header injection vulnerability (%s on %s) combined with a caching layer "+
+				"(%s on %s) enables cache poisoning. An attacker can inject a malicious Host header "+
+				"that gets cached by the CDN/proxy, causing all subsequent users to be redirected to "+
+				"a phishing site or served malicious content. This is a mass-impact attack affecting "+
+				"every user who hits the poisoned cache entry.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	} else {
+		desc = fmt.Sprintf(
+			"A cache poisoning vulnerability via unkeyed header (%s on %s) combined with XSS "+
+				"(%s on %s) enables stored cross-site scripting through the cache. An attacker "+
+				"sends a request with an XSS payload in an unkeyed header, the response containing "+
+				"the reflected payload is cached, and every subsequent user receives the cached XSS "+
+				"payload — effectively converting reflected XSS into stored XSS at scale.",
+			primary.CheckID, primary.Asset, secondary.CheckID, secondary.Asset)
+	}
+
+	return []finding.Finding{{
+		CheckID:    finding.CheckCorrelationCachePoisoningChain,
+		Module:     "surface",
+		Scanner:    scannerName,
+		Severity:   finding.SeverityHigh,
+		Title:      fmt.Sprintf("Attack chain: cache poisoning via %s on %s", chainVariant, asset),
+		Description: desc,
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"primary_check":   primary.CheckID,
+			"primary_asset":   primary.Asset,
+			"secondary_check": secondary.CheckID,
+			"secondary_asset": secondary.Asset,
+			"chain_variant":   chainVariant,
+			"chain_type":      "cache_poisoning",
+		},
+		ProofCommand: fmt.Sprintf("# Primary:\n%s\n# Secondary:\n%s", primary.ProofCommand, secondary.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 12: Unauthenticated service + web app = lateral movement
+// ---------------------------------------------------------------------------
+
+var unauthServiceCheckIDs = []string{
+	finding.CheckPortRedisUnauth,
+	finding.CheckPortElasticsearchUnauth,
+	finding.CheckPortMemcachedUnauth,
+	finding.CheckPortCouchDBUnauth,
+	finding.CheckPortDockerUnauth,
+	finding.CheckPortKubeletUnauth,
+	finding.CheckPortPrometheusUnauth,
+}
+
+var webVulnCheckIDs = []string{
+	finding.CheckWebXSS,
+	finding.CheckWebReflectedXSS,
+	finding.CheckWebSQLi,
+	finding.CheckWebSSRF,
+	finding.CheckWebDefaultCredentials,
+}
+
+func checkLateralMovementChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, unauthServiceCheckIDs...) {
+		return nil
+	}
+	if !hasAny(byCheckID, webVulnCheckIDs...) {
+		return nil
+	}
+
+	service := firstFinding(byCheckID, unauthServiceCheckIDs...)
+	webVuln := firstFinding(byCheckID, webVulnCheckIDs...)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", webVuln.CheckID, webVuln.Asset),
+		fmt.Sprintf("%s|%s", service.CheckID, service.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationLateralMovementChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: lateral movement from web vuln to %s on %s", service.CheckID, asset),
+		Description: fmt.Sprintf(
+			"A web application vulnerability (%s on %s) exists alongside an unauthenticated data store "+
+				"(%s on %s). If these services share a network, an attacker can exploit the web vulnerability "+
+				"to pivot into the unauthenticated service, reading or modifying data in Redis, Elasticsearch, "+
+				"or other backends. SSRF is particularly dangerous here as it enables direct internal access, "+
+				"but even XSS/SQLi on the same infrastructure suggests shared-network exposure.",
+			webVuln.CheckID, webVuln.Asset, service.CheckID, service.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"web_vuln_check":  webVuln.CheckID,
+			"web_vuln_asset":  webVuln.Asset,
+			"service_check":   service.CheckID,
+			"service_asset":   service.Asset,
+			"chain_type":      "lateral_movement",
+		},
+		ProofCommand: fmt.Sprintf("# Web vuln:\n%s\n# Unauthenticated service:\n%s", webVuln.ProofCommand, service.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 13: DNS rebinding + internal services = network bypass
+// ---------------------------------------------------------------------------
+
+func checkDNSRebindingChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, finding.CheckDNSRebindHostUnvalidated, finding.CheckDNSRebindingVulnerable) {
+		return nil
+	}
+
+	// Look for any internal service indicators: unauthenticated services,
+	// database ports, or SSRF findings that suggest internal reachability.
+	hasInternalService := hasAny(byCheckID, unauthServiceCheckIDs...)
+	hasDBExposed := hasAny(byCheckID, finding.CheckPortDatabaseExposed)
+	hasSSRF := hasAny(byCheckID, ssrfCheckIDs...)
+
+	if !hasInternalService && !hasDBExposed && !hasSSRF {
+		return nil
+	}
+
+	rebind := firstFinding(byCheckID, finding.CheckDNSRebindHostUnvalidated, finding.CheckDNSRebindingVulnerable)
+
+	var secondary finding.Finding
+	if hasInternalService {
+		secondary = firstFinding(byCheckID, unauthServiceCheckIDs...)
+	} else if hasDBExposed {
+		secondary = firstFinding(byCheckID, finding.CheckPortDatabaseExposed)
+	} else {
+		secondary = firstFinding(byCheckID, ssrfCheckIDs...)
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", rebind.CheckID, rebind.Asset),
+		fmt.Sprintf("%s|%s", secondary.CheckID, secondary.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationDNSRebindingChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: DNS rebinding + internal services = network bypass on %s", asset),
+		Description: fmt.Sprintf(
+			"A DNS rebinding vulnerability (%s on %s) allows an attacker to bypass same-origin policy "+
+				"and network restrictions. Combined with internal services (%s on %s), the attacker can "+
+				"craft a page that initially resolves to their server, then rebinds to an internal IP, "+
+				"gaining JavaScript-level access to internal services that should be unreachable from "+
+				"the internet. This bypasses firewalls, VPNs, and network segmentation.",
+			rebind.CheckID, rebind.Asset, secondary.CheckID, secondary.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"rebind_check":    rebind.CheckID,
+			"rebind_asset":    rebind.Asset,
+			"service_check":   secondary.CheckID,
+			"service_asset":   secondary.Asset,
+			"chain_type":      "dns_rebinding",
+		},
+		ProofCommand: fmt.Sprintf("# DNS rebinding:\n%s\n# Internal service:\n%s", rebind.ProofCommand, secondary.ProofCommand),
 		DiscoveredAt: now,
 	}}
 }

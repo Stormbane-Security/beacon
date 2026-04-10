@@ -1,0 +1,121 @@
+name: nmap-findings-comprehensive
+description: >
+  Multi-service target with nmap enabled (no --no-nmap). Nginx on HTTP
+  provides http-title, http-server-header, http-headers, http-cookie-flags,
+  and http-methods output. OpenSSH provides ssh-hostkey and ssh-auth-methods.
+  This single test covers untested nmap.* check IDs that require actual nmap
+  XML parsing output.
+tags: [nmap, http, ssh, portscan, fingerprint, comprehensive]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20280:80"]
+    volumes:
+      - ./fixtures/nmap-http:/usr/share/nginx/html:ro
+      - ./fixtures/nmap-http/nginx-dav.conf:/etc/nginx/conf.d/default.conf:ro
+
+  sshd:
+    image: linuxserver/openssh-server:latest
+    ports: ["20281:2222"]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      PASSWORD_ACCESS: "true"
+      USER_PASSWORD: "testpass"
+      USER_NAME: "testuser"
+
+ready:
+  cmd: "curl -sf http://localhost:20280/ >/dev/null && echo '' | nc -w 3 localhost 20281 | grep -qi SSH"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify services are accessible
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-nginx-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20280/ | grep -qi 'Admin Panel'"
+      exit_code: 0
+
+  - name: preflight-ssh-banner
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 20281 | grep -qi SSH"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NMAP SCAN — run WITH nmap (no --no-nmap flag) against each service.
+  # Using target: localhost:<port> triggers nmap for that single port
+  # (nmap runs when len(s.Ports)==0 and targetPort > 0).
+  # nmap NSE scripts: http-title, http-server-header, http-headers,
+  # http-methods, ssh-hostkey, etc.
+  # ══════════════════════════════════════════════════════════════════════
+
+  # --- HTTP (nginx on port 20280) ---
+
+  # nmap.http_server_header — nmap http-server-header reveals nginx version
+  - name: nmap-http-server-header
+    type: beacon
+    target: localhost:20280
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: nmap.http_server_header
+
+  # nmap.http_headers — nmap http-headers detects missing security headers
+  - name: nmap-http-headers
+    type: beacon
+    target: localhost:20280
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: nmap.http_headers
+
+  # nmap.http_title — nmap http-title extracts page title
+  - name: nmap-http-title
+    type: beacon
+    target: localhost:20280
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: nmap.http_title
+
+  # nmap.http_unsafe_methods — nmap http-methods detects PUT/DELETE (WebDAV enabled)
+  - name: nmap-http-unsafe-methods
+    type: beacon
+    target: localhost:20280
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: nmap.http_unsafe_methods
+
+  # --- SSH (openssh on port 20281) ---
+
+  # nmap.ssh_hostkey — nmap ssh-hostkey extracts host key info
+  - name: nmap-ssh-hostkey
+    type: beacon
+    target: localhost:20281
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: nmap.ssh_hostkey
+
+  # nmap.ssh_weak_algorithms — nmap ssh2-enum-algos detects weak algorithms
+  - name: nmap-ssh-weak-algorithms
+    type: beacon
+    target: localhost:20281
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: nmap.ssh_weak_algorithms
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: should NOT emit database findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-mysql
+    type: beacon
+    target: localhost:20280
+    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.mysql_no_auth
+
+timeout: 8m

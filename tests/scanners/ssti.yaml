@@ -24,7 +24,7 @@ assertions:
   - name: detects-ssti
     type: beacon
     target: localhost:9204
-    args: ["--no-enrich", "--scanners", "ssti", "--deep", "--permission-confirmed", "--authorized", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ssti", "--exploit", "--yes"]
     expect:
       check_id: web.ssti
 

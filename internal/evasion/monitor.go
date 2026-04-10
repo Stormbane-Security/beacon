@@ -316,7 +316,7 @@ func (t *MonitoredTransport) RoundTrip(req *http.Request) (*http.Response, error
 	var bodyBytes []byte
 	if resp.Body != nil {
 		bodyBytes, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	// Create a temporary response with the body for the monitor to inspect.

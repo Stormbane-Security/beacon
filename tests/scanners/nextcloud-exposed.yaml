@@ -1,0 +1,55 @@
+name: nextcloud-exposed
+description: >
+  Nextcloud with default configuration. Beacon portscan scanner should
+  detect Nextcloud via /status.php JSON response, /login page, or
+  Nextcloud-specific headers.
+tags: [nextcloud, scanner, portscan, cms]
+
+services:
+  nextcloud:
+    image: nextcloud:latest
+    ports: ["20307:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:20307/status.php >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-status-php-returns-json
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20307/status.php | grep -q 'installed'"
+      exit_code: 0
+
+  - name: exploit-login-page-accessible
+    type: command
+    expect:
+      command: "curl -sL -o /dev/null -w '%{http_code}' http://localhost:20307/login | grep -qE '200|302'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-nextcloud
+    type: beacon
+    target: localhost:20307
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20307"]
+    expect:
+      check_id: port.nextcloud_detected
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-nextcloud
+    type: beacon
+    target: localhost:20307
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20307"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-nextcloud
+    type: beacon
+    target: localhost:20307
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20307"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata"
+                  entityID="https://idp.example.com/saml/metadata">
+  <IDPSSODescriptor
+      WantAuthnRequestsSigned="false"
+      protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <KeyDescriptor use="signing">
+      <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+        <ds:X509Data>
+          <ds:X509Certificate>MIICYDCCAgqgAwIBAgIBADANBgkqhkiG9w0BAQ0FADBSMQswCQYDVQQGEwJ1czELMAkGA1UECAwCQ0ExFDASBgNVBAoMC0V4YW1wbGUgQ28xIDAeBgNVBAMMF2lkcC5leGFtcGxlLmNvbS9zYW1sMB4XDTI0MDEwMTAwMDAwMFoXDTI3MDEwMTAwMDAwMFowUjELMAkGA1UEBhMCdXMxCzAJBgNVBAgMAkNBMRQwEgYDVQQKDAtFeGFtcGxlIENvMSAwHgYDVQQDDBdpZHAuZXhhbXBsZS5jb20vc2FtbDAeFw0yNDAxMDEwMDAwMDBaFw0yNzAxMDEwMDAwMDBaMFIxCzAJBgNVBAYTAnVzMQswCQYDVQQIDAJDQTEUMBIGA1UECgwLRXhhbXBsZSBDbzEgMB4GA1UEAwwXaWRwLmV4YW1wbGUuY29tL3NhbWwwXDANBgkqhkiG9w0BAQEFAANLADBIAkEAxxx</ds:X509Certificate>
+        </ds:X509Data>
+      </ds:KeyInfo>
+    </KeyDescriptor>
+    <NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</NameIDFormat>
+    <SingleSignOnService
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://idp.example.com/saml/sso"/>
+    <SingleSignOnService
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        Location="https://idp.example.com/saml/sso"/>
+    <SingleLogoutService
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://idp.example.com/saml/slo"/>
+  </IDPSSODescriptor>
+  <Organization>
+    <OrganizationName xml:lang="en">Example Corp</OrganizationName>
+    <OrganizationDisplayName xml:lang="en">Example Corporation</OrganizationDisplayName>
+    <OrganizationURL xml:lang="en">https://example.com</OrganizationURL>
+  </Organization>
+  <ContactPerson contactType="technical">
+    <GivenName>Admin</GivenName>
+    <EmailAddress>admin@example.com</EmailAddress>
+  </ContactPerson>
+</EntityDescriptor>

@@ -9,7 +9,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/chromedp"
 	"github.com/stormbane-security/beacon/internal/scan"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
 	"github.com/stormbane-security/beacon/internal/finding"
@@ -91,9 +91,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		},
 	}
 	if client.Transport == nil {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		}
+		client.Transport = scan.SharedTransport()
 	}
 
 	var resp *http.Response
@@ -119,29 +117,43 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Capture the working scheme from the initial connection for deep-mode probes.
 	workingScheme := resp.Request.URL.Scheme
 
-	// Catch-all / wildcard detection: if the server returns 200 for a random
-	// path that cannot exist, all JWT probe responses will be false positives.
-	if isCatchAll(ctx, client, workingScheme+"://"+asset) {
-		return nil, nil
-	}
+	// Catch-all / wildcard detection: instead of bailing entirely when the
+	// server returns 200 for random paths (e.g. SPAs), capture a baseline.
+	// Only extract JWTs from responses that differ from the baseline.
+	baseline := scan.DetectCatchAll(ctx, client, workingScheme+"://"+asset)
 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024)) // 512 KB — JWTs often appear in JS bundles
 	bodyStr := string(bodyBytes)
 
+	// When the server is a catch-all, only analyse the root page if it
+	// differs from the baseline (i.e. the root actually serves unique content
+	// like real JWT cookies, not just the same SPA shell for every path).
+	// For non-catch-all servers, IsDifferentFromBaseline always returns true.
+	rootIsDifferent := baseline.IsDifferentFromBaseline(resp, bodyBytes)
+
 	// Collect JWT candidates from multiple sources.
 	var candidates []string
 
-	// Set-Cookie headers.
-	for _, cookie := range resp.Header["Set-Cookie"] {
-		candidates = append(candidates, jwtPattern.FindAllString(cookie, -1)...)
+	if rootIsDifferent {
+		// Set-Cookie headers.
+		for _, cookie := range resp.Header["Set-Cookie"] {
+			candidates = append(candidates, jwtPattern.FindAllString(cookie, -1)...)
+		}
+
+		// Response body.
+		candidates = append(candidates, jwtPattern.FindAllString(bodyStr, -1)...)
+
+		// Authorization header in response (non-standard but seen in some APIs).
+		if auth := resp.Header.Get("Authorization"); auth != "" {
+			candidates = append(candidates, jwtPattern.FindAllString(auth, -1)...)
+		}
 	}
 
-	// Response body.
-	candidates = append(candidates, jwtPattern.FindAllString(bodyStr, -1)...)
-
-	// Authorization header in response (non-standard but seen in some APIs).
-	if auth := resp.Header.Get("Authorization"); auth != "" {
-		candidates = append(candidates, jwtPattern.FindAllString(auth, -1)...)
+	// SPAs commonly store JWTs in localStorage or sessionStorage rather than
+	// cookies. Use headless Chrome to extract them when available.
+	if scan.IsSPA(bodyStr) && scan.ChromeAvailable() {
+		storageTokens := extractBrowserStorageJWTs(ctx, workingScheme+"://"+asset)
+		candidates = append(candidates, storageTokens...)
 	}
 
 	// Deduplicate by header.payload (ignore signature).
@@ -190,18 +202,18 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 		// alg:none case variants — many JWT libraries only reject lowercase "none"
 		// but accept "None", "NONE", "nOnE" etc.
-		algNoneFindings := checkAlgNoneVariants(ctx, client, asset, base)
+		algNoneFindings := checkAlgNoneVariants(ctx, client, asset, base, baseline)
 		findings = append(findings, algNoneFindings...)
 
 		// Empty-secret HMAC — sign with "" as the HMAC secret. Some servers
 		// misconfigure HMAC verification with an empty or unset secret key.
-		if f := checkEmptySecretHMAC(ctx, client, asset, base); f != nil {
+		if f := checkEmptySecretHMAC(ctx, client, asset, base, baseline); f != nil {
 			findings = append(findings, *f)
 		}
 
 		// kid header SQL injection — set kid to SQL injection payloads
 		// and check if the server accepts the forged token.
-		kidFindings := checkKidSQLInjection(ctx, client, asset, base)
+		kidFindings := checkKidSQLInjection(ctx, client, asset, base, baseline)
 		findings = append(findings, kidFindings...)
 	}
 
@@ -995,22 +1007,6 @@ func checkJWKSKeys(ctx context.Context, client *http.Client, asset, base string)
 	return findings
 }
 
-// isCatchAll returns true when the server responds 200 to a path that cannot
-// exist on any real application — indicating a wildcard / catch-all config
-// where all JWT probe responses would be false positives.
-func isCatchAll(ctx context.Context, client *http.Client, base string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-probe-c4a7f2d9b3e1-doesnotexist", nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
-
 // ── Deep-mode active JWT probes ──────────────────────────────────────────────
 
 // algNoneVariants are case variations of "none" that bypass naive string
@@ -1021,8 +1017,8 @@ var algNoneVariants = []string{"None", "NONE", "nOnE"}
 // checkAlgNoneVariants crafts JWTs with case-variant alg:none headers and
 // submits them to common API endpoints. If the server returns HTTP 200 with
 // a JSON body, the server is accepting unsigned tokens.
-func checkAlgNoneVariants(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
-	if isCatchAll(ctx, client, base) {
+func checkAlgNoneVariants(ctx context.Context, client *http.Client, asset, base string, baseline *scan.CatchAllBaseline) []finding.Finding {
+	if baseline.IsCatchAll {
 		return nil
 	}
 
@@ -1077,8 +1073,8 @@ func checkAlgNoneVariants(ctx context.Context, client *http.Client, asset, base 
 // checkEmptySecretHMAC signs a JWT with an empty string "" as the HMAC-SHA256
 // secret and submits it. Some servers misconfigure their HMAC verification
 // with an empty or unset secret key, causing them to accept these tokens.
-func checkEmptySecretHMAC(ctx context.Context, client *http.Client, asset, base string) *finding.Finding {
-	if isCatchAll(ctx, client, base) {
+func checkEmptySecretHMAC(ctx context.Context, client *http.Client, asset, base string, baseline *scan.CatchAllBaseline) *finding.Finding {
+	if baseline.IsCatchAll {
 		return nil
 	}
 
@@ -1137,8 +1133,8 @@ var kidSQLInjectionPayloads = []struct {
 // checkKidSQLInjection crafts JWTs with SQL injection payloads in the kid
 // header field and signs them with empty HMAC secrets. If the server accepts
 // the token, the kid parameter is being used unsafely in a SQL query.
-func checkKidSQLInjection(ctx context.Context, client *http.Client, asset, base string) []finding.Finding {
-	if isCatchAll(ctx, client, base) {
+func checkKidSQLInjection(ctx context.Context, client *http.Client, asset, base string, baseline *scan.CatchAllBaseline) []finding.Finding {
+	if baseline.IsCatchAll {
 		return nil
 	}
 
@@ -1184,4 +1180,54 @@ func checkKidSQLInjection(ctx context.Context, client *http.Client, asset, base 
 	}
 
 	return findings
+}
+
+// extractBrowserStorageJWTs navigates to the URL in headless Chrome and
+// extracts any JWT tokens found in localStorage or sessionStorage.
+// Returns nil if Chrome errors or no JWTs are found.
+func extractBrowserStorageJWTs(ctx context.Context, targetURL string) []string {
+	renderCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("ignore-certificate-errors", true),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(renderCtx, opts...)
+	defer allocCancel()
+
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
+	defer browserCancel()
+
+	var storageJSON string
+	err := chromedp.Run(browserCtx,
+		chromedp.Navigate(targetURL),
+		chromedp.Sleep(2*time.Second),
+		chromedp.Evaluate(`JSON.stringify({localStorage: {...localStorage}, sessionStorage: {...sessionStorage}})`, &storageJSON),
+	)
+	if err != nil || storageJSON == "" {
+		return nil
+	}
+
+	// Parse the JSON and scan all values for JWT patterns.
+	var storage struct {
+		LocalStorage   map[string]string `json:"localStorage"`
+		SessionStorage map[string]string `json:"sessionStorage"`
+	}
+	if err := json.Unmarshal([]byte(storageJSON), &storage); err != nil {
+		// Fall back to regex scan of the raw JSON string.
+		return jwtPattern.FindAllString(storageJSON, -1)
+	}
+
+	var tokens []string
+	for _, v := range storage.LocalStorage {
+		tokens = append(tokens, jwtPattern.FindAllString(v, -1)...)
+	}
+	for _, v := range storage.SessionStorage {
+		tokens = append(tokens, jwtPattern.FindAllString(v, -1)...)
+	}
+	return tokens
 }

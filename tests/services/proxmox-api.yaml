@@ -26,7 +26,7 @@ assertions:
   - name: detects-proxmox-exposed
     type: beacon
     target: localhost:8006
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8006"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8006"]
     expect:
       check_id: port.proxmox_exposed
 

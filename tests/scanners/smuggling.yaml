@@ -37,7 +37,7 @@ assertions:
   - name: smuggling-scan-completes
     type: beacon
     target: localhost:9260
-    args: ["--no-enrich", "--scanners", "smuggling", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "smuggling", "--deep", "--yes"]
     expect:
       min_findings: 0
 

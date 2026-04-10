@@ -26,7 +26,7 @@ assertions:
   - name: detects-pop3-exposed
     type: beacon
     target: localhost:110
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "110"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "110"]
     expect:
       check_id: port.pop3_exposed
 

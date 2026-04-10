@@ -1,0 +1,88 @@
+name: ssh-weak-algorithms
+description: >
+  OpenSSH server with password authentication enabled. Beacon portscan
+  SSH algorithm probe should detect weak key exchange, cipher, and MAC
+  algorithms offered by the server.
+tags: [ssh, scanner, portscan, weak-crypto, detection]
+
+services:
+  sshd:
+    image: linuxserver/openssh-server:latest
+    ports: ["20020:2222"]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      PASSWORD_ACCESS: "true"
+      USER_PASSWORD: "testpass"
+      USER_NAME: "testuser"
+
+ready:
+  cmd: "echo '' | nc -w 3 localhost 20020 | grep -qi SSH"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: SSH banner visible
+  - name: ssh-banner-visible
+    type: command
+    expect:
+      command: "echo '' | nc -w 3 localhost 20020 | grep -qi SSH"
+      exit_code: 0
+
+  # Scanner: SSH exposed (known to work from ssh-weak-config test)
+  - name: detects-ssh-exposed
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_exposed
+
+  # Scanner: service identified
+  - name: detects-service-identified
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.service_identified
+
+  # Scanner: SSH weak key exchange
+  - name: detects-ssh-weak-kex
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_weak_kex
+
+  # Scanner: SSH weak cipher
+  - name: detects-ssh-weak-cipher
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_weak_cipher
+
+  # Scanner: SSH weak MAC
+  - name: detects-ssh-weak-mac
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      check_id: port.ssh_weak_mac
+
+  # Scanner: should emit at least 4 findings total (ssh_exposed + service_identified + weak algo findings)
+  - name: min-findings-check
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      min_findings: 4
+
+  # Negative: no Redis findings on an SSH port
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20020
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "20020"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

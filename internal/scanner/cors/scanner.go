@@ -77,6 +77,9 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		Transport:     ac.Transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
+	if client.Transport == nil {
+		client.Transport = scan.SharedTransport()
+	}
 
 	// Build the list of targets to probe.
 	// If the asset already includes a port (hostname:port), use it directly with

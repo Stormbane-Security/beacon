@@ -34,6 +34,8 @@ func init() {
 		scan.Check(finding.CheckWAFBypassPath, finding.SeverityHigh, finding.ModeDeep),
 		scan.Check(finding.CheckWAFBypassMethod, finding.SeverityMedium, finding.ModeDeep),
 		scan.Check(finding.CheckWAFBypassContentType, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassFound, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWAFBypassDoubleEncode, finding.SeverityHigh, finding.ModeDeep),
 	)
 }
 
@@ -205,6 +207,57 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// ── Adaptive payload encoding bypasses ──────────────────────────────
+	// Try encoding variants of common injection payloads to see which
+	// transformations slip past the WAF's pattern matching.
+	adaptivePayloads := []struct {
+		payload string
+		context string // "sqli" or "xss"
+	}{
+		{"' OR 1=1-- -", "sqli"}, // #nosec G101 -- injection test payloads, not credentials
+		{"<script>alert(1)</script>", "xss"},
+		{"1 UNION SELECT null,null-- -", "sqli"},
+		{`<img src=x onerror=alert(1)>`, "xss"},
+	}
+
+	for _, ap := range adaptivePayloads {
+		result := AdaptiveTester(ctx, client, base+"/", "q", ap.payload)
+		if !result.Bypassed {
+			continue
+		}
+
+		// Determine the specific check ID based on the encoder that succeeded
+		checkID := finding.CheckWAFBypassFound
+		if result.Encoder == "double_url_encode" {
+			checkID = finding.CheckWAFBypassDoubleEncode
+		}
+
+		findings = append(findings, finding.Finding{
+			CheckID:  checkID,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityHigh,
+			Title:    fmt.Sprintf("WAF bypass via %s encoding (%s payload)", result.Encoder, ap.context),
+			Description: fmt.Sprintf(
+				"The WAF blocks the raw %s payload %q but the %s encoding variant passes through unblocked (HTTP %d). "+
+					"This means an attacker can evade WAF protection by encoding attack payloads.",
+				ap.context, ap.payload, result.Encoder, result.StatusCode,
+			),
+			Asset: asset,
+			Evidence: map[string]any{ // #nosec G101 -- WAF bypass test payloads, not credentials
+				"bypass_type":      "adaptive_encoding",
+				"encoder":          result.Encoder,
+				"original_payload": ap.payload,
+				"encoded_payload":  result.EncodedPayload,
+				"payload_context":  ap.context,
+				"status_code":      result.StatusCode,
+				"original_blocked": result.OriginalBlocked,
+			},
+			ProofCommand: fmt.Sprintf("curl -s '%s/?q=%s'", base, url.QueryEscape(result.EncodedPayload)),
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	return findings, nil
 }
 
@@ -218,7 +271,7 @@ func isBlocked(ctx context.Context, client *http.Client, targetURL string) bool 
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	switch resp.StatusCode {
@@ -241,7 +294,7 @@ func bypassesViaHeader(ctx context.Context, client *http.Client, base, payload, 
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	// If we get a non-blocked response (200, 301, 302, 400) the bypass worked
@@ -261,7 +314,7 @@ func bypassesViaMethodOverride(ctx context.Context, client *http.Client, base, p
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	return resp.StatusCode != 403 && resp.StatusCode != 406 && resp.StatusCode != 429 && resp.StatusCode != 503
@@ -280,7 +333,7 @@ func bypassesViaContentType(ctx context.Context, client *http.Client, base, payl
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.ReadAll(resp.Body)
 
 	return resp.StatusCode != 403 && resp.StatusCode != 406 && resp.StatusCode != 429 && resp.StatusCode != 503

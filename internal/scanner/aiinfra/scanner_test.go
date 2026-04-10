@@ -175,3 +175,50 @@ func TestNoFalsePositiveOnCleanServer(t *testing.T) {
 		t.Errorf("expected no findings, got %d", len(findings))
 	}
 }
+
+func TestGradioDetection_InfoEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"gradio_version":"4.19.2","api_prefix":"/api","named_endpoints":{"predict":"/api/predict"}}`)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	s := New()
+	findings, err := s.Run(context.Background(), srv.Listener.Addr().String(), module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(findings) == 0 {
+		t.Fatal("expected Gradio finding, got none")
+	}
+	if findings[0].CheckID != "ai.gradio_unauthenticated" {
+		t.Errorf("expected ai.gradio_unauthenticated, got %s", findings[0].CheckID)
+	}
+}
+
+func TestGradioNegative_NotGradio(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"status":"ok","version":"1.0"}`)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	s := New()
+	findings, err := s.Run(context.Background(), srv.Listener.Addr().String(), module.ScanSurface)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range findings {
+		if f.CheckID == "ai.gradio_unauthenticated" {
+			t.Error("should NOT detect Gradio on non-Gradio /info response")
+		}
+	}
+}

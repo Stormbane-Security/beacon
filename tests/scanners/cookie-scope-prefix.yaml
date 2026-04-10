@@ -1,0 +1,60 @@
+name: cookie-excessive-scope-no-prefix
+description: >
+  Nginx setting cookies with overly broad Domain scope and missing
+  __Host-/__Secure- prefix. Beacon cookie scanner should detect
+  cookie.excessive_scope and cookie.no_secure_prefix.
+tags: [cookie, scanner, web, scope]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20092:80"]
+    volumes:
+      - ./cookie-scope-prefix/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20092/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-cookie-has-broad-domain
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20092/ | grep -i 'Set-Cookie' | grep -qi 'Domain=.example.com'"
+      exit_code: 0
+
+  - name: exploit-cookie-no-prefix
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20092/ | grep -i 'Set-Cookie' | grep -qi 'session='"
+      exit_code: 0
+
+  # --- Scanner detections ---
+  - name: detects-cookie-excessive-scope
+    type: beacon
+    target: localhost:20092
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie", "--yes"]
+    expect:
+      check_id: cookie.excessive_scope
+
+  # NOTE: cookie.no_secure_prefix only fires when Secure flag is set (HTTPS only).
+  # Cannot test over plain HTTP — documented in UNTESTABLE_CHECK_IDS.md.
+
+  - name: detects-cookie-missing-secure
+    type: beacon
+    target: localhost:20092
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie", "--yes"]
+    expect:
+      check_id: cookie.missing_secure
+
+  # --- Negative ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20092
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

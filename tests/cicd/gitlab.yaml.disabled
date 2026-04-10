@@ -1,0 +1,36 @@
+name: gitlab-self-hosted
+description: "GitLab CE self-hosted instance — beacon detects public registration, exposed APIs, and misconfigurations"
+tags: [gitlab, cicd, self-hosted]
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:16.8.0-ce.0
+    ports:
+      - "9240:80"
+      - "9241:443"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab'
+        gitlab_rails['initial_root_password'] = 'testpassword123!'
+        gitlab_rails['signup_enabled'] = true
+
+ready:
+  cmd: "curl -sf http://localhost:9240/-/readiness >/dev/null"
+  timeout: 300s
+  interval: 10s
+
+assertions:
+  - name: exploit-gitlab-signup-page
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9240/users/sign_up | grep -qi 'sign.up\\|register\\|gitlab'"
+      exit_code: 0
+
+  - name: detects-gitlab-public-registration
+    type: beacon
+    target: localhost:9241
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "80"]
+    expect:
+      check_id: gitlab.public_registration
+
+timeout: 15m

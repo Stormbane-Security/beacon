@@ -341,6 +341,47 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, testContentTypeBypass(ctx, client, asset, scheme, vendor)...)
 	}
 
+	// ── Phase 8: Behavioral WAF detection ───────────────────────────────
+	// If no vendor was fingerprinted from headers, try behavioral detection:
+	// send a SQLi payload and check if it gets blocked (403) while a normal
+	// request succeeds (200). This catches WAFs that hide their identity
+	// (e.g., ModSecurity CRS behind nginx without signature headers).
+	if vendor == "" {
+		base := scheme + "://" + asset
+		normalReq, _ := http.NewRequestWithContext(ctx, "GET", base+"/", nil)
+		sqliReq, _ := http.NewRequestWithContext(ctx, "GET", base+"/?q='+OR+1=1--", nil)
+
+		if normalReq != nil && sqliReq != nil {
+			normalResp, err1 := client.Do(normalReq)
+			sqliResp, err2 := client.Do(sqliReq)
+
+			if err1 == nil && err2 == nil {
+				_ = normalResp.Body.Close()
+				_ = sqliResp.Body.Close()
+
+				// Normal succeeds (200) but SQLi blocked (403/406/429) = WAF present
+				if normalResp.StatusCode == 200 && (sqliResp.StatusCode == 403 || sqliResp.StatusCode == 406 || sqliResp.StatusCode == 429) {
+					findings = append(findings, finding.Finding{
+						CheckID:     finding.CheckWAFDetected,
+						Module:      "surface",
+						Scanner:     scannerName,
+						Severity:    finding.SeverityInfo,
+						Asset:       asset,
+						Title:       "WAF detected (behavioral: SQLi payload blocked)",
+						Description: fmt.Sprintf("%s blocks SQL injection payloads (HTTP %d) while allowing normal requests (HTTP %d). A WAF or application firewall is active but its vendor is not identifiable from response headers.", asset, sqliResp.StatusCode, normalResp.StatusCode),
+						Evidence: map[string]any{
+							"detection":     "behavioral",
+							"normal_status": normalResp.StatusCode,
+							"sqli_status":   sqliResp.StatusCode,
+						},
+						Confidence:   finding.ConfidenceObserved,
+						DiscoveredAt: time.Now(),
+					})
+				}
+			}
+		}
+	}
+
 	return findings, nil
 }
 

@@ -28,7 +28,7 @@ assertions:
   - name: detects-mlflow-unauthenticated
     type: beacon
     target: localhost:5000
-    args: ["--no-enrich", "--scanners", "aiinfra"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "aiinfra"]
     expect:
       check_id: ai.mlflow_unauthenticated
 
@@ -36,7 +36,7 @@ assertions:
   - name: portscan-identifies-mlflow
     type: beacon
     target: localhost:5000
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5000"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5000"]
     expect:
       check_id: port.mlflow_exposed
 

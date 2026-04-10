@@ -55,7 +55,7 @@ assertions:
   - name: detects-grafana-default-creds
     type: beacon
     target: localhost:9322
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9322", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9322", "--deep", "--yes"]
     expect:
       check_id: port.grafana_default_credentials
 

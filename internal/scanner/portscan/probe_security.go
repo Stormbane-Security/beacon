@@ -11,7 +11,7 @@ import (
 func init() {
 	registerProbe(ServiceProbe{
 		Name:         "kubernetes-api",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{6443, 8001},
 		Detect:       detectKubernetesAPI,
 	})
@@ -23,7 +23,7 @@ func init() {
 	})
 	registerProbe(ServiceProbe{
 		Name:         "kubelet",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{10250},
 		Detect:       detectKubelet,
 	})
@@ -59,9 +59,15 @@ func init() {
 	})
 	registerProbe(ServiceProbe{
 		Name:         "proxmox",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8006},
 		Detect:       detectProxmox,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "istio-envoy",
+		Category:     ProbeCatHTTP, // Envoy admin is plain HTTP
+		DefaultPorts: []int{15000, 15001, 15006},
+		Detect:       detectIstioEnvoy,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "juniper-anomaly",
@@ -76,22 +82,79 @@ func detectKubernetesAPI(ctx context.Context, host string, port int, banner stri
 	// and parses the Kubernetes version response, so it works on any port.
 	k8sVer := probeK8sVersion(ctx, host, port)
 	if k8sVer == "" && port != 6443 && port != 8001 {
-		// No K8s version response and not a standard K8s port — skip.
 		return nil
 	}
 	k8sName := "Kubernetes API server"
 	if port == 8001 {
 		k8sName = "kubectl proxy"
 	}
+
+	// Fingerprint the cloud provider from version string and API response.
+	// GKE: "v1.28.3-gke.1286000", EKS: "v1.28.2-eks-a59e1f0", AKS: "-1+aks"
+	cloudProvider := identifyK8sCloudProvider(k8sVer, host, port)
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "kubernetes",
+		"banner":  banner,
+	}
+	if k8sVer != "" {
+		ev["k8s_version"] = k8sVer
+	}
+	if cloudProvider != "" {
+		ev["cloud_provider"] = cloudProvider
+	}
+
 	var k8sFindings []finding.Finding
+	title := fmt.Sprintf("%s exposed on port %d", k8sName, port)
+	if cloudProvider != "" {
+		title = fmt.Sprintf("%s (%s) exposed on port %d", k8sName, cloudProvider, port)
+	}
 	k8sFindings = append(k8sFindings, makeF(
 		finding.CheckPortK8sAPIExposed,
 		finding.SeverityHigh,
-		fmt.Sprintf("%s exposed on port %d", k8sName, port),
-		fmt.Sprintf("The %s is publicly reachable. "+
-			"Misconfigured RBAC or anonymous access on the Kubernetes API allows full cluster compromise.", k8sName),
-		map[string]any{"port": port, "service": "kubernetes", "banner": banner},
+		title,
+		fmt.Sprintf("The %s is publicly reachable (version: %s, provider: %s). "+
+			"Misconfigured RBAC or anonymous access on the Kubernetes API allows full cluster compromise.",
+			k8sName, k8sVer, orDefault(cloudProvider, "unknown")),
+		ev,
 	))
+
+	// Check anonymous RBAC — can unauthenticated users list namespaces?
+	if body, ok := probeHTTPBody(ctx, host, port, true, "/api/v1/namespaces"); ok {
+		if strings.Contains(body, "NamespaceList") || strings.Contains(body, `"kind"`) {
+			k8sFindings = append(k8sFindings, makeF(
+				finding.CheckK8sAnonymousRBAC,
+				finding.SeverityCritical,
+				fmt.Sprintf("Kubernetes API allows anonymous namespace listing on port %d", port),
+				"The Kubernetes API server returns namespace data without authentication. "+
+					"Anonymous RBAC grants allow unauthenticated users to enumerate cluster resources. "+
+					"This typically means the cluster has --anonymous-auth=true (default) with overly "+
+					"permissive ClusterRoleBindings granting access to system:anonymous or system:unauthenticated. "+
+					"Restrict anonymous access: kubectl delete clusterrolebinding system:anonymous",
+				map[string]any{"port": port, "service": "kubernetes", "anonymous_access": true,
+					"k8s_version": k8sVer, "cloud_provider": cloudProvider},
+			))
+		}
+	}
+
+	// Check if secrets are enumerable without auth
+	if body, ok := probeHTTPBody(ctx, host, port, true, "/api/v1/secrets?limit=1"); ok {
+		if strings.Contains(body, "SecretList") || strings.Contains(body, `"kind":"Secret"`) {
+			k8sFindings = append(k8sFindings, makeF(
+				finding.CheckK8sSecretsExposed,
+				finding.SeverityCritical,
+				fmt.Sprintf("Kubernetes secrets enumerable without authentication on port %d", port),
+				"The Kubernetes API server returns secret objects to unauthenticated requests. "+
+					"This exposes all cluster secrets including TLS certificates, service account tokens, "+
+					"database passwords, and cloud provider credentials. Full cluster compromise is trivial. "+
+					"This is the most critical Kubernetes misconfiguration possible.",
+				map[string]any{"port": port, "service": "kubernetes", "secrets_exposed": true,
+					"k8s_version": k8sVer},
+			))
+		}
+	}
+
 	// CVE-2018-1002105: Kubernetes ≤ 1.12.2 API server WebSocket upgrade privilege escalation.
 	if k8sVer != "" && isKubernetesPrivEscVulnerable(k8sVer) {
 		k8sFindings = append(k8sFindings, makeF(
@@ -108,6 +171,35 @@ func detectKubernetesAPI(ctx context.Context, host string, port int, banner stri
 		))
 	}
 	return k8sFindings
+}
+
+// identifyK8sCloudProvider detects the managed K8s provider from version strings
+// and API response characteristics.
+// GKE versions contain "-gke.", EKS contains "-eks-", AKS contains "+aks".
+func identifyK8sCloudProvider(version, host string, port int) string {
+	v := strings.ToLower(version)
+	switch {
+	case strings.Contains(v, "-gke"):
+		return "GKE"
+	case strings.Contains(v, "-eks"):
+		return "EKS"
+	case strings.Contains(v, "+aks"), strings.Contains(v, "-aks"):
+		return "AKS"
+	case strings.Contains(v, "+rke"), strings.Contains(v, "-rancher"):
+		return "Rancher"
+	case strings.Contains(v, "+k3s"):
+		return "K3s"
+	case strings.Contains(v, "-doks"):
+		return "DOKS" // DigitalOcean
+	}
+	return ""
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 func detectDockerDaemon(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -255,6 +347,71 @@ func detectProxmox(ctx context.Context, host string, port int, banner string, ma
 			"accessible only via VPN. Enable 2FA and change default credentials immediately.",
 		map[string]any{"port": port, "service": "proxmox",
 			"url": fmt.Sprintf("https://%s:%d", host, port)},
+	)}
+}
+
+func detectIstioEnvoy(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Envoy admin interface on port 15000 exposes /server_info, /clusters, /config_dump.
+	// Istio pilot debug on 15014 exposes mesh configuration.
+	// These are protocol-level fingerprints, not just port assumptions.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/server_info")
+	if !ok {
+		// Try /clusters as fallback — Envoy admin endpoint
+		body, ok = probeHTTPBody(ctx, host, port, false, "/clusters")
+		if !ok {
+			return nil
+		}
+	}
+
+	isEnvoy := strings.Contains(body, "envoy") || strings.Contains(body, "ENVOY") ||
+		strings.Contains(body, "hot_restart_version") || strings.Contains(body, "concurrency")
+	isIstio := strings.Contains(body, "istio") || strings.Contains(body, "pilot")
+
+	if !isEnvoy && !isIstio {
+		return nil
+	}
+
+	service := "envoy"
+	if isIstio {
+		service = "istio"
+	}
+
+	ev := map[string]any{
+		"port":    port,
+		"service": service,
+	}
+
+	// Extract version from server_info if available
+	if idx := strings.Index(body, "version"); idx >= 0 {
+		snippet := body[idx:]
+		if end := strings.IndexAny(snippet, "\n\r}"); end > 0 && end < 200 {
+			ev["version_info"] = strings.TrimSpace(snippet[:end])
+		}
+	}
+
+	// Check what's exposed on the admin interface
+	var exposed []string
+	for _, path := range []string{"/config_dump", "/clusters", "/listeners", "/certs"} {
+		if _, pathOK := probeHTTPBody(ctx, host, port, false, path); pathOK {
+			exposed = append(exposed, path)
+		}
+	}
+	if len(exposed) > 0 {
+		ev["exposed_endpoints"] = exposed
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckK8sIstioAdminExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Istio/Envoy admin interface exposed on port %d", port),
+		fmt.Sprintf("The %s admin interface is publicly accessible on port %d. "+
+			"This exposes service mesh configuration, TLS certificates, upstream cluster "+
+			"details, and listener configurations. An attacker can map the entire internal "+
+			"service topology, extract TLS private keys from /certs, and identify internal "+
+			"service addresses from /clusters. The admin interface should never be exposed "+
+			"externally — bind it to localhost only (--admin-address-path or "+
+			"meshConfig.defaultConfig.proxyAdminPort in Istio).", service, port),
+		ev,
 	)}
 }
 

@@ -1,0 +1,29 @@
+name: nfs-detection
+description: Tests NFS service detection via port scan
+tags: [nfs, storage, detection, integration]
+
+services:
+  nfs-server:
+    image: erichough/nfs-server:latest
+    ports: ["19807:2049"]
+    privileged: true
+    environment:
+      NFS_EXPORT_0: "/exports *(ro,no_subtree_check,fsid=0)"
+    volumes:
+      - type: tmpfs
+        target: /exports
+
+ready:
+  cmd: "nc -z localhost 19807"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  - name: nfs-service-identified
+    type: beacon
+    target: localhost:19807
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

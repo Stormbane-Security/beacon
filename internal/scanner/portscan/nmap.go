@@ -1164,41 +1164,6 @@ func truncate(s string, max int) string {
 	return s[:max] + "…"
 }
 
-// nmapPingSweep runs `nmap -sn` against a CIDR range and returns the IP
-// addresses of hosts that responded to ping (ICMP echo, TCP SYN to 443/80,
-// ICMP timestamp). This is used for subnet scanning — discovering which hosts
-// are alive before port scanning them.
-// Returns nil when nmapBin is "" or nmap fails.
-func (s *Scanner) nmapPingSweep(ctx context.Context, cidr string) ([]string, error) {
-	if s.nmapBin == "" {
-		return nil, fmt.Errorf("nmap binary not configured")
-	}
-
-	args := []string{
-		"-sn",
-		"-oX", "-",
-		cidr,
-	}
-
-	sweepTimeout := 5 * time.Minute
-	sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(sweepCtx, s.nmapBin, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if stdout.Len() == 0 {
-			return nil, fmt.Errorf("nmap ping sweep failed: %w: %s", err, stderr.String())
-		}
-		// nmap may exit non-zero but still produce partial XML — parse what we have.
-	}
-
-	return parsePingSweepXML(stdout.Bytes())
-}
-
 // parsePingSweepXML extracts live host IPs from nmap -sn XML output.
 func parsePingSweepXML(data []byte) ([]string, error) {
 	var run nmapRun

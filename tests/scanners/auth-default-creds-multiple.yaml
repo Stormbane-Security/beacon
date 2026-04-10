@@ -1,0 +1,106 @@
+name: auth-default-creds-multiple
+description: >
+  Grafana (admin:admin) and RabbitMQ (guest:guest) running together to
+  verify beacon detects default credentials across multiple services in
+  a single scan, with no cross-contamination between findings.
+tags: [defaultcreds, grafana, rabbitmq, multi-service, scanner]
+
+services:
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports: ["20049:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "20050:15672"
+      - "20051:5672"
+
+ready:
+  cmd: "curl -sf http://localhost:20049/api/health >/dev/null && curl -sf -u guest:guest http://localhost:20050/api/overview >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs: Grafana default credentials ---
+  - name: exploit-grafana-login-default
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20049/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"admin\"}' | grep -qi 'logged in\\|changePassword'"
+      exit_code: 0
+
+  - name: exploit-grafana-api-with-creds
+    type: command
+    expect:
+      command: "curl -sf -u admin:admin http://localhost:20049/api/org | grep -q 'name'"
+      exit_code: 0
+
+  # --- Exploit proofs: RabbitMQ default credentials ---
+  - name: exploit-rabbitmq-login-default
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:20050/api/whoami | grep -q guest"
+      exit_code: 0
+
+  - name: exploit-rabbitmq-overview-accessible
+    type: command
+    expect:
+      command: "curl -sf -u guest:guest http://localhost:20050/api/overview | grep -q rabbitmq_version"
+      exit_code: 0
+
+  # --- Negative: wrong password rejected on both ---
+  - name: negative-grafana-wrong-password
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:20049/api/login -H 'Content-Type: application/json' -d '{\"user\":\"admin\",\"password\":\"wrong\"}' -o /dev/null -w '%{http_code}' | grep -q '401'"
+      exit_code: 0
+
+  - name: negative-rabbitmq-wrong-password
+    type: command
+    expect:
+      command: "curl -s -u guest:wrongpass http://localhost:20050/api/whoami -o /dev/null -w '%{http_code}' | grep -q '401'"
+      exit_code: 0
+
+  # --- Scanner detection: Grafana ---
+  - name: detects-grafana-default-creds
+    type: beacon
+    target: localhost:20049
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20049", "--deep", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # --- Scanner detection: RabbitMQ ---
+  - name: detects-rabbitmq-default-creds
+    type: beacon
+    target: localhost:20050
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20050", "--deep", "--yes"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  - name: detects-rabbitmq-mgmt-exposed
+    type: beacon
+    target: localhost:20050
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20050", "--yes"]
+    expect:
+      check_id: port.rabbitmq_mgmt_exposed
+
+  # --- Negative: no cross-contamination ---
+  - name: negative-grafana-no-rabbitmq-findings
+    type: beacon
+    target: localhost:20049
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20049", "--deep", "--yes"]
+    expect:
+      not_check_id: port.rabbitmq_default_creds
+
+  - name: negative-rabbitmq-no-grafana-findings
+    type: beacon
+    target: localhost:20050
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20050", "--deep", "--yes"]
+    expect:
+      not_check_id: port.grafana_default_credentials
+
+timeout: 5m

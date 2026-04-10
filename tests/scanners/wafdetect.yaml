@@ -24,7 +24,7 @@ assertions:
   - name: detects-waf-present
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "wafdetect", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "80"]
     expect:
       check_id: waf.detected
 

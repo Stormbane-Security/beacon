@@ -1,0 +1,94 @@
+name: jwt-weak-alg-none
+description: >
+  Node.js server that issues JWTs with alg:none in cookies and accepts
+  them without verification. Tests JWT detection and header checks.
+tags: [jwt, scanner, auth]
+
+services:
+  jwt-app:
+    image: node:20-alpine
+    ports: ["19842:3000"]
+    volumes:
+      - ./jwt-weak/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:19842/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: JWT is issued and visible ---
+  - name: exploit-jwt-issued-on-login
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19842/login | grep -q 'token'"
+      exit_code: 0
+
+  - name: exploit-jwt-in-cookie
+    type: command
+    expect:
+      command: "curl -sD- http://localhost:19842/ -o /dev/null | grep -i 'set-cookie' | grep -q 'session=eyJ'"
+      exit_code: 0
+
+  # --- Beacon scanner detections ---
+  # JWT scanner extracts tokens from Set-Cookie and analyzes the header.
+  # alg:none should trigger CheckJWTWeakAlg (Critical).
+  - name: detects-jwt-weak-algorithm
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.weak_algorithm
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-jwt-long-expiry
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.long_expiry
+
+  - name: detects-jwt-sensitive-payload
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.sensitive_payload
+
+  - name: detects-jwt-no-encryption
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.no_encryption
+
+  - name: detects-jwt-replay-missing
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      check_id: jwt.replay_missing
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  # --- Negative ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:19842
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

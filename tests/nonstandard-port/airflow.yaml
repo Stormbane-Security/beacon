@@ -18,7 +18,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:9090/health | grep -q healthy"
-  timeout: 120s
+  timeout: 300s
   interval: 5s
 
 assertions:
@@ -43,7 +43,7 @@ assertions:
   - name: detects-airflow-on-nonstandard-port
     type: beacon
     target: localhost:9090
-    args: ["--no-enrich", "--scanners", "exposedfiles"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
       check_id: port.airflow_exposed
 

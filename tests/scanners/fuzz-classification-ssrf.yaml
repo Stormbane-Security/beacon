@@ -1,0 +1,38 @@
+name: fuzz-classification-ssrf
+description: >
+  Tests that the fuzz anomaly classifier correctly identifies SSRF-like
+  responses. When internal IPs appear in the response body that weren't
+  in the request, the classifier should flag it as SSRF.
+  Uses httpbin which echoes request data — normal responses don't
+  contain internal IPs.
+tags: [fuzz, classify, ssrf, integration]
+
+services:
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["19205:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:19205/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # beacon-fuzz runs against httpbin
+  - name: fuzz-runs
+    type: command
+    expect:
+      command: "beacon-fuzz --target http://localhost:19205/post --method POST --content-type application/json --body '{\"url\":\"http://localhost\",\"callback\":\"http://test.com\"}' --output /tmp/fuzz-ssrf.json --max-requests 15 --rate 10 --timeout 20s && python3 -c \"import json; d=json.load(open('/tmp/fuzz-ssrf.json')); print('sent:', d['total_sent']); assert d['total_sent']>=10\""
+      exit_code: 0
+
+  # Beacon secheaders still works on same target
+  - name: beacon-headers-work
+    type: beacon
+    target: localhost:19205
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 5m

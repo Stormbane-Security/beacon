@@ -1,0 +1,101 @@
+name: e2e-full-pipeline-hostheader
+description: >
+  Full pipeline E2E test against the host header injection Python app.
+  Runs beacon WITHOUT any --scanners filter so the complete pipeline
+  executes. The Python app serves HTML with no security headers and a
+  /login redirect. The full pipeline discovers endpoints via crawl and
+  runs header/technology detection.
+
+  NOTE: The hostheader scanner is not currently included in any playbook,
+  so the full pipeline does not run it. The dedicated hostheader.yaml test
+  covers that scanner with --scanners hostheader. This test validates that
+  the full pipeline completes cleanly against a minimal Python server and
+  correctly detects the findings it can find.
+tags: [e2e, full-pipeline, hostheader, integration]
+
+services:
+  hostheader-app:
+    build:
+      context: ./hostheader
+      dockerfile: Dockerfile
+    ports: ["20203:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:20203/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify host header injection exists
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-host-reflected-in-redirect
+    type: command
+    expect:
+      command: "curl -s -D - -o /dev/null -H 'Host: evil-attacker.com' http://localhost:20203/login | grep -qi 'Location:.*evil-attacker.com'"
+      exit_code: 0
+
+  - name: preflight-host-reflected-in-body
+    type: command
+    expect:
+      command: "curl -s -H 'Host: phishing.example.org' http://localhost:20203/ | grep -q 'phishing.example.org'"
+      exit_code: 0
+
+  - name: preflight-no-hsts
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20203/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-completes
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 2
+
+  - name: full-pipeline-detects-tech
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.tech_detected
+
+  - name: full-pipeline-detects-service
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — should not fire false positives
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.reflected_xss
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:20203
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+timeout: 5m

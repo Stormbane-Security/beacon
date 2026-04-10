@@ -57,3 +57,7 @@ trivy.sarif
 # ── Release artifacts (built by CI, not committed) ────────────────────────────
 *.tar.gz
 *.zip
+beacon-crawler
+beacon-fuzz
+beacon-testgen
+beacon-vulndb

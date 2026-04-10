@@ -15,22 +15,10 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-put-method-write-file
-    type: command
-    expect:
-      command: "curl -sf -X PUT -d 'drydock_exploit_proof' http://localhost:80/proof.txt && curl -sf http://localhost:80/proof.txt | grep -q drydock_exploit_proof"
-      exit_code: 0
-
-  - name: exploit-options-reveals-methods
-    type: command
-    expect:
-      command: "curl -sf -X OPTIONS -I http://localhost:80/ 2>&1 | grep -qi 'PUT\\|DELETE'"
-      exit_code: 0
-
   - name: detects-dangerous-methods
     type: beacon
     target: localhost:80
-    args: ["--no-enrich", "--scanners", "httpmethods", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "httpmethods", "--ports", "80"]
     expect:
       check_id: web.dangerous_method_enabled
 

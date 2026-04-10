@@ -1,0 +1,87 @@
+name: e2e-blind-cicd-full
+description: >
+  Group test with GitLab, TeamCity, and Grafana running together.
+  Verifies each service is correctly identified and no cross-contamination
+  occurs between CI/CD and monitoring services.
+tags: [e2e, blind, cicd, full-pipeline, integration]
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    ports: ["19808:80"]
+    environment:
+      GITLAB_OMNIBUS_CONFIG: "external_url 'http://localhost:19808'; gitlab_rails['initial_root_password'] = 'beacon_test_pass'"
+
+  teamcity:
+    image: jetbrains/teamcity-server:latest
+    ports: ["19809:8111"]
+    environment:
+      TEAMCITY_SERVER_MEM_OPTS: "-Xmx512m"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["19810:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19808/ | grep -qE '200|302' && curl -sf -o /dev/null -w '%{http_code}' http://localhost:19809/ | grep -qE '200|302' && curl -sf -o /dev/null http://localhost:19810/login"
+  timeout: 300s
+  interval: 10s
+
+assertions:
+  # --- GitLab ---
+  - name: gitlab-identified
+    type: beacon
+    target: localhost:19808
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.gitlab_exposed
+
+  # --- TeamCity ---
+  - name: teamcity-identified
+    type: beacon
+    target: localhost:19809
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.teamcity_exposed
+
+  # --- Grafana ---
+  - name: grafana-identified
+    type: beacon
+    target: localhost:19810
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan,defaultcreds", "--deep", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  # --- Cross-contamination negatives ---
+  - name: negative-no-teamcity-on-gitlab
+    type: beacon
+    target: localhost:19808
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.teamcity_exposed
+
+  - name: negative-no-gitlab-on-teamcity
+    type: beacon
+    target: localhost:19809
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.gitlab_exposed
+
+  - name: negative-no-grafana-on-gitlab
+    type: beacon
+    target: localhost:19808
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.grafana_default_credentials
+
+  - name: negative-no-gitlab-on-grafana
+    type: beacon
+    target: localhost:19810
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.gitlab_exposed
+
+timeout: 15m

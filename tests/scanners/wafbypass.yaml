@@ -41,7 +41,7 @@ assertions:
   - name: detects-waf-vendor
     type: beacon
     target: localhost:9231
-    args: ["--no-enrich", "--scanners", "wafdetect"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
     expect:
       check_id: waf.detected
 

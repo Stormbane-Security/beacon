@@ -30,7 +30,7 @@ assertions:
   - name: detects-rabbitmq-default-creds
     type: beacon
     target: localhost:15673
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "15672"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15672"]
     expect:
       check_id: port.rabbitmq_default_creds
 

@@ -1,0 +1,39 @@
+name: teamcity-detection
+description: Tests TeamCity service detection and exposure check
+tags: [teamcity, cicd, detection, integration]
+
+services:
+  teamcity:
+    image: jetbrains/teamcity-server:latest
+    ports: ["19801:8111"]
+    environment:
+      TEAMCITY_SERVER_MEM_OPTS: "-Xmx512m"
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19801/ | grep -qE '200|302'"
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  - name: teamcity-identified
+    type: beacon
+    target: localhost:19801
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.teamcity_exposed
+
+  - name: teamcity-headers
+    type: beacon
+    target: localhost:19801
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: negative-no-gitlab-on-teamcity
+    type: beacon
+    target: localhost:19801
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.gitlab_exposed
+
+timeout: 10m

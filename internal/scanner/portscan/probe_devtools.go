@@ -78,19 +78,125 @@ func detectGRPCReflection(ctx context.Context, host string, port int, banner str
 }
 
 func detectGradio(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, false, "/info")
-	if !ok || !strings.Contains(body, "gradio") {
+	// Probe multiple Gradio endpoints for a comprehensive detection.
+	// Detection strategy: /info is the primary fingerprint (contains "gradio"
+	// and "api":true). The predict endpoints alone are NOT enough because
+	// services like InfluxDB return generic JSON error bodies that match
+	// loose keyword checks.
+	var findings []finding.Finding
+	gradioDetected := false
+	version := ""
+	noAuth := false
+	gradioServer := false // true if Server header contains gradio or uvicorn
+
+	// Probe /info — primary Gradio identification endpoint.
+	// Real Gradio returns {"version":"X.Y.Z","mode":"blocks","api":true,...}.
+	// Require both "gradio" in the body AND the "api":true field to avoid
+	// matching generic JSON APIs.
+	if body, server, ok := probeHTTPBodyAndServer(ctx, host, port, false, "/info"); ok {
+		serverLow := strings.ToLower(server)
+		if strings.Contains(serverLow, "gradio") || strings.Contains(serverLow, "uvicorn") {
+			gradioServer = true
+		}
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "gradio") || (strings.Contains(body, `"api"`) && gradioServer) {
+			gradioDetected = true
+			// Extract version from the /info response (typically {"version":"4.x.x",...}).
+			if idx := strings.Index(body, `"version"`); idx >= 0 {
+				rest := body[idx:]
+				if start := strings.Index(rest, `"`+``); start >= 0 {
+					// Skip "version":" to get value
+					if colon := strings.Index(rest, ":"); colon >= 0 {
+						valPart := strings.TrimSpace(rest[colon+1:])
+						if len(valPart) > 0 && valPart[0] == '"' {
+							if end := strings.Index(valPart[1:], `"`); end >= 0 {
+								version = valPart[1 : end+1]
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Probe /api/predict — inference endpoint that accepts arbitrary inputs.
+	// Only count as Gradio if we already confirmed via /info OR the Server
+	// header is Gradio/uvicorn. Matching on generic JSON keywords like
+	// "data" or "error" alone causes false positives (e.g. InfluxDB).
+	predictNoAuth := false
+	if body, server, ok := probeHTTPBodyAndServer(ctx, host, port, false, "/api/predict"); ok {
+		serverLow := strings.ToLower(server)
+		if strings.Contains(serverLow, "gradio") || strings.Contains(serverLow, "uvicorn") {
+			gradioServer = true
+		}
+		bodyLow := strings.ToLower(body)
+		isGradioResponse := strings.Contains(bodyLow, "gradio") ||
+			strings.Contains(bodyLow, "duration") ||
+			(strings.Contains(bodyLow, `"data"`) && !strings.Contains(bodyLow, `"error"`))
+		// Only mark as detected if we have a Gradio-specific signal.
+		if (gradioDetected || gradioServer) && isGradioResponse {
+			predictNoAuth = true
+		} else if isGradioResponse && strings.Contains(bodyLow, "gradio") {
+			gradioDetected = true
+			predictNoAuth = true
+		}
+	}
+
+	// Probe /run/predict — alternative inference path.
+	if body, server, ok := probeHTTPBodyAndServer(ctx, host, port, false, "/run/predict"); ok {
+		serverLow := strings.ToLower(server)
+		if strings.Contains(serverLow, "gradio") || strings.Contains(serverLow, "uvicorn") {
+			gradioServer = true
+		}
+		bodyLow := strings.ToLower(body)
+		isGradioResponse := strings.Contains(bodyLow, "gradio") ||
+			strings.Contains(bodyLow, "duration") ||
+			(strings.Contains(bodyLow, `"data"`) && !strings.Contains(bodyLow, `"error"`))
+		if (gradioDetected || gradioServer) && isGradioResponse {
+			noAuth = true
+		} else if isGradioResponse && strings.Contains(bodyLow, "gradio") {
+			gradioDetected = true
+			noAuth = true
+		}
+	}
+
+	if !gradioDetected && !gradioServer {
 		return nil
 	}
-	return []finding.Finding{makeF(
+
+	ev := map[string]any{"port": port, "service": "gradio", "banner": banner}
+	if version != "" {
+		ev["gradio_version"] = version
+	}
+	if predictNoAuth || noAuth {
+		ev["unauthenticated_predict"] = true
+	}
+
+	findings = append(findings, makeF(
 		finding.CheckPortGradioExposed,
 		finding.SeverityHigh,
 		fmt.Sprintf("Gradio ML demo server exposed on port %d", port),
 		"A Gradio machine learning demo server is publicly accessible. Gradio deployments often "+
 			"run ML models with no authentication, accept arbitrary inputs, and can be exploited for "+
 			"SSRF, prompt injection, or unauthorized model access.",
-		map[string]any{"port": port, "service": "gradio", "banner": banner},
-	)}
+		ev,
+	))
+
+	// If predict endpoints are accessible without auth, emit the stronger finding.
+	if predictNoAuth || noAuth {
+		findings = append(findings, makeF(
+			finding.CheckAIInfraGradio,
+			finding.SeverityHigh,
+			fmt.Sprintf("Gradio inference endpoint unauthenticated on port %d", port),
+			fmt.Sprintf("The Gradio ML server on port %d accepts inference requests at /api/predict or "+
+				"/run/predict without authentication. Anyone can submit arbitrary inputs to the model, "+
+				"potentially extracting training data, performing prompt injection, or consuming "+
+				"GPU resources at the operator's expense.", port),
+			ev,
+		))
+	}
+
+	return findings
 }
 
 func detectAutomatic1111(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {

@@ -1,0 +1,56 @@
+name: vllm-mock
+description: >
+  Mock vLLM inference server (real vLLM requires a GPU). Serves
+  /v1/models and /health endpoints to verify beacon can detect
+  exposed LLM inference APIs.
+tags: [vllm, ai, llm, mock, detection]
+
+services:
+  vllm:
+    build: ./vllm-mock
+    ports: ["20119:8000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20119/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # Pre-flight: /v1/models returns JSON model list
+  - name: vllm-models-returns-json
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20119/v1/models | grep -q 'mock-llama-7b'"
+      exit_code: 0
+
+  # Pre-flight: /health endpoint responds
+  - name: vllm-health-ok
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20119/health | grep -q 'ok'"
+      exit_code: 0
+
+  # Scanner: beacon detects findings (min 0 — mock may not match real signatures)
+  - name: detects-vllm-mock
+    type: beacon
+    target: localhost:20119
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      min_findings: 0
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-vllm
+    type: beacon
+    target: localhost:20119
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20119"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-vllm
+    type: beacon
+    target: localhost:20119
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20119"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

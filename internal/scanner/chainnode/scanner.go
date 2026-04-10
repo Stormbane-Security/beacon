@@ -57,6 +57,8 @@ func init() {
 		scan.Check(finding.CheckChainNodeValidatorExposed, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckChainNodeWSExposed, finding.SeverityHigh, finding.ModeSurface),
 		scan.Check(finding.CheckRPCMethodDangerous, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckChainUnlockedAccounts, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckChainPendingTxExposed, finding.SeverityMedium, finding.ModeSurface),
 	)
 }
 const scannerName = "chainnode"
@@ -164,6 +166,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings = append(findings, *f)
 	}
 
+	// Surface mode: check for unlocked accounts and pending transactions.
+	if ethRPCBase != "" {
+		if f := probeUnlockedAccounts(ctx, client, ethRPCBase, asset); f != nil {
+			findings = append(findings, *f)
+		}
+		if f := probePendingTransactions(ctx, client, ethRPCBase, asset); f != nil {
+			findings = append(findings, *f)
+		}
+	}
+
 	// Deep mode: enumerate sensitive RPC methods.
 	if (scanType == module.ScanDeep || scanType == module.ScanAuthorized) && len(findings) > 0 && ethRPCBase != "" {
 		if f := probeEthSensitiveMethods(ctx, client, ethRPCBase, asset); len(f) > 0 {
@@ -172,6 +184,107 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	}
 
 	return findings, nil
+}
+
+// probeUnlockedAccounts calls eth_accounts and emits a finding if the result
+// is a non-empty list. This is a read-only call safe for surface mode.
+func probeUnlockedAccounts(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	payload := `{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base, bytes.NewBufferString(payload))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+
+	var rpcResp struct {
+		Result []string `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &rpcResp) != nil || rpcResp.Error != nil || len(rpcResp.Result) == 0 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckChainUnlockedAccounts,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Ethereum node exposes %d unlocked account(s) on %s", len(rpcResp.Result), asset),
+		Description: fmt.Sprintf(
+			"eth_accounts returned %d wallet address(es) on %s. Unlocked accounts on a publicly "+
+				"reachable node mean an attacker can sign and broadcast transactions without "+
+				"knowing private keys. Drain all funds immediately and rotate keys.",
+			len(rpcResp.Result), base),
+		Asset: asset,
+		Evidence: map[string]any{
+			"host":     asset,
+			"accounts": rpcResp.Result,
+			"count":    len(rpcResp.Result),
+		},
+		ProofCommand: fmt.Sprintf(`curl -s -X POST %s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_accounts","params":[],"id":1}'`, base),
+		DiscoveredAt: time.Now(),
+	}
+}
+
+// probePendingTransactions calls eth_getBlockByNumber("pending", true) and emits
+// a finding if the block contains transactions. This is a read-only call.
+func probePendingTransactions(ctx context.Context, client *http.Client, base, asset string) *finding.Finding {
+	payload := `{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["pending",true],"id":1}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base, bytes.NewBufferString(payload))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16384))
+	_ = resp.Body.Close()
+
+	var rpcResp struct {
+		Result *struct {
+			Transactions []json.RawMessage `json:"transactions"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &rpcResp) != nil || rpcResp.Error != nil || rpcResp.Result == nil {
+		return nil
+	}
+	if len(rpcResp.Result.Transactions) == 0 {
+		return nil
+	}
+
+	return &finding.Finding{
+		CheckID:  finding.CheckChainPendingTxExposed,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityMedium,
+		Title:    fmt.Sprintf("Pending transactions exposed on %s (%d tx)", asset, len(rpcResp.Result.Transactions)),
+		Description: fmt.Sprintf(
+			"eth_getBlockByNumber(\"pending\", true) returned %d pending transaction(s) on %s. "+
+				"Exposed pending transactions enable front-running attacks (MEV extraction), "+
+				"sandwich attacks on DEX trades, and transaction censorship. "+
+				"Restrict mempool access to authenticated clients only.",
+			len(rpcResp.Result.Transactions), base),
+		Asset: asset,
+		Evidence: map[string]any{
+			"host":     asset,
+			"tx_count": len(rpcResp.Result.Transactions),
+		},
+		ProofCommand: fmt.Sprintf(`curl -s -X POST %s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["pending",true],"id":1}' | python3 -m json.tool | head -30`, base),
+		DiscoveredAt: time.Now(),
+	}
 }
 
 // probeEthRPC calls eth_chainId and net_peerCount on the given port.

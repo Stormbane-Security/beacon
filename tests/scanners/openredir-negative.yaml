@@ -27,7 +27,7 @@ assertions:
   - name: no-openredir-false-positive
     type: beacon
     target: localhost:9465
-    args: ["--no-enrich", "--scanners", "openredir", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "openredir", "--deep", "--yes"]
     expect:
       no_check_id: web.open_redirect
 

@@ -1,0 +1,224 @@
+name: exposure-full-coverage
+description: >
+  Nginx serving all common exposure files: .env with secrets, .git/config,
+  robots.txt with sensitive disallows and crawl-delay, sitemap.xml with
+  sensitive URLs, .well-known/security.txt, /admin/ panel, and
+  /swagger.json API spec. Tests multiple scanners and check IDs from a
+  single container.
+tags: [exposure, scanner, headers, robotsmap, wellknown, swagger]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20120:80"]
+    volumes:
+      - ./exposure-full-coverage/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./exposure-full-coverage/html:/usr/share/nginx/html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20120/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: verify all files are accessible
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-env-file-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/.env | grep -q 'DATABASE_URL'"
+      exit_code: 0
+
+  - name: exploit-git-config-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/.git/config | grep -q '[core]'"
+      exit_code: 0
+
+  - name: exploit-robots-has-admin-disallow
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/robots.txt | grep -q '/admin/'"
+      exit_code: 0
+
+  - name: exploit-robots-has-crawl-delay
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/robots.txt | grep -qi 'Crawl-delay'"
+      exit_code: 0
+
+  - name: exploit-sitemap-has-admin-url
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/sitemap.xml | grep -q '/admin/'"
+      exit_code: 0
+
+  - name: exploit-security-txt-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/.well-known/security.txt | grep -q 'Contact:'"
+      exit_code: 0
+
+  - name: exploit-swagger-json-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/swagger.json | grep -q 'swagger'"
+      exit_code: 0
+
+  - name: exploit-admin-path-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20120/admin/ | grep -qi 'admin'"
+      exit_code: 0
+
+  - name: exploit-no-referrer-policy
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20120/ | grep -qi 'Referrer-Policy'"
+      exit_code: 0
+
+  - name: exploit-no-permissions-policy
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20120/ | grep -qi 'Permissions-Policy'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — exposedfiles
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-env-file
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      check_id: exposure.env_file_exposed
+
+  - name: detects-git-exposed
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
+    expect:
+      check_id: exposure.git_exposed
+
+  - name: detects-admin-path
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--yes"]
+    expect:
+      check_id: exposure.admin_path
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — robotsmap
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-robots-sensitive-path
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap", "--yes"]
+    expect:
+      check_id: exposure.robots_sensitive_path
+
+  - name: detects-robots-crawl-delay
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap", "--yes"]
+    expect:
+      check_id: exposure.robots_crawl_delay
+
+  - name: detects-sitemap-sensitive-url
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "robotsmap", "--yes"]
+    expect:
+      check_id: exposure.sitemap_sensitive_url
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — wellknown
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-wellknown-security-txt
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown", "--yes"]
+    expect:
+      check_id: wellknown.security_txt
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — swagger
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-swagger-exposed
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger", "--yes"]
+    expect:
+      check_id: web.swagger_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — secheaders
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-referrer-policy
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: detects-missing-permissions-policy
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  - name: detects-missing-x-content-type
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no injection findings on static nginx
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20120
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles,robotsmap,wellknown,secheaders,swagger", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

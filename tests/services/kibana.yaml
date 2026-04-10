@@ -1,0 +1,49 @@
+name: kibana-no-auth
+description: "Kibana 8.13.0 with security disabled exposes dashboards and saved objects"
+tags: [kibana, service, elasticsearch]
+
+services:
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    ports: ["9200:9200"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+
+  kibana:
+    image: kibana:8.13.0
+    ports: ["5601:5601"]
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      XPACK_SECURITY_ENABLED: "false"
+    depends_on:
+      - elasticsearch
+
+ready:
+  cmd: "curl -sf http://localhost:5601/api/status | grep -q status"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  - name: exploit-kibana-status
+    type: command
+    expect:
+      command: "curl -sf http://localhost:5601/api/status | grep -q status"
+      exit_code: 0
+
+  - name: exploit-kibana-saved-objects
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:5601/api/saved_objects/_find?type=index-pattern&per_page=10' | grep -q saved_objects"
+      exit_code: 0
+
+  - name: detects-kibana-exposed
+    type: beacon
+    target: localhost:5601
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5601"]
+    expect:
+      check_id: port.kibana_exposed
+
+timeout: 10m

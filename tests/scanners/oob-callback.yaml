@@ -1,0 +1,60 @@
+name: oob-callback-ssrf
+description: >
+  go-httpbin with /redirect endpoint. Beacon ssrf scanner in deep mode
+  should run cleanly and detect missing security headers. Validates the
+  SSRF scanner + OOB callback integration doesn't crash.
+tags: [ssrf, oob, scanner, deep]
+
+services:
+  httpbin:
+    image: mccutchen/go-httpbin:latest
+    ports: ["20035:8080"]
+    environment:
+      PORT: "8080"
+
+ready:
+  cmd: "curl -sf http://localhost:20035/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: httpbin redirect endpoint works
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-redirect-works
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:20035/redirect/1' | grep -qi '302\\|Found'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner: SSRF scanner runs clean, secheaders detects HSTS
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: ssrf-scanner-runs-clean
+    type: beacon
+    target: localhost:20035
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ssrf,secheaders", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20035
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ssrf,secheaders", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20035
+    args: ["--no-enrich", "--no-nmap", "--scanners", "ssrf,secheaders", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

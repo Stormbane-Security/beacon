@@ -1,0 +1,137 @@
+name: secheaders-comprehensive
+description: >
+  Bare nginx with zero security headers configured. Validates detection
+  of all missing security header check IDs: HSTS, CSP, X-Frame-Options,
+  X-Content-Type-Options, and server version disclosure.
+tags: [secheaders, scanner, web, headers]
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["19844:80"]
+    volumes:
+      - ./secheaders-comprehensive/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sfo /dev/null http://localhost:19844/"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: confirm headers are absent ---
+  - name: exploit-no-hsts
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
+  - name: exploit-no-csp
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'Content-Security-Policy'"
+      exit_code: 0
+
+  - name: exploit-no-x-frame-options
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'X-Frame-Options'"
+      exit_code: 0
+
+  - name: exploit-no-x-content-type-options
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'X-Content-Type-Options'"
+      exit_code: 0
+
+  - name: exploit-server-version-disclosed
+    type: command
+    expect:
+      command: "curl -sI http://localhost:19844/ | grep -qi 'Server: nginx/'"
+      exit_code: 0
+
+  # --- Beacon scanner detections ---
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  - name: detects-missing-x-content-type
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: detects-server-version-leak
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.server_info_leak
+
+  - name: detects-missing-referrer-policy
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes", "--ports", "80"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: detects-missing-permissions-policy
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes", "--ports", "80"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  # --- Exploit proofs: confirm referrer/permissions policy absent ---
+  - name: exploit-no-referrer-policy
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'Referrer-Policy'"
+      exit_code: 0
+
+  - name: exploit-no-permissions-policy
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:19844/ | grep -qi 'Permissions-Policy'"
+      exit_code: 0
+
+  # --- Negative: no injection findings on bare nginx ---
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-ssti
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      not_check_id: web.ssti
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:19844
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      not_check_id: web.xss
+
+timeout: 5m

@@ -138,13 +138,13 @@ func init() {
 	})
 	registerProbe(ServiceProbe{
 		Name:         "ingress-nginx-admission",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
 		Detect:       detectIngressNginxAdmission,
 	})
 	registerProbe(ServiceProbe{
 		Name:         "kubernetes-dashboard-8443",
-		Category:     ProbeCatHTTP,
+		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
 		Detect:       detectKubeDashboard8443,
 	})
@@ -191,10 +191,94 @@ func init() {
 		Detect:       detectAdminer,
 	})
 	registerProbe(ServiceProbe{
+		Name:         "goanywhere",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8000, 8001},
+		Detect:       detectGoAnywhere,
+	})
+	registerProbe(ServiceProbe{
 		Name:         "tomcat",
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{8080, 8443},
 		Detect:       detectTomcat,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "jenkins",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080},
+		Detect:       detectJenkins,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "wordpress",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectWordPress,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "drupal",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectDrupal,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "joomla",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectJoomla,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "ghost",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{2368},
+		Detect:       detectGhost,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "nextcloud",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectNextcloud,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "spring-actuator",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 8443},
+		Detect:       detectSpringBoot,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "django",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8000, 80, 443},
+		Detect:       detectDjango,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "laravel",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443, 8000},
+		Detect:       detectLaravel,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "express",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{3000, 8080},
+		Detect:       detectExpressJS,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "aspnet",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectASPNET,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "rails",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{3000, 80, 443},
+		Detect:       detectRails,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "fastapi",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8000, 80},
+		Detect:       detectFastAPI,
 	})
 }
 
@@ -488,15 +572,34 @@ func detectWebLogic(ctx context.Context, host string, port int, banner string, m
 	if !strings.Contains(lb, "weblogic") {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	ev := map[string]any{"port": port, "service": "weblogic"}
+	confidence := finding.ConfidenceProbable
+
+	// Try to extract version from the console login page.
+	if ver := parseWebLogicVersion(body); ver != "" {
+		ev["weblogic_version"] = ver
+		// CVE-2020-14882/14883 affects WebLogic < 14.1.1.0.0 and < 12.2.1.4.0
+		// (with Oct 2020 CPU patch). Conservatively: anything < 14.1.1.1 or < 12.2.1.5.
+		vulnerable := versionBefore(ver, "14.1.1.1") // covers 12.x, 10.x, etc.
+		if vulnerable {
+			confidence = finding.ConfidenceVerified
+		} else {
+			// Patched — still exposed but CVE not exploitable.
+			return nil
+		}
+	}
+
+	f := makeF(
 		finding.CheckCVEWebLogicConsole,
 		finding.SeverityCritical,
 		fmt.Sprintf("Oracle WebLogic admin console exposed on port %d (CVE-2020-14882 KEV)", port),
 		"Oracle WebLogic admin console at /console/login/LoginForm.jsp is internet-accessible. "+
 			"CVE-2020-14882/14883 (CVSS 9.8, KEV) allows unauthenticated RCE via double URL-encoded "+
 			"paths. The WebLogic admin console must never be internet-facing regardless of patch level.",
-		map[string]any{"port": port, "service": "weblogic"},
-	)}
+		ev,
+	)
+	f.Confidence = confidence
+	return []finding.Finding{f}
 }
 
 func detectJetDirect(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -547,7 +650,22 @@ func detectSaltAPI(ctx context.Context, host string, port int, banner string, ma
 	if !ok || !strings.Contains(body, "wheel_async") {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	ev := map[string]any{"port": port, "service": "salt-api", "authenticated": false}
+	confidence := finding.ConfidenceProbable
+
+	// Try to extract Salt version from the API response.
+	if ver := parseSaltVersion(body); ver != "" {
+		ev["salt_version"] = ver
+		// CVE-2021-25281/25282 affects Salt < 3002.5, < 3001.6, < 3000.8.
+		// Simplified: anything < 3002.5 is vulnerable.
+		if versionBefore(ver, "3002.5") {
+			confidence = finding.ConfidenceVerified
+		} else {
+			return nil // patched
+		}
+	}
+
+	f := makeF(
 		finding.CheckCVESaltStackAPI,
 		finding.SeverityCritical,
 		fmt.Sprintf("CVE-2021-25281/25282: SaltStack Salt API exposed on port %d", port),
@@ -556,8 +674,10 @@ func detectSaltAPI(ctx context.Context, host string, port int, banner string, ma
 			"and CVE-2021-25282 is an arbitrary file write via wheel.pillar_roots.write — "+
 			"an attacker can write to /etc/crontab or any system file to achieve root RCE. "+
 			"Salt API must never be exposed to the internet. Restrict to internal management networks.",
-		map[string]any{"port": port, "service": "salt-api", "authenticated": false},
-	)}
+		ev,
+	)
+	f.Confidence = confidence
+	return []finding.Finding{f}
 }
 
 func detectVLLM(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -682,15 +802,29 @@ func detectMLflow(ctx context.Context, host string, port int, banner string, mak
 	)}
 	// CVE-2023-6014: check if account creation API is open.
 	if probeHTTP(ctx, host, port, false, "/api/2.0/mlflow/experiments/list") {
-		findings = append(findings, makeF(
-			finding.CheckCVEMLflowAuthBypass,
-			finding.SeverityCritical,
-			fmt.Sprintf("CVE-2023-6014: MLflow unauthenticated REST API confirmed on port %d", port),
-			"The MLflow experiments list API (/api/2.0/mlflow/experiments/list) returns data "+
-				"without authentication. CVE-2023-6014 (CVSS 9.1) allows unauthenticated account "+
-				"creation on MLflow < 2.8.0. Upgrade MLflow and restrict network access.",
-			ev,
-		))
+		emitMLflowCVE := true
+		mlflowConfidence := finding.ConfidenceProbable
+		// Version was already extracted above into ev["mlflow_version"].
+		if ver, ok := ev["mlflow_version"].(string); ok && ver != "" {
+			if versionBefore(ver, "2.8.0") {
+				mlflowConfidence = finding.ConfidenceVerified
+			} else {
+				emitMLflowCVE = false // patched MLflow
+			}
+		}
+		if emitMLflowCVE {
+			mlF := makeF(
+				finding.CheckCVEMLflowAuthBypass,
+				finding.SeverityCritical,
+				fmt.Sprintf("CVE-2023-6014: MLflow unauthenticated REST API confirmed on port %d", port),
+				"The MLflow experiments list API (/api/2.0/mlflow/experiments/list) returns data "+
+					"without authentication. CVE-2023-6014 (CVSS 9.1) allows unauthenticated account "+
+					"creation on MLflow < 2.8.0. Upgrade MLflow and restrict network access.",
+				ev,
+			)
+			mlF.Confidence = mlflowConfidence
+			findings = append(findings, mlF)
+		}
 	}
 	return findings
 }
@@ -700,7 +834,7 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 	if !ok || !strings.Contains(strings.ToLower(body), "intel") {
 		return nil
 	}
-	return []finding.Finding{makeF(
+	f := makeF(
 		finding.CheckCVEIntelAMTAuthBypass,
 		finding.SeverityCritical,
 		fmt.Sprintf("CVE-2017-5689: Intel AMT management interface exposed on port %d", port),
@@ -712,7 +846,10 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 			"A compromised AMT instance survives OS reinstalls and disk wipes. "+
 			"Disable AMT if not needed, update firmware, and block port 16992/16993 at the firewall.",
 		map[string]any{"port": port, "service": "intel-amt"},
-	)}
+	)
+	// Intel AMT firmware version is rarely extractable from HTTP — confidence is probable.
+	f.Confidence = finding.ConfidenceProbable
+	return []finding.Finding{f}
 }
 
 func detectViteDev(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -727,6 +864,7 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 	// CVE-2025-30208: /@fs/ path traversal with double-? query confusion.
 	if body, ok := probeHTTPBody(ctx, host, port, false, "/@fs/etc/passwd?import&raw??"); ok &&
 		strings.Contains(body, "export default") && strings.Contains(body, "root:") {
+		// The file read itself confirms the CVE is exploitable — verified confidence.
 		findings = append(findings, finding.Finding{
 			CheckID:  finding.CheckCVEViteFileRead,
 			Module:   "surface",
@@ -751,6 +889,7 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 				"curl -s 'http://%s:%d/@fs/etc/passwd?import&raw??'",
 				host, port,
 			),
+			Confidence:   finding.ConfidenceVerified,
 			DiscoveredAt: now,
 		})
 	}
@@ -773,6 +912,7 @@ func detectIngressNginxAdmission(ctx context.Context, host string, port int, ban
 		return nil
 	}
 	now := time.Now()
+	// Version is rarely extractable from the admission webhook response — probable confidence.
 	return []finding.Finding{{
 		CheckID:  finding.CheckCVEIngressNightmare,
 		Module:   "surface",
@@ -798,6 +938,7 @@ func detectIngressNginxAdmission(ctx context.Context, host string, port int, ban
 				`-d '{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview"}'`,
 			host, port,
 		),
+		Confidence:   finding.ConfidenceProbable,
 		DiscoveredAt: now,
 	}}
 }
@@ -1192,4 +1333,638 @@ func detectTomcat(ctx context.Context, host string, port int, banner string, mak
 			"malicious WAR files for remote code execution.",
 		ev,
 	)}
+}
+
+func detectGoAnywhere(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, false, "/")
+	if !ok {
+		// GoAnywhere often redirects to /goanywhere/; try that too.
+		body, ok = probeHTTPBody(ctx, host, port, false, "/goanywhere/")
+		if !ok {
+			return nil
+		}
+	}
+	lb := strings.ToLower(body)
+	if !strings.Contains(lb, "goanywhere") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "goanywhere", "banner": banner}
+	var findings []finding.Finding
+
+	// Extract version from response if present (e.g., "GoAnywhere MFT v7.1.1").
+	ver := ""
+	for _, prefix := range []string{"GoAnywhere MFT v", "GoAnywhere MFT V", "goanywhere/", "version\":\""} {
+		if idx := strings.Index(body, prefix); idx >= 0 {
+			snippet := body[idx+len(prefix):]
+			if end := strings.IndexAny(snippet, "\"<& \n\r,)"); end > 0 && end < 20 {
+				ver = strings.TrimSpace(snippet[:end])
+				break
+			}
+		}
+	}
+	if ver != "" {
+		ev["version"] = ver
+	}
+
+	findings = append(findings, makeF(
+		finding.CheckPortGoAnywhereExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("GoAnywhere MFT admin portal exposed on port %d", port),
+		"Fortra GoAnywhere MFT file transfer platform is publicly accessible. "+
+			"GoAnywhere has been targeted by CL0P ransomware via CVE-2023-0669 "+
+			"(pre-auth deserialization RCE). The admin portal should be restricted "+
+			"to internal networks with VPN access only.",
+		ev,
+	))
+
+	// CVE-2023-0669: pre-auth RCE via License Response Servlet deserialization.
+	// Affected: GoAnywhere MFT < 7.1.2.
+	if ver != "" && isGoAnywhereVulnerable(ver) {
+		findings = append(findings, makeF(
+			finding.CheckCVEGoAnywhereRCE,
+			finding.SeverityCritical,
+			fmt.Sprintf("CVE-2023-0669: GoAnywhere MFT %s pre-auth RCE", ver),
+			fmt.Sprintf("GoAnywhere MFT %s is vulnerable to CVE-2023-0669 (CVSS 7.2, KEV). "+
+				"The License Response Servlet deserializes untrusted data, enabling "+
+				"unauthenticated remote code execution. This CVE was actively exploited "+
+				"by CL0P ransomware to exfiltrate data from 130+ organizations. "+
+				"Upgrade to GoAnywhere MFT 7.1.2 or later immediately.", ver),
+			ev,
+		))
+	}
+
+	return findings
+}
+
+// ── Web framework / CMS / server fingerprinting probes ──────────────────
+
+// detectJenkins identifies Jenkins CI servers via X-Jenkins header, dashboard title, or /api/json.
+func detectJenkins(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443 || port == 8443
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	jenkinsHeader := hdrs.Get("X-Jenkins")
+	bodyLow := strings.ToLower(body)
+	isJenkins := jenkinsHeader != "" ||
+		strings.Contains(bodyLow, "dashboard [jenkins]") ||
+		strings.Contains(bodyLow, "jenkins-crumb")
+
+	if !isJenkins {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "jenkins"}
+	if jenkinsHeader != "" {
+		ev["jenkins_version"] = jenkinsHeader
+	}
+
+	// Check if unauthenticated access works — try /api/json which exposes job listing.
+	if apiBody, apiOK := probeHTTPBody(ctx, host, port, useTLS, "/api/json"); apiOK {
+		apiLow := strings.ToLower(apiBody)
+		if strings.Contains(apiLow, "\"jobs\"") || strings.Contains(apiLow, "\"primaryview\"") {
+			ev["unauthenticated_api"] = true
+			ev["proof"] = fmt.Sprintf("curl -sk %s://%s:%d/api/json", scheme(useTLS), host, port)
+			return []finding.Finding{makeF(
+				finding.CheckPortJenkinsNoAuth,
+				finding.SeverityCritical,
+				fmt.Sprintf("Jenkins CI server allows unauthenticated access on port %d", port),
+				"Jenkins is publicly accessible without authentication. The JSON API exposes all jobs, "+
+					"build configurations, and credentials. Jenkins with anonymous read access often also "+
+					"exposes the Groovy script console (/script) for unauthenticated RCE. "+
+					"Enable Jenkins security realm and restrict anonymous access immediately.",
+				ev,
+			)}
+		}
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sI %s://%s:%d/ | grep -i x-jenkins", scheme(useTLS), host, port)
+	return []finding.Finding{makeF(
+		finding.CheckPortServiceIdentified,
+		finding.SeverityInfo,
+		fmt.Sprintf("Jenkins CI server detected on port %d", port),
+		"A Jenkins continuous integration server is running. Verify that authentication is "+
+			"enforced and that the script console is not accessible to unauthenticated users.",
+		ev,
+	)}
+}
+
+// detectWordPress identifies WordPress installations via wp-login.php, wp-content, or wp-includes.
+func detectWordPress(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	// First check the homepage for WordPress fingerprints.
+	body, ok := probeHTTPAnyBody(ctx, host, port, useTLS, "/")
+	if ok {
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "wp-content") || strings.Contains(bodyLow, "wp-includes") ||
+			strings.Contains(bodyLow, "wordpress") {
+			return wpFinding(host, port, useTLS, makeF)
+		}
+	}
+	// Fall back to probing wp-login.php directly.
+	if loginBody, loginOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/wp-login.php"); loginOK {
+		if strings.Contains(strings.ToLower(loginBody), "wordpress") ||
+			strings.Contains(strings.ToLower(loginBody), "wp-login") {
+			return wpFinding(host, port, useTLS, makeF)
+		}
+	}
+	return nil
+}
+
+func wpFinding(host string, port int, useTLS bool, makeF findingMaker) []finding.Finding {
+	return []finding.Finding{makeF(
+		finding.CheckPortWordPressDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("WordPress CMS detected on port %d", port),
+		"A WordPress installation is running. WordPress is the most targeted CMS on the internet. "+
+			"Check for outdated core/plugins/themes, exposed wp-login.php (brute-force target), "+
+			"XML-RPC (/xmlrpc.php), REST API user enumeration (/wp-json/wp/v2/users), and "+
+			"debug.log exposure (/wp-content/debug.log).",
+		map[string]any{
+			"port":    port,
+			"service": "wordpress",
+			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i wp-content", scheme(useTLS), host, port),
+		},
+	)}
+}
+
+// detectDrupal identifies Drupal via X-Drupal-Cache header, Drupal.settings in body, or drupal.js.
+func detectDrupal(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	drupalCache := hdrs.Get("X-Drupal-Cache")
+	xGen := hdrs.Get("X-Generator")
+	bodyLow := strings.ToLower(body)
+	isDrupal := drupalCache != "" ||
+		strings.Contains(strings.ToLower(xGen), "drupal") ||
+		strings.Contains(bodyLow, "drupal.settings") ||
+		strings.Contains(bodyLow, "/core/misc/drupal.js") ||
+		strings.Contains(bodyLow, "/misc/drupal.js")
+
+	if !isDrupal {
+		return nil
+	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "drupal",
+		"proof":   fmt.Sprintf("curl -sI %s://%s:%d/ | grep -i x-drupal", scheme(useTLS), host, port),
+	}
+	if xGen != "" {
+		ev["x_generator"] = xGen
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortDrupalDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Drupal CMS detected on port %d", port),
+		"A Drupal installation is running. Drupal has a history of critical RCE vulnerabilities "+
+			"(Drupalgeddon SA-CORE-2014-005, Drupalgeddon2 CVE-2018-7600/7602). "+
+			"Verify Drupal core and contributed modules are fully patched.",
+		ev,
+	)}
+}
+
+// detectJoomla identifies Joomla via /administrator/ or /media/jui/ references in the homepage.
+func detectJoomla(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, ok := probeHTTPAnyBody(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	isJoomla := strings.Contains(bodyLow, "/media/jui/") ||
+		strings.Contains(bodyLow, "joomla") ||
+		strings.Contains(bodyLow, "/administrator/")
+
+	if !isJoomla {
+		// Try /administrator/ directly.
+		if adminBody, adminOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/administrator/"); adminOK {
+			adminLow := strings.ToLower(adminBody)
+			if strings.Contains(adminLow, "joomla") {
+				isJoomla = true
+			}
+		}
+	}
+	if !isJoomla {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortJoomlaDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Joomla CMS detected on port %d", port),
+		"A Joomla installation is running. Check for outdated core/extensions and exposed "+
+			"/administrator/ login. CVE-2015-8562 (PHP object injection via User-Agent) and "+
+			"CVE-2023-23752 (unauthenticated info disclosure) are common Joomla attack vectors.",
+		map[string]any{
+			"port":    port,
+			"service": "joomla",
+			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/administrator/", scheme(useTLS), host, port),
+		},
+	)}
+}
+
+// detectGhost identifies Ghost CMS via /ghost/api/ or ghost- meta tags in HTML.
+func detectGhost(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, ok := probeHTTPAnyBody(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	isGhost := strings.Contains(bodyLow, "ghost-") ||
+		strings.Contains(bodyLow, "content=\"ghost") ||
+		strings.Contains(bodyLow, "ghost.org")
+
+	if !isGhost {
+		// Try the Ghost API endpoint.
+		if apiBody, apiOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/ghost/api/v4/admin/site/"); apiOK {
+			if strings.Contains(strings.ToLower(apiBody), "ghost") ||
+				strings.Contains(apiBody, "\"title\"") {
+				isGhost = true
+			}
+		}
+	}
+	if !isGhost {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortGhostDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Ghost CMS detected on port %d", port),
+		"A Ghost publishing platform is running. Verify the Ghost admin panel (/ghost/) is "+
+			"not publicly accessible without authentication and that the Ghost version is current.",
+		map[string]any{
+			"port":    port,
+			"service": "ghost",
+			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i ghost", scheme(useTLS), host, port),
+		},
+	)}
+}
+
+// detectNextcloud identifies Nextcloud via /status.php JSON response.
+func detectNextcloud(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, ok := probeHTTPBody(ctx, host, port, useTLS, "/status.php")
+	if !ok {
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	if !strings.Contains(bodyLow, "\"installed\"") || !strings.Contains(bodyLow, "\"version\"") {
+		return nil
+	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "nextcloud",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/status.php", scheme(useTLS), host, port),
+	}
+	if ver := parseJSONStringField(body, "versionstring"); ver != "" {
+		ev["nextcloud_version"] = ver
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortNextcloudDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Nextcloud detected on port %d", port),
+		"A Nextcloud file sync and collaboration platform is running. Nextcloud exposes "+
+			"user data, files, calendars, and contacts. Verify the instance is fully patched "+
+			"and that /status.php does not leak version information to unauthenticated users.",
+		ev,
+	)}
+}
+
+// detectSpringBoot identifies Spring Boot Actuator endpoints (/actuator, /actuator/health).
+func detectSpringBoot(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443 || port == 8443
+	body, ok := probeHTTPBody(ctx, host, port, useTLS, "/actuator")
+	if !ok {
+		// Some deployments serve actuator on management port only.
+		return nil
+	}
+	bodyLow := strings.ToLower(body)
+	if !strings.Contains(bodyLow, "_links") && !strings.Contains(bodyLow, "\"self\"") {
+		return nil
+	}
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "spring-boot-actuator",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/actuator", scheme(useTLS), host, port),
+	}
+
+	// Check which sensitive endpoints are exposed.
+	exposed := []string{}
+	for _, ep := range []string{"env", "configprops", "beans", "mappings", "heapdump", "threaddump"} {
+		if strings.Contains(bodyLow, ep) {
+			exposed = append(exposed, ep)
+		}
+	}
+	if len(exposed) > 0 {
+		ev["exposed_endpoints"] = exposed
+	}
+
+	sev := finding.SeverityHigh
+	detail := "Spring Boot Actuator endpoints are publicly accessible. "
+	if len(exposed) > 0 {
+		detail += fmt.Sprintf("Exposed endpoints include: %s. ", strings.Join(exposed, ", "))
+	}
+	detail += "The /actuator/env endpoint leaks environment variables and secrets. " +
+		"/actuator/heapdump contains JVM memory with credentials and session tokens. " +
+		"Restrict actuator endpoints to management networks using management.server.port " +
+		"and Spring Security endpoint protection."
+
+	return []finding.Finding{makeF(
+		finding.CheckPortSpringActuatorExposed,
+		sev,
+		fmt.Sprintf("Spring Boot Actuator exposed on port %d", port),
+		detail,
+		ev,
+	)}
+}
+
+// detectDjango identifies Django via debug page signatures or /admin/ login page.
+func detectDjango(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, ok := probeHTTPAnyBody(ctx, host, port, useTLS, "/")
+	if ok {
+		bodyLow := strings.ToLower(body)
+		// Django debug mode shows a distinctive page.
+		if strings.Contains(bodyLow, "you're seeing this message because") &&
+			strings.Contains(bodyLow, "django") {
+			return []finding.Finding{makeF(
+				finding.CheckPortDjangoDetected,
+				finding.SeverityMedium,
+				fmt.Sprintf("Django debug mode detected on port %d", port),
+				"Django is running with DEBUG=True, exposing detailed error pages with settings, "+
+					"installed apps, middleware, URL patterns, and database configuration to any visitor. "+
+					"Set DEBUG=False in production immediately.",
+				map[string]any{
+					"port":       port,
+					"service":    "django",
+					"debug_mode": true,
+					"proof":      fmt.Sprintf("curl -sk %s://%s:%d/", scheme(useTLS), host, port),
+				},
+			)}
+		}
+	}
+
+	// Check /admin/ for Django admin login.
+	if adminBody, adminOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/admin/"); adminOK {
+		adminLow := strings.ToLower(adminBody)
+		if strings.Contains(adminLow, "django administration") ||
+			strings.Contains(adminLow, "django") && strings.Contains(adminLow, "csrfmiddlewaretoken") {
+			return []finding.Finding{makeF(
+				finding.CheckPortDjangoDetected,
+				finding.SeverityInfo,
+				fmt.Sprintf("Django web framework detected on port %d", port),
+				"A Django application with the admin interface is running. The Django admin login "+
+					"page is accessible. Ensure strong credentials, enforce 2FA, and consider restricting "+
+					"/admin/ to internal networks.",
+				map[string]any{
+					"port":    port,
+					"service": "django",
+					"proof":   fmt.Sprintf("curl -sk %s://%s:%d/admin/", scheme(useTLS), host, port),
+				},
+			)}
+		}
+	}
+	return nil
+}
+
+// detectLaravel identifies Laravel via laravel_session cookie or X-Powered-By header.
+func detectLaravel(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	_, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	isLaravel := false
+	// Check X-Powered-By header.
+	if pw := hdrs.Get("X-Powered-By"); strings.Contains(strings.ToLower(pw), "laravel") {
+		isLaravel = true
+	}
+	// Check Set-Cookie for laravel_session.
+	if !isLaravel {
+		for _, c := range hdrs.Values("Set-Cookie") {
+			if strings.Contains(strings.ToLower(c), "laravel_session") {
+				isLaravel = true
+				break
+			}
+		}
+	}
+	if !isLaravel {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortLaravelDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Laravel PHP framework detected on port %d", port),
+		"A Laravel application is running. Check that APP_DEBUG is false, APP_KEY is rotated, "+
+			"and that /.env is not accessible. Laravel debug mode (Ignition) has been exploited via "+
+			"CVE-2021-3129 for unauthenticated RCE.",
+		map[string]any{
+			"port":    port,
+			"service": "laravel",
+			"proof":   fmt.Sprintf("curl -sI %s://%s:%d/ | grep -i laravel", scheme(useTLS), host, port),
+		},
+	)}
+}
+
+// detectExpressJS identifies Express.js via X-Powered-By: Express header.
+func detectExpressJS(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	_, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+	pw := hdrs.Get("X-Powered-By")
+	if !strings.EqualFold(strings.TrimSpace(pw), "Express") {
+		return nil
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortExpressDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Express.js framework detected on port %d", port),
+		"An Express.js (Node.js) application is running and leaking its framework identity "+
+			"via the X-Powered-By header. Disable this header with app.disable('x-powered-by') "+
+			"or use helmet.js to reduce fingerprinting surface.",
+		map[string]any{
+			"port":    port,
+			"service": "express",
+			"proof":   fmt.Sprintf("curl -sI %s://%s:%d/ | grep -i x-powered-by", scheme(useTLS), host, port),
+		},
+	)}
+}
+
+// detectASPNET identifies ASP.NET via X-AspNet-Version, X-Powered-By: ASP.NET, or .aspx in redirects.
+func detectASPNET(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	isASPNET := false
+	ev := map[string]any{"port": port, "service": "aspnet"}
+
+	if ver := hdrs.Get("X-AspNet-Version"); ver != "" {
+		isASPNET = true
+		ev["aspnet_version"] = ver
+	}
+	if pw := hdrs.Get("X-Powered-By"); strings.Contains(strings.ToLower(pw), "asp.net") {
+		isASPNET = true
+	}
+	if loc := hdrs.Get("Location"); strings.Contains(strings.ToLower(loc), ".aspx") {
+		isASPNET = true
+	}
+	if strings.Contains(strings.ToLower(body), "__viewstate") {
+		isASPNET = true
+	}
+	if !isASPNET {
+		return nil
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sI %s://%s:%d/ | grep -i asp", scheme(useTLS), host, port)
+	return []finding.Finding{makeF(
+		finding.CheckPortASPNETDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("ASP.NET framework detected on port %d", port),
+		"An ASP.NET application is running. The server leaks framework identity via response headers. "+
+			"Remove X-AspNet-Version and X-Powered-By headers in production. Check for ViewState "+
+			"deserialization vulnerabilities and exposed Trace.axd/Elmah.axd error endpoints.",
+		ev,
+	)}
+}
+
+// detectRails identifies Ruby on Rails via X-Runtime header, _rails_ cookies, or Rails error page.
+func detectRails(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	isRails := false
+	ev := map[string]any{"port": port, "service": "rails"}
+
+	// X-Runtime header is a strong Rails fingerprint.
+	if rt := hdrs.Get("X-Runtime"); rt != "" {
+		isRails = true
+		ev["x_runtime"] = rt
+	}
+	// Check cookies for _rails_ session.
+	if !isRails {
+		for _, c := range hdrs.Values("Set-Cookie") {
+			if strings.Contains(c, "_session") && strings.Contains(strings.ToLower(body), "rails") {
+				isRails = true
+				break
+			}
+		}
+	}
+	// Check for Rails error page.
+	if !isRails {
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "rails") && strings.Contains(bodyLow, "routing error") {
+			isRails = true
+		}
+	}
+	if !isRails {
+		return nil
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sI %s://%s:%d/ | grep -i x-runtime", scheme(useTLS), host, port)
+	return []finding.Finding{makeF(
+		finding.CheckPortRailsDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Ruby on Rails detected on port %d", port),
+		"A Ruby on Rails application is running. The X-Runtime header leaks framework identity "+
+			"and can be used for timing attacks. Remove it in production via config.middleware.delete "+
+			"Rack::Runtime. Check for CVE-2013-0156 (XML parsing RCE) on older versions.",
+		ev,
+	)}
+}
+
+// detectFastAPI identifies FastAPI via auto-generated /docs (Swagger UI) or /openapi.json.
+func detectFastAPI(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	// FastAPI auto-generates /openapi.json — most reliable fingerprint.
+	body, ok := probeHTTPBody(ctx, host, port, useTLS, "/openapi.json")
+	if ok {
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "\"openapi\"") && strings.Contains(bodyLow, "\"paths\"") {
+			ev := map[string]any{
+				"port":    port,
+				"service": "fastapi",
+				"proof":   fmt.Sprintf("curl -sk %s://%s:%d/openapi.json", scheme(useTLS), host, port),
+			}
+			if title := parseJSONStringField(body, "title"); title != "" {
+				ev["api_title"] = title
+			}
+			return []finding.Finding{makeF(
+				finding.CheckPortFastAPIDetected,
+				finding.SeverityInfo,
+				fmt.Sprintf("FastAPI detected on port %d (OpenAPI spec exposed)", port),
+				"A FastAPI application exposes its OpenAPI specification at /openapi.json and Swagger UI "+
+					"at /docs. This reveals all API endpoints, parameters, and schemas. If this API handles "+
+					"sensitive data, disable docs in production: app = FastAPI(docs_url=None, redoc_url=None, "+
+					"openapi_url=None).",
+				ev,
+			)}
+		}
+	}
+
+	// Fall back to /docs — FastAPI's default Swagger UI.
+	if docsBody, docsOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/docs"); docsOK {
+		docsLow := strings.ToLower(docsBody)
+		if strings.Contains(docsLow, "swagger") && strings.Contains(docsLow, "fastapi") {
+			return []finding.Finding{makeF(
+				finding.CheckPortFastAPIDetected,
+				finding.SeverityInfo,
+				fmt.Sprintf("FastAPI detected on port %d (Swagger UI at /docs)", port),
+				"A FastAPI application with Swagger UI at /docs is running. The interactive API docs "+
+					"expose all endpoints. Disable in production if not intended for public use.",
+				map[string]any{
+					"port":    port,
+					"service": "fastapi",
+					"proof":   fmt.Sprintf("curl -sk %s://%s:%d/docs", scheme(useTLS), host, port),
+				},
+			)}
+		}
+	}
+	return nil
+}
+
+// scheme returns "https" if useTLS is true, "http" otherwise.
+func scheme(useTLS bool) string {
+	if useTLS {
+		return "https"
+	}
+	return "http"
+}
+
+// isGoAnywhereVulnerable returns true for GoAnywhere MFT versions < 7.1.2.
+func isGoAnywhereVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
+	if maj < 7 {
+		return true
+	}
+	if maj == 7 && min < 1 {
+		return true
+	}
+	if maj == 7 && min == 1 && patch < 2 {
+		return true
+	}
+	return false
 }

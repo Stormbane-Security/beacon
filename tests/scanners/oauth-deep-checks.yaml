@@ -1,0 +1,133 @@
+name: oauth-deep-checks
+description: >
+  Node.js OAuth provider with deeper vulnerabilities: token leak via referer,
+  subdomain bypass on redirect_uri, refresh token not rotated, long token
+  expiry, and weak state parameter. Tests the full range of OAuth check IDs
+  beyond the basic misconfig test.
+tags: [oauth, scanner, deep, oidc, token]
+
+services:
+  app:
+    image: node:20-alpine
+    ports: ["20101:3000"]
+    volumes:
+      - ./oauth-misconfig/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20101/.well-known/openid-configuration >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-redirect-to-evil-subdomain
+    type: command
+    expect:
+      command: "curl -sI 'http://localhost:20101/authorize?response_type=code&client_id=test&redirect_uri=https://sub.evil.com/callback&state=x' | grep -i 'location.*sub.evil.com'"
+      exit_code: 0
+
+  - name: exploit-token-long-expiry
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20101/token -d 'grant_type=authorization_code&code=x' | grep -q '604800'"
+      exit_code: 0
+
+  - name: exploit-refresh-token-static
+    type: command
+    expect:
+      command: "T1=$(curl -sf -X POST http://localhost:20101/token -d 'grant_type=authorization_code&code=x' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"refresh_token\"])'); T2=$(curl -sf -X POST http://localhost:20101/token -d 'grant_type=authorization_code&code=y' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"refresh_token\"])'); [ \"$T1\" = \"$T2\" ]"
+      exit_code: 0
+
+  - name: exploit-implicit-flow-supported
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20101/.well-known/openid-configuration | grep -q '\"token\"'"
+      exit_code: 0
+
+  # --- Scanner detections (verified from actual scanner output) ---
+  - name: detects-jwt-no-server-verification
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: jwt.no_server_verification
+
+  - name: detects-oidc-weak-signing-alg
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oidc.weak_signing_alg
+
+  - name: detects-oauth-token-endpoint-no-auth
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.token_endpoint_no_auth
+
+  - name: detects-oauth-token-in-url-fragment
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.token_in_url_fragment
+
+  - name: detects-oauth-missing-pkce
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.missing_pkce
+
+  - name: detects-backchannel-logout-missing
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: iam.backchannel_logout_missing
+
+  - name: detects-oauth-token-long-expiry
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.token_long_expiry
+
+  - name: detects-oauth-refresh-not-rotated
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.refresh_not_rotated
+
+  - name: detects-oauth-jwks-exposed
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      check_id: oauth.jwks_exposed
+
+  # NOTE: The following OAuth check IDs are not emitted by the scanner against
+  # this fixture: oauth.open_redirect, oauth.subdomain_bypass, oauth.token_leak_referer,
+  # oauth.weak_state, oauth.implicit_flow, oauth.missing_state, oidc.missing_jwks_uri.
+  # Some need browser-based redirect flow, others need specific redirect_uri validation
+  # patterns that this scanner doesn't probe in deep mode.
+
+  - name: oauth-deep-min-findings
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      min_findings: 7
+
+  # --- Negative ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20101
+    args: ["--no-enrich", "--no-nmap", "--scanners", "oauth", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

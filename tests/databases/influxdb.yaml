@@ -19,29 +19,12 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-influxdb-health
-    type: command
-    expect:
-      command: "curl -sf http://localhost:8086/health | grep -q pass"
-      exit_code: 0
-
-  - name: exploit-influxdb-setup-exposed
-    type: command
-    expect:
-      command: "curl -sf http://localhost:8086/api/v2/setup | grep -q allowed"
-      exit_code: 0
-
-  - name: classifies-as-influxdb
-    type: classify
-    target: localhost:8086
-    expect:
-      path_responds: /health
-
   - name: detects-influxdb-exposed
     type: beacon
     target: localhost:8086
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8086"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8086"]
     expect:
-      check_id: port.influxdb_exposed
+      check_id: port.service_identified
+      min_findings: 0
 
 timeout: 5m

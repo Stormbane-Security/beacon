@@ -57,6 +57,20 @@ assertions:
     expect:
       check_id: headers.missing_hsts
 
+  - name: detects-missing-csp-behind-waf
+    type: beacon
+    target: localhost:19950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: detects-server-info-leak-behind-waf
+    type: beacon
+    target: localhost:19950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
+
   # ── Control: direct endpoint has same findings ──
   - name: control-direct-same-findings
     type: beacon

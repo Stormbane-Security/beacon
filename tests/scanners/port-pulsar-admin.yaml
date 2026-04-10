@@ -1,0 +1,43 @@
+name: port-pulsar-admin
+description: >
+  Apache Pulsar broker in standalone mode. The admin API at
+  /admin/v2/clusters is accessible without authentication, triggering
+  the port.pulsar_admin_exposed check ID.
+tags: [pulsar, scanner, portscan, messaging, noauth]
+
+services:
+  pulsar:
+    image: apachepulsar/pulsar:latest
+    ports: ["20082:8080"]
+    command: ["bin/pulsar", "standalone"]
+
+ready:
+  cmd: "curl -sf http://localhost:20082/admin/v2/clusters | grep -q standalone"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Pulsar admin API accessible
+  - name: pulsar-admin-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20082/admin/v2/clusters | grep -q standalone"
+      exit_code: 0
+
+  # Scanner: detect Pulsar admin exposed
+  - name: detects-pulsar-admin-exposed
+    type: beacon
+    target: localhost:20082
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      check_id: port.pulsar_admin_exposed
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20082
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m

@@ -255,7 +255,7 @@ func sendRequest(ctx context.Context, client *http.Client, method, target, ct, b
 			Error:        err.Error(),
 		}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 

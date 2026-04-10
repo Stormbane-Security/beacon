@@ -136,9 +136,23 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		hasBanner = true
 	}
 
+	// Check if port speaks TLS (cached — one handshake per host:port).
+	// TLS probes are skipped entirely on non-TLS ports, saving 5s+ per probe.
+	portIsTLS := isTLSCapable(ctx, host, port)
+
+	// Capture JA3S fingerprint for TLS-enabled ports (uses cache, no extra handshake).
+	var ja3s *JA3SResult
+	if portIsTLS {
+		ja3s = JA3SFingerprint(ctx, host, port)
+	}
+
 	// Split probes into protocol (run in parallel) and non-protocol (run after).
 	var protocolProbes, otherProbes []ServiceProbe
 	for _, probe := range probeRegistry {
+		// Skip TLS probes on non-TLS ports — avoids 5s handshake timeout per probe.
+		if probe.Category == ProbeCatTLS && !portIsTLS {
+			continue
+		}
 		if hasBanner {
 			if probe.Category == ProbeCatHTTP && !bannerHTTP {
 				continue
@@ -237,12 +251,33 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 
 	// Run banner and HTTP probes sequentially (they're I/O-light or
 	// already filtered to the correct category).
+	// Skip DB probes if we already identified the service as a specific DB
+	// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB).
+	identifiedService := ""
+	if identified {
+		identifiedService = "protocol-probe" // protocol probes already found something
+	}
 	for _, probe := range otherProbes {
+		// Skip relational DB probes if service was already identified
+		// (e.g., don't try MySQL/PostgreSQL/MSSQL on a port we know is MongoDB/Redis)
+		if identifiedService != "" && probe.Name == "mysql-postgres-mssql-oracle" {
+			continue
+		}
+		// Skip exploit playbook probes that don't match the identified service.
+		// Exploit probes have names like "redis-exploit", "consul-exploit" etc.
+		// If we already know the service (e.g., "couchdb"), skip "redis-exploit".
+		if identifiedService != "" && strings.HasSuffix(probe.Name, "-exploit") {
+			svcPrefix := strings.TrimSuffix(probe.Name, "-exploit")
+			if !strings.Contains(identifiedService, svcPrefix) {
+				continue
+			}
+		}
 		probeStart := time.Now()
 		fs := probe.Detect(ctx, host, port, banner, makeF)
 		scanlog.FromContext(ctx).ProbeTimed(scannerName, fmt.Sprintf("%s:%d", host, port), probe.Name, time.Since(probeStart), len(fs), nil)
 		if len(fs) > 0 {
 			findings = append(findings, fs...)
+			identifiedService = probe.Name
 			if !identified {
 				identified = true
 				service := probe.Name
@@ -265,6 +300,10 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				}
 				if banner != "" {
 					ev["banner"] = banner
+				}
+				// For HTTP-category probes, enrich with Server header and page title.
+				if probe.Category == ProbeCatHTTP {
+					enrichHTTPEvidence(ctx, host, port, ev)
 				}
 				title := fmt.Sprintf("%s identified on port %d", service, port)
 				if version != "" {
@@ -295,6 +334,8 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		if banner != "" {
 			ev["banner"] = banner
 		}
+		// Extract HTTP title and Server header version for the fallback HTTP finding.
+		enrichHTTPEvidence(ctx, host, port, ev)
 		findings = append(findings, makeF(
 			finding.CheckPortServiceIdentified,
 			finding.SeverityInfo,
@@ -305,64 +346,235 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		))
 	}
 
+	// Enrich all service_identified findings with JA3S / cert evidence and
+	// emit TLS-specific findings (weak cipher, expired cert) when applicable.
+	if ja3s != nil {
+		tlsEv := TLSInfoEvidence(ja3s)
+
+		// Merge JA3S evidence into every service_identified finding for this port.
+		for i := range findings {
+			if findings[i].CheckID == finding.CheckPortServiceIdentified {
+				for k, v := range tlsEv {
+					findings[i].Evidence[k] = v
+				}
+			}
+		}
+
+		// Check: server negotiated a weak / insecure cipher suite.
+		if isWeakCipherSuite(ja3s.CipherSuite) {
+			name := cipherSuiteName(ja3s.CipherSuite)
+			findings = append(findings, makeF(
+				finding.CheckTLSWeakCipherNegotiated,
+				finding.SeverityHigh,
+				fmt.Sprintf("Weak TLS cipher negotiated on port %d: %s", port, name),
+				fmt.Sprintf("The server on port %d negotiated cipher suite %s (0x%04X) which is "+
+					"considered insecure. An attacker on the network path may be able to "+
+					"decrypt or tamper with traffic.", port, name, ja3s.CipherSuite),
+				map[string]any{
+					"port":            port,
+					"cipher_suite":    name,
+					"cipher_suite_id": ja3s.CipherSuite,
+					"tls_version":     tlsVersionName(ja3s.TLSVersion),
+					"ja3s_hash":       ja3s.Hash,
+					"proof_command":   fmt.Sprintf("openssl s_client -connect %s:%d", host, port),
+				},
+			))
+		}
+
+		// Check: certificate has expired.
+		if !ja3s.NotAfter.IsZero() && ja3s.NotAfter.Before(time.Now()) {
+			findings = append(findings, makeF(
+				finding.CheckTLSExpiredCertDetected,
+				finding.SeverityHigh,
+				fmt.Sprintf("Expired TLS certificate on port %d", port),
+				fmt.Sprintf("The TLS certificate on port %d expired on %s. Expired certificates "+
+					"cause browser warnings, break automated clients, and indicate the service "+
+					"may be unmaintained.", port, ja3s.NotAfter.Format("2006-01-02")),
+				map[string]any{
+					"port":           port,
+					"cert_cn":        ja3s.ServerName,
+					"cert_issuer":    ja3s.Issuer,
+					"cert_not_after": ja3s.NotAfter.Format(time.RFC3339),
+					"ja3s_hash":      ja3s.Hash,
+					"proof_command":  fmt.Sprintf("openssl s_client -connect %s:%d | openssl x509 -noout -dates", host, port),
+				},
+			))
+		}
+	}
+
 	return findings
 }
 
-// quickProtocolCheck sends lightweight protocol handshakes to identify
-// non-HTTP services that don't send a banner on connect. This prevents
+// quickProtocolCheck sends lightweight protocol handshakes concurrently to
+// identify non-HTTP services that don't send a banner on connect. This prevents
 // 100+ protocol probes from timing out against already-identifiable services.
 // Returns the protocol name (e.g., "redis", "mysql") or "" if unknown.
+// All checks run in parallel with a short timeout, so worst case is ~1.5s.
 func quickProtocolCheck(ctx context.Context, host string, port int) string {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	const quickTimeout = 1500 * time.Millisecond
+	dialer := &net.Dialer{Timeout: quickTimeout}
 
-	// Try Redis: send PING, expect +PONG
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	type checkResult struct {
+		proto string
+	}
+	ch := make(chan checkResult, 6)
+
+	// Redis: send PING, expect +PONG
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		_, _ = conn.Write([]byte("PING\r\n"))
 		buf := make([]byte, 64)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
 		resp := string(buf[:n])
 		if strings.HasPrefix(resp, "+PONG") || strings.HasPrefix(resp, "-NOAUTH") || strings.HasPrefix(resp, "-ERR") {
-			return "redis"
+			ch <- checkResult{"redis"}
+			return
 		}
-	}
+		ch <- checkResult{}
+	}()
 
-	// Try MySQL: connect and read greeting packet (server sends it first)
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	// MySQL: connect and read greeting packet (server sends it first)
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		buf := make([]byte, 128)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
-		if n > 4 && buf[3] == 0x00 && buf[4] == 0x0a { // sequence=0, protocol=10
-			return "mysql"
+		if n > 4 && buf[3] == 0x00 && buf[4] == 0x0a {
+			ch <- checkResult{"mysql"}
+			return
 		}
-	}
+		ch <- checkResult{}
+	}()
 
-	// Try PostgreSQL: send startup cancel request, check for 'R' auth response
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-		// SSLRequest (8 bytes: length=8, code=80877103)
+	// PostgreSQL: send SSLRequest, check for 'N' or 'S' response
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		_, _ = conn.Write([]byte{0, 0, 0, 8, 4, 210, 22, 47})
 		buf := make([]byte, 8)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
-		if n >= 1 && (buf[0] == 'N' || buf[0] == 'S') { // 'N' = no SSL, 'S' = SSL ok
-			return "postgres"
+		if n >= 1 && (buf[0] == 'N' || buf[0] == 'S') {
+			ch <- checkResult{"postgres"}
+			return
 		}
-	}
+		ch <- checkResult{}
+	}()
 
-	// Try SMTP: wait for banner (SMTP servers send 220 greeting)
-	if conn, err := dialer.DialContext(ctx, "tcp", addr); err == nil {
-		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	// SMTP: wait for 220 banner
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
 		buf := make([]byte, 128)
 		n, _ := conn.Read(buf)
 		_ = conn.Close()
 		if n > 3 && strings.HasPrefix(string(buf[:n]), "220 ") {
-			return "smtp"
+			ch <- checkResult{"smtp"}
+			return
+		}
+		ch <- checkResult{}
+	}()
+
+	// MongoDB: send isMaster command, check for valid BSON response
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
+		// MongoDB OP_MSG: isMaster command (minimal wire protocol v2 message)
+		// Header: length(4) + requestID(4) + responseTo(4) + opCode=2013(4)
+		// flagBits(4) + section kind=0(1) + BSON document
+		isMasterDoc := []byte{
+			// BSON document: {"isMaster": 1, "$db": "admin"}
+			0x27, 0x00, 0x00, 0x00, // doc length = 39
+			0x10,                                           // type: int32
+			0x69, 0x73, 0x4d, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00, // "isMaster\0"
+			0x01, 0x00, 0x00, 0x00, // value: 1
+			0x02,                                     // type: string
+			0x24, 0x64, 0x62, 0x00,                   // "$db\0"
+			0x06, 0x00, 0x00, 0x00,                   // string length = 6
+			0x61, 0x64, 0x6d, 0x69, 0x6e, 0x00,      // "admin\0"
+			0x00, // document terminator
+		}
+		msgLen := 4 + 4 + 4 + 4 + 4 + 1 + len(isMasterDoc) // header + flagBits + section kind + doc
+		msg := make([]byte, msgLen)
+		// Little-endian length
+		msg[0] = byte(msgLen)
+		msg[1] = byte(msgLen >> 8)
+		msg[2] = byte(msgLen >> 16)
+		msg[3] = byte(msgLen >> 24)
+		// requestID = 1
+		msg[4] = 0x01
+		// responseTo = 0 (bytes 8-11 already zero)
+		// opCode = 2013 (OP_MSG)
+		msg[12] = 0xdd
+		msg[13] = 0x07
+		// flagBits = 0 (bytes 16-19 already zero)
+		// section kind = 0
+		msg[20] = 0x00
+		copy(msg[21:], isMasterDoc)
+
+		_, _ = conn.Write(msg)
+		buf := make([]byte, 256)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		// MongoDB response: valid if length >= 16, opCode is 2013 (OP_MSG) or 1 (OP_REPLY)
+		if n >= 16 {
+			opCode := uint32(buf[12]) | uint32(buf[13])<<8 | uint32(buf[14])<<16 | uint32(buf[15])<<24
+			if opCode == 2013 || opCode == 1 {
+				ch <- checkResult{"mongodb"}
+				return
+			}
+		}
+		ch <- checkResult{}
+	}()
+
+	// SSH: wait for "SSH-" banner (some SSH servers are slow to send)
+	go func() {
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			ch <- checkResult{}
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(quickTimeout))
+		buf := make([]byte, 64)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		if n >= 4 && strings.HasPrefix(string(buf[:n]), "SSH-") {
+			ch <- checkResult{"ssh"}
+			return
+		}
+		ch <- checkResult{}
+	}()
+
+	// Collect results — return first positive match, or "" after all finish
+	for i := 0; i < 6; i++ {
+		r := <-ch
+		if r.proto != "" {
+			return r.proto
 		}
 	}
-
 	return ""
 }

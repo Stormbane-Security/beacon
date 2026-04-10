@@ -1,0 +1,53 @@
+name: deserialization-viewstate
+description: >
+  Nginx serving an HTML page with an unprotected .NET ViewState hidden
+  field. Beacon deserial scanner should detect the tamperable ViewState
+  and emit web.viewstate_unprotected.
+tags: [deserial, viewstate, scanner, web]
+
+services:
+  viewstate-app:
+    image: nginx:alpine
+    ports: ["20032:80"]
+    volumes:
+      - ./deserialization-viewstate/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20032/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: ViewState field present in response
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-viewstate-present
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20032/ | grep -q '__VIEWSTATE'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detection
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-viewstate-unprotected
+    type: beacon
+    target: localhost:20032
+    args: ["--no-enrich", "--no-nmap", "--scanners", "deserial", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20032
+    args: ["--no-enrich", "--no-nmap", "--scanners", "deserial", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

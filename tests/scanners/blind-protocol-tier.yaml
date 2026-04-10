@@ -77,7 +77,7 @@ assertions:
   - name: blind-discovers-etcd
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19833"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19833"]
     expect:
       check_id: port.etcd_exposed
 
@@ -85,7 +85,7 @@ assertions:
   - name: blind-discovers-rabbitmq-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19835", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19835", "--deep", "--yes"]
     expect:
       check_id: port.rabbitmq_default_creds
 
@@ -93,7 +93,7 @@ assertions:
   - name: blind-discovers-minio-defaultcreds
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19836", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19836", "--deep", "--yes"]
     expect:
       check_id: port.minio_default_credentials
 
@@ -101,7 +101,7 @@ assertions:
   - name: blind-identifies-protocol-services
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19830,19831,19832,19833,19834,19835,19836,19838,19839"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19830,19831,19832,19833,19834,19835,19836,19838,19839"]
     expect:
       check_id: port.service_identified
 
@@ -109,7 +109,7 @@ assertions:
   - name: negative-redis-auth-no-unauth
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19832"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "19832"]
     expect:
       not_check_id: port.redis_unauthenticated
 

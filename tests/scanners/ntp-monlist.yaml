@@ -27,7 +27,7 @@ assertions:
   - name: detects-ntp-exposed
     type: beacon
     target: localhost:15123
-    args: ["--no-enrich", "--scanners", "portscan"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
       check_id: port.ntp_exposed
 

@@ -130,10 +130,10 @@ func TestClassifyAnomaly_NoMatch(t *testing.T) {
 func TestClassifyAnomaly_NoSQL(t *testing.T) {
 	reasons := []string{"status_change: 401 → 200"}
 	got := classifyAnomaly(reasons, "", "type_confusion_email_str_to_object")
-	// NoSQL object mutation + status change = sqli (NoSQL injection)
-	if got != "auth_bypass" {
-		// Actually auth_bypass takes priority over NoSQL since 401→200
-		// That's correct — the auth bypass is the more impactful classification
+	// NoSQL object mutation payload classifies as sqli (NoSQL injection).
+	// The 401→200 status change is a side effect of the injection succeeding.
+	if got != "sqli" {
+		t.Errorf("expected sqli for NoSQL object mutation, got %q", got)
 	}
 }
 

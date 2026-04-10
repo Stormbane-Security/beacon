@@ -1,0 +1,63 @@
+name: spa-detection-juiceshop
+description: >
+  Verify SPA detection and authsurface login-form discovery against
+  Juice Shop's Angular frontend. Juice Shop serves a minimal HTML shell
+  with <app-root> and renders the actual login form via JavaScript.
+  Without SPA support, authsurface cannot see the password field.
+tags: [spa, authsurface, juiceshop, angular, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19894:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19894/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: verify Juice Shop HTML is recognized as SPA
+  - name: exploit-html-is-spa
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19894/ | grep -qi 'app-root'"
+      exit_code: 0
+
+  # Pre-flight: the raw HTML does NOT contain a password field
+  # (Angular renders it client-side — this proves SPA rendering is needed)
+  - name: exploit-no-password-in-raw-html
+    type: command
+    expect:
+      command: "! curl -sf http://localhost:19894/ | grep -qi 'type=\"password\"'"
+      exit_code: 0
+
+  # authsurface detects the Angular login form via chromedp rendering.
+  # The scanner renders /#/login with headless Chrome and finds the
+  # password field that is only visible after JavaScript execution.
+  - name: authsurface-detects-login
+    type: beacon
+    target: localhost:19894
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.login_form_detected
+
+  # authsurface detects open registration via /#/register hash route
+  - name: authsurface-detects-registration
+    type: beacon
+    target: localhost:19894
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      check_id: auth.registration_open
+
+  # Security headers should still detect issues on the SPA shell
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:19894
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_csp
+
+timeout: 5m

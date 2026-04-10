@@ -58,18 +58,22 @@ USAGE:
   beacon playbook    dismiss --id <id>           Dismiss a suggestion (won't appear again)
   beacon playbook    open-pr --id <id>           Open a GitHub PR for a suggestion
   beacon classify    <target> [--format json|text]  Fingerprint a target without running scanners
+  beacon retest      --id <scan-id>               Retest findings from a previous scan
+  beacon diff        --baseline <id> --id <id>     Diff findings between two scans
 
 SCAN FLAGS:
-  --domain <domain>          Target domain (required unless --asset or --targets is used)
-  --asset <domain>           Add a target domain; repeatable for multi-asset sessions
+  --domain <domain>          Target domain (required unless --host or --targets is used)
+  --host <target>            Add a target host; repeatable for multi-host sessions
   --targets <file>           File with one domain per line (enables multi-asset mode)
-  --deep                     Enable active probing (requires --permission-confirmed)
-  --permission-confirmed     Acknowledge you have permission to run active probes
-  --authorized               Enable exploitation-class probes (requires --deep, --permission-confirmed, and interactive acknowledgment)
-  --yes                      Auto-approve all exploit modules (skip per-module confirmation prompts)
-  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
+  --deep                     Enable active probing (sends payloads — confirms permission interactively)
+  --exploit                  Enable exploitation-class probes (active exploitation + post-exploit chains)
+  --yes                      Skip all confirmation prompts (for CI/automation)
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph, pdf
   --out <path>               Write report to file instead of stdout
   --output-raw <path>        Write raw findings JSON (no enrichment) and exit; enrich later with beacon enrich
+  --poc-dir <path>           Generate standalone PoC files for each finding into <path>
+  --narratives               Include attack narratives and chain PoCs in markdown reports
+  --screenshots <dir>        Capture screenshots of finding URLs into <dir> (requires Chrome)
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
   --verbose                  Show scanner-level progress (which scanner is running, fingerprint hits)
   --quiet                    Suppress informational stderr (missing API keys, nmap warnings, progress)
@@ -88,6 +92,7 @@ SCAN FLAGS:
   --no-arjun                 Skip arjun integration (no external parameter discovery)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
+  --wordlist <path>           Custom wordlist file for brute-force scanners (dirbust, subdomain, param discovery)
   --log-file <path>          Write structured JSON logs to file (one event per line)
   --log-level <level>        Log level: debug, info (default), warn, error
 
@@ -99,8 +104,9 @@ ENRICH FLAGS:
 
 REPORT FLAGS:
   --id <scan-id>             Scan run ID (required)
-  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, graph
+  --format <fmt>             Output format: text (default), html, json, markdown, bounty, ocsf, har, graph, pdf
   --out <path>               Write report to file instead of stdout
+  --screenshots <dir>        Capture screenshots of finding URLs into <dir> (requires Chrome)
   --severity <level>         Minimum severity to include: critical, high, medium, low, info (default)
 
 EXAMPLES:
@@ -108,9 +114,9 @@ EXAMPLES:
   beacon scan --domain example.com --format json
   beacon scan --domain example.com --severity high
   beacon scan --domain example.com --out report.html --format html
-  beacon scan --domain example.com --deep --permission-confirmed
-  beacon scan --asset example.com --asset api.example.com --asset cdn.example.com
-  beacon scan --targets hosts.txt --deep --permission-confirmed
+  beacon scan --domain example.com --deep
+  beacon scan --host example.com --host api.example.com --host cdn.example.com
+  beacon scan --targets hosts.txt --deep
   beacon scan --domain example.com --output-raw findings.json
   beacon scan --domain example.com --scanners cors,jwt,tls
   beacon enrich --input findings.json --format json --out enriched.json
@@ -215,6 +221,14 @@ func main() {
 		cmdEnrich(cfg, os.Args[2:])
 	case "classify":
 		cmdClassify(cfg, os.Args[2:])
+	case "retest":
+		cmdRetest(cfg, os.Args[2:])
+	case "diff":
+		cmdDiff(cfg, os.Args[2:])
+	case "exploit":
+		cmdExploit(cfg, os.Args[2:])
+	case "scope":
+		cmdScope(os.Args[2:])
 	case "--help", "-h", "help":
 		fmt.Print(usageText)
 	default:
@@ -262,6 +276,8 @@ func cmdScan(cfg *config.Config, args []string) {
 		autoApprove         bool
 		outPath             string
 		outputRawPath       string
+		pocDir              string
+		screenshotDir       string
 		format              string
 		severityFlag        string
 		verbose             bool
@@ -289,8 +305,10 @@ func cmdScan(cfg *config.Config, args []string) {
 		scannersFlag        string
 		portsFlag           string
 		dnsServer           string
+		wordlistPath        string
 		logFile             string
 		logLevel            string
+		narratives          bool
 	)
 
 	// --quiet can also be set via env var for automation.
@@ -312,12 +330,17 @@ func cmdScan(cfg *config.Config, args []string) {
 			}
 		case "--deep":
 			deep = true
-		case "--permission-confirmed":
-			permissionConfirmed = true
-		case "--authorized":
+		case "--exploit":
 			authorized = true
+			deep = true
+			permissionConfirmed = true
+		case "--permission-confirmed":
+			permissionConfirmed = true // backward compat
+		case "--authorized":
+			authorized = true // backward compat
 		case "--yes":
 			autoApprove = true
+			permissionConfirmed = true // --yes implies permission confirmed
 		case "--quiet":
 			quiet = true
 		case "--out":
@@ -329,6 +352,16 @@ func cmdScan(cfg *config.Config, args []string) {
 			i++
 			if i < len(args) {
 				outputRawPath = args[i]
+			}
+		case "--poc-dir":
+			i++
+			if i < len(args) {
+				pocDir = args[i]
+			}
+		case "--screenshots":
+			i++
+			if i < len(args) {
+				screenshotDir = args[i]
 			}
 		case "--format":
 			i++
@@ -352,6 +385,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			anonymize = true
 		case "--dry-run":
 			dryRun = true
+		case "--narratives":
+			narratives = true
 		case "--no-nmap":
 			noNmap = true
 		case "--no-nuclei":
@@ -371,7 +406,7 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				extraCIDRs = append(extraCIDRs, args[i])
 			}
-		case "--asset":
+		case "--host", "--asset":
 			i++
 			if i < len(args) {
 				assets = append(assets, args[i])
@@ -433,6 +468,11 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				portsFlag = args[i]
 			}
+		case "--wordlist":
+			i++
+			if i < len(args) {
+				wordlistPath = args[i]
+			}
 		case "--log-file":
 			i++
 			if i < len(args) {
@@ -478,6 +518,13 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 	}
 
+	// Validate --wordlist file exists if provided.
+	if wordlistPath != "" {
+		if _, err := os.Stat(wordlistPath); err != nil {
+			fatalf("--wordlist: %v", err)
+		}
+	}
+
 	// Override the default DNS resolver if --dns-server is set.
 	if dnsServer != "" {
 		net.DefaultResolver = &net.Resolver{
@@ -499,22 +546,80 @@ func cmdScan(cfg *config.Config, args []string) {
 			fatalf("beacon: nmap not found. Install nmap (https://nmap.org/download) or pass --no-nmap to skip nmap integration.")
 		}
 	}
+	// Critical tools — HARD FAIL if missing (unless explicitly opted out).
+	// Skip this check when --scanners is used (filtered mode only needs
+	// the requested scanners, not the full toolchain).
+	// Use --no-<tool> to opt out explicitly.
+	if len(scannersList) == 0 {
+	criticalTools := []struct {
+		name    string
+		bin     string
+		optOut  bool
+		install string
+	}{
+		{"nuclei", cfg.NucleiBin, noNuclei, "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+		{"subfinder", "subfinder", false, "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"},
+		{"katana", cfg.KatanaBin, false, "go install github.com/projectdiscovery/katana/cmd/katana@latest"},
+		{"ffuf", cfg.FfufBin, false, "go install github.com/ffuf/ffuf/v2@latest"},
+		{"gau", "gau", false, "go install github.com/lc/gau/v2/cmd/gau@latest"},
+		{"httpx", cfg.HttpxBin, false, "go install github.com/projectdiscovery/httpx/cmd/httpx@latest"},
+		{"dnsx", cfg.DnsxBin, false, "go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest"},
+	}
+
+	var missingCritical []string
+	for _, tc := range criticalTools {
+		if tc.optOut {
+			continue
+		}
+		if _, err := exec.LookPath(tc.bin); err != nil {
+			missingCritical = append(missingCritical, fmt.Sprintf("  %-14s not found. Install: %s", tc.name, tc.install))
+		}
+	}
+	if len(missingCritical) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: WARNING — required tools not found (reduced coverage):\n%s\n\n", strings.Join(missingCritical, "\n"))
+		_, _ = fmt.Fprintf(os.Stderr, "Run: scripts/install-tools.sh  (or install manually)\n")
+	}
+	} // end if len(scannersList) == 0
+
+	// Optional tools — WARN if missing but continue.
+	// These enhance scanning but aren't required for core functionality.
+	type optionalTool struct {
+		name    string
+		bin     string
+		optOut  bool
+		purpose string
+	}
+	optionalTools := []optionalTool{
+		{"testssl", cfg.TestsslBin, noTestssl, "deep TLS vulnerability scanning"},
+		{"masscan", cfg.MasscanBin, noMasscan, "fast CIDR/subnet port scanning"},
+		{"arjun", cfg.ArjunBin, noArjun, "parameter discovery"},
+	}
+
+	var missingOptional []string
+	for _, ot := range optionalTools {
+		if ot.optOut {
+			continue
+		}
+		if _, err := exec.LookPath(ot.bin); err != nil {
+			missingOptional = append(missingOptional, fmt.Sprintf("  %-14s %s", ot.name, ot.purpose))
+		}
+	}
+	if len(missingOptional) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "beacon: optional tools not found (reduced coverage):\n%s\n\n", strings.Join(missingOptional, "\n"))
+	}
+
 	if noNuclei {
 		cfg.NucleiBin = ""
 	}
 	if noTestssl {
 		cfg.TestsslBin = ""
 	}
-	// TODO: wire when sqlmap/wpscan integrations land
-	// if noSqlmap { cfg.SqlmapBin = "" }
-	// if noWpscan { cfg.WpscanBin = "" }
 	if noMasscan {
 		cfg.MasscanBin = ""
 	}
 	if noArjun {
 		cfg.ArjunBin = ""
 	}
-	checkExternalTools(cfg, noNuclei, noTestssl)
 
 	// Build unified target list from --domain, --asset, and --targets file.
 	if domain != "" {
@@ -536,14 +641,14 @@ func cmdScan(cfg *config.Config, args []string) {
 	}
 
 	if len(assets) == 0 && githubOrg == "" {
-		fatalf("--domain, --asset, --targets, or --github is required\n\n%s", usageText)
+		fatalf("--domain, --host, --targets, or --github is required\n\n%s", usageText)
 	}
 
 	// Multi-asset mode: scan all targets in a single session.
 	// Also entered when --github is combined with domain targets, or when
 	// --cloud is requested alongside domain scanning.
 	if len(assets) > 1 || githubOrg != "" || cloudEnabled {
-		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel)
+		cmdScanMultiAsset(cfg, assets, deep, permissionConfirmed, authorized, autoApprove, outPath, outputRawPath, format, severityFlag, verbose, noTUI, noEnrich, noDB, extraCIDRs, cloudEnabled, awsProfile, gcpCredentials, azureSubscription, doToken, ociConfigFile, oktaDomain, oktaToken, githubOrg, scannersList, portsList, dryRun, logFile, logLevel, wordlistPath, screenshotDir)
 		return
 	}
 
@@ -551,32 +656,22 @@ func cmdScan(cfg *config.Config, args []string) {
 	domain = assets[0]
 
 	if deep && !permissionConfirmed {
-		fatalf(`--deep requires --permission-confirmed
+		if autoApprove || os.Getenv("BEACON_AUTHORIZED_ACK") == "1" {
+			permissionConfirmed = true
+		} else {
+			_, _ = fmt.Fprintf(os.Stderr, `
+Deep scans send active probes to %s: vulnerability payloads (XSS, SQLi,
+SSRF), credential attempts, and service exploitation. This constitutes
+unauthorized access without explicit written permission from the owner.
 
-Deep scans send active probes to the target: vulnerability payloads (XSS,
-SQLi, SSRF, path traversal), credential attempts, and aggressive TLS cipher
-negotiation. These actions constitute unauthorized computer access in most
-jurisdictions when performed without explicit written consent from the owner.
-
-Applicable laws include (but are not limited to):
-  US:  Computer Fraud and Abuse Act, 18 U.S.C. § 1030
-  UK:  Computer Misuse Act 1990
-  EU:  Directive 2013/40/EU on attacks against information systems
-  DE:  StGB §202a (data espionage), §202c (hacking tools/methods)
-  AU:  Criminal Code Act 1995, Part 10.7 (Computer offences)
-  CA:  Criminal Code R.S.C. 1985, s342.1
-  JP:  Unauthorized Computer Access Law (不正アクセス禁止法)
-  BR:  Lei nº 12.737/2012 (Lei Carolina Dieckmann)
-  SG:  Computer Misuse Act (Cap. 50A)
-  IN:  Information Technology Act 2000, s43/66
-  and equivalent laws in other jurisdictions.
-
-By passing --permission-confirmed you confirm that:
-  1. You have explicit written authorization from the owner of %s
-     to perform active security testing against their systems.
-  2. You understand that performing these scans without authorization
-     may result in civil liability and/or criminal prosecution.
-  3. You accept full legal responsibility for your use of --deep mode.`, domain)
+Do you have written authorization to scan %s? [y/N] `, domain, domain)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+				fatalf("Permission not confirmed. Use --yes to skip prompts in CI.")
+			}
+			permissionConfirmed = true
+		}
 	}
 
 	// --authorized implies --deep and --permission-confirmed.
@@ -584,42 +679,19 @@ By passing --permission-confirmed you confirm that:
 		deep = true
 		permissionConfirmed = true
 	}
-	if authorized {
-		// BEACON_AUTHORIZED_ACK=1 bypasses the interactive prompt for CI/automation.
-		// The operator is still responsible for ensuring authorization exists.
-		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
-			// Interactive legal acknowledgment — cannot be bypassed with a flag.
-			_, _ = fmt.Fprintf(os.Stderr, `
-AUTHORIZED / EXPLOITATION SCAN MODE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This mode enables active exploitation probes against %s, including:
-  • Payload injection (SSTI, XXE, SSRF, Log4Shell, CRLF, prototype pollution)
-  • Real authenticated sessions (SIWE/SIWS wallet login, OAuth flows)
-  • File upload bypass attempts (may leave files on the target server)
-  • Authorization flow mutation (token substitution, redirect_uri abuse)
-  • SAML/JWT forgery attacks against protected endpoints
+	if authorized && !autoApprove && os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
+		_, _ = fmt.Fprintf(os.Stderr, `
+Exploitation mode enables active exploitation against %s: payload injection,
+credential testing, file upload bypass, token forgery.
 
-These actions constitute unauthorized computer access in most jurisdictions
-unless you have EXPLICIT WRITTEN AUTHORIZATION from the system owner.
-
-Applicable laws: US CFAA (18 U.S.C. §1030), UK CMA 1990, EU Dir. 2013/40/EU,
-and equivalent laws in all other jurisdictions.
-
-Type exactly: I have written authorization for %s
-> `, domain, domain)
-			reader := bufio.NewReader(os.Stdin)
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				fatalf("failed to read input: %v", err)
-			}
-			expected := fmt.Sprintf("I have written authorization for %s", domain)
-			if strings.TrimSpace(line) != expected {
-				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
-			}
-			info("Acknowledgment confirmed. Proceeding with authorized scan.\n")
-		} else {
-			info("beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)\n")
+Do you have written authorization to exploit %s? [y/N] `, domain, domain)
+		reader := bufio.NewReader(os.Stdin)
+		line, err := reader.ReadString('\n')
+		if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+			fatalf("Exploitation mode cancelled.")
 		}
+	} else if authorized {
+		info("beacon: exploitation mode (--exploit --yes)\n")
 	}
 
 	scanType := module.ScanSurface
@@ -726,6 +798,8 @@ Type exactly: I have written authorization for %s
 		GitHubToken:          cfg.GitHubToken,
 		OktaDomain:           cfg.OktaDomain,
 		OktaToken:            cfg.OktaToken,
+		WordlistPath:         wordlistPath,
+		ScreenshotsEnabled:   screenshotDir != "",
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)
@@ -1075,25 +1149,59 @@ Type exactly: I have written authorization for %s
 		fatalf("save report: %v", err)
 	}
 
+	// Capture screenshots if requested.
+	if screenshotDir != "" {
+		info("beacon: capturing screenshots...\n")
+		if err := report.CaptureScreenshots(findings, screenshotDir); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "beacon: screenshot capture: %v\n", err)
+		} else {
+			info("beacon: screenshots saved to %s\n", screenshotDir)
+		}
+	}
+
 	// Deliver in the requested format.
 	// Retrieve persisted graph JSON so renderFormat can include it in JSON
 	// reports or render DOT output for --format graph.
 	persistedGraphJSON, _ := st.GetAssetGraph(ctx, run.ID)
 	executions, _ := st.ListAssetExecutions(ctx, run.ID)
-	output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON)
-	if err != nil {
-		fatalf("render report: %v", err)
-	}
 
-	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
-			fatalf("write report file: %v", err)
+	// PDF format is handled separately since it writes a binary file.
+	if strings.EqualFold(format, "pdf") {
+		pdfPath := outPath
+		if pdfPath == "" {
+			pdfPath = fmt.Sprintf("beacon-report-%s.pdf", run.Domain)
 		}
-		info("beacon: report written to %s\n", outPath)
+		if err := report.RenderPDF(*run, enriched, summary, executions, screenshotDir, pdfPath); err != nil {
+			fatalf("render PDF: %v", err)
+		}
+		info("beacon: PDF report written to %s\n", pdfPath)
 	} else {
-		fmt.Print(output)
+		renderOpts := []string{screenshotDir}
+		if narratives {
+			renderOpts = append(renderOpts, "narratives")
+		}
+		output, err := renderFormat(format, *run, enriched, summary, rep, executions, persistedGraphJSON, renderOpts...)
+		if err != nil {
+			fatalf("render report: %v", err)
+		}
+
+		if outPath != "" {
+			if err := os.WriteFile(outPath, []byte(output), 0o600); err != nil {
+				fatalf("write report file: %v", err)
+			}
+			info("beacon: report written to %s\n", outPath)
+		} else {
+			fmt.Print(output)
+		}
 	}
 
+	// PoC bundle generation: write standalone exploit scripts for each finding.
+	if pocDir != "" {
+		if err := report.RenderPoCBundle(findings, pocDir); err != nil {
+			fatalf("generate poc bundle: %v", err)
+		}
+		info("beacon: %d PoC files written to %s\n", len(findings), pocDir)
+	}
 	// Attack path analysis: uses Claude (Anthropic) specifically.
 	// Requires anthropic_api_key in config regardless of the ai: provider block.
 	if cfg.AttackPathAnalysis && cfg.AnthropicAPIKey != "" && len(findings) >= 2 {
@@ -1167,6 +1275,8 @@ func cmdScanMultiAsset(
 	portsList []int,
 	dryRun bool,
 	logFile, logLevel string,
+	wordlistPath string,
+	screenshotDir string,
 ) {
 	scanType := module.ScanSurface
 	if deep {
@@ -1176,45 +1286,44 @@ func cmdScanMultiAsset(
 		scanType = module.ScanAuthorized
 	}
 
-	if deep && !permissionConfirmed {
-		fatalf(`--deep requires --permission-confirmed
-
-Deep scans send active probes to ALL listed targets. Only run this against
-systems you own or have explicit written permission to test.
-
-By passing --permission-confirmed you confirm that you have explicit written
-authorization from the owner of every listed target and accept full legal
-responsibility for your use of --deep mode.`)
-	}
-
-	// --authorized implies --deep and --permission-confirmed.
+	// --authorized/--exploit implies --deep.
 	if authorized {
 		deep = true
 		permissionConfirmed = true
 	}
-	if authorized {
-		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" {
-			targetList := "  • " + strings.Join(targets, "\n  • ")
+
+	if deep && !permissionConfirmed {
+		if autoApproveExploits || os.Getenv("BEACON_AUTHORIZED_ACK") == "1" {
+			permissionConfirmed = true
+		} else {
 			_, _ = fmt.Fprintf(os.Stderr, `
-AUTHORIZED / EXPLOITATION SCAN MODE — MULTI-ASSET
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This mode enables active exploitation probes against %d targets:
-%s
+Deep scans send active probes to %d targets. This constitutes unauthorized
+access without explicit written permission from the owner.
 
-These actions constitute unauthorized computer access in most jurisdictions
-unless you have EXPLICIT WRITTEN AUTHORIZATION from the owner of every target.
-
-Type exactly: I have written authorization for all listed targets
-> `, len(targets), targetList)
+Do you have written authorization to scan all listed targets? [y/N] `, len(targets))
 			reader := bufio.NewReader(os.Stdin)
 			line, err := reader.ReadString('\n')
-			if err != nil {
-				fatalf("failed to read input: %v", err)
+			if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+				fatalf("Permission not confirmed. Use --yes to skip prompts in CI.")
 			}
-			if strings.TrimSpace(line) != "I have written authorization for all listed targets" {
-				fatalf("Acknowledgment not confirmed. Authorized mode cancelled.")
+			permissionConfirmed = true
+		}
+	}
+
+	if authorized {
+		if os.Getenv("BEACON_AUTHORIZED_ACK") != "1" && !autoApproveExploits {
+			targetList := "  • " + strings.Join(targets, "\n  • ")
+			_, _ = fmt.Fprintf(os.Stderr, `
+EXPLOITATION MODE — %d targets:
+%s
+
+This enables active exploitation: payload injection, credential testing,
+file upload bypass, token forgery. Do you have written authorization? [y/N] `, len(targets), targetList)
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
+				fatalf("Exploitation mode cancelled.")
 			}
-			info("Acknowledgment confirmed. Proceeding with authorized scan.\n")
 		} else {
 			info("beacon: BEACON_AUTHORIZED_ACK=1 — skipping interactive prompt (CI mode)\n")
 		}
@@ -1284,6 +1393,8 @@ Type exactly: I have written authorization for all listed targets
 		GitHubToken:          cfg.GitHubToken,
 		OktaDomain:           strOr(oktaDomain, cfg.OktaDomain),
 		OktaToken:            strOr(oktaToken, cfg.OktaToken),
+		WordlistPath:         wordlistPath,
+		ScreenshotsEnabled:   screenshotDir != "",
 	})
 	if err != nil {
 		fatalf("init scanner: %v", err)

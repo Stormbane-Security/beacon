@@ -30,6 +30,9 @@ func init() {
 	},
 		scan.Check(finding.CheckWebDotNetDeserialize, finding.SeverityHigh, finding.ModeDeep),
 		scan.Check(finding.CheckWebInsecureDeserialize, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebJavaDeserialization, finding.SeverityCritical, finding.ModeDeep),
+		scan.Check(finding.CheckWebPHPDeserialization, finding.SeverityHigh, finding.ModeDeep),
+		scan.Check(finding.CheckWebViewstateUnprotected, finding.SeverityHigh, finding.ModeSurface),
 	)
 }
 const (
@@ -97,12 +100,9 @@ func New() *Scanner { return &Scanner{} }
 // Name returns the stable scanner identifier.
 func (s *Scanner) Name() string { return scannerName }
 
-// Run executes the deserialization scan. Deep mode only.
+// Run executes the deserialization scan. Surface mode runs only the ViewState
+// check (passive GET). Deep/Authorized modes run all active probes.
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
-		return nil, nil
-	}
-
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -113,6 +113,15 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	base := schemedetect.Base(ctx, client, asset)
 
 	var findings []finding.Finding
+
+	// Surface-safe: .NET ViewState without MAC — detectable via GET only.
+	if f := probeViewstateUnprotected(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
+	if scanType != module.ScanDeep && scanType != module.ScanAuthorized {
+		return findings, nil
+	}
 
 	// Check 1: do any responses contain Java/PHP serialized object magic bytes?
 	if f := scanResponsesForMagicBytes(ctx, client, asset, base); f != nil {
@@ -139,6 +148,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// Check 5: Python pickle deserialization — send a minimal pickle payload
 	// and check for Python-specific error responses.
 	if f := probePythonPickle(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// Check 6: PHP deserialization — send serialized PHP object in parameters.
+	if f := probePHPDeserialization(ctx, client, asset, base); f != nil {
+		findings = append(findings, *f)
+	}
+
+	// Check 7: Java-specific deserialization check (Content-Type + JSESSIONID).
+	if f := probeJavaDeserializationSpecific(ctx, client, asset, base); f != nil {
 		findings = append(findings, *f)
 	}
 

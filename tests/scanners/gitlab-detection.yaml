@@ -1,0 +1,39 @@
+name: gitlab-detection
+description: Tests GitLab service detection and exposure check
+tags: [gitlab, cicd, detection, integration]
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    ports: ["19800:80"]
+    environment:
+      GITLAB_OMNIBUS_CONFIG: "external_url 'http://localhost:19800'; gitlab_rails['initial_root_password'] = 'beacon_test_pass'"
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:19800/ | grep -qE '200|302'"
+  timeout: 300s
+  interval: 10s
+
+assertions:
+  - name: gitlab-identified
+    type: beacon
+    target: localhost:19800
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.gitlab_exposed
+
+  - name: gitlab-headers
+    type: beacon
+    target: localhost:19800
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: negative-no-jenkins-on-gitlab
+    type: beacon
+    target: localhost:19800
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.jenkins_no_auth
+
+timeout: 15m

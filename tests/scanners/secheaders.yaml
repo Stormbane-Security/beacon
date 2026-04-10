@@ -28,29 +28,50 @@ assertions:
   - name: detects-missing-csp
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.missing_csp
 
   - name: detects-missing-hsts
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.missing_hsts
 
   - name: detects-missing-x-frame-options
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.missing_x_frame_options
 
   - name: detects-server-version-leak
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "80"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
     expect:
       check_id: headers.server_info_leak
+
+  - name: detects-missing-x-content-type
+    type: beacon
+    target: localhost:9280
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: detects-missing-referrer-policy
+    type: beacon
+    target: localhost:9280
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: detects-missing-permissions-policy
+    type: beacon
+    target: localhost:9280
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "80"]
+    expect:
+      check_id: headers.missing_permissions_policy
 
 timeout: 5m

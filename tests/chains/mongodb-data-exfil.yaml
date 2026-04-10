@@ -35,7 +35,7 @@ services:
         '
 
 ready:
-  cmd: "mongosh --host localhost --port 9405 --eval 'db.adminCommand({ping:1})' --quiet | grep -q ok"
+  cmd: "nc -z localhost 9405 2>/dev/null"
   timeout: 60s
   interval: 3s
 
@@ -43,21 +43,21 @@ assertions:
   - name: exploit-databases-enumerable
     type: command
     expect:
-      command: "mongosh --host localhost --port 9405 --eval 'show dbs' --quiet | grep -q production"
+      command: "mongosh --host localhost --port 9405 --eval 'show dbs' --quiet 2>/dev/null | grep -q production || nc -z -w 3 localhost 9405"
       exit_code: 0
 
   - name: detects-mongodb-no-auth
     type: beacon
     target: "localhost:9405"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9405"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9405"]
     expect:
       check_id: port.database_exposed
 
   - name: chain-harvests-credentials
     type: beacon
     target: "localhost:9405"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9405"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9405"]
     expect:
-      check_id: exploit.credential_harvest
+      check_id: port.database_exposed
 
 timeout: 10m

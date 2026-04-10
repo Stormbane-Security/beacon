@@ -1,0 +1,83 @@
+name: e2e-full-pipeline-cmdinj
+description: >
+  Full pipeline E2E test against the Flask command injection app (reuses
+  the cmdinj-exploit fixture). Runs beacon WITHOUT any --scanners filter
+  so the complete pipeline executes: crawl → param discovery → classify →
+  Phase A → Phase B → correlation → chain engine. The crawl should
+  discover the /ping form, and the full pipeline should detect both
+  header issues and the injection endpoint.
+tags: [e2e, full-pipeline, cmdinj, integration]
+
+services:
+  cmdinj-app:
+    image: python:3.11-slim
+    ports: ["20222:8080"]
+    volumes:
+      - ./fixtures/cmdinj-exploit/app.py:/app/app.py:ro
+    command: ["sh", "-c", "pip install flask -q && python /app/app.py"]
+
+ready:
+  cmd: "curl -sf http://localhost:20222/ping?host=localhost >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify command injection works
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-server-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20222/ | grep -qi 'ping'"
+      exit_code: 0
+
+  - name: preflight-cmdinj-works
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20222/ping?host=localhost;id' | grep -q uid"
+      exit_code: 0
+
+  - name: preflight-no-hsts
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20222/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-completes
+    type: beacon
+    target: localhost:20222
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: full-pipeline-detects-missing-hsts
+    type: beacon
+    target: localhost:20222
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — should not fire unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-cors
+    type: beacon
+    target: localhost:20222
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.cors_misconfiguration
+
+  - name: negative-no-hostheader
+    type: beacon
+    target: localhost:20222
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.host_header_injection
+
+timeout: 7m

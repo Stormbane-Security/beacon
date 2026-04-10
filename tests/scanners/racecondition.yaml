@@ -79,7 +79,7 @@ assertions:
   - name: detects-race-condition
     type: beacon
     target: localhost:9317
-    args: ["--no-enrich", "--scanners", "racecondition", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "racecondition", "--deep", "--yes"]
     expect:
       check_id: web.race_condition
 

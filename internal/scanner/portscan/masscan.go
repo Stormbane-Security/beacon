@@ -91,13 +91,8 @@ func parseMasscanOutput(outputFile string) ([]string, error) {
 	if err := json.Unmarshal([]byte(content), &records); err != nil {
 		// Fix masscan's malformed JSON: strip trailing whitespace/commas,
 		// remove the outer brackets, strip again, then re-wrap.
-		fixed := content
-		if strings.HasPrefix(fixed, "[") {
-			fixed = fixed[1:]
-		}
-		if strings.HasSuffix(fixed, "]") {
-			fixed = fixed[:len(fixed)-1]
-		}
+		fixed := strings.TrimPrefix(content, "[")
+		fixed = strings.TrimSuffix(fixed, "]")
 		fixed = strings.TrimRight(strings.TrimSpace(fixed), ",")
 		fixed = "[" + fixed + "]"
 		if err := json.Unmarshal([]byte(fixed), &records); err != nil {

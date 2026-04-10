@@ -30,21 +30,21 @@ assertions:
   - name: detects-cookie-missing-secure
     type: beacon
     target: localhost:9300
-    args: ["--no-enrich", "--scanners", "cookie"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie"]
     expect:
       check_id: cookie.missing_secure
 
   - name: detects-cookie-missing-httponly
     type: beacon
     target: localhost:9300
-    args: ["--no-enrich", "--scanners", "cookie"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie"]
     expect:
       check_id: cookie.missing_httponly
 
   - name: detects-cookie-missing-samesite
     type: beacon
     target: localhost:9300
-    args: ["--no-enrich", "--scanners", "cookie"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cookie"]
     expect:
       check_id: cookie.missing_samesite
 

@@ -26,7 +26,7 @@ assertions:
   - name: no-clickjacking-false-positive
     type: beacon
     target: localhost:9462
-    args: ["--no-enrich", "--scanners", "clickjacking"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "clickjacking"]
     expect:
       no_check_id: http.clickjacking
 

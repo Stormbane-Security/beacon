@@ -30,7 +30,7 @@ assertions:
   - name: detects-api-docs-exposed
     type: beacon
     target: localhost:19973
-    args: ["--no-enrich", "--scanners", "swagger"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "swagger"]
     expect:
       check_id: web.swagger_exposed
 

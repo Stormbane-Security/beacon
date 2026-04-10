@@ -1,0 +1,49 @@
+name: tls-self-signed
+description: >
+  Nginx with a self-signed TLS certificate generated at startup (2048-bit
+  RSA). Beacon tlscheck scanner should detect the self-signed cert and
+  missing HSTS header.
+tags: [tls, certificate, self-signed, scanner]
+
+services:
+  nginx:
+    build:
+      context: ./tls-self-signed
+    ports: ["20047:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:20047/ -o /dev/null -w '%{http_code}' | grep -qE '200|000'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify self-signed cert ---
+  - name: exploit-cert-is-self-signed
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20047 </dev/null 2>/dev/null | openssl x509 -noout -issuer | grep -q 'Test Self-Signed'"
+      exit_code: 0
+
+  - name: exploit-cert-subject-matches
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20047 </dev/null 2>/dev/null | openssl x509 -noout -subject | grep -q 'localhost'"
+      exit_code: 0
+
+  # --- Scanner detection ---
+  - name: detects-self-signed-cert
+    type: beacon
+    target: localhost:20047
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      check_id: tls.cert_self_signed
+
+  # --- Negative: no false positives ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20047
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

@@ -1,0 +1,57 @@
+name: influxdb-noauth
+description: >
+  InfluxDB 2.7 in setup mode with no authentication configured.
+  Beacon should detect the exposed InfluxDB instance and flag the
+  unauthenticated time-series database API.
+tags: [influxdb, scanner, portscan, noauth, timeseries]
+
+services:
+  influxdb:
+    image: influxdb:2.7-alpine
+    ports: ["20060:8086"]
+
+ready:
+  cmd: "curl -sf http://localhost:20060/health | grep -q pass"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: InfluxDB health endpoint responds
+  - name: influxdb-health-ok
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20060/health | grep -q pass"
+      exit_code: 0
+
+  # Pre-flight: InfluxDB API is reachable
+  - name: influxdb-api-reachable
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20060/api/v2 | grep -qE '(200|401|404)'"
+      exit_code: 0
+
+  # Scanner: detect service identification on InfluxDB v2
+  - name: detects-influxdb-service
+    type: beacon
+    target: localhost:20060
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20060", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: not flagged as elasticsearch
+  - name: negative-not-elasticsearch
+    type: beacon
+    target: localhost:20060
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20060", "--yes"]
+    expect:
+      not_check_id: port.elasticsearch_unauthenticated
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20060
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20060", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

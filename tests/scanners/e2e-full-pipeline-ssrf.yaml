@@ -1,0 +1,82 @@
+name: e2e-full-pipeline-ssrf
+description: >
+  Full pipeline E2E test against the Flask SSRF-vulnerable app (reuses
+  the ssrf fixture). Runs beacon WITHOUT any --scanners filter so the
+  complete pipeline executes: crawl → param discovery → classify →
+  Phase A → Phase B → correlation → chain engine. The crawl should
+  discover the URL fetch form, and header scanners should fire on the
+  bare Flask server.
+tags: [e2e, full-pipeline, ssrf, integration]
+
+services:
+  ssrf-app:
+    build:
+      context: ./ssrf
+      dockerfile: Dockerfile
+    ports: ["20220:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:20220/health >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify SSRF-relevant endpoints exist
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-server-responds
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20220/ | grep -qi 'HTTP/1.1 200'"
+      exit_code: 0
+
+  - name: preflight-fetch-works
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20220/api/v1/fetch?url=http://localhost:8080/health' | grep -q 'OK'"
+      exit_code: 0
+
+  - name: preflight-no-hsts
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20220/ | grep -qi 'Strict-Transport-Security'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-completes
+    type: beacon
+    target: localhost:20220
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: full-pipeline-detects-missing-hsts
+    type: beacon
+    target: localhost:20220
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — SSRF app should not fire unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20220
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+  - name: negative-no-hostheader
+    type: beacon
+    target: localhost:20220
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.host_header_injection
+
+timeout: 7m

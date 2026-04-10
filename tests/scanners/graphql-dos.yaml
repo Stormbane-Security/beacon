@@ -1,0 +1,128 @@
+name: graphql-dos-depth-batch
+description: >
+  GraphQL server with introspection enabled and no depth/batch limits.
+  Beacon graphql scanner in deep mode should detect introspection and
+  the missing depth/batch protections.
+tags: [graphql, scanner, api, deep, dos]
+
+services:
+  graphql-app:
+    image: node:20-alpine
+    ports: ["20031:3000"]
+    volumes:
+      - ./graphql-introspection/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20031/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: introspection works
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-introspection-query
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20031/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{__schema{types{name}}}\"}' | grep -q '__schema'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — deep mode
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-graphql-introspection
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.introspection_enabled
+
+  - name: detects-graphql-persisted-query-bypass
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.persisted_query_bypass
+
+  - name: detects-graphql-no-depth-limit
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.no_depth_limit
+
+  - name: detects-graphql-batch-query-enabled
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.batch_query_enabled
+
+  # Pre-flight: batch query works (array of operations returns JSON array)
+  - name: exploit-batch-query-accepted
+    type: command
+    expect:
+      command: "curl -sf -X POST http://localhost:20031/graphql -H 'Content-Type: application/json' -d '[{\"query\":\"{__schema{types{name}}}\"},{\"query\":\"{users{id}}\"}]' | grep -q '__schema'"
+      exit_code: 0
+
+  # Pre-flight: GET query works
+  - name: exploit-get-query-accepted
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20031/graphql?query={__typename}' | grep -q 'data'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Deep-mode DoS detection checks
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-graphql-alias-dos
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.alias_dos
+
+  - name: detects-graphql-fragment-dos
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.fragment_dos
+
+  - name: detects-graphql-deep-nesting
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.deep_nesting
+
+  - name: detects-graphql-batch-no-limit
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.batch_no_limit
+
+  - name: graphql-deep-min-findings
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      min_findings: 7
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

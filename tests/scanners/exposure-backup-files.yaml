@@ -1,0 +1,65 @@
+name: exposure-backup-files
+description: >
+  Nginx serving multiple backup and sensitive file types: backup.sql,
+  wp-config.php.bak, .DS_Store. Beacon exposedfiles scanner should detect
+  backup file exposure at paths it actively probes.
+tags: [exposure, backup, sensitive-file, scanner]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20045:80"]
+    volumes:
+      - ./exposure-backup-files/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./exposure-backup-files/html/index.html:/usr/share/nginx/html/index.html:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20045/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # --- Exploit proofs: verify backup files are accessible ---
+  - name: exploit-backup-sql-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20045/backup.sql | grep -q 'INSERT'"
+      exit_code: 0
+
+  - name: exploit-wp-config-bak-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20045/wp-config.php.bak | grep -q 'DB_PASSWORD'"
+      exit_code: 0
+
+  # --- Scanner detection (deep mode needed for .bak probes) ---
+  - name: detects-backup-file
+    type: beacon
+    target: localhost:20045
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--yes"]
+    expect:
+      check_id: exposure.sensitive_file
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20045
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:20045
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # --- Negative: no false positives from unrelated scanners ---
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20045
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--deep", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

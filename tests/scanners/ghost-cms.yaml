@@ -1,0 +1,58 @@
+name: ghost-cms
+description: >
+  Ghost 5 CMS in development mode. Beacon portscan scanner should
+  detect Ghost via /ghost/ admin panel, ghost meta tags, or
+  /ghost/api/ endpoints.
+tags: [ghost, scanner, portscan, cms]
+
+services:
+  ghost:
+    image: ghost:5-alpine
+    ports: ["20305:2368"]
+    environment:
+      NODE_ENV: development
+      url: "http://localhost:20305"
+
+ready:
+  cmd: "curl -sf http://localhost:20305/ >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-ghost-admin-path
+    type: command
+    expect:
+      command: "curl -sL -o /dev/null -w '%{http_code}' http://localhost:20305/ghost/ | grep -qE '200|301|302'"
+      exit_code: 0
+
+  - name: exploit-ghost-api-site
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20305/ghost/api/content/settings/?key=test 2>&1 | grep -qiE 'ghost|Unknown'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-ghost-cms
+    type: beacon
+    target: localhost:20305
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20305"]
+    expect:
+      check_id: port.ghost_detected
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-ghost
+    type: beacon
+    target: localhost:20305
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20305"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-ghost
+    type: beacon
+    target: localhost:20305
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20305"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

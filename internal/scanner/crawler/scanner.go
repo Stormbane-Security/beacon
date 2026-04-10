@@ -1,7 +1,7 @@
 // Package crawler wraps katana, a JavaScript-aware web crawler from ProjectDiscovery.
 // Katana discovers endpoints, forms, and API paths that static HTML analysis misses.
 // License: MIT — https://github.com/projectdiscovery/katana
-// Skips gracefully if katana is not installed.
+// Falls back to NativeCrawl (pure Go) when katana is not installed.
 package crawler
 
 import (
@@ -26,6 +26,7 @@ func init() {
 		return New(cfg.Get("katana.bin"))
 	},
 		scan.Check(finding.CheckAssetCrawlEndpoints, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckAssetAPIDiscovery, finding.SeverityInfo, finding.ModeSurface),
 	)
 }
 
@@ -60,16 +61,18 @@ func urlOnDomain(rawURL, asset string) bool {
 }
 
 func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanType) ([]finding.Finding, error) {
-	resolvedBin, err := toolinstall.Ensure(s.bin)
-	if err != nil {
-		return nil, fmt.Errorf("katana: %w", err)
-	}
-
 	scheme := "https"
 	if sctx, ok := scan.FromContext(ctx); ok {
 		scheme = sctx.Scheme()
 	}
 	target := scheme + "://" + asset
+
+	resolvedBin, err := toolinstall.Ensure(s.bin)
+	if err != nil {
+		// Katana not installed — fall back to native Go crawler.
+		slog.Info("katana not available, using native crawler", "asset", asset, "error", err)
+		return s.runNativeFallback(ctx, asset, target, scanType)
+	}
 
 	// Scope regex: restrict katana to the target domain and its subdomains.
 	// This prevents katana from following external links and crawling third-party
@@ -79,14 +82,19 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	bareAsset := strings.SplitN(asset, ":", 2)[0] // strip port if present
 	scopeRegex := `.*` + regexp.QuoteMeta(bareAsset) + `.*`
 
-	// Surface: shallow crawl — depth 2, 8 req/s, 2 concurrent, cap 100 pages.
-	// Deep: deeper crawl with JS rendering — depth 3, 3 req/s, 2 concurrent, cap 200 pages.
-	// Rate limiting (-rl) and page cap (-max-count) prevent excessive load on the target.
-	depth, rl, maxCount := "2", "8", "100"
-	var extraArgs []string
-	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
-		depth, rl, maxCount = "3", "3", "200"
-		extraArgs = []string{"-js-crawl"} // parse JS for more endpoints
+	// Surface:    depth 3, 8 req/s, 2 concurrent, cap 200 pages, JS crawl.
+	// Deep:       depth 5, 3 req/s, 2 concurrent, cap 500 pages, JS crawl + headless.
+	// Authorized: depth 7, 3 req/s, 2 concurrent, cap 1000 pages, JS crawl + headless + form fill.
+	depth, rl, maxCount, timeout := "3", "8", "200", 90*time.Second
+	extraArgs := []string{"-js-crawl"} // JS endpoints are discoverable passively in all modes
+	if scanType == module.ScanDeep {
+		depth, rl, maxCount, timeout = "5", "3", "500", 180*time.Second
+		extraArgs = append(extraArgs, "-headless") // render JS, follow SPA routes
+	}
+	if scanType == module.ScanAuthorized {
+		depth, rl, maxCount, timeout = "7", "3", "1000", 300*time.Second
+		extraArgs = append(extraArgs, "-headless")             // render JS, follow SPA routes
+		extraArgs = append(extraArgs, "-automatic-form-fill")  // fill and submit discovered forms
 	}
 
 	args := []string{
@@ -112,9 +120,14 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		for k, v := range sctx.AuthHeaders() {
 			args = append(args, "-H", k+": "+v)
 		}
+		// In authorized mode with credentials, use field-config for custom form
+		// values so katana fills login forms with real credentials.
+		if scanType == module.ScanAuthorized && len(sctx.AuthHeaders()) > 0 {
+			args = append(args, "-field-config", "email:test@example.com,username:admin,password:admin")
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, resolvedBin, args...)
@@ -193,7 +206,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		shown = shown[:200]
 	}
 
-	return []finding.Finding{{
+	findings := []finding.Finding{{
 		CheckID:     finding.CheckAssetCrawlEndpoints,
 		Module:      "surface",
 		Scanner:     scannerName,
@@ -206,5 +219,35 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			"endpoints":   shown,
 		},
 		DiscoveredAt: time.Now(),
-	}}, nil
+	}}
+
+	// Run API discovery on crawled endpoints — extract API routes from JS bundles,
+	// robots.txt, sitemap.xml, OpenAPI specs, and .well-known endpoints.
+	apiClient := scan.SharedClient(10 * time.Second)
+	if sctx, ok := scan.FromContext(ctx); ok {
+		apiClient = sctx.HTTPClient()
+	}
+	apiEndpoints := DiscoverAPIs(ctx, apiClient, target, endpoints)
+	if len(apiEndpoints) > 0 {
+		apiShown := apiEndpoints
+		if len(apiShown) > 100 {
+			apiShown = apiShown[:100]
+		}
+		findings = append(findings, finding.Finding{
+			CheckID:     finding.CheckAssetAPIDiscovery,
+			Module:      "surface",
+			Scanner:     scannerName,
+			Severity:    finding.SeverityInfo,
+			Title:       fmt.Sprintf("%d API endpoints discovered on %s", len(apiEndpoints), asset),
+			Description: fmt.Sprintf("API discovery on %s found %d endpoints from JS bundles, robots.txt, sitemap.xml, OpenAPI specs, and .well-known paths.", asset, len(apiEndpoints)),
+			Asset:       asset,
+			Evidence: map[string]any{
+				"total_count":   len(apiEndpoints),
+				"api_endpoints": apiShown,
+			},
+			DiscoveredAt: time.Now(),
+		})
+	}
+
+	return findings, nil
 }

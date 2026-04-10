@@ -40,14 +40,14 @@ assertions:
   - name: detects-idor-sequential-id
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "idor", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "idor", "--deep", "--yes"]
     expect:
       check_id: api.idor_sequential_id
 
   - name: detects-bola-horizontal-access
     type: beacon
     target: localhost:9280
-    args: ["--no-enrich", "--scanners", "idor", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "idor", "--deep", "--yes"]
     expect:
       check_id: api.bola_horizontal_access
 

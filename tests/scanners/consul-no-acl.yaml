@@ -1,0 +1,65 @@
+name: consul-no-acl
+description: >
+  HashiCorp Consul running without ACL authentication. The /v1/catalog/nodes
+  endpoint is accessible without auth, exposing full cluster topology.
+  Beacon portscan should detect this as port.consul_no_acl.
+tags: [consul, scanner, portscan, exposed, service-mesh]
+
+services:
+  consul:
+    image: hashicorp/consul:latest
+    ports: ["20042:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:20042/v1/catalog/nodes | grep -q 'Node'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: Consul catalog nodes accessible without auth
+  - name: exploit-consul-catalog-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20042/v1/catalog/nodes | grep -q 'Node'"
+      exit_code: 0
+
+  # Pre-flight: Consul KV store accessible
+  - name: exploit-consul-kv-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20042/v1/kv/?recurse | grep -qE '200|404'"
+      exit_code: 0
+
+  # Pre-flight: Consul services endpoint accessible
+  - name: exploit-consul-services-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20042/v1/catalog/services | grep -q '{'"
+      exit_code: 0
+
+  # Scanner: detect Consul without ACL
+  - name: detects-consul-no-acl
+    type: beacon
+    target: localhost:20042
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "8500"]
+    expect:
+      check_id: port.consul_no_acl
+
+  # Scanner: detect missing HSTS
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20042
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no Redis false positive
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20042
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

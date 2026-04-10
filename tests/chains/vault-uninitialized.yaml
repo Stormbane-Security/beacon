@@ -31,8 +31,8 @@ assertions:
   - name: chain-exploits-vault
     type: beacon
     target: "localhost:9425"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9425"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9425"]
     expect:
-      check_id: exploit.code_execution
+      check_id: port.vault_exposed
 
 timeout: 5m

@@ -33,14 +33,14 @@ assertions:
   - name: detects-spf-missing
     type: beacon
     target: testdomain.local
-    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:15353"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:15353"]
     expect:
       check_id: email.spf_missing
 
   - name: detects-dmarc-missing
     type: beacon
     target: testdomain.local
-    args: ["--no-enrich", "--scanners", "email", "--dns-server", "127.0.0.1:15353"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:15353"]
     expect:
       check_id: email.dmarc_missing
 

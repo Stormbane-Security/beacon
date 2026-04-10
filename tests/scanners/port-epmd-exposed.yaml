@@ -25,7 +25,7 @@ assertions:
   - name: detects-epmd-exposed
     type: beacon
     target: localhost:4369
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "4369"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "4369"]
     expect:
       check_id: port.epmd_exposed
 

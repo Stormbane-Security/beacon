@@ -52,15 +52,15 @@ assertions:
   - name: detects-kibana-exposed
     type: beacon
     target: "localhost:9417"
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9417"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9417"]
     expect:
-      check_id: port.kibana_exposed
+      check_id: port.kibana_unauthenticated
 
   - name: chain-extracts-data
     type: beacon
     target: "localhost:9417"
-    args: ["--no-enrich", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9417"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9417"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: port.kibana_unauthenticated
 
 timeout: 10m

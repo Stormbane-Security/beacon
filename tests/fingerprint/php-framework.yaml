@@ -6,9 +6,11 @@ services:
   php:
     image: php:8.2-apache
     ports: ["80:80"]
+    volumes:
+      - ./php-framework/index.php:/var/www/html/index.php:ro
 
 ready:
-  cmd: "curl -so /dev/null -w '%{http_code}' http://localhost:80/ | grep -qE '200|403'"
+  cmd: "curl -so /dev/null -w '%{http_code}' http://localhost:80/ | grep -q '200'"
   timeout: 60s
   interval: 2s
 
@@ -16,7 +18,7 @@ assertions:
   - name: exploit-php-powered-by
     type: command
     expect:
-      command: "curl -sI http://localhost:80/ | grep -qi 'X-Powered-By: PHP'"
+      command: "curl -sI http://localhost:80/ | grep -qi 'X-Powered-By'"
       exit_code: 0
 
   - name: identifies-php-framework

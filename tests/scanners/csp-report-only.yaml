@@ -1,0 +1,40 @@
+name: csp-report-only-mode
+description: >
+  Nginx with Content-Security-Policy-Report-Only but no enforcing CSP header.
+  Beacon cspaudit scanner should detect csp.report_only since the policy
+  is monitoring-only and not blocking any violations.
+tags: [csp, security-headers, web]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20220:80"]
+    volumes:
+      - ./csp-report-only/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:20220/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: exploit-csp-report-only-header-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20220/ | grep -i 'Content-Security-Policy-Report-Only' | grep -q 'default-src'"
+      exit_code: 0
+
+  - name: exploit-no-enforcing-csp
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20220/ | grep -i '^Content-Security-Policy:'"
+      exit_code: 0
+
+  - name: detects-csp-report-only
+    type: beacon
+    target: localhost:20220
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cspaudit"]
+    expect:
+      check_id: csp.report_only
+
+timeout: 3m

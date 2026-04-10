@@ -32,21 +32,21 @@ assertions:
   - name: detects-ssn-pattern
     type: beacon
     target: localhost:9253
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.ssn_pattern
 
   - name: detects-credit-card
     type: beacon
     target: localhost:9253
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.credit_card
 
   - name: detects-api-key
     type: beacon
     target: localhost:9253
-    args: ["--no-enrich", "--scanners", "dlp"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
 

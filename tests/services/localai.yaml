@@ -22,8 +22,22 @@ assertions:
   - name: detects-localai-exposed
     type: beacon
     target: localhost:9290
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "8080"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8080"]
     expect:
       check_id: port.localai_exposed
+
+  - name: deep-mode-localai
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "9290"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-localai
+    type: beacon
+    target: localhost:9290
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "9290"]
+    expect:
+      min_findings: 0
 
 timeout: 10m

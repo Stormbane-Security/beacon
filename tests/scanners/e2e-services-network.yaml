@@ -1,0 +1,75 @@
+name: e2e-services-network
+description: >
+  Service detection for classic network services. Tests FTP (anonymous),
+  SMTP (MailHog), and LDAP protocol identification.
+tags: [e2e, services, network, integration]
+
+services:
+  ftp:
+    image: fauria/vsftpd
+    environment:
+      ANONYMOUS_ENABLE: "YES"
+      LOCAL_ENABLE: "NO"
+    ports: ["19830:21"]
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "19831:1025"
+      - "19832:8025"
+
+  ldap:
+    image: osixia/openldap:latest
+    environment:
+      LDAP_ORGANISATION: "Test"
+      LDAP_DOMAIN: "test.local"
+      LDAP_ADMIN_PASSWORD: "admin"
+    ports: ["19833:389"]
+
+ready:
+  cmd: "curl -sf http://localhost:19832/ >/dev/null && (echo QUIT | nc -w 2 localhost 19830 | grep -qi '220' || true)"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # FTP: anonymous access or service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: ftp-detected
+    type: beacon
+    target: localhost:19830
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SMTP: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: smtp-detected
+    type: beacon
+    target: localhost:19831
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # LDAP: service identification
+  # ══════════════════════════════════════════════════════════════════════
+  - name: ldap-detected
+    type: beacon
+    target: localhost:19833
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+  - name: negative-no-ftp-on-smtp
+    type: beacon
+    target: localhost:19831
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.ftp_anonymous
+
+timeout: 10m

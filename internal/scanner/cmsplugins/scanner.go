@@ -122,7 +122,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, _ module.ScanType) ([]f
 
 	switch cms {
 	case cmsWordPress:
-		return probePlugins(ctx, client, asset, base, "/wp-content/plugins/", wordpressPlugins), nil
+		findings := probePlugins(ctx, client, asset, base, "/wp-content/plugins/", wordpressPlugins)
+		findings = append(findings, probeWordPressUsers(ctx, client, asset, base)...)
+		findings = append(findings, probeWordPressThemes(ctx, client, asset, base)...)
+		findings = append(findings, probeWordPressExtras(ctx, client, asset, base)...)
+		return findings, nil
 	case cmsDrupal:
 		return probePlugins(ctx, client, asset, base, "/modules/contrib/", drupalModules), nil
 	case cmsJoomla:

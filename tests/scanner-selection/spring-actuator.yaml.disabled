@@ -1,0 +1,48 @@
+name: scanner-selection-spring
+description: "Verify beacon selects Spring Boot playbook scanners for exposed actuator"
+tags: [scanner-selection, dry-run, spring]
+
+services:
+  spring-app:
+    image: springcommunity/spring-framework-petclinic:latest
+    ports: ["9305:8080"]
+    environment:
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "*"
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+
+ready:
+  cmd: "curl -sf http://localhost:9305/actuator/health >/dev/null"
+  timeout: 300s
+  interval: 5s
+
+assertions:
+  # --- Dry-run plan verification ---
+  # Spring Boot playbook should match (actuator/health responds, framework=spring).
+  - name: dryrun-matches-spring-playbook
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9305 --dry-run --format json --no-enrich --ports 8080 2>/dev/null | grep -q spring"
+      exit_code: 0
+
+  # Swagger scanner should be planned (Spring Boot playbook and baseline both include it).
+  - name: dryrun-plans-swagger
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9305 --dry-run --format json --no-enrich --ports 8080 2>/dev/null | grep -q swagger"
+      exit_code: 0
+
+  # Baseline scanners must also be present.
+  - name: dryrun-plans-portscan
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9305 --dry-run --format json --no-enrich --ports 8080 2>/dev/null | grep -q portscan"
+      exit_code: 0
+
+  # --- Verbose execution verification ---
+  - name: verbose-runs-swagger
+    type: command
+    expect:
+      command: "beacon scan --domain localhost:9305 --verbose --no-tui --format json --no-enrich --scanners swagger --ports 8080 2>&1 | grep -q swagger"
+      exit_code: 0
+
+timeout: 10m

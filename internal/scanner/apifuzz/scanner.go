@@ -147,7 +147,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		if preReq != nil {
 			preReq.Header.Set("Content-Type", "application/json")
 			if preResp, err := httpClient.Do(preReq); err == nil {
-				preResp.Body.Close()
+				_ = preResp.Body.Close()
 				if preResp.StatusCode == 404 {
 					continue
 				}
@@ -187,7 +187,7 @@ type fuzzAnomaly struct {
 
 func runFuzz(ctx context.Context, bin, target, method, body string) (*fuzzResult, error) {
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("beacon-fuzz-%d.json", time.Now().UnixNano()))
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -241,13 +241,14 @@ func fuzzResultToFindings(result *fuzzResult, asset, path string) []finding.Find
 		}
 
 		// If we classified a specific vuln type, upgrade to the specific check ID
-		if vulnClass == "sqli" {
+		switch vulnClass {
+		case "sqli":
 			checkID = finding.CheckWebSQLi
 			sev = finding.SeverityCritical
-		} else if vulnClass == "cmdinj" {
+		case "cmdinj":
 			checkID = finding.CheckWebCmdInjection
 			sev = finding.SeverityCritical
-		} else if vulnClass == "auth_bypass" {
+		case "auth_bypass":
 			sev = finding.SeverityCritical
 		}
 

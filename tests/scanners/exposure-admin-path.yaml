@@ -29,8 +29,22 @@ assertions:
   - name: detects-admin-path
     type: beacon
     target: localhost:19971
-    args: ["--no-enrich", "--scanners", "dirbust", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      check_id: dirbust.path_found
+      check_id: exposure.admin_path
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:19971
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:19971
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.server_info_leak
 
 timeout: 5m

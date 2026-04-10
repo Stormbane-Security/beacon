@@ -28,8 +28,22 @@ assertions:
   - name: detects-ollama-exposed
     type: beacon
     target: localhost:9285
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "11434"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "11434"]
     expect:
       check_id: port.ollama_exposed
+
+  - name: deep-mode-ollama
+    type: beacon
+    target: localhost:9285
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "9285"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-ollama
+    type: beacon
+    target: localhost:9285
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "9285"]
+    expect:
+      min_findings: 0
 
 timeout: 5m

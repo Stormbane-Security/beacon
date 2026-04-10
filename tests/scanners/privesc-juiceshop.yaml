@@ -1,0 +1,47 @@
+name: privesc-juiceshop
+description: >
+  Privilege escalation test against Juice Shop. Tests that the privesc
+  scanner probes admin endpoints. Juice Shop's /api/Users requires a
+  JWT so this tests the unauthenticated probe path.
+tags: [privesc, juiceshop, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19891:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19891/ | grep -q 'OWASP Juice Shop'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Privesc scanner probes admin endpoints (authorized mode)
+  # Juice Shop returns 401 for /api/Users without JWT, so privesc
+  # should NOT flag it as broken access control (correctly gated).
+  - name: privesc-no-false-positive
+    type: beacon
+    target: localhost:19891
+    args: ["--no-enrich", "--no-nmap", "--scanners", "privesc", "--exploit", "--yes"]
+    expect:
+      not_check_id: web.broken_access_control
+
+  # Headers still detected
+  - name: detects-missing-headers
+    type: beacon
+    target: localhost:19891
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:19891
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

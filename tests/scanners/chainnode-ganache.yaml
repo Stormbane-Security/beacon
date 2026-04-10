@@ -41,7 +41,7 @@ assertions:
   - name: detects-rpc-exposed
     type: beacon
     target: localhost:8545
-    args: ["--no-enrich", "--scanners", "chainnode"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
     expect:
       check_id: chain.node_rpc_exposed
 
@@ -49,7 +49,7 @@ assertions:
   - name: detects-unauth-rpc
     type: beacon
     target: localhost:8545
-    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode", "--deep", "--yes"]
     expect:
       check_id: chain.node_rpc_unauth
 
@@ -57,7 +57,7 @@ assertions:
   - name: detects-dangerous-methods
     type: beacon
     target: localhost:8545
-    args: ["--no-enrich", "--scanners", "chainnode", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode", "--deep", "--yes"]
     expect:
       check_id: chain.rpc_dangerous_method
 
@@ -65,7 +65,7 @@ assertions:
   - name: detects-peer-count-leak
     type: beacon
     target: localhost:8545
-    args: ["--no-enrich", "--scanners", "chainnode"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "chainnode"]
     expect:
       check_id: chain.peer_count_leak
 

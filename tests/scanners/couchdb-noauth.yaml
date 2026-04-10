@@ -1,0 +1,61 @@
+name: couchdb-noauth
+description: >
+  CouchDB with weak admin credentials and default security config.
+  The root endpoint and _all_dbs are accessible without auth in
+  CouchDB 3.x default config. Beacon should detect the CouchDB
+  instance and flag unauthenticated database access.
+tags: [couchdb, scanner, portscan, noauth, database]
+
+services:
+  couchdb:
+    image: couchdb:latest
+    ports: ["20058:5984"]
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: password
+
+ready:
+  cmd: "curl -sf http://localhost:20058/ | grep -q couchdb"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # Pre-flight: CouchDB root endpoint accessible without auth
+  - name: couchdb-root-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20058/ | grep -q couchdb"
+      exit_code: 0
+
+  # Pre-flight: version info exposed without auth
+  - name: couchdb-version-exposed
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20058/ | grep -q version"
+      exit_code: 0
+
+  # Scanner: detect CouchDB as exposed database
+  - name: detects-couchdb-database-exposed
+    type: beacon
+    target: localhost:20058
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes"]
+    expect:
+      check_id: port.database_exposed
+
+  # Scanner: also detect service identification
+  - name: detects-couchdb-service
+    type: beacon
+    target: localhost:20058
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # Negative: not flagged as redis
+  - name: negative-not-redis
+    type: beacon
+    target: localhost:20058
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

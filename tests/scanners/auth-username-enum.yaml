@@ -1,0 +1,68 @@
+name: auth-username-enumeration
+description: >
+  Node.js login server that leaks username existence via variable-length
+  response bodies (hash-based padding). Beacon autoprobe scanner in deep
+  mode should detect auth.username_enumeration via body-length differences
+  and auth.no_lockout since the server never rate-limits login attempts.
+tags: [auth, scanner, enumeration, autoprobe, deep]
+
+services:
+  auth-app:
+    image: node:20-alpine
+    ports: ["20124:3000"]
+    volumes:
+      - ./auth-username-enum/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20124/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # Pre-flight: verify differential responses
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-different-body-lengths
+    type: command
+    expect:
+      command: "A=$(curl -s -X POST http://localhost:20124/login -H 'Content-Type: application/json' -d '{\"email\":\"aaa@test.com\",\"password\":\"x\"}' | wc -c); B=$(curl -s -X POST http://localhost:20124/login -H 'Content-Type: application/json' -d '{\"email\":\"zzzzzzzzzzzzzzz@longdomain.example.com\",\"password\":\"x\"}' | wc -c); test $A -ne $B"
+      exit_code: 0
+
+  - name: exploit-login-page-has-form
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20124/login | grep -qi 'type=\"password\"'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — autoprobe (deep mode)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-username-enumeration
+    type: beacon
+    target: localhost:20124
+    args: ["--no-enrich", "--no-nmap", "--scanners", "autoprobe", "--deep", "--yes"]
+    expect:
+      check_id: auth.username_enumeration
+
+  - name: detects-no-lockout
+    type: beacon
+    target: localhost:20124
+    args: ["--no-enrich", "--no-nmap", "--scanners", "autoprobe", "--deep", "--yes"]
+    expect:
+      check_id: auth.no_lockout
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Negative: no unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-sqli
+    type: beacon
+    target: localhost:20124
+    args: ["--no-enrich", "--no-nmap", "--scanners", "autoprobe", "--deep", "--yes"]
+    expect:
+      not_check_id: web.sqli
+
+timeout: 5m

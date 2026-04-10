@@ -183,7 +183,7 @@ func makeStubs(names ...string) map[string]sc.Scanner {
 
 func TestScannerSkipReasonNotRegistered(t *testing.T) {
 	scanners := makeStubs("email", "tls")
-	reason := scannerSkipReason("nuclei", module.ScanSurface, false, false, "", "", nil, scanners)
+	reason := scannerSkipReason("nuclei", module.ScanSurface, false, false, "", "", nil, scanners, ServiceClassUnknown)
 	if reason != "scanner_not_registered" {
 		t.Errorf("got %q; want scanner_not_registered", reason)
 	}
@@ -192,7 +192,7 @@ func TestScannerSkipReasonNotRegistered(t *testing.T) {
 func TestScannerSkipReasonNoHTTPSkipsHTTPDep(t *testing.T) {
 	scanners := makeStubs("crawler", "screenshot")
 	httpDep := map[string]bool{"crawler": true, "screenshot": true}
-	reason := scannerSkipReason("crawler", module.ScanSurface, true /*noHTTP*/, false, "", "", httpDep, scanners)
+	reason := scannerSkipReason("crawler", module.ScanSurface, true /*noHTTP*/, false, "", "", httpDep, scanners, ServiceClassUnknown)
 	if reason != "no_http_service" {
 		t.Errorf("got %q; want no_http_service", reason)
 	}
@@ -201,7 +201,7 @@ func TestScannerSkipReasonNoHTTPSkipsHTTPDep(t *testing.T) {
 func TestScannerSkipReasonHTTPServiceAllowsHTTPDep(t *testing.T) {
 	scanners := makeStubs("crawler")
 	httpDep := map[string]bool{"crawler": true}
-	reason := scannerSkipReason("crawler", module.ScanSurface, false /*has HTTP*/, false, "", "", httpDep, scanners)
+	reason := scannerSkipReason("crawler", module.ScanSurface, false /*has HTTP*/, false, "", "", httpDep, scanners, ServiceClassUnknown)
 	if reason != "" {
 		t.Errorf("expected no skip, got %q", reason)
 	}
@@ -210,7 +210,7 @@ func TestScannerSkipReasonHTTPServiceAllowsHTTPDep(t *testing.T) {
 func TestScannerSkipReasonVhostBehindWAFNoOriginIP(t *testing.T) {
 	// Behind WAF, no origin IP known — must skip to avoid probing CDN shared edge.
 	scanners := makeStubs("vhost")
-	reason := scannerSkipReason("vhost", module.ScanDeep, false, true /*behindWAF*/, "Cloudflare", "" /*no origin IP*/, nil, scanners)
+	reason := scannerSkipReason("vhost", module.ScanDeep, false, true /*behindWAF*/, "Cloudflare", "" /*no origin IP*/, nil, scanners, ServiceClassUnknown)
 	if reason != "behind_cdn_vhost_probe_unsafe" {
 		t.Errorf("got %q; want behind_cdn_vhost_probe_unsafe", reason)
 	}
@@ -219,7 +219,7 @@ func TestScannerSkipReasonVhostBehindWAFNoOriginIP(t *testing.T) {
 func TestScannerSkipReasonVhostBehindWAFWithOriginIP(t *testing.T) {
 	// Behind WAF but origin IP known — RunWithOriginIP probes origin directly, safe to run.
 	scanners := makeStubs("vhost")
-	reason := scannerSkipReason("vhost", module.ScanDeep, false, true /*behindWAF*/, "Cloudflare", "1.2.3.4" /*origin IP known*/, nil, scanners)
+	reason := scannerSkipReason("vhost", module.ScanDeep, false, true /*behindWAF*/, "Cloudflare", "1.2.3.4" /*origin IP known*/, nil, scanners, ServiceClassUnknown)
 	if reason != "" {
 		t.Errorf("vhost with known origin IP should not be skipped, got %q", reason)
 	}
@@ -227,7 +227,7 @@ func TestScannerSkipReasonVhostBehindWAFWithOriginIP(t *testing.T) {
 
 func TestScannerSkipReasonVhostDirectAsset(t *testing.T) {
 	scanners := makeStubs("vhost")
-	reason := scannerSkipReason("vhost", module.ScanDeep, false, false /*no WAF*/, "", "", nil, scanners)
+	reason := scannerSkipReason("vhost", module.ScanDeep, false, false /*no WAF*/, "", "", nil, scanners, ServiceClassUnknown)
 	if reason != "" {
 		t.Errorf("vhost on direct asset should not be skipped, got %q", reason)
 	}
@@ -235,7 +235,7 @@ func TestScannerSkipReasonVhostDirectAsset(t *testing.T) {
 
 func TestScannerSkipReasonCDNBypassNoCDN(t *testing.T) {
 	scanners := makeStubs("cdnbypass")
-	reason := scannerSkipReason("cdnbypass", module.ScanSurface, false, false /*no CDN*/, "", "", nil, scanners)
+	reason := scannerSkipReason("cdnbypass", module.ScanSurface, false, false /*no CDN*/, "", "", nil, scanners, ServiceClassUnknown)
 	if reason != "no_cdn_detected" {
 		t.Errorf("got %q; want no_cdn_detected", reason)
 	}
@@ -243,7 +243,7 @@ func TestScannerSkipReasonCDNBypassNoCDN(t *testing.T) {
 
 func TestScannerSkipReasonCDNBypassBehindCDN(t *testing.T) {
 	scanners := makeStubs("cdnbypass")
-	reason := scannerSkipReason("cdnbypass", module.ScanSurface, false, true /*CDN detected*/, "Cloudflare", "", nil, scanners)
+	reason := scannerSkipReason("cdnbypass", module.ScanSurface, false, true /*CDN detected*/, "Cloudflare", "", nil, scanners, ServiceClassUnknown)
 	if reason != "" {
 		t.Errorf("cdnbypass behind CDN should not be skipped, got %q", reason)
 	}
@@ -251,9 +251,102 @@ func TestScannerSkipReasonCDNBypassBehindCDN(t *testing.T) {
 
 func TestScannerSkipReasonNonHTTPDepNotSkipped(t *testing.T) {
 	scanners := makeStubs("email")
-	reason := scannerSkipReason("email", module.ScanSurface, true /*noHTTP*/, false, "", "", map[string]bool{}, scanners)
+	reason := scannerSkipReason("email", module.ScanSurface, true /*noHTTP*/, false, "", "", map[string]bool{}, scanners, ServiceClassUnknown)
 	if reason != "" {
 		t.Errorf("email is not HTTP-dependent; should not be skipped, got %q", reason)
+	}
+}
+
+// ── Service classification ───────────────────────────────────────────────────
+
+func TestClassifyServiceDatabase(t *testing.T) {
+	ports := map[int]string{5984: "couchdb", 80: "http"}
+	if got := classifyService(ports); got != ServiceClassDatabase {
+		t.Errorf("got %d; want ServiceClassDatabase", got)
+	}
+}
+
+func TestClassifyServiceRedis(t *testing.T) {
+	ports := map[int]string{6379: "redis"}
+	if got := classifyService(ports); got != ServiceClassDatabase {
+		t.Errorf("got %d; want ServiceClassDatabase", got)
+	}
+}
+
+func TestClassifyServiceMessageQueue(t *testing.T) {
+	ports := map[int]string{5672: "rabbitmq"}
+	if got := classifyService(ports); got != ServiceClassMessageQueue {
+		t.Errorf("got %d; want ServiceClassMessageQueue", got)
+	}
+}
+
+func TestClassifyServiceInfra(t *testing.T) {
+	ports := map[int]string{2375: "docker"}
+	if got := classifyService(ports); got != ServiceClassInfra {
+		t.Errorf("got %d; want ServiceClassInfra", got)
+	}
+}
+
+func TestClassifyServiceMonitoring(t *testing.T) {
+	ports := map[int]string{3000: "grafana"}
+	if got := classifyService(ports); got != ServiceClassMonitoring {
+		t.Errorf("got %d; want ServiceClassMonitoring", got)
+	}
+}
+
+func TestClassifyServiceCICD(t *testing.T) {
+	ports := map[int]string{8080: "jenkins"}
+	if got := classifyService(ports); got != ServiceClassCICD {
+		t.Errorf("got %d; want ServiceClassCICD", got)
+	}
+}
+
+func TestClassifyServiceUnknown(t *testing.T) {
+	ports := map[int]string{80: "http", 443: ""}
+	if got := classifyService(ports); got != ServiceClassUnknown {
+		t.Errorf("got %d; want ServiceClassUnknown", got)
+	}
+}
+
+func TestClassifyServiceEmpty(t *testing.T) {
+	if got := classifyService(nil); got != ServiceClassUnknown {
+		t.Errorf("got %d; want ServiceClassUnknown", got)
+	}
+}
+
+func TestScannerSkipReasonDatabaseSkipsGraphQL(t *testing.T) {
+	scanners := makeStubs("graphql")
+	reason := scannerSkipReason("graphql", module.ScanSurface, false, false, "", "", nil, scanners, ServiceClassDatabase)
+	if reason != "service_type_mismatch" {
+		t.Errorf("got %q; want service_type_mismatch", reason)
+	}
+}
+
+func TestScannerSkipReasonDatabaseAllowsNuclei(t *testing.T) {
+	scanners := makeStubs("nuclei")
+	reason := scannerSkipReason("nuclei", module.ScanSurface, false, false, "", "", nil, scanners, ServiceClassDatabase)
+	if reason != "" {
+		t.Errorf("nuclei should not be skipped for databases, got %q", reason)
+	}
+}
+
+func TestScannerSkipReasonWebAppAllowsAll(t *testing.T) {
+	scanners := makeStubs("graphql", "cors", "crawler")
+	for _, name := range []string{"graphql", "cors", "crawler"} {
+		reason := scannerSkipReason(name, module.ScanSurface, false, false, "", "", nil, scanners, ServiceClassWebApp)
+		if reason != "" {
+			t.Errorf("WebApp should allow %s, got %q", name, reason)
+		}
+	}
+}
+
+func TestScannerSkipReasonUnknownAllowsAll(t *testing.T) {
+	scanners := makeStubs("graphql", "cors")
+	for _, name := range []string{"graphql", "cors"} {
+		reason := scannerSkipReason(name, module.ScanSurface, false, false, "", "", nil, scanners, ServiceClassUnknown)
+		if reason != "" {
+			t.Errorf("Unknown should allow %s, got %q", name, reason)
+		}
 	}
 }
 

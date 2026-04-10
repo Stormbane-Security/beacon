@@ -26,7 +26,7 @@ assertions:
   - name: detects-jenkins-cicd-panel
     type: beacon
     target: localhost:9274
-    args: ["--no-enrich", "--scanners", "jenkins"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jenkins"]
     expect:
       check_id: exposure.cicd_panel
 

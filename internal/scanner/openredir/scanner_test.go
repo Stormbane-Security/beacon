@@ -196,7 +196,7 @@ func TestProofCommandSet(t *testing.T) {
 // Deduplicate: one finding per parameter, not per payload
 // ---------------------------------------------------------------------------
 
-func TestDeduplicatePerParam(t *testing.T) {
+func TestDeduplicatePerPath(t *testing.T) {
 	findings := run(t, func(w http.ResponseWriter, r *http.Request) {
 		// Accept any redirect parameter value — all payloads succeed.
 		if u := r.URL.Query().Get("url"); u != "" {
@@ -207,16 +207,19 @@ func TestDeduplicatePerParam(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	count := 0
+	// Scanner deduplicates per path — at most 1 finding per path.
+	pathCounts := make(map[string]int)
 	for _, f := range findings {
 		if f.CheckID == finding.CheckWebOpenRedirect {
-			if f.Evidence["parameter"] == "url" {
-				count++
+			if path, ok := f.Evidence["path"].(string); ok {
+				pathCounts[path]++
 			}
 		}
 	}
-	if count > 1 {
-		t.Errorf("expected at most 1 finding per parameter, got %d for 'url'", count)
+	for path, count := range pathCounts {
+		if count > 1 {
+			t.Errorf("expected at most 1 finding per path, got %d for %q", count, path)
+		}
 	}
 }
 

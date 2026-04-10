@@ -56,6 +56,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/nginx"
 	_ "github.com/stormbane-security/beacon/internal/scanner/hpp"
 	_ "github.com/stormbane-security/beacon/internal/scanner/harvester"
+	_ "github.com/stormbane-security/beacon/internal/scanner/honeypot"
 	_ "github.com/stormbane-security/beacon/internal/scanner/aidetect"
 	"github.com/stormbane-security/beacon/internal/scanner/aillm"
 	_ "github.com/stormbane-security/beacon/internal/scanner/apiversions"
@@ -67,6 +68,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/smuggling"
 	_ "github.com/stormbane-security/beacon/internal/scanner/websocket"
 	_ "github.com/stormbane-security/beacon/internal/scanner/apifuzz"
+	_ "github.com/stormbane-security/beacon/internal/scanner/authsurface"
 	_ "github.com/stormbane-security/beacon/internal/scanner/takeover"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wafbypass"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wafdetect"
@@ -84,7 +86,10 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/jenkins"
 	_ "github.com/stormbane-security/beacon/internal/scanner/hibp"
 	_ "github.com/stormbane-security/beacon/internal/scanner/historicalurls"
+	_ "github.com/stormbane-security/beacon/internal/scanner/dnsrebind"
 	_ "github.com/stormbane-security/beacon/internal/scanner/hostheader"
+	_ "github.com/stormbane-security/beacon/internal/scanner/rxss"
+	_ "github.com/stormbane-security/beacon/internal/scanner/secondorder"
 	_ "github.com/stormbane-security/beacon/internal/scanner/jwt"
 	"github.com/stormbane-security/beacon/internal/scanner/nuclei"
 	"github.com/stormbane-security/beacon/internal/scanner/passivedns"
@@ -105,12 +110,16 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/swagger"
 	_ "github.com/stormbane-security/beacon/internal/scanner/contractscan"
 	_ "github.com/stormbane-security/beacon/internal/scanner/chainnode"
+	_ "github.com/stormbane-security/beacon/internal/scanner/aimodelsec"
+	_ "github.com/stormbane-security/beacon/internal/scanner/web3defi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/ghactions"
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
 	_ "github.com/stormbane-security/beacon/internal/scanner/correlation"
 	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
+	_ "github.com/stormbane-security/beacon/internal/scanner/privesc"
+	_ "github.com/stormbane-security/beacon/internal/scanner/statemachine"
 	_ "github.com/stormbane-security/beacon/internal/scanner/elinjection"
 	_ "github.com/stormbane-security/beacon/internal/scanner/containerimage"
 	_ "github.com/stormbane-security/beacon/internal/scanner/redos"
@@ -119,6 +128,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/circleci"
 	_ "github.com/stormbane-security/beacon/internal/scanner/okta"
 	"github.com/stormbane-security/beacon/internal/scanner/authctx"
+	"github.com/stormbane-security/beacon/internal/scanner/schemedetect"
 	_ "github.com/stormbane-security/beacon/internal/scanner/cmdinj"
 	_ "github.com/stormbane-security/beacon/internal/scanner/verbtamper"
 	_ "github.com/stormbane-security/beacon/internal/scanner/pathtraversal"
@@ -153,6 +163,8 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/ipv6"
 	_ "github.com/stormbane-security/beacon/internal/scanner/apischema"
 	_ "github.com/stormbane-security/beacon/internal/scanner/jsframework"
+	_ "github.com/stormbane-security/beacon/internal/scanner/wsfuzz"
+	"github.com/stormbane-security/beacon/internal/chainengine"
 	"github.com/stormbane-security/beacon/internal/evasion"
 	"github.com/stormbane-security/beacon/internal/fingerprintdb"
 	"github.com/stormbane-security/beacon/internal/profiler"
@@ -176,8 +188,12 @@ type Module struct {
 	// Nuclei scanner (handles both surface and deep tag lists)
 	nucleiScanner *nuclei.Scanner
 
-	// Playbook registry
-	registry *playbook.Registry
+	// Playbook registry — lazy-loaded on first use so --scanners mode
+	// (which never matches playbooks) skips the parsing cost entirely.
+	registry     *playbook.Registry
+	registryOnce sync.Once
+	registryErr  error
+	userPlaybookDir string // path to ~/.config/beacon/playbooks
 
 	// Store for writing audit records (optional — nil = skip)
 	st store.Store
@@ -230,6 +246,12 @@ type Module struct {
 	// stops before executing scanners. The planned scanner list is returned
 	// as a single finding with the plan details in Evidence.
 	dryRun bool
+
+	// wordlistPath is a custom wordlist file path for brute-force scanners.
+	wordlistPath string
+
+	// screenshotsEnabled controls whether the screenshot scanner runs.
+	screenshotsEnabled bool
 
 	// authCfgs holds per-asset credentials for authenticated scanning.
 	authCfgs []config.AuthConfig
@@ -316,6 +338,11 @@ type Config struct {
 	// Defaults to claude-sonnet-4-6 when empty.
 	ClaudeModel string
 
+	// WordlistPath is a custom wordlist file for brute-force scanners
+	// (dirbust, subdomain brute, parameter discovery). When set, scanners
+	// use this file instead of or in addition to their built-in wordlists.
+	WordlistPath string
+
 	// Auth holds per-asset credentials for authenticated scanning.
 	// When a matching entry exists for the current asset (or asset == "*"),
 	// scanners run against content that is gated behind a login.
@@ -330,6 +357,11 @@ type Config struct {
 	OktaDomain string
 	// OktaToken is the Okta API token for IAM configuration scanning.
 	OktaToken string
+
+	// ScreenshotsEnabled enables the screenshot scanner. When false (default),
+	// the screenshot scanner is skipped entirely, saving ~2.7s per asset.
+	// Set from --screenshots flag.
+	ScreenshotsEnabled bool
 }
 
 const (
@@ -397,15 +429,11 @@ func New(cfg Config) (*Module, error) {
 		deepList = defaultNucleiDeepList
 	}
 
-	reg, err := playbook.Load()
-	if err != nil {
-		return nil, fmt.Errorf("surface: load playbooks: %w", err)
-	}
+	// Playbook registry is lazy-loaded on first use (via getRegistry()).
+	// This avoids parsing YAML playbooks when --scanners mode is active,
+	// since that path never matches playbooks.
 	homeDir, _ := os.UserHomeDir()
 	userPlaybookDir := filepath.Join(homeDir, ".config", "beacon", "playbooks")
-	if err := reg.LoadUserDir(userPlaybookDir); err != nil {
-		return nil, fmt.Errorf("surface: load user playbooks: %w", err)
-	}
 
 	nucl := nuclei.New(cfg.NucleiBin, surfaceList, deepList)
 
@@ -474,7 +502,7 @@ func New(cfg Config) (*Module, error) {
 		bgpScanner:        bgp.New(),
 		scanners:          scannerMap,
 		nucleiScanner:     nucl,
-		registry:          reg,
+		userPlaybookDir:   userPlaybookDir,
 		st:                cfg.Store,
 		anthropicKey:      cfg.AnthropicAPIKey,
 		discoveryAdvisor:  analyze.NewDiscoveryAdvisor(cfg.AnthropicAPIKey),
@@ -489,13 +517,36 @@ func New(cfg Config) (*Module, error) {
 		evasionStrategy:   evasionStrat,
 		adaptiveRecon:     cfg.AdaptiveRecon,
 		claudeModel:       claudeModel,
-		authCfgs:          cfg.Auth,
-		enricher:          enricher,
+		wordlistPath:       cfg.WordlistPath,
+		authCfgs:           cfg.Auth,
+		enricher:           enricher,
+		screenshotsEnabled: cfg.ScreenshotsEnabled,
 	}, nil
 }
 
 func (m *Module) Name() string                       { return "surface" }
 func (m *Module) RequiredInputs() []module.InputType { return []module.InputType{module.InputDomain} }
+
+// getRegistry returns the playbook registry, loading it on first call.
+// This defers the cost of parsing embedded + user YAML playbooks until
+// they are actually needed, which means --scanners mode never pays it.
+func (m *Module) getRegistry() (*playbook.Registry, error) {
+	m.registryOnce.Do(func() {
+		reg, err := playbook.Load()
+		if err != nil {
+			m.registryErr = fmt.Errorf("surface: load playbooks: %w", err)
+			return
+		}
+		if m.userPlaybookDir != "" {
+			if err := reg.LoadUserDir(m.userPlaybookDir); err != nil {
+				m.registryErr = fmt.Errorf("surface: load user playbooks: %w", err)
+				return
+			}
+		}
+		m.registry = reg
+	})
+	return m.registry, m.registryErr
+}
 
 // isDeepOrAuthorized returns true for ScanDeep and ScanAuthorized.
 // Use this to gate checks that need active probing but are not exploitation-class.
@@ -540,6 +591,20 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 
 		fs := m.runAsset(ctx, rootDomain, rootDomain, scanType, input.ScanRunID, 0, input.Progress, map[string]bool{rootDomain: true}, &sync.Mutex{})
+
+		// Active attack path chaining in fast-path mode.
+		if chainEng, err := chainengine.New(scanType); err == nil {
+			for _, f := range fs {
+				if ctx.Err() != nil {
+					break
+				}
+				chainResults := chainEng.OnFinding(ctx, f)
+				if len(chainResults) > 0 {
+					fs = append(fs, chainResults...)
+				}
+			}
+		}
+
 		return fs, ctx.Err()
 	}
 
@@ -613,13 +678,53 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 
 	progress("enumerating subdomains...")
 
+	// ── Improvement 3: Discovery cache ──────────────────────────────────────
+	// Check the subdomain discovery cache before launching scanners. On a cache
+	// hit (within 24h TTL), use cached results immediately and launch discovery
+	// in the background to detect drift (new/removed subdomains).
+	discoveryCache := scan.NewDiscoveryCache()
+	var cachedAssets []string
+	cacheHit := false
+	if discoveryCache != nil {
+		if cached, ok := discoveryCache.Get(rootDomain); ok {
+			cachedAssets = cached
+			cacheHit = true
+			progress(fmt.Sprintf("cache hit: %d subdomains from previous scan — launching background refresh...", len(cached)))
+		}
+	}
+
+	// ── Improvement 5: Wildcard DNS detection (pipeline-level) ──────────────
+	// Detect wildcard DNS early. If detected, brute-force inside the subdomain
+	// scanner is already skipped (it has its own detection), but we log the
+	// warning here for pipeline-level visibility.
+	wildcardDetected, wildcardIP := scan.DetectWildcard(ctx, rootDomain)
+	if wildcardDetected {
+		progress(fmt.Sprintf("wildcard DNS detected for *.%s (resolves to %s) — brute-force results will be filtered", rootDomain, wildcardIP))
+	}
+
 	type discoveryBatch struct {
 		findings []finding.Finding
 		source   string
 	}
-	batchResults := make(chan discoveryBatch, 2)
+	// ── Improvement 4: Smart source prioritization ──────────────────────────
+	// Launch discovery sources in priority order: cache (instant), passivedns
+	// (fast), subdomain scanner (slower — queries crt.sh, subfinder, OTX,
+	// urlscan, brute-force). Process results from each as they arrive so fast
+	// sources feed the scan pipeline while slow sources are still running.
+	batchResults := make(chan discoveryBatch, 4)
 
-	wgDiscover.Add(2)
+	// Source priority 2: Passive DNS (fast, single HTTP call)
+	wgDiscover.Add(1)
+	go func() {
+		defer wgDiscover.Done()
+		discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
+		fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
+		discScanDone("passivedns", fs)
+		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
+	}()
+
+	// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
+	wgDiscover.Add(1)
 	go func() {
 		defer wgDiscover.Done()
 		subfinderFlags := "-silent -passive"
@@ -631,13 +736,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		discScanDone("subdomain", fs)
 		batchResults <- discoveryBatch{findings: fs, source: "subdomain"}
 	}()
-	go func() {
-		defer wgDiscover.Done()
-		discScanStart("passivedns", fmt.Sprintf("hackertarget.com/hostsearch?q=%s", rootDomain))
-		fs, _ := m.passiveDNSScanner.Run(ctx, rootDomain, scanType)
-		discScanDone("passivedns", fs)
-		batchResults <- discoveryBatch{findings: fs, source: "passivedns"}
-	}()
+
 	// Close the channel when all discovery goroutines finish — in a separate
 	// goroutine so that processing of each batch can begin as soon as it
 	// arrives (e.g. passivedns completes in seconds; subfinder may take minutes).
@@ -650,90 +749,90 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	seen := map[string]struct{}{rootDomain: {}}
 	assetSource := map[string]string{rootDomain: "root"}
 
-	discStart := time.Now()
-	for batch := range batchResults {
-		appendFindings(batch.findings)
-		for _, f := range batch.findings {
-			subs := subdomain.Subdomains(f)
-			subs = append(subs, passivedns.Subdomains(f)...)
-			for _, sub := range subs {
-				if sub == "" || !isValidHostname(sub) {
-					continue // reject empty or malformed hostnames from discovery
-				}
-				if _, ok := seen[sub]; !ok {
-					seen[sub] = struct{}{}
-					assets = append(assets, sub)
-					assetSource[sub] = batch.source
-				}
-			}
-			// CDN origin IPs: historical IPs that still respond directly for the
-			// domain bypass CDN/WAF protections entirely. Add each as a scan asset
-			// so the full scanner suite runs against the unprotected origin server.
-			for _, ip := range passivedns.RespondingIPs(f) {
-				if _, ok := seen[ip]; !ok {
-					seen[ip] = struct{}{}
-					assets = append(assets, ip)
-					assetSource[ip] = "cdn_origin"
-				}
-			}
-		}
-	}
-	discDuration := time.Since(discStart)
+	// ── Improvement 1: Streaming results ────────────────────────────────────
+	// Set up the scan semaphore and shared state BEFORE the discovery loop so
+	// we can launch runAsset goroutines for new assets as each discovery batch
+	// arrives, rather than waiting for all discovery to finish first.
+	const maxConcurrentAssets = 10
+	streamSem := make(chan struct{}, maxConcurrentAssets)
+	expandSeen := map[string]bool{}
+	var expandSeenMu sync.Mutex
+	expandSeen[rootDomain] = true
 
-	// Filter out hostnames that don't resolve — saves scanning dead assets.
-	// dnsx probes all at once; fallback uses parallel stdlib DNS.
-	if len(assets) > 1 { // skip single-asset (root domain) — always scan root
-		dnsxCmd := "dnsx -silent (batch DNS resolution)"
-		if m.dnsxBin == "" {
-			dnsxCmd = "stdlib net.LookupHost (parallel DNS resolution — install dnsx for faster results)"
-		}
-		discScanStart("resolve", fmt.Sprintf("%s — filtering %d candidates", dnsxCmd, len(assets)))
-		preResolve := len(assets)
-		assets = subdomain.ResolveBatch(ctx, assets, m.dnsxBin)
-		discScanDone("resolve", nil)
-		_ = preResolve
-		// Ensure root domain is always included even if DNS is flaky.
-		hasRoot := false
-		for _, a := range assets {
-			if a == rootDomain {
-				hasRoot = true
-				break
-			}
-		}
-		if !hasRoot {
-			assets = append([]string{rootDomain}, assets...)
-		}
-	}
+	var assetsDone int64
+	var wgStream sync.WaitGroup
 
-	// Zone transfer (AXFR): run against root domain during Phase 1 so that
-	// any hostnames revealed by the zone data are added to the asset queue
-	// before scanning starts. The finding is also emitted immediately.
-	{
-		discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
-		axfrFinding, axfrHosts := dns.ZoneTransferDiscovery(ctx, rootDomain, rootDomain)
-		var axfrFindings []finding.Finding
-		if axfrFinding != nil {
-			axfrFindings = append(axfrFindings, *axfrFinding)
-			appendFindings(axfrFindings)
-			for _, h := range axfrHosts {
-				if h == "" || !isValidHostname(h) {
-					continue
-				}
-				if _, ok := seen[h]; !ok {
-					seen[h] = struct{}{}
-					assets = append(assets, h)
-					assetSource[h] = "axfr"
-				}
-			}
+	// launchAssetScan starts scanning a single asset via runAsset. Called from
+	// the streaming discovery loop AND from the later BGP/AXFR/CIDR phases.
+	// Thread-safe: uses streamSem for concurrency control.
+	launchAssetScan := func(asset string) {
+		select {
+		case streamSem <- struct{}{}:
+		case <-ctx.Done():
+			return
 		}
-		discScanDone("dns-axfr", axfrFindings)
+		if ctx.Err() != nil {
+			<-streamSem
+			return
+		}
+		if input.PauseCheck != nil {
+			input.PauseCheck(ctx)
+		}
+		wgStream.Add(1)
+		go func() {
+			defer wgStream.Done()
+			defer func() { <-streamSem }()
+			if input.Progress != nil {
+				input.Progress(module.ProgressEvent{
+					Phase:       "scanning",
+					AssetsTotal: len(assets), // approximate — still discovering
+					AssetsDone:  int(atomic.LoadInt64(&assetsDone)),
+					ActiveAsset: asset,
+				})
+			}
+			fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
+			done := int(atomic.AddInt64(&assetsDone, 1))
+			if input.Progress != nil {
+				mu.Lock()
+				fc := len(allFindings)
+				mu.Unlock()
+				input.Progress(module.ProgressEvent{
+					Phase:        "asset_done",
+					AssetsTotal:  len(assets),
+					AssetsDone:   done,
+					FindingCount: fc + len(fs),
+				})
+			}
+			appendFindings(fs)
+		}()
 	}
 
-	progress(fmt.Sprintf("found %d assets — running root-domain scanners (whois, bgp)...", len(assets)))
+	// Source priority 1: Use cached subdomains immediately. Start scanning
+	// them while live discovery sources are still running.
+	if cacheHit && len(cachedAssets) > 0 {
+		// Resolve cached assets to confirm they're still live.
+		resolved := subdomain.ResolveBatch(ctx, cachedAssets, m.dnsxBin)
+		for _, sub := range resolved {
+			if sub == "" || !isValidHostname(sub) {
+				continue
+			}
+			if _, ok := seen[sub]; !ok {
+				seen[sub] = struct{}{}
+				assets = append(assets, sub)
+				assetSource[sub] = "cache"
+				expandSeenMu.Lock()
+				expandSeen[sub] = true
+				expandSeenMu.Unlock()
+				launchAssetScan(sub)
+			}
+		}
+		progress(fmt.Sprintf("launched scans for %d cached assets — waiting for live discovery...", len(resolved)))
+	}
 
-	// Root-only scanners (WHOIS, BGP) — always run, not playbook-driven.
-	// BGP findings are captured separately so we can extract discovered IPs
-	// and PTR hostnames and add them to the asset list for full scanning.
+	// Start scanning the root domain immediately while discovery runs.
+	launchAssetScan(rootDomain)
+
+	// Start WHOIS and BGP in parallel with discovery — no need to wait.
 	var wgRoot sync.WaitGroup
 	var bgpFindings []finding.Finding
 	var bgpMu sync.Mutex
@@ -757,6 +856,112 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		discScanDone("bgp", fs)
 		appendFindings(fs)
 	}()
+
+	// Zone transfer runs concurrently with discovery too.
+	var axfrAssets []string
+	var wgAXFR sync.WaitGroup
+	wgAXFR.Add(1)
+	go func() {
+		defer wgAXFR.Done()
+		discScanStart("dns-axfr", fmt.Sprintf("dig axfr @<ns> %s", rootDomain))
+		axfrFinding, axfrHosts := dns.ZoneTransferDiscovery(ctx, rootDomain, rootDomain)
+		var axfrFindings []finding.Finding
+		if axfrFinding != nil {
+			axfrFindings = append(axfrFindings, *axfrFinding)
+			appendFindings(axfrFindings)
+			for _, h := range axfrHosts {
+				if h == "" || !isValidHostname(h) {
+					continue
+				}
+				mu.Lock()
+				if _, ok := seen[h]; !ok {
+					seen[h] = struct{}{}
+					assets = append(assets, h)
+					assetSource[h] = "axfr"
+					axfrAssets = append(axfrAssets, h)
+				}
+				mu.Unlock()
+			}
+		}
+		discScanDone("dns-axfr", axfrFindings)
+		// Launch scans for AXFR-discovered assets immediately.
+		for _, h := range axfrAssets {
+			expandSeenMu.Lock()
+			expandSeen[h] = true
+			expandSeenMu.Unlock()
+			launchAssetScan(h)
+		}
+	}()
+
+	discStart := time.Now()
+	// ── Improvement 1 (continued): Process batches as they arrive ───────────
+	// Each batch of discovery results is processed immediately. New assets are
+	// DNS-resolved and scanning starts right away — we don't wait for all
+	// discovery sources to finish before the first subdomain scan begins.
+	for batch := range batchResults {
+		appendFindings(batch.findings)
+		var batchNew []string
+		for _, f := range batch.findings {
+			subs := subdomain.Subdomains(f)
+			subs = append(subs, passivedns.Subdomains(f)...)
+			for _, sub := range subs {
+				if sub == "" || !isValidHostname(sub) {
+					continue // reject empty or malformed hostnames from discovery
+				}
+				if _, ok := seen[sub]; !ok {
+					seen[sub] = struct{}{}
+					assets = append(assets, sub)
+					assetSource[sub] = batch.source
+					batchNew = append(batchNew, sub)
+				}
+			}
+			// CDN origin IPs: historical IPs that still respond directly for the
+			// domain bypass CDN/WAF protections entirely. Add each as a scan asset
+			// so the full scanner suite runs against the unprotected origin server.
+			for _, ip := range passivedns.RespondingIPs(f) {
+				if _, ok := seen[ip]; !ok {
+					seen[ip] = struct{}{}
+					assets = append(assets, ip)
+					assetSource[ip] = "cdn_origin"
+					batchNew = append(batchNew, ip)
+				}
+			}
+		}
+		// ── Improvement 2: DNS resolution for each batch ────────────────────
+		// Resolve new hostnames from this batch immediately (concurrent, 50
+		// goroutines). Only resolved hostnames get scanned.
+		if len(batchNew) > 0 {
+			resolved := subdomain.ResolveBatch(ctx, batchNew, m.dnsxBin)
+			resolvedSet := make(map[string]struct{}, len(resolved))
+			for _, r := range resolved {
+				resolvedSet[r] = struct{}{}
+			}
+			for _, h := range batchNew {
+				if _, ok := resolvedSet[h]; ok {
+					expandSeenMu.Lock()
+					expandSeen[h] = true
+					expandSeenMu.Unlock()
+					launchAssetScan(h)
+				}
+			}
+			progress(fmt.Sprintf("%s: +%d assets (%d resolved) — scanning immediately", batch.source, len(batchNew), len(resolved)))
+		}
+	}
+	discDuration := time.Since(discStart)
+
+	// Update the discovery cache with all discovered subdomains.
+	if discoveryCache != nil {
+		var allSubs []string
+		for sub := range seen {
+			if sub != rootDomain {
+				allSubs = append(allSubs, sub)
+			}
+		}
+		discoveryCache.Put(rootDomain, allSubs)
+	}
+
+	// Wait for AXFR, WHOIS, and BGP to complete before processing BGP assets.
+	wgAXFR.Wait()
 	wgRoot.Wait()
 
 	// Extract IPs and PTR hostnames discovered by BGP range scanning and add
@@ -880,75 +1085,37 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	// ── Phase 2 & 3: Classify + Execute per asset ────────────────────────────
-	// Semaphore limits parallel asset scans to avoid flooding the target.
-	// Each asset scan spawns ~12 goroutines and the crawler uses concurrency-5,
-	// so without a limit a large domain (50+ subdomains) could send thousands of
-	// simultaneous connections and cause a service disruption.
-	const maxConcurrentAssets = 10
-	sem := make(chan struct{}, maxConcurrentAssets)
-
-	// expandSeen is shared across ALL runAsset goroutines to prevent two
-	// concurrent parent assets from independently discovering and scanning
-	// the same cert-SAN / port-service / body-subdomain child asset.
-	expandSeen := map[string]bool{}
-	var expandSeenMu sync.Mutex
-	// Pre-populate with all initial assets so depth+1 expansion never
-	// re-scans something already in the initial asset list.
-	for _, a := range assets {
-		expandSeen[a] = true
-	}
-
-	var assetsDone int64 // incremented atomically when each asset goroutine completes
-
+	// ── Phase 2 & 3: Wait for streaming asset scans to complete ─────────────
+	// Asset scanning was already launched incrementally in Phase 1 via
+	// launchAssetScan as each discovery batch arrived. Now we also launch
+	// scans for any assets added by BGP/CIDR that weren't launched yet,
+	// then wait for everything to finish.
 	scanStart := time.Now()
-	var wgAssets sync.WaitGroup
-assetLoop:
-	for _, asset := range assets {
-		asset := asset
-		// Acquire a semaphore slot, but respect context cancellation so we
-		// don't leak goroutines when the scan is cancelled mid-flight.
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			break assetLoop
+
+	// Launch scans for BGP/CIDR-discovered assets that were added after the
+	// streaming discovery loop. These were added to `assets` and `seen` above
+	// but haven't had launchAssetScan called yet.
+	// Prioritize unlaunched assets so the most interesting ones scan first.
+	var unlaunched []string
+	for _, a := range assets {
+		expandSeenMu.Lock()
+		alreadyLaunched := expandSeen[a]
+		expandSeenMu.Unlock()
+		if !alreadyLaunched {
+			unlaunched = append(unlaunched, a)
 		}
-		if ctx.Err() != nil {
-			break assetLoop
-		}
-		// Allow the user to pause between assets.
-		if input.PauseCheck != nil {
-			input.PauseCheck(ctx)
-		}
-		wgAssets.Add(1)
-		go func() {
-			defer wgAssets.Done()
-			defer func() { <-sem }() // release slot
-			if input.Progress != nil {
-				input.Progress(module.ProgressEvent{
-					Phase:       "scanning",
-					AssetsTotal: len(assets),
-					AssetsDone:  int(atomic.LoadInt64(&assetsDone)),
-					ActiveAsset: asset,
-				})
-			}
-			fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
-			done := int(atomic.AddInt64(&assetsDone, 1))
-			if input.Progress != nil {
-				mu.Lock()
-				fc := len(allFindings)
-				mu.Unlock()
-				input.Progress(module.ProgressEvent{
-					Phase:        "asset_done",
-					AssetsTotal:  len(assets),
-					AssetsDone:   done,
-					FindingCount: fc + len(fs),
-				})
-			}
-			appendFindings(fs)
-		}()
 	}
-	wgAssets.Wait()
+	if len(unlaunched) > 1 {
+		unlaunched = scan.PrioritizeTargets(ctx, unlaunched)
+	}
+	for _, a := range unlaunched {
+		expandSeenMu.Lock()
+		expandSeen[a] = true
+		expandSeenMu.Unlock()
+		launchAssetScan(a)
+	}
+
+	wgStream.Wait()
 	scanDuration := time.Since(scanStart)
 
 	// ── Crawler-discovered hostname expansion ──────────────────────────────────
@@ -977,7 +1144,7 @@ assetLoop:
 		for _, asset := range crawlAssets {
 			asset := asset
 			select {
-			case sem <- struct{}{}:
+			case streamSem <- struct{}{}:
 			case <-ctx.Done():
 				break crawlLoop
 			}
@@ -987,7 +1154,7 @@ assetLoop:
 			wgCrawl.Add(1)
 			go func() {
 				defer wgCrawl.Done()
-				defer func() { <-sem }()
+				defer func() { <-streamSem }()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1021,7 +1188,7 @@ assetLoop:
 		for _, asset := range harvesterAssets {
 			asset := asset
 			select {
-			case sem <- struct{}{}:
+			case streamSem <- struct{}{}:
 			case <-ctx.Done():
 				break harvesterLoop
 			}
@@ -1031,7 +1198,7 @@ assetLoop:
 			wgHarvester.Add(1)
 			go func() {
 				defer wgHarvester.Done()
-				defer func() { <-sem }()
+				defer func() { <-streamSem }()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1138,7 +1305,7 @@ assetLoop:
 			for _, asset := range roundAssets {
 				asset := asset
 				select {
-				case sem <- struct{}{}:
+				case streamSem <- struct{}{}:
 				case <-ctx.Done():
 					break roundLoop
 				}
@@ -1148,7 +1315,7 @@ assetLoop:
 				wgRound.Add(1)
 				go func() {
 					defer wgRound.Done()
-					defer func() { <-sem }()
+					defer func() { <-streamSem }()
 					if input.Progress != nil {
 						input.Progress(module.ProgressEvent{
 							Phase:       "scanning",
@@ -1284,6 +1451,21 @@ assetLoop:
 		allFindings = filtered
 	}
 
+	// ── Active attack path chaining (ScanAuthorized only) ───────────────────
+	// The chain engine takes completed findings and actively exploits one to
+	// discover the next. Only runs in ScanAuthorized mode — New() enforces this.
+	if chainEng, err := chainengine.New(scanType); err == nil {
+		for _, f := range allFindings {
+			if ctx.Err() != nil {
+				break
+			}
+			chainResults := chainEng.OnFinding(ctx, f)
+			if len(chainResults) > 0 {
+				allFindings = append(allFindings, chainResults...)
+			}
+		}
+	}
+
 	// Deduplicate findings by CheckID+Asset, preferring native scanners over
 	// nuclei. When both a native scanner and nuclei detect the same issue on
 	// the same asset, the native finding has richer evidence and proof commands.
@@ -1356,6 +1538,31 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 		}
 	}
 	ctx = authctx.WithHTTPClient(ctx, httpClient)
+
+	// If any injection scanner is in the filter, run native param discovery first
+	// so discovered parameters are available in context.
+	if isDeepOrAuthorized(scanType) {
+		needsParamDiscovery := false
+		for _, name := range m.scannerFilter {
+			if injectionScannerNames[name] {
+				needsParamDiscovery = true
+				break
+			}
+		}
+		if needsParamDiscovery {
+			base := schemedetect.Base(ctx, httpClient, asset)
+			nativeFound := paramdiscovery.DiscoverParams(ctx, httpClient, base+"/", "GET")
+			if len(nativeFound) > 0 {
+				params := make(map[string][]string)
+				var names []string
+				for _, p := range nativeFound {
+					names = append(names, p.Name)
+				}
+				params["/"] = names
+				ctx = paramdiscovery.WithDiscoveredParams(ctx, params)
+			}
+		}
+	}
 
 	var findings []finding.Finding
 	var mu sync.Mutex
@@ -1526,6 +1733,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if authHeaders != nil {
 		sctx.WithAuthHeaders(authHeaders)
 	}
+	if m.wordlistPath != "" {
+		sctx.WithWordlist(m.wordlistPath)
+	}
+	sctx.WithScreenshots(m.screenshotsEnabled)
 	ctx = sctx.Inject(ctx)
 
 	if progressFn != nil && (ev.Title != "" || len(ev.ServiceVersions) > 0 || ev.CertIssuer != "") {
@@ -1560,8 +1771,12 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		})
 	}
 
-	// Match playbooks
-	matched := m.registry.Match(ev)
+	// Match playbooks (lazy-loaded on first use)
+	reg, err := m.getRegistry()
+	if err != nil {
+		return nil // playbook load failure — degrade gracefully
+	}
+	matched := reg.Match(ev)
 
 	// Playbook-driven discovery (e.g. Cloudflare origin probing) runs up to
 	// maxPlaybookDepth levels deep. Stops at the configured ceiling to prevent
@@ -1648,17 +1863,24 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	noHTTP := ev.StatusCode == 0
 
 	// ── Phase A: Intelligence scanners (parallel) ────────────────────────────
-	// Run wafdetect, portscan, and aidetect concurrently and wait for all before
-	// starting Phase B. Their findings feed into Phase B:
-	//   • wafdetect: WAF vendor → skip vhost scanning on CDN-fronted assets
-	//   • portscan:  open-port set → service-specific Nuclei tag injection
-	//   • aidetect:  AI endpoint list → aillm uses discovered endpoints instead of
-	//               guessing defaults, reducing false negatives on non-standard paths
-	phaseANames := []string{"wafdetect", "portscan", "aidetect"}
+	// Run wafdetect, portscan, aidetect, and authsurface concurrently and wait
+	// for all before starting Phase B. Their findings feed into Phase B:
+	//   • wafdetect:    WAF vendor → skip vhost scanning on CDN-fronted assets
+	//   • portscan:     open-port set → service-specific Nuclei tag injection
+	//   • aidetect:     AI endpoint list → aillm uses discovered endpoints instead of
+	//                  guessing defaults, reducing false negatives on non-standard paths
+	//   • authsurface:  login form detection → auth pipeline acquires session before
+	//                  Phase B so all subsequent scanners run authenticated
+	phaseANames := []string{"wafdetect", "portscan", "aidetect", "authsurface"}
 	phaseADone := make(map[string]bool, len(phaseANames))
 	var phaseAMu sync.Mutex
 	var phaseAFindings []finding.Finding
 	var phaseAWg sync.WaitGroup
+
+	// Per-scanner done channels allow streaming: portscan results are available
+	// immediately (for service classification and HTTP alt-port recovery) while
+	// slower Phase A scanners (wafdetect, authsurface) continue in parallel.
+	phaseADoneCh := make(map[string]chan struct{}, len(phaseANames))
 
 	for _, name := range phaseANames {
 		if !planContains(plan.Scanners, name) {
@@ -1669,6 +1891,8 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			continue
 		}
 		phaseADone[name] = true
+		doneCh := make(chan struct{})
+		phaseADoneCh[name] = doneCh
 		name, sc := name, sc
 		phaseAWg.Add(1)
 		go func() {
@@ -1677,15 +1901,28 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			phaseAMu.Lock()
 			phaseAFindings = append(phaseAFindings, result.Findings...)
 			phaseAMu.Unlock()
+			close(doneCh)
 			m.saveScanMetricElapsed(ctx, scanRunID, asset, name, result.Metrics.Duration, result.Findings, result.Error)
 		}()
 	}
+
+	// Stream portscan results: extract open ports as soon as portscan finishes,
+	// overlapping with wafdetect/aidetect/authsurface still running.
+	if ch, ok := phaseADoneCh["portscan"]; ok {
+		<-ch
+	}
+
+	// Extract port intelligence immediately — don't wait for wafdetect/authsurface.
+	phaseAMu.Lock()
+	openPorts := extractOpenPorts(phaseAFindings)
+	phaseAMu.Unlock()
+
+	// Now wait for the remaining Phase A scanners to finish.
 	phaseAWg.Wait()
 
-	// Extract WAF, origin IP, port, and AI endpoint intelligence from Phase A results.
+	// Extract WAF, origin IP, and AI endpoint intelligence from all Phase A results.
 	behindWAF, wafVendor := extractWAFInfo(phaseAFindings)
 	originIP := extractOriginIP(phaseAFindings)
-	openPorts := extractOpenPorts(phaseAFindings)
 	// Feed WAF/IDS vendor back into evidence for playbook matching and AI enrichment.
 	if wafVendor != "" {
 		ev.WAFVendor = wafVendor
@@ -1698,6 +1935,25 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if eps := extractAIEndpoints(phaseAFindings); len(eps) > 0 {
 		ev.AIEndpoints = eps
 	}
+	// Classify the service type from portscan results — used to skip irrelevant
+	// scanners (e.g., skip all HTTP scanners for a CouchDB/Redis target).
+	svcClass := classifyService(openPorts)
+	if svcClass != ServiceClassUnknown && svcClass != ServiceClassWebApp && progressFn != nil {
+		classNames := map[ServiceClass]string{
+			ServiceClassDatabase:     "database",
+			ServiceClassMessageQueue: "message_queue",
+			ServiceClassMonitoring:   "monitoring",
+			ServiceClassCICD:         "cicd",
+			ServiceClassInfra:        "infrastructure",
+			ServiceClassAPI:          "api",
+		}
+		progressFn(module.ProgressEvent{
+			Phase:       "service_class",
+			ActiveAsset: asset,
+			StatusMsg:   fmt.Sprintf("%s → service class: %s (irrelevant scanners will be skipped)", asset, classNames[svcClass]),
+		})
+	}
+
 	// Propagate portscan-identified service versions into Evidence so Phase B
 	// scanners and nuclei template selection can use them. Portscan probes
 	// identify services via banner fingerprinting (e.g., "redis", "ssh", "mysql").
@@ -1761,7 +2017,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		for _, pb := range matched {
 			existingPlaybooks[pb.Name] = true
 		}
-		newMatches := m.registry.Match(ev)
+		newMatches := reg.Match(ev)
 		for _, pb := range newMatches {
 			if !existingPlaybooks[pb.Name] {
 				matched = append(matched, pb)
@@ -1840,6 +2096,58 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}
 	}
 
+	// ── Auth pipeline: acquire session from Phase A authsurface findings ────
+	// If authsurface detected a login form and no user-provided auth config
+	// matched this asset, try to acquire a session via auto-registration or
+	// default credentials. On success, rebuild the HTTP client and ScanContext
+	// so all Phase B scanners run authenticated.
+	if len(m.authCfgs) == 0 || !authConfigMatchesAsset(m.authCfgs, asset) {
+		loginForms := auth.ExtractLoginForms(phaseAFindings, ev.Scheme, asset)
+		regAvailable := auth.HasRegistration(phaseAFindings)
+		if len(loginForms) > 0 {
+			pipeline := auth.NewPipeline(httpClient)
+			authedClient, sessionInfo, pipelineErr := pipeline.AcquireSession(
+				ctx, asset, ev.Scheme, &loginForms[0], m.authCfgs, regAvailable,
+			)
+			if pipelineErr == nil && authedClient != nil {
+				httpClient = authedClient
+				// Re-wrap with evasion monitoring.
+				baseTransport = httpClient.Transport
+				if baseTransport == nil {
+					baseTransport = http.DefaultTransport
+				}
+				httpClient.Transport = &evasion.MonitoredTransport{
+					Base:    baseTransport,
+					Monitor: evasionMonitor,
+					Rate:    adaptiveRate,
+				}
+				// Rebuild scan context with the authenticated client.
+				ctx = authctx.WithHTTPClient(ctx, httpClient)
+				sctx = scan.NewContext(asset, scanType).WithHTTPClient(httpClient).WithEvidence(&ev)
+				if sessionInfo != nil && len(sessionInfo.Headers) > 0 {
+					sctx.WithAuthHeaders(sessionInfo.Headers)
+				}
+				if m.wordlistPath != "" {
+					sctx.WithWordlist(m.wordlistPath)
+				}
+				sctx.WithScreenshots(m.screenshotsEnabled)
+				ctx = sctx.Inject(ctx)
+
+				if progressFn != nil {
+					source := "unknown"
+					if sessionInfo != nil {
+						source = sessionInfo.Source
+					}
+					progressFn(module.ProgressEvent{
+						Phase:       "auth_pipeline",
+						ActiveAsset: asset,
+						StatusMsg:   fmt.Sprintf("Session acquired via %s", source),
+					})
+				}
+			}
+		}
+	}
+
 	// Apply inter-scanner jitter when evasion is configured. This inserts a
 	// random [0, MaxJitterMs] ms sleep before each Phase B scanner starts,
 	// spreading requests over time to avoid rate-limit clustering.
@@ -1906,7 +2214,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		if phaseADone[name] {
 			continue // already ran in Phase A
 		}
-		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners)
+		skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 		if skipReason != "" {
 			m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
 			continue
@@ -2118,13 +2426,20 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		findings = append(findings, *aifpUnknownFinding)
 	}
 
-	// ── Parameter discovery from crawl results ───────────────────────────────
+	// ── Parameter discovery from crawl results + native brute-force ─────────
 	// Extract URLs from crawler findings and discover parameters from URL query
 	// strings so web vuln scanners triggered in the convergence loop (sqli, ssrf,
 	// cmdinj, ssti, xxe, pathtraversal) can probe discovered parameters alongside
 	// their hardcoded lists. Runs after Phase B (crawler has finished) and before
 	// the convergence loop (web vuln scanners may be triggered there).
+	//
+	// Also runs native Arjun-style brute-force param discovery on the asset root
+	// so injection scanners have discovered params even when crawl results are
+	// sparse.
 	{
+		allParams := make(map[string][]string)
+
+		// 1. Extract params from crawl result URLs.
 		var crawlURLs []string
 		for _, f := range findings {
 			if f.CheckID != finding.CheckAssetCrawlEndpoints {
@@ -2142,10 +2457,32 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 		if len(crawlURLs) > 0 {
-			discoveredParams := paramdiscovery.ExtractFromURLs(crawlURLs)
-			if len(discoveredParams) > 0 {
-				ctx = paramdiscovery.WithDiscoveredParams(ctx, discoveredParams)
+			for path, params := range paramdiscovery.ExtractFromURLs(crawlURLs) {
+				allParams[path] = params
 			}
+		}
+
+		// 2. Native brute-force param discovery on asset root (deep/authorized only).
+		if isDeepOrAuthorized(scanType) && !noHTTP {
+			nativeClient := &http.Client{Timeout: 10 * time.Second}
+			if authctx.IsAuthenticated(ctx) {
+				nativeClient = authctx.HTTPClient(ctx)
+			}
+			base := schemedetect.Base(ctx, nativeClient, asset)
+			nativeFound := paramdiscovery.DiscoverParams(ctx, nativeClient, base+"/", "GET")
+			if len(nativeFound) > 0 {
+				var names []string
+				for _, p := range nativeFound {
+					names = append(names, p.Name)
+				}
+				existing := allParams["/"]
+				merged := mergeParamNames(existing, names)
+				allParams["/"] = merged
+			}
+		}
+
+		if len(allParams) > 0 {
+			ctx = paramdiscovery.WithDiscoveredParams(ctx, allParams)
 		}
 	}
 
@@ -2193,7 +2530,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			// (a) Re-match playbooks with newly discovered check IDs.
 			if len(newCheckIDs) > 0 {
 				ev.PhaseACheckIDs = append(ev.PhaseACheckIDs, newCheckIDs...)
-				for _, pb := range m.registry.Match(ev) {
+				for _, pb := range reg.Match(ev) {
 					for _, s := range playbook.BuildRunPlan([]*playbook.Playbook{pb}).Scanners {
 						if !ranScanners[s] && !seen[s] {
 							newScanners = append(newScanners, s)
@@ -2229,7 +2566,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 				if !ok {
 					continue
 				}
-				skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners)
+				skipReason := scannerSkipReason(name, scanType, noHTTP, behindWAF, wafVendor, originIP, httpDependentScanners, m.scanners, svcClass)
 				if skipReason != "" {
 					m.saveSkipMetric(ctx, scanRunID, asset, name, skipReason)
 					continue
@@ -2868,6 +3205,18 @@ func sanitizeNucleiTags(tags []string) []string {
 }
 
 // planContains reports whether name appears in the scanner list.
+// authConfigMatchesAsset returns true if any AuthConfig explicitly targets the
+// given asset (exact match or wildcard). Used to skip the auto-auth pipeline
+// when the user already provided credentials.
+func authConfigMatchesAsset(cfgs []config.AuthConfig, asset string) bool {
+	for _, c := range cfgs {
+		if c.Asset == asset || c.Asset == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 func planContains(scanners []string, name string) bool {
 	for _, s := range scanners {
 		if s == name {
@@ -3314,6 +3663,7 @@ func scannerSkipReason(
 	originIP string,
 	httpDep map[string]bool,
 	scanners map[string]sc.Scanner,
+	svcClass ServiceClass,
 ) string {
 	// Scanner not in the registry — nothing to run.
 	if _, ok := scanners[name]; !ok {
@@ -3334,7 +3684,211 @@ func scannerSkipReason(
 	if name == "cdnbypass" && !behindWAF {
 		return "no_cdn_detected"
 	}
+	// Service type mismatch — skip scanners irrelevant to the detected service class.
+	if svcClass != ServiceClassUnknown && svcClass != ServiceClassWebApp {
+		if !serviceScannerRelevant(svcClass, name) {
+			return "service_type_mismatch"
+		}
+	}
+
 	return ""
+}
+
+// ServiceClass categorizes what kind of service the target runs.
+type ServiceClass int
+
+const (
+	ServiceClassUnknown      ServiceClass = iota
+	ServiceClassWebApp                     // HTML-serving web application (nginx, Apache, Express)
+	ServiceClassAPI                        // REST/GraphQL/gRPC API
+	ServiceClassDatabase                   // MySQL, PostgreSQL, MongoDB, CouchDB, Redis, Elasticsearch
+	ServiceClassMessageQueue               // RabbitMQ, Kafka, MQTT, NATS
+	ServiceClassMonitoring                 // Prometheus, Grafana, Kibana, Jaeger
+	ServiceClassCICD                       // Jenkins, GitLab, TeamCity
+	ServiceClassInfra                      // Docker, Kubernetes, Consul, Vault, etcd
+	ServiceClassCloudStorage               // S3, GCS, Azure Blob — skip injection scanners
+)
+
+// classifyService maps a service name (from portscan evidence) to a ServiceClass.
+// Returns ServiceClassUnknown for unrecognized services.
+func classifyService(openPorts map[int]string) ServiceClass {
+	// Database services — strongest signal, skip all HTTP scanners.
+	dbServices := map[string]bool{
+		"mysql": true, "postgresql": true, "postgres": true,
+		"mongodb": true, "couchdb": true, "redis": true,
+		"Elasticsearch": true, "OpenSearch": true,
+		"memcached": true, "influxdb": true, "cassandra": true,
+		"neo4j": true, "splunk": true, "mssql": true,
+		"oracle": true, "clickhouse": true, "cockroachdb": true,
+	}
+	mqServices := map[string]bool{
+		"rabbitmq": true, "kafka": true, "mqtt": true,
+		"nats": true, "activemq": true, "mosquitto": true,
+	}
+	monServices := map[string]bool{
+		"prometheus": true, "grafana": true, "kibana": true,
+		"jaeger": true, "zabbix": true, "nagios": true,
+		"wazuh": true,
+	}
+	cicdServices := map[string]bool{
+		"jenkins": true, "gitlab": true, "teamcity": true,
+		"drone": true, "bamboo": true, "concourse": true,
+	}
+	infraServices := map[string]bool{
+		"docker": true, "kubernetes": true, "kubelet": true,
+		"kubelet-readonly": true, "consul": true, "vault": true,
+		"etcd": true, "envoy": true, "istio": true,
+		"proxmox": true, "nomad": true,
+	}
+
+	// Check all open ports — if ANY port runs a known service, classify.
+	// Priority: database > mq > infra > monitoring > cicd.
+	// If multiple classes are present, the most restrictive wins.
+	for _, svc := range openPorts {
+		if svc == "" {
+			continue
+		}
+		if dbServices[svc] {
+			return ServiceClassDatabase
+		}
+	}
+	for _, svc := range openPorts {
+		if mqServices[svc] {
+			return ServiceClassMessageQueue
+		}
+	}
+	for _, svc := range openPorts {
+		if infraServices[svc] {
+			return ServiceClassInfra
+		}
+	}
+	for _, svc := range openPorts {
+		if monServices[svc] {
+			return ServiceClassMonitoring
+		}
+	}
+	for _, svc := range openPorts {
+		if cicdServices[svc] {
+			return ServiceClassCICD
+		}
+	}
+	// Cloud storage: detected from service name patterns in portscan evidence.
+	// S3/GCS/Azure responses have distinctive Server headers that portscan may capture.
+	cloudStorageServices := map[string]bool{
+		"s3": true, "gcs": true, "azure-blob": true, "minio": true,
+		"AmazonS3": true, "UploadServer": true, // Google Cloud Storage Server header
+	}
+	for _, svc := range openPorts {
+		if cloudStorageServices[svc] {
+			return ServiceClassCloudStorage
+		}
+	}
+
+	return ServiceClassUnknown
+}
+
+// serviceScannerRelevant returns true if the named scanner is relevant for the
+// given service class. WebApp allows ALL scanners. Unknown allows ALL.
+func serviceScannerRelevant(svcClass ServiceClass, scannerName string) bool {
+	switch svcClass {
+	case ServiceClassDatabase, ServiceClassMessageQueue:
+		// Only portscan-phase and asset-level scanners are useful.
+		return databaseRelevantScanners[scannerName]
+	case ServiceClassAPI:
+		return apiRelevantScanners[scannerName]
+	case ServiceClassMonitoring:
+		return monitoringRelevantScanners[scannerName]
+	case ServiceClassCICD:
+		return cicdRelevantScanners[scannerName]
+	case ServiceClassInfra:
+		return infraRelevantScanners[scannerName]
+	case ServiceClassCloudStorage:
+		return cloudStorageRelevantScanners[scannerName]
+	default:
+		return true
+	}
+}
+
+// Scanner relevance maps per service class.
+// These define which Phase B scanners are worth running.
+// Phase A scanners (portscan, wafdetect, aidetect, authsurface) are never
+// subject to service-class filtering — they run unconditionally.
+var databaseRelevantScanners = map[string]bool{
+	// Phase A (always run, but listed for completeness)
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	// Asset intel / DNS — always relevant
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true,
+	// Nuclei covers database-specific CVEs via tags
+	"nuclei": true,
+}
+
+var apiRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// API-relevant HTTP scanners
+	"cors": true, "jwt": true, "graphql": true, "swagger": true,
+	"authfuzz": true, "rxss": true, "ratelimit": true, "oauth": true,
+	"secheaders": true, "exposedfiles": true, "apiversions": true,
+	"apifuzz": true, "apischema": true, "grpcreflect": true,
+	"hostheader": true, "smuggling": true, "websocket": true,
+	"wsfuzz": true, "httpmethods": true, "cookie": true,
+	"wellknown": true, "h2c": true, "http2": true,
+	"crawler": true, "screenshot": true, "webcontent": true,
+	"autoprobe": true, "idor": true, "accesscontrol": true,
+	"sqli": true, "nosqli": true, "ssrf": true, "ssti": true,
+	"cmdinj": true, "xxe": true, "deserial": true,
+	"errordisclosure": true, "verbtamper": true,
+}
+
+var monitoringRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// Monitoring dashboards often expose sensitive data
+	"secheaders": true, "exposedfiles": true, "swagger": true,
+	"webcontent": true, "screenshot": true, "crawler": true,
+	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
+	"autoprobe": true, "clickjacking": true,
+}
+
+var cicdRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// CI/CD-relevant scanners
+	"secheaders": true, "exposedfiles": true, "jenkins": true,
+	"webcontent": true, "screenshot": true, "crawler": true,
+	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
+	"autoprobe": true, "ghactions": true, "bitbucket": true,
+	"circleci": true, "okta": true,
+}
+
+var infraRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// Infrastructure scanners
+	"secheaders": true, "exposedfiles": true, "swagger": true,
+	"webcontent": true, "screenshot": true, "crawler": true,
+	"cors": true, "jwt": true, "cookie": true, "wellknown": true,
+	"autoprobe": true, "gateway": true, "containerimage": true,
+}
+
+var cloudStorageRelevantScanners = map[string]bool{
+	"portscan": true, "wafdetect": true, "aidetect": true, "authsurface": true,
+	"assetintel": true, "email": true, "dorks": true, "hibp": true,
+	"tls": true, "testssl": true, "dns": true, "typosquat": true,
+	"favicon": true, "ctlog": true, "asnmap": true, "nuclei": true,
+	// Cloud storage: check bucket permissions, headers, TLS — skip injection scanners
+	"secheaders": true, "cloudbuckets": true, "wellknown": true,
+	"exposedfiles": true, "screenshot": true,
 }
 
 // saveScanMetricElapsed records a scanner run's timing and finding counts to the store.
@@ -3477,4 +4031,30 @@ func httpAltPort(openPorts map[int]string) int {
 		}
 	}
 	return 0
+}
+
+// mergeParamNames combines two parameter name slices, deduplicating by name.
+func mergeParamNames(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	var merged []string
+	for _, s := range a {
+		if !seen[s] {
+			seen[s] = true
+			merged = append(merged, s)
+		}
+	}
+	for _, s := range b {
+		if !seen[s] {
+			seen[s] = true
+			merged = append(merged, s)
+		}
+	}
+	return merged
+}
+
+// injectionScannerNames lists scanners that benefit from param discovery results.
+var injectionScannerNames = map[string]bool{
+	"sqli": true, "nosqli": true, "rxss": true, "ssrf": true,
+	"cmdinj": true, "ssti": true, "xxe": true, "pathtraversal": true,
+	"pdfssrf": true, "elinjection": true,
 }

@@ -396,11 +396,6 @@ func probeXSD(ctx context.Context, client *http.Client, asset, url, payloadName,
 	}
 }
 
-// discoverXMLEndpoints finds paths that respond to XML POST requests.
-func discoverXMLEndpoints(ctx context.Context, client *http.Client, base string) []string {
-	return discoverXMLEndpointsWithPaths(ctx, client, base, xmlPaths)
-}
-
 // discoverXMLEndpointsWithPaths finds paths that respond to XML POST requests
 // using the provided path list (which may include crawl-discovered paths).
 func discoverXMLEndpointsWithPaths(ctx context.Context, client *http.Client, base string, paths []string) []string {

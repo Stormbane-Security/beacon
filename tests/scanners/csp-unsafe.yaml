@@ -30,22 +30,38 @@ assertions:
   - name: detects-csp-unsafe-inline
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent", "--deep", "--yes"]
     expect:
       check_id: csp.unsafe_inline
 
   - name: detects-csp-unsafe-eval
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent", "--deep", "--yes"]
     expect:
       check_id: csp.unsafe_eval
 
   - name: detects-csp-wildcard-source
     type: beacon
     target: localhost:9301
-    args: ["--no-enrich", "--scanners", "webcontent", "--deep", "--permission-confirmed"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "webcontent", "--deep", "--yes"]
     expect:
       check_id: csp.wildcard_source
+
+  # base-uri missing from CSP — allows <base> tag injection for phishing/XSS
+  - name: detects-csp-base-uri-missing
+    type: beacon
+    target: localhost:9301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cspaudit"]
+    expect:
+      check_id: csp.base_uri_missing
+
+  # object-src missing from CSP — allows Flash/Java plugin-based XSS
+  - name: detects-csp-object-src-missing
+    type: beacon
+    target: localhost:9301
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cspaudit"]
+    expect:
+      check_id: csp.object_src_missing
 
 timeout: 5m

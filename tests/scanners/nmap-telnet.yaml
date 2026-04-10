@@ -19,7 +19,7 @@ assertions:
   - name: nmap-telnet-no-encryption
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--no-db", "--scanners", "portscan", "--ports", "10023"]
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "portscan", "--ports", "10023"]
     expect:
       check_id: nmap.telnet_no_encryption
 

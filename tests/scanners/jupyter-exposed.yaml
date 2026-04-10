@@ -1,0 +1,59 @@
+name: jupyter-exposed
+description: >
+  Jupyter Notebook server without authentication token. Beacon portscan
+  should detect the exposed Jupyter service via port.jupyter_exposed.
+tags: [jupyter, scanner, portscan, exposed, rce]
+
+services:
+  jupyter:
+    image: jupyter/base-notebook:latest
+    ports: ["20040:8888"]
+    environment:
+      JUPYTER_TOKEN: ""
+    command: ["start-notebook.sh", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+
+ready:
+  cmd: "curl -sf http://localhost:20040/api/status"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Jupyter API accessible without auth
+  - name: exploit-jupyter-api-no-auth
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20040/api/status | grep -q 'started'"
+      exit_code: 0
+
+  # Pre-flight: Jupyter contents endpoint accessible
+  - name: exploit-jupyter-contents-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20040/api/contents | grep -q '200'"
+      exit_code: 0
+
+  # Scanner: detect exposed Jupyter
+  - name: detects-jupyter-exposed
+    type: beacon
+    target: localhost:20040
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "8888"]
+    expect:
+      check_id: port.jupyter_exposed
+
+  # Scanner: detect missing HSTS
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:20040
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "secheaders"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # Negative: no Redis false positive
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20040
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 10m

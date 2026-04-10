@@ -1,0 +1,59 @@
+name: auto-register-juiceshop
+description: >
+  Tests auto-registration on Juice Shop. Proves:
+  1. Registration endpoint exists and accepts new accounts
+  2. Created account can login and get a JWT
+  3. JWT grants access to authenticated APIs
+  This validates the auto-register feature for Forecast.
+tags: [auth, auto-register, juiceshop, integration]
+
+services:
+  juiceshop:
+    image: bkimminich/juice-shop:latest
+    ports: ["19720:3000"]
+    environment:
+      NODE_ENV: unsafe
+
+ready:
+  cmd: "curl -sf http://localhost:19720/rest/admin/application-version 2>/dev/null | grep -q version"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Step 1: Registration endpoint accepts new account
+  - name: register-new-account
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19720/api/Users/ -H 'Content-Type: application/json' -d '{\"email\":\"autotest@beacon.local\",\"password\":\"BeaconTest123!\",\"passwordRepeat\":\"BeaconTest123!\",\"securityQuestion\":{\"id\":1,\"question\":\"test\"},\"securityAnswer\":\"beacon\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert d.get('data',{}).get('email')=='autotest@beacon.local', 'registration failed'; print('REGISTERED:', d['data']['email'])\""
+      exit_code: 0
+
+  # Step 2: Created account can login
+  - name: login-with-created-account
+    type: command
+    expect:
+      command: "curl -s -X POST http://localhost:19720/rest/user/login -H 'Content-Type: application/json' -d '{\"email\":\"autotest@beacon.local\",\"password\":\"BeaconTest123!\"}' | python3 -c \"import sys,json; d=json.load(sys.stdin); assert 'token' in d.get('authentication',{}), 'login failed'; print('LOGIN OK, token:', d['authentication']['token'][:30]+'...')\""
+      exit_code: 0
+
+  # Step 3: JWT grants access to user API (use /api/Users/ with token)
+  - name: jwt-grants-access
+    type: command
+    expect:
+      command: "python3 -c \"import urllib.request,json; req=urllib.request.Request('http://localhost:19720/rest/user/login',data=json.dumps({'email':'autotest@beacon.local','password':'BeaconTest123!'}).encode(),headers={'Content-Type':'application/json'}); token=json.loads(urllib.request.urlopen(req).read())['authentication']['token']; req2=urllib.request.Request('http://localhost:19720/api/Users/',headers={'Authorization':'Bearer '+token}); users=json.loads(urllib.request.urlopen(req2).read())['data']; print(len(users),'users accessible'); assert len(users)>=1\""
+      exit_code: 0
+
+  # Step 4: Beacon authsurface detects registration endpoint
+  - name: beacon-detects-registration
+    type: beacon
+    target: localhost:19720
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authsurface"]
+    expect:
+      min_findings: 0
+
+  # Negative: Users API blocked without auth
+  - name: negative-users-api-blocked
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:19720/api/Users/ | grep -q '401'"
+      exit_code: 0
+
+timeout: 10m

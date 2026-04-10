@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SPA Detection Test App</title>
+</head>
+<body>
+  <!-- Angular-style SPA shell: empty app-root, JS renders content -->
+  <app-root></app-root>
+
+  <script>
+    // Simulate Angular rendering a login form after bootstrap
+    document.addEventListener('DOMContentLoaded', function() {
+      var root = document.querySelector('app-root');
+      root.innerHTML = '<h1>Login</h1>' +
+        '<form method="POST" action="/api/login">' +
+        '  <label for="email">Email</label>' +
+        '  <input type="email" id="email" name="email" placeholder="user@example.com">' +
+        '  <label for="password">Password</label>' +
+        '  <input type="password" id="password" name="password" placeholder="Password">' +
+        '  <button type="submit">Sign In</button>' +
+        '</form>' +
+        '<p><a href="/register">Create Account</a></p>';
+    });
+  </script>
+</body>
+</html>

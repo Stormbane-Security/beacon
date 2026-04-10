@@ -1,0 +1,58 @@
+name: django-debug
+description: >
+  Django app running with DEBUG=True. Beacon portscan scanner should
+  fingerprint Django via the debug error page, /admin/ login, or
+  framework-specific headers.
+tags: [django, scanner, portscan, framework]
+
+services:
+  django:
+    build:
+      context: ./django-debug
+      dockerfile: Dockerfile
+    ports: ["20300:8000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20300/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-django-responds-html
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20300/ | grep -qi django"
+      exit_code: 0
+
+  - name: exploit-django-debug-error-page
+    type: command
+    expect:
+      # Request a non-existent path; DEBUG=True returns a detailed error page
+      command: "curl -sf http://localhost:20300/nonexistent-path-xyz 2>&1 | grep -qiE 'DEBUG|Traceback|urlpatterns'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-django-framework
+    type: beacon
+    target: localhost:20300
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20300"]
+    expect:
+      check_id: port.django_detected
+
+  # --- Exploit-mode assertions ---
+  - name: exploit-chain-django
+    type: beacon
+    target: localhost:20300
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--exploit", "--yes", "--ports", "20300"]
+    expect:
+      min_findings: 0
+
+  - name: postexploit-django
+    type: beacon
+    target: localhost:20300
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20300"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

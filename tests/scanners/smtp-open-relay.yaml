@@ -1,0 +1,60 @@
+name: smtp-service-detection
+description: >
+  MailHog SMTP server on port 1025 with HTTP UI on port 8025. Beacon
+  portscan scanner should identify the SMTP service on the SMTP port
+  and detect the HTTP UI.
+tags: [smtp, scanner, network, email]
+
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "19870:1025"
+      - "19871:8025"
+
+ready:
+  cmd: "curl -sf http://localhost:19871/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: exploit-smtp-port-open
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 19870"
+      exit_code: 0
+
+  - name: exploit-smtp-banner
+    type: command
+    expect:
+      command: "echo 'EHLO test' | nc -w 3 localhost 19870 | grep -qi 'ESMTP\\|220'"
+      exit_code: 0
+
+  - name: exploit-http-ui-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:19871/ | grep -qi 'MailHog\\|mailhog'"
+      exit_code: 0
+
+  - name: detects-smtp-service
+    type: beacon
+    target: localhost:19870
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.smtp_open_relay
+
+  - name: detects-missing-hsts-on-http-ui
+    type: beacon
+    target: localhost:19871
+    args: ["--no-enrich", "--scanners", "secheaders", "--ports", "8025"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: negative-no-ftp-on-smtp
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "19870"]
+    expect:
+      not_check_id: port.ftp_anonymous
+
+timeout: 5m

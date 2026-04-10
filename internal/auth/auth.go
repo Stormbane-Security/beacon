@@ -436,7 +436,7 @@ func fetchOIDCCodeToken(ctx context.Context, ac *config.AuthConfig) (string, err
 		codeCh <- code
 	})
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second} // #nosec G112 -- ephemeral localhost OAuth callback server
 	go func() { _ = srv.Serve(ln) }()
 	defer func() { _ = srv.Close() }()
 

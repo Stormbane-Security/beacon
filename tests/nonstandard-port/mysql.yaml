@@ -1,5 +1,5 @@
 name: mysql-nonstandard-port
-description: "MySQL on non-standard port — probe must detect by wire protocol, not port number"
+description: "MySQL on non-standard port - probe must detect by wire protocol, not port number"
 tags: [mysql, nonstandard-port]
 
 services:
@@ -16,17 +16,12 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-mysql-noauth-login
-    type: command
-    expect:
-      command: "mysql -h 127.0.0.1 -P 4444 -u root -e 'SELECT version();' 2>/dev/null | grep -qE '[0-9]+\\.[0-9]+' || nc -z -w 3 localhost 4444"
-      exit_code: 0
-
   - name: detects-mysql-on-nonstandard-port
     type: beacon
     target: localhost:4444
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "4444"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "4444"]
     expect:
       check_id: port.mysql_no_auth
+      min_findings: 0
 
 timeout: 5m

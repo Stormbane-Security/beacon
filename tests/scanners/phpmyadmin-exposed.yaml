@@ -1,0 +1,50 @@
+name: phpmyadmin-exposed
+description: >
+  phpMyAdmin with PMA_ARBITRARY=1 allowing connection to any MySQL
+  server. Beacon should detect the exposed phpMyAdmin login page and
+  flag the default configuration as a security finding.
+tags: [phpmyadmin, scanner, portscan, default-creds, database-admin]
+
+services:
+  phpmyadmin:
+    image: phpmyadmin:latest
+    ports: ["20112:80"]
+    environment:
+      PMA_ARBITRARY: "1"
+
+ready:
+  cmd: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20112/ | grep -qE '(200|302)'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # Pre-flight: phpMyAdmin login page accessible
+  - name: phpmyadmin-login-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20112/ | grep -qiE '(phpmyadmin|pma)'"
+      exit_code: 0
+
+  # Scanner: detect phpMyAdmin service
+  - name: detects-phpmyadmin-service
+    type: beacon
+    target: localhost:20112
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      check_id: port.service_identified
+
+  - name: deep-mode-phpmyadmin
+    type: beacon
+    target: localhost:20112
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "20112"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-phpmyadmin
+    type: beacon
+    target: localhost:20112
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "20112"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

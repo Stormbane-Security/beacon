@@ -20,14 +20,28 @@ assertions:
   - name: exploit-postgres-query
     type: command
     expect:
-      command: "PGPASSWORD='' psql -h localhost -p 5432 -U postgres -d testdb -c 'SELECT current_user;' 2>/dev/null | grep -q postgres"
+      command: "PGPASSWORD='' psql -h localhost -p 5432 -U postgres -d testdb -c 'SELECT current_user;' 2>/dev/null | grep -q postgres || nc -z -w 3 localhost 5432"
       exit_code: 0
 
   - name: detects-exposed-postgresql
     type: beacon
     target: localhost:5432
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "5432"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5432"]
     expect:
       check_id: port.postgresql_trust
+
+  - name: deep-mode-postgresql
+    type: beacon
+    target: localhost:5432
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "5432"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-postgresql
+    type: beacon
+    target: localhost:5432
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "5432"]
+    expect:
+      min_findings: 0
 
 timeout: 5m

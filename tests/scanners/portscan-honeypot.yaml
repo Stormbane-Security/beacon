@@ -33,7 +33,7 @@ assertions:
   - name: honeypot-detection
     type: beacon
     target: localhost
-    args: ["--no-enrich", "--scanners", "portscan", "--ports", "9400,9401,9402,9403,9404,9405,9406,9407,9408,9409,9410,9411"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9400,9401,9402,9403,9404,9405,9406,9407,9408,9409,9410,9411"]
     expect:
       # Should detect the honeypot/transparent proxy pattern
       # and suppress individual false-positive port findings.
