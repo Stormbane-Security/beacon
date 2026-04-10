@@ -1164,6 +1164,77 @@ const (
 
 	// ── MOVEit Transfer SQL injection ───────────────────────────────────
 	CheckCVEMOVEitSQLi CheckID = "cve.moveit_sqli" // CVE-2023-34362 MOVEit Transfer < 2023.0.1 unauthenticated SQL injection → RCE (CVSS 9.8, KEV, CL0P ransomware)
+
+	// ── 2020–2025 CISA KEV / Critical CVEs — network-detectable ──────────
+
+	// WordPress / CMS
+	CheckCVEWPMiniOrangeSocialLogin  CheckID = "cve.wp_miniorange_social_login"    // CVE-2023-2982 WordPress MiniOrange Social Login < 7.6.5 auth bypass via encryption key reuse (CVSS 9.8)
+	CheckCVEWPEmailSubscribersSQLi   CheckID = "cve.wp_email_subscribers_sqli"     // CVE-2024-2876 WordPress Email Subscribers < 5.7.14 unauthenticated SQL injection (CVSS 9.8)
+	CheckCVEWPPostSMTPBypass         CheckID = "cve.wp_post_smtp_auth_bypass"      // CVE-2023-6875 WordPress POST SMTP Mailer < 2.8.8 auth bypass via token reset (CVSS 9.8)
+	CheckCVEWPAutomatic              CheckID = "cve.wp_automatic_sqli"             // CVE-2024-27956 WordPress WP-Automatic < 3.92.1 unauthenticated SQL injection (CVSS 9.9)
+	CheckCVEWooCommercePayments      CheckID = "cve.woocommerce_payments_bypass"   // CVE-2023-28121 WooCommerce Payments < 5.6.2 auth bypass via X-WCPAY-PLATFORM-CHECKOUT-USER header (CVSS 9.8, KEV)
+	CheckCVEElementorProRCE          CheckID = "cve.elementor_pro_rce"             // CVE-2023-32243 Elementor Pro < 3.11.7 broken access control → RCE via file upload (CVSS 9.8, KEV)
+	CheckCVEGlibcIconvOverflow       CheckID = "cve.glibc_iconv_overflow"          // CVE-2024-2961 glibc iconv ISO-2022-CN-EXT buffer overflow → RCE via PHP filters (CVSS 8.8)
+	CheckCVEWinRARRecoveryRCE        CheckID = "cve.winrar_recovery_rce"           // CVE-2023-40477 WinRAR < 6.23 recovery volume RCE (CVSS 7.8)
+	CheckCVESharePointRCE2023        CheckID = "cve.sharepoint_rce_2023"           // CVE-2023-24955 SharePoint Server authenticated RCE via site owner code injection (CVSS 7.2, KEV)
+	CheckCVEOutlookRCE2024           CheckID = "cve.outlook_moniker_rce"           // CVE-2024-21413 Microsoft Outlook moniker link RCE via crafted hyperlink (CVSS 9.8, KEV)
+
+	// Cloud / Container
+	CheckCVEContainerdRuncEscape     CheckID = "cve.containerd_runc_escape_2024"   // CVE-2024-21626 runc < 1.1.12 working directory BUILDKIT escape → host filesystem access (CVSS 8.6, KEV)
+	CheckCVEHTTP2RapidReset          CheckID = "cve.http2_rapid_reset"             // CVE-2023-44487 HTTP/2 rapid reset DoS — all major web servers affected (CVSS 7.5, KEV)
+	CheckCVEXZUtilsBackdoor          CheckID = "cve.xz_utils_backdoor"             // CVE-2024-3094 XZ Utils 5.6.0/5.6.1 embedded backdoor in liblzma → sshd RCE (CVSS 10.0)
+	CheckCVECurlSOCKS5Overflow       CheckID = "cve.curl_socks5_overflow"          // CVE-2023-38545 curl < 8.4.0 SOCKS5 proxy hostname heap overflow (CVSS 9.8)
+	CheckCVECUPSRCE                  CheckID = "cve.cups_browsed_rce"              // CVE-2024-47176 CUPS cups-browsed < 2.0.1 binds on UDP 631 → attacker-controlled PPD → RCE (CVSS 9.9)
+	CheckCVEJumpServerAuthBypass     CheckID = "cve.jumpserver_auth_bypass"        // CVE-2023-42820 JumpServer < 3.6.5 auth bypass via MFA token prediction (CVSS 9.8)
+	CheckCVETelesquareFirmwareRCE    CheckID = "cve.telesquare_firmware_rce"       // CVE-2024-29269 Telesquare TLR-2005KSH firmware command injection (CVSS 9.8)
+	CheckCVEOfficeHTMLRCE            CheckID = "cve.office_html_rce"               // CVE-2023-36884 Office and Windows HTML RCE via crafted document — Storm-0978 (CVSS 8.3, KEV)
+	CheckCVEAiohttpPathTraversal     CheckID = "cve.aiohttp_path_traversal"        // CVE-2024-23334 aiohttp < 3.9.2 static file path traversal via follow_symlinks (CVSS 7.5)
+	CheckCVEDLinkNASCmdInjection     CheckID = "cve.dlink_nas_cmd_injection"       // CVE-2024-10914 D-Link NAS (DNS-320/325/340L) unauthenticated command injection via cgi_user_add (CVSS 9.8)
+
+	// Web Frameworks
+	CheckCVEApacheHTTPSmuggling      CheckID = "cve.apache_http_smuggling"         // CVE-2023-25690 Apache HTTP Server < 2.4.56 mod_proxy HTTP request smuggling (CVSS 9.8)
+	CheckCVEOFBizAuthBypass          CheckID = "cve.ofbiz_auth_bypass"             // CVE-2023-51467 Apache OFBiz < 18.12.11 auth bypass via empty/invalid username-password (CVSS 9.8, KEV)
+	CheckCVEOFBizPreAuthRCE          CheckID = "cve.ofbiz_preauth_rce"             // CVE-2023-49070 Apache OFBiz < 18.12.10 pre-auth XML-RPC deserialization → RCE (CVSS 9.8, KEV)
+	CheckCVEOFBizForceBrowsing       CheckID = "cve.ofbiz_force_browsing"          // CVE-2024-45195 Apache OFBiz < 18.12.16 direct request force browsing auth bypass (CVSS 9.8)
+	CheckCVEPANOSMgmtAuthBypass      CheckID = "cve.panos_mgmt_auth_bypass"        // CVE-2024-0012 PAN-OS management interface auth bypass via X-PAN-AUTHCHECK header (CVSS 9.8, KEV)
+	CheckCVEPANOSPrivEsc             CheckID = "cve.panos_priv_escalation"         // CVE-2024-9474 PAN-OS management interface privilege escalation → root command injection (CVSS 7.2, KEV)
+	CheckCVEConfluenceTemplateRCE    CheckID = "cve.confluence_template_rce"       // CVE-2023-22527 Confluence Data Center < 8.5.4 template injection → pre-auth RCE (CVSS 10.0, KEV)
+	CheckCVEColdFusionFileRead       CheckID = "cve.coldfusion_file_read"          // CVE-2024-20767 Adobe ColdFusion < 2023.6/2021.12 arbitrary file read via admin API (CVSS 9.1)
+	CheckCVEColdFusionDeserial       CheckID = "cve.coldfusion_deserialization"    // CVE-2023-26360 Adobe ColdFusion < 2018u16/2021u6 deserialization → RCE (CVSS 9.8, KEV)
+	CheckCVEFortiClientEMSSQLi       CheckID = "cve.forticlient_ems_sqli"          // CVE-2023-48788 FortiClient EMS < 7.2.3 DASTelemetryRequest SQL injection → RCE (CVSS 9.3, KEV)
+
+	// Monitoring / DevOps
+	CheckCVEF5BigIPConfigBypass      CheckID = "cve.f5_bigip_config_auth_bypass"   // CVE-2023-46747 F5 BIG-IP < 17.1.1 config utility auth bypass via AJP request smuggling (CVSS 9.8, KEV)
+	CheckCVEGeoServerEval            CheckID = "cve.geoserver_eval_injection"      // CVE-2024-36401 GeoServer < 2.23.6/2.24.4 OGC filter eval injection → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVECrushFTPVFS              CheckID = "cve.crushftp_vfs_escape"           // CVE-2024-4040 CrushFTP < 10.7.1/11.1.0 VFS sandbox escape → unauthenticated file read + RCE (CVSS 10.0, KEV)
+	CheckCVEVMwareESXiADBypass       CheckID = "cve.vmware_esxi_ad_bypass"         // CVE-2024-37085 VMware ESXi AD integration auth bypass via group manipulation (CVSS 7.2, KEV)
+	CheckCVEvCenterOOBWrite          CheckID = "cve.vcenter_oob_write"             // CVE-2023-34048 VMware vCenter < 8.0U2 DCE/RPC out-of-bounds write → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEVMwareUHCIUAF            CheckID = "cve.vmware_uhci_uaf"              // CVE-2024-22252 VMware ESXi/Workstation/Fusion UHCI USB use-after-free → VM escape (CVSS 9.3)
+	CheckCVESharePointDeserial       CheckID = "cve.sharepoint_deserialization"    // CVE-2024-38094 SharePoint Server deserialization → authenticated RCE (CVSS 7.2, KEV)
+	CheckCVEQlikSenseTunneling       CheckID = "cve.qlik_sense_tunneling"          // CVE-2023-48365 Qlik Sense Enterprise < Nov 2023 HTTP request tunneling auth bypass (CVSS 9.6, KEV)
+
+	// Network Appliances
+	CheckCVECiscoNXOSCLI             CheckID = "cve.cisco_nxos_cli_injection"      // CVE-2024-20399 Cisco NX-OS CLI command injection by admin → underlying OS (CVSS 6.0, KEV)
+	CheckCVECiscoASADoS              CheckID = "cve.cisco_asa_dos"                 // CVE-2024-20353 Cisco ASA/FTD web management DoS — ArcaneDoor campaign (CVSS 8.6, KEV)
+	CheckCVECiscoASAPersistImplant   CheckID = "cve.cisco_asa_persist_implant"     // CVE-2024-20359 Cisco ASA persistent local code execution — ArcaneDoor implant (CVSS 6.0, KEV)
+	CheckCVEProgressLoadMaster       CheckID = "cve.progress_loadmaster_cmd"       // CVE-2024-1212 Progress Kemp LoadMaster < 7.2.59.2 unauthenticated command injection (CVSS 10.0, KEV)
+	CheckCVECleoHarmonyUpload        CheckID = "cve.cleo_harmony_upload"           // CVE-2024-50623 Cleo Harmony/VLTrader/LexiCom < 5.8.0.21 unrestricted file upload → RCE (CVSS 9.8, KEV)
+	CheckCVECleoHarmonyExec          CheckID = "cve.cleo_harmony_exec"             // CVE-2024-55956 Cleo Harmony/VLTrader arbitrary file execution via autorun (CVSS 9.8, KEV)
+	CheckCVEIvantiEPMMAuthBypass     CheckID = "cve.ivanti_epmm_auth_bypass"       // CVE-2023-35078 Ivanti EPMM (MobileIron Core) < 11.10.0.3 unauthenticated API access (CVSS 10.0, KEV)
+	CheckCVEIvantiEPMMPathTraversal  CheckID = "cve.ivanti_epmm_path_traversal"    // CVE-2023-35081 Ivanti EPMM < 11.10.0.3 authenticated path traversal → file write (CVSS 7.2, KEV)
+	CheckCVEIvantiCSSSRF             CheckID = "cve.ivanti_connect_secure_ssrf"    // CVE-2024-21893 Ivanti Connect Secure/Policy Secure SAML SSRF → auth bypass (CVSS 8.2, KEV)
+
+	// Database / Storage
+	CheckCVEGitCloneRCE              CheckID = "cve.git_clone_rce"                 // CVE-2024-32002 git < 2.45.1 recursive clone symlink RCE (CVSS 9.0)
+	CheckCVEDLinkNASRCE              CheckID = "cve.dlink_nas_rce"                 // CVE-2024-3273 D-Link NAS (DNS-320L/325/327L/340L) hardcoded backdoor + command injection (CVSS 9.8)
+	CheckCVESystemdLessTraversal     CheckID = "cve.systemd_less_traversal"        // CVE-2023-26604 systemd < 247 wall message path traversal via less pager (CVSS 7.8)
+	CheckCVETelerikReportServerRCE   CheckID = "cve.telerik_report_server_rce"     // CVE-2024-6327 Telerik Report Server < 2024 Q2 deserialization → unauthenticated RCE (CVSS 9.8)
+
+	// AI / ML
+	CheckCVEPyArrowDeserial          CheckID = "cve.pyarrow_deserialization"       // CVE-2023-47248 PyArrow < 14.0.1 IPC/Feather deserialization → arbitrary code execution (CVSS 9.8)
+	CheckCVEMLflowRCE                CheckID = "cve.mlflow_rce"                    // CVE-2024-27132 MLflow < 2.11.3 recipe parameter injection → OS command execution (CVSS 8.8)
+	CheckCVEGradioPathTraversal      CheckID = "cve.gradio_path_traversal"         // CVE-2024-6507 Gradio < 4.20 arbitrary file read via path traversal on upload endpoint (CVSS 9.1)
+	CheckCVEJs2pySandboxEscape       CheckID = "cve.js2py_sandbox_escape"          // CVE-2024-28397 js2py < 0.74 sandbox escape → arbitrary code execution (CVSS 9.8)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -3751,6 +3822,77 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortGoAnywhereExposed:  {CheckPortGoAnywhereExposed, SeverityHigh, ModeSurface},
 	CheckCVEGoAnywhereRCE:       {CheckCVEGoAnywhereRCE, SeverityCritical, ModeSurface},
 	CheckCVEMOVEitSQLi:          {CheckCVEMOVEitSQLi, SeverityCritical, ModeSurface},
+
+	// ── 2020–2025 CISA KEV / Critical CVEs — network-detectable ──────────
+
+	// WordPress / CMS
+	CheckCVEWPMiniOrangeSocialLogin:  {CheckCVEWPMiniOrangeSocialLogin, SeverityCritical, ModeDeep},
+	CheckCVEWPEmailSubscribersSQLi:   {CheckCVEWPEmailSubscribersSQLi, SeverityCritical, ModeDeep},
+	CheckCVEWPPostSMTPBypass:         {CheckCVEWPPostSMTPBypass, SeverityCritical, ModeDeep},
+	CheckCVEWPAutomatic:              {CheckCVEWPAutomatic, SeverityCritical, ModeDeep},
+	CheckCVEWooCommercePayments:      {CheckCVEWooCommercePayments, SeverityCritical, ModeDeep},
+	CheckCVEElementorProRCE:          {CheckCVEElementorProRCE, SeverityCritical, ModeDeep},
+	CheckCVEGlibcIconvOverflow:       {CheckCVEGlibcIconvOverflow, SeverityHigh, ModeDeep},
+	CheckCVEWinRARRecoveryRCE:        {CheckCVEWinRARRecoveryRCE, SeverityHigh, ModeDeep},
+	CheckCVESharePointRCE2023:        {CheckCVESharePointRCE2023, SeverityHigh, ModeDeep},
+	CheckCVEOutlookRCE2024:           {CheckCVEOutlookRCE2024, SeverityCritical, ModeDeep},
+
+	// Cloud / Container
+	CheckCVEContainerdRuncEscape:     {CheckCVEContainerdRuncEscape, SeverityHigh, ModeDeep},
+	CheckCVEHTTP2RapidReset:          {CheckCVEHTTP2RapidReset, SeverityHigh, ModeDeep},
+	CheckCVEXZUtilsBackdoor:          {CheckCVEXZUtilsBackdoor, SeverityCritical, ModeDeep},
+	CheckCVECurlSOCKS5Overflow:       {CheckCVECurlSOCKS5Overflow, SeverityCritical, ModeDeep},
+	CheckCVECUPSRCE:                  {CheckCVECUPSRCE, SeverityCritical, ModeDeep},
+	CheckCVEJumpServerAuthBypass:     {CheckCVEJumpServerAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVETelesquareFirmwareRCE:    {CheckCVETelesquareFirmwareRCE, SeverityCritical, ModeDeep},
+	CheckCVEOfficeHTMLRCE:            {CheckCVEOfficeHTMLRCE, SeverityHigh, ModeDeep},
+	CheckCVEAiohttpPathTraversal:     {CheckCVEAiohttpPathTraversal, SeverityHigh, ModeDeep},
+	CheckCVEDLinkNASCmdInjection:     {CheckCVEDLinkNASCmdInjection, SeverityCritical, ModeDeep},
+
+	// Web Frameworks
+	CheckCVEApacheHTTPSmuggling:      {CheckCVEApacheHTTPSmuggling, SeverityCritical, ModeDeep},
+	CheckCVEOFBizAuthBypass:          {CheckCVEOFBizAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEOFBizPreAuthRCE:          {CheckCVEOFBizPreAuthRCE, SeverityCritical, ModeDeep},
+	CheckCVEOFBizForceBrowsing:       {CheckCVEOFBizForceBrowsing, SeverityCritical, ModeDeep},
+	CheckCVEPANOSMgmtAuthBypass:      {CheckCVEPANOSMgmtAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEPANOSPrivEsc:             {CheckCVEPANOSPrivEsc, SeverityHigh, ModeDeep},
+	CheckCVEConfluenceTemplateRCE:    {CheckCVEConfluenceTemplateRCE, SeverityCritical, ModeDeep},
+	CheckCVEColdFusionFileRead:       {CheckCVEColdFusionFileRead, SeverityCritical, ModeDeep},
+	CheckCVEColdFusionDeserial:       {CheckCVEColdFusionDeserial, SeverityCritical, ModeDeep},
+	CheckCVEFortiClientEMSSQLi:       {CheckCVEFortiClientEMSSQLi, SeverityCritical, ModeDeep},
+
+	// Monitoring / DevOps
+	CheckCVEF5BigIPConfigBypass:      {CheckCVEF5BigIPConfigBypass, SeverityCritical, ModeDeep},
+	CheckCVEGeoServerEval:            {CheckCVEGeoServerEval, SeverityCritical, ModeDeep},
+	CheckCVECrushFTPVFS:              {CheckCVECrushFTPVFS, SeverityCritical, ModeDeep},
+	CheckCVEVMwareESXiADBypass:       {CheckCVEVMwareESXiADBypass, SeverityHigh, ModeDeep},
+	CheckCVEvCenterOOBWrite:          {CheckCVEvCenterOOBWrite, SeverityCritical, ModeDeep},
+	CheckCVEVMwareUHCIUAF:            {CheckCVEVMwareUHCIUAF, SeverityCritical, ModeDeep},
+	CheckCVESharePointDeserial:       {CheckCVESharePointDeserial, SeverityHigh, ModeDeep},
+	CheckCVEQlikSenseTunneling:       {CheckCVEQlikSenseTunneling, SeverityCritical, ModeDeep},
+
+	// Network Appliances
+	CheckCVECiscoNXOSCLI:             {CheckCVECiscoNXOSCLI, SeverityMedium, ModeDeep},
+	CheckCVECiscoASADoS:              {CheckCVECiscoASADoS, SeverityHigh, ModeDeep},
+	CheckCVECiscoASAPersistImplant:   {CheckCVECiscoASAPersistImplant, SeverityMedium, ModeDeep},
+	CheckCVEProgressLoadMaster:       {CheckCVEProgressLoadMaster, SeverityCritical, ModeDeep},
+	CheckCVECleoHarmonyUpload:        {CheckCVECleoHarmonyUpload, SeverityCritical, ModeDeep},
+	CheckCVECleoHarmonyExec:          {CheckCVECleoHarmonyExec, SeverityCritical, ModeDeep},
+	CheckCVEIvantiEPMMAuthBypass:     {CheckCVEIvantiEPMMAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEIvantiEPMMPathTraversal:  {CheckCVEIvantiEPMMPathTraversal, SeverityHigh, ModeDeep},
+	CheckCVEIvantiCSSSRF:             {CheckCVEIvantiCSSSRF, SeverityHigh, ModeDeep},
+
+	// Database / Storage
+	CheckCVEGitCloneRCE:              {CheckCVEGitCloneRCE, SeverityCritical, ModeDeep},
+	CheckCVEDLinkNASRCE:              {CheckCVEDLinkNASRCE, SeverityCritical, ModeDeep},
+	CheckCVESystemdLessTraversal:     {CheckCVESystemdLessTraversal, SeverityHigh, ModeDeep},
+	CheckCVETelerikReportServerRCE:   {CheckCVETelerikReportServerRCE, SeverityCritical, ModeDeep},
+
+	// AI / ML
+	CheckCVEPyArrowDeserial:          {CheckCVEPyArrowDeserial, SeverityCritical, ModeDeep},
+	CheckCVEMLflowRCE:                {CheckCVEMLflowRCE, SeverityHigh, ModeDeep},
+	CheckCVEGradioPathTraversal:      {CheckCVEGradioPathTraversal, SeverityCritical, ModeDeep},
+	CheckCVEJs2pySandboxEscape:       {CheckCVEJs2pySandboxEscape, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
