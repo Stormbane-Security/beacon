@@ -569,43 +569,16 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 
-	// ── Fast path: --scanners mode ──────────────────────────────────────────
-	// When a scanner filter is active, skip discovery, evidence collection,
-	// and playbook matching. Just run the requested scanners against the
-	// root domain directly. This is the mode used by Drydock for targeted
-	// scanner testing.
+	// ── Scanner filter validation ───────────────────────────────────────────
+	// When --scanners is set, validate that all requested scanners exist.
+	// Discovery still runs normally — the filter only restricts which
+	// scanners execute against each discovered asset (applied in runAsset).
 	if len(m.scannerFilter) > 0 {
-		// Validate that all requested scanners exist in the registry.
 		for _, name := range m.scannerFilter {
 			if _, ok := m.scanners[name]; !ok {
 				return nil, fmt.Errorf("unknown scanner %q (available: use --help to list)", name)
 			}
 		}
-
-		if input.Progress != nil {
-			input.Progress(module.ProgressEvent{
-				Phase:       "discovery_done",
-				AssetsTotal: 1,
-				AssetNames:  []string{rootDomain},
-			})
-		}
-
-		fs := m.runAsset(ctx, rootDomain, rootDomain, scanType, input.ScanRunID, 0, input.Progress, map[string]bool{rootDomain: true}, &sync.Mutex{})
-
-		// Active attack path chaining in fast-path mode.
-		if chainEng, err := chainengine.New(scanType); err == nil {
-			for _, f := range fs {
-				if ctx.Err() != nil {
-					break
-				}
-				chainResults := chainEng.OnFinding(ctx, f)
-				if len(chainResults) > 0 {
-					fs = append(fs, chainResults...)
-				}
-			}
-		}
-
-		return fs, ctx.Err()
 	}
 
 	// Load active fingerprint rules once per scan run and cache on the module.
@@ -724,6 +697,9 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	}()
 
 	// Source priority 3: Subdomain scanner (crt.sh + subfinder + OTX + brute)
+	// TODO: Add recursive subdomain discovery — after initial enumeration,
+	// re-run discovery on each discovered subdomain to find sub-subdomains
+	// (e.g. dev.api.example.com). Gate on ScanDeep to avoid noise in surface mode.
 	wgDiscover.Add(1)
 	go func() {
 		defer wgDiscover.Done()
@@ -1124,7 +1100,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// we missed during passive enumeration. Scan them now (surface pass only —
 	// they were already crawled from their parent asset).
 	// Cap at 20 new hosts to avoid runaway expansion from link-rich pages.
-	const maxCrawlExpansion = 20
+	const maxCrawlExpansion = 50
 	if len(assets) < m.maxAssets {
 		crawlCandidates := extractCrawlHostnames(rootDomain, allFindings, seen)
 		if len(crawlCandidates) > maxCrawlExpansion {
