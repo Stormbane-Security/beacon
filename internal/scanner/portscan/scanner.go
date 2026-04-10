@@ -2976,6 +2976,568 @@ func probeMySQLVersion(ctx context.Context, host string, port int) string {
 	return ""
 }
 
+// mysqlGreetingInfo holds detailed information parsed from a MySQL server greeting packet.
+type mysqlGreetingInfo struct {
+	Version      string
+	AuthPlugin   string
+	ConnectionID uint32
+	CharacterSet byte
+	Capabilities uint32
+	AuthRequired bool // true if the server requires auth (not anon)
+}
+
+// probeMySQLGreeting connects and parses the full MySQL greeting packet to extract
+// version, server capabilities, auth plugin, character set, and connection ID.
+func probeMySQLGreeting(ctx context.Context, host string, port int) *mysqlGreetingInfo {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(dbProbeTimeout))
+
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return nil
+	}
+	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
+	if pktLen < 2 || pktLen > (1<<24) {
+		return nil
+	}
+	greeting := make([]byte, pktLen)
+	if _, err := io.ReadFull(conn, greeting); err != nil {
+		return nil
+	}
+	if len(greeting) < 1 || (greeting[0] != 0x0a && greeting[0] != 0x09) {
+		return nil
+	}
+	info := &mysqlGreetingInfo{AuthRequired: true}
+
+	nul := bytes.IndexByte(greeting[1:], 0)
+	if nul <= 0 {
+		return nil
+	}
+	info.Version = string(greeting[1 : 1+nul])
+	base := 1 + nul + 1 // past version NUL
+
+	if len(greeting) < base+4 {
+		return info
+	}
+	info.ConnectionID = uint32(greeting[base]) | uint32(greeting[base+1])<<8 |
+		uint32(greeting[base+2])<<16 | uint32(greeting[base+3])<<24
+
+	// auth_data_1 (8 bytes) + filler (1 byte) = 9 bytes
+	if len(greeting) < base+4+8+1+2 {
+		return info
+	}
+	capsLo := uint16(greeting[base+4+8+1]) | uint16(greeting[base+4+8+1+1])<<8
+	if len(greeting) > base+4+8+1+2+1 {
+		info.CharacterSet = greeting[base+4+8+1+2]
+	}
+	// status_flags (2 bytes) + caps_hi (2 bytes)
+	if len(greeting) >= base+4+8+1+2+1+2+2 {
+		capsHi := uint16(greeting[base+4+8+1+2+1+2]) | uint16(greeting[base+4+8+1+2+1+2+1])<<8
+		info.Capabilities = uint32(capsLo) | uint32(capsHi)<<16
+	} else {
+		info.Capabilities = uint32(capsLo)
+	}
+
+	// Parse auth plugin name.
+	if len(greeting) > base+31 {
+		authDataLen := int(greeting[base+4+8+1+2+1+2+2])
+		part2Len := authDataLen - 8
+		if part2Len < 13 {
+			part2Len = 13
+		}
+		pluginOff := base + 31 + part2Len
+		if pluginOff < len(greeting) {
+			if end := bytes.IndexByte(greeting[pluginOff:], 0); end >= 0 {
+				info.AuthPlugin = string(greeting[pluginOff : pluginOff+end])
+			}
+		}
+	}
+	return info
+}
+
+// probeMSSQLPreloginInfo sends a TDS prelogin and parses the server response to extract
+// version, encryption setting, and instance name. Returns nil if not MSSQL.
+type mssqlPreloginInfo struct {
+	MajorVersion byte
+	MinorVersion byte
+	BuildNumber  uint16
+	Encryption   byte // 0=off, 1=on, 2=not_supported, 3=required
+	InstanceName string
+}
+
+func probeMSSQLPrelogin(ctx context.Context, host string, port int) *mssqlPreloginInfo {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(dbProbeTimeout))
+
+	// TDS PRELOGIN with VERSION + ENCRYPTION + INSTOPT tokens.
+	prelogin := []byte{
+		0x12,       // type: PRELOGIN
+		0x01,       // status: EOM
+		0x00, 0x34, // total length: 52
+		0x00, 0x00, // SPID
+		0x01,       // PacketID
+		0x00,       // Window
+		// VERSION (0x00): offset 0x0011, length 6
+		0x00, 0x00, 0x11, 0x00, 0x06,
+		// ENCRYPTION (0x01): offset 0x0017, length 1
+		0x01, 0x00, 0x17, 0x00, 0x01,
+		// INSTOPT (0x02): offset 0x0018, length 1
+		0x02, 0x00, 0x18, 0x00, 0x01,
+		// Terminator
+		0xFF,
+		// VERSION: 14.0.0.0 (SQL Server 2017)
+		0x0E, 0x00, 0x00, 0x00, 0x00, 0x00,
+		// ENCRYPTION: ENCRYPT_NOT_SUP (0x02)
+		0x02,
+		// INSTOPT: empty instance name (0x00)
+		0x00,
+	}
+	// Fix total length.
+	totalLen := len(prelogin)
+	prelogin[2] = byte(totalLen >> 8)
+	prelogin[3] = byte(totalLen)
+
+	if _, err := conn.Write(prelogin); err != nil {
+		return nil
+	}
+
+	respHdr := make([]byte, 8)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return nil
+	}
+	if respHdr[0] != 0x04 { // PRELOGIN response
+		return nil
+	}
+	respLen := int(respHdr[2])<<8 | int(respHdr[3])
+	if respLen <= 8 {
+		return nil
+	}
+	payload := make([]byte, respLen-8)
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		return nil
+	}
+
+	info := &mssqlPreloginInfo{}
+	// Parse option tokens from payload.
+	for i := 0; i < len(payload); {
+		token := payload[i]
+		if token == 0xFF {
+			break
+		}
+		if i+4 >= len(payload) {
+			break
+		}
+		offset := int(payload[i+1])<<8 | int(payload[i+2])
+		length := int(payload[i+3])<<8 | int(payload[i+4])
+		i += 5
+
+		// Adjust offset: it's relative to the start of the payload (after TDS header).
+		if offset+length > len(payload) {
+			continue
+		}
+		switch token {
+		case 0x00: // VERSION
+			if length >= 6 {
+				info.MajorVersion = payload[offset]
+				info.MinorVersion = payload[offset+1]
+				info.BuildNumber = uint16(payload[offset+2])<<8 | uint16(payload[offset+3])
+			}
+		case 0x01: // ENCRYPTION
+			if length >= 1 {
+				info.Encryption = payload[offset]
+			}
+		case 0x02: // INSTOPT
+			if length >= 1 {
+				end := bytes.IndexByte(payload[offset:offset+length], 0)
+				if end > 0 {
+					info.InstanceName = string(payload[offset : offset+end])
+				}
+			}
+		}
+	}
+	return info
+}
+
+// cassandraCQLInfo holds detailed information from a Cassandra CQL OPTIONS response.
+type cassandraCQLInfo struct {
+	CQLVersions  []string
+	Compression  []string
+	NoAuth       bool // true if AllowAllAuthenticator detected
+}
+
+// probeCassandraCQLInfo sends a CQL OPTIONS request and parses the SUPPORTED response
+// to extract CQL versions and compression algorithms.
+func probeCassandraCQLInfo(ctx context.Context, host string, port int) *cassandraCQLInfo {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(dbProbeTimeout))
+
+	// CQL v4 OPTIONS frame: version=0x04, flags=0x00, stream=0x0000, opcode=0x05 (OPTIONS), length=0
+	frame := []byte{0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00}
+	if _, err := conn.Write(frame); err != nil {
+		return nil
+	}
+
+	// Read response header (9 bytes for CQL v4).
+	hdr := make([]byte, 9)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return nil
+	}
+	// Check it's a response (0x84 = v4 response) and opcode 0x06 (SUPPORTED).
+	if (hdr[0] != 0x84 && hdr[0] != 0x83) || hdr[4] != 0x06 {
+		return nil
+	}
+	bodyLen := int(hdr[5])<<24 | int(hdr[6])<<16 | int(hdr[7])<<8 | int(hdr[8])
+	if bodyLen <= 0 || bodyLen > 65536 {
+		return nil
+	}
+	body := make([]byte, bodyLen)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return nil
+	}
+
+	info := &cassandraCQLInfo{}
+	// Parse string multimap: [short n_keys] then for each key [short len][bytes key][short n_values]...
+	if len(body) < 2 {
+		return info
+	}
+	nKeys := int(body[0])<<8 | int(body[1])
+	pos := 2
+	for k := 0; k < nKeys && pos < len(body); k++ {
+		if pos+2 > len(body) {
+			break
+		}
+		keyLen := int(body[pos])<<8 | int(body[pos+1])
+		pos += 2
+		if pos+keyLen > len(body) {
+			break
+		}
+		key := string(body[pos : pos+keyLen])
+		pos += keyLen
+		if pos+2 > len(body) {
+			break
+		}
+		nVals := int(body[pos])<<8 | int(body[pos+1])
+		pos += 2
+		var vals []string
+		for v := 0; v < nVals && pos < len(body); v++ {
+			if pos+2 > len(body) {
+				break
+			}
+			valLen := int(body[pos])<<8 | int(body[pos+1])
+			pos += 2
+			if pos+valLen > len(body) {
+				break
+			}
+			vals = append(vals, string(body[pos:pos+valLen]))
+			pos += valLen
+		}
+		switch strings.ToUpper(key) {
+		case "CQL_VERSION":
+			info.CQLVersions = vals
+		case "COMPRESSION":
+			info.Compression = vals
+		}
+	}
+
+	// Now try STARTUP to see if auth is required.
+	// Send STARTUP frame with CQL_VERSION=3.0.0.
+	startupBody := buildCQLStartup()
+	startupFrame := make([]byte, 9+len(startupBody))
+	startupFrame[0] = 0x04           // version
+	startupFrame[1] = 0x00           // flags
+	startupFrame[2] = 0x00           // stream hi
+	startupFrame[3] = 0x01           // stream lo
+	startupFrame[4] = 0x01           // opcode: STARTUP
+	startupFrame[5] = byte(len(startupBody) >> 24)
+	startupFrame[6] = byte(len(startupBody) >> 16)
+	startupFrame[7] = byte(len(startupBody) >> 8)
+	startupFrame[8] = byte(len(startupBody))
+	copy(startupFrame[9:], startupBody)
+
+	_ = conn.SetDeadline(time.Now().Add(dbProbeTimeout))
+	if _, err := conn.Write(startupFrame); err != nil {
+		return info
+	}
+
+	respHdr := make([]byte, 9)
+	if _, err := io.ReadFull(conn, respHdr); err != nil {
+		return info
+	}
+	// opcode 0x02 = READY (no auth needed), 0x03 = AUTHENTICATE (auth needed), 0x00 = ERROR
+	if respHdr[4] == 0x02 {
+		info.NoAuth = true
+	}
+	return info
+}
+
+// buildCQLStartup builds the body of a CQL STARTUP message with CQL_VERSION=3.0.0.
+func buildCQLStartup() []byte {
+	// String map: [short n_pairs] then [short key_len][key][short val_len][val]
+	key := "CQL_VERSION"
+	val := "3.0.0"
+	buf := make([]byte, 2+2+len(key)+2+len(val))
+	buf[0] = 0x00
+	buf[1] = 0x01 // 1 pair
+	buf[2] = byte(len(key) >> 8)
+	buf[3] = byte(len(key))
+	copy(buf[4:], key)
+	off := 4 + len(key)
+	buf[off] = byte(len(val) >> 8)
+	buf[off+1] = byte(len(val))
+	copy(buf[off+2:], val)
+	return buf
+}
+
+// smtpEHLOInfo holds capabilities parsed from an SMTP EHLO response.
+type smtpEHLOInfo struct {
+	Banner       string
+	Software     string // e.g. "Postfix", "Exim 4.96"
+	STARTTLS     bool
+	Auth         bool
+	AuthMethods  []string
+	Size         string
+	EightBitMIME bool
+	VRFY         bool
+	EXPN         bool
+	Capabilities []string
+}
+
+// probeSMTPEHLO connects to an SMTP server, sends EHLO, and parses capabilities.
+// Also tests VRFY to see if user enumeration is possible.
+func probeSMTPEHLO(ctx context.Context, host string, port int) *smtpEHLOInfo {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
+
+	readResp := func() string {
+		var result strings.Builder
+		buf := make([]byte, 2048)
+		for {
+			_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+			n, err := conn.Read(buf)
+			if n > 0 {
+				result.Write(buf[:n])
+			}
+			text := result.String()
+			// Multi-line responses have "250-" continuation; last line has "250 ".
+			lines := strings.Split(text, "\n")
+			if len(lines) > 0 {
+				last := strings.TrimSpace(lines[len(lines)-1])
+				if last == "" && len(lines) > 1 {
+					last = strings.TrimSpace(lines[len(lines)-2])
+				}
+				if len(last) >= 4 && last[3] == ' ' {
+					break
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		return result.String()
+	}
+	send := func(cmd string) string {
+		_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+		_, _ = fmt.Fprintf(conn, "%s\r\n", cmd)
+		return readResp()
+	}
+
+	// Read banner.
+	banner := readResp()
+	if !strings.HasPrefix(banner, "220") {
+		return nil
+	}
+	info := &smtpEHLOInfo{Banner: strings.TrimSpace(banner)}
+
+	// Parse software from banner.
+	info.Software = parseSMTPSoftware(banner)
+
+	// EHLO
+	ehloResp := send("EHLO beacon-probe.example.com")
+	if !strings.HasPrefix(ehloResp, "250") {
+		// Try HELO fallback.
+		send("HELO beacon-probe.example.com")
+		send("QUIT")
+		return info
+	}
+
+	// Parse EHLO capabilities.
+	for _, line := range strings.Split(ehloResp, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) < 4 {
+			continue
+		}
+		cap := strings.TrimSpace(line[4:])
+		capUp := strings.ToUpper(cap)
+		info.Capabilities = append(info.Capabilities, cap)
+		switch {
+		case capUp == "STARTTLS":
+			info.STARTTLS = true
+		case strings.HasPrefix(capUp, "AUTH ") || capUp == "AUTH":
+			info.Auth = true
+			if len(cap) > 5 {
+				info.AuthMethods = strings.Fields(cap[5:])
+			}
+		case strings.HasPrefix(capUp, "SIZE"):
+			if len(cap) > 5 {
+				info.Size = strings.TrimSpace(cap[5:])
+			}
+		case capUp == "8BITMIME":
+			info.EightBitMIME = true
+		case capUp == "VRFY":
+			info.VRFY = true
+		case capUp == "EXPN":
+			info.EXPN = true
+		}
+	}
+
+	// Active test: try VRFY even if not advertised (some servers support it silently).
+	if !info.VRFY {
+		vrfyResp := send("VRFY postmaster")
+		code := ""
+		if len(vrfyResp) >= 3 {
+			code = vrfyResp[:3]
+		}
+		// 252 = ambiguous, 250 = confirmed — both mean VRFY is working.
+		if code == "250" || code == "252" {
+			info.VRFY = true
+		}
+	}
+
+	send("QUIT")
+	return info
+}
+
+// parseSMTPSoftware extracts the MTA software name from an SMTP banner line.
+func parseSMTPSoftware(banner string) string {
+	bl := strings.ToLower(banner)
+	switch {
+	case strings.Contains(bl, "postfix"):
+		return "Postfix"
+	case strings.Contains(bl, "exim"):
+		return parseEximVersionFromBanner(banner)
+	case strings.Contains(bl, "exchange") || strings.Contains(bl, "microsoft"):
+		return "Microsoft Exchange"
+	case strings.Contains(bl, "sendmail"):
+		return "Sendmail"
+	case strings.Contains(bl, "haraka"):
+		return "Haraka"
+	case strings.Contains(bl, "zimbra"):
+		return "Zimbra"
+	default:
+		return ""
+	}
+}
+
+// parseEximVersionFromBanner extracts "Exim X.Y.Z" from a banner string.
+func parseEximVersionFromBanner(banner string) string {
+	bl := strings.ToLower(banner)
+	idx := strings.Index(bl, "exim")
+	if idx < 0 {
+		return "Exim"
+	}
+	rest := strings.TrimSpace(banner[idx:])
+	// Grab "Exim X.Y.Z" — stop at space or end.
+	parts := strings.Fields(rest)
+	if len(parts) >= 2 {
+		return parts[0] + " " + parts[1]
+	}
+	return parts[0]
+}
+
+// ftpFEATInfo holds information from FTP FEAT command.
+type ftpFEATInfo struct {
+	Software  string
+	Features  []string
+	Anonymous bool
+}
+
+// probeFTPDetails connects to FTP, parses the greeting version, sends FEAT to enumerate
+// features, and tests anonymous login. This replaces the separate anonymous + version probes
+// with a single connection.
+func probeFTPDetails(ctx context.Context, host string, port int) *ftpFEATInfo {
+	d := &net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	buf := make([]byte, 2048)
+
+	// Read banner.
+	n, err := conn.Read(buf)
+	if err != nil || n < 3 || (string(buf[:3]) != "220" && string(buf[:3]) != "230") {
+		return nil
+	}
+	banner := strings.TrimSpace(string(buf[:n]))
+	info := &ftpFEATInfo{Software: parseFTPVersion(banner)}
+
+	// Send FEAT to enumerate features.
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_, _ = fmt.Fprintf(conn, "FEAT\r\n")
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	n, err = conn.Read(buf)
+	if err == nil && n > 0 {
+		featResp := string(buf[:n])
+		if strings.HasPrefix(featResp, "211") {
+			for _, line := range strings.Split(featResp, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "211") {
+					continue
+				}
+				info.Features = append(info.Features, line)
+			}
+		}
+	}
+
+	// Test anonymous login.
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_, _ = fmt.Fprintf(conn, "USER anonymous\r\n")
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	n, err = conn.Read(buf)
+	if err != nil || n < 3 {
+		return info
+	}
+	code := string(buf[:3])
+	if code == "230" {
+		info.Anonymous = true
+		return info
+	}
+	if code != "331" {
+		return info
+	}
+	// Send PASS.
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_, _ = fmt.Fprintf(conn, "PASS anonymous@beacon.test\r\n")
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	n, _ = conn.Read(buf)
+	if n >= 3 && string(buf[:3]) == "230" {
+		info.Anonymous = true
+	}
+	return info
+}
+
 // probePostgreSQL attempts a PostgreSQL startup handshake as user "postgres" with no password.
 // Returns true if the server responds with AuthenticationOk (message type 'R' + int32(0)),
 // indicating trust authentication is configured for remote connections.

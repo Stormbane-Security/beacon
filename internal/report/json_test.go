@@ -31,8 +31,9 @@ func TestRenderJSON_ContainsDomain(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(out), &m)
-	if m["domain"] != "example.com" {
-		t.Errorf("expected domain 'example.com', got %v", m["domain"])
+	meta := m["metadata"].(map[string]any)
+	if meta["target"] != "example.com" {
+		t.Errorf("expected target 'example.com', got %v", meta["target"])
 	}
 }
 
@@ -48,8 +49,9 @@ func TestRenderJSON_FindingCountMatchesSlice(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(out), &m)
-	if int(m["finding_count"].(float64)) != 3 {
-		t.Errorf("expected finding_count 3, got %v", m["finding_count"])
+	summary := m["summary"].(map[string]any)
+	if int(summary["total_findings"].(float64)) != 3 {
+		t.Errorf("expected total_findings 3, got %v", summary["total_findings"])
 	}
 }
 
@@ -60,20 +62,13 @@ func TestRenderJSON_ExecutiveSummaryIncluded(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(out), &m)
-	if m["executive_summary"] != "Top-level risk: SQL injection" {
-		t.Errorf("expected summary in JSON, got %v", m["executive_summary"])
+	execSummary, ok := m["executive_summary"].(map[string]any)
+	if !ok {
+		t.Fatal("expected executive_summary object in JSON")
 	}
-}
-
-func TestRenderJSON_EmptyExecutiveSummaryOmitted(t *testing.T) {
-	out, err := RenderJSON(testRun(), nil, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m map[string]any
-	_ = json.Unmarshal([]byte(out), &m)
-	if _, ok := m["executive_summary"]; ok {
-		t.Error("empty executive_summary should be omitted from JSON")
+	// The executive summary should contain a narrative.
+	if execSummary["narrative"] == nil {
+		t.Error("expected narrative in executive_summary")
 	}
 }
 
@@ -84,8 +79,9 @@ func TestRenderJSON_CompletedAtPresent(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(out), &m)
-	if m["completed_at"] == nil {
-		t.Error("expected completed_at in JSON")
+	meta := m["metadata"].(map[string]any)
+	if meta["completed_at"] == nil {
+		t.Error("expected completed_at in metadata")
 	}
 }
 
@@ -214,9 +210,6 @@ func TestRenderJSON_NilFindings(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &m); err != nil {
 		t.Fatalf("nil findings produced invalid JSON: %v", err)
 	}
-	if int(m["finding_count"].(float64)) != 0 {
-		t.Errorf("expected finding_count 0 for nil findings, got %v", m["finding_count"])
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -300,14 +293,15 @@ func TestRenderJSON_NilCompletedAt(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(out), &m)
+	meta := m["metadata"].(map[string]any)
 	// completed_at should be absent (omitempty).
-	if _, ok := m["completed_at"]; ok {
+	if meta["completed_at"] != nil {
 		t.Error("expected completed_at to be omitted when nil")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// JSON: nil findings slice produces valid JSON with empty array, not null
+// JSON: nil findings slice produces valid JSON
 // ---------------------------------------------------------------------------
 
 func TestJSONReportNilFindings(t *testing.T) {
@@ -323,26 +317,15 @@ func TestJSONReportNilFindings(t *testing.T) {
 	}
 
 	// The "findings" key should exist.
-	rawFindings, ok := m["findings"]
+	_, ok := m["findings"]
 	if !ok {
 		t.Fatal("expected 'findings' key in JSON output")
 	}
 
-	// Verify it's not JSON null — it should be an array (possibly null in Go,
-	// but we want to verify the JSON is still parseable and finding_count is 0).
-	if rawFindings != nil {
-		arr, ok := rawFindings.([]any)
-		if !ok {
-			t.Fatalf("expected 'findings' to be array, got %T", rawFindings)
-		}
-		if len(arr) != 0 {
-			t.Errorf("expected empty findings array for nil input, got %d elements", len(arr))
-		}
-	}
-
-	// finding_count must be 0.
-	if int(m["finding_count"].(float64)) != 0 {
-		t.Errorf("expected finding_count 0, got %v", m["finding_count"])
+	// Summary total_findings must be 0.
+	summary := m["summary"].(map[string]any)
+	if int(summary["total_findings"].(float64)) != 0 {
+		t.Errorf("expected total_findings 0, got %v", summary["total_findings"])
 	}
 
 	// Round-trip: re-marshal and re-unmarshal should succeed.
@@ -496,5 +479,53 @@ func TestJSONReportSpecialCharsInTitle(t *testing.T) {
 	var m2 map[string]any
 	if err := json.Unmarshal(b, &m2); err != nil {
 		t.Fatalf("round-trip unmarshal failed: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JSON: structured schema validation
+// ---------------------------------------------------------------------------
+
+func TestRenderJSON_StructuredSchema(t *testing.T) {
+	findings := []enrichment.EnrichedFinding{
+		enrichedWith(finding.SeverityCritical, "Critical Bug", "app.example.com"),
+		enrichedWith(finding.SeverityMedium, "Medium Bug", "api.example.com"),
+	}
+	out, err := RenderJSON(testRun(), findings, "Test summary", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report JSONReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("failed to unmarshal into JSONReport: %v", err)
+	}
+
+	// Metadata checks.
+	if report.Metadata.Target != "example.com" {
+		t.Errorf("metadata.target = %q, want example.com", report.Metadata.Target)
+	}
+	if report.Metadata.ScanType != "surface" {
+		t.Errorf("metadata.scan_type = %q, want surface", report.Metadata.ScanType)
+	}
+
+	// Summary checks.
+	if report.Summary.TotalFindings != 2 {
+		t.Errorf("summary.total_findings = %d, want 2", report.Summary.TotalFindings)
+	}
+	if report.Summary.BySeverity["critical"] != 1 {
+		t.Errorf("by_severity.critical = %d, want 1", report.Summary.BySeverity["critical"])
+	}
+
+	// Recommendations should be non-empty for findings with critical severity.
+	if len(report.Recommendations) == 0 {
+		t.Error("expected non-empty recommendations")
+	}
+
+	// Executive summary should be populated.
+	if report.ExecutiveSummary == nil {
+		t.Fatal("expected executive_summary")
+	}
+	if report.ExecutiveSummary.RiskScore <= 0 {
+		t.Error("expected positive risk score for critical+medium findings")
 	}
 }

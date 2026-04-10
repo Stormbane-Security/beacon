@@ -36,6 +36,18 @@ func init() {
 		scan.Check(finding.CheckCorrelationCachePoisoningChain, finding.SeverityHigh, finding.ModeSurface),
 		scan.Check(finding.CheckCorrelationLateralMovementChain, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCorrelationDNSRebindingChain, finding.SeverityCritical, finding.ModeSurface),
+
+		// v2 expanded chains
+		scan.Check(finding.CheckCorrelationSSRFCloudIAMChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationDefaultCredsRCEChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationInfoDisclosureLateralChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationJWTAuthBypassChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationOpenRedirectOAuthChain, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationSubdomainTakeoverSessionChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationWeakTLSCredInterceptChain, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationContainerEscapeChain, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationEmailSpoofPhishChain, finding.SeverityHigh, finding.ModeSurface),
+		scan.Check(finding.CheckCorrelationVersionCVEMatchChain, finding.SeverityHigh, finding.ModeSurface),
 	)
 }
 
@@ -116,6 +128,36 @@ func (s *Scanner) Run(_ context.Context, asset string, _ module.ScanType) ([]fin
 
 	// Chain 13: DNS rebinding + internal services = network bypass
 	results = append(results, checkDNSRebindingChain(byCheckID, asset, now)...)
+
+	// Chain 14: SSRF → cloud metadata → IAM escalation (distinct from chain 4 — requires metadata + SSRF specifically for IAM path)
+	results = append(results, checkSSRFCloudIAMChain(byCheckID, asset, now)...)
+
+	// Chain 15: Default creds → admin panel → RCE on same host
+	results = append(results, checkDefaultCredsRCEChain(byCheckID, byAsset, asset, now)...)
+
+	// Chain 16: Info disclosure → credential harvest → lateral movement
+	results = append(results, checkInfoDisclosureLateralChain(byCheckID, asset, now)...)
+
+	// Chain 17: JWT weakness → forged token → API data access
+	results = append(results, checkJWTAuthBypassChain(byCheckID, asset, now)...)
+
+	// Chain 18: Open redirect → OAuth token theft
+	results = append(results, checkOpenRedirectOAuthChain(byCheckID, asset, now)...)
+
+	// Chain 19: Subdomain takeover → cookie injection → session hijack
+	results = append(results, checkSubdomainTakeoverSessionChain(byCheckID, asset, now)...)
+
+	// Chain 20: Weak TLS + auth service → MitM credential interception
+	results = append(results, checkWeakTLSCredInterceptChain(byCheckID, asset, now)...)
+
+	// Chain 21: Container escape → host compromise
+	results = append(results, checkContainerEscapeChain(byCheckID, asset, now)...)
+
+	// Chain 22: Email spoofing → phishing → credential harvest
+	results = append(results, checkEmailSpoofPhishChain(byCheckID, asset, now)...)
+
+	// Chain 23: Version disclosure → known CVE match
+	results = append(results, checkVersionCVEMatchChain(byCheckID, asset, now)...)
 
 	return results, nil
 }
@@ -1031,6 +1073,792 @@ func checkDNSRebindingChain(byCheckID map[string][]finding.Finding, asset string
 			"chain_type":      "dns_rebinding",
 		},
 		ProofCommand: fmt.Sprintf("# DNS rebinding:\n%s\n# Internal service:\n%s", rebind.ProofCommand, secondary.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 14: SSRF → Cloud Metadata → IAM Escalation
+// Distinct from chain 4: this specifically detects the full escalation path
+// where SSRF reaches metadata AND there's evidence of IAM/cloud resources.
+// ---------------------------------------------------------------------------
+
+func checkSSRFCloudIAMChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, ssrfCheckIDs...) {
+		return nil
+	}
+
+	// Require direct cloud metadata SSRF evidence (not just generic cloud signals).
+	if !hasAny(byCheckID, finding.CheckCloudMetadataSSRF) {
+		return nil
+	}
+
+	// Look for IAM or cloud resource findings that confirm escalation potential.
+	hasIAMSignal := false
+	for id := range byCheckID {
+		if strings.HasPrefix(id, "iam.") || id == finding.CheckExposureCloudStorage ||
+			id == finding.CheckCloudBucketPublic || strings.HasPrefix(id, "exposure.cloud") {
+			hasIAMSignal = true
+			break
+		}
+	}
+	if !hasIAMSignal {
+		return nil
+	}
+
+	ssrf := firstFinding(byCheckID, ssrfCheckIDs...)
+	meta := firstFinding(byCheckID, finding.CheckCloudMetadataSSRF)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", ssrf.CheckID, ssrf.Asset),
+		fmt.Sprintf("%s|%s", meta.CheckID, meta.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationSSRFCloudIAMChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: SSRF → cloud metadata → IAM escalation on %s", asset),
+		Description: fmt.Sprintf(
+			"SSRF vulnerability (%s on %s) allows accessing the cloud metadata service (%s on %s), "+
+				"and IAM/cloud resource findings confirm escalation potential. An attacker can: "+
+				"(1) exploit the SSRF to reach 169.254.169.254, (2) extract IAM temporary credentials, "+
+				"(3) use those credentials to enumerate and access cloud resources (S3, RDS, Secrets Manager), "+
+				"(4) potentially escalate to cloud admin via overly permissive IAM roles.",
+			ssrf.CheckID, ssrf.Asset, meta.CheckID, meta.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"ssrf_check":     ssrf.CheckID,
+			"ssrf_asset":     ssrf.Asset,
+			"metadata_check": meta.CheckID,
+			"metadata_asset": meta.Asset,
+			"chain_type":     "ssrf_cloud_iam_escalation",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — SSRF to metadata:\n%s\n"+
+				"# Step 2 — Extract IAM credentials:\ncurl -s 'SSRF_ENDPOINT?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/'\n"+
+				"# Step 3 — Use stolen creds:\nexport AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=...\n"+
+				"aws sts get-caller-identity\naws s3 ls",
+			ssrf.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 15: Default Creds → Admin Panel → RCE
+// ---------------------------------------------------------------------------
+
+var rceCheckIDs = []string{
+	finding.CheckCVELog4Shell,
+	finding.CheckCVEN8nRCE,
+	finding.CheckCVECraftCMSRCE,
+	finding.CheckCVELivewireRCE,
+	finding.CheckCVEBeyondTrustRCE,
+	finding.CheckCVESolarWindsWHD,
+	finding.CheckCVELangflowRCE,
+	finding.CheckCVECiscoFMCRCE,
+	finding.CheckCVEHPEOneViewRCE,
+	finding.CheckCVECiscoASARCE,
+	finding.CheckCVEErlangOTPSSH,
+}
+
+var adminPanelCheckIDs = []string{
+	finding.CheckExposureAdminPath,
+	finding.CheckExposureMonitoringPanel,
+	finding.CheckExposureCICDPanel,
+	finding.CheckExposureSpringActuator,
+}
+
+func checkDefaultCredsRCEChain(byCheckID map[string][]finding.Finding, byAsset map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, defaultCredsCheckIDs...) {
+		return nil
+	}
+	if !hasAny(byCheckID, adminPanelCheckIDs...) {
+		return nil
+	}
+
+	// Look for any RCE-class CVE on same host or any host.
+	hasRCE := hasAny(byCheckID, rceCheckIDs...)
+	// Also check for generic command injection.
+	if !hasRCE {
+		for id := range byCheckID {
+			if strings.Contains(id, "_rce") || strings.Contains(id, "command_injection") {
+				hasRCE = true
+				break
+			}
+		}
+	}
+	if !hasRCE {
+		return nil
+	}
+
+	creds := firstFinding(byCheckID, defaultCredsCheckIDs...)
+	admin := firstFinding(byCheckID, adminPanelCheckIDs...)
+
+	// Find the RCE finding.
+	var rceFinding finding.Finding
+	for _, id := range rceCheckIDs {
+		if fs := byCheckID[id]; len(fs) > 0 {
+			rceFinding = fs[0]
+			break
+		}
+	}
+	if rceFinding.CheckID == "" {
+		for id, fs := range byCheckID {
+			if (strings.Contains(id, "_rce") || strings.Contains(id, "command_injection")) && len(fs) > 0 {
+				rceFinding = fs[0]
+				break
+			}
+		}
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", creds.CheckID, creds.Asset),
+		fmt.Sprintf("%s|%s", admin.CheckID, admin.Asset),
+		fmt.Sprintf("%s|%s", rceFinding.CheckID, rceFinding.Asset),
+	}
+
+	// Stronger signal if findings share the same asset.
+	sameHost := creds.Asset == admin.Asset || creds.Asset == rceFinding.Asset
+	_ = sameHost
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationDefaultCredsRCEChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: default creds → admin panel → RCE on %s", asset),
+		Description: fmt.Sprintf(
+			"Default credentials (%s on %s) grant access to an admin panel (%s on %s), "+
+				"and an RCE vulnerability (%s on %s) exists on the same infrastructure. "+
+				"An attacker can: (1) log in with default credentials, (2) access the admin panel "+
+				"to gain elevated privileges, (3) exploit the RCE vulnerability for full server compromise "+
+				"including reverse shell, data exfiltration, and lateral movement.",
+			creds.CheckID, creds.Asset, admin.CheckID, admin.Asset, rceFinding.CheckID, rceFinding.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"creds_check": creds.CheckID,
+			"creds_asset": creds.Asset,
+			"admin_check": admin.CheckID,
+			"admin_asset": admin.Asset,
+			"rce_check":   rceFinding.CheckID,
+			"rce_asset":   rceFinding.Asset,
+			"chain_type":  "default_creds_admin_rce",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Default credentials:\n%s\n"+
+				"# Step 2 — Admin panel access:\n%s\n"+
+				"# Step 3 — RCE exploitation:\n%s",
+			creds.ProofCommand, admin.ProofCommand, rceFinding.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 16: Info Disclosure → Credential Harvest → Lateral Movement
+// ---------------------------------------------------------------------------
+
+var infoDisclosureCredsCheckIDs = []string{
+	finding.CheckExposureEnvFile,
+	finding.CheckExposureGitExposed,
+	finding.CheckWebDebugEndpoint,
+	finding.CheckExposureSensitiveFile,
+	finding.CheckExposureBackupFile,
+	finding.CheckPortDjangoDebugMode,
+	finding.CheckPortExpressDebugExposed,
+}
+
+func checkInfoDisclosureLateralChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, infoDisclosureCredsCheckIDs...) {
+		return nil
+	}
+
+	// Need evidence that the disclosed info leads somewhere: exposed database,
+	// unauthenticated services, or multiple services on same infra.
+	hasLateralTarget := hasAny(byCheckID, finding.CheckPortDatabaseExposed)
+	if !hasLateralTarget {
+		hasLateralTarget = hasAny(byCheckID, unauthServiceCheckIDs...)
+	}
+	if !hasLateralTarget {
+		return nil
+	}
+
+	disclosure := firstFinding(byCheckID, infoDisclosureCredsCheckIDs...)
+
+	var target finding.Finding
+	if hasAny(byCheckID, finding.CheckPortDatabaseExposed) {
+		target = firstFinding(byCheckID, finding.CheckPortDatabaseExposed)
+	} else {
+		target = firstFinding(byCheckID, unauthServiceCheckIDs...)
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", disclosure.CheckID, disclosure.Asset),
+		fmt.Sprintf("%s|%s", target.CheckID, target.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationInfoDisclosureLateralChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: info disclosure → credential harvest → lateral movement on %s", asset),
+		Description: fmt.Sprintf(
+			"An exposed configuration source (%s on %s) likely contains database or service credentials, "+
+				"and an accessible backend service (%s on %s) provides a lateral movement target. "+
+				"An attacker can: (1) fetch the exposed config file to harvest credentials, "+
+				"(2) use extracted credentials to authenticate to the backend service, "+
+				"(3) access or exfiltrate data from the internal data tier.",
+			disclosure.CheckID, disclosure.Asset, target.CheckID, target.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"disclosure_check": disclosure.CheckID,
+			"disclosure_asset": disclosure.Asset,
+			"target_check":     target.CheckID,
+			"target_asset":     target.Asset,
+			"chain_type":       "info_disclosure_lateral_movement",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Fetch exposed config:\n%s\n"+
+				"# Step 2 — Extract credentials from response (look for DATABASE_URL, passwords, API keys)\n"+
+				"# Step 3 — Connect to backend:\n%s",
+			disclosure.ProofCommand, target.ProofCommand),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 17: JWT Weakness → Authentication Bypass → Data Access
+// ---------------------------------------------------------------------------
+
+func checkJWTAuthBypassChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, jwtWeakCheckIDs...) {
+		return nil
+	}
+
+	// Look for API endpoints or auth-related findings that indicate data behind auth.
+	hasAuthTarget := false
+	for id := range byCheckID {
+		if strings.HasPrefix(id, "auth.") || strings.HasPrefix(id, "oauth.") ||
+			strings.HasPrefix(id, "exposure.") || id == finding.CheckExposureAdminPath {
+			hasAuthTarget = true
+			break
+		}
+	}
+	if !hasAuthTarget {
+		return nil
+	}
+
+	jwt := firstFinding(byCheckID, jwtWeakCheckIDs...)
+
+	algDesc := "weak algorithm"
+	switch jwt.CheckID {
+	case finding.CheckJWTAlgNoneVariant:
+		algDesc = "alg:none accepted"
+	case finding.CheckJWTEmptySecret:
+		algDesc = "empty signing secret"
+	case finding.CheckJWTAlgorithmConfusion:
+		algDesc = "algorithm confusion (RS256→HS256)"
+	case finding.CheckJWTNoVerification:
+		algDesc = "no signature verification"
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationJWTAuthBypassChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: JWT %s → auth bypass → data access on %s", algDesc, asset),
+		Description: fmt.Sprintf(
+			"JWT implementation vulnerability (%s on %s — %s) allows token forgery. "+
+				"With authenticated endpoints detected on the same infrastructure, an attacker can: "+
+				"(1) forge a JWT with arbitrary claims (admin role, any user ID), "+
+				"(2) present the forged token to bypass authentication, "+
+				"(3) access sensitive API endpoints and data as any user including administrators.",
+			jwt.CheckID, jwt.Asset, algDesc),
+		Asset:      asset,
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"jwt_check":    jwt.CheckID,
+			"jwt_asset":    jwt.Asset,
+			"jwt_weakness": algDesc,
+			"chain_type":   "jwt_auth_bypass_data_access",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Confirm JWT weakness:\n%s\n"+
+				"# Step 2 — Forge admin token:\n"+
+				"python3 -c \"import jwt; print(jwt.encode({'sub':'admin','role':'admin'}, '', algorithm='none'))\"\n"+
+				"# Step 3 — Access protected endpoints:\n"+
+				"curl -H 'Authorization: Bearer <forged_token>' 'https://%s/api/admin/users'",
+			jwt.ProofCommand, jwt.Asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 18: Open Redirect → OAuth Token Theft
+// ---------------------------------------------------------------------------
+
+func checkOpenRedirectOAuthChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, openRedirectCheckIDs...) {
+		return nil
+	}
+
+	// Specifically look for OAuth findings (not just generic auth).
+	hasOAuthFinding := false
+	var oauthFinding finding.Finding
+	for id, fs := range byCheckID {
+		if strings.HasPrefix(id, "oauth.") && len(fs) > 0 {
+			hasOAuthFinding = true
+			oauthFinding = fs[0]
+			break
+		}
+	}
+	if !hasOAuthFinding {
+		return nil
+	}
+
+	redir := firstFinding(byCheckID, openRedirectCheckIDs...)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", redir.CheckID, redir.Asset),
+		fmt.Sprintf("%s|%s", oauthFinding.CheckID, oauthFinding.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationOpenRedirectOAuthChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("Attack chain: open redirect → OAuth token theft on %s", asset),
+		Description: fmt.Sprintf(
+			"An open redirect (%s on %s) exists on the same domain as OAuth endpoints (%s on %s). "+
+				"An attacker can: (1) craft an OAuth authorization URL with the redirect_uri pointing to "+
+				"the open redirect endpoint, (2) the open redirect forwards the authorization code to the "+
+				"attacker's server, (3) the attacker exchanges the code for access tokens and takes over "+
+				"the victim's account. This works because OAuth providers often only validate the domain, "+
+				"not the full redirect path.",
+			redir.CheckID, redir.Asset, oauthFinding.CheckID, oauthFinding.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"redirect_check": redir.CheckID,
+			"redirect_asset": redir.Asset,
+			"oauth_check":    oauthFinding.CheckID,
+			"oauth_asset":    oauthFinding.Asset,
+			"chain_type":     "open_redirect_oauth_theft",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Confirm open redirect:\n%s\n"+
+				"# Step 2 — Craft OAuth URL with redirect to open redirect:\n"+
+				"# https://%s/oauth/authorize?client_id=...&redirect_uri=https://%s/REDIRECT_ENDPOINT?url=https://attacker.com/steal\n"+
+				"# Step 3 — Attacker captures authorization code at their server",
+			redir.ProofCommand, oauthFinding.Asset, redir.Asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 19: Subdomain Takeover → Cookie Injection → Session Hijack
+// ---------------------------------------------------------------------------
+
+var subdomainTakeoverCheckIDs = []string{
+	finding.CheckSubdomainTakeover,
+	finding.CheckSubdomainNSDelegationTakeover,
+}
+
+func checkSubdomainTakeoverSessionChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, subdomainTakeoverCheckIDs...) {
+		return nil
+	}
+
+	// Look for cookie scope issues or any cookie-related findings that indicate
+	// cookies are scoped to the parent domain.
+	hasCookieScope := hasAny(byCheckID, finding.CheckCookieExcessiveScope,
+		finding.CheckCookieMissingSecure, finding.CheckCookieMissingSameSite,
+		finding.CheckCookieNoPrefix)
+
+	if !hasCookieScope {
+		return nil
+	}
+
+	takeover := firstFinding(byCheckID, subdomainTakeoverCheckIDs...)
+	cookie := firstFinding(byCheckID, finding.CheckCookieExcessiveScope,
+		finding.CheckCookieMissingSecure, finding.CheckCookieMissingSameSite,
+		finding.CheckCookieNoPrefix)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", takeover.CheckID, takeover.Asset),
+		fmt.Sprintf("%s|%s", cookie.CheckID, cookie.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationSubdomainTakeoverSessionChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: subdomain takeover → session hijack on %s", asset),
+		Description: fmt.Sprintf(
+			"A subdomain takeover vulnerability (%s on %s) combined with insecure cookie scoping "+
+				"(%s on %s) enables session hijacking. An attacker can: (1) claim the dangling subdomain "+
+				"by registering it with the cloud provider, (2) serve content from the claimed subdomain, "+
+				"(3) set cookies scoped to the parent domain (e.g., Domain=.example.com), "+
+				"(4) inject or overwrite session cookies for the main application, "+
+				"(5) hijack user sessions on the primary domain.",
+			takeover.CheckID, takeover.Asset, cookie.CheckID, cookie.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"takeover_check": takeover.CheckID,
+			"takeover_asset": takeover.Asset,
+			"cookie_check":   cookie.CheckID,
+			"cookie_asset":   cookie.Asset,
+			"chain_type":     "subdomain_takeover_session_hijack",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Confirm dangling DNS:\n%s\n"+
+				"# Step 2 — Claim subdomain with cloud provider\n"+
+				"# Step 3 — Serve page that sets: Set-Cookie: session=attacker; Domain=.%s; Path=/\n"+
+				"# Step 4 — Victim visits claimed subdomain → cookie set for parent domain",
+			takeover.ProofCommand, asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 20: Weak TLS + Auth Service → MitM Credential Interception
+// ---------------------------------------------------------------------------
+
+var authServiceCheckIDs = []string{
+	finding.CheckAuthLoginFormDetected,
+	finding.CheckAuthSSOEndpoint,
+	finding.CheckAuthMFADetected,
+}
+
+func checkWeakTLSCredInterceptChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Need weak TLS (including heartbleed).
+	extendedTLSCheckIDs := append(weakTLSCheckIDs, finding.CheckTLSHeartbleed)
+	if !hasAny(byCheckID, extendedTLSCheckIDs...) {
+		return nil
+	}
+
+	// Need evidence that the service handles authentication.
+	hasAuth := hasAny(byCheckID, authServiceCheckIDs...)
+	if !hasAuth {
+		// Also check for OAuth/auth endpoints as auth signal.
+		for id := range byCheckID {
+			if strings.HasPrefix(id, "oauth.") || strings.HasPrefix(id, "auth.") {
+				hasAuth = true
+				break
+			}
+		}
+	}
+	if !hasAuth {
+		return nil
+	}
+
+	tls := firstFinding(byCheckID, extendedTLSCheckIDs...)
+	var auth finding.Finding
+	if hasAny(byCheckID, authServiceCheckIDs...) {
+		auth = firstFinding(byCheckID, authServiceCheckIDs...)
+	} else {
+		// Find first oauth.* or auth.* finding.
+		for id, fs := range byCheckID {
+			if (strings.HasPrefix(id, "oauth.") || strings.HasPrefix(id, "auth.")) && len(fs) > 0 {
+				auth = fs[0]
+				break
+			}
+		}
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", tls.CheckID, tls.Asset),
+		fmt.Sprintf("%s|%s", auth.CheckID, auth.Asset),
+	}
+
+	tlsDesc := "weak cipher suite"
+	switch tls.CheckID {
+	case finding.CheckTLSProtocolSSLv3:
+		tlsDesc = "SSLv3 protocol support"
+	case finding.CheckTLSProtocolSSLv2:
+		tlsDesc = "SSLv2 protocol support"
+	case finding.CheckTLSProtocolTLS10:
+		tlsDesc = "TLS 1.0 protocol support"
+	case finding.CheckTLSProtocolTLS11:
+		tlsDesc = "TLS 1.1 protocol support"
+	case finding.CheckTLSHeartbleed:
+		tlsDesc = "Heartbleed vulnerability"
+	case finding.CheckTLSNoPFS:
+		tlsDesc = "no perfect forward secrecy"
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationWeakTLSCredInterceptChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("Attack chain: %s → MitM credential interception on %s", tlsDesc, asset),
+		Description: fmt.Sprintf(
+			"Weak TLS configuration (%s on %s — %s) on a service that handles authentication "+
+				"(%s on %s) enables credential interception via man-in-the-middle attack. "+
+				"An attacker on the network path can: (1) downgrade the TLS connection exploiting "+
+				"the weak configuration, (2) intercept credentials (passwords, tokens, session cookies) "+
+				"transmitted over the weakened connection, (3) replay stolen credentials for account access.",
+			tls.CheckID, tls.Asset, tlsDesc, auth.CheckID, auth.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"tls_check":    tls.CheckID,
+			"tls_asset":    tls.Asset,
+			"tls_weakness": tlsDesc,
+			"auth_check":   auth.CheckID,
+			"auth_asset":   auth.Asset,
+			"chain_type":   "weak_tls_credential_interception",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Confirm weak TLS:\n%s\n"+
+				"# Step 2 — Auth service detected:\n%s\n"+
+				"# Step 3 — MitM test (requires network position):\n"+
+				"# Use mitmproxy or bettercap to intercept traffic to %s",
+			tls.ProofCommand, auth.ProofCommand, tls.Asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 21: Container Escape → Host Compromise
+// ---------------------------------------------------------------------------
+
+var containerAPICheckIDs = []string{
+	finding.CheckPortDockerUnauth,
+	finding.CheckPortKubeletUnauth,
+	finding.CheckPortK8sAPIExposed,
+	finding.CheckPortKubeDashboardExposed,
+	finding.CheckPortKubeletReadOnly,
+}
+
+var containerFindingCheckIDs = []string{
+	finding.CheckContainerRegistryExposed,
+	finding.CheckContainerImageUnsigned,
+	finding.CheckContainerRegistryAnonymousPush,
+	finding.CheckContainerDockerSocketExposed,
+}
+
+func checkContainerEscapeChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, containerAPICheckIDs...) {
+		return nil
+	}
+
+	// Look for container-level findings that amplify the escape path.
+	hasContainerFinding := hasAny(byCheckID, containerFindingCheckIDs...)
+	if !hasContainerFinding {
+		// Also accept any container.* finding.
+		for id := range byCheckID {
+			if strings.HasPrefix(id, "container.") {
+				hasContainerFinding = true
+				break
+			}
+		}
+	}
+	if !hasContainerFinding {
+		return nil
+	}
+
+	api := firstFinding(byCheckID, containerAPICheckIDs...)
+
+	var containerFinding finding.Finding
+	if hasAny(byCheckID, containerFindingCheckIDs...) {
+		containerFinding = firstFinding(byCheckID, containerFindingCheckIDs...)
+	} else {
+		for id, fs := range byCheckID {
+			if strings.HasPrefix(id, "container.") && len(fs) > 0 {
+				containerFinding = fs[0]
+				break
+			}
+		}
+	}
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", api.CheckID, api.Asset),
+		fmt.Sprintf("%s|%s", containerFinding.CheckID, containerFinding.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationContainerEscapeChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityCritical,
+		Title:    fmt.Sprintf("Attack chain: container escape → host compromise on %s", asset),
+		Description: fmt.Sprintf(
+			"An exposed container orchestration API (%s on %s) combined with container vulnerabilities "+
+				"(%s on %s) enables host compromise. An attacker can: (1) access the unauthenticated "+
+				"container API, (2) deploy a privileged container or exploit existing container weaknesses, "+
+				"(3) escape the container to the host filesystem via mount or privileged mode, "+
+				"(4) compromise all containers on the host and pivot to the underlying infrastructure.",
+			api.CheckID, api.Asset, containerFinding.CheckID, containerFinding.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"api_check":       api.CheckID,
+			"api_asset":       api.Asset,
+			"container_check": containerFinding.CheckID,
+			"container_asset": containerFinding.Asset,
+			"chain_type":      "container_escape_host_compromise",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Access container API:\n%s\n"+
+				"# Step 2 — Container finding:\n%s\n"+
+				"# Step 3 — Deploy privileged container (Docker example):\n"+
+				"# curl -X POST http://%s:2375/containers/create -d '{\"Image\":\"alpine\",\"HostConfig\":{\"Privileged\":true,\"Binds\":[\"/:/mnt\"]}}'\n"+
+				"# Step 4 — Access host filesystem at /mnt inside container",
+			api.ProofCommand, containerFinding.ProofCommand, api.Asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 22: Email Spoofing → Phishing → Credential Harvest
+// ---------------------------------------------------------------------------
+
+var emailSpoofCheckIDs = []string{
+	finding.CheckEmailDMARCMissing,
+	finding.CheckEmailDMARCPolicyNone,
+	finding.CheckEmailSPFSoftfail,
+	finding.CheckEmailSPFMissing,
+	finding.CheckEmailSpoofable,
+}
+
+var emailDKIMCheckIDs = []string{
+	finding.CheckEmailDKIMMissing,
+	finding.CheckEmailDKIMWeakKey,
+}
+
+func checkEmailSpoofPhishChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	if !hasAny(byCheckID, emailSpoofCheckIDs...) {
+		return nil
+	}
+	if !hasAny(byCheckID, emailDKIMCheckIDs...) {
+		return nil
+	}
+
+	spoof := firstFinding(byCheckID, emailSpoofCheckIDs...)
+	dkim := firstFinding(byCheckID, emailDKIMCheckIDs...)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", spoof.CheckID, spoof.Asset),
+		fmt.Sprintf("%s|%s", dkim.CheckID, dkim.Asset),
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationEmailSpoofPhishChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: finding.SeverityHigh,
+		Title:    fmt.Sprintf("Attack chain: email spoofing → phishing → credential harvest on %s", asset),
+		Description: fmt.Sprintf(
+			"Missing email authentication records (%s on %s) combined with DKIM weakness "+
+				"(%s on %s) allows convincing email spoofing. An attacker can: "+
+				"(1) send emails that appear to come from your domain (no DMARC/SPF enforcement), "+
+				"(2) emails pass recipient checks because DKIM is not configured to reject forgeries, "+
+				"(3) craft phishing emails targeting employees with internal-looking password reset links, "+
+				"(4) harvest credentials for internal system access.",
+			spoof.CheckID, spoof.Asset, dkim.CheckID, dkim.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 3,
+		Evidence: map[string]any{
+			"spoof_check": spoof.CheckID,
+			"spoof_asset": spoof.Asset,
+			"dkim_check":  dkim.CheckID,
+			"dkim_asset":  dkim.Asset,
+			"chain_type":  "email_spoofing_phishing",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Confirm missing DMARC/SPF:\n%s\n"+
+				"# Step 2 — Confirm missing DKIM:\n%s\n"+
+				"# Step 3 — Test email spoofing (authorized testing only):\n"+
+				"# swaks --to target@example.com --from ceo@%s --header 'Subject: Urgent Password Reset' --body 'Reset: https://attacker.com/reset'",
+			spoof.ProofCommand, dkim.ProofCommand, asset),
+		DiscoveredAt: now,
+	}}
+}
+
+// ---------------------------------------------------------------------------
+// Chain 23: Version Disclosure → Known CVE Match
+// ---------------------------------------------------------------------------
+
+func checkVersionCVEMatchChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Need service version identification.
+	if !hasAny(byCheckID, finding.CheckPortServiceIdentified) {
+		return nil
+	}
+
+	// Need at least one CVE finding.
+	hasCVE := false
+	var cveFinding finding.Finding
+	for id, fs := range byCheckID {
+		if strings.HasPrefix(id, "cve.") && len(fs) > 0 {
+			hasCVE = true
+			cveFinding = fs[0]
+			break
+		}
+	}
+	if !hasCVE {
+		return nil
+	}
+
+	version := firstFinding(byCheckID, finding.CheckPortServiceIdentified)
+
+	enabledByParts := []string{
+		fmt.Sprintf("%s|%s", version.CheckID, version.Asset),
+		fmt.Sprintf("%s|%s", cveFinding.CheckID, cveFinding.Asset),
+	}
+
+	// Use the CVE finding's severity if available; otherwise default to High.
+	severity := finding.SeverityHigh
+	if cveFinding.Severity == finding.SeverityCritical {
+		severity = finding.SeverityCritical
+	}
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckCorrelationVersionCVEMatchChain,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: severity,
+		Title:    fmt.Sprintf("Attack chain: version disclosure → CVE match (%s) on %s", cveFinding.CheckID, asset),
+		Description: fmt.Sprintf(
+			"Service version information (%s on %s) disclosed the software version, which matches "+
+				"a known vulnerability (%s on %s). The version disclosure enables the attacker to "+
+				"confirm the target is running a vulnerable version and select the correct exploit. "+
+				"This reduces exploitation from guesswork to a targeted, reliable attack.",
+			version.CheckID, version.Asset, cveFinding.CheckID, cveFinding.Asset),
+		Asset:      asset,
+		EnabledBy:  strings.Join(enabledByParts, ", "),
+		ChainDepth: 2,
+		Evidence: map[string]any{
+			"version_check": version.CheckID,
+			"version_asset": version.Asset,
+			"cve_check":     cveFinding.CheckID,
+			"cve_asset":     cveFinding.Asset,
+			"cve_severity":  cveFinding.Severity.String(),
+			"chain_type":    "version_disclosure_cve_match",
+		},
+		ProofCommand: fmt.Sprintf(
+			"# Step 1 — Service version disclosure:\n%s\n"+
+				"# Step 2 — Matching CVE:\n%s\n"+
+				"# Step 3 — Verify with version-specific exploit or nuclei template",
+			version.ProofCommand, cveFinding.ProofCommand),
 		DiscoveredAt: now,
 	}}
 }

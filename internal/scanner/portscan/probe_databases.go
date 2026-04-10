@@ -153,7 +153,14 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 	// MySQL: greeting packet starts with protocol version 0x0a/0x09
 	if probeMySQL(ctx, host, port) {
 		dbName := "MySQL"
-		mysqlVer := probeMySQLVersion(ctx, host, port)
+		// Enhanced probe: parse full greeting for version, capabilities, auth plugin.
+		greetingInfo := probeMySQLGreeting(ctx, host, port)
+		mysqlVer := ""
+		if greetingInfo != nil {
+			mysqlVer = greetingInfo.Version
+		} else {
+			mysqlVer = probeMySQLVersion(ctx, host, port)
+		}
 		dbEv := map[string]any{
 			"port": port, "service": dbName,
 			"banner": banner,
@@ -168,6 +175,14 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 			dbEv["product"] = "MySQL " + mysqlVer
 			noAuthEv["version"] = mysqlVer
 			noAuthEv["product"] = "MySQL " + mysqlVer
+		}
+		if greetingInfo != nil {
+			if greetingInfo.AuthPlugin != "" {
+				dbEv["auth_plugin"] = greetingInfo.AuthPlugin
+			}
+			dbEv["connection_id"] = greetingInfo.ConnectionID
+			dbEv["character_set"] = fmt.Sprintf("0x%02x", greetingInfo.CharacterSet)
+			dbEv["capabilities"] = fmt.Sprintf("0x%08x", greetingInfo.Capabilities)
 		}
 		return []finding.Finding{
 			makeF(
@@ -226,8 +241,65 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 			),
 		}
 	}
-	// MSSQL: responds to TDS prelogin
-	if probeMSSQL(ctx, host, port) {
+	// MSSQL: responds to TDS prelogin — enhanced with version/encryption extraction.
+	if mssqlInfo := probeMSSQLPrelogin(ctx, host, port); mssqlInfo != nil {
+		dbName := "Microsoft SQL Server"
+		mssqlVersion := fmt.Sprintf("%d.%d.%d", mssqlInfo.MajorVersion, mssqlInfo.MinorVersion, mssqlInfo.BuildNumber)
+		encryptionStr := "unknown"
+		switch mssqlInfo.Encryption {
+		case 0:
+			encryptionStr = "off"
+		case 1:
+			encryptionStr = "on"
+		case 2:
+			encryptionStr = "not_supported"
+		case 3:
+			encryptionStr = "required"
+		}
+		mssqlEv := map[string]any{
+			"port": port, "service": dbName, "banner": banner,
+			"version": mssqlVersion, "encryption": encryptionStr,
+		}
+		if mssqlInfo.InstanceName != "" {
+			mssqlEv["instance_name"] = mssqlInfo.InstanceName
+		}
+		var mssqlFindings []finding.Finding
+		mssqlFindings = append(mssqlFindings, makeF(
+			finding.CheckPortMSSQLExposed,
+			finding.SeverityHigh,
+			fmt.Sprintf("%s %s exposed on port %d (encryption: %s)", dbName, mssqlVersion, port, encryptionStr),
+			fmt.Sprintf("A %s instance (version %s) is directly accessible from the internet. "+
+				"TDS prelogin handshake succeeded, revealing server version and encryption setting (%s). "+
+				"Databases should never be exposed publicly; this enables brute-force attacks and "+
+				"exploitation of database-engine vulnerabilities.", dbName, mssqlVersion, encryptionStr),
+			mssqlEv,
+		))
+		mssqlFindings = append(mssqlFindings, makeF(
+			finding.CheckPortDatabaseExposed,
+			finding.SeverityHigh,
+			fmt.Sprintf("%s database exposed on port %d", dbName, port),
+			fmt.Sprintf("A %s database is directly accessible from the internet. "+
+				"Databases should never be exposed publicly; this enables brute-force attacks and "+
+				"exploitation of database-engine vulnerabilities.", dbName),
+			mssqlEv,
+		))
+		// Also try sa with empty password.
+		if probeMSSQL(ctx, host, port) {
+			mssqlFindings = append(mssqlFindings, makeF(
+				finding.CheckPortMSSQLDefaultCreds,
+				finding.SeverityCritical,
+				fmt.Sprintf("MSSQL accepts sa login with empty password on port %d", port),
+				"Microsoft SQL Server accepts the 'sa' (system administrator) login with a blank password. "+
+					"The sa account has sysadmin privileges — an attacker can read/write all databases, "+
+					"enable xp_cmdshell for OS command execution, and read Windows registry hives. "+
+					"Disable the sa account or set a strong password: ALTER LOGIN sa WITH PASSWORD='...', ENABLE.",
+				map[string]any{"port": port, "service": dbName, "user": "sa", "password": "(empty)",
+					"version": mssqlVersion},
+			))
+		}
+		return mssqlFindings
+	} else if probeMSSQL(ctx, host, port) {
+		// Fallback: prelogin parse failed but LOGIN7 succeeded.
 		dbName := "Microsoft SQL Server"
 		return []finding.Finding{
 			makeF(
@@ -336,17 +408,56 @@ func detectInfluxDB(ctx context.Context, host string, port int, banner string, m
 }
 
 func detectCassandra(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	if !probeCassandraCQL(ctx, host, port) {
-		return nil
+	// Enhanced CQL probe: parse OPTIONS response for versions, compression, and auth status.
+	cqlInfo := probeCassandraCQLInfo(ctx, host, port)
+	if cqlInfo == nil {
+		// Fallback to basic probe.
+		if !probeCassandraCQL(ctx, host, port) {
+			return nil
+		}
+		return []finding.Finding{makeF(
+			finding.CheckPortDatabaseExposed,
+			finding.SeverityHigh,
+			fmt.Sprintf("Apache Cassandra exposed on port %d", port),
+			"An Apache Cassandra database is publicly accessible on its native CQL port. "+
+				"Cassandra without authentication allows full read/write access to all keyspaces and tables.",
+			map[string]any{"port": port, "service": "cassandra", "banner": banner},
+		)}
 	}
-	return []finding.Finding{makeF(
-		finding.CheckPortDatabaseExposed,
-		finding.SeverityHigh,
-		fmt.Sprintf("Apache Cassandra exposed on port %d", port),
+
+	ev := map[string]any{
+		"port": port, "service": "cassandra", "banner": banner,
+	}
+	if len(cqlInfo.CQLVersions) > 0 {
+		ev["cql_versions"] = strings.Join(cqlInfo.CQLVersions, ", ")
+	}
+	if len(cqlInfo.Compression) > 0 {
+		ev["compression"] = strings.Join(cqlInfo.Compression, ", ")
+	}
+
+	var findings []finding.Finding
+	if cqlInfo.NoAuth {
+		ev["auth_status"] = "no_auth"
+		ev["authenticator"] = "AllowAllAuthenticator"
+		findings = append(findings, makeF(
+			finding.CheckPortCassandraNoAuth,
+			finding.SeverityCritical,
+			fmt.Sprintf("Apache Cassandra on port %d accepts connections without authentication (AllowAllAuthenticator)", port),
+			"The Cassandra cluster uses AllowAllAuthenticator — any client can connect without credentials and "+
+				"read, write, or delete all data in every keyspace. An attacker has full DBA access. "+
+				"Configure PasswordAuthenticator in cassandra.yaml and require credentials for all clients.",
+			ev,
+		))
+	}
+	findings = append(findings, makeF(
+		finding.CheckPortCassandraExposed,
+		finding.SeverityCritical,
+		fmt.Sprintf("Apache Cassandra CQL exposed on port %d", port),
 		"An Apache Cassandra database is publicly accessible on its native CQL port. "+
 			"Cassandra without authentication allows full read/write access to all keyspaces and tables.",
-		map[string]any{"port": port, "service": "cassandra", "banner": banner},
-	)}
+		ev,
+	))
+	return findings
 }
 
 func detectNeo4j(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
