@@ -28,4 +28,21 @@ assertions:
     expect:
       check_id: cve.tomcat_ghostcat
 
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 3: EXPLOIT MODE — deep scan with exploit chain
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: ghostcat-exploit-mode
+    type: beacon
+    target: localhost:8009
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8009", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: ghostcat-web-console-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9233/ | grep -qi tomcat"
+      exit_code: 0
+
 timeout: 5m
