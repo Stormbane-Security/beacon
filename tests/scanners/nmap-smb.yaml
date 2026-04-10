@@ -47,4 +47,20 @@ assertions:
     expect:
       check_id: port.smb_null_session
 
+  # Native SMB probe: OS discovery (replaces nmap smb-os-discovery)
+  - name: detects-smb-os-discovery
+    type: beacon
+    target: localhost:10445
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "10445"]
+    expect:
+      check_id: port.smb_os_discovery
+
+  # Native SMB probe: signing not required (relay attack risk)
+  - name: detects-smb-signing-not-required
+    type: beacon
+    target: localhost:10445
+    args: ["--no-enrich", "--no-nmap", "--yes", "--scanners", "portscan", "--ports", "10445"]
+    expect:
+      check_id: port.smb_signing_not_required
+
 timeout: 5m

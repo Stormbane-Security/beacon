@@ -78,6 +78,45 @@ assertions:
     target: localhost:20141
     args: ["--no-nmap", "--deep", "--yes"]
     expect:
-      min_findings: 5
+      min_findings: 10
+
+  # Full pipeline should discover API endpoints via crawler
+  - name: full-pipeline-api-discovery
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: asset.api_discovery
+
+  # Full pipeline should discover crawl endpoints
+  - name: full-pipeline-crawl-endpoints
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: asset.crawl_endpoints
+
+  # Full pipeline should detect server info leak
+  - name: full-pipeline-server-info
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # Full pipeline should detect missing security headers
+  - name: full-pipeline-missing-referrer-policy
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: full-pipeline-missing-permissions-policy
+    type: beacon
+    target: localhost:20141
+    args: ["--no-nmap", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
 
 timeout: 10m

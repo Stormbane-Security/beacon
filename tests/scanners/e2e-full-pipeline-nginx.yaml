@@ -71,6 +71,48 @@ assertions:
     expect:
       check_id: headers.missing_csp
 
+  - name: detects-server-info-leak
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.server_info_leak
+
+  - name: detects-waf-not-detected
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: waf.not_detected
+
+  - name: detects-missing-x-frame-options
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
+  - name: detects-missing-x-content-type
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: detects-missing-referrer-policy
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: detects-missing-permissions-policy
+    type: beacon
+    target: localhost:20200
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
   # ══════════════════════════════════════════════════════════════════════
   # NEGATIVE — plain nginx should not fire injection findings
   # ══════════════════════════════════════════════════════════════════════

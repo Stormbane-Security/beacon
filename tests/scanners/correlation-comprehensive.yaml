@@ -1,0 +1,112 @@
+name: correlation-comprehensive
+description: >
+  Full pipeline correlation test. CORS-vulnerable Node.js server reflects
+  any origin with credentials, leaks API keys, and has no security headers.
+  Running the full pipeline (no --scanners filter) exercises the correlation
+  scanner after all other scanners complete. Asserts CORS + header + DLP
+  findings are produced, and the correlation scanner runs (min_findings).
+tags: [correlation, scanner, cors, secheaders, full-pipeline, integration]
+
+services:
+  cors-app:
+    image: node:20-alpine
+    ports: ["20282:3000"]
+    volumes:
+      - ./cors-vuln/server.js:/app/server.js:ro
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20282/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify vulnerability conditions exist
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-cors-reflects-origin
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:20282/ | grep -qi 'Access-Control-Allow-Origin: https://evil.com'"
+      exit_code: 0
+
+  - name: preflight-no-csp-header
+    type: command
+    expect:
+      command: "! curl -sI http://localhost:20282/ | grep -qi 'Content-Security-Policy'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter, enables correlation scanner.
+  # Should find: CORS misconfig, missing security headers, DLP api key.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-min-findings
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 5
+
+  - name: full-pipeline-cors-misconfig
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  - name: full-pipeline-cors-credentialed
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_credentialed_reflection
+
+  - name: full-pipeline-missing-hsts
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: full-pipeline-missing-csp
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_csp
+
+  - name: full-pipeline-cors-preflight
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_preflight_misconfiguration
+
+  - name: full-pipeline-missing-referrer-policy
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: full-pipeline-missing-permissions-policy
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: should NOT emit unrelated findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-xss
+    type: beacon
+    target: localhost:20282
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      not_check_id: web.reflected_xss
+
+timeout: 8m

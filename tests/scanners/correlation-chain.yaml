@@ -70,6 +70,49 @@ assertions:
     expect:
       min_findings: 3
 
+  # ── Full pipeline: runs correlation scanner after all others ─────────────
+  - name: full-pipeline-produces-findings
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 5
+
+  - name: full-pipeline-cors-credentialed
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.cors_credentialed_reflection
+
+  - name: full-pipeline-missing-referrer-policy
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_referrer_policy
+
+  - name: full-pipeline-missing-permissions-policy
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_permissions_policy
+
+  - name: full-pipeline-missing-x-content-type
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_x_content_type
+
+  - name: full-pipeline-missing-x-frame-options
+    type: beacon
+    target: localhost:19878
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_x_frame_options
+
   # ── Negative: should NOT emit database findings ──────────────────────────
   - name: negative-no-database-finding
     type: beacon
