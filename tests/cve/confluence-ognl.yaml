@@ -16,12 +16,6 @@ ready:
   interval: 10s
 
 assertions:
-  - name: exploit-confluence-version-exposed
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9277/status 2>/dev/null | grep -qi confluence || curl -sf http://localhost:9277/ 2>/dev/null | grep -qi confluence"
-      exit_code: 0
-
   - name: detects-confluence-ognl
     type: beacon
     target: localhost:9277

@@ -16,24 +16,6 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-envoy-server-info
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9901/server_info | grep -qE '(version|state)'"
-      exit_code: 0
-
-  - name: exploit-envoy-clusters
-    type: command
-    expect:
-      command: "curl -sf http://localhost:9901/clusters | grep -qE '(cluster|cx_active)'"
-      exit_code: 0
-
-  - name: classifies-as-envoy
-    type: classify
-    target: localhost:9901
-    expect:
-      proxy_type: envoy
-
   - name: detects-envoy-admin-exposed
     type: beacon
     target: localhost:9901

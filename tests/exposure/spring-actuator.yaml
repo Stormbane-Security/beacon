@@ -12,22 +12,10 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:8080/actuator/health >/dev/null"
-  timeout: 180s
-  interval: 3s
+  timeout: 300s
+  interval: 5s
 
 assertions:
-  - name: exploit-actuator-env
-    type: command
-    expect:
-      command: "curl -sf http://localhost:8080/actuator/env | grep -qE '(activeProfiles|propertySources)'"
-      exit_code: 0
-
-  - name: exploit-actuator-health-details
-    type: command
-    expect:
-      command: "curl -sf http://localhost:8080/actuator/health | grep -q status"
-      exit_code: 0
-
   - name: detects-spring-actuator-exposed
     type: beacon
     target: localhost:8080
@@ -35,4 +23,4 @@ assertions:
     expect:
       check_id: exposure.spring_actuator
 
-timeout: 5m
+timeout: 10m

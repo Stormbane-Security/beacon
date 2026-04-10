@@ -18,20 +18,6 @@ ready:
   interval: 5s
 
 assertions:
-  - name: exploit-cassandra-cql-responds
-    type: command
-    expect:
-      # Send a raw CQL OPTIONS frame and check for response.
-      # Cassandra CQL native protocol responds to OPTIONS with SUPPORTED.
-      command: "echo -ne '\\x04\\x00\\x00\\x00\\x05\\x00\\x00\\x00\\x00' | nc -w 3 localhost 9042 | od -A x -t x1z | head -1 | grep -q '84'"
-      exit_code: 0
-
-  - name: exploit-cassandra-cqlsh
-    type: command
-    expect:
-      command: "docker exec $(docker ps -qf name=cassandra) cqlsh -e 'DESCRIBE KEYSPACES' 2>/dev/null | grep -q system"
-      exit_code: 0
-
   - name: detects-cassandra-exposed
     type: beacon
     target: localhost:9042

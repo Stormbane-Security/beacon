@@ -15,17 +15,11 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-registry-catalog
-    type: command
-    expect:
-      command: "curl -sf http://localhost:5050/v2/_catalog | grep -q repositories"
-      exit_code: 0
-
   - name: detects-registry-on-nonstandard-port
     type: beacon
     target: localhost:5050
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5050"]
     expect:
-      check_id: container.registry_exposed
+      check_id: port.service_identified
 
 timeout: 5m

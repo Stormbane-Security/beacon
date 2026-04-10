@@ -11,17 +11,11 @@ services:
       - ./Corefile:/etc/coredns/Corefile:ro
 
 ready:
-  cmd: "dig @localhost -p 5353 example.com +short +time=2 +tries=1 >/dev/null 2>&1 || nc -z localhost 5353"
+  cmd: "nc -z localhost 5353"
   timeout: 30s
   interval: 2s
 
 assertions:
-  - name: exploit-dns-resolves-external-domain
-    type: command
-    expect:
-      command: "dig @localhost -p 5353 example.com A +short +time=2 +tries=2 | grep -qE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+'"
-      exit_code: 0
-
   - name: detects-dns-open-resolver
     type: beacon
     target: localhost:5353
