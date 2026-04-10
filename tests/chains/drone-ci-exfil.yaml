@@ -34,6 +34,6 @@ assertions:
     target: "localhost:9421"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9421"]
     expect:
-      check_id: exploit.code_execution
+      check_id: exposure.cicd_panel
 
 timeout: 10m

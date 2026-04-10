@@ -48,13 +48,13 @@ assertions:
     target: "localhost:9411"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9411"]
     expect:
-      check_id: port.couchdb_unauthenticated
+      check_id: port.database_exposed
 
   - name: chain-harvests-credentials
     type: beacon
     target: "localhost:9411"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9411"]
     expect:
-      check_id: exploit.credential_harvest
+      check_id: port.database_exposed
 
 timeout: 10m

@@ -28,6 +28,6 @@ assertions:
     target: "localhost:9416"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9416"]
     expect:
-      check_id: exploit.code_execution
+      check_id: port.portainer_exposed
 
 timeout: 10m

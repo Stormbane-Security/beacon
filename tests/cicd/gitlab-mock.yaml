@@ -45,7 +45,7 @@ setup:
 
 ready:
   cmd: "curl -sf http://localhost:8929/api/v4/version | grep -q version"
-  timeout: 30s
+  timeout: 60s
   interval: 2s
 
 assertions:

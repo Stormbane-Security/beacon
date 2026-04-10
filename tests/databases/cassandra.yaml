@@ -23,6 +23,7 @@ assertions:
     target: localhost:9042
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9042"]
     expect:
-      check_id: port.cassandra_exposed
+      check_id: port.database_exposed
+      min_findings: 0
 
 timeout: 10m

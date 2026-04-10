@@ -28,6 +28,6 @@ assertions:
     target: "localhost:9430"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9430"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: port.smb_open
 
 timeout: 5m

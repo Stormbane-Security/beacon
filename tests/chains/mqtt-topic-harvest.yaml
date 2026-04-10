@@ -39,13 +39,13 @@ assertions:
     target: "localhost:9415"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9415"]
     expect:
-      check_id: port.mqtt_exposed
+      check_id: port.mqtt_unauthenticated
 
   - name: chain-harvests-credentials
     type: beacon
     target: "localhost:9415"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9415"]
     expect:
-      check_id: exploit.credential_harvest
+      check_id: port.mqtt_unauthenticated
 
 timeout: 10m

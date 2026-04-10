@@ -1,5 +1,5 @@
 name: mysql-nonstandard-port
-description: "MySQL on non-standard port — probe must detect by wire protocol, not port number"
+description: "MySQL on non-standard port - probe must detect by wire protocol, not port number"
 tags: [mysql, nonstandard-port]
 
 services:

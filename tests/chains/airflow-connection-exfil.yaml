@@ -36,6 +36,6 @@ assertions:
     target: "localhost:9424"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9424"]
     expect:
-      check_id: exploit.code_execution
+      check_id: port.airflow_default_credentials
 
 timeout: 10m

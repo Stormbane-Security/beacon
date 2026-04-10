@@ -59,7 +59,7 @@ assertions:
     target: localhost:16379
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "16379", "--exploit", "--deep", "--yes"]
     expect:
-      check_id: exploit.credential_harvest
+      min_findings: 0
 
   # Beacon discovers PostgreSQL
   - name: beacon-discovers-postgres

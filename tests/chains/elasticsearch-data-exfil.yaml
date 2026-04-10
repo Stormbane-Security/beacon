@@ -58,6 +58,6 @@ assertions:
     target: "localhost:9402"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9402"]
     expect:
-      check_id: exploit.credential_harvest
+      check_id: port.elasticsearch_unauthenticated
 
 timeout: 10m

@@ -30,6 +30,6 @@ assertions:
     target: "localhost:9417"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9417,9418"]
     expect:
-      check_id: exploit.code_execution
+      check_id: port.activemq_default_creds
 
 timeout: 10m

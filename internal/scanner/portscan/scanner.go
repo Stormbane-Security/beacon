@@ -1090,7 +1090,7 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 		return "", false
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", false
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))

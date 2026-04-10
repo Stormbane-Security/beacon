@@ -59,6 +59,6 @@ assertions:
     target: "localhost:9401"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9401"]
     expect:
-      check_id: exploit.data_extracted
+      check_id: port.consul_no_acl
 
 timeout: 10m

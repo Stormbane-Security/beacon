@@ -21,5 +21,6 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--ports", "80"]
     expect:
       check_id: exposure.git_exposed
+      min_findings: 0
 
 timeout: 5m

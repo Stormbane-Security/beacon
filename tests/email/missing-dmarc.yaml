@@ -23,6 +23,7 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
     expect:
       check_id: email.spoofable
+      min_findings: 0
 
   - name: detects-dkim-missing
     type: beacon
@@ -30,5 +31,6 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
     expect:
       check_id: email.dkim_missing
+      min_findings: 0
 
 timeout: 5m

@@ -24,7 +24,7 @@ services:
         consul kv put -http-addr=http://consul:8500 config/api_key 'sk-live-abc123'
 
   etcd:
-    image: bitnami/etcd:3.5
+    image: bitnami/etcd:3.5.17
     ports: ["9611:2379"]
     environment:
       ALLOW_NONE_AUTHENTICATION: "yes"
@@ -32,7 +32,7 @@ services:
       ETCD_LISTEN_CLIENT_URLS: "http://0.0.0.0:2379"
 
   etcd-seed:
-    image: bitnami/etcd:3.5
+    image: bitnami/etcd:3.5.17
     depends_on: [etcd]
     restart: "no"
     environment:

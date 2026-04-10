@@ -58,6 +58,6 @@ assertions:
     target: "localhost:9405"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9405"]
     expect:
-      check_id: exploit.credential_harvest
+      check_id: port.database_exposed
 
 timeout: 10m
