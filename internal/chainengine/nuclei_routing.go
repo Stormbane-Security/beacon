@@ -65,6 +65,49 @@ var nucleiTagToService = map[string]string{
 	// AI/ML
 	"jupyter": "jupyter",
 	"airflow": "airflow",
+	"ollama":  "ollama",
+	"mlflow":  "mlflow",
+	"gradio":  "gradio",
+
+	// CMS / web frameworks
+	"wordpress": "wordpress",
+	"joomla":    "joomla",
+	"drupal":    "drupal",
+	"ghost":     "ghost",
+	"nextcloud": "nextcloud",
+	"django":    "django",
+	"laravel":   "laravel",
+	"rails":     "rails",
+	"fastapi":   "fastapi",
+
+	// Admin panels
+	"webmin":     "webmin",
+	"splunk":     "splunk",
+	"zabbix":     "zabbix",
+	"phpmyadmin": "phpmyadmin",
+	"jboss":      "jboss",
+	"wildfly":    "jboss",
+	"coldfusion": "coldfusion",
+
+	// Infrastructure
+	"zookeeper":  "zookeeper",
+	"hazelcast":  "hazelcast",
+	"nacos":      "nacos",
+	"nifi":       "nifi",
+	"proxmox":    "proxmox",
+	"mikrotik":   "mikrotik",
+	"kubelet":    "kubelet",
+
+	// Network services
+	"rdp":     "rdp",
+	"vnc":     "vnc",
+	"ftp":     "ftp",
+	"ssh":     "ssh",
+	"telnet":  "telnet",
+	"smtp":    "smtp",
+	"snmp":    "snmp",
+	"ldap":    "ldap",
+	"dns":     "dns",
 }
 
 // nucleiTemplateToServiceMap maps specific nuclei template IDs (often CVEs)
@@ -190,6 +233,140 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// NATS CVE exploit chains
 	"CVE-2023-47090": "nats",             // Auth bypass
 	"CVE-2022-29946": "nats",             // Account takeover
+
+	// === Additional CVE routes (all playbook cve_exploits) ===
+	// VNC
+	"CVE-2006-2369": "vnc",              // RealVNC auth bypass
+	"CVE-2019-15681": "vnc",             // TightVNC info leak
+	// FTP
+	"CVE-2011-2523": "ftp",              // vsftpd backdoor
+	"CVE-2015-3306": "ftp",              // ProFTPD mod_copy
+	// SNMP
+	"CVE-2012-6151": "snmp",             // Net-SNMP AgentX DoS
+	"CVE-2017-6742":  "snmp",            // Cisco SNMP RCE
+	// JBoss
+	"CVE-2015-7501": "jboss",            // JMXInvokerServlet deser
+	"CVE-2017-12149": "jboss",           // InvokerTransformer deser
+	// Joomla
+	"CVE-2015-8562": "joomla",           // Session object injection
+	"CVE-2023-23752": "joomla",          // Unauth info disclosure
+	// WordPress
+	"CVE-2017-8295": "wordpress",        // Host header password reset
+	"CVE-2019-8942": "wordpress",        // Crop-image RCE
+	// Jenkins (additional)
+	"CVE-2018-1000861": "jenkins",       // Stapler RCE
+	// phpMyAdmin
+	"CVE-2018-12613": "phpmyadmin",      // LFI
+	// MikroTik
+	"CVE-2018-14847": "mikrotik",        // Winbox file read
+	"CVE-2023-32154": "mikrotik",        // IPv6 RCE
+	// Laravel
+	"CVE-2018-15133": "laravel",         // APP_KEY deser
+	"CVE-2021-3129":  "laravel",         // Ignition RCE
+	// K8s Dashboard
+	"CVE-2018-18264": "k8s_dashboard",   // Skip auth
+	"CVE-2020-8565":  "k8s_dashboard",   // Log sanitization
+	// RDP
+	"CVE-2019-0708": "rdp",              // BlueKeep
+	"CVE-2019-1181": "rdp",              // DejaBlue
+	// SMTP
+	"CVE-2019-10149": "smtp",            // Exim RCE
+	"CVE-2020-28018": "smtp",            // Exim use-after-free
+	// Django
+	"CVE-2019-14234": "django",          // JSONField SQLi
+	"CVE-2021-35042": "django",          // order_by SQLi
+	// Webmin
+	"CVE-2019-15107": "webmin",          // Password reset RCE
+	"CVE-2019-15231": "webmin",          // Package updates RCE
+	// InfluxDB
+	"CVE-2019-20933": "influxdb",        // Auth bypass
+	// Rails
+	"CVE-2019-5418": "rails",            // Accept header file read
+	"CVE-2020-8163": "rails",            // Render injection RCE
+	// DNS
+	"CVE-2020-1350": "dns",              // SIGRed
+	"CVE-2021-25216": "dns",             // BIND GSS-TSIG
+	// Pulse VPN
+	"CVE-2021-22893": "pulse_vpn",       // Auth bypass RCE
+	// LDAP
+	"CVE-2021-27928": "ldap",            // MariaDB LDAP bypass
+	"CVE-2023-2136":  "ldap",            // OpenLDAP DoS
+	// Nacos
+	"CVE-2021-29441": "nacos",           // User-Agent auth bypass
+	"CVE-2023-34465": "nacos",           // JWT hardcoded
+	// Neo4j
+	"CVE-2021-34371": "neo4j",           // Bolt Java deser
+	"CVE-2023-23926": "neo4j",           // APOC RCE
+	// Cassandra
+	"CVE-2021-44521": "cassandra",       // UDF sandbox escape
+	// Log4Shell (additional)
+	"CVE-2021-45046": "log4shell",       // Bypass
+	// Zabbix
+	"CVE-2022-23131": "zabbix",          // SAML auth bypass
+	"CVE-2024-22120": "zabbix",          // Time-based SQLi
+	"CVE-2024-36466": "zabbix",          // Session hijack
+	// Express
+	"CVE-2022-24999": "express",         // qs prototype pollution
+	"CVE-2024-29041": "express",         // Open redirect
+	// Proxmox
+	"CVE-2022-35508": "proxmox",         // Auth bypass
+	// Hazelcast
+	"CVE-2022-36437": "hazelcast",       // Session fixation
+	// Ghost
+	"CVE-2022-41654": "ghost",           // Membership bypass
+	"CVE-2023-40028": "ghost",           // File read
+	// MQTT
+	"CVE-2023-0809": "mqtt",             // Mosquitto crash
+	"CVE-2023-3028": "mqtt",             // Mosquitto auth bypass
+	// Confluence (additional)
+	"CVE-2023-22527": "confluence",      // Template injection RCE
+	// Kafka
+	"CVE-2023-25194": "kafka",           // JNDI injection
+	"CVE-2024-31141": "kafka",           // Config traversal
+	// Apache (additional)
+	"CVE-2023-25690": "apache",          // HTTP smuggling
+	"CVE-2023-43622": "apache",          // HTTP/2 DoS
+	// ColdFusion
+	"CVE-2023-26360": "coldfusion",      // Deser RCE
+	"CVE-2024-20767": "coldfusion",      // File read
+	// Gitea
+	"CVE-2023-27581": "gitea",           // Command injection
+	// Superset (additional)
+	"CVE-2023-36388": "superset",        // Auth bypass
+	// NiFi
+	"CVE-2023-34468": "nifi",            // H2 URL injection RCE
+	// ZooKeeper
+	"CVE-2023-44981": "zookeeper",       // SASL bypass
+	"CVE-2019-0201":  "zookeeper",       // getACL bypass
+	// Splunk
+	"CVE-2023-46214": "splunk",          // XSL RCE
+	// ClickHouse
+	"CVE-2023-47118": "clickhouse",      // Heap buffer overflow
+	// Nextcloud
+	"CVE-2023-48239": "nextcloud",       // SSRF via preview
+	// SSH (additional)
+	"CVE-2023-48795": "ssh",             // Terrapin
+	"CVE-2024-6387":  "ssh",             // RegreSSHion
+	// MLflow
+	"CVE-2023-6014": "mlflow",           // Auth bypass
+	"CVE-2023-6831": "mlflow",           // Path traversal
+	"CVE-2024-27132": "mlflow",          // RCE
+	// Docker (additional)
+	"CVE-2024-21626": "docker",          // runc escape
+	// FastAPI
+	"CVE-2024-24762": "fastapi",         // multipart ReDoS
+	// TeamCity (additional)
+	"CVE-2024-27198": "teamcity",        // Admin auth bypass
+	// Ollama
+	"CVE-2024-37032": "ollama",          // Path traversal
+	// Gradio
+	"CVE-2024-6507": "gradio",           // Path traversal
+	// Kubelet
+	"CVE-2024-9042": "kubelet",          // Windows node RCE
+	// Kubernetes (additional)
+	"CVE-2025-1974": "kubernetes",       // IngressNightmare
+	// Tomcat (additional)
+	"CVE-2025-24813": "tomcat",          // Partial PUT deser
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook
