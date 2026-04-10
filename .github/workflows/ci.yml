@@ -102,9 +102,8 @@ jobs:
           BEACON_AUTHORIZED_ACK: "1"
         run: |
           set -o pipefail
-          drydock run tests/${{ matrix.category }} \
-            --fixed-ports \
-            --artifacts .drydock/runs 2>&1 | tee drydock-output.log
+          drydock run --fixed-ports --artifacts .drydock/runs \
+            tests/${{ matrix.category }} 2>&1 | tee drydock-output.log
 
       - name: Save Docker images to cache
         if: always() && steps.check.outputs.skip != 'true' && steps.docker-cache.outputs.cache-hit != 'true'
@@ -212,9 +211,8 @@ jobs:
             echo "No test files found for batch ${{ matrix.batch }}"
             exit 0
           fi
-          drydock run $TESTS \
-            --fixed-ports \
-            --artifacts .drydock/runs 2>&1 | tee drydock-output.log
+          drydock run --fixed-ports --artifacts .drydock/runs \
+            $TESTS 2>&1 | tee drydock-output.log
 
       - name: Save Docker images to cache
         if: always() && steps.docker-cache.outputs.cache-hit != 'true'
