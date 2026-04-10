@@ -35,7 +35,7 @@ assertions:
   - name: exploit-search-returns-mongo-error
     type: command
     expect:
-      command: "curl -s -X POST -H 'Content-Type: application/json' -d '{\"$where\":\"sleep(100)\"}' http://localhost:9292/api/search | grep -q 'MongoServerError'"
+      command: "curl -s -X POST -H 'Content-Type: application/json' -d '{\"where\":\"sleep(100)\"}' http://localhost:9292/api/search | grep -q 'MongoServerError'"
       exit_code: 0
 
   - name: detects-nosql-auth-bypass

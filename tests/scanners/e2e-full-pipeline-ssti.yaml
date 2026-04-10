@@ -1,0 +1,60 @@
+name: e2e-full-pipeline-ssti
+description: >
+  Full pipeline E2E test against the Jinja2 SSTI-vulnerable Python app.
+  Runs beacon WITHOUT any --scanners filter so the complete pipeline
+  executes: crawl → param discovery → classify → Phase A → Phase B →
+  correlation → chain engine. The crawl should discover the search form,
+  and header scanners should fire on the bare Python server.
+tags: [e2e, full-pipeline, ssti, integration]
+
+services:
+  ssti-app:
+    build:
+      context: ./ssti
+      dockerfile: Dockerfile
+    ports: ["20221:8080"]
+
+ready:
+  cmd: "curl -sf http://localhost:20221/health >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: verify SSTI vulnerability exists
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-server-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20221/ | grep -qi 'search'"
+      exit_code: 0
+
+  - name: preflight-ssti-math-eval
+    type: command
+    expect:
+      command: "curl -sf 'http://localhost:20221/search?q=%7B%7B7*7%7D%7D' | grep -q 49"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # FULL PIPELINE — no --scanners filter
+  # Uses min_findings to verify pipeline completes and finds issues.
+  # Single beacon assertion to stay within timeout — full pipeline scans
+  # against Python apps take 60-90s each.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: full-pipeline-completes
+    type: beacon
+    target: localhost:20221
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: full-pipeline-detects-missing-hsts
+    type: beacon
+    target: localhost:20221
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+timeout: 7m
