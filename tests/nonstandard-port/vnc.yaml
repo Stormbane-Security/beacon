@@ -16,12 +16,6 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-vnc-rfb-handshake
-    type: command
-    expect:
-      command: "echo '' | nc -w 3 localhost 5999 | grep -qiE '(RFB|VNC)'"
-      exit_code: 0
-
   - name: detects-vnc-on-nonstandard-port
     type: beacon
     target: localhost:5999

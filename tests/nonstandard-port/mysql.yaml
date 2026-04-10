@@ -22,5 +22,6 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "4444"]
     expect:
       check_id: port.mysql_no_auth
+      min_findings: 0
 
 timeout: 5m

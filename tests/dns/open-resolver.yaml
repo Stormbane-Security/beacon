@@ -5,21 +5,21 @@ tags: [dns, port, amplification]
 services:
   dns:
     image: coredns/coredns:1.11.1
-    ports: ["5353:53/udp", "5353:53/tcp"]
+    ports: ["15353:53/udp", "15353:53/tcp"]
     command: ["-conf", "/etc/coredns/Corefile"]
     volumes:
       - ./Corefile:/etc/coredns/Corefile:ro
 
 ready:
-  cmd: "nc -z localhost 5353"
+  cmd: "nc -z localhost 15353"
   timeout: 30s
   interval: 2s
 
 assertions:
   - name: detects-dns-open-resolver
     type: beacon
-    target: localhost:5353
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5353"]
+    target: localhost:15353
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "15353"]
     expect:
       check_id: port.dns_open_resolver
 

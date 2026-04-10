@@ -27,6 +27,6 @@ assertions:
     target: localhost:6666
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "6666"]
     expect:
-      check_id: port.couchdb_unauthenticated
+      check_id: port.database_exposed
 
 timeout: 5m

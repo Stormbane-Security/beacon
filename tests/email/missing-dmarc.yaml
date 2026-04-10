@@ -5,14 +5,14 @@ tags: [email, scanner, dns]
 services:
   coredns:
     image: coredns/coredns:1.11.1
-    ports: ["53:53/udp", "53:53/tcp"]
+    ports: ["15354:53/udp", "15354:53/tcp"]
     volumes:
       - ./missing-dmarc/Corefile:/etc/coredns/Corefile:ro
       - ./missing-dmarc/zones:/etc/coredns/zones:ro
     command: ["-conf", "/etc/coredns/Corefile"]
 
 ready:
-  cmd: "nc -z localhost 53"
+  cmd: "nc -z localhost 15354"
   timeout: 30s
   interval: 2s
 
@@ -20,17 +20,15 @@ assertions:
   - name: detects-missing-dmarc
     type: beacon
     target: testdomain.local
-    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:15354"]
     expect:
-      check_id: email.spoofable
-      min_findings: 0
+      check_id: email.dmarc_missing
 
   - name: detects-dkim-missing
     type: beacon
     target: testdomain.local
-    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:53"]
+    args: ["--no-enrich", "--no-nmap", "--scanners", "email", "--dns-server", "127.0.0.1:15354"]
     expect:
       check_id: email.dkim_missing
-      min_findings: 0
 
 timeout: 5m
