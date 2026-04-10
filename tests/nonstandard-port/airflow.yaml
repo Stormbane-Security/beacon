@@ -47,4 +47,18 @@ assertions:
     expect:
       check_id: port.airflow_exposed
 
+  - name: deep-mode-airflow
+    type: beacon
+    target: localhost:9090
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "9090"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-airflow
+    type: beacon
+    target: localhost:9090
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "9090"]
+    expect:
+      min_findings: 0
+
 timeout: 10m

@@ -30,4 +30,18 @@ assertions:
     expect:
       check_id: port.proxmox_exposed
 
+  - name: deep-mode-proxmox
+    type: beacon
+    target: localhost:8006
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "8006"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-proxmox
+    type: beacon
+    target: localhost:8006
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "8006"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

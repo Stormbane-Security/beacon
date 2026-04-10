@@ -38,4 +38,11 @@ assertions:
     expect:
       check_id: cve.spring4shell
 
+  - name: exploit-mode-spring4shell
+    type: beacon
+    target: localhost:9440
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "9440"]
+    expect:
+      min_findings: 0
+
 timeout: 10m

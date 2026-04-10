@@ -54,4 +54,18 @@ assertions:
     expect:
       not_check_id: port.redis_unauthenticated
 
+  - name: deep-mode-jaeger
+    type: beacon
+    target: localhost:20041
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "16686"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-jaeger
+    type: beacon
+    target: localhost:20041
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "16686"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

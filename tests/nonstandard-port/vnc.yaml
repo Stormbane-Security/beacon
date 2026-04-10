@@ -23,4 +23,18 @@ assertions:
     expect:
       check_id: port.vnc_exposed
 
+  - name: deep-mode-vnc
+    type: beacon
+    target: localhost:5999
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "5999"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-vnc
+    type: beacon
+    target: localhost:5999
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "5999"]
+    expect:
+      min_findings: 0
+
 timeout: 5m

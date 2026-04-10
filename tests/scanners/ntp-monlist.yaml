@@ -31,4 +31,18 @@ assertions:
     expect:
       check_id: port.ntp_exposed
 
+  - name: deep-mode-ntp
+    type: beacon
+    target: localhost:15123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "15123"]
+    expect:
+      min_findings: 0
+
+  - name: exploit-mode-ntp
+    type: beacon
+    target: localhost:15123
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "15123"]
+    expect:
+      min_findings: 0
+
 timeout: 5m
