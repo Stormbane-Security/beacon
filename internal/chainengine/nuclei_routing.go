@@ -70,15 +70,21 @@ var nucleiTagToService = map[string]string{
 	"gradio":  "gradio",
 
 	// CMS / web frameworks
-	"wordpress": "wordpress",
-	"joomla":    "joomla",
-	"drupal":    "drupal",
-	"ghost":     "ghost",
-	"nextcloud": "nextcloud",
-	"django":    "django",
-	"laravel":   "laravel",
-	"rails":     "rails",
-	"fastapi":   "fastapi",
+	"wordpress":  "wordpress",
+	"joomla":     "joomla",
+	"drupal":     "drupal",
+	"ghost":      "ghost",
+	"nextcloud":  "nextcloud",
+	"django":     "django",
+	"laravel":    "laravel",
+	"rails":      "rails",
+	"fastapi":    "fastapi",
+	"craftcms":   "craftcms",
+	"magento":    "magento",
+	"vbulletin":  "vbulletin",
+	"owncloud":   "owncloud",
+	"roundcube":  "roundcube",
+	"openfire":   "openfire",
 
 	// Admin panels
 	"webmin":     "webmin",
@@ -108,6 +114,55 @@ var nucleiTagToService = map[string]string{
 	"snmp":    "snmp",
 	"ldap":    "ldap",
 	"dns":     "dns",
+
+	// Network appliances / firewalls
+	"fortios":    "fortios",
+	"fortigate":  "fortios",
+	"fortinet":   "fortios",
+	"paloalto":   "paloalto",
+	"pan-os":     "paloalto",
+	"citrix":     "citrix",
+	"netscaler":  "citrix",
+	"ivanti":     "ivanti",
+	"sonicwall":  "sonicwall",
+	"sophos":     "fortios",
+	"checkpoint": "fortios",
+	"f5":         "fortios",
+	"bigip":      "fortios",
+	"juniper":    "cisco_ios_xe",
+	"barracuda":  "barracuda",
+
+	// Microsoft
+	"exchange":   "exchange",
+	"sharepoint": "sharepoint",
+	"outlook":    "outlook",
+
+	// VMware
+	"vmware":     "vmware",
+	"vcenter":    "vmware",
+	"esxi":       "vmware",
+
+	// Other services
+	"weblogic":    "jboss",
+	"struts":      "apache",
+	"shiro":       "shiro",
+	"telerik":     "telerik",
+	"zimbra":      "zimbra",
+	"saltstack":   "saltstack",
+	"sysaid":      "sysaid",
+	"crushftp":    "crushftp",
+	"geoserver":   "geoserver",
+	"sap":         "sap",
+	"veeam":       "veeam",
+	"keycloak":    "keycloak",
+	"harbor":      "harbor",
+	"n8n":         "n8n",
+	"langflow":    "langflow",
+	"nextjs":      "nextjs",
+	"dlink":       "dlink",
+	"hikvision":   "hikvision",
+	"manageengine": "manageengine",
+	"solarwinds":  "solarwinds",
 }
 
 // nucleiTemplateToServiceMap maps specific nuclei template IDs (often CVEs)
@@ -367,6 +422,380 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2025-1974": "kubernetes",       // IngressNightmare
 	// Tomcat (additional)
 	"CVE-2025-24813": "tomcat",          // Partial PUT deser
+
+	// === 165 additional CVE routes from checkids.go ===
+
+	// JBoss / Java EE application servers
+	"CVE-2010-0738":  "jboss",            // JBoss JMX Console unauth invoke RCE
+	"CVE-2016-5983":  "jboss",            // IBM WebSphere admin console deser RCE
+	"CVE-2017-1000486": "jboss",          // Primefaces EL injection (JSF/Java EE)
+	"CVE-2017-10271": "jboss",            // WebLogic wls-wsat XXE RCE
+	"CVE-2019-2725":  "jboss",            // WebLogic /_async/ pre-auth deser RCE
+	"CVE-2020-14882": "jboss",            // WebLogic admin console auth bypass
+	"CVE-2020-7961":  "jboss",            // Liferay Portal Java deser RCE
+
+	// Apache httpd / PHP-CGI
+	"CVE-2012-1823":  "apache",           // PHP-CGI query string arg injection RCE
+	"CVE-2018-1335":  "apache",           // Apache Tika Server cmd injection RCE
+	"CVE-2024-4577":  "apache",           // PHP CGI Windows arg injection RCE
+	"CVE-2024-27316": "apache",           // HTTP/2 CONTINUATION frame DoS
+	"CVE-2023-44487": "apache",           // HTTP/2 rapid reset DoS
+
+	// Apache Struts
+	"CVE-2017-5638":  "apache",           // Struts 2 OGNL injection RCE (Equifax)
+	"CVE-2023-50164": "apache",           // Struts S2-066 file upload path traversal RCE
+
+	// Apache Solr
+	"CVE-2019-17558": "apache",           // Solr unauth admin API Velocity SSTI RCE
+
+	// Apache Unomi
+	"CVE-2020-13942": "apache",           // Apache Unomi MVEL/OGNL RCE
+
+	// Apache OFBiz
+	"CVE-2023-49070": "apache",           // OFBiz pre-auth XML-RPC deser RCE
+	"CVE-2023-51467": "apache",           // OFBiz auth bypass
+	"CVE-2024-45195": "apache",           // OFBiz force browsing auth bypass
+
+	// Rails
+	"CVE-2013-0156":  "rails",            // Rails XML parameter parsing RCE
+
+	// Spring
+	"CVE-2016-4977":  "spring-actuator",  // Spring OAuth2 SpEL injection
+
+	// Telnet
+	"CVE-2011-4862":  "telnet",           // BSD telnetd Kerberos encrypt overflow RCE
+	"CVE-2026-32746": "telnet",           // GNU telnetd pre-auth stack overflow
+
+	// SSH
+	"CVE-2014-0224":  "ssh",              // OpenSSL CCS injection MitM (generic TLS)
+	"CVE-2018-15473": "ssh",              // OpenSSH username enumeration
+	"CVE-2024-3094":  "ssh",              // XZ Utils backdoor → sshd RCE
+	"CVE-2025-32433": "ssh",              // Erlang/OTP SSH pre-auth RCE
+
+	// SMTP / Exim
+	"CVE-2018-6789":  "smtp",             // Exim base64d heap overflow RCE
+	"CVE-2025-26794": "smtp",             // Exim < 4.98.1 SQL injection
+
+	// DNS / NTP
+	"CVE-2013-5211":  "dns",              // NTP monlist DDoS amplification
+
+	// Cisco IOS XE / ASA / NX-OS / FMC
+	"CVE-2018-0171":  "cisco_ios_xe",     // Cisco Smart Install unauth config RW
+	"CVE-2023-20269": "cisco_ios_xe",     // Cisco ASA/FTD SSL VPN brute-force
+	"CVE-2024-20353": "cisco_ios_xe",     // Cisco ASA/FTD web mgmt DoS (ArcaneDoor)
+	"CVE-2024-20359": "cisco_ios_xe",     // Cisco ASA persistent implant (ArcaneDoor)
+	"CVE-2024-20399": "cisco_ios_xe",     // Cisco NX-OS CLI injection
+	"CVE-2025-20333": "cisco_ios_xe",     // Cisco ASA/FTD pre-auth RCE
+
+	// Cisco FMC
+	"CVE-2026-20131": "cisco_ios_xe",     // Cisco FMC pre-auth Java deser RCE
+
+	// Kubernetes
+	"CVE-2018-1002105": "kubernetes",     // K8s API server WebSocket priv esc
+
+	// FortiOS / FortiProxy / FortiManager / FortiWeb
+	"CVE-2018-13379": "fortios",          // FortiOS SSL VPN cred file read
+	"CVE-2022-40684": "fortios",          // FortiOS/FortiProxy header auth bypass
+	"CVE-2024-55591": "fortios",          // FortiOS WebSocket auth bypass
+	"CVE-2024-47575": "fortios",          // FortiManager FortiJump unauth RCE
+	"CVE-2023-48788": "fortios",          // FortiClient EMS SQLi RCE
+	"CVE-2025-64446": "fortios",          // FortiWeb path traversal auth bypass
+	"CVE-2026-24858": "fortios",          // FortiOS FortiCloud SSO auth bypass
+
+	// ColdFusion
+	"CVE-2018-15961": "coldfusion",       // ColdFusion FCKEditor file upload RCE
+
+	// Palo Alto Networks
+	"CVE-2019-1579":  "paloalto",         // PAN-OS GlobalProtect unauth RCE
+	"CVE-2024-0012":  "paloalto",         // PAN-OS mgmt auth bypass
+	"CVE-2024-9463":  "paloalto",         // Expedition OS cmd injection
+	"CVE-2024-9474":  "paloalto",         // PAN-OS mgmt priv esc
+
+	// Citrix
+	"CVE-2019-19781": "citrix",           // Citrix ADC/Gateway unauth info leak
+	"CVE-2023-48365": "citrix",           // Qlik Sense tunneling auth bypass (similar appliance)
+	"CVE-2025-5777":  "citrix",           // Citrix NetScaler memory disclosure
+
+	// Ivanti
+	"CVE-2023-46805": "ivanti",           // Ivanti Connect Secure path traversal auth bypass
+	"CVE-2024-21893": "ivanti",           // Ivanti CS/PS SAML SSRF auth bypass
+	"CVE-2025-0282":  "ivanti",           // Ivanti CS stack overflow pre-auth RCE
+	"CVE-2023-35078": "ivanti",           // Ivanti EPMM unauth API access
+	"CVE-2023-35081": "ivanti",           // Ivanti EPMM path traversal
+	"CVE-2026-1281":  "ivanti",           // Ivanti EPMM MDM pre-auth cmd injection
+	"CVE-2026-1603":  "ivanti",           // Ivanti EPM auth bypass
+
+	// Confluence (additional)
+	"CVE-2019-11580": "confluence",       // Atlassian Crowd pdkinstall (Atlassian ecosystem)
+
+	// Drupal
+	"CVE-2014-3704":  "drupal",           // Drupalgeddon1 SQL injection
+	"CVE-2018-7600":  "drupal",           // Drupalgeddon2 RCE
+
+	// WordPress (additional)
+	"CVE-2023-28121": "wordpress",        // WooCommerce Payments auth bypass
+	"CVE-2023-2982":  "wordpress",        // MiniOrange Social Login auth bypass
+	"CVE-2023-32243": "wordpress",        // Elementor Pro RCE
+	"CVE-2023-6875":  "wordpress",        // POST SMTP Mailer auth bypass
+	"CVE-2024-27956": "wordpress",        // WP-Automatic SQLi
+	"CVE-2024-2876":  "wordpress",        // Email Subscribers SQLi
+
+	// Gitea
+	"CVE-2022-30781": "gitea",            // Gitea shell cmd injection
+
+	// TeamCity (additional)
+	"CVE-2024-27199": "teamcity",         // TeamCity path-traversal auth bypass
+
+	// Airflow (additional)
+	"CVE-2024-39877": "airflow",          // Airflow DAG author code execution
+
+	// Kibana (additional)
+	"CVE-2025-25015": "kibana",           // Kibana prototype pollution RCE
+
+	// Redis (additional)
+	"CVE-2025-49844": "redis",            // Redis unauth RCE
+
+	// Laravel
+	"CVE-2025-54068": "laravel",          // Laravel Livewire pre-auth RCE
+
+	// Nginx
+	"CVE-2026-27944": "nginx",            // Nginx-UI unauth backup + key disclosure
+
+	// FTP (additional)
+	"CVE-2025-47812": "ftp",              // Wing FTP Server pre-auth RCE
+
+	// === Network appliances / firewalls (no dedicated playbook — nearest match) ===
+
+	// Juniper (route to cisco_ios_xe — similar network appliance)
+	"CVE-2023-36844": "cisco_ios_xe",     // Juniper J-Web PHP env injection RCE
+	"CVE-2024-21591": "cisco_ios_xe",     // Juniper J-Web type confusion RCE
+	"CVE-2026-21902": "cisco_ios_xe",     // Juniper PTX pre-auth RCE
+
+	// Sophos Firewall
+	"CVE-2022-3236":  "fortios",          // Sophos Firewall auth bypass/RCE (similar appliance)
+
+	// Check Point
+	"CVE-2024-24919": "fortios",          // Check Point CloudGuard file read (similar appliance)
+
+	// F5 BIG-IP
+	"CVE-2020-5902":  "fortios",          // F5 BIG-IP TMUI RCE
+	"CVE-2022-1388":  "fortios",          // F5 BIG-IP iControl REST RCE
+	"CVE-2023-46747": "fortios",          // F5 BIG-IP config utility auth bypass
+
+	// === Microsoft products ===
+
+	// Exchange
+	"CVE-2021-26855": "exchange",         // ProxyLogon SSRF
+	"CVE-2021-34473": "exchange",         // ProxyShell
+
+	// SharePoint
+	"CVE-2023-24955": "sharepoint",       // SharePoint RCE
+	"CVE-2023-29357": "sharepoint",       // SharePoint JWT none-alg auth bypass
+	"CVE-2024-38094": "sharepoint",       // SharePoint deser RCE
+
+	// Outlook
+	"CVE-2024-21413": "outlook",          // Outlook moniker link RCE
+
+	// Office
+	"CVE-2023-36884": "outlook",          // Office HTML RCE (Storm-0978)
+
+	// === VMware ===
+	"CVE-2021-21985": "vmware",           // vCenter unauth RCE
+	"CVE-2022-22954": "vmware",           // Workspace ONE SSTI RCE
+	"CVE-2023-34048": "vmware",           // vCenter OOB write RCE
+	"CVE-2024-22252": "vmware",           // VMware UHCI UAF VM escape
+	"CVE-2024-37085": "vmware",           // ESXi AD auth bypass
+	"CVE-2021-22054": "vmware",           // Omnissa Workspace ONE SSRF
+
+	// === ManageEngine ===
+	"CVE-2020-10189": "manageengine",     // Desktop Central pre-auth RCE
+	"CVE-2021-40539": "manageengine",     // ADSelfService Plus auth bypass RCE
+	"CVE-2021-44077": "manageengine",     // ServiceDesk Plus file upload RCE
+	"CVE-2022-47966": "manageengine",     // SAML pre-auth RCE
+
+	// === SolarWinds ===
+	"CVE-2020-10148": "solarwinds",       // SolarWinds Orion auth bypass
+	"CVE-2025-26399": "solarwinds",       // SolarWinds Web Help Desk RCE
+
+	// === SonicWall ===
+	"CVE-2021-20028": "sonicwall",        // SonicWall SMA pre-auth SQLi
+
+	// === Barracuda ===
+	"CVE-2023-2868":  "barracuda",        // Barracuda ESG pre-auth cmd injection
+
+	// === IoT / embedded devices ===
+
+	// D-Link
+	"CVE-2019-16920": "dlink",            // D-Link HNAP unauth cmd injection
+	"CVE-2024-10914": "dlink",            // D-Link NAS cmd injection
+	"CVE-2024-3273":  "dlink",            // D-Link NAS backdoor + cmd injection
+
+	// Hikvision
+	"CVE-2017-7921":  "hikvision",        // Hikvision IP camera ISAPI unauth
+
+	// TP-Link
+	"CVE-2023-1389":  "tplink",           // TP-Link Omada auth bypass + RCE
+
+	// Telesquare
+	"CVE-2024-29269": "telesquare",       // Telesquare firmware cmd injection
+
+	// === UPnP / generic network ===
+	"CVE-2012-5958":  "upnp",             // libupnp SSDP buffer overflow RCE
+
+	// === SMB ===
+	"CVE-2017-0144":  "smb",              // EternalBlue SMBv1 RCE
+
+	// === Intel AMT ===
+	"CVE-2017-5689":  "amt",              // Intel AMT empty-digest auth bypass
+
+	// === Apache Shiro ===
+	"CVE-2016-4437":  "shiro",            // Apache Shiro rememberMe deser RCE
+
+	// === IIS ===
+	"CVE-2015-1635":  "iis",              // IIS HTTP.sys Range header DoS/RCE
+
+	// === Rejetto HFS ===
+	"CVE-2014-6287":  "hfs",              // Rejetto HFS RCE
+
+	// === OX AppSuite ===
+	"CVE-2016-4047":  "ox_appsuite",      // OX AppSuite SSRF
+
+	// === DotNetNuke ===
+	"CVE-2017-0929":  "dotnetnuke",       // DNN path traversal machineKey RCE
+
+	// === Telerik ===
+	"CVE-2019-18935": "telerik",          // Telerik RadAsyncUpload pre-auth deser
+	"CVE-2024-6327":  "telerik",          // Telerik Report Server deser RCE
+
+	// === MobileIron ===
+	"CVE-2020-15505": "mobileiron",       // MobileIron MDM RCE
+
+	// === vBulletin ===
+	"CVE-2020-17496": "vbulletin",        // vBulletin PHP eval RCE
+
+	// === WSO2 ===
+	"CVE-2022-29464": "wso2",             // WSO2 file upload RCE
+
+	// === Magento / Adobe Commerce ===
+	"CVE-2022-24086": "magento",          // Magento template injection RCE
+
+	// === Oracle E-Business Suite ===
+	"CVE-2022-21587": "oracle_ebs",       // Oracle EBS RF.jsp file read
+
+	// === Zimbra ===
+	"CVE-2022-37042": "zimbra",           // Zimbra mboximport auth bypass RCE
+
+	// === SaltStack ===
+	"CVE-2021-25281": "saltstack",        // SaltStack API auth bypass
+
+	// === Accellion FTA ===
+	"CVE-2021-27101": "accellion",        // Accellion FTA data extortion
+
+	// === Openfire ===
+	"CVE-2023-32315": "openfire",         // Openfire path traversal auth bypass
+
+	// === ownCloud ===
+	"CVE-2023-49103": "owncloud",         // ownCloud phpinfo() credential leak
+
+	// === SysAid ===
+	"CVE-2023-47246": "sysaid",           // SysAid path traversal WAR upload RCE
+
+	// === Pulse VPN (additional) ===
+	// (already have pulse_vpn in existing table)
+
+	// === File transfer appliances ===
+
+	// CrushFTP
+	"CVE-2024-4040":  "crushftp",         // CrushFTP VFS sandbox escape RCE
+
+	// Cleo Harmony
+	"CVE-2024-50623": "cleo",             // Cleo Harmony file upload RCE
+	"CVE-2024-55956": "cleo",             // Cleo Harmony autorun file execution
+
+	// Progress Kemp LoadMaster
+	"CVE-2024-1212":  "loadmaster",       // Kemp LoadMaster cmd injection
+
+	// === Roundcube ===
+	"CVE-2023-43770": "roundcube",        // Roundcube XSS → victim RCE
+
+	// === JumpServer ===
+	"CVE-2023-42820": "jumpserver",       // JumpServer MFA auth bypass
+
+	// === GeoServer ===
+	"CVE-2024-36401": "geoserver",        // GeoServer eval injection RCE
+
+	// === pgAdmin ===
+	"CVE-2024-3116":  "pgadmin",          // pgAdmin validate binary path cmd injection
+
+	// === CUPS ===
+	"CVE-2024-47176": "cups",             // CUPS cups-browsed RCE
+
+	// === Next.js ===
+	"CVE-2025-29927": "nextjs",           // Next.js middleware auth bypass
+
+	// === Vite ===
+	"CVE-2025-30208": "vite",             // Vite dev server file read
+
+	// === SAP NetWeaver ===
+	"CVE-2025-31324": "sap",              // SAP NetWeaver file upload RCE
+
+	// === Craft CMS ===
+	"CVE-2025-32432": "craftcms",         // Craft CMS pre-auth code injection
+
+	// === HPE OneView ===
+	"CVE-2025-37164": "hpe",              // HPE OneView pre-auth RCE
+
+	// === Veeam ===
+	"CVE-2025-23120": "veeam",            // Veeam B&R unauth deser RCE
+
+	// === n8n ===
+	"CVE-2026-21858": "n8n",              // n8n pre-auth RCE
+	"CVE-2025-68613": "n8n",              // n8n pre-auth RCE (alternate CVE)
+
+	// === BeyondTrust ===
+	"CVE-2026-1731":  "beyondtrust",      // BeyondTrust pre-auth cmd injection
+
+	// === Langflow ===
+	"CVE-2026-33017": "langflow",         // Langflow AI pipeline pre-auth RCE
+
+	// === Keycloak ===
+	"CVE-2026-3047":  "keycloak",         // Keycloak SAML signature bypass
+
+	// === Harbor ===
+	"CVE-2026-4404":  "harbor",           // Harbor default admin credentials
+
+	// === MCP Server ===
+	"CVE-2026-27825": "mcp",              // MCP server unauth SSRF/RCE
+
+	// === Open WebUI ===
+	"CVE-2024-1520":  "openwebui",        // Open WebUI cmd injection
+
+	// === aiohttp ===
+	"CVE-2024-23334": "aiohttp",          // aiohttp path traversal
+
+	// === curl ===
+	"CVE-2023-38545": "curl",             // curl SOCKS5 heap overflow
+
+	// === WinRAR ===
+	"CVE-2023-40477": "winrar",           // WinRAR recovery volume RCE
+
+	// === PyArrow ===
+	"CVE-2023-47248": "pyarrow",          // PyArrow IPC deser RCE
+
+	// === js2py ===
+	"CVE-2024-28397": "js2py",            // js2py sandbox escape RCE
+
+	// === glibc ===
+	"CVE-2024-2961":  "glibc",            // glibc iconv buffer overflow RCE
+
+	// === git ===
+	"CVE-2024-32002": "git",              // git recursive clone symlink RCE
+
+	// === systemd ===
+	"CVE-2023-26604": "systemd",          // systemd less pager traversal
+
+	// === Samba / WINS ===
+	"CVE-2025-10230": "samba",            // Samba WINS server exposure
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook
