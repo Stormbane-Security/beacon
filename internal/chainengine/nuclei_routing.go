@@ -103,6 +103,9 @@ var nucleiTagToService = map[string]string{
 	"proxmox":    "proxmox",
 	"mikrotik":   "mikrotik",
 	"kubelet":    "kubelet",
+	"zyxel":      "zyxel",
+	"bitbucket":  "bitbucket",
+	"bamboo":     "bamboo",
 
 	// Network services
 	"rdp":     "rdp",
@@ -126,7 +129,7 @@ var nucleiTagToService = map[string]string{
 	"ivanti":     "ivanti",
 	"sonicwall":  "sonicwall",
 	"sophos":     "fortios",
-	"checkpoint": "fortios",
+	"checkpoint": "checkpoint",
 	"f5":         "fortios",
 	"bigip":      "fortios",
 	"juniper":    "cisco_ios_xe",
@@ -575,7 +578,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2022-3236":  "fortios",          // Sophos Firewall auth bypass/RCE (similar appliance)
 
 	// Check Point
-	"CVE-2024-24919": "fortios",          // Check Point CloudGuard file read (similar appliance)
+	"CVE-2024-24919": "checkpoint",       // Check Point Quantum/CloudGuard file read
 
 	// F5 BIG-IP
 	"CVE-2020-5902":  "fortios",          // F5 BIG-IP TMUI RCE
@@ -796,6 +799,23 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === Samba / WINS ===
 	"CVE-2025-10230": "samba",            // Samba WINS server exposure
+
+	// === High-impact CVEs (wave 5) ===
+	"CVE-2020-6287":  "apache",           // SAP NetWeaver LM Configuration Wizard RCE
+	"CVE-2024-40711": "veeam",            // Veeam Backup & Replication unauth RCE
+	"CVE-2024-38476": "apache",           // Apache httpd mod_proxy SSRF
+	"CVE-2024-52316": "tomcat",           // Tomcat authentication bypass
+	"CVE-2024-45409": "gitlab",           // GitLab SAML authentication bypass
+	"CVE-2024-40766": "sonicwall",        // SonicWall SonicOS improper access control
+	"CVE-2023-28771": "zyxel",            // Zyxel IKE packet OS cmd injection RCE
+	"CVE-2023-33009": "zyxel",            // Zyxel firewall buffer overflow RCE
+	"CVE-2023-30799": "mikrotik",         // MikroTik RouterOS privilege escalation
+	"CVE-2023-27532": "veeam",            // Veeam Backup credential disclosure
+	"CVE-2023-28709": "tomcat",           // Tomcat incomplete DoS fix bypass
+	"CVE-2022-36804": "bitbucket",        // Bitbucket Server command injection
+	"CVE-2023-22506": "bamboo",           // Bamboo arbitrary Java code execution
+	"CVE-2023-22505": "confluence",       // Confluence authenticated RCE
+	"CVE-2024-29849": "veeam",            // Veeam Agent auth bypass RCE
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook

@@ -927,6 +927,22 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVEK8sLogSanitize:                true,
 		finding.CheckCVEOpenLDAPDoS:                    true,
 		finding.CheckCVETelnetCredentialBrute:           true,
+		finding.CheckCVESAPNetWeaverRCE:                 true,
+		finding.CheckCVEVeeamBackupRCE:                  true,
+		finding.CheckCVEApacheHTTPDSSRF:                 true,
+		finding.CheckCVETomcatAuthBypass2024:             true,
+		finding.CheckCVEGitLabSAMLBypass:                true,
+		finding.CheckCVESonicWallAccessControl:           true,
+		finding.CheckCVEZyxelIKERCE:                     true,
+		finding.CheckCVEZyxelBufferOverflow:              true,
+		finding.CheckCVEMikroTikPrivEsc:                 true,
+		finding.CheckCVEVeeamCredDisclosure:              true,
+		finding.CheckCVETomcatDoSBypass:                  true,
+		finding.CheckCVEBitbucketCmdInjection:            true,
+		finding.CheckCVEBambooRCE:                       true,
+		finding.CheckCVEConfluenceAuthRCE:               true,
+		finding.CheckCVEVeeamAgentRCE:                   true,
+		finding.CheckCVECheckPointInfoLeak:              true,
 	}
 
 	for id, meta := range finding.Registry {

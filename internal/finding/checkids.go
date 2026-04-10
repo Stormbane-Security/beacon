@@ -2139,6 +2139,24 @@ const (
 	CheckChainSQLiToCredentialDump   CheckID = "chain.sqli_to_credential_dump"    // SQL injection exploited → credential rows extracted from users table
 	CheckChainXSSToSessionTheftPoC   CheckID = "chain.xss_to_session_theft_poc"   // XSS + missing HttpOnly cookie → session theft PoC generated
 	CheckChainNucleiToExploit        CheckID = "chain.nuclei_to_exploit"          // Nuclei CVE detection routed to exploit playbook for post-exploitation
+
+	// ── High-impact CVEs (wave 5) ──────────────────────────────────────
+	CheckCVESAPNetWeaverRCE        CheckID = "cve.sap_netweaver_lm_rce"         // CVE-2020-6287 SAP NetWeaver LM Configuration Wizard pre-auth RCE (CVSS 10.0, KEV)
+	CheckCVEVeeamBackupRCE         CheckID = "cve.veeam_backup_rce"             // CVE-2024-40711 Veeam Backup & Replication unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVEApacheHTTPDSSRF        CheckID = "cve.apache_httpd_ssrf"            // CVE-2024-38476 Apache httpd mod_proxy SSRF (CVSS 9.8)
+	CheckCVETomcatAuthBypass2024   CheckID = "cve.tomcat_auth_bypass_2024"      // CVE-2024-52316 Apache Tomcat authentication bypass (CVSS 9.8)
+	CheckCVEGitLabSAMLBypass       CheckID = "cve.gitlab_saml_bypass"           // CVE-2024-45409 GitLab SAML authentication bypass (CVSS 10.0)
+	CheckCVESonicWallAccessControl CheckID = "cve.sonicwall_access_control"     // CVE-2024-40766 SonicWall SonicOS improper access control (CVSS 9.3, KEV)
+	CheckCVEZyxelIKERCE            CheckID = "cve.zyxel_ike_rce"               // CVE-2023-28771 Zyxel IKE packet OS command injection RCE (CVSS 9.8, KEV)
+	CheckCVEZyxelBufferOverflow    CheckID = "cve.zyxel_buffer_overflow"        // CVE-2023-33009 Zyxel firewall buffer overflow unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVEMikroTikPrivEsc        CheckID = "cve.mikrotik_privesc"             // CVE-2023-30799 MikroTik RouterOS privilege escalation to super-admin (CVSS 9.1)
+	CheckCVEVeeamCredDisclosure    CheckID = "cve.veeam_cred_disclosure"        // CVE-2023-27532 Veeam Backup credential disclosure via API (CVSS 9.1, KEV)
+	CheckCVETomcatDoSBypass        CheckID = "cve.tomcat_dos_bypass"            // CVE-2023-28709 Apache Tomcat incomplete fix for DoS bypass (CVSS 7.5)
+	CheckCVEBitbucketCmdInjection  CheckID = "cve.bitbucket_cmd_injection"      // CVE-2022-36804 Atlassian Bitbucket Server/DC command injection (CVSS 9.8)
+	CheckCVEBambooRCE              CheckID = "cve.bamboo_rce"                   // CVE-2023-22506 Atlassian Bamboo arbitrary Java code execution (CVSS 7.5)
+	CheckCVEConfluenceAuthRCE      CheckID = "cve.confluence_auth_rce"          // CVE-2023-22505 Atlassian Confluence authenticated RCE via macro (CVSS 8.0)
+	CheckCVEVeeamAgentRCE          CheckID = "cve.veeam_agent_rce"              // CVE-2024-29849 Veeam Agent for Windows authentication bypass RCE (CVSS 9.8)
+	CheckCVECheckPointInfoLeak     CheckID = "cve.checkpoint_info_leak_2024"    // CVE-2024-24919 Check Point Quantum/CloudGuard arbitrary file read (CVSS 8.6, KEV)
 )
 
 // ScanMode indicates which scan mode a check requires.
@@ -4164,6 +4182,24 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEVNCTightVNCInfoLeak:     {CheckCVEVNCTightVNCInfoLeak, SeverityHigh, ModeDeep},
 	CheckCVEZooKeeperSASLBypass:     {CheckCVEZooKeeperSASLBypass, SeverityCritical, ModeDeep},
 	CheckCVEZooKeeperGetACLBypass:   {CheckCVEZooKeeperGetACLBypass, SeverityMedium, ModeDeep},
+
+	// High-impact CVEs (wave 5)
+	CheckCVESAPNetWeaverRCE:        {CheckCVESAPNetWeaverRCE, SeverityCritical, ModeDeep},
+	CheckCVEVeeamBackupRCE:         {CheckCVEVeeamBackupRCE, SeverityCritical, ModeDeep},
+	CheckCVEApacheHTTPDSSRF:        {CheckCVEApacheHTTPDSSRF, SeverityCritical, ModeDeep},
+	CheckCVETomcatAuthBypass2024:   {CheckCVETomcatAuthBypass2024, SeverityCritical, ModeDeep},
+	CheckCVEGitLabSAMLBypass:       {CheckCVEGitLabSAMLBypass, SeverityCritical, ModeDeep},
+	CheckCVESonicWallAccessControl: {CheckCVESonicWallAccessControl, SeverityCritical, ModeDeep},
+	CheckCVEZyxelIKERCE:            {CheckCVEZyxelIKERCE, SeverityCritical, ModeDeep},
+	CheckCVEZyxelBufferOverflow:    {CheckCVEZyxelBufferOverflow, SeverityCritical, ModeDeep},
+	CheckCVEMikroTikPrivEsc:        {CheckCVEMikroTikPrivEsc, SeverityCritical, ModeDeep},
+	CheckCVEVeeamCredDisclosure:    {CheckCVEVeeamCredDisclosure, SeverityCritical, ModeDeep},
+	CheckCVETomcatDoSBypass:        {CheckCVETomcatDoSBypass, SeverityHigh, ModeDeep},
+	CheckCVEBitbucketCmdInjection:  {CheckCVEBitbucketCmdInjection, SeverityCritical, ModeDeep},
+	CheckCVEBambooRCE:              {CheckCVEBambooRCE, SeverityHigh, ModeDeep},
+	CheckCVEConfluenceAuthRCE:      {CheckCVEConfluenceAuthRCE, SeverityHigh, ModeDeep},
+	CheckCVEVeeamAgentRCE:          {CheckCVEVeeamAgentRCE, SeverityCritical, ModeDeep},
+	CheckCVECheckPointInfoLeak:     {CheckCVECheckPointInfoLeak, SeverityHigh, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
