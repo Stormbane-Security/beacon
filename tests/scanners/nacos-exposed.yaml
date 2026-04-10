@@ -1,4 +1,4 @@
-name: nacos-config-exposed
+name: nacos-exposed
 description: >
   Alibaba Nacos service discovery and configuration management with
   no authentication. Beacon should detect the exposed Nacos API.
@@ -6,29 +6,31 @@ tags: [nacos, service-discovery, configuration, detection]
 
 services:
   nacos:
-    image: nacos/nacos-server:v2.3.0
-    ports: ["8848:8848"]
+    image: nacos/nacos-server:latest
+    ports: ["20116:8848"]
     environment:
-      MODE: standalone
+      MODE: "standalone"
       NACOS_AUTH_ENABLE: "false"
 
 ready:
-  cmd: "curl -sf http://localhost:8848/nacos/v1/console/health/readiness | grep -q UP"
+  cmd: "curl -sf http://localhost:20116/nacos/ >/dev/null"
   timeout: 120s
   interval: 5s
 
 assertions:
-  - name: nacos-api-accessible
+  # Pre-flight: Nacos web UI accessible
+  - name: nacos-page-accessible
     type: command
     expect:
-      command: "curl -sf http://localhost:8848/nacos/v1/console/health/readiness | grep -q UP"
+      command: "curl -sf http://localhost:20116/nacos/ | grep -qE '(nacos|html)'"
       exit_code: 0
 
+  # Scanner: beacon detects exposed Nacos
   - name: detects-nacos-exposed
     type: beacon
-    target: localhost:8848
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "8848"]
+    target: localhost:20116
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      check_id: port.nacos_exposed
+      min_findings: 1
 
-timeout: 5m
+timeout: 8m

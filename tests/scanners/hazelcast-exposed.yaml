@@ -1,0 +1,33 @@
+name: hazelcast-exposed
+description: >
+  Hazelcast in-memory data grid with REST API exposed. Beacon should
+  detect the exposed Hazelcast health endpoint and REST API.
+tags: [hazelcast, cache, detection, infrastructure]
+
+services:
+  hazelcast:
+    image: hazelcast/hazelcast:latest
+    ports: ["20115:5701"]
+
+ready:
+  cmd: "curl -sf http://localhost:20115/hazelcast/health >/dev/null"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  # Pre-flight: Hazelcast health endpoint returns JSON
+  - name: hazelcast-health-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20115/hazelcast/health | grep -qE '\\{'"
+      exit_code: 0
+
+  # Scanner: beacon detects exposed Hazelcast
+  - name: detects-hazelcast-exposed
+    type: beacon
+    target: localhost:20115
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
+    expect:
+      min_findings: 1
+
+timeout: 5m

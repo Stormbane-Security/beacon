@@ -2055,6 +2055,78 @@ const (
 	CheckCVENacosJWTHardcoded      CheckID = "cve.nacos_jwt_hardcoded"       // CVE-2023-34465 Nacos hardcoded JWT secret key (CVSS 9.1)
 	CheckCVEHazelcastSessionFixation CheckID = "cve.hazelcast_session_fixation" // CVE-2022-36437 Hazelcast session fixation via predictable session IDs (CVSS 9.1)
 	CheckCVENiFiH2RCE             CheckID = "cve.nifi_h2_rce"               // CVE-2023-34468 Apache NiFi H2 database URL injection RCE (CVSS 9.8)
+
+	// ── Playbook CVE exploit chains (wave 4) ────────────────────────────
+	// DNS
+	CheckCVESigRedDNSRCE             CheckID = "cve.sigred_dns_rce"              // CVE-2020-1350 Windows DNS Server SIGRed integer overflow → RCE (CVSS 10.0, KEV)
+	CheckCVEBindGSSTSIGOverflow      CheckID = "cve.bind_gss_tsig_overflow"      // CVE-2021-25216 BIND 9 GSS-TSIG buffer overflow → RCE (CVSS 8.1)
+
+	// Express.js
+	CheckCVEExpressOpenRedirect      CheckID = "cve.express_open_redirect"       // CVE-2024-29041 Express < 4.19.2 open redirect via crafted URL (CVSS 6.1)
+	CheckCVEExpressQSProtoPollution  CheckID = "cve.express_qs_prototype_pollution" // CVE-2022-24999 qs < 6.10.3 prototype pollution via __proto__ key (CVSS 7.5)
+
+	// Ghost CMS
+	CheckCVEGhostMembershipBypass    CheckID = "cve.ghost_membership_bypass"     // CVE-2022-41654 Ghost < 4.48.8 membership tier bypass — newsletter subscription abuse (CVSS 8.2)
+	CheckCVEGhostFileRead            CheckID = "cve.ghost_file_read"             // CVE-2023-40028 Ghost < 5.59.1 arbitrary file read via symlinked theme (CVSS 6.5)
+
+	// Kubernetes Dashboard
+	CheckCVEK8sDashboardSkipAuth     CheckID = "cve.k8s_dashboard_skip_auth"     // CVE-2018-18264 K8s Dashboard < 1.10.1 --enable-skip-login auth bypass (CVSS 7.5)
+	CheckCVEK8sLogSanitize           CheckID = "cve.k8s_incomplete_log_sanitize" // CVE-2020-8565 Kubernetes incomplete log sanitization — tokens in logs (CVSS 4.7)
+
+	// Kafka
+	CheckCVEKafkaJNDIInjection       CheckID = "cve.kafka_jndi_injection"        // CVE-2023-25194 Kafka Connect JNDI injection via SASL JAAS config (CVSS 8.8)
+	CheckCVEKafkaConfigTraversal     CheckID = "cve.kafka_config_traversal"      // CVE-2024-31141 Kafka Clients config provider path traversal (CVSS 6.5)
+
+	// LDAP
+	CheckCVEMariaDBLDAPAuthBypass    CheckID = "cve.mariadb_ldap_auth_bypass"    // CVE-2021-27928 MariaDB LDAP auth plugin bypass → RCE (CVSS 7.2)
+	CheckCVEOpenLDAPDoS              CheckID = "cve.openldap_dos"                // CVE-2023-2136 OpenLDAP slapd assertion failure DoS (CVSS 7.5)
+
+	// LocalAI
+	CheckCVELocalAIUnauthModel       CheckID = "cve.localai_unauth_model"        // LocalAI unauthenticated model access — detection only (no CVE assigned)
+
+	// Log4Shell bypass
+	CheckCVELog4ShellBypass          CheckID = "cve.log4shell_bypass"            // CVE-2021-45046 Log4j < 2.17.0 thread context bypass of 2.15.0 fix (CVSS 9.0)
+
+	// MQTT / Mosquitto
+	CheckCVEMosquittoAuthBypass      CheckID = "cve.mosquitto_auth_bypass"       // CVE-2023-3028 Eclipse Mosquitto auth bypass via custom plugin flaw (CVSS 8.2)
+	CheckCVEMosquittoCrash           CheckID = "cve.mosquitto_crash"             // CVE-2023-0809 Eclipse Mosquitto < 2.0.16 crafted packet crash (CVSS 5.3)
+
+	// Pulse VPN
+	CheckCVEPulseVPNAuthBypassRCE    CheckID = "cve.pulse_vpn_auth_bypass_rce"  // CVE-2021-22893 Pulse Connect Secure auth bypass → RCE (CVSS 10.0, KEV)
+
+	// RDP
+	CheckCVERDPBlueKeep              CheckID = "cve.rdp_bluekeep"                // CVE-2019-0708 Windows RDP BlueKeep pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVERDPDejaBlue              CheckID = "cve.rdp_dejablue"                // CVE-2019-1181 Windows RDP DejaBlue pre-auth RCE (CVSS 9.8)
+
+	// SMTP
+	CheckCVEEximUseAfterFree         CheckID = "cve.exim_use_after_free"         // CVE-2020-28018 Exim < 4.94.2 TLS use-after-free → pre-auth RCE (CVSS 9.8)
+
+	// SNMP
+	CheckCVECiscoSNMPRCE             CheckID = "cve.cisco_snmp_rce"              // CVE-2017-6742 Cisco IOS/IOS XE SNMP RCE via crafted SNMP packets (CVSS 8.8, KEV)
+	CheckCVENetSNMPAgentXDoS         CheckID = "cve.netsnmp_agentx_dos"          // CVE-2012-6151 Net-SNMP AgentX subagent timeout DoS (CVSS 5.0)
+
+	// SSH
+	CheckCVEOpenSSHTerrapin          CheckID = "cve.openssh_terrapin"             // CVE-2023-48795 Terrapin SSH prefix truncation attack (CVSS 5.9)
+
+	// Superset
+	CheckCVESupersetAuthBypass       CheckID = "cve.superset_auth_bypass"         // CVE-2023-36388 Apache Superset REST API auth bypass on specific endpoints (CVSS 5.4)
+
+	// Telnet
+	CheckCVETelnetCredentialBrute    CheckID = "cve.telnet_credential_brute"      // Telnet credential brute-force — detection only (no CVE assigned)
+
+	// vLLM
+	CheckCVEVLLMUnauthInference      CheckID = "cve.vllm_unauth_inference"        // vLLM unauthenticated inference API — detection only (no CVE assigned)
+
+	// ComfyUI
+	CheckCVEComfyUIPathTraversal     CheckID = "cve.comfyui_path_traversal"       // ComfyUI /view path traversal — detection only (no CVE assigned)
+
+	// VNC
+	CheckCVEVNCRealVNCAuthBypass     CheckID = "cve.vnc_realvnc_auth_bypass"      // CVE-2006-2369 RealVNC 4.1.1 auth bypass via security type selection (CVSS 7.5)
+	CheckCVEVNCTightVNCInfoLeak      CheckID = "cve.vnc_tightvnc_info_leak"       // CVE-2019-15681 TightVNC < 2.8.11 heap info leak via clipboard handler (CVSS 7.5)
+
+	// ZooKeeper
+	CheckCVEZooKeeperSASLBypass      CheckID = "cve.zookeeper_sasl_bypass"        // CVE-2023-44981 Apache ZooKeeper SASL quorum peer auth bypass (CVSS 9.1)
+	CheckCVEZooKeeperGetACLBypass    CheckID = "cve.zookeeper_getacl_bypass"      // CVE-2019-0201 Apache ZooKeeper getACL auth bypass on specific znodes (CVSS 5.9)
 )
 
 // Active attack path chaining — chain engine (ScanAuthorized only).
@@ -4059,6 +4131,39 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVENacosJWTHardcoded:        {CheckCVENacosJWTHardcoded, SeverityHigh, ModeDeep},
 	CheckCVEHazelcastSessionFixation: {CheckCVEHazelcastSessionFixation, SeverityHigh, ModeDeep},
 	CheckCVENiFiH2RCE:               {CheckCVENiFiH2RCE, SeverityCritical, ModeDeep},
+
+	// Playbook CVE exploit chains (wave 4)
+	CheckCVESigRedDNSRCE:            {CheckCVESigRedDNSRCE, SeverityCritical, ModeDeep},
+	CheckCVEBindGSSTSIGOverflow:     {CheckCVEBindGSSTSIGOverflow, SeverityCritical, ModeDeep},
+	CheckCVEExpressOpenRedirect:     {CheckCVEExpressOpenRedirect, SeverityMedium, ModeDeep},
+	CheckCVEExpressQSProtoPollution: {CheckCVEExpressQSProtoPollution, SeverityHigh, ModeDeep},
+	CheckCVEGhostMembershipBypass:   {CheckCVEGhostMembershipBypass, SeverityHigh, ModeDeep},
+	CheckCVEGhostFileRead:           {CheckCVEGhostFileRead, SeverityHigh, ModeDeep},
+	CheckCVEK8sDashboardSkipAuth:    {CheckCVEK8sDashboardSkipAuth, SeverityCritical, ModeDeep},
+	CheckCVEK8sLogSanitize:          {CheckCVEK8sLogSanitize, SeverityMedium, ModeDeep},
+	CheckCVEKafkaJNDIInjection:      {CheckCVEKafkaJNDIInjection, SeverityCritical, ModeDeep},
+	CheckCVEKafkaConfigTraversal:    {CheckCVEKafkaConfigTraversal, SeverityMedium, ModeDeep},
+	CheckCVEMariaDBLDAPAuthBypass:   {CheckCVEMariaDBLDAPAuthBypass, SeverityHigh, ModeDeep},
+	CheckCVEOpenLDAPDoS:             {CheckCVEOpenLDAPDoS, SeverityHigh, ModeDeep},
+	CheckCVELocalAIUnauthModel:      {CheckCVELocalAIUnauthModel, SeverityHigh, ModeDeep},
+	CheckCVELog4ShellBypass:         {CheckCVELog4ShellBypass, SeverityCritical, ModeDeep},
+	CheckCVEMosquittoAuthBypass:     {CheckCVEMosquittoAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEMosquittoCrash:          {CheckCVEMosquittoCrash, SeverityMedium, ModeDeep},
+	CheckCVEPulseVPNAuthBypassRCE:   {CheckCVEPulseVPNAuthBypassRCE, SeverityCritical, ModeDeep},
+	CheckCVERDPBlueKeep:             {CheckCVERDPBlueKeep, SeverityCritical, ModeDeep},
+	CheckCVERDPDejaBlue:             {CheckCVERDPDejaBlue, SeverityCritical, ModeDeep},
+	CheckCVEEximUseAfterFree:        {CheckCVEEximUseAfterFree, SeverityCritical, ModeDeep},
+	CheckCVECiscoSNMPRCE:            {CheckCVECiscoSNMPRCE, SeverityCritical, ModeDeep},
+	CheckCVENetSNMPAgentXDoS:        {CheckCVENetSNMPAgentXDoS, SeverityMedium, ModeDeep},
+	CheckCVEOpenSSHTerrapin:         {CheckCVEOpenSSHTerrapin, SeverityMedium, ModeDeep},
+	CheckCVESupersetAuthBypass:      {CheckCVESupersetAuthBypass, SeverityHigh, ModeDeep},
+	CheckCVETelnetCredentialBrute:   {CheckCVETelnetCredentialBrute, SeverityHigh, ModeDeep},
+	CheckCVEVLLMUnauthInference:     {CheckCVEVLLMUnauthInference, SeverityHigh, ModeDeep},
+	CheckCVEComfyUIPathTraversal:    {CheckCVEComfyUIPathTraversal, SeverityHigh, ModeDeep},
+	CheckCVEVNCRealVNCAuthBypass:    {CheckCVEVNCRealVNCAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEVNCTightVNCInfoLeak:     {CheckCVEVNCTightVNCInfoLeak, SeverityHigh, ModeDeep},
+	CheckCVEZooKeeperSASLBypass:     {CheckCVEZooKeeperSASLBypass, SeverityCritical, ModeDeep},
+	CheckCVEZooKeeperGetACLBypass:   {CheckCVEZooKeeperGetACLBypass, SeverityMedium, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

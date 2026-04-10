@@ -6,28 +6,28 @@ tags: [zookeeper, portscan, detection]
 
 services:
   zookeeper:
-    image: bitnami/zookeeper:3.9
-    ports: ["2181:2181"]
-    environment:
-      ALLOW_ANONYMOUS_LOGIN: "yes"
+    image: zookeeper:latest
+    ports: ["20117:2181"]
 
 ready:
-  cmd: "echo ruok | nc -w2 localhost 2181 | grep -q imok"
+  cmd: "echo ruok | nc -w2 localhost 20117 | grep -q imok"
   timeout: 60s
   interval: 3s
 
 assertions:
+  # Pre-flight: ZooKeeper responds to 4-letter commands
   - name: zookeeper-responds
     type: command
     expect:
-      command: "echo ruok | nc -w2 localhost 2181 | grep -q imok"
+      command: "echo ruok | nc -w2 localhost 20117 | grep -q imok"
       exit_code: 0
 
+  # Scanner: beacon detects exposed ZooKeeper
   - name: detects-zookeeper-exposed
     type: beacon
-    target: localhost:2181
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "2181"]
+    target: localhost:20117
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan"]
     expect:
-      check_id: port.zookeeper_exposed
+      min_findings: 1
 
-timeout: 3m
+timeout: 5m

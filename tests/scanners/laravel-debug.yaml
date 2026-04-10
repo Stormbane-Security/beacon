@@ -1,0 +1,42 @@
+name: laravel-debug
+description: >
+  Minimal PHP server mimicking Laravel fingerprints: laravel_session
+  cookie, XSRF-TOKEN, and X-Powered-By header. Beacon portscan scanner
+  should detect the Laravel framework via these signals.
+tags: [laravel, scanner, portscan, framework]
+
+services:
+  laravel:
+    build:
+      context: ./laravel-debug
+      dockerfile: Dockerfile
+    ports: ["20303:8000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20303/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-laravel-session-cookie
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20303/ | grep -qi 'laravel_session'"
+      exit_code: 0
+
+  - name: exploit-xsrf-token-cookie
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20303/ | grep -qi 'XSRF-TOKEN'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-laravel-framework
+    type: beacon
+    target: localhost:20303
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20303"]
+    expect:
+      check_id: port.laravel_detected
+
+timeout: 5m

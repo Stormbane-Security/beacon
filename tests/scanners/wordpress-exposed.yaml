@@ -1,0 +1,54 @@
+name: wordpress-exposed
+description: >
+  WordPress with MariaDB backend in default install state. Beacon
+  portscan scanner should detect WordPress via wp-content, wp-includes,
+  or wp-login.php references in the HTML.
+tags: [wordpress, scanner, portscan, cms]
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+
+  wordpress:
+    image: wordpress:latest
+    ports: ["20304:80"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    depends_on: [db]
+
+ready:
+  cmd: "curl -sf http://localhost:20304/ 2>/dev/null | grep -qi 'wp-\\|wordpress'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # --- Exploit proofs ---
+  - name: exploit-wp-content-in-html
+    type: command
+    expect:
+      command: "curl -sL http://localhost:20304/ | grep -qi 'wp-content\\|wp-includes\\|wordpress'"
+      exit_code: 0
+
+  - name: exploit-wp-login-accessible
+    type: command
+    expect:
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:20304/wp-login.php | grep -qE '200|302'"
+      exit_code: 0
+
+  # --- Beacon detection ---
+  - name: detects-wordpress-cms
+    type: beacon
+    target: localhost:20304
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20304"]
+    expect:
+      check_id: port.wordpress_detected
+
+timeout: 8m
