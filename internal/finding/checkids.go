@@ -1440,6 +1440,44 @@ const (
 	// Drupal additional CVEs
 	CheckCVEDrupalRESTDeserRCE       CheckID = "cve.drupal_rest_deser_rce"        // CVE-2019-6340 Drupal 8 REST module deserialization RCE (CVSS 8.1)
 
+	// ── Enterprise CVE exploit chains (2026-04-10) ──────────────────────
+
+	// Confluence additional
+	CheckCVEConfluenceOGNLInjection  CheckID = "cve.confluence_ognl_injection"    // CVE-2021-26084 Confluence OGNL injection in action URLs → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEConfluenceTemplateInj    CheckID = "cve.confluence_template_injection" // CVE-2023-22522 Confluence template injection via user input → authenticated RCE (CVSS 8.5)
+
+	// VMware additional
+	CheckCVEVMwareWSOneAuthBypass    CheckID = "cve.vmware_workspace_one_auth_bypass" // CVE-2022-31656 VMware Workspace ONE Access auth bypass via token manipulation (CVSS 9.8)
+
+	// Ivanti additional
+	CheckCVEIvantiEPMMUnauthAPI      CheckID = "cve.ivanti_epmm_unauth_api"      // CVE-2023-35082 Ivanti EPMM unauthenticated API access (CVSS 10.0, KEV)
+	CheckCVEIvantiCSAPathTraversal   CheckID = "cve.ivanti_csa_path_traversal"   // CVE-2024-8963 Ivanti CSA path traversal admin bypass (CVSS 9.4, KEV)
+	CheckCVEIvantiCSACmdInjection    CheckID = "cve.ivanti_csa_cmd_injection"    // CVE-2024-9380 Ivanti CSA OS command injection (CVSS 7.2, KEV)
+
+	// PaperCut
+	CheckCVEPaperCutRCE              CheckID = "cve.papercut_setup_rce"          // CVE-2023-27350 PaperCut NG/MF SetupCompleted unauthenticated RCE (CVSS 9.8, KEV)
+	CheckCVEPaperCutPathTraversal    CheckID = "cve.papercut_path_traversal"     // CVE-2023-39143 PaperCut NG/MF path traversal (CVSS 9.8)
+
+	// Cacti additional
+	CheckCVECactiFileWrite           CheckID = "cve.cacti_file_write"            // CVE-2024-25641 Cacti arbitrary file write via import (CVSS 9.1)
+
+	// vBulletin
+	CheckCVEvBulletinPreAuthRCE2023  CheckID = "cve.vbulletin_preauth_rce_2023"  // CVE-2023-25135 vBulletin pre-auth RCE via widget config deserialization (CVSS 9.8)
+	CheckCVEvBulletinRoutestringRCE  CheckID = "cve.vbulletin_routestring_rce"   // CVE-2019-16759 vBulletin pre-auth RCE via routestring (CVSS 9.8, KEV)
+
+	// Zimbra additional
+	CheckCVEZimbraXSSChain           CheckID = "cve.zimbra_xss_rce_chain"        // CVE-2023-37580 Zimbra XSS in calendar → session theft → RCE chain (CVSS 6.1, KEV)
+	CheckCVEZimbraPreAuthSSRF        CheckID = "cve.zimbra_preauth_ssrf"         // CVE-2022-27926 Zimbra preauth SSRF via proxy servlet (CVSS 6.1, KEV)
+
+	// SonicWall additional
+	CheckCVESonicWallGMSShellInj     CheckID = "cve.sonicwall_gms_shell_injection" // CVE-2023-34124 SonicWall GMS/Analytics web service shell injection (CVSS 9.8)
+
+	// MOVEit additional
+	CheckCVEMOVEitSQLi2              CheckID = "cve.moveit_sqli_2"               // CVE-2023-35708 MOVEit Transfer second SQL injection (CVSS 9.8)
+
+	// FortiOS additional
+	CheckCVEFortiOSSSLVPNHeapOverflow CheckID = "cve.fortios_sslvpn_heap_overflow" // CVE-2022-42475 FortiOS SSL VPN heap overflow → pre-auth RCE (CVSS 9.8, KEV)
+
 	// Nextcloud
 	CheckPortNextcloudDefaultCreds   CheckID = "port.nextcloud_default_credentials" // Nextcloud accepts default admin credentials (admin/admin)
 	CheckPortNextcloudStatusExposed  CheckID = "port.nextcloud_status_exposed"     // Nextcloud /status.php exposes exact version
@@ -4484,6 +4522,34 @@ var Registry = map[CheckID]CheckMeta{
 
 	// Drupal
 	CheckCVEDrupalRESTDeserRCE:       {CheckCVEDrupalRESTDeserRCE, SeverityCritical, ModeDeep},
+
+	// ── Enterprise CVE exploit chains (2026-04-10) ──────────────────────
+	// Confluence
+	CheckCVEConfluenceOGNLInjection:  {CheckCVEConfluenceOGNLInjection, SeverityCritical, ModeDeep},
+	CheckCVEConfluenceTemplateInj:    {CheckCVEConfluenceTemplateInj, SeverityHigh, ModeDeep},
+	// VMware
+	CheckCVEVMwareWSOneAuthBypass:    {CheckCVEVMwareWSOneAuthBypass, SeverityCritical, ModeDeep},
+	// Ivanti
+	CheckCVEIvantiEPMMUnauthAPI:      {CheckCVEIvantiEPMMUnauthAPI, SeverityCritical, ModeDeep},
+	CheckCVEIvantiCSAPathTraversal:   {CheckCVEIvantiCSAPathTraversal, SeverityCritical, ModeDeep},
+	CheckCVEIvantiCSACmdInjection:    {CheckCVEIvantiCSACmdInjection, SeverityCritical, ModeDeep},
+	// PaperCut
+	CheckCVEPaperCutRCE:              {CheckCVEPaperCutRCE, SeverityCritical, ModeDeep},
+	CheckCVEPaperCutPathTraversal:    {CheckCVEPaperCutPathTraversal, SeverityCritical, ModeDeep},
+	// Cacti
+	CheckCVECactiFileWrite:           {CheckCVECactiFileWrite, SeverityCritical, ModeDeep},
+	// vBulletin
+	CheckCVEvBulletinPreAuthRCE2023:  {CheckCVEvBulletinPreAuthRCE2023, SeverityCritical, ModeDeep},
+	CheckCVEvBulletinRoutestringRCE:  {CheckCVEvBulletinRoutestringRCE, SeverityCritical, ModeDeep},
+	// Zimbra
+	CheckCVEZimbraXSSChain:           {CheckCVEZimbraXSSChain, SeverityHigh, ModeDeep},
+	CheckCVEZimbraPreAuthSSRF:        {CheckCVEZimbraPreAuthSSRF, SeverityHigh, ModeDeep},
+	// SonicWall
+	CheckCVESonicWallGMSShellInj:     {CheckCVESonicWallGMSShellInj, SeverityCritical, ModeDeep},
+	// MOVEit
+	CheckCVEMOVEitSQLi2:             {CheckCVEMOVEitSQLi2, SeverityCritical, ModeDeep},
+	// FortiOS
+	CheckCVEFortiOSSSLVPNHeapOverflow: {CheckCVEFortiOSSSLVPNHeapOverflow, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

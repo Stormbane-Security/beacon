@@ -1035,6 +1035,23 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVEOFBizDirTraversal2024Q2:  true,
 		finding.CheckCVEZimbraCPIOUploadRCE:      true,
 		finding.CheckCVEDrupalRESTDeserRCE:       true,
+		// Enterprise CVE exploit chains (2026-04-10)
+		finding.CheckCVEConfluenceOGNLInjection:  true,
+		finding.CheckCVEConfluenceTemplateInj:    true,
+		finding.CheckCVEVMwareWSOneAuthBypass:    true,
+		finding.CheckCVEIvantiEPMMUnauthAPI:      true,
+		finding.CheckCVEIvantiCSAPathTraversal:   true,
+		finding.CheckCVEIvantiCSACmdInjection:    true,
+		finding.CheckCVEPaperCutRCE:              true,
+		finding.CheckCVEPaperCutPathTraversal:    true,
+		finding.CheckCVECactiFileWrite:           true,
+		finding.CheckCVEvBulletinPreAuthRCE2023:  true,
+		finding.CheckCVEvBulletinRoutestringRCE:  true,
+		finding.CheckCVEZimbraXSSChain:           true,
+		finding.CheckCVEZimbraPreAuthSSRF:        true,
+		finding.CheckCVESonicWallGMSShellInj:     true,
+		finding.CheckCVEMOVEitSQLi2:             true,
+		finding.CheckCVEFortiOSSSLVPNHeapOverflow: true,
 	}
 
 	for id, meta := range finding.Registry {

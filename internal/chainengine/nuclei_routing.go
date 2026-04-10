@@ -178,8 +178,8 @@ var nucleiTagToService = map[string]string{
 	"sonicwall":  "sonicwall",
 	"sophos":     "fortios",
 	"checkpoint": "checkpoint",
-	"f5":         "fortios",
-	"bigip":      "fortios",
+	"f5":         "f5",
+	"bigip":      "f5",
 	"juniper":    "cisco_ios_xe",
 	"barracuda":  "barracuda",
 
@@ -216,6 +216,8 @@ var nucleiTagToService = map[string]string{
 	"hikvision":   "hikvision",
 	"manageengine": "manageengine",
 	"solarwinds":  "solarwinds",
+	"papercut":    "papercut",
+	"moveit":      "moveit",
 }
 
 // nucleiTemplateToServiceMap maps specific nuclei template IDs (often CVEs)
@@ -243,6 +245,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2024-21762": "fortios",       // FortiOS SSL VPN out-of-bounds write RCE
 	"CVE-2023-0669":  "goanywhere",    // GoAnywhere MFT pre-auth deserialization RCE
 	"CVE-2023-34362": "moveit",        // MOVEit Transfer SQL injection (CL0P)
+	"CVE-2023-35708": "moveit",        // MOVEit Transfer second SQL injection
 
 	// CVE-specific exploit chains — these route to playbooks that have
 	// cve_exploits entries with targeted payloads.
@@ -588,6 +591,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2026-24858": "fortios",          // FortiOS FortiCloud SSO auth bypass
 	"CVE-2023-34993": "fortios",          // FortiWLM command injection
 	"CVE-2024-23113": "fortios",          // FortiOS fgfmd format string RCE
+	"CVE-2022-42475": "fortios",          // FortiOS SSL VPN heap overflow RCE
 
 	// ColdFusion
 	"CVE-2018-15961": "coldfusion",       // ColdFusion FCKEditor file upload RCE
@@ -611,10 +615,15 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-35081": "ivanti",           // Ivanti EPMM path traversal
 	"CVE-2026-1281":  "ivanti",           // Ivanti EPMM MDM pre-auth cmd injection
 	"CVE-2026-1603":  "ivanti",           // Ivanti EPM auth bypass
+	"CVE-2023-35082": "ivanti",           // Ivanti EPMM unauth API (older versions)
+	"CVE-2024-8963":  "ivanti",           // Ivanti CSA path traversal
+	"CVE-2024-9380":  "ivanti",           // Ivanti CSA OS command injection
 
 	// Confluence (additional)
 	"CVE-2019-11580": "confluence",       // Atlassian Crowd pdkinstall (Atlassian ecosystem)
 	"CVE-2021-26085": "confluence",       // Confluence pre-auth arbitrary file read
+	"CVE-2021-26084": "confluence",       // Confluence OGNL injection pre-auth RCE
+	"CVE-2023-22522": "confluence",       // Confluence template injection
 
 	// Jira
 	"CVE-2022-0540":  "jira",            // Jira Seraph auth bypass
@@ -690,9 +699,9 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2024-24919": "checkpoint",       // Check Point Quantum/CloudGuard file read
 
 	// F5 BIG-IP
-	"CVE-2020-5902":  "fortios",          // F5 BIG-IP TMUI RCE
-	"CVE-2022-1388":  "fortios",          // F5 BIG-IP iControl REST RCE
-	"CVE-2023-46747": "fortios",          // F5 BIG-IP config utility auth bypass
+	"CVE-2020-5902":  "f5",              // F5 BIG-IP TMUI RCE
+	"CVE-2022-1388":  "f5",              // F5 BIG-IP iControl REST RCE
+	"CVE-2023-46747": "f5",              // F5 BIG-IP config utility auth bypass
 
 	// === Microsoft products ===
 
@@ -719,6 +728,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2024-22252": "vmware",           // VMware UHCI UAF VM escape
 	"CVE-2024-37085": "vmware",           // ESXi AD auth bypass
 	"CVE-2021-22054": "vmware",           // Omnissa Workspace ONE SSRF
+	"CVE-2022-31656": "vmware",           // Workspace ONE Access auth bypass
 
 	// === ManageEngine ===
 	"CVE-2020-10189": "manageengine",     // Desktop Central pre-auth RCE
@@ -732,6 +742,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === SonicWall ===
 	"CVE-2021-20028": "sonicwall",        // SonicWall SMA pre-auth SQLi
+	"CVE-2023-34124": "sonicwall",        // SonicWall GMS/Analytics shell injection
 
 	// === Barracuda ===
 	"CVE-2023-2868":  "barracuda",        // Barracuda ESG pre-auth cmd injection
@@ -789,6 +800,8 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === vBulletin ===
 	"CVE-2020-17496": "vbulletin",        // vBulletin PHP eval RCE
+	"CVE-2023-25135": "vbulletin",        // vBulletin pre-auth widget config RCE
+	"CVE-2019-16759": "vbulletin",        // vBulletin routestring pre-auth RCE
 
 	// === WSO2 ===
 	"CVE-2022-29464": "wso2",             // WSO2 file upload RCE
@@ -802,6 +815,8 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// === Zimbra ===
 	"CVE-2022-37042": "zimbra",           // Zimbra mboximport auth bypass RCE
 	"CVE-2022-41352": "zimbra",           // Zimbra unrestricted file upload via cpio
+	"CVE-2023-37580": "zimbra",           // Zimbra XSS to RCE chain
+	"CVE-2022-27926": "zimbra",           // Zimbra preauth SSRF
 
 	// === SaltStack ===
 	"CVE-2021-25281": "saltstack",        // SaltStack API auth bypass
@@ -845,9 +860,14 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2022-24816": "geoserver",        // GeoServer evaluate property name RCE
 	"CVE-2023-43795": "geoserver",        // GeoServer WPS SSRF via Jiffle
 
+	// === PaperCut ===
+	"CVE-2023-27350": "papercut",         // PaperCut SetupCompleted unauthenticated RCE
+	"CVE-2023-39143": "papercut",         // PaperCut path traversal
+
 	// === Cacti ===
 	"CVE-2022-46169": "cacti",            // Cacti unauthenticated command injection
 	"CVE-2024-29895": "cacti",            // Cacti cmd_realtime.php command injection
+	"CVE-2024-25641": "cacti",            // Cacti arbitrary file write via import
 
 	// === pyLoad (additional CVE) ===
 	"CVE-2024-21644": "pyload",           // pyLoad addcrypted2 command injection
