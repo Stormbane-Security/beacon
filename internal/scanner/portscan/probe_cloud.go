@@ -39,6 +39,18 @@ func init() {
 		DefaultPorts: []int{},
 		Detect:       detectWingFTPPlaceholder,
 	})
+	registerProbe(ServiceProbe{
+		Name:         "cloud-metadata",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{},
+		Detect:       detectCloudMetadata,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "metabase",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{3000},
+		Detect:       detectMetabase,
+	})
 }
 
 func detectSuperset(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
@@ -158,4 +170,107 @@ func detectVeeam(ctx context.Context, host string, port int, banner string, make
 // (probe_network.go) via banner parsing. This entry exists only to document the grouping.
 func detectWingFTPPlaceholder(_ context.Context, _ string, _ int, _ string, _ findingMaker) []finding.Finding {
 	return nil
+}
+
+// detectCloudMetadata attempts to reach cloud instance metadata services.
+// These probes only succeed when beacon is running INSIDE a cloud instance (e.g. during
+// authorized SSRF testing). AWS, GCP, and Azure metadata endpoints are checked.
+func detectCloudMetadata(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	// Only probe the well-known metadata IP — ignore other hosts.
+	if host != "169.254.169.254" {
+		return nil
+	}
+
+	var findings []finding.Finding
+
+	// AWS IMDSv1: GET http://169.254.169.254/latest/meta-data/
+	if body, ok := probeHTTPBody(ctx, host, 80, false, "/latest/meta-data/"); ok {
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "ami-id") || strings.Contains(bodyLow, "instance-id") ||
+			strings.Contains(bodyLow, "hostname") || strings.Contains(bodyLow, "security-credentials") {
+			findings = append(findings, makeF(
+				finding.CheckPortCloudMetadataAccessible,
+				finding.SeverityCritical,
+				"AWS EC2 instance metadata service (IMDSv1) accessible",
+				"The AWS EC2 instance metadata service at 169.254.169.254 is reachable and returns "+
+					"instance metadata. IMDSv1 does not require a session token, making it exploitable via "+
+					"SSRF attacks to steal IAM role credentials at /latest/meta-data/iam/security-credentials/. "+
+					"Enforce IMDSv2 (HttpTokens=required) on all EC2 instances to require PUT-based token exchange.",
+				map[string]any{
+					"port":     80,
+					"service":  "aws-metadata",
+					"provider": "aws",
+					"proof":    "curl -s http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+				},
+			))
+		}
+	}
+
+	// Azure: GET with Metadata:true header — probeHTTPBody doesn't set it,
+	// so we check the basic path which returns 400 without the header (still fingerprint).
+	if body, ok := probeHTTPAnyBody(ctx, host, 80, false, "/metadata/instance?api-version=2021-02-01"); ok {
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "compute") || strings.Contains(bodyLow, "azure") ||
+			strings.Contains(bodyLow, "metadata") {
+			findings = append(findings, makeF(
+				finding.CheckPortCloudMetadataAccessible,
+				finding.SeverityCritical,
+				"Azure Instance Metadata Service (IMDS) accessible",
+				"The Azure Instance Metadata Service at 169.254.169.254 is reachable. "+
+					"SSRF attacks can extract managed identity tokens via /metadata/identity/oauth2/token "+
+					"to access Azure resources. Apply network-level restrictions and use managed identity "+
+					"scoping to limit blast radius.",
+				map[string]any{
+					"port":     80,
+					"service":  "azure-metadata",
+					"provider": "azure",
+					"proof":    "curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/instance?api-version=2021-02-01'",
+				},
+			))
+		}
+	}
+
+	return findings
+}
+
+// detectMetabase identifies Metabase BI dashboards via page title or /api/session/properties.
+func detectMetabase(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
+	useTLS := port == 443
+	// Check homepage for Metabase branding.
+	body, ok := probeHTTPAnyBody(ctx, host, port, useTLS, "/")
+	if ok {
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "metabase") {
+			return metabaseFinding(host, port, useTLS, makeF)
+		}
+	}
+	// Check the session properties API — always returns JSON on Metabase instances.
+	if apiBody, apiOK := probeHTTPBody(ctx, host, port, useTLS, "/api/session/properties"); apiOK {
+		apiLow := strings.ToLower(apiBody)
+		if strings.Contains(apiLow, "metabase") || strings.Contains(apiLow, "\"engines\"") {
+			return metabaseFinding(host, port, useTLS, makeF)
+		}
+	}
+	return nil
+}
+
+func metabaseFinding(host string, port int, useTLS bool, makeF findingMaker) []finding.Finding {
+	s := "http"
+	if useTLS {
+		s = "https"
+	}
+	return []finding.Finding{makeF(
+		finding.CheckPortMetabaseExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Metabase BI dashboard exposed on port %d", port),
+		"A Metabase business intelligence dashboard is publicly accessible. Metabase stores database "+
+			"connection credentials and provides direct SQL query access to connected data sources. "+
+			"CVE-2023-38646 (CVSS 9.8) allows unauthenticated RCE on Metabase < 0.46.6.1 via the "+
+			"/api/setup/validate endpoint. Restrict access to trusted networks and update to the latest version.",
+		map[string]any{
+			"port":    port,
+			"service": "metabase",
+			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/api/session/properties", s, host, port),
+		},
+	)}
 }

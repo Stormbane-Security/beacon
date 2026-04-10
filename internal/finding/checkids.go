@@ -1054,6 +1054,22 @@ const (
 	// ── New service exposure checks ──────────────────────────────────────
 	CheckPortCassandraExposed     CheckID = "port.cassandra_exposed"        // Cassandra CQL native transport exposed without auth (port 9042)
 
+	// ── Web framework / CMS / server fingerprinting ─────────────────────
+	CheckPortWordPressDetected     CheckID = "port.wordpress_detected"       // WordPress CMS detected via wp-login.php, wp-content, or wp-includes
+	CheckPortDrupalDetected        CheckID = "port.drupal_detected"          // Drupal CMS detected via X-Drupal-Cache header or Drupal.settings in body
+	CheckPortJoomlaDetected        CheckID = "port.joomla_detected"          // Joomla CMS detected via /administrator/ or /media/jui/ references
+	CheckPortGhostDetected         CheckID = "port.ghost_detected"           // Ghost CMS detected via /ghost/api/ or ghost- meta tags
+	CheckPortNextcloudDetected     CheckID = "port.nextcloud_detected"       // Nextcloud detected via /status.php JSON response
+	CheckPortSpringActuatorExposed CheckID = "port.spring_actuator_exposed"  // Spring Boot Actuator endpoints exposed — env, beans, health, metrics accessible
+	CheckPortDjangoDetected        CheckID = "port.django_detected"          // Django web framework detected via debug page or /admin/ login
+	CheckPortLaravelDetected       CheckID = "port.laravel_detected"         // Laravel PHP framework detected via laravel_session cookie or X-Powered-By header
+	CheckPortExpressDetected       CheckID = "port.express_detected"         // Express.js framework detected via X-Powered-By: Express header
+	CheckPortASPNETDetected        CheckID = "port.aspnet_detected"          // ASP.NET framework detected via X-AspNet-Version or X-Powered-By header
+	CheckPortRailsDetected         CheckID = "port.rails_detected"           // Ruby on Rails detected via X-Runtime header or Rails error page
+	CheckPortFastAPIDetected       CheckID = "port.fastapi_detected"         // FastAPI detected via auto-generated /docs (Swagger UI) or /openapi.json
+	CheckPortCloudMetadataAccessible CheckID = "port.cloud_metadata_accessible" // Cloud instance metadata service accessible (AWS/GCP/Azure) — SSRF pivoting risk
+	CheckPortMetabaseExposed       CheckID = "port.metabase_exposed"         // Metabase BI dashboard exposed without auth — database credentials and query access
+
 	// ── Missing CVEs for existing service chains ─────────────────────────
 	CheckCVEMongoDBAuthBypass2017 CheckID = "cve.mongodb_auth_bypass_2017" // CVE-2017-2604 MongoDB < 3.6.0 auth bypass via crafted wire protocol — unauthenticated cluster access (CVSS 9.1)
 	CheckCVEMySQLAuthBypass2012   CheckID = "cve.mysql_auth_bypass_2012"   // CVE-2012-2122 MySQL 5.1/5.5/5.6 memcmp timing auth bypass — ~1/256 chance per attempt (CVSS 5.3)
@@ -1193,6 +1209,7 @@ const (
 
 	// Web Frameworks
 	CheckCVEApacheHTTPSmuggling      CheckID = "cve.apache_http_smuggling"         // CVE-2023-25690 Apache HTTP Server < 2.4.56 mod_proxy HTTP request smuggling (CVSS 9.8)
+	CheckCVEApacheH2DoS              CheckID = "cve.apache_h2_dos"                // CVE-2023-43622 Apache HTTP Server < 2.4.58 HTTP/2 initial settings frame zero window DoS (CVSS 7.5)
 	CheckCVEOFBizAuthBypass          CheckID = "cve.ofbiz_auth_bypass"             // CVE-2023-51467 Apache OFBiz < 18.12.11 auth bypass via empty/invalid username-password (CVSS 9.8, KEV)
 	CheckCVEOFBizPreAuthRCE          CheckID = "cve.ofbiz_preauth_rce"             // CVE-2023-49070 Apache OFBiz < 18.12.10 pre-auth XML-RPC deserialization → RCE (CVSS 9.8, KEV)
 	CheckCVEOFBizForceBrowsing       CheckID = "cve.ofbiz_force_browsing"          // CVE-2024-45195 Apache OFBiz < 18.12.16 direct request force browsing auth bypass (CVSS 9.8)
@@ -3322,6 +3339,22 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortKibanaDefaultCreds:       {CheckPortKibanaDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortCassandraExposed:         {CheckPortCassandraExposed, SeverityCritical, ModeSurface},
 
+	// Web framework / CMS / server fingerprinting
+	CheckPortWordPressDetected:         {CheckPortWordPressDetected, SeverityInfo, ModeSurface},
+	CheckPortDrupalDetected:            {CheckPortDrupalDetected, SeverityInfo, ModeSurface},
+	CheckPortJoomlaDetected:            {CheckPortJoomlaDetected, SeverityInfo, ModeSurface},
+	CheckPortGhostDetected:             {CheckPortGhostDetected, SeverityInfo, ModeSurface},
+	CheckPortNextcloudDetected:         {CheckPortNextcloudDetected, SeverityInfo, ModeSurface},
+	CheckPortSpringActuatorExposed:     {CheckPortSpringActuatorExposed, SeverityHigh, ModeSurface},
+	CheckPortDjangoDetected:            {CheckPortDjangoDetected, SeverityInfo, ModeSurface},
+	CheckPortLaravelDetected:           {CheckPortLaravelDetected, SeverityInfo, ModeSurface},
+	CheckPortExpressDetected:           {CheckPortExpressDetected, SeverityInfo, ModeSurface},
+	CheckPortASPNETDetected:            {CheckPortASPNETDetected, SeverityInfo, ModeSurface},
+	CheckPortRailsDetected:             {CheckPortRailsDetected, SeverityInfo, ModeSurface},
+	CheckPortFastAPIDetected:           {CheckPortFastAPIDetected, SeverityInfo, ModeSurface},
+	CheckPortCloudMetadataAccessible:   {CheckPortCloudMetadataAccessible, SeverityCritical, ModeSurface},
+	CheckPortMetabaseExposed:           {CheckPortMetabaseExposed, SeverityHigh, ModeSurface},
+
 	// Missing CVEs for existing service chains
 	CheckCVEMongoDBAuthBypass2017: {CheckCVEMongoDBAuthBypass2017, SeverityCritical, ModeSurface},
 	CheckCVEMySQLAuthBypass2012:   {CheckCVEMySQLAuthBypass2012, SeverityHigh, ModeSurface},
@@ -3851,6 +3884,7 @@ var Registry = map[CheckID]CheckMeta{
 
 	// Web Frameworks
 	CheckCVEApacheHTTPSmuggling:      {CheckCVEApacheHTTPSmuggling, SeverityCritical, ModeDeep},
+	CheckCVEApacheH2DoS:             {CheckCVEApacheH2DoS, SeverityHigh, ModeDeep},
 	CheckCVEOFBizAuthBypass:          {CheckCVEOFBizAuthBypass, SeverityCritical, ModeDeep},
 	CheckCVEOFBizPreAuthRCE:          {CheckCVEOFBizPreAuthRCE, SeverityCritical, ModeDeep},
 	CheckCVEOFBizForceBrowsing:       {CheckCVEOFBizForceBrowsing, SeverityCritical, ModeDeep},

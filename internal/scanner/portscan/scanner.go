@@ -1100,6 +1100,43 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 	return string(b), true
 }
 
+// probeHTTPBodyAndHeaders is like probeHTTPBody but returns the full header map and
+// accepts any 2xx/3xx/4xx status (not just 200). Useful for fingerprinting probes that
+// need to inspect X-Powered-By, Set-Cookie, or custom server headers.
+func probeHTTPBodyAndHeaders(ctx context.Context, host string, port int, useTLS bool, path string) (body string, headers http.Header, ok bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", nil, false
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", nil, false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return string(b), resp.Header, true
+}
+
 // probeHTTPBodyAndServer is like probeHTTPBody but also returns the Server header.
 func probeHTTPBodyAndServer(ctx context.Context, host string, port int, useTLS bool, path string) (body string, server string, ok bool) {
 	if useTLS && !isTLSCapable(ctx, host, port) {
