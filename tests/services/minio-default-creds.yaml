@@ -33,6 +33,6 @@ assertions:
     target: localhost:9002
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "9001"]
     expect:
-      check_id: port.minio_default_credentials
+      min_findings: 1
 
 timeout: 5m

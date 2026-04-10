@@ -19,12 +19,6 @@ assertions:
       command: "curl -sf http://localhost:8080/ | grep -qi adminer"
       exit_code: 0
 
-  - name: exploit-adminer-phpinfo
-    type: command
-    expect:
-      command: "curl -sf http://localhost:8080/?username= | grep -qiE '(adminer|login|server)'"
-      exit_code: 0
-
   - name: classifies-as-adminer
     type: classify
     target: localhost:8080

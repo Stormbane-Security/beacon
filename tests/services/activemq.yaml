@@ -38,6 +38,6 @@ assertions:
     target: localhost:61616
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "61616"]
     expect:
-      check_id: port.activemq_exposed
+      check_id: cve.activemq_rce
 
 timeout: 5m
