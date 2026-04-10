@@ -118,6 +118,40 @@ var nucleiTagToService = map[string]string{
 	"ldap":    "ldap",
 	"dns":     "dns",
 
+	// WordPress aliases (covers ~1700 nuclei templates)
+	"wp":         "wordpress",
+	"wp-plugin":  "wordpress",
+	"wp-theme":   "wordpress",
+
+	// Atlassian aliases
+	"atlassian":  "confluence",
+	"jira":       "confluence",
+
+	// Cisco aliases
+	"cisco":      "cisco_ios_xe",
+
+	// Microsoft aliases
+	"microsoft":  "exchange",
+	"iis":        "exchange",
+
+	// Oracle / Java
+	"oracle":     "jboss",
+
+	// VMware aliases
+	"vsphere":    "vmware",
+	"omnissa":    "vmware",
+
+	// ManageEngine aliases
+	"zoho":       "manageengine",
+	"zohocorp":   "manageengine",
+
+	// Generic tech tags → nearest service
+	"router":     "dlink",
+	"iot":        "dlink",
+	"php":        "apache",
+	"node.js":    "express",
+	"adobe":      "coldfusion",
+
 	// Network appliances / firewalls
 	"fortios":    "fortios",
 	"fortigate":  "fortios",
