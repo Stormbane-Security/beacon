@@ -68,7 +68,7 @@ const (
 // threshold most IDS/IPS engines use to trigger port-scan signatures
 // (typically 10–15 half-open connections per second from a single source).
 // Deep mode uses the same limit; the larger port list naturally takes longer.
-const defaultConcurrency = 5
+const defaultConcurrency = 8
 
 // interConnectDelay is the pause between acquiring the semaphore and dialling.
 // Spreading connects by 50 ms per slot avoids the burst of simultaneous SYN
@@ -391,30 +391,48 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 	// miss banners that arrive in 200-500ms. Only retry non-HTTP ports since
 	// HTTP ports intentionally don't send banners.
 	if len(noBannerPorts) > 0 && ctx.Err() == nil {
+		bannerSem := make(chan struct{}, 5) // limit concurrent banner retries
+		var bannerWg sync.WaitGroup
+		type bannerResult struct {
+			idx    int
+			port   int
+			banner string
+		}
+		bannerCh := make(chan bannerResult, len(noBannerPorts))
 		for i, nbp := range noBannerPorts {
-			addr := net.JoinHostPort(host, strconv.Itoa(nbp.entry.port))
-			conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
-			if err != nil {
-				continue
-			}
-			_ = conn.SetDeadline(time.Now().Add(bannerTimeout)) // full 500ms timeout
-			buf := make([]byte, 512)
-			n, _ := conn.Read(buf)
-			_ = conn.Close()
-			if n > 0 {
-				banner := strings.TrimSpace(string(buf[:n]))
-				// Update the open port entry with the deferred banner
-				for j := range open {
-					if open[j].entry.port == nbp.entry.port {
-						open[j].banner = banner
-						break
-					}
+			bannerWg.Add(1)
+			go func(idx int, nbp openPort) {
+				defer bannerWg.Done()
+				bannerSem <- struct{}{}
+				defer func() { <-bannerSem }()
+				addr := net.JoinHostPort(host, strconv.Itoa(nbp.entry.port))
+				conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+				if err != nil {
+					return
 				}
-				noBannerPorts[i].banner = banner
-				scanlog.FromContext(ctx).ProbeTimed(scannerName, asset,
-					fmt.Sprintf("deferred-banner:%d", nbp.entry.port),
-					bannerTimeout, 0, nil)
+				_ = conn.SetDeadline(time.Now().Add(bannerTimeout)) // full 500ms timeout
+				buf := make([]byte, 512)
+				n, _ := conn.Read(buf)
+				_ = conn.Close()
+				if n > 0 {
+					banner := strings.TrimSpace(string(buf[:n]))
+					bannerCh <- bannerResult{idx: idx, port: nbp.entry.port, banner: banner}
+					scanlog.FromContext(ctx).ProbeTimed(scannerName, asset,
+						fmt.Sprintf("deferred-banner:%d", nbp.entry.port),
+						bannerTimeout, 0, nil)
+				}
+			}(i, nbp)
+		}
+		bannerWg.Wait()
+		close(bannerCh)
+		for br := range bannerCh {
+			for j := range open {
+				if open[j].entry.port == br.port {
+					open[j].banner = br.banner
+					break
+				}
 			}
+			noBannerPorts[br.idx].banner = br.banner
 		}
 	}
 
