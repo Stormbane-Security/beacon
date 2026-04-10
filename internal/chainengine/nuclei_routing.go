@@ -25,6 +25,7 @@ var nucleiTagToService = map[string]string{
 	"postgresql":    "postgresql",
 	"elasticsearch": "elasticsearch",
 	"couchdb":       "couchdb",
+	"memcached":     "memcached",
 	"cassandra":     "cassandra",
 	"influxdb":      "influxdb",
 	"clickhouse":    "clickhouse",
@@ -99,6 +100,66 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2022-29153": "consul",           // SSRF via service registration
 	"CVE-2022-22963": "spring-actuator",  // Spring Cloud Function SpEL RCE
 	"CVE-2023-28432": "minio",            // Environment variable disclosure
+
+	// Redis CVE exploit chains
+	"CVE-2022-0543":  "redis",            // Lua sandbox escape RCE (Debian/Ubuntu)
+	"CVE-2023-28856": "redis",            // HINCR command auth bypass
+	"CVE-2023-45145": "redis",            // Unix socket race condition
+
+	// MongoDB CVE exploit chains
+	"CVE-2017-2604":  "mongodb",          // Auth bypass via wire protocol
+	"CVE-2024-7553":  "mongodb",          // BSON deserialization RCE
+
+	// MySQL CVE exploit chains
+	"CVE-2012-2122":  "mysql",            // memcmp timing auth bypass
+	"CVE-2016-6662":  "mysql",            // Config file manipulation via logging
+
+	// PostgreSQL CVE exploit chains
+	"CVE-2019-9193":  "postgresql",       // COPY TO/FROM PROGRAM RCE
+	"CVE-2023-39417": "postgresql",       // Extension script injection
+
+	// Memcached CVE exploit chains
+	"CVE-2021-22890": "memcached",        // UDP amplification DDoS
+
+	// CouchDB CVE exploit chains
+	"CVE-2022-24706": "couchdb",          // Erlang cookie RCE
+	"CVE-2017-12635": "couchdb",          // Privilege escalation via user creation
+
+	// Docker / container runtime CVE exploit chains
+	"CVE-2019-5736":  "docker",           // runc container escape
+	"CVE-2020-15257": "docker",           // containerd host networking escape
+
+	// Kibana CVE exploit chains
+	"CVE-2019-7609":  "kibana",           // Timelion prototype pollution RCE
+	"CVE-2021-22145": "kibana",           // Security API info disclosure
+
+	// RabbitMQ / Erlang CVE exploit chains
+	"CVE-2022-37026": "rabbitmq",         // Erlang/OTP auth bypass
+
+	// Vault CVE exploit chains
+	"CVE-2023-25000": "vault",            // PKI engine SSRF
+
+	// Prometheus CVE exploit chains
+	"CVE-2021-29622": "prometheus",       // Open redirect
+
+	// GitLab CVE exploit chains (additional)
+	"CVE-2023-7028":  "gitlab",           // Account takeover via password reset
+	"CVE-2021-22214": "gitlab",           // CI lint SSRF
+
+	// Airflow CVE exploit chains
+	"CVE-2020-11978": "airflow",          // Example DAG RCE
+	"CVE-2022-40127": "airflow",          // Config endpoint info disclosure
+
+	// SonarQube CVE exploit chains
+	"CVE-2024-47910": "sonarqube",        // SSRF
+
+	// Nginx CVE exploit chains
+	"CVE-2021-23017": "nginx",            // DNS resolver off-by-one RCE
+	"CVE-2017-7529":  "nginx",            // Integer overflow info disclosure
+
+	// Apache httpd CVE exploit chains
+	"CVE-2021-41773": "apache",           // Path traversal
+	"CVE-2021-42013": "apache",           // Path traversal bypass
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook

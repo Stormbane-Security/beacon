@@ -1065,6 +1065,64 @@ const (
 	CheckCVEJenkinsSandboxBypass    CheckID = "cve.jenkins_sandbox_bypass"       // CVE-2019-1003000 Jenkins Pipeline Groovy sandbox bypass → RCE (CVSS 9.9)
 	CheckCVETomcatPutRCE            CheckID = "cve.tomcat_put_rce"              // CVE-2017-12617 Apache Tomcat PUT method JSP upload → RCE (CVSS 9.8)
 	CheckCVESpringCloudFunctionRCE  CheckID = "cve.spring_cloud_function_rce"   // CVE-2022-22963 Spring Cloud Function SpEL RCE via routing-expression header (CVSS 9.8, KEV)
+
+	// ── Database & cache CVE exploit chains ──────────────────────────────
+	// Redis
+	CheckCVERedisLuaSandboxEscape   CheckID = "cve.redis_lua_sandbox_escape"       // CVE-2022-0543 Redis on Debian/Ubuntu Lua sandbox escape → RCE (CVSS 10.0)
+	CheckCVERedisHINCRAuthBypass    CheckID = "cve.redis_hincr_auth_bypass"        // CVE-2023-28856 Redis < 7.0.11/6.2.12 HINCR command auth bypass (CVSS 6.5)
+	CheckCVERedisSocketRace         CheckID = "cve.redis_socket_race"              // CVE-2023-45145 Redis < 7.2.4/7.0.15 Unix socket race condition — privilege escalation (CVSS 3.6)
+
+	// MongoDB
+	CheckCVEMongoDBBSONRCE          CheckID = "cve.mongodb_bson_rce"               // CVE-2024-7553 MongoDB < 7.0.12/6.0.16 BSON deserialization RCE (CVSS 7.8)
+
+	// MySQL
+	CheckCVEMySQLConfigManip        CheckID = "cve.mysql_config_manipulation"      // CVE-2016-6662 MySQL <= 5.7.14 config file manipulation via logging → RCE (CVSS 9.8)
+
+	// PostgreSQL
+	CheckCVEPostgreSQLExtInjection  CheckID = "cve.postgresql_ext_injection"       // CVE-2023-39417 PostgreSQL < 15.4/14.9 extension script @extowner@ injection (CVSS 8.8)
+
+	// Memcached
+	CheckCVEMemcachedUDPAmplify     CheckID = "cve.memcached_udp_amplification"    // CVE-2021-22890 Memcached UDP amplification — 51000x DDoS reflection factor (CVSS 9.8)
+
+	// CouchDB
+	CheckCVECouchDBErlangCookie     CheckID = "cve.couchdb_erlang_cookie_rce"      // CVE-2022-24706 CouchDB < 3.2.2 default Erlang cookie → RCE (CVSS 9.8, KEV)
+	CheckCVECouchDBPrivEsc          CheckID = "cve.couchdb_priv_escalation"        // CVE-2017-12635 CouchDB < 2.1.1 duplicate roles JSON → admin creation (CVSS 10.0)
+
+	// ── Docker / container runtime CVEs ──────────────────────────────────
+	CheckCVERuncContainerEscape       CheckID = "cve.runc_container_escape"        // CVE-2019-5736 runc < 1.0-rc6 container escape → host compromise (CVSS 8.6, KEV)
+	CheckCVEContainerdHostNetEscape   CheckID = "cve.containerd_host_net_escape"   // CVE-2020-15257 containerd < 1.3.9/1.4.3 host networking namespace escape (CVSS 5.2)
+
+	// ── Kibana CVEs ─────────────────────────────────────────────────────
+	CheckCVEKibanaTimelionRCE         CheckID = "cve.kibana_timelion_rce"          // CVE-2019-7609 Kibana < 6.6.1/5.6.15 Timelion prototype pollution → RCE (CVSS 10.0, KEV)
+	CheckCVEKibanaSecurityInfoLeak    CheckID = "cve.kibana_security_info_leak"    // CVE-2021-22145 Kibana/ES 7.x _security API info disclosure (CVSS 6.5)
+
+	// ── RabbitMQ / Erlang CVEs ──────────────────────────────────────────
+	CheckCVEErlangOTPAuthBypass       CheckID = "cve.erlang_otp_auth_bypass"       // CVE-2022-37026 Erlang/OTP < 25.1 auth bypass via client cert validation flaw (CVSS 9.8)
+
+	// ── Vault CVEs ──────────────────────────────────────────────────────
+	CheckCVEVaultPKISSRF              CheckID = "cve.vault_pki_ssrf"               // CVE-2023-25000 HashiCorp Vault < 1.13.1 PKI engine SSRF (CVSS 7.5)
+
+	// ── Prometheus CVEs ─────────────────────────────────────────────────
+	CheckCVEPrometheusOpenRedirect    CheckID = "cve.prometheus_open_redirect"     // CVE-2021-29622 Prometheus < 2.26.1/2.27.1 open redirect via /new/..;/graph (CVSS 6.1)
+
+	// ── GitLab CVEs (additional) ────────────────────────────────────────
+	CheckCVEGitLabAccountTakeover     CheckID = "cve.gitlab_account_takeover"      // CVE-2023-7028 GitLab CE/EE 16.1–16.7.1 password reset account takeover (CVSS 10.0, KEV)
+	CheckCVEGitLabCILintSSRF          CheckID = "cve.gitlab_ci_lint_ssrf"          // CVE-2021-22214 GitLab CE/EE 10.5+ CI lint SSRF via include directive (CVSS 8.6)
+
+	// ── Airflow CVEs ────────────────────────────────────────────────────
+	CheckCVEAirflowExampleDAGRCE      CheckID = "cve.airflow_example_dag_rce"      // CVE-2020-11978 Airflow < 1.10.11 example_bash_operator DAG command injection → RCE (CVSS 9.8)
+	CheckCVEAirflowConfigInfoLeak     CheckID = "cve.airflow_config_info_leak"     // CVE-2022-40127 Airflow < 2.4.0 /api/v1/config info disclosure (secrets in config) (CVSS 7.5)
+
+	// ── SonarQube CVEs ──────────────────────────────────────────────────
+	CheckCVESonarQubeSSRF             CheckID = "cve.sonarqube_ssrf"               // CVE-2024-47910 SonarQube < 10.3 SSRF (CVSS 7.5)
+
+	// ── Nginx CVEs ──────────────────────────────────────────────────────
+	CheckCVENginxResolverRCE          CheckID = "cve.nginx_resolver_rce"           // CVE-2021-23017 nginx < 1.21.0/1.20.1 DNS resolver off-by-one → RCE (CVSS 9.4)
+	CheckCVENginxRangeInfoLeak        CheckID = "cve.nginx_range_info_leak"        // CVE-2017-7529 nginx < 1.13.3/1.12.1 integer overflow Range header info disclosure (CVSS 7.5)
+
+	// ── Apache httpd CVEs (exploit chain) ───────────────────────────────
+	CheckCVEApacheTraversal2021       CheckID = "cve.apache_traversal_2021"        // CVE-2021-41773 Apache 2.4.49 path traversal → /etc/passwd read (CVSS 7.5, KEV)
+	CheckCVEApacheTraversalBypass2021 CheckID = "cve.apache_traversal_bypass_2021" // CVE-2021-42013 Apache 2.4.50 double-encoding path traversal bypass (CVSS 9.8, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
