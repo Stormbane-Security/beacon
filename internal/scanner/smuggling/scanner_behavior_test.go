@@ -67,19 +67,14 @@ func startTCPServer(t *testing.T, handler func(net.Conn)) (net.Listener, func())
 	}
 
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 
 	go func() {
+		defer close(done)
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				// Listener closed.
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					return
-				}
+				return
 			}
 			wg.Add(1)
 			go func(c net.Conn) {
@@ -91,8 +86,8 @@ func startTCPServer(t *testing.T, handler func(net.Conn)) (net.Listener, func())
 	}()
 
 	cleanup := func() {
-		cancel()
 		_ = ln.Close()
+		<-done // wait for accept loop to exit
 		wg.Wait()
 	}
 	return ln, cleanup
