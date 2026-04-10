@@ -1083,6 +1083,34 @@ const (
 
 	// Memcached
 	CheckCVEMemcachedUDPAmplify     CheckID = "cve.memcached_udp_amplification"    // CVE-2021-22890 Memcached UDP amplification — 51000x DDoS reflection factor (CVSS 9.8)
+	CheckCVEMemcachedNullCrash      CheckID = "cve.memcached_null_crash"           // CVE-2019-11596 Memcached < 1.5.14 null pointer dereference crash (CVSS 7.5)
+
+	// etcd
+	CheckCVEEtcdAuthBypass          CheckID = "cve.etcd_auth_bypass"               // CVE-2020-15115 etcd < 3.3.23/3.4.10 auth bypass via lease revoke (CVSS 7.5)
+	CheckCVEEtcdLeaseInfoLeak       CheckID = "cve.etcd_lease_info_leak"           // CVE-2023-32082 etcd < 3.5.9 LeaseTimeToLive leaks attached keys (CVSS 5.3)
+
+	// RabbitMQ
+	CheckCVERabbitMQCredLeak        CheckID = "cve.rabbitmq_cred_leak"             // CVE-2022-31008 RabbitMQ < 3.11.0 credential leak via management UI connections (CVSS 7.5)
+	CheckCVERabbitMQHTTPDoS         CheckID = "cve.rabbitmq_http_dos"              // CVE-2023-46118 RabbitMQ < 3.12.5/3.11.24 DoS via HTTP API (CVSS 4.9)
+
+	// Jupyter
+	CheckCVEJupyterSSRF             CheckID = "cve.jupyter_ssrf"                   // CVE-2023-44461 Jupyter Server < 2.7.2 SSRF via /api/contents (CVSS 7.5)
+	CheckCVEJupyterOpenRedirect     CheckID = "cve.jupyter_open_redirect"          // CVE-2020-26215 Jupyter Notebook < 6.1.5 open redirect via /login?next= (CVSS 6.1)
+
+	// Portainer
+	CheckCVEPortainerOTELDoS        CheckID = "cve.portainer_otel_dos"             // CVE-2023-47108 Portainer < 2.19.2 OTEL DoS (CVSS 7.5)
+	CheckCVEPortainerUnauthAPI      CheckID = "cve.portainer_unauth_api"           // CVE-2022-36326 Portainer < 2.16.0 unauthorized API access — list stacks (CVSS 7.5)
+
+	// Drone CI
+	CheckCVEDroneSSRF               CheckID = "cve.drone_ssrf"                     // CVE-2021-33681 Drone CI < 2.0 SSRF via clone URL (CVSS 7.5)
+
+	// ArgoCD
+	CheckCVEArgoCDJWTBypass         CheckID = "cve.argocd_jwt_bypass"              // CVE-2022-29165 ArgoCD < 2.3.4/2.2.9/2.1.15 auth bypass via crafted JWT (CVSS 10.0)
+	CheckCVEArgoCDXSS               CheckID = "cve.argocd_xss"                     // CVE-2024-28175 ArgoCD < 2.10.4/2.9.9 XSS via application name (CVSS 6.1)
+
+	// NATS
+	CheckCVENATSAuthBypass          CheckID = "cve.nats_auth_bypass"               // CVE-2023-47090 NATS Server < 2.9.23/2.10.2 auth bypass on protected subjects (CVSS 9.8)
+	CheckCVENATSAccountTakeover     CheckID = "cve.nats_account_takeover"          // CVE-2022-29946 NATS Server < 2.8.2 account takeover (CVSS 9.8)
 
 	// CouchDB
 	CheckCVECouchDBErlangCookie     CheckID = "cve.couchdb_erlang_cookie_rce"      // CVE-2022-24706 CouchDB < 3.2.2 default Erlang cookie → RCE (CVSS 9.8, KEV)
@@ -3230,6 +3258,35 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEMySQLConfigManip:         {CheckCVEMySQLConfigManip, SeverityHigh, ModeDeep},
 	CheckCVEPostgreSQLExtInjection:   {CheckCVEPostgreSQLExtInjection, SeverityHigh, ModeDeep},
 	CheckCVEMemcachedUDPAmplify:      {CheckCVEMemcachedUDPAmplify, SeverityHigh, ModeSurface},
+	CheckCVEMemcachedNullCrash:       {CheckCVEMemcachedNullCrash, SeverityHigh, ModeSurface},
+
+	// etcd CVEs
+	CheckCVEEtcdAuthBypass:           {CheckCVEEtcdAuthBypass, SeverityHigh, ModeDeep},
+	CheckCVEEtcdLeaseInfoLeak:        {CheckCVEEtcdLeaseInfoLeak, SeverityMedium, ModeDeep},
+
+	// RabbitMQ CVEs
+	CheckCVERabbitMQCredLeak:         {CheckCVERabbitMQCredLeak, SeverityHigh, ModeDeep},
+	CheckCVERabbitMQHTTPDoS:          {CheckCVERabbitMQHTTPDoS, SeverityMedium, ModeSurface},
+
+	// Jupyter CVEs
+	CheckCVEJupyterSSRF:              {CheckCVEJupyterSSRF, SeverityHigh, ModeDeep},
+	CheckCVEJupyterOpenRedirect:      {CheckCVEJupyterOpenRedirect, SeverityMedium, ModeDeep},
+
+	// Portainer CVEs
+	CheckCVEPortainerOTELDoS:         {CheckCVEPortainerOTELDoS, SeverityMedium, ModeSurface},
+	CheckCVEPortainerUnauthAPI:        {CheckCVEPortainerUnauthAPI, SeverityHigh, ModeDeep},
+
+	// Drone CI CVEs
+	CheckCVEDroneSSRF:                {CheckCVEDroneSSRF, SeverityHigh, ModeSurface},
+
+	// ArgoCD CVEs
+	CheckCVEArgoCDJWTBypass:          {CheckCVEArgoCDJWTBypass, SeverityCritical, ModeDeep},
+	CheckCVEArgoCDXSS:                {CheckCVEArgoCDXSS, SeverityMedium, ModeSurface},
+
+	// NATS CVEs
+	CheckCVENATSAuthBypass:           {CheckCVENATSAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVENATSAccountTakeover:      {CheckCVENATSAccountTakeover, SeverityCritical, ModeSurface},
+
 	CheckCVECouchDBErlangCookie:      {CheckCVECouchDBErlangCookie, SeverityCritical, ModeDeep},
 	CheckCVECouchDBPrivEsc:           {CheckCVECouchDBPrivEsc, SeverityCritical, ModeDeep},
 

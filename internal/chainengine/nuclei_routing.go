@@ -120,6 +120,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// Memcached CVE exploit chains
 	"CVE-2021-22890": "memcached",        // UDP amplification DDoS
+	"CVE-2019-11596": "memcached",        // Null pointer crash
 
 	// CouchDB CVE exploit chains
 	"CVE-2022-24706": "couchdb",          // Erlang cookie RCE
@@ -135,6 +136,8 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// RabbitMQ / Erlang CVE exploit chains
 	"CVE-2022-37026": "rabbitmq",         // Erlang/OTP auth bypass
+	"CVE-2022-31008": "rabbitmq",         // Credential leak in management UI
+	"CVE-2023-46118": "rabbitmq",         // HTTP API DoS
 
 	// Vault CVE exploit chains
 	"CVE-2023-25000": "vault",            // PKI engine SSRF
@@ -160,6 +163,29 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// Apache httpd CVE exploit chains
 	"CVE-2021-41773": "apache",           // Path traversal
 	"CVE-2021-42013": "apache",           // Path traversal bypass
+
+	// etcd CVE exploit chains
+	"CVE-2020-15115": "etcd",             // Auth bypass via lease revoke
+	"CVE-2023-32082": "etcd",             // LeaseTimeToLive info leak
+
+	// Jupyter CVE exploit chains
+	"CVE-2023-44461": "jupyter",          // Server SSRF
+	"CVE-2020-26215": "jupyter",          // Open redirect
+
+	// Portainer CVE exploit chains
+	"CVE-2023-47108": "portainer",        // OTEL DoS
+	"CVE-2022-36326": "portainer",        // Unauthorized API access
+
+	// Drone CI CVE exploit chains
+	"CVE-2021-33681": "drone",            // SSRF via clone URL
+
+	// ArgoCD CVE exploit chains
+	"CVE-2022-29165": "argocd",           // JWT auth bypass
+	"CVE-2024-28175": "argocd",           // XSS via application name
+
+	// NATS CVE exploit chains
+	"CVE-2023-47090": "nats",             // Auth bypass
+	"CVE-2022-29946": "nats",             // Account takeover
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook

@@ -781,6 +781,20 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVENginxRangeInfoLeak:        true,
 		finding.CheckCVEApacheTraversal2021:       true,
 		finding.CheckCVEApacheTraversalBypass2021: true,
+		// etcd CVEs
+		finding.CheckCVEEtcdAuthBypass:            true,
+		finding.CheckCVEEtcdLeaseInfoLeak:         true,
+		// RabbitMQ CVEs
+		finding.CheckCVERabbitMQCredLeak:           true,
+		// Jupyter CVEs
+		finding.CheckCVEJupyterSSRF:               true,
+		finding.CheckCVEJupyterOpenRedirect:        true,
+		// Portainer CVEs
+		finding.CheckCVEPortainerUnauthAPI:         true,
+		// ArgoCD CVEs
+		finding.CheckCVEArgoCDJWTBypass:            true,
+		// NATS CVEs
+		finding.CheckCVENATSAuthBypass:             true,
 	}
 
 	for id, meta := range finding.Registry {
