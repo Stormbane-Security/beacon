@@ -882,6 +882,51 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-22506": "bamboo",           // Bamboo arbitrary Java code execution
 	"CVE-2023-22505": "confluence",       // Confluence authenticated RCE
 	"CVE-2024-29849": "veeam",            // Veeam Agent auth bypass RCE
+
+	// === CISA KEV high-impact CVE additions ===
+	// Apache / Struts / OFBiz / Spark / APISIX / Spring Cloud Gateway
+	"CVE-2014-6271":  "apache",           // ShellShock Bash CGI injection RCE
+	"CVE-2017-5645":  "apache",           // Log4j 1.x SocketServer TCP deserialization
+	"CVE-2017-9791":  "apache",           // Struts2 S2-048 OGNL via ActionMessage
+	"CVE-2017-12611": "apache",           // Struts2 S2-053 Freemarker RCE
+	"CVE-2020-9480":  "apache",           // Apache Spark REST API auth bypass RCE
+	"CVE-2020-17530": "apache",           // Struts2 S2-061 forced OGNL double eval
+	"CVE-2021-26295": "apache",           // OFBiz < 17.12.06 XML-RPC deser RCE
+	"CVE-2021-31805": "apache",           // Struts2 S2-062 OGNL tag attribute injection
+	"CVE-2022-22947": "apache",           // Spring Cloud Gateway SpEL injection
+	"CVE-2022-24112": "apache",           // Apache APISIX batch-requests RCE
+	"CVE-2024-32113": "apache",           // OFBiz directory traversal + RCE
+	"CVE-2024-45507": "apache",           // OFBiz screen widget RCE
+	// WordPress
+	"CVE-2014-9735":  "wordpress",        // RevSlider arbitrary file upload
+	"CVE-2021-4436":  "wordpress",        // 3DPrint Lite unauthenticated file upload
+	// JBoss / WebSphere / WebLogic
+	"CVE-2015-7450":  "jboss",            // IBM WebSphere SOAP connector deser RCE
+	"CVE-2016-3510":  "jboss",            // WebLogic T3 deserialization RCE
+	"CVE-2017-3248":  "jboss",            // WebLogic T3 JRMP deserialization RCE
+	// Jenkins
+	"CVE-2016-9299":  "jenkins",          // Jenkins CLI HTTP deserialization RCE
+	"CVE-2017-1000353": "jenkins",        // Jenkins CLI Java deserialization RCE
+	// Joomla
+	"CVE-2017-8917":  "joomla",           // Joomla com_fields SQL injection
+	// Confluence
+	"CVE-2019-3396":  "confluence",       // Confluence Widget Connector path traversal
+	// Tomcat
+	"CVE-2016-8735":  "tomcat",           // Tomcat JMX port RCE
+	// GitLab
+	"CVE-2023-2478":  "gitlab",           // GitLab project import RCE
+	// Citrix
+	"CVE-2020-8209":  "citrix",           // Citrix XenMobile path traversal
+	// Drupal
+	"CVE-2018-7602":  "drupal",           // Drupalgeddon 3 authenticated RCE
+	// Exchange
+	"CVE-2020-0688":  "exchange",         // Exchange ViewState validation key RCE
+	// SharePoint
+	"CVE-2019-0604":  "sharepoint",       // SharePoint EntityInstanceIdEncoder RCE
+	// VMware
+	"CVE-2021-22005": "vmware",           // vCenter Analytics upload RCE
+	// Telerik
+	"CVE-2017-9248":  "telerik",          // Telerik DialogHandler key brute force
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook

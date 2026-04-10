@@ -1003,6 +1003,51 @@ const (
 	CheckCVERailsXMLRCE               CheckID = "cve.rails_xml_rce_2013"            // CVE-2013-0156 Ruby on Rails XML parameter parsing RCE — X-Runtime header fingerprint (CVSS 10.0, KEV)
 	CheckCVEHFSRejetto                CheckID = "cve.hfs_rejetto_rce_2014"           // CVE-2014-6287 Rejetto HFS 2.3x HTTP File Server version in body → RCE (CVSS 10.0, KEV)
 
+	// ── CISA KEV CVE exploit chain IDs (playbook cve_exploits) ────────────────
+	// Apache / Struts / OFBiz / Solr / Unomi / Spark / APISIX / Spring Cloud
+	CheckCVEShellShock                CheckID = "cve.apache_shellshock"            // CVE-2014-6271 Bash CGI ShellShock — User-Agent/Referer injection (CVSS 10.0, KEV)
+	CheckCVELog4j1xTCPDeser          CheckID = "cve.log4j_1x_tcp_deser"          // CVE-2017-5645 Log4j 1.x SocketServer Java deserialization RCE (CVSS 9.8)
+	CheckCVEStruts2S2048              CheckID = "cve.struts2_s2_048"              // CVE-2017-9791 Struts2 S2-048 OGNL via ActionMessage (CVSS 9.8, KEV)
+	CheckCVEStruts2S2053              CheckID = "cve.struts2_s2_053"              // CVE-2017-12611 Struts2 S2-053 Freemarker RCE (CVSS 9.8)
+	CheckCVESparkRESTAuthBypass       CheckID = "cve.spark_rest_auth_bypass"      // CVE-2020-9480 Apache Spark REST API auth bypass → RCE (CVSS 9.8, KEV)
+	CheckCVEStruts2S2061              CheckID = "cve.struts2_s2_061"              // CVE-2020-17530 Struts2 S2-061 forced OGNL double eval (CVSS 9.8, KEV)
+	CheckCVEOFBizXMLRPCDeser2021     CheckID = "cve.ofbiz_xmlrpc_deser_2021"     // CVE-2021-26295 OFBiz < 17.12.06 XML-RPC deserialization RCE (CVSS 9.8, KEV)
+	CheckCVEStruts2S2062              CheckID = "cve.struts2_s2_062"              // CVE-2021-31805 Struts2 S2-062 OGNL via tag attributes (CVSS 9.8, KEV)
+	CheckCVESpringCloudGatewaySpEL   CheckID = "cve.spring_cloud_gateway_spel"   // CVE-2022-22947 Spring Cloud Gateway SpEL code injection (CVSS 10.0, KEV)
+	CheckCVEAPISIXBatchRequests      CheckID = "cve.apisix_batch_requests_rce"   // CVE-2022-24112 Apache APISIX batch-requests RCE (CVSS 9.8, KEV)
+	CheckCVEOFBizDirTraversal2024    CheckID = "cve.ofbiz_dir_traversal_2024"    // CVE-2024-32113 OFBiz directory traversal + RCE (CVSS 9.8, KEV)
+	CheckCVEOFBizScreenWidgetRCE     CheckID = "cve.ofbiz_screen_widget_rce"     // CVE-2024-45507 OFBiz screen widget RCE (CVSS 9.8, KEV)
+	// WordPress plugins
+	CheckCVEWPRevSliderUpload        CheckID = "cve.wp_revslider_upload"         // CVE-2014-9735 RevSlider arbitrary file upload → RCE (CVSS 9.8, KEV)
+	CheckCVEWP3DPrintUpload          CheckID = "cve.wp_3dprint_upload"           // CVE-2021-4436 3DPrint Lite unauthenticated file upload → RCE (CVSS 9.8)
+	// JBoss / WebSphere / WebLogic
+	CheckCVEWebSphereSoapDeser       CheckID = "cve.websphere_soap_deser"        // CVE-2015-7450 IBM WebSphere SOAP connector Java deserialization RCE (CVSS 9.8, KEV)
+	CheckCVEWebLogicT3Deser          CheckID = "cve.weblogic_t3_deser"           // CVE-2016-3510 WebLogic T3 protocol deserialization RCE (CVSS 9.8, KEV)
+	CheckCVEWebLogicT3JRMP           CheckID = "cve.weblogic_t3_jrmp"           // CVE-2017-3248 WebLogic T3 JRMP deserialization RCE (CVSS 9.8, KEV)
+	// Jenkins
+	CheckCVEJenkinsCLIHTTPDeser      CheckID = "cve.jenkins_cli_http_deser"      // CVE-2016-9299 Jenkins CLI HTTP deserialization RCE (CVSS 9.8)
+	CheckCVEJenkinsCLIJavaDeser      CheckID = "cve.jenkins_cli_java_deser"      // CVE-2017-1000353 Jenkins CLI Java deserialization RCE (CVSS 9.8, KEV)
+	// Joomla
+	CheckCVEJoomlaSQLi2017           CheckID = "cve.joomla_sqli_2017"            // CVE-2017-8917 Joomla < 3.7.1 com_fields SQL injection (CVSS 9.8, KEV)
+	// Confluence
+	CheckCVEConfluenceWidgetTraversal CheckID = "cve.confluence_widget_traversal" // CVE-2019-3396 Confluence Widget Connector path traversal → RCE (CVSS 9.8, KEV)
+	// Tomcat
+	CheckCVETomcatJMXRCE             CheckID = "cve.tomcat_jmx_rce"             // CVE-2016-8735 Tomcat JMX port RCE via Java deserialization (CVSS 9.8)
+	// GitLab
+	CheckCVEGitLabProjectImportRCE   CheckID = "cve.gitlab_project_import_rce"   // CVE-2023-2478 GitLab project import RCE (CVSS 9.9)
+	// Citrix
+	CheckCVECitrixXenMobileTraversal CheckID = "cve.citrix_xenmobile_traversal"  // CVE-2020-8209 Citrix XenMobile/Endpoint Mgmt path traversal (CVSS 7.5, KEV)
+	// Drupal
+	CheckCVEDrupalgeddon3            CheckID = "cve.drupal_drupalgeddon3"         // CVE-2018-7602 Drupal Drupalgeddon 3 authenticated RCE (CVSS 9.8, KEV)
+	// Exchange
+	CheckCVEExchangeViewStateRCE     CheckID = "cve.exchange_viewstate_rce"       // CVE-2020-0688 Exchange static ViewState key RCE (CVSS 8.8, KEV)
+	// SharePoint
+	CheckCVESharePointEntityRCE      CheckID = "cve.sharepoint_entity_rce"        // CVE-2019-0604 SharePoint EntityInstanceIdEncoder deserialization RCE (CVSS 9.8, KEV)
+	// VMware
+	CheckCVEVCenterAnalyticsRCE      CheckID = "cve.vcenter_analytics_rce"        // CVE-2021-22005 vCenter Analytics upload RCE (CVSS 9.8, KEV)
+	// Telerik
+	CheckCVETelerikDialogKey         CheckID = "cve.telerik_dialog_key_bruteforce" // CVE-2017-9248 Telerik DialogHandler encryption key brute force (CVSS 9.8, KEV)
+
 	// ── Port-level exposure checks added with gap-fill ────────────────────────
 	CheckCVETomcatGhostCat            CheckID = "cve.tomcat_ghostcat"               // CVE-2020-1938 Apache Tomcat AJP connector exposed (port 8009) → file read/inclusion → RCE (CVSS 9.8, KEV)
 	CheckCVEActiveMQRCE               CheckID = "cve.activemq_rce"                  // CVE-2023-46604 Apache ActiveMQ < 5.15.16/5.16.7/5.17.6/5.18.3 ClassInfo deserialization → pre-auth RCE (CVSS 10.0, KEV)
@@ -4240,6 +4285,37 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEConfluenceAuthRCE:      {CheckCVEConfluenceAuthRCE, SeverityHigh, ModeDeep},
 	CheckCVEVeeamAgentRCE:          {CheckCVEVeeamAgentRCE, SeverityCritical, ModeDeep},
 	CheckCVECheckPointInfoLeak:     {CheckCVECheckPointInfoLeak, SeverityHigh, ModeDeep},
+
+	// CISA KEV CVE exploit chain entries
+	CheckCVEShellShock:              {CheckCVEShellShock, SeverityCritical, ModeDeep},
+	CheckCVELog4j1xTCPDeser:         {CheckCVELog4j1xTCPDeser, SeverityCritical, ModeDeep},
+	CheckCVEStruts2S2048:            {CheckCVEStruts2S2048, SeverityCritical, ModeDeep},
+	CheckCVEStruts2S2053:            {CheckCVEStruts2S2053, SeverityCritical, ModeDeep},
+	CheckCVESparkRESTAuthBypass:     {CheckCVESparkRESTAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEStruts2S2061:            {CheckCVEStruts2S2061, SeverityCritical, ModeDeep},
+	CheckCVEOFBizXMLRPCDeser2021:    {CheckCVEOFBizXMLRPCDeser2021, SeverityCritical, ModeDeep},
+	CheckCVEStruts2S2062:            {CheckCVEStruts2S2062, SeverityCritical, ModeDeep},
+	CheckCVESpringCloudGatewaySpEL:  {CheckCVESpringCloudGatewaySpEL, SeverityCritical, ModeDeep},
+	CheckCVEAPISIXBatchRequests:     {CheckCVEAPISIXBatchRequests, SeverityCritical, ModeDeep},
+	CheckCVEOFBizDirTraversal2024:   {CheckCVEOFBizDirTraversal2024, SeverityCritical, ModeDeep},
+	CheckCVEOFBizScreenWidgetRCE:    {CheckCVEOFBizScreenWidgetRCE, SeverityCritical, ModeDeep},
+	CheckCVEWPRevSliderUpload:       {CheckCVEWPRevSliderUpload, SeverityCritical, ModeDeep},
+	CheckCVEWP3DPrintUpload:         {CheckCVEWP3DPrintUpload, SeverityCritical, ModeDeep},
+	CheckCVEWebSphereSoapDeser:      {CheckCVEWebSphereSoapDeser, SeverityCritical, ModeDeep},
+	CheckCVEWebLogicT3Deser:         {CheckCVEWebLogicT3Deser, SeverityCritical, ModeDeep},
+	CheckCVEWebLogicT3JRMP:          {CheckCVEWebLogicT3JRMP, SeverityCritical, ModeDeep},
+	CheckCVEJenkinsCLIHTTPDeser:     {CheckCVEJenkinsCLIHTTPDeser, SeverityCritical, ModeDeep},
+	CheckCVEJenkinsCLIJavaDeser:     {CheckCVEJenkinsCLIJavaDeser, SeverityCritical, ModeDeep},
+	CheckCVEJoomlaSQLi2017:          {CheckCVEJoomlaSQLi2017, SeverityCritical, ModeDeep},
+	CheckCVEConfluenceWidgetTraversal: {CheckCVEConfluenceWidgetTraversal, SeverityCritical, ModeDeep},
+	CheckCVETomcatJMXRCE:            {CheckCVETomcatJMXRCE, SeverityCritical, ModeDeep},
+	CheckCVEGitLabProjectImportRCE:  {CheckCVEGitLabProjectImportRCE, SeverityCritical, ModeDeep},
+	CheckCVECitrixXenMobileTraversal: {CheckCVECitrixXenMobileTraversal, SeverityHigh, ModeDeep},
+	CheckCVEDrupalgeddon3:           {CheckCVEDrupalgeddon3, SeverityCritical, ModeDeep},
+	CheckCVEExchangeViewStateRCE:    {CheckCVEExchangeViewStateRCE, SeverityCritical, ModeDeep},
+	CheckCVESharePointEntityRCE:     {CheckCVESharePointEntityRCE, SeverityCritical, ModeDeep},
+	CheckCVEVCenterAnalyticsRCE:     {CheckCVEVCenterAnalyticsRCE, SeverityCritical, ModeDeep},
+	CheckCVETelerikDialogKey:        {CheckCVETelerikDialogKey, SeverityCritical, ModeDeep},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.
