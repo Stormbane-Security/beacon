@@ -54,11 +54,30 @@ assertions:
     expect:
       check_id: waf.detected
 
-  # NOTE: waf.endpoint_blocked and waf.product_version require the scanner to
-  # send specific probes and parse WAF product identification from response
-  # headers. The wafdetect scanner currently emits waf.detected as a general
-  # fingerprint. Product version and endpoint blocking are tracked separately
-  # during WAF bypass attempts (wafbypass scanner).
+  # WAF product version — wafdetect extracts version from Server header
+  # when the vendor is identifiable (e.g., ModSecurity version string).
+  - name: detects-waf-product-version
+    type: beacon
+    target: localhost:19863
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect"]
+    expect:
+      check_id: waf.product_version
+
+  # Dirbust WAF blocked — dirbust scanner detects WAF blocking path probes
+  - name: detects-dirbust-waf-blocked
+    type: beacon
+    target: localhost:19863
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dirbust", "--deep", "--yes"]
+    expect:
+      check_id: dirbust.waf_blocked
+
+  # Plain nginx has no security.txt — fires wellknown.security_txt_missing
+  - name: detects-security-txt-missing
+    type: beacon
+    target: localhost:19864
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.security_txt_missing
 
   # Negative: no WAF on plain nginx
   - name: negative-no-waf-on-plain-nginx

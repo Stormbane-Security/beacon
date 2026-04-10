@@ -59,6 +59,31 @@ assertions:
       check_id: cache.vary_risky
 
   # ══════════════════════════════════════════════════════════════════════
+  # Beacon scanner detections — cacheprobe deep mode
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-cache-deception
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--deep", "--yes"]
+    expect:
+      check_id: cache.deception
+
+  - name: detects-cache-host-routing
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--deep", "--yes"]
+    expect:
+      check_id: cache.host_routing
+
+  - name: detects-cache-poison-unkeyed
+    type: beacon
+    target: localhost:20121
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cacheprobe", "--deep", "--yes"]
+    expect:
+      check_id: cache.poison_unkeyed
+
+  # ══════════════════════════════════════════════════════════════════════
   # Negative: no unrelated findings
   # ══════════════════════════════════════════════════════════════════════
 

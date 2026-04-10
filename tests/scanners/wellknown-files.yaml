@@ -16,6 +16,12 @@ services:
       - ./wellknown-files/jwks.json:/usr/share/nginx/html/.well-known/jwks.json:ro
       - ./wellknown-files/change-password:/usr/share/nginx/html/.well-known/change-password:ro
       - ./wellknown-files/assetlinks.json:/usr/share/nginx/html/.well-known/assetlinks.json:ro
+      - ./wellknown-files/apple-app-site-association:/usr/share/nginx/html/.well-known/apple-app-site-association:ro
+      - ./wellknown-files/nodeinfo:/usr/share/nginx/html/.well-known/nodeinfo:ro
+      - ./wellknown-files/webfinger:/usr/share/nginx/html/.well-known/webfinger:ro
+      - ./wellknown-files/mta-sts.txt:/usr/share/nginx/html/.well-known/mta-sts.txt:ro
+      - ./wellknown-files/matrix-server:/usr/share/nginx/html/.well-known/matrix-server:ro
+      - ./wellknown-files/host-meta:/usr/share/nginx/html/.well-known/host-meta:ro
       - ./wellknown-files/robots.txt:/usr/share/nginx/html/robots.txt:ro
 
 ready:
@@ -75,6 +81,55 @@ assertions:
     args: ["--no-enrich", "--scanners", "wellknown"]
     expect:
       check_id: wellknown.assetlinks
+
+  - name: detects-apple-app-site
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.apple_app_site
+
+  - name: detects-nodeinfo
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.nodeinfo
+
+  - name: detects-webfinger
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.webfinger
+
+  - name: detects-mta-sts
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.mta_sts
+
+  - name: detects-matrix-server
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.matrix_server
+
+  - name: detects-host-meta
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.host_meta
+
+  - name: detects-jwks-exposed
+    type: beacon
+    target: localhost:19861
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wellknown"]
+    expect:
+      check_id: wellknown.jwks_exposed
 
   - name: negative-no-database-findings
     type: beacon

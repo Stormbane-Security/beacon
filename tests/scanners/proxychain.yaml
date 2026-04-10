@@ -50,4 +50,11 @@ assertions:
     expect:
       check_id: proxy.hop_detected
 
+  - name: detects-proxy-trace-enabled
+    type: beacon
+    target: localhost:9230
+    args: ["--no-enrich", "--no-nmap", "--scanners", "proxychain", "--deep", "--yes"]
+    expect:
+      check_id: proxy.trace_enabled
+
 timeout: 5m

@@ -27,6 +27,7 @@ func init() {
 		scan.Check(finding.CheckWellKnownMTA, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownMatrix, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownNodeInfo, finding.SeverityInfo, finding.ModeSurface),
+		scan.Check(finding.CheckWellKnownJWKS, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownOIDC, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownResourceMissing, finding.SeverityInfo, finding.ModeSurface),
 		scan.Check(finding.CheckWellKnownSecurityTxt, finding.SeverityInfo, finding.ModeSurface),
@@ -119,6 +120,13 @@ var probes = []probe{
 		title:   "OIDC discovery document exposed",
 		desc:    "The OpenID Connect discovery document reveals authorization/token endpoints, supported scopes, and signing algorithms.",
 		bodyContains: "issuer",
+	},
+	{
+		path:    "/.well-known/jwks.json",
+		checkID: finding.CheckWellKnownJWKS,
+		title:   "JWKS endpoint exposed",
+		desc:    "A JSON Web Key Set (JWKS) endpoint is publicly accessible, exposing public keys used for JWT verification. While public keys are meant to be public, the endpoint reveals cryptographic algorithm choices and key metadata.",
+		bodyContains: "keys",
 	},
 }
 

@@ -9,6 +9,28 @@
  */
 const http = require('http');
 
+// Simple per-IP rate limiter — VULNERABLE: trusts X-Forwarded-For,
+// no Retry-After header, and resets on IP rotation.
+const rateLimits = {};
+const RATE_LIMIT = 15; // requests per window
+const RATE_WINDOW_MS = 10000; // 10 second window
+
+function getRateLimitKey(req) {
+  // VULNERABLE: trusts X-Forwarded-For header for rate limiting
+  return req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+}
+
+function isRateLimited(req) {
+  const key = getRateLimitKey(req);
+  const now = Date.now();
+  if (!rateLimits[key] || (now - rateLimits[key].start) > RATE_WINDOW_MS) {
+    rateLimits[key] = { start: now, count: 1 };
+    return false;
+  }
+  rateLimits[key].count++;
+  return rateLimits[key].count > RATE_LIMIT;
+}
+
 const USERS = {
   '1': { id: '1', name: 'Alice', email: 'alice@example.com', role: 'admin' },
   '2': { id: '2', name: 'Bob', email: 'bob@example.com', role: 'user' },
@@ -24,6 +46,20 @@ const server = http.createServer((req, res) => {
   if (req.url === '/' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end('<html><body><h1>API Server</h1><p>GET /api/users/:id</p></body></html>');
+    return;
+  }
+
+  // Rate-limited endpoint — VULNERABLE: no Retry-After header,
+  // trusts X-Forwarded-For for IP-based limiting (bypassable).
+  if (req.url === '/api/limited' && req.method === 'GET') {
+    if (isRateLimited(req)) {
+      // VULNERABLE: no Retry-After header on 429
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too Many Requests' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: 'ok' }));
     return;
   }
 

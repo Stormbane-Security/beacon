@@ -75,12 +75,44 @@ assertions:
       command: "curl -sf 'http://localhost:20031/graphql?query={__typename}' | grep -q 'data'"
       exit_code: 0
 
+  # ══════════════════════════════════════════════════════════════════════
+  # Deep-mode DoS detection checks
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-graphql-alias-dos
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.alias_dos
+
+  - name: detects-graphql-fragment-dos
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.fragment_dos
+
+  - name: detects-graphql-deep-nesting
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.deep_nesting
+
+  - name: detects-graphql-batch-no-limit
+    type: beacon
+    target: localhost:20031
+    args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
+    expect:
+      check_id: graphql.batch_no_limit
+
   - name: graphql-deep-min-findings
     type: beacon
     target: localhost:20031
     args: ["--no-enrich", "--no-nmap", "--scanners", "graphql", "--deep", "--yes", "--ports", "3000"]
     expect:
-      min_findings: 4
+      min_findings: 7
 
   # ══════════════════════════════════════════════════════════════════════
   # Negative: no unrelated findings

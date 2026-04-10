@@ -43,4 +43,19 @@ assertions:
     expect:
       check_id: container.registry_anonymous_push
 
+  # After pushing an image with :latest tag, scanner should detect it
+  - name: detects-latest-tag
+    type: beacon
+    target: localhost:9257
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
+    expect:
+      check_id: container.image_latest_tag
+
+  - name: detects-unsigned-image
+    type: beacon
+    target: localhost:9257
+    args: ["--no-enrich", "--no-nmap", "--scanners", "containerimage", "--deep", "--yes"]
+    expect:
+      check_id: container.image_unsigned
+
 timeout: 5m

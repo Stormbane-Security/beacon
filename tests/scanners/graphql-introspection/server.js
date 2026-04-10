@@ -119,6 +119,20 @@ function handleGraphQLSync(query) {
     return { data: { __schema: SCHEMA } };
   } else if (query.includes('users')) {
     return { data: { users: USERS } };
+  } else if (query.includes('__typename')) {
+    // Handle alias-based queries, deep nesting queries, and fragment queries.
+    // Parse all aliases (e.g., a0: __typename, d3: __typename) and resolve them.
+    const data = {};
+    const aliasRe = /([a-zA-Z_]\w*)\s*:\s*__typename/g;
+    let m;
+    while ((m = aliasRe.exec(query)) !== null) {
+      data[m[1]] = 'Query';
+    }
+    // If no aliases, just return __typename directly
+    if (Object.keys(data).length === 0) {
+      data.__typename = 'Query';
+    }
+    return { data };
   } else {
     return { data: null, errors: [{ message: 'Unknown query' }] };
   }

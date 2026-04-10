@@ -24,6 +24,13 @@ assertions:
   - name: detects-jenkins-groovy-rce
     type: beacon
     target: localhost:9271
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jenkins", "--authorized", "--yes"]
+    expect:
+      check_id: jenkins.groovy_rce
+
+  - name: detects-jenkins-no-auth
+    type: beacon
+    target: localhost:9271
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--permission-confirmed", "--authorized", "--ports", "8080"]
     expect:
       check_id: port.jenkins_no_auth

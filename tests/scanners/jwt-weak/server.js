@@ -20,6 +20,25 @@ http.createServer((req, res) => {
         return;
     }
 
+    // JWKS endpoint with a deliberately weak 1024-bit RSA key (for jwt.jwks_weak_key)
+    // and no kid field (for jwt.jwks_missing_kid). Also enables jwt.algorithm_confusion
+    // since the scanner can read the public key and forge an HS256 token with it.
+    if (req.url === '/.well-known/jwks.json' || req.url === '/jwks.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            keys: [{
+                kty: 'RSA',
+                // 1024-bit RSA modulus (weak — below 2048-bit minimum)
+                n: 'vrjOfz9Ccdg6QBe_DGBvJuoY-Hf_w7WsCQUJSvz7m9P9xUuoPUxBt4sPSHZKHMBUa0PKHxXLQCAuEG6WRxnHK9x_mVqiYG2IvQ7GTB_RjI91ZIz7oFTZLY_eNHuWqS0v',
+                e: 'AQAB',
+                alg: 'RS256',
+                use: 'sig'
+                // NOTE: deliberately no kid field
+            }]
+        }));
+        return;
+    }
+
     if (req.url === '/login') {
         // Issue a JWT with alg:none (vulnerability)
         const token = makeJWT(
@@ -40,7 +59,10 @@ http.createServer((req, res) => {
         return;
     }
 
-    if (req.url === '/api/data') {
+    // VULNERABLE: Accept tokens at multiple API paths (the JWT scanner probes
+    // /api/v1/users, /api/me, /profile, /api/user, /me, and /api/data).
+    const protectedPaths = ['/api/data', '/api/v1/users', '/api/me', '/profile', '/api/user', '/me'];
+    if (protectedPaths.includes(req.url)) {
         const authHeader = req.headers.authorization || '';
         const cookieHeader = req.headers.cookie || '';
         let token = '';
@@ -57,14 +79,29 @@ http.createServer((req, res) => {
             return;
         }
 
-        // VULNERABLE: Accept alg:none tokens without verification
+        // VULNERABLE: Accept tokens with multiple bypass techniques
         try {
             const parts = token.split('.');
             const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
             const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
 
+            // Vuln 1: Accept alg:none case variants without verification
             if (header.alg === 'none' || header.alg === 'None' || header.alg === 'NONE' || header.alg === 'nOnE') {
-                // Accept without verification — vulnerability!
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ data: 'secret', user: payload.sub }));
+                return;
+            }
+
+            // Vuln 2: Accept HS256 with empty secret (misconfigured JWT_SECRET)
+            if (header.alg === 'HS256') {
+                // Accept any HS256 token — simulates empty/weak secret
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ data: 'secret', user: payload.sub }));
+                return;
+            }
+
+            // Vuln 3: kid SQL injection — accept tokens with kid containing SQL
+            if (header.kid && (header.kid.includes("'") || header.kid.includes("--"))) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ data: 'secret', user: payload.sub }));
                 return;

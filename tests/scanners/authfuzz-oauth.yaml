@@ -58,4 +58,12 @@ assertions:
     expect:
       check_id: authfuzz.token_substitution
 
+  # Token endpoint accepts the same authorization code twice (no single-use enforcement)
+  - name: detects-code-interception
+    type: beacon
+    target: localhost:9287
+    args: ["--no-enrich", "--no-nmap", "--scanners", "authfuzz", "--exploit", "--yes"]
+    expect:
+      check_id: authfuzz.code_interception
+
 timeout: 5m

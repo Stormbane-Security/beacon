@@ -68,6 +68,18 @@ assertions:
       command: "curl -s http://localhost:9311/ | grep -q '192.168.1.50'"
       exit_code: 1
 
+  - name: exploit-js-contains-websocket-url
+    type: command
+    expect:
+      command: "curl -s http://localhost:9311/app.js | grep -q 'wss://'"
+      exit_code: 0
+
+  - name: exploit-source-map-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:9311/app.js.map | grep -q 'version'"
+      exit_code: 0
+
   # --- Scanner detection ---
   - name: detects-js-internal-endpoints
     type: beacon
@@ -75,5 +87,33 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "jsendpoints"]
     expect:
       check_id: js.internal_endpoint
+
+  - name: detects-js-api-endpoint-discovered
+    type: beacon
+    target: localhost:9311
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsendpoints"]
+    expect:
+      check_id: js.api_endpoint_discovered
+
+  - name: detects-js-internal-url-leaked
+    type: beacon
+    target: localhost:9311
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsendpoints"]
+    expect:
+      check_id: js.internal_url_leaked
+
+  - name: detects-js-websocket-endpoint
+    type: beacon
+    target: localhost:9311
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsendpoints"]
+    expect:
+      check_id: js.websocket_endpoint
+
+  - name: detects-js-source-map-exposed
+    type: beacon
+    target: localhost:9311
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jsendpoints"]
+    expect:
+      check_id: js.source_map_exposed
 
 timeout: 5m

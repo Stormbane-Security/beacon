@@ -1,0 +1,10 @@
+{
+  "subject": "acct:admin@example.com",
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/activity+json",
+      "href": "http://localhost:19861/users/admin"
+    }
+  ]
+}

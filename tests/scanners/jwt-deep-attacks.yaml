@@ -57,11 +57,6 @@ assertions:
     expect:
       check_id: jwt.no_encryption
 
-  # NOTE: jwt.alg_none_variant and jwt.empty_secret require the scanner to
-  # actively send modified JWTs to the server, which the current JWT scanner
-  # does not do. The server fixture above accepts these, ready for when the
-  # scanner is extended. Documented in UNTESTABLE_CHECK_IDS.md.
-
   - name: detects-jwt-sensitive-payload
     type: beacon
     target: localhost:20010
@@ -69,12 +64,58 @@ assertions:
     expect:
       check_id: jwt.sensitive_payload
 
+  # --- Deep-mode active attack detections ---
+  # The server fixture accepts alg:none case variants, empty-secret HS256,
+  # and kid SQL injection payloads at standard API paths.
+
+  - name: detects-jwt-alg-none-variant
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.alg_none_variant
+
+  - name: detects-jwt-empty-secret
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.empty_secret
+
+  - name: detects-jwt-kid-sql-injection
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.kid_sql_injection
+
+  - name: detects-jwt-audience-missing
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.audience_missing
+
+  - name: detects-jwt-issuer-not-validated
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.issuer_not_validated
+
+  - name: detects-jwt-jwks-weak-key
+    type: beacon
+    target: localhost:20010
+    args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
+    expect:
+      check_id: jwt.jwks_weak_key
+
   - name: deep-mode-min-findings
     type: beacon
     target: localhost:20010
     args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
     expect:
-      min_findings: 4
+      min_findings: 8
 
   # --- Negative ---
   - name: negative-no-sqli
