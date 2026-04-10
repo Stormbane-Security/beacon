@@ -133,7 +133,13 @@ var nucleiTagToService = map[string]string{
 
 	// Atlassian aliases
 	"atlassian":  "confluence",
-	"jira":       "confluence",
+	"jira":       "jira",
+
+	// Download managers
+	"pyload":     "pyload",
+
+	// Message queues (additional)
+	"rocketmq":   "apache",
 
 	// Cisco aliases
 	"cisco":      "cisco_ios_xe",
@@ -197,6 +203,8 @@ var nucleiTagToService = map[string]string{
 	"sysaid":      "sysaid",
 	"crushftp":    "crushftp",
 	"geoserver":   "geoserver",
+	"solr":        "solr",
+	"cacti":       "cacti",
 	"sap":         "sap",
 	"veeam":       "veeam",
 	"keycloak":    "keycloak",
@@ -471,6 +479,7 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-6014": "mlflow",           // Auth bypass
 	"CVE-2023-6831": "mlflow",           // Path traversal
 	"CVE-2024-27132": "mlflow",          // RCE
+	"CVE-2023-1177": "mlflow",           // LFI via artifact endpoints
 	// Docker (additional)
 	"CVE-2024-21626": "docker",          // runc escape
 	// FastAPI
@@ -511,7 +520,9 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-50164": "apache",           // Struts S2-066 file upload path traversal RCE
 
 	// Apache Solr
-	"CVE-2019-17558": "apache",           // Solr unauth admin API Velocity SSTI RCE
+	"CVE-2019-17558": "solr",             // Solr unauth admin API Velocity SSTI RCE
+	"CVE-2024-45216": "solr",             // Solr auth bypass via path confusion
+	"CVE-2019-0192":  "solr",             // Solr Config API Jmx deserialization RCE
 
 	// Apache Unomi
 	"CVE-2020-13942": "apache",           // Apache Unomi MVEL/OGNL RCE
@@ -592,6 +603,17 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// Confluence (additional)
 	"CVE-2019-11580": "confluence",       // Atlassian Crowd pdkinstall (Atlassian ecosystem)
+
+	// Jira
+	"CVE-2022-0540":  "jira",            // Jira Seraph auth bypass
+	"CVE-2022-26138": "jira",            // Questions for Confluence hardcoded creds
+
+	// RocketMQ
+	"CVE-2023-33246": "apache",          // RocketMQ broker config update RCE
+	"CVE-2023-37582": "apache",          // RocketMQ namesrv command execution
+
+	// PyLoad
+	"CVE-2023-0297":  "pyload",          // pyLoad pre-auth RCE via eval
 
 	// Drupal
 	"CVE-2014-3704":  "drupal",           // Drupalgeddon1 SQL injection
@@ -792,6 +814,16 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === GeoServer ===
 	"CVE-2024-36401": "geoserver",        // GeoServer eval injection RCE
+	"CVE-2023-25157": "geoserver",        // GeoServer OGC filter SQL injection
+	"CVE-2022-24816": "geoserver",        // GeoServer evaluate property name RCE
+	"CVE-2023-43795": "geoserver",        // GeoServer WPS SSRF via Jiffle
+
+	// === Cacti ===
+	"CVE-2022-46169": "cacti",            // Cacti unauthenticated command injection
+	"CVE-2024-29895": "cacti",            // Cacti cmd_realtime.php command injection
+
+	// === pyLoad (additional CVE) ===
+	"CVE-2024-21644": "pyload",           // pyLoad addcrypted2 command injection
 
 	// === pgAdmin ===
 	"CVE-2024-3116":  "pgadmin",          // pgAdmin validate binary path cmd injection

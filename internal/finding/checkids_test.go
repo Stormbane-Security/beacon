@@ -835,6 +835,9 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVEFortiClientEMSSQLi:              true,
 		finding.CheckCVEF5BigIPConfigBypass:              true,
 		finding.CheckCVEGeoServerEval:                   true,
+		finding.CheckCVEGeoServerSQLi:                   true,
+		finding.CheckCVEGeoServerRCE:                    true,
+		finding.CheckCVEGeoServerSSRF:                   true,
 		finding.CheckCVECrushFTPVFS:                     true,
 		finding.CheckCVEVMwareESXiADBypass:               true,
 		finding.CheckCVEvCenterOOBWrite:                  true,
@@ -871,6 +874,13 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVEZabbixTimeSQLi:           true,
 		finding.CheckPortJoomlaDefaultCreds:      true,
 		finding.CheckCVEMLflowPathTraversal:      true,
+		finding.CheckCVEMLflowLFI:                true,
+		finding.CheckCVERocketMQRCE:              true,
+		finding.CheckCVERocketMQCmdExec:          true,
+		finding.CheckCVEJiraSeraphAuthBypass:     true,
+		finding.CheckCVEConfluenceHardcodedCreds: true,
+		finding.CheckCVEPyLoadRCE:                true,
+		finding.CheckCVESolrAuthBypass:           true,
 		finding.CheckCVESplunkXSLRCE:             true,
 		finding.CheckCVENextcloudSSRFPreview:     true,
 		finding.CheckPortNextcloudDefaultCreds:   true,
@@ -994,6 +1004,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVESharePointEntityRCE:                   true,
 		finding.CheckCVEVCenterAnalyticsRCE:                   true,
 		finding.CheckCVETelerikDialogKey:                      true,
+		// Pre-existing deep-mode CVEs that were missing from allowlist
+		finding.CheckCVESolrDeserial:                          true,
+		finding.CheckCVEPyloadCmdInj:                         true,
+		finding.CheckCVECactiCmdInj:                          true,
+		finding.CheckCVECactiRealtimeRCE:                     true,
 	}
 
 	for id, meta := range finding.Registry {

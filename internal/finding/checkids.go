@@ -961,6 +961,8 @@ const (
 	CheckCVETelerikRAU        CheckID = "cve.telerik_rau_exposed"         // CVE-2019-18935 Telerik RadAsyncUpload endpoint exposed — pre-auth deserialization (CVSS 9.8, KEV)
 	CheckCVEWebLogicAsync     CheckID = "cve.weblogic_async_rce"          // CVE-2019-2725 Oracle WebLogic /_async/ endpoint pre-auth deserialization RCE (CVSS 9.8, KEV)
 	CheckCVESolrAdminExposed  CheckID = "cve.solr_admin_exposed"          // CVE-2019-17558 Apache Solr unauthenticated admin API — SSTI via Velocity template (CVSS 9.8, KEV)
+	CheckCVESolrAuthBypass    CheckID = "cve.solr_auth_bypass"            // CVE-2024-45216 Apache Solr < 9.7.0 auth bypass via /solr path confusion (CVSS 9.8)
+	CheckCVESolrDeserial      CheckID = "cve.solr_deserialization"        // CVE-2019-0192 Apache Solr < 7.0 Config API Jmx deserialization RCE (CVSS 9.8, KEV)
 	CheckCVEEximRCE2019       CheckID = "cve.exim_rce_2019"               // CVE-2019-10149 Exim 4.87–4.91 DELIVER_FAIL_STR local part expansion → RCE (CVSS 9.8, KEV)
 	CheckCVEDLinkHNAP         CheckID = "cve.dlink_hnap_rce"              // CVE-2019-16920 D-Link HNAP API unauthenticated remote command injection (CVSS 9.8)
 
@@ -1268,6 +1270,12 @@ const (
 	// Monitoring / DevOps
 	CheckCVEF5BigIPConfigBypass      CheckID = "cve.f5_bigip_config_auth_bypass"   // CVE-2023-46747 F5 BIG-IP < 17.1.1 config utility auth bypass via AJP request smuggling (CVSS 9.8, KEV)
 	CheckCVEGeoServerEval            CheckID = "cve.geoserver_eval_injection"      // CVE-2024-36401 GeoServer < 2.23.6/2.24.4 OGC filter eval injection → pre-auth RCE (CVSS 9.8, KEV)
+	CheckCVEGeoServerSQLi            CheckID = "cve.geoserver_ogc_sqli"            // CVE-2023-25157 GeoServer < 2.23.1 OGC filter SQL injection via GetPropertyValue (CVSS 9.8, KEV)
+	CheckCVEGeoServerRCE             CheckID = "cve.geoserver_rce"                 // CVE-2022-24816 GeoServer < 2.20.4/2.21.1 evaluate property name RCE (CVSS 9.8)
+	CheckCVEGeoServerSSRF            CheckID = "cve.geoserver_wps_ssrf"            // CVE-2023-43795 GeoServer < 2.23.3/2.24.1 WPS SSRF via jai-ext Jiffle expressions (CVSS 9.8)
+	CheckCVEPyloadCmdInj             CheckID = "cve.pyload_cmd_injection"         // CVE-2024-21644 pyLoad ≤ 0.5.0b3.dev77 /flash/addcrypted2 command injection → pre-auth RCE (CVSS 9.8)
+	CheckCVECactiCmdInj              CheckID = "cve.cacti_cmd_injection"          // CVE-2022-46169 Cacti ≤ 1.2.22 unauthenticated command injection via host_id + local_data_ids (CVSS 9.8, KEV)
+	CheckCVECactiRealtimeRCE         CheckID = "cve.cacti_realtime_rce"           // CVE-2024-29895 Cacti ≤ 1.2.26 cmd_realtime.php unauthenticated command injection (CVSS 9.8)
 	CheckCVECrushFTPVFS              CheckID = "cve.crushftp_vfs_escape"           // CVE-2024-4040 CrushFTP < 10.7.1/11.1.0 VFS sandbox escape → unauthenticated file read + RCE (CVSS 10.0, KEV)
 	CheckCVEVMwareESXiADBypass       CheckID = "cve.vmware_esxi_ad_bypass"         // CVE-2024-37085 VMware ESXi AD integration auth bypass via group manipulation (CVSS 7.2, KEV)
 	CheckCVEvCenterOOBWrite          CheckID = "cve.vcenter_oob_write"             // CVE-2023-34048 VMware vCenter < 8.0U2 DCE/RPC out-of-bounds write → pre-auth RCE (CVSS 9.8, KEV)
@@ -1298,6 +1306,18 @@ const (
 	CheckCVEGradioPathTraversal      CheckID = "cve.gradio_path_traversal"         // CVE-2024-6507 Gradio < 4.20 arbitrary file read via path traversal on upload endpoint (CVSS 9.1)
 	CheckCVEJs2pySandboxEscape       CheckID = "cve.js2py_sandbox_escape"          // CVE-2024-28397 js2py < 0.74 sandbox escape → arbitrary code execution (CVSS 9.8)
 	CheckCVEMLflowPathTraversal      CheckID = "cve.mlflow_path_traversal"         // CVE-2023-6831 MLflow < 2.9.2 arbitrary file read via artifact path traversal (CVSS 7.5)
+	CheckCVEMLflowLFI               CheckID = "cve.mlflow_lfi"                    // CVE-2023-1177 MLflow < 2.2.1 local file inclusion via artifact endpoints (CVSS 9.8)
+
+	// Message Queue CVEs
+	CheckCVERocketMQRCE             CheckID = "cve.rocketmq_rce"                  // CVE-2023-33246 Apache RocketMQ < 5.1.1 RCE via broker config update (CVSS 9.8, KEV)
+	CheckCVERocketMQCmdExec         CheckID = "cve.rocketmq_cmd_exec"             // CVE-2023-37582 Apache RocketMQ < 5.1.2 command execution via namesrv (CVSS 9.8)
+
+	// Atlassian Jira CVEs
+	CheckCVEJiraSeraphAuthBypass    CheckID = "cve.jira_seraph_auth_bypass"       // CVE-2022-0540 Atlassian Jira < 8.22.6 Seraph auth bypass via InsightAssetActions (CVSS 9.8, KEV)
+	CheckCVEConfluenceHardcodedCreds CheckID = "cve.confluence_hardcoded_creds"   // CVE-2022-26138 Questions for Confluence hardcoded credentials (CVSS 9.8, KEV)
+
+	// PyLoad CVEs
+	CheckCVEPyLoadRCE               CheckID = "cve.pyload_rce"                    // CVE-2023-0297 pyLoad < 0.5.0b3.dev31 pre-auth RCE via eval in /flash/addcrypted2 (CVSS 9.8, KEV)
 
 	// Admin Panel exploit playbook CVEs
 	CheckCVEWebminPasswordResetRCE   CheckID = "cve.webmin_password_reset_rce"     // CVE-2019-15107 Webmin < 1.930 unauthenticated RCE via password_change.cgi backdoor (CVSS 9.8, KEV)
@@ -2975,6 +2995,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVETelerikRAU:       {CheckCVETelerikRAU, SeverityCritical, ModeSurface},
 	CheckCVEWebLogicAsync:    {CheckCVEWebLogicAsync, SeverityCritical, ModeSurface},
 	CheckCVESolrAdminExposed: {CheckCVESolrAdminExposed, SeverityHigh, ModeSurface},
+	CheckCVESolrAuthBypass:   {CheckCVESolrAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVESolrDeserial:     {CheckCVESolrDeserial, SeverityCritical, ModeDeep},
 	CheckCVEEximRCE2019:      {CheckCVEEximRCE2019, SeverityCritical, ModeSurface},
 	CheckCVEDLinkHNAP:        {CheckCVEDLinkHNAP, SeverityCritical, ModeSurface},
 
@@ -4127,6 +4149,12 @@ var Registry = map[CheckID]CheckMeta{
 	// Monitoring / DevOps
 	CheckCVEF5BigIPConfigBypass:      {CheckCVEF5BigIPConfigBypass, SeverityCritical, ModeDeep},
 	CheckCVEGeoServerEval:            {CheckCVEGeoServerEval, SeverityCritical, ModeDeep},
+	CheckCVEGeoServerSQLi:            {CheckCVEGeoServerSQLi, SeverityCritical, ModeDeep},
+	CheckCVEGeoServerRCE:             {CheckCVEGeoServerRCE, SeverityCritical, ModeDeep},
+	CheckCVEGeoServerSSRF:            {CheckCVEGeoServerSSRF, SeverityCritical, ModeDeep},
+	CheckCVEPyloadCmdInj:             {CheckCVEPyloadCmdInj, SeverityCritical, ModeDeep},
+	CheckCVECactiCmdInj:              {CheckCVECactiCmdInj, SeverityCritical, ModeDeep},
+	CheckCVECactiRealtimeRCE:         {CheckCVECactiRealtimeRCE, SeverityCritical, ModeDeep},
 	CheckCVECrushFTPVFS:              {CheckCVECrushFTPVFS, SeverityCritical, ModeDeep},
 	CheckCVEVMwareESXiADBypass:       {CheckCVEVMwareESXiADBypass, SeverityHigh, ModeDeep},
 	CheckCVEvCenterOOBWrite:          {CheckCVEvCenterOOBWrite, SeverityCritical, ModeDeep},
@@ -4157,6 +4185,18 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEGradioPathTraversal:      {CheckCVEGradioPathTraversal, SeverityCritical, ModeDeep},
 	CheckCVEJs2pySandboxEscape:       {CheckCVEJs2pySandboxEscape, SeverityCritical, ModeDeep},
 	CheckCVEMLflowPathTraversal:      {CheckCVEMLflowPathTraversal, SeverityHigh, ModeDeep},
+	CheckCVEMLflowLFI:                {CheckCVEMLflowLFI, SeverityCritical, ModeDeep},
+
+	// Message Queues
+	CheckCVERocketMQRCE:              {CheckCVERocketMQRCE, SeverityCritical, ModeDeep},
+	CheckCVERocketMQCmdExec:          {CheckCVERocketMQCmdExec, SeverityCritical, ModeDeep},
+
+	// Atlassian Jira
+	CheckCVEJiraSeraphAuthBypass:     {CheckCVEJiraSeraphAuthBypass, SeverityCritical, ModeDeep},
+	CheckCVEConfluenceHardcodedCreds: {CheckCVEConfluenceHardcodedCreds, SeverityCritical, ModeDeep},
+
+	// PyLoad
+	CheckCVEPyLoadRCE:                {CheckCVEPyLoadRCE, SeverityCritical, ModeDeep},
 
 	// Admin Panels
 	CheckCVEWebminPasswordResetRCE:   {CheckCVEWebminPasswordResetRCE, SeverityCritical, ModeDeep},
