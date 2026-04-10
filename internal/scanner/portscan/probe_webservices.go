@@ -191,6 +191,12 @@ func init() {
 		Detect:       detectAdminer,
 	})
 	registerProbe(ServiceProbe{
+		Name:         "goanywhere",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8000, 8001},
+		Detect:       detectGoAnywhere,
+	})
+	registerProbe(ServiceProbe{
 		Name:         "tomcat",
 		Category:     ProbeCatHTTP,
 		DefaultPorts: []int{8080, 8443},
@@ -1249,4 +1255,88 @@ func detectTomcat(ctx context.Context, host string, port int, banner string, mak
 			"malicious WAR files for remote code execution.",
 		ev,
 	)}
+}
+
+func detectGoAnywhere(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	body, ok := probeHTTPBody(ctx, host, port, false, "/")
+	if !ok {
+		// GoAnywhere often redirects to /goanywhere/; try that too.
+		body, ok = probeHTTPBody(ctx, host, port, false, "/goanywhere/")
+		if !ok {
+			return nil
+		}
+	}
+	lb := strings.ToLower(body)
+	if !strings.Contains(lb, "goanywhere") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "goanywhere", "banner": banner}
+	var findings []finding.Finding
+
+	// Extract version from response if present (e.g., "GoAnywhere MFT v7.1.1").
+	ver := ""
+	for _, prefix := range []string{"GoAnywhere MFT v", "GoAnywhere MFT V", "goanywhere/", "version\":\""} {
+		if idx := strings.Index(body, prefix); idx >= 0 {
+			snippet := body[idx+len(prefix):]
+			if end := strings.IndexAny(snippet, "\"<& \n\r,)"); end > 0 && end < 20 {
+				ver = strings.TrimSpace(snippet[:end])
+				break
+			}
+		}
+	}
+	if ver != "" {
+		ev["version"] = ver
+	}
+
+	findings = append(findings, makeF(
+		finding.CheckPortGoAnywhereExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("GoAnywhere MFT admin portal exposed on port %d", port),
+		"Fortra GoAnywhere MFT file transfer platform is publicly accessible. "+
+			"GoAnywhere has been targeted by CL0P ransomware via CVE-2023-0669 "+
+			"(pre-auth deserialization RCE). The admin portal should be restricted "+
+			"to internal networks with VPN access only.",
+		ev,
+	))
+
+	// CVE-2023-0669: pre-auth RCE via License Response Servlet deserialization.
+	// Affected: GoAnywhere MFT < 7.1.2.
+	if ver != "" && isGoAnywhereVulnerable(ver) {
+		findings = append(findings, makeF(
+			finding.CheckCVEGoAnywhereRCE,
+			finding.SeverityCritical,
+			fmt.Sprintf("CVE-2023-0669: GoAnywhere MFT %s pre-auth RCE", ver),
+			fmt.Sprintf("GoAnywhere MFT %s is vulnerable to CVE-2023-0669 (CVSS 7.2, KEV). "+
+				"The License Response Servlet deserializes untrusted data, enabling "+
+				"unauthenticated remote code execution. This CVE was actively exploited "+
+				"by CL0P ransomware to exfiltrate data from 130+ organizations. "+
+				"Upgrade to GoAnywhere MFT 7.1.2 or later immediately.", ver),
+			ev,
+		))
+	}
+
+	return findings
+}
+
+// isGoAnywhereVulnerable returns true for GoAnywhere MFT versions < 7.1.2.
+func isGoAnywhereVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
+	if maj < 7 {
+		return true
+	}
+	if maj == 7 && min < 1 {
+		return true
+	}
+	if maj == 7 && min == 1 && patch < 2 {
+		return true
+	}
+	return false
 }

@@ -88,6 +88,10 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-3519":  "citrix",        // Citrix ADC RCE
 	"CVE-2023-4966":  "citrix",        // CitrixBleed
 	"CVE-2024-1709":  "screenconnect", // ScreenConnect auth bypass
+	"CVE-2023-27997": "fortios",       // FortiOS XORtigate SSL VPN heap overflow RCE
+	"CVE-2024-21762": "fortios",       // FortiOS SSL VPN out-of-bounds write RCE
+	"CVE-2023-0669":  "goanywhere",    // GoAnywhere MFT pre-auth deserialization RCE
+	"CVE-2023-34362": "moveit",        // MOVEit Transfer SQL injection (CL0P)
 
 	// CVE-specific exploit chains — these route to playbooks that have
 	// cve_exploits entries with targeted payloads.

@@ -1151,6 +1151,19 @@ const (
 	// ── Apache httpd CVEs (exploit chain) ───────────────────────────────
 	CheckCVEApacheTraversal2021       CheckID = "cve.apache_traversal_2021"        // CVE-2021-41773 Apache 2.4.49 path traversal → /etc/passwd read (CVSS 7.5, KEV)
 	CheckCVEApacheTraversalBypass2021 CheckID = "cve.apache_traversal_bypass_2021" // CVE-2021-42013 Apache 2.4.50 double-encoding path traversal bypass (CVSS 9.8, KEV)
+
+	// ── FortiOS XORtigate SSL VPN RCE ───────────────────────────────────
+	CheckCVEFortiOSXORtigateRCE CheckID = "cve.fortios_xortigate_rce" // CVE-2023-27997 FortiOS < 7.2.5/7.0.12/6.4.13/6.2.15 SSL VPN heap overflow → pre-auth RCE (CVSS 9.8, KEV)
+
+	// ── FortiOS OOB write (playbook-only, detection via version) ────────
+	CheckCVEFortiOSOOBWrite CheckID = "cve.fortios_oob_write" // CVE-2024-21762 FortiOS SSL VPN out-of-bounds write — detection only, too dangerous to actively exploit (CVSS 9.6, KEV)
+
+	// ── GoAnywhere MFT ──────────────────────────────────────────────────
+	CheckPortGoAnywhereExposed CheckID = "port.goanywhere_exposed"   // GoAnywhere MFT admin portal exposed (port 8000/8001)
+	CheckCVEGoAnywhereRCE      CheckID = "cve.goanywhere_rce"        // CVE-2023-0669 GoAnywhere MFT < 7.1.2 pre-auth deserialization → RCE (CVSS 7.2, KEV, CL0P ransomware)
+
+	// ── MOVEit Transfer SQL injection ───────────────────────────────────
+	CheckCVEMOVEitSQLi CheckID = "cve.moveit_sqli" // CVE-2023-34362 MOVEit Transfer < 2023.0.1 unauthenticated SQL injection → RCE (CVSS 9.8, KEV, CL0P ransomware)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -3731,6 +3744,13 @@ var Registry = map[CheckID]CheckMeta{
 	CheckChainSQLiToCredentialDump: {CheckChainSQLiToCredentialDump, SeverityCritical, ModeDeep},
 	CheckChainXSSToSessionTheftPoC: {CheckChainXSSToSessionTheftPoC, SeverityHigh, ModeDeep},
 	CheckChainNucleiToExploit:      {CheckChainNucleiToExploit, SeverityCritical, ModeDeep},
+
+	// ── CVE audit gap-fill (2023–2024 high-severity CVEs) ──────────────
+	CheckCVEFortiOSXORtigateRCE: {CheckCVEFortiOSXORtigateRCE, SeverityCritical, ModeSurface},
+	CheckCVEFortiOSOOBWrite:     {CheckCVEFortiOSOOBWrite, SeverityCritical, ModeSurface},
+	CheckPortGoAnywhereExposed:  {CheckPortGoAnywhereExposed, SeverityHigh, ModeSurface},
+	CheckCVEGoAnywhereRCE:       {CheckCVEGoAnywhereRCE, SeverityCritical, ModeSurface},
+	CheckCVEMOVEitSQLi:          {CheckCVEMOVEitSQLi, SeverityCritical, ModeSurface},
 }
 
 // Meta returns the CheckMeta for a given CheckID, or a safe default if not registered.

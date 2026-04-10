@@ -60,6 +60,7 @@ func init() {
 		scan.Check(finding.CheckCVEFortiOSAuthBypass, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSCredLeak, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSSSLVPN, finding.SeverityCritical, finding.ModeSurface),
+		scan.Check(finding.CheckCVEFortiOSXORtigateRCE, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSSSOBypass, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiOSWSAuthBypass, finding.SeverityCritical, finding.ModeSurface),
 		scan.Check(finding.CheckCVEFortiWebAuthBypass, finding.SeverityCritical, finding.ModeSurface),
@@ -1803,6 +1804,30 @@ func probeFortiOSSSLVPNVersion(ctx context.Context, client *http.Client, base, a
 		})
 	}
 
+	// CVE-2023-27997 (XORtigate): heap buffer overflow in SSL VPN → pre-auth RCE (CVSS 9.8, KEV).
+	// Affects FortiOS < 7.2.5, < 7.0.12, < 6.4.13, < 6.2.15.
+	if isFortiOSXORtigateVulnerable(ver) {
+		out = append(out, finding.Finding{
+			CheckID:  finding.CheckCVEFortiOSXORtigateRCE,
+			Module:   "surface",
+			Scanner:  scannerName,
+			Severity: finding.SeverityCritical,
+			Title:    fmt.Sprintf("CVE-2023-27997: FortiOS %s XORtigate SSL VPN heap overflow RCE", ver),
+			Description: fmt.Sprintf(
+				"%s is running FortiOS %s with SSL VPN exposed. CVE-2023-27997 (CVSS 9.8, KEV) "+
+					"is a heap buffer overflow in the SSL VPN pre-authentication handler, enabling "+
+					"unauthenticated remote code execution. Named 'XORtigate' by the researcher who "+
+					"discovered XOR-based heap manipulation. Affects FortiOS < 7.2.5, < 7.0.12, "+
+					"< 6.4.13, < 6.2.15. Upgrade immediately and rotate all VPN credentials.",
+				asset, ver,
+			),
+			Asset:        asset,
+			Evidence:     ev,
+			ProofCommand: proof,
+			DiscoveredAt: time.Now(),
+		})
+	}
+
 	// CVE-2024-21762: out-of-bounds write in SSL VPN HTTP handler → unauthenticated RCE (CVSS 9.6, KEV).
 	// Affects FortiOS 6.x through 7.4.2.
 	if isFortiOSSSLVPNVulnerable(ver) {
@@ -1895,6 +1920,41 @@ func isFortiOSSSLVPNVulnerable(ver string) bool {
 			_, _ = fmt.Sscanf(parts[2], "%d", &patch)
 		}
 		return patch < 3
+	}
+	return false
+}
+
+// isFortiOSXORtigateVulnerable returns true for FortiOS versions affected by
+// CVE-2023-27997 (XORtigate): < 7.2.5, < 7.0.12, < 6.4.13, < 6.2.15.
+func isFortiOSXORtigateVulnerable(ver string) bool {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 3 {
+		return false
+	}
+	maj, min, patch := 0, 0, 0
+	_, _ = fmt.Sscanf(parts[0], "%d", &maj)
+	_, _ = fmt.Sscanf(parts[1], "%d", &min)
+	_, _ = fmt.Sscanf(parts[2], "%d", &patch)
+
+	switch {
+	case maj == 7 && min == 2:
+		return patch < 5 // < 7.2.5
+	case maj == 7 && min == 0:
+		return patch < 12 // < 7.0.12
+	case maj == 6 && min == 4:
+		return patch < 13 // < 6.4.13
+	case maj == 6 && min == 2:
+		return patch < 15 // < 6.2.15
+	case maj == 7 && min == 1:
+		return true // 7.1.x — no fix released, must upgrade to 7.2.5+
+	case maj == 7 && min >= 3:
+		return false // 7.3+ / 7.4+ not affected by XORtigate
+	case maj < 6:
+		return false // ancient versions not in advisory scope
+	case maj == 6 && min < 2:
+		return false // 6.0.x / 6.1.x not listed in advisory
+	case maj == 6 && min == 3:
+		return true // 6.3.x — no fix, must upgrade
 	}
 	return false
 }

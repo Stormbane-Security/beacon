@@ -236,6 +236,12 @@ var allCheckIDs = []finding.CheckID{
 	finding.CheckTeamCityProjectListExposed,
 	finding.CheckTeamCityOutdatedVersion,
 	finding.CheckTeamCityDebugEndpoint,
+	// CVE audit gap-fill
+	finding.CheckCVEFortiOSXORtigateRCE,
+	finding.CheckCVEFortiOSOOBWrite,
+	finding.CheckPortGoAnywhereExposed,
+	finding.CheckCVEGoAnywhereRCE,
+	finding.CheckCVEMOVEitSQLi,
 }
 
 // TestAllCheckIDsRegistered ensures every CheckID constant has a Registry entry.
