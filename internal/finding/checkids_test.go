@@ -757,6 +757,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckContractUnprotectedWithdraw:     true,
 		finding.CheckContractFlashloanCallback:       true,
 		finding.CheckContractApprovalUnlimited:       true,
+		// CVE-specific exploit chain checks — require active payload delivery
+		finding.CheckCVEElasticsearchMVELRCE:   true,
+		finding.CheckCVEJenkinsSandboxBypass:    true,
+		finding.CheckCVETomcatPutRCE:            true,
+		finding.CheckCVESpringCloudFunctionRCE:  true,
 	}
 
 	for id, meta := range finding.Registry {

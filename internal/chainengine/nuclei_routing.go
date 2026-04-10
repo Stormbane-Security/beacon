@@ -57,7 +57,7 @@ var nucleiTagToService = map[string]string{
 	"tomcat":   "tomcat",
 	"apache":   "apache",
 	"nginx":    "nginx",
-	"spring":   "spring_actuator",
+	"spring":   "spring-actuator",
 	"sonarqube": "sonarqube",
 	"minio":    "minio",
 
@@ -87,6 +87,18 @@ var nucleiTemplateToServiceMap = map[string]string{
 	"CVE-2023-3519":  "citrix",        // Citrix ADC RCE
 	"CVE-2023-4966":  "citrix",        // CitrixBleed
 	"CVE-2024-1709":  "screenconnect", // ScreenConnect auth bypass
+
+	// CVE-specific exploit chains — these route to playbooks that have
+	// cve_exploits entries with targeted payloads.
+	"CVE-2015-1427":  "elasticsearch",    // Groovy sandbox escape RCE
+	"CVE-2014-3120":  "elasticsearch",    // MVEL script RCE
+	"CVE-2024-23897": "jenkins",          // CLI args4j file read
+	"CVE-2019-1003000": "jenkins",        // Pipeline Groovy sandbox bypass
+	"CVE-2017-12617": "tomcat",           // PUT method JSP RCE
+	"CVE-2021-43798": "grafana",          // Plugin path traversal
+	"CVE-2022-29153": "consul",           // SSRF via service registration
+	"CVE-2022-22963": "spring-actuator",  // Spring Cloud Function SpEL RCE
+	"CVE-2023-28432": "minio",            // Environment variable disclosure
 }
 
 // nucleiTemplateToService maps a nuclei finding to the exploit playbook
@@ -256,6 +268,13 @@ var nucleiToExploitChain = Chain{
 			}
 		}
 
+		// Try CVE-specific exploit first — these are surgical, targeted
+		// payloads that don't require auth or generic service enumeration.
+		if cveFindings := exploit.RunCVEExploit(ctx, pb, templateID, host, port, makeF); len(cveFindings) > 0 {
+			return cveFindings
+		}
+
+		// Fall back to generic service exploitation (auth + enumeration steps).
 		results := exploit.Run(ctx, pb, host, port, makeF, true)
 
 		// If no exploit findings were produced but we did match, emit a

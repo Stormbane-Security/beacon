@@ -1059,6 +1059,12 @@ const (
 	CheckCVEMySQLAuthBypass2012   CheckID = "cve.mysql_auth_bypass_2012"   // CVE-2012-2122 MySQL 5.1/5.5/5.6 memcmp timing auth bypass — ~1/256 chance per attempt (CVSS 5.3)
 	CheckCVEPostgreSQLCopyRCE2019 CheckID = "cve.postgresql_copy_rce_2019" // CVE-2019-9193 PostgreSQL 9.3–11.2 COPY TO/FROM PROGRAM — authenticated RCE via SQL (CVSS 9.8)
 	CheckCVEConsulSSRF2022        CheckID = "cve.consul_ssrf_2022"         // CVE-2022-29153 Consul < 1.9.17/1.10.10/1.11.5 HTTP API SSRF via -redirect-traffic-to (CVSS 7.5)
+
+	// ── CVE-specific exploit chain check IDs ─────────────────────────────
+	CheckCVEElasticsearchMVELRCE    CheckID = "cve.elasticsearch_mvel_rce"       // CVE-2014-3120 Elasticsearch < 1.2 MVEL script RCE via /_search (CVSS 10.0)
+	CheckCVEJenkinsSandboxBypass    CheckID = "cve.jenkins_sandbox_bypass"       // CVE-2019-1003000 Jenkins Pipeline Groovy sandbox bypass → RCE (CVSS 9.9)
+	CheckCVETomcatPutRCE            CheckID = "cve.tomcat_put_rce"              // CVE-2017-12617 Apache Tomcat PUT method JSP upload → RCE (CVSS 9.8)
+	CheckCVESpringCloudFunctionRCE  CheckID = "cve.spring_cloud_function_rce"   // CVE-2022-22963 Spring Cloud Function SpEL RCE via routing-expression header (CVSS 9.8, KEV)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -3151,6 +3157,12 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVEMySQLAuthBypass2012:   {CheckCVEMySQLAuthBypass2012, SeverityHigh, ModeSurface},
 	CheckCVEPostgreSQLCopyRCE2019: {CheckCVEPostgreSQLCopyRCE2019, SeverityCritical, ModeDeep},
 	CheckCVEConsulSSRF2022:        {CheckCVEConsulSSRF2022, SeverityHigh, ModeSurface},
+
+	// CVE-specific exploit chain check IDs
+	CheckCVEElasticsearchMVELRCE:   {CheckCVEElasticsearchMVELRCE, SeverityCritical, ModeDeep},
+	CheckCVEJenkinsSandboxBypass:   {CheckCVEJenkinsSandboxBypass, SeverityCritical, ModeDeep},
+	CheckCVETomcatPutRCE:           {CheckCVETomcatPutRCE, SeverityCritical, ModeDeep},
+	CheckCVESpringCloudFunctionRCE: {CheckCVESpringCloudFunctionRCE, SeverityCritical, ModeDeep},
 
 	// AI profiler — informational
 	CheckAdaptiveReconProfile: {CheckAdaptiveReconProfile, SeverityInfo, ModeSurface},

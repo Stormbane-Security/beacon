@@ -21,7 +21,7 @@ func TestNucleiTemplateToService_TagMatch(t *testing.T) {
 		{"activemq tag", []string{"activemq", "apache"}, "activemq"},
 		{"kubernetes tag", []string{"kubernetes", "k8s"}, "kubernetes"},
 		{"jupyter tag", []string{"jupyter", "ml"}, "jupyter"},
-		{"spring tag", []string{"spring", "java"}, "spring_actuator"},
+		{"spring tag", []string{"spring", "java"}, "spring-actuator"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
