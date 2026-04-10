@@ -1100,6 +1100,47 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 	return string(b), true
 }
 
+// probeHTTPBodyAndServer is like probeHTTPBody but also returns the Server header.
+func probeHTTPBodyAndServer(ctx context.Context, host string, port int, useTLS bool, path string) (body string, server string, ok bool) {
+	if useTLS && !isTLSCapable(ctx, host, port) {
+		return "", "", false
+	}
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "", false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", resp.Header.Get("Server"), true
+	}
+	return string(b), resp.Header.Get("Server"), true
+}
+
 // probeHTTPAnyBody is like probeHTTPBody but returns the body for any status
 // code (not just 200). Used for services like Tomcat that reveal their identity
 // in 404 error pages.

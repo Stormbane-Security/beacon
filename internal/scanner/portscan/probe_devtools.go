@@ -79,24 +79,39 @@ func detectGRPCReflection(ctx context.Context, host string, port int, banner str
 
 func detectGradio(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Probe multiple Gradio endpoints for a comprehensive detection.
+	// Detection strategy: /info is the primary fingerprint (contains "gradio"
+	// and "api":true). The predict endpoints alone are NOT enough because
+	// services like InfluxDB return generic JSON error bodies that match
+	// loose keyword checks.
 	var findings []finding.Finding
 	gradioDetected := false
 	version := ""
 	noAuth := false
+	gradioServer := false // true if Server header contains gradio or uvicorn
 
 	// Probe /info — primary Gradio identification endpoint.
-	if body, ok := probeHTTPBody(ctx, host, port, false, "/info"); ok && strings.Contains(body, "gradio") {
-		gradioDetected = true
-		// Extract version from the /info response (typically {"version":"4.x.x",...}).
-		if idx := strings.Index(body, `"version"`); idx >= 0 {
-			rest := body[idx:]
-			if start := strings.Index(rest, `"`+``); start >= 0 {
-				// Skip "version":" to get value
-				if colon := strings.Index(rest, ":"); colon >= 0 {
-					valPart := strings.TrimSpace(rest[colon+1:])
-					if len(valPart) > 0 && valPart[0] == '"' {
-						if end := strings.Index(valPart[1:], `"`); end >= 0 {
-							version = valPart[1 : end+1]
+	// Real Gradio returns {"version":"X.Y.Z","mode":"blocks","api":true,...}.
+	// Require both "gradio" in the body AND the "api":true field to avoid
+	// matching generic JSON APIs.
+	if body, server, ok := probeHTTPBodyAndServer(ctx, host, port, false, "/info"); ok {
+		serverLow := strings.ToLower(server)
+		if strings.Contains(serverLow, "gradio") || strings.Contains(serverLow, "uvicorn") {
+			gradioServer = true
+		}
+		bodyLow := strings.ToLower(body)
+		if strings.Contains(bodyLow, "gradio") || (strings.Contains(body, `"api"`) && gradioServer) {
+			gradioDetected = true
+			// Extract version from the /info response (typically {"version":"4.x.x",...}).
+			if idx := strings.Index(body, `"version"`); idx >= 0 {
+				rest := body[idx:]
+				if start := strings.Index(rest, `"`+``); start >= 0 {
+					// Skip "version":" to get value
+					if colon := strings.Index(rest, ":"); colon >= 0 {
+						valPart := strings.TrimSpace(rest[colon+1:])
+						if len(valPart) > 0 && valPart[0] == '"' {
+							if end := strings.Index(valPart[1:], `"`); end >= 0 {
+								version = valPart[1 : end+1]
+							}
 						}
 					}
 				}
@@ -105,27 +120,47 @@ func detectGradio(ctx context.Context, host string, port int, banner string, mak
 	}
 
 	// Probe /api/predict — inference endpoint that accepts arbitrary inputs.
+	// Only count as Gradio if we already confirmed via /info OR the Server
+	// header is Gradio/uvicorn. Matching on generic JSON keywords like
+	// "data" or "error" alone causes false positives (e.g. InfluxDB).
 	predictNoAuth := false
-	if body, ok := probeHTTPBody(ctx, host, port, false, "/api/predict"); ok {
+	if body, server, ok := probeHTTPBodyAndServer(ctx, host, port, false, "/api/predict"); ok {
+		serverLow := strings.ToLower(server)
+		if strings.Contains(serverLow, "gradio") || strings.Contains(serverLow, "uvicorn") {
+			gradioServer = true
+		}
 		bodyLow := strings.ToLower(body)
-		if strings.Contains(bodyLow, "data") || strings.Contains(bodyLow, "error") ||
-			strings.Contains(bodyLow, "duration") {
+		isGradioResponse := strings.Contains(bodyLow, "gradio") ||
+			strings.Contains(bodyLow, "duration") ||
+			(strings.Contains(bodyLow, `"data"`) && !strings.Contains(bodyLow, `"error"`))
+		// Only mark as detected if we have a Gradio-specific signal.
+		if (gradioDetected || gradioServer) && isGradioResponse {
+			predictNoAuth = true
+		} else if isGradioResponse && strings.Contains(bodyLow, "gradio") {
 			gradioDetected = true
 			predictNoAuth = true
 		}
 	}
 
 	// Probe /run/predict — alternative inference path.
-	if body, ok := probeHTTPBody(ctx, host, port, false, "/run/predict"); ok {
+	if body, server, ok := probeHTTPBodyAndServer(ctx, host, port, false, "/run/predict"); ok {
+		serverLow := strings.ToLower(server)
+		if strings.Contains(serverLow, "gradio") || strings.Contains(serverLow, "uvicorn") {
+			gradioServer = true
+		}
 		bodyLow := strings.ToLower(body)
-		if strings.Contains(bodyLow, "data") || strings.Contains(bodyLow, "error") ||
-			strings.Contains(bodyLow, "duration") {
+		isGradioResponse := strings.Contains(bodyLow, "gradio") ||
+			strings.Contains(bodyLow, "duration") ||
+			(strings.Contains(bodyLow, `"data"`) && !strings.Contains(bodyLow, `"error"`))
+		if (gradioDetected || gradioServer) && isGradioResponse {
+			noAuth = true
+		} else if isGradioResponse && strings.Contains(bodyLow, "gradio") {
 			gradioDetected = true
 			noAuth = true
 		}
 	}
 
-	if !gradioDetected {
+	if !gradioDetected && !gradioServer {
 		return nil
 	}
 
