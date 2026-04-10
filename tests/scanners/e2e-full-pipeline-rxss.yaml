@@ -92,6 +92,13 @@ assertions:
     expect:
       check_id: headers.server_info_leak
 
+  - name: full-pipeline-detects-rxss
+    type: beacon
+    target: localhost:20201
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--yes"]
+    expect:
+      check_id: web.reflected_xss
+
   # ══════════════════════════════════════════════════════════════════════
   # NEGATIVE — should not fire false positives
   # ══════════════════════════════════════════════════════════════════════

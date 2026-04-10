@@ -111,6 +111,13 @@ deep:
     - verbtamper     # HTTP verb tampering auth bypass — alternate method on protected paths
     - pathtraversal  # framework-specific path traversal (Spring ..;/, Tomcat %2e, IIS %5C)
     - racecondition  # TOCTOU race condition detection via concurrent request burst
+    - rxss           # reflected cross-site scripting — polyglot payload + context-aware confirmation
+    - dnsrebind      # DNS rebinding attack detection — rebind-to-localhost probes
+    - wsfuzz         # WebSocket injection fuzzing — XSS/SQLi/command payloads over WS
+    - wafbypass      # WAF evasion: encoding tricks, case variation, payload mutation
+    - secondorder    # second-order injection: stored payload triggers on retrieval (authorized-only)
+    - privesc        # privilege escalation: role manipulation, IDOR chains (authorized-only)
+    - statemachine   # multi-step state machine abuse: replay, skip, reorder (authorized-only)
     - pdfssrf        # SSRF via HTML-to-PDF generation endpoints
   nuclei_tags:
     - cves
