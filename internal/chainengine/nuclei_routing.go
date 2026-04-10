@@ -353,6 +353,26 @@ var nucleiTemplateToServiceMap = map[string]string{
 	// WordPress
 	"CVE-2017-8295": "wordpress",        // Host header password reset
 	"CVE-2019-8942": "wordpress",        // Crop-image RCE
+	"CVE-2016-10033": "wordpress",       // PHPMailer RCE
+	"CVE-2018-17207": "wordpress",       // Duplicator RCE
+	"CVE-2018-19207": "wordpress",       // WP GDPR Compliance bypass
+	"CVE-2019-25141": "wordpress",       // Easy WP SMTP bypass
+	"CVE-2020-11514": "wordpress",       // Rank Math SEO privesc
+	"CVE-2020-12800": "wordpress",       // Contact Form 7 RCE
+	"CVE-2020-24186": "wordpress",       // wpDiscuz RCE
+	"CVE-2020-25213": "wordpress",       // File Manager RCE
+	"CVE-2020-35489": "wordpress",       // Contact Form 7 upload
+	"CVE-2021-24145": "wordpress",       // Modern Events Calendar upload
+	"CVE-2021-24155": "wordpress",       // BackupBuddy download
+	"CVE-2021-24284": "wordpress",       // Flavor theme upload
+	"CVE-2021-24347": "wordpress",       // SP Project Manager upload
+	"CVE-2021-24499": "wordpress",       // Flavor theme upload v2
+	"CVE-2021-25003": "wordpress",       // WPCargo RCE
+	"CVE-2021-34624": "wordpress",       // ProfilePress upload
+	"CVE-2022-0739":  "wordpress",       // BookingPress SQLi
+	"CVE-2022-1329":  "wordpress",       // Elementor Builder RCE
+	"CVE-2022-3982":  "wordpress",       // Starter Templates upload
+	"CVE-2023-5360":  "wordpress",       // Royal Starter upload
 	// Jenkins (additional)
 	"CVE-2018-1000861": "jenkins",       // Stapler RCE
 	// phpMyAdmin
