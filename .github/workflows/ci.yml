@@ -67,7 +67,7 @@ jobs:
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest 2>/dev/null || true
           nuclei -update-templates -silent 2>/dev/null || true
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
-          git clone --depth 1 --branch v0.3.0 https://github.com/stormbane-security/drydock.git /tmp/drydock-src
+          git clone --depth 1 --branch dev https://github.com/stormbane-security/drydock.git /tmp/drydock-src
           cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
           drydock 2>&1 | head -1 || true
 
@@ -159,7 +159,7 @@ jobs:
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest 2>/dev/null || true
           nuclei -update-templates -silent 2>/dev/null || true
           CGO_ENABLED=1 go build -o /usr/local/bin/beacon ./cmd/beacon
-          git clone --depth 1 --branch v0.3.0 https://github.com/stormbane-security/drydock.git /tmp/drydock-src
+          git clone --depth 1 --branch dev https://github.com/stormbane-security/drydock.git /tmp/drydock-src
           cd /tmp/drydock-src && go build -o /usr/local/bin/drydock ./cmd/drydock
 
       - name: Select test files for batch
