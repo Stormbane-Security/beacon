@@ -1,0 +1,119 @@
+name: blind-correlation-multi-db
+description: >
+  Blind scan of three heterogeneous services: Redis, PostgreSQL, and Consul.
+  Beacon is given ONLY port numbers — it must discover each service through
+  protocol probing, identify vulnerabilities in each, and fire exploit chains.
+  Tests that the detection pipeline handles mixed database/service-discovery
+  protocols without any hints.
+tags: [blind, correlation, database, consul, redis, postgres, exploit, integration]
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20982:6379"]
+
+  postgres:
+    image: postgres:16-alpine
+    ports: ["20983:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+
+  consul:
+    image: hashicorp/consul:1.18
+    ports: ["20984:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "redis-cli -h localhost -p 20982 PING 2>/dev/null | grep -q PONG && pg_isready -h localhost -p 20983 -q && curl -sf http://localhost:20984/v1/status/leader | grep -q '\"'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: all three services respond
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-redis
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20982 PING 2>/dev/null | grep -q PONG"
+      exit_code: 0
+
+  - name: preflight-postgres
+    type: command
+    expect:
+      command: "pg_isready -h localhost -p 20983 -q"
+      exit_code: 0
+
+  - name: preflight-consul
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20984/v1/status/leader | grep -q '\"'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND SURFACE: discover and identify all services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-discovers-redis-unauthenticated
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: blind-discovers-postgres-trust
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: blind-discovers-consul
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984"]
+    expect:
+      check_id: port.consul_no_acl
+
+  - name: blind-minimum-findings
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984"]
+    expect:
+      min_findings: 3
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND EXPLOIT: chains fire against all discovered services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-exploit-redis
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: blind-exploit-postgres
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20983", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: blind-exploit-consul
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20984", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: blind-exploit-all-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984", "--exploit", "--yes"]
+    expect:
+      min_findings: 3
+
+timeout: 5m

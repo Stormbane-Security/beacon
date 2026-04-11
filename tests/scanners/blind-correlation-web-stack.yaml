@@ -1,0 +1,115 @@
+name: blind-correlation-web-stack
+description: >
+  Blind scan of a typical web stack: nginx, Grafana with anonymous auth, and
+  memcached. Beacon is given ONLY port numbers — it must discover each service
+  through protocol probing and banner analysis, identify security issues in
+  each, and fire exploit chains. Tests that the pipeline handles mixed
+  HTTP/binary protocols blindly.
+tags: [blind, correlation, web, grafana, memcached, nginx, exploit, integration]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20985:80"]
+
+  grafana:
+    image: grafana/grafana:9.5.0
+    ports: ["20986:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+
+  memcached:
+    image: memcached:1.6-alpine
+    ports: ["20987:11211"]
+
+ready:
+  cmd: "curl -sf http://localhost:20985/ -o /dev/null && curl -sf http://localhost:20986/api/health | grep -q ok"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: all three services respond
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-nginx
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20985/ -o /dev/null"
+      exit_code: 0
+
+  - name: preflight-grafana
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20986/api/health | grep -q ok"
+      exit_code: 0
+
+  - name: preflight-memcached
+    type: command
+    expect:
+      command: "echo stats | nc -w2 localhost 20987 | grep -q pid"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND SURFACE: discover and identify all services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-discovers-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20985,20986,20987"]
+    expect:
+      check_id: port.service_identified
+
+  - name: blind-discovers-memcached
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20985,20986,20987"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+  - name: blind-minimum-findings
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20985,20986,20987"]
+    expect:
+      min_findings: 3
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND DEEP: deeper probing of all services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-deep-scan
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20985,20986,20987", "--deep", "--yes"]
+    expect:
+      min_findings: 3
+
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND EXPLOIT: chains fire against all discovered services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-exploit-all-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20985,20986,20987", "--exploit", "--yes"]
+    expect:
+      min_findings: 3
+
+  - name: blind-exploit-grafana
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20986", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: blind-exploit-memcached
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20987", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+timeout: 5m
