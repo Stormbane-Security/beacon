@@ -4205,6 +4205,49 @@ func probeZooKeeper(ctx context.Context, host string, port int) bool {
 	return strings.Contains(string(buf[:n]), "imok")
 }
 
+// probeZooKeeperVersion sends the "stat" four-letter command and extracts the
+// ZooKeeper version from the response (first line: "Zookeeper version: X.Y.Z-...").
+func probeZooKeeperVersion(ctx context.Context, host string, port int) string {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+	if _, err := conn.Write([]byte("stat")); err != nil {
+		return ""
+	}
+	buf := make([]byte, 1024)
+	n, _ := conn.Read(buf)
+	if n == 0 {
+		return ""
+	}
+	resp := string(buf[:n])
+	// First line: "Zookeeper version: 3.8.4-...., built on ..."
+	lower := strings.ToLower(resp)
+	idx := strings.Index(lower, "version:")
+	if idx < 0 {
+		idx = strings.Index(lower, "version ")
+		if idx < 0 {
+			return ""
+		}
+	}
+	after := strings.TrimSpace(resp[idx+8:])
+	ver := ""
+	for _, c := range after {
+		if (c >= '0' && c <= '9') || c == '.' {
+			ver += string(c)
+		} else if ver != "" {
+			break
+		}
+	}
+	if ver != "" && strings.Contains(ver, ".") {
+		return strings.TrimRight(ver, ".")
+	}
+	return ""
+}
+
 // probeAMQP sends AMQP 0-9-1 protocol header and checks for Connection.Start.
 func probeAMQP(ctx context.Context, host string, port int) bool {
 	addr := fmt.Sprintf("%s:%d", host, port)

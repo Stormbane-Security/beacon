@@ -459,6 +459,9 @@ func detectCassandra(ctx context.Context, host string, port int, banner string, 
 	}
 	if len(cqlInfo.CQLVersions) > 0 {
 		ev["cql_versions"] = strings.Join(cqlInfo.CQLVersions, ", ")
+		// Use the highest CQL version as the version indicator.
+		ev["version"] = cqlInfo.CQLVersions[len(cqlInfo.CQLVersions)-1]
+		ev["product"] = "Apache Cassandra (CQL " + cqlInfo.CQLVersions[len(cqlInfo.CQLVersions)-1] + ")"
 	}
 	if len(cqlInfo.Compression) > 0 {
 		ev["compression"] = strings.Join(cqlInfo.Compression, ", ")
@@ -530,12 +533,21 @@ func detectSplunkMgmt(ctx context.Context, host string, port int, banner string,
 	if !strings.Contains(bodyLow, "server-info") && !strings.Contains(bodyLow, "splunk") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "splunk", "authenticated": false, "banner": banner}
+	// Extract Splunk version from the XML response (e.g. <s:key name="version">9.2.1</s:key>).
+	if ver := parseXMLKeyValue(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Splunk " + ver
+	} else if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Splunk " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortSplunkMgmtExposed,
 		finding.SeverityHigh,
 		fmt.Sprintf("Splunk management API exposed on port %d", port),
 		"The Splunk management REST API is publicly accessible. This port provides administrative "+
 			"access to all Splunk configuration, search capabilities, and log data.",
-		map[string]any{"port": port, "service": "splunk", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }

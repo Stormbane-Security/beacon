@@ -388,3 +388,25 @@ func parseGhostVersion(body string) string {
 	}
 	return ""
 }
+
+// parseXMLKeyValue extracts the text content of a Splunk-style XML key element:
+// <s:key name="version">9.2.1</s:key>
+// Returns the value string or "" if not found.
+func parseXMLKeyValue(body, keyName string) string {
+	needle := `name="` + keyName + `">`
+	idx := strings.Index(body, needle)
+	if idx < 0 {
+		// Try without namespace prefix.
+		needle = `name="` + keyName + `">`
+		idx = strings.Index(strings.ToLower(body), strings.ToLower(needle))
+		if idx < 0 {
+			return ""
+		}
+	}
+	rest := body[idx+len(needle):]
+	end := strings.Index(rest, "<")
+	if end <= 0 || end > 40 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
+}

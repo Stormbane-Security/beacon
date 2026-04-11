@@ -235,6 +235,12 @@ func detectZooKeeper(ctx context.Context, host string, port int, banner string, 
 	if !probeZooKeeper(ctx, host, port) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "zookeeper", "banner": banner}
+	// Extract version by sending "stat" command (ZooKeeper four-letter command).
+	if ver := probeZooKeeperVersion(ctx, host, port); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Apache ZooKeeper " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortZooKeeperExposed,
 		finding.SeverityHigh,
@@ -242,7 +248,7 @@ func detectZooKeeper(ctx context.Context, host string, port int, banner string, 
 		"Apache ZooKeeper is publicly accessible. ZooKeeper stores distributed configuration "+
 			"and coordination data for services like Kafka, HBase, and Hadoop. Unauthenticated access "+
 			"allows reading and modifying cluster configuration, enabling service disruption or data extraction.",
-		map[string]any{"port": port, "service": "zookeeper", "banner": banner},
+		ev,
 	)}
 }
 
@@ -281,6 +287,27 @@ func detectNiFi(ctx context.Context, host string, port int, banner string, makeF
 	if !strings.Contains(bodyLow, "nifi") && !strings.Contains(bodyLow, "apache nifi") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "nifi",
+		"url": fmt.Sprintf("http://%s:%d/nifi/", host, port)}
+	// Extract NiFi version from the HTML body (e.g. "NiFi 1.25.0" or version in script/meta).
+	for _, prefix := range []string{"nifi-", "nifi/"} {
+		if idx := strings.Index(bodyLow, prefix); idx >= 0 {
+			after := body[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Apache NiFi " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNiFiExposed,
 		finding.SeverityHigh,
@@ -290,8 +317,7 @@ func detectNiFi(ctx context.Context, host string, port int, banner string, makeF
 			"Unauthenticated access (or default credentials) allows full control over data routing, "+
 			"reading all data in transit, modifying processor configurations, and connecting "+
 			"to internal data sources. Enable NiFi authentication and restrict to trusted networks.",
-		map[string]any{"port": port, "service": "nifi",
-			"url": fmt.Sprintf("http://%s:%d/nifi/", host, port)},
+		ev,
 	)}
 }
 
@@ -301,6 +327,26 @@ func detectAsteriskAMI(ctx context.Context, host string, port int, banner string
 		return nil
 	}
 	ev["banner"] = banner
+	// Extract version from AMI greeting banner (e.g. "Asterisk Call Manager/18.20.0").
+	bannerLow := strings.ToLower(banner)
+	for _, prefix := range []string{"call manager/", "asterisk/"} {
+		if idx := strings.Index(bannerLow, prefix); idx >= 0 {
+			after := banner[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Asterisk " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortAsteriskAMIExposed,
 		finding.SeverityHigh,

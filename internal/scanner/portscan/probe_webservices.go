@@ -508,6 +508,27 @@ func detectWebmin(ctx context.Context, host string, port int, banner string, mak
 	if !strings.Contains(bodyLow, "webmin") && !strings.Contains(bodyLow, "session_login") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "webmin", "banner": banner}
+	// Extract Webmin version from page title (e.g. "Login to Webmin" page may contain version)
+	// or from body text like "Webmin 2.105".
+	for _, prefix := range []string{"webmin ", "webmin/"} {
+		if idx := strings.Index(bodyLow, prefix); idx >= 0 {
+			after := body[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Webmin " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortWebminExposed,
 		finding.SeverityHigh,
@@ -515,7 +536,7 @@ func detectWebmin(ctx context.Context, host string, port int, banner string, mak
 		"Webmin is publicly accessible. Webmin provides web-based Unix/Linux system administration "+
 			"and has a history of critical vulnerabilities. CVE-2019-15107 allowed unauthenticated RCE "+
 			"and CVE-2022-0824 allowed unauthenticated file read. Restrict to trusted networks.",
-		map[string]any{"port": port, "service": "webmin", "banner": banner},
+		ev,
 	)}
 }
 
@@ -529,6 +550,12 @@ func detectNetdata(ctx context.Context, host string, port int, banner string, ma
 		!strings.Contains(bodyLow, "os_name")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "netdata",
+		"url": fmt.Sprintf("http://%s:%d", host, port)}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Netdata " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNetdataExposed,
 		finding.SeverityMedium,
@@ -539,8 +566,7 @@ func detectNetdata(ctx context.Context, host string, port int, banner string, ma
 			"reconnaissance for targeted attacks. Older Netdata versions allow unauthenticated "+
 			"dashboard access by default. Enable Netdata Cloud authentication or place Netdata "+
 			"behind an authenticated reverse proxy restricted to monitoring networks.",
-		map[string]any{"port": port, "service": "netdata",
-			"url": fmt.Sprintf("http://%s:%d", host, port)},
+		ev,
 	)}
 }
 
@@ -562,6 +588,15 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 					map[string]any{"port": port, "service": "artifactory", "creds": "admin:password", "authenticated": true},
 				)}
 			}
+			artEv := map[string]any{"port": port, "service": "artifactory",
+				"url": fmt.Sprintf("http://%s:%d/artifactory/", host, port)}
+			// Extract Artifactory version from /artifactory/api/system/version (already public).
+			if verBody, verOK := probeHTTPBody(ctx, host, port, false, "/artifactory/api/system/version"); verOK {
+				if ver := parseJSONStringField(verBody, "version"); ver != "" {
+					artEv["version"] = ver
+					artEv["product"] = "JFrog Artifactory " + ver
+				}
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortArtifactoryExposed,
 				finding.SeverityHigh,
@@ -571,8 +606,7 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 					"Unauthenticated access or default credentials allow supply chain compromise by "+
 					"injecting malicious artifacts into repositories used by development pipelines. "+
 					"Restrict access to trusted networks and rotate all repository credentials.",
-				map[string]any{"port": port, "service": "artifactory",
-					"url": fmt.Sprintf("http://%s:%d/artifactory/", host, port)},
+				artEv,
 			)}
 		}
 	}
@@ -580,6 +614,12 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 	if body, ok := probeHTTPBody(ctx, host, port, false, "/service/rest/v1/status"); ok {
 		bodyLow := strings.ToLower(body)
 		if strings.Contains(bodyLow, "nexus") || strings.Contains(bodyLow, "sonatype") {
+			nexusEv := map[string]any{"port": port, "service": "nexus",
+				"url": fmt.Sprintf("http://%s:%d/", host, port)}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				nexusEv["version"] = ver
+				nexusEv["product"] = "Sonatype Nexus " + ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortNexusExposed,
 				finding.SeverityHigh,
@@ -589,8 +629,7 @@ func detectNexusArtifactory(ctx context.Context, host string, port int, banner s
 					"Older Nexus versions use default credentials (admin:admin123) and may be vulnerable to "+
 					"CVE-2019-7238 (Nexus 3 < 3.15.0 pre-auth RCE via EL injection, CVSS 9.8, KEV). "+
 					"Restrict to trusted networks and update to the latest version.",
-				map[string]any{"port": port, "service": "nexus",
-					"url": fmt.Sprintf("http://%s:%d/", host, port)},
+				nexusEv,
 			)}
 		}
 	}
@@ -633,6 +672,8 @@ func detectWebLogic(ctx context.Context, host string, port int, banner string, m
 	// Try to extract version from the console login page.
 	if ver := parseWebLogicVersion(body); ver != "" {
 		ev["weblogic_version"] = ver
+		ev["version"] = ver
+		ev["product"] = "Oracle WebLogic " + ver
 		// CVE-2020-14882/14883 affects WebLogic < 14.1.1.0.0 and < 12.2.1.4.0
 		// (with Oct 2020 CPU patch). Conservatively: anything < 14.1.1.1 or < 12.2.1.5.
 		vulnerable := versionBefore(ver, "14.1.1.1") // covers 12.x, 10.x, etc.
@@ -711,6 +752,8 @@ func detectSaltAPI(ctx context.Context, host string, port int, banner string, ma
 	// Try to extract Salt version from the API response.
 	if ver := parseSaltVersion(body); ver != "" {
 		ev["salt_version"] = ver
+		ev["version"] = ver
+		ev["product"] = "SaltStack " + ver
 		// CVE-2021-25281/25282 affects Salt < 3002.5, < 3001.6, < 3000.8.
 		// Simplified: anything < 3002.5 is vulnerable.
 		if versionBefore(ver, "3002.5") {
@@ -745,6 +788,15 @@ func detectVLLM(ctx context.Context, host string, port int, banner string, makeF
 		!strings.Contains(bodyLow, "data") || !strings.Contains(bodyLow, "model")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "vllm",
+		"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)}
+	// Try /version endpoint for vLLM version (returns {"version":"0.4.2"}).
+	if verBody, verOK := probeHTTPBody(ctx, host, port, false, "/version"); verOK {
+		if ver := parseJSONStringField(verBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "vLLM " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortvLLMExposed,
 		finding.SeverityHigh,
@@ -754,8 +806,7 @@ func detectVLLM(ctx context.Context, host string, port int, banner string, makeF
 			"Unauthenticated access allows unlimited inference at the operator's GPU cost, "+
 			"exposure of fine-tuned model capabilities, and potential prompt injection attacks. "+
 			"Add --api-key to require authentication and restrict to trusted networks.",
-		map[string]any{"port": port, "service": "vllm",
-			"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)},
+		ev,
 	)}
 }
 
@@ -769,6 +820,12 @@ func detectLocalAI(ctx context.Context, host string, port int, banner string, ma
 		!strings.Contains(bodyLow, "go-skynet") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "localai",
+		"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)}
+	if ver := parseJSONStringField(lbody, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "LocalAI " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortLocalAIExposed,
 		finding.SeverityHigh,
@@ -778,8 +835,7 @@ func detectLocalAI(ctx context.Context, host string, port int, banner string, ma
 			"Unauthenticated access allows unlimited inference at the operator's cost, "+
 			"exposure of locally loaded models, and potential arbitrary model file access. "+
 			"Configure authentication and restrict access to trusted networks.",
-		map[string]any{"port": port, "service": "localai",
-			"url": fmt.Sprintf("http://%s:%d/v1/models", host, port)},
+		ev,
 	)}
 }
 
@@ -793,6 +849,12 @@ func detectAdGuardHome(ctx context.Context, host string, port int, banner string
 		!strings.Contains(bodyLow, "version")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "adguard",
+		"url": fmt.Sprintf("http://%s:%d/control/status", host, port)}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "AdGuard Home " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortAdGuardExposed,
 		finding.SeverityHigh,
@@ -804,8 +866,7 @@ func detectAdGuardHome(ctx context.Context, host string, port int, banner string
 			"read DNS query logs, and modify access control lists. "+
 			"Enable authentication in AdGuard Home settings and restrict access to the "+
 			"admin interface to trusted internal addresses only.",
-		map[string]any{"port": port, "service": "adguard",
-			"url": fmt.Sprintf("http://%s:%d/control/status", host, port)},
+		ev,
 	)}
 }
 
@@ -818,6 +879,15 @@ func detectHuggingFaceTGI(ctx context.Context, host string, port int, banner str
 	if !strings.Contains(bodyLow, "model_id") || !strings.Contains(bodyLow, "max_input_length") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "huggingface-tgi",
+		"url": fmt.Sprintf("http://%s:%d/info", host, port)}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "HuggingFace TGI " + ver
+	}
+	if modelID := parseJSONStringField(body, "model_id"); modelID != "" {
+		ev["model_id"] = modelID
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortHuggingFaceTGIExposed,
 		finding.SeverityHigh,
@@ -827,8 +897,7 @@ func detectHuggingFaceTGI(ctx context.Context, host string, port int, banner str
 			"Unauthenticated access allows unlimited LLM inference at the operator's compute cost, "+
 			"model identification for targeted attacks, and potential prompt injection against downstream applications. "+
 			"Add authentication via a reverse proxy and restrict the port to trusted networks.",
-		map[string]any{"port": port, "service": "huggingface-tgi",
-			"url": fmt.Sprintf("http://%s:%d/info", host, port)},
+		ev,
 	)}
 }
 
@@ -843,6 +912,8 @@ func detectMLflow(ctx context.Context, host string, port int, banner string, mak
 		ver := strings.TrimSpace(verBody)
 		if ver != "" && !strings.ContainsAny(ver, "<>{") {
 			ev["mlflow_version"] = ver
+			ev["version"] = ver
+			ev["product"] = "MLflow " + ver
 		}
 	}
 	findings := []finding.Finding{makeF(
@@ -889,6 +960,27 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 	if !ok || !strings.Contains(strings.ToLower(body), "intel") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "intel-amt"}
+	// Try to extract AMT version from the HTML body (e.g. "Intel(R) Active Management Technology X.Y.Z").
+	bodyLow := strings.ToLower(body)
+	for _, prefix := range []string{"active management technology ", "amt "} {
+		if idx := strings.Index(bodyLow, prefix); idx >= 0 {
+			after := body[idx+len(prefix):]
+			ver := ""
+			for _, c := range after {
+				if (c >= '0' && c <= '9') || c == '.' {
+					ver += string(c)
+				} else if ver != "" {
+					break
+				}
+			}
+			if ver != "" && strings.Contains(ver, ".") {
+				ev["version"] = strings.TrimRight(ver, ".")
+				ev["product"] = "Intel AMT " + strings.TrimRight(ver, ".")
+				break
+			}
+		}
+	}
 	f := makeF(
 		finding.CheckCVEIntelAMTAuthBypass,
 		finding.SeverityCritical,
@@ -900,7 +992,7 @@ func detectIntelAMT(ctx context.Context, host string, port int, banner string, m
 			"from the main CPU and OS — providing full KVM, remote console, and power control. "+
 			"A compromised AMT instance survives OS reinstalls and disk wipes. "+
 			"Disable AMT if not needed, update firmware, and block port 16992/16993 at the firewall.",
-		map[string]any{"port": port, "service": "intel-amt"},
+		ev,
 	)
 	// Intel AMT firmware version is rarely extractable from HTTP — confidence is probable.
 	f.Confidence = finding.ConfidenceProbable
@@ -949,6 +1041,31 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 		})
 	}
 
+	viteEv := map[string]any{"port": port, "service": "vite", "banner": banner}
+	// Try to extract Vite version from the homepage HTML (e.g. "/@vite/client" script src with version).
+	if homeBody, homeOK := probeHTTPBody(ctx, host, port, false, "/"); homeOK {
+		homeLow := strings.ToLower(homeBody)
+		// Vite injects a script like <script type="module" src="/@vite/client"></script>
+		// and the HTML may contain "vite v5.4.1" or similar in comments/meta.
+		for _, prefix := range []string{"vite/", "vite v", "vite@"} {
+			if idx := strings.Index(homeLow, prefix); idx >= 0 {
+				after := homeBody[idx+len(prefix):]
+				ver := ""
+				for _, c := range after {
+					if (c >= '0' && c <= '9') || c == '.' {
+						ver += string(c)
+					} else if ver != "" {
+						break
+					}
+				}
+				if ver != "" && strings.Contains(ver, ".") {
+					viteEv["version"] = strings.TrimRight(ver, ".")
+					viteEv["product"] = "Vite " + strings.TrimRight(ver, ".")
+					break
+				}
+			}
+		}
+	}
 	findings = append(findings, makeF(
 		finding.CheckPortDevServerExposed,
 		finding.SeverityHigh,
@@ -956,7 +1073,7 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 		"A Vite JavaScript development server is publicly accessible. Development servers "+
 			"expose unminified source code, internal file paths, environment variables embedded in code, "+
 			"and the /__vite_ping health endpoint. Production deployments should never expose dev servers.",
-		map[string]any{"port": port, "service": "vite", "banner": banner},
+		viteEv,
 	))
 	return findings
 }
@@ -1285,6 +1402,8 @@ func detectApacheTika(ctx context.Context, host string, port int, banner string,
 		tikaVer = tikaVer[len("apache tika "):]
 	}
 	ev["tika_version"] = tikaVer
+	ev["version"] = tikaVer
+	ev["product"] = "Apache Tika " + tikaVer
 	if isApacheTikaRCEVulnerable(tikaVer) {
 		return []finding.Finding{makeF(
 			finding.CheckCVEApacheTikaRCE,
@@ -1320,6 +1439,17 @@ func detectJaeger(ctx context.Context, host string, port int, banner string, mak
 	if !strings.HasPrefix(trimmed, "{") || !strings.Contains(body, "data") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "jaeger", "banner": banner}
+	// Try to extract Jaeger version from the homepage HTML (Jaeger UI embeds version in body).
+	if homeBody, homeOK := probeHTTPBody(ctx, host, port, false, "/"); homeOK {
+		if ver := parseJSONStringField(homeBody, "gitVersion"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Jaeger " + ver
+		} else if ver := parseJSONStringField(homeBody, "jaegerVersion"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Jaeger " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortJaegerExposed,
 		finding.SeverityHigh,
@@ -1328,7 +1458,7 @@ func detectJaeger(ctx context.Context, host string, port int, banner string, mak
 			"Trace data reveals internal service architecture, request/response payloads, "+
 			"error messages with stack traces, and HTTP headers which may contain auth tokens. "+
 			"Restrict to internal networks and enable authentication.",
-		map[string]any{"port": port, "service": "jaeger", "banner": banner},
+		ev,
 	)}
 }
 
@@ -1340,6 +1470,24 @@ func detectAdminer(ctx context.Context, host string, port int, banner string, ma
 	if !strings.Contains(strings.ToLower(body), "adminer") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "adminer", "banner": banner}
+	// Extract Adminer version from <h1> tag like "Adminer 4.8.1" or title.
+	if idx := strings.Index(strings.ToLower(body), "adminer"); idx >= 0 {
+		rest := body[idx:]
+		after := strings.TrimSpace(rest[len("adminer"):])
+		ver := ""
+		for _, c := range after {
+			if (c >= '0' && c <= '9') || c == '.' {
+				ver += string(c)
+			} else if ver != "" {
+				break
+			}
+		}
+		if ver != "" && strings.Contains(ver, ".") {
+			ev["version"] = strings.TrimRight(ver, ".")
+			ev["product"] = "Adminer " + strings.TrimRight(ver, ".")
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortAdminerExposed,
 		finding.SeverityCritical,
@@ -1348,7 +1496,7 @@ func detectAdminer(ctx context.Context, host string, port int, banner string, ma
 			"It supports MySQL, PostgreSQL, SQLite, MSSQL, Oracle, and other databases. "+
 			"CVE-2021-21311 (Adminer < 4.7.9) allows SSRF to exfiltrate MySQL credentials. "+
 			"Adminer should never be publicly accessible.",
-		map[string]any{"port": port, "service": "adminer", "banner": banner},
+		ev,
 	)}
 }
 
@@ -2164,6 +2312,8 @@ func detectASPNET(ctx context.Context, host string, port int, _ string, makeF fi
 	if ver := hdrs.Get("X-AspNet-Version"); ver != "" {
 		isASPNET = true
 		ev["aspnet_version"] = ver
+		ev["version"] = ver
+		ev["product"] = "ASP.NET " + ver
 	}
 	if pw := hdrs.Get("X-Powered-By"); strings.Contains(strings.ToLower(pw), "asp.net") {
 		isASPNET = true
@@ -2253,6 +2403,10 @@ func detectFastAPI(ctx context.Context, host string, port int, _ string, makeF f
 			}
 			if title := parseJSONStringField(body, "title"); title != "" {
 				ev["api_title"] = title
+			}
+			if ver := parseJSONStringField(body, "version"); ver != "" {
+				ev["version"] = ver
+				ev["product"] = "FastAPI " + ver
 			}
 			return []finding.Finding{makeF(
 				finding.CheckPortFastAPIDetected,

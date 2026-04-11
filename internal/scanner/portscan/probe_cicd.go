@@ -134,6 +134,13 @@ func detectBamboo(ctx context.Context, host string, port int, _ string, makeF fi
 		"service": "bamboo",
 		"proof":   fmt.Sprintf("curl -s http://%s:%d/ | grep -i bamboo", host, port),
 	}
+	// Extract Bamboo version from /rest/api/latest/info (returns JSON with {"version":"9.6.4",...}).
+	if infoBody, infoOK := probeHTTPBody(ctx, host, port, false, "/rest/api/latest/info"); infoOK {
+		if ver := parseJSONStringField(infoBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Atlassian Bamboo " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortBambooExposed,
 		finding.SeverityHigh,
@@ -206,6 +213,23 @@ func detectHazelcast(ctx context.Context, host string, port int, _ string, makeF
 		"port":    port,
 		"service": "hazelcast",
 		"proof":   fmt.Sprintf("curl -s http://%s:%d/hazelcast/rest/cluster", host, port),
+	}
+	// Extract Hazelcast version from /hazelcast/health (returns JSON with version).
+	if healthBody, healthOK := probeHTTPBody(ctx, host, port, false, "/hazelcast/health"); healthOK {
+		if ver := parseJSONStringField(healthBody, "hazelcastVersion"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Hazelcast " + ver
+		} else if ver := parseJSONStringField(healthBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Hazelcast " + ver
+		}
+	}
+	// Also try from the cluster response body.
+	if ev["version"] == nil {
+		if ver := parseJSONStringField(body, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Hazelcast " + ver
+		}
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortHazelcastExposed,
