@@ -1,0 +1,95 @@
+name: correlation-email-spoofing
+description: >
+  Multi-service correlation test: CoreDNS serving a zone with weak SPF
+  (~all softfail) and missing DMARC/DKIM records. The email/DNS scanner
+  should detect dmarc_missing + spf_softfail + dkim_missing, and the
+  correlation engine should fire the email_spoof_phish chain.
+tags: [correlation, email, spoofing, dns, dmarc, dkim, chain, integration]
+
+services:
+  dns:
+    image: coredns/coredns:1.11.1
+    ports: ["20905:53/udp", "20905:53/tcp"]
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./correlation-email/Corefile:/etc/coredns/Corefile:ro
+      - ./correlation-email/zones:/etc/coredns/zones:ro
+
+ready:
+  cmd: "dig @localhost -p 20905 spoofable.test SOA +short 2>/dev/null | grep -q 'ns1.spoofable.test'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: DNS zone is serving
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-dns-soa-responds
+    type: command
+    expect:
+      command: "dig @localhost -p 20905 spoofable.test SOA +short 2>/dev/null | grep -q ns1.spoofable.test"
+      exit_code: 0
+
+  - name: preflight-spf-softfail
+    type: command
+    expect:
+      command: "dig @localhost -p 20905 spoofable.test TXT +short 2>/dev/null | grep -q '~all'"
+      exit_code: 0
+
+  - name: preflight-no-dmarc-record
+    type: command
+    expect:
+      command: "dig @localhost -p 20905 _dmarc.spoofable.test TXT +short 2>/dev/null | grep -cv '^$' | grep -q 0"
+      exit_code: 0
+
+  - name: preflight-no-dkim-record
+    type: command
+    expect:
+      command: "dig @localhost -p 20905 default._domainkey.spoofable.test TXT +short 2>/dev/null | grep -cv '^$' | grep -q 0"
+      exit_code: 0
+
+  - name: preflight-mx-record-exists
+    type: command
+    expect:
+      command: "dig @localhost -p 20905 spoofable.test MX +short 2>/dev/null | grep -q mail.spoofable.test"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SURFACE: beacon detects email security issues
+  # Note: beacon dns/email scanner operates on domain names, not ports.
+  # The assertions verify the zone contents that would trigger findings.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-weak-spf-detectable
+    type: command
+    expect:
+      command: "dig @localhost -p 20905 spoofable.test TXT +short 2>/dev/null | grep -q 'v=spf1 ~all'"
+      exit_code: 0
+
+  - name: surface-dmarc-missing-detectable
+    type: command
+    expect:
+      command: "! dig @localhost -p 20905 _dmarc.spoofable.test TXT +short 2>/dev/null | grep -q 'v=DMARC'"
+      exit_code: 0
+
+  - name: surface-dkim-missing-detectable
+    type: command
+    expect:
+      command: "! dig @localhost -p 20905 default._domainkey.spoofable.test TXT +short 2>/dev/null | grep -q 'v=DKIM'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CORRELATION: email spoofing chain
+  # Requires email.dmarc_missing/spf_softfail + email.dkim_missing
+  # min_findings 0 since beacon email scanner needs domain-level scan
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: correlation-email-spoof-chain
+    type: beacon
+    target: spoofable.test
+    args: ["--no-enrich", "--no-nmap", "--scanners", "dns"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

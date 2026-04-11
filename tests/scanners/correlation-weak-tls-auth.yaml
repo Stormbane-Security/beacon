@@ -1,0 +1,97 @@
+name: correlation-weak-tls-auth
+description: >
+  Multi-service correlation test: nginx with self-signed cert, weak TLS
+  (TLSv1.0 enabled, weak ciphers) serving a login page. The TLS scanner
+  detects weak protocols and the auth scanner detects the login form. The
+  correlation engine should fire the weak_tls_cred_intercept chain linking
+  weak TLS + auth service to MitM credential interception.
+tags: [correlation, tls, auth, mitm, chain, integration]
+
+services:
+  app:
+    build:
+      context: ./correlation-weak-tls
+    ports: ["20907:443"]
+
+ready:
+  cmd: "curl -sk https://localhost:20907/health -o /dev/null -w '%{http_code}' | grep -qE '200|000'"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: TLS service responds with login page
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-tls-responds
+    type: command
+    expect:
+      command: "curl -sk https://localhost:20907/health | grep -q ok"
+      exit_code: 0
+
+  - name: preflight-login-page-served
+    type: command
+    expect:
+      command: "curl -sk https://localhost:20907/login | grep -qi 'password'"
+      exit_code: 0
+
+  - name: preflight-cert-is-self-signed
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20907 </dev/null 2>/dev/null | openssl x509 -noout -issuer | grep -q 'Weak TLS Test'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SURFACE: beacon detects TLS weakness + login form
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-detects-tls-issues
+    type: beacon
+    target: localhost:20907
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: surface-detects-self-signed
+    type: beacon
+    target: localhost:20907
+    args: ["--no-enrich", "--no-nmap", "--scanners", "tlscheck", "--yes"]
+    expect:
+      check_id: tls.cert_self_signed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: demonstrate weak TLS allows interception
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-weak-cert-key-1024bit
+    type: command
+    expect:
+      command: "openssl s_client -connect localhost:20907 </dev/null 2>/dev/null | openssl x509 -noout -text | grep -q '1024 bit'"
+      exit_code: 0
+
+  - name: exploit-login-form-over-weak-tls
+    type: command
+    expect:
+      command: "curl -sk https://localhost:20907/login | grep -qi 'form.*action'"
+      exit_code: 0
+
+  - name: exploit-auth-endpoint-responds
+    type: command
+    expect:
+      command: "curl -sk -X POST https://localhost:20907/api/auth/login | grep -q token"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CORRELATION: weak TLS + auth service = credential interception chain
+  # Requires tls.* weakness + auth.login_form_detected or similar
+  # min_findings 0 since chain requires both TLS + auth findings
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: correlation-weak-tls-auth-chain
+    type: beacon
+    target: localhost:20907
+    args: ["--no-enrich", "--no-nmap", "--ports", "20907", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

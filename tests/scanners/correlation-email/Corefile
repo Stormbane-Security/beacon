@@ -1,0 +1,4 @@
+spoofable.test:53 {
+    file /etc/coredns/zones/db.spoofable.test
+    log
+}
