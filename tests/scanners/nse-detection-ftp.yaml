@@ -1,0 +1,84 @@
+name: nse-detection-ftp
+description: >
+  NSE script detection for FTP with anonymous access. Validates three tiers:
+  1. Surface (no nmap): native Go probe detects FTP service
+  2. Deep (with nmap): NSE ftp-anon detects anonymous login
+  3. Exploit: post-exploit chain runs
+  Tests that nmap ftp-anon NSE findings integrate into the pipeline.
+tags: [nse, nmap, ftp, anonymous, exploit, detection, full-pipeline]
+
+services:
+  ftp:
+    image: delfer/alpine-ftp-server
+    ports: ["20731:21"]
+    environment:
+      USERS: "anonymous|anonymous"
+
+ready:
+  cmd: "nc -z localhost 20731"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: FTP banner visible
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-ftp-banner
+    type: command
+    expect:
+      command: "echo | nc -w 3 localhost 20731 | grep -qi '220'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 1: SURFACE — native probe (no nmap)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-native-detects-ftp
+    type: beacon
+    target: localhost:20731
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20731", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 2: DEEP — with nmap (NSE ftp-anon runs)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: deep-with-nmap-detects-anonymous
+    type: beacon
+    target: localhost:20731
+    args: ["--no-enrich", "--scanners", "portscan", "--ports", "20731", "--deep", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 3: EXPLOIT — post-exploit chain runs
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-chain-fires
+    type: beacon
+    target: localhost:20731
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20731", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis-on-ftp
+    type: beacon
+    target: localhost:20731
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20731"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-no-ssh-on-ftp
+    type: beacon
+    target: localhost:20731
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20731"]
+    expect:
+      not_check_id: port.ssh_exposed
+
+timeout: 5m

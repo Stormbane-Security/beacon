@@ -1,0 +1,91 @@
+name: proxy-bypass-nginx
+description: >
+  Consul running behind an nginx reverse proxy. Beacon should detect the
+  backend Consul service through the proxy layer — fingerprinting the
+  proxied application, not just nginx itself. Tests that service detection
+  works when responses are relayed through a reverse proxy with added headers.
+tags: [proxy, nginx, consul, fingerprint, portscan, reverse-proxy]
+
+services:
+  backend:
+    image: hashicorp/consul:1.18
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+  proxy:
+    image: nginx:alpine
+    ports: ["20710:80"]
+    volumes:
+      - ./proxy-bypass-nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+
+ready:
+  cmd: "curl -sf http://localhost:20710/v1/status/leader | grep -q ':'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Proxy is forwarding to Consul
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-proxy-forwards-consul-api
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20710/v1/catalog/nodes | grep -q 'Node'"
+      exit_code: 0
+
+  - name: preflight-nginx-headers-present
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20710/ | grep -qi 'nginx'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # DETECTION: Beacon sees through the proxy to Consul
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: detects-consul-through-proxy
+    type: beacon
+    target: localhost:20710
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20710", "--yes"]
+    expect:
+      check_id: port.consul_no_acl
+
+  - name: detects-service-through-proxy
+    type: beacon
+    target: localhost:20710
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20710", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  - name: detects-missing-hsts-on-proxy
+    type: beacon
+    target: localhost:20710
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--yes"]
+    expect:
+      check_id: headers.missing_hsts
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT: Chain fires through the proxy
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-chain-through-proxy
+    type: beacon
+    target: localhost:20710
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20710", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis-through-proxy
+    type: beacon
+    target: localhost:20710
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20710", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

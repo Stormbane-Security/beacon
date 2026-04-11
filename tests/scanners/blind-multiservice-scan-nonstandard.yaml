@@ -1,0 +1,112 @@
+name: blind-multiservice-scan-nonstandard
+description: >
+  Blind scan of 5 services on non-standard ports. Beacon receives NO hints
+  about what is running — it must discover and identify every service through
+  banner grabbing and protocol probing alone. Validates that port remapping
+  does not confuse the detection engine.
+tags: [blind, portscan, fingerprint, exploit, integration, accuracy, nonstandard-ports]
+
+services:
+  svc1:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20700:6379"]
+
+  svc2:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["20701:5432"]
+
+  svc3:
+    image: nginx:alpine
+    ports: ["20702:80"]
+
+  svc4:
+    image: hashicorp/consul:1.18
+    ports: ["20703:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+  svc5:
+    image: memcached:1.6-alpine
+    ports: ["20704:11211"]
+
+ready:
+  cmd: >
+    redis-cli -h localhost -p 20700 PING 2>/dev/null | grep -q PONG &&
+    curl -sf http://localhost:20702/ -o /dev/null &&
+    curl -sf http://localhost:20703/v1/status/leader | grep -q ':' &&
+    echo stats | nc -w2 localhost 20704 | grep -q STAT
+  timeout: 180s
+  interval: 10s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # BLIND DISCOVERY — beacon must find all 5 services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-discovers-redis
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: blind-discovers-postgresql
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: blind-discovers-consul
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      check_id: port.consul_no_acl
+
+  - name: blind-discovers-memcached
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+  - name: blind-discovers-all-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      min_findings: 5
+
+  # ══════════════════════════════════════════════════════════════════════
+  # EXPLOIT MODE — authorized chain on all ports
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-all-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704", "--exploit", "--yes"]
+    expect:
+      min_findings: 5
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no false positives for absent services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-ssh-detected
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      not_check_id: port.ssh_exposed
+
+  - name: negative-no-vault-detected
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20700,20701,20702,20703,20704"]
+    expect:
+      not_check_id: port.vault_exposed
+
+timeout: 8m

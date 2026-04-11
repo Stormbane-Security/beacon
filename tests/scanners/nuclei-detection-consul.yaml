@@ -1,0 +1,132 @@
+name: nuclei-detection-consul
+description: >
+  Nuclei template detection for Consul 1.11 (known CVEs). Pipeline:
+  1. Surface: native probe detects consul_no_acl
+  2. Deep with nmap+nuclei: nuclei CVE templates match, min_findings increases
+  3. Exploit: chain engine fires consul exploit playbook
+  Consul 1.11.0 is vulnerable to CVE-2022-29153 (SSRF) among others.
+tags: [nuclei, consul, cve, exploit-chain, full-pipeline]
+
+services:
+  consul:
+    image: hashicorp/consul:1.11
+    ports: ["20732:8500"]
+    command: ["agent", "-dev", "-client=0.0.0.0"]
+
+ready:
+  cmd: "curl -sf http://localhost:20732/v1/status/leader 2>/dev/null | grep -q ':'"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT: Consul is accessible and unprotected
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-consul-responds
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20732/v1/catalog/nodes | grep -q 'Node'"
+      exit_code: 0
+
+  - name: preflight-kv-accessible
+    type: command
+    expect:
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:20732/v1/kv/?recurse | grep -qE '200|404'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 1: SURFACE — native probe detects consul_no_acl
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: surface-detects-consul-no-acl
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20732", "--yes"]
+    expect:
+      check_id: port.consul_no_acl
+
+  - name: surface-identifies-service
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20732", "--yes"]
+    expect:
+      check_id: port.service_identified
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 2: DEEP — with nmap + nuclei templates
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: deep-with-nmap-nuclei-more-findings
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-db", "--deep", "--ports", "20732", "--yes"]
+    expect:
+      min_findings: 2
+
+  - name: deep-without-nmap-baseline
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--deep", "--ports", "20732", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # STEP 3: EXPLOIT — chain engine fires
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: exploit-chain-fires
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-nmap", "--no-db", "--exploit", "--ports", "20732", "--yes"]
+    expect:
+      min_findings: 1
+
+  - name: exploit-with-nmap-full-chain
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-db", "--exploit", "--ports", "20732", "--yes"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # POST-EXPLOIT: Manual verification
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: postexploit-kv-write
+    type: command
+    expect:
+      command: "curl -sf -X PUT -d 'nuclei-consul-proof' http://localhost:20732/v1/kv/beacon/nuclei/test | grep -q 'true'"
+      exit_code: 0
+
+  - name: postexploit-kv-read
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20732/v1/kv/beacon/nuclei/test?raw | grep -q 'nuclei-consul-proof'"
+      exit_code: 0
+
+  - name: postexploit-agent-config
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20732/v1/agent/self | grep -q 'Config'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-no-redis
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20732", "--yes"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-no-vault
+    type: beacon
+    target: localhost:20732
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20732", "--yes"]
+    expect:
+      not_check_id: port.vault_exposed
+
+timeout: 8m
