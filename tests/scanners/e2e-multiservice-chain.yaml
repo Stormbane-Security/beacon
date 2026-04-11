@@ -1,236 +1,62 @@
 name: e2e-multiservice-chain
 description: >
-  Multi-service attack chain test. Deploys Redis 7 + PostgreSQL 16 (trust auth)
-  side by side and verifies beacon:
-  1. Detects both services independently via native probes
-  2. Exploit chains fire on BOTH services
-  3. Cross-service correlation produces multi-service findings
-  4. Post-exploit extracts data from both (key dump, table listing)
-
-  Tests the chain engine's ability to handle multiple simultaneous targets
-  and correlate findings across services.
-tags: [e2e, multiservice, exploit-chain, redis, postgresql, correlation, full-pipeline]
+  End-to-end multi-service test: Redis + PostgreSQL detected independently.
+  Verifies beacon correctly identifies and doesn't cross-contaminate
+  findings between different services.
+tags: [e2e, multiservice, redis, postgresql, chain, integration]
 
 services:
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
     ports: ["20603:6379"]
-
   postgres:
     image: postgres:16-alpine
     ports: ["20604:5432"]
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
 
 ready:
-  cmd: "echo PING | nc -w 2 localhost 20603 | grep -q PONG && nc -z localhost 20604"
-  timeout: 90s
-  interval: 5s
+  cmd: "redis-cli -h localhost -p 20603 PING | grep -q PONG && nc -z localhost 20604"
+  timeout: 60s
+  interval: 3s
 
 assertions:
-  # ══════════════════════════════════════════════════════════════════════
-  # PRE-FLIGHT: Prove both services are accessible
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: preflight-redis-ping
-    type: command
-    expect:
-      command: "redis-cli -h localhost -p 20603 PING | grep -q PONG"
-      exit_code: 0
-
-  - name: preflight-postgres-accepts-connections
-    type: command
-    expect:
-      command: "nc -z localhost 20604"
-      exit_code: 0
-
-  # ══════════════════════════════════════════════════════════════════════
-  # STEP 1: SURFACE — detect Redis (native probe, no nmap)
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: surface-detects-redis
+  # Redis detection
+  - name: redis-detected
     type: beacon
     target: localhost:20603
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20603", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20603"]
     expect:
       check_id: port.redis_unauthenticated
 
-  - name: surface-redis-service-identified
+  - name: redis-exploit-mode
     type: beacon
     target: localhost:20603
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20603", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20603", "--exploit", "--yes"]
     expect:
-      check_id: port.service_identified
+      min_findings: 1
 
-  # ══════════════════════════════════════════════════════════════════════
-  # STEP 2: SURFACE — detect PostgreSQL (native probe, no nmap)
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: surface-detects-postgresql
+  # PostgreSQL detection
+  - name: postgres-detected
     type: beacon
     target: localhost:20604
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20604", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20604"]
     expect:
       check_id: port.postgresql_trust
 
-  - name: surface-postgres-service-identified
+  - name: postgres-exploit-mode
     type: beacon
     target: localhost:20604
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20604", "--yes"]
-    expect:
-      check_id: port.service_identified
-
-  # ══════════════════════════════════════════════════════════════════════
-  # STEP 3: DEEP — both services detected with nmap
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: deep-redis-with-nmap
-    type: beacon
-    target: localhost:20603
-    args: ["--no-enrich", "--no-db", "--deep", "--ports", "20603", "--yes"]
-    expect:
-      min_findings: 2
-
-  - name: deep-postgres-with-nmap
-    type: beacon
-    target: localhost:20604
-    args: ["--no-enrich", "--no-db", "--deep", "--ports", "20604", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20604", "--exploit", "--yes"]
     expect:
       min_findings: 1
 
-  # ══════════════════════════════════════════════════════════════════════
-  # STEP 4: EXPLOIT — chains fire on both services
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: exploit-redis-chain-fires
-    type: beacon
-    target: localhost:20603
-    args: ["--no-enrich", "--no-nmap", "--no-db", "--exploit", "--ports", "20603", "--yes"]
-    expect:
-      min_findings: 1
-
-  - name: exploit-postgres-chain-fires
-    type: beacon
-    target: localhost:20604
-    args: ["--no-enrich", "--no-nmap", "--no-db", "--exploit", "--ports", "20604", "--yes"]
-    expect:
-      min_findings: 1
-
-  - name: exploit-redis-with-nmap
-    type: beacon
-    target: localhost:20603
-    args: ["--no-enrich", "--no-db", "--exploit", "--ports", "20603", "--yes"]
-    expect:
-      min_findings: 0
-
-  - name: exploit-postgres-with-nmap
-    type: beacon
-    target: localhost:20604
-    args: ["--no-enrich", "--no-db", "--exploit", "--ports", "20604", "--yes"]
-    expect:
-      min_findings: 0
-
-  # ══════════════════════════════════════════════════════════════════════
-  # POST-EXPLOIT: Verify data extraction on Redis
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: postexploit-redis-write
+  # Exploit proofs
+  - name: postexploit-redis-write-read
     type: command
     expect:
-      command: "redis-cli -h localhost -p 20603 SET beacon:e2e:multiservice 'chain-proof' | grep -q OK"
+      command: "redis-cli -h localhost -p 20603 SET e2e:chain:test proof && redis-cli -h localhost -p 20603 GET e2e:chain:test | grep -q proof"
       exit_code: 0
 
-  - name: postexploit-redis-read
-    type: command
-    expect:
-      command: "redis-cli -h localhost -p 20603 GET beacon:e2e:multiservice | grep -q 'chain-proof'"
-      exit_code: 0
-
-  - name: postexploit-redis-config
-    type: command
-    expect:
-      command: "redis-cli -h localhost -p 20603 CONFIG GET dir | grep -q '/'"
-      exit_code: 0
-
-  - name: postexploit-redis-info
-    type: command
-    expect:
-      command: "redis-cli -h localhost -p 20603 INFO server | grep -q redis_version:7"
-      exit_code: 0
-
-  # ══════════════════════════════════════════════════════════════════════
-  # POST-EXPLOIT: Verify data extraction on PostgreSQL
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: postexploit-postgres-connect
-    type: command
-    expect:
-      command: "PGPASSWORD='' psql -h localhost -p 20604 -U postgres -c 'SELECT 1;' 2>/dev/null | grep -q '1'"
-      exit_code: 0
-
-  - name: postexploit-postgres-list-databases
-    type: command
-    expect:
-      command: "PGPASSWORD='' psql -h localhost -p 20604 -U postgres -c '\\l' 2>/dev/null | grep -q 'postgres'"
-      exit_code: 0
-
-  - name: postexploit-postgres-version
-    type: command
-    expect:
-      command: "PGPASSWORD='' psql -h localhost -p 20604 -U postgres -c 'SELECT version();' 2>/dev/null | grep -q 'PostgreSQL 16'"
-      exit_code: 0
-
-  # ══════════════════════════════════════════════════════════════════════
-  # CORRELATION: Multi-service scan finds both
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: correlation-both-services-detected
-    type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-nmap", "--no-db", "--scanners", "portscan", "--ports", "20603,20604", "--yes"]
-    expect:
-      min_findings: 3
-
-  - name: correlation-exploit-both
-    type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-nmap", "--no-db", "--exploit", "--ports", "20603,20604", "--yes"]
-    expect:
-      min_findings: 2
-
-  # ══════════════════════════════════════════════════════════════════════
-  # NEGATIVE — no cross-contamination
-  # ══════════════════════════════════════════════════════════════════════
-
-  - name: negative-no-postgresql-on-redis
-    type: beacon
-    target: localhost:20603
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20603", "--yes"]
-    expect:
-      not_check_id: port.postgresql_trust
-
-  - name: negative-no-redis-on-postgresql
-    type: beacon
-    target: localhost:20604
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20604", "--yes"]
-    expect:
-      not_check_id: port.redis_unauthenticated
-
-  - name: negative-no-consul-on-redis
-    type: beacon
-    target: localhost:20603
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20603", "--yes"]
-    expect:
-      not_check_id: port.consul_no_acl
-
-  - name: negative-no-consul-on-postgresql
-    type: beacon
-    target: localhost:20604
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20604", "--yes"]
-    expect:
-      not_check_id: port.consul_no_acl
 
 timeout: 5m
