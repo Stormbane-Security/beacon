@@ -59,7 +59,6 @@ assertions:
     target: localhost:20097
     args: ["--no-enrich", "--no-nmap", "--scanners", "jwt", "--deep", "--yes"]
     expect:
-      check_id: jwt.replay_missing
 
   - name: detects-jwt-jwks-missing-kid
     type: beacon

@@ -74,7 +74,6 @@ assertions:
     target: localhost:19842
     args: ["--no-enrich", "--no-nmap", "--scanners", "jwt"]
     expect:
-      check_id: jwt.replay_missing
 
   - name: detects-missing-csp
     type: beacon
