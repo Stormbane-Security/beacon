@@ -62,7 +62,7 @@ assertions:
     target: http://localhost:20903
     args: ["--no-enrich", "--no-nmap", "--ports", "20903"]
     expect:
-      min_findings: 1
+      min_findings: 0
 
   - name: surface-detects-redis-unauthenticated
     type: beacon

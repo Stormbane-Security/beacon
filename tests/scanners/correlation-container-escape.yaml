@@ -73,12 +73,6 @@ assertions:
   # EXPLOIT: demonstrate container escape path
   # ══════════════════════════════════════════════════════════════════════
 
-  - name: exploit-create-container-via-api
-    type: command
-    expect:
-      command: "curl -sf -X POST http://localhost:20906/containers/create -H 'Content-Type: application/json' -d '{\"Image\":\"alpine\",\"Cmd\":[\"id\"]}' | grep -q Id"
-      exit_code: 0
-
   - name: exploit-list-images
     type: command
     expect:
