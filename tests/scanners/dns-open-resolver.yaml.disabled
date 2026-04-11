@@ -30,4 +30,20 @@ assertions:
     expect:
       check_id: port.dns_open_resolver
 
+  # Deep mode: active DNS probing
+  - name: deep-mode-dns
+    type: beacon
+    target: localhost:15354
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "15354"]
+    expect:
+      min_findings: 0
+
+  # Exploit mode: postexploit dns module fires
+  - name: exploit-mode-dns
+    type: beacon
+    target: localhost:15354
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "15354"]
+    expect:
+      min_findings: 0
+
 timeout: 3m

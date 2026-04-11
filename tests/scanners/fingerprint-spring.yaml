@@ -32,4 +32,20 @@ assertions:
     expect:
       check_id: exposure.spring_actuator
 
+  # Deep mode: portscan with active probing
+  - name: deep-mode-spring-actuator
+    type: beacon
+    target: localhost:9216
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "9216"]
+    expect:
+      min_findings: 0
+
+  # Exploit mode: postexploit spring_actuator module fires
+  - name: exploit-mode-spring-actuator
+    type: beacon
+    target: localhost:9216
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "9216"]
+    expect:
+      min_findings: 0
+
 timeout: 8m

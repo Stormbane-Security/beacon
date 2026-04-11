@@ -1,0 +1,148 @@
+name: variant-default-creds
+description: >
+  Default credentials / no-auth variant test across three different database
+  services: Redis (no auth), MongoDB (no auth), PostgreSQL (trust auth).
+  Verifies that beacon's portscan probes detect each independently with the
+  correct check ID — catching probe bugs where detection works on one
+  database engine but silently fails on another.
+tags: [variant, default-creds, redis, mongodb, postgresql, database, integration]
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "no"]
+    ports: ["20400:6379"]
+
+  mongodb:
+    image: mongo:7
+    command: ["mongod", "--bind_ip_all"]
+    ports: ["20401:27017"]
+
+  postgres:
+    image: postgres:16-alpine
+    ports: ["20402:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+
+ready:
+  cmd: "nc -z localhost 20400 && nc -z localhost 20401 && nc -z localhost 20402"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # REDIS — unauthenticated access
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: redis-unauthenticated-detected
+    type: beacon
+    target: localhost:20400
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20400"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  - name: redis-service-identified
+    type: beacon
+    target: localhost:20400
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20400"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-redis-write-read
+    type: command
+    expect:
+      command: "redis-cli -h localhost -p 20400 SET beacon:variant:test proof && redis-cli -h localhost -p 20400 GET beacon:variant:test | grep -q proof"
+      exit_code: 0
+
+  - name: exploit-redis-deep-scan
+    type: beacon
+    target: localhost:20400
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20400", "--deep", "--yes"]
+    expect:
+      check_id: port.redis_unauthenticated
+
+  # ══════════════════════════════════════════════════════════════════════
+  # MONGODB — no auth, exposed database
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: mongodb-database-exposed
+    type: beacon
+    target: localhost:20401
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20401"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: mongodb-service-identified
+    type: beacon
+    target: localhost:20401
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20401"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-mongodb-deep-scan
+    type: beacon
+    target: localhost:20401
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20401", "--deep", "--yes"]
+    expect:
+      check_id: port.database_exposed
+
+  # ══════════════════════════════════════════════════════════════════════
+  # POSTGRESQL — trust authentication (no password)
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: postgresql-trust-detected
+    type: beacon
+    target: localhost:20402
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20402"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: postgresql-service-identified
+    type: beacon
+    target: localhost:20402
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20402"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-postgresql-deep-scan
+    type: beacon
+    target: localhost:20402
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20402", "--deep", "--yes"]
+    expect:
+      check_id: port.postgresql_trust
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination between services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-redis-not-postgresql
+    type: beacon
+    target: localhost:20400
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20400"]
+    expect:
+      not_check_id: port.postgresql_trust
+
+  - name: negative-mongodb-not-redis
+    type: beacon
+    target: localhost:20401
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20401"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-postgresql-not-redis
+    type: beacon
+    target: localhost:20402
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20402"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-postgresql-not-mongodb
+    type: beacon
+    target: localhost:20402
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20402"]
+    expect:
+      not_check_id: port.mongodb_exposed
+
+timeout: 5m

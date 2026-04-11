@@ -1,0 +1,139 @@
+name: variant-http-fingerprint
+description: >
+  HTTP service fingerprinting variant test across three web servers:
+  nginx, Apache httpd, and a Node.js/Express app. Verifies that beacon
+  correctly identifies each server technology from response headers,
+  catching probe bugs where fingerprinting works on one server but
+  misidentifies another.
+tags: [variant, fingerprint, nginx, apache, express, http, integration]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["20410:80"]
+
+  apache:
+    image: httpd:alpine
+    ports: ["20411:80"]
+
+  node:
+    image: node:20-alpine
+    ports: ["20412:3000"]
+    command: ["node", "-e", "require('http').createServer((q,s)=>{s.setHeader('X-Powered-By','Express');s.end('ok')}).listen(3000)"]
+
+ready:
+  cmd: "curl -sf http://localhost:20410/ >/dev/null && curl -sf http://localhost:20411/ >/dev/null && curl -sf http://localhost:20412/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # NGINX — server header fingerprint
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-nginx-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20410/ | grep -qi 'Server: nginx'"
+      exit_code: 0
+
+  - name: nginx-service-identified
+    type: beacon
+    target: http://localhost:20410
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20410"]
+    expect:
+      min_findings: 0
+
+  - name: nginx-classify-server
+    type: classify
+    target: localhost:20410
+    expect:
+      server: nginx
+
+  - name: nginx-deep-scan
+    type: beacon
+    target: http://localhost:20410
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20410", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # APACHE — server header fingerprint
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-apache-server-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20411/ | grep -qi 'Server: Apache'"
+      exit_code: 0
+
+  - name: apache-service-identified
+    type: beacon
+    target: http://localhost:20411
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20411"]
+    expect:
+      min_findings: 0
+
+  - name: apache-classify-server
+    type: classify
+    target: localhost:20411
+    expect:
+      server: apache
+
+  - name: apache-deep-scan
+    type: beacon
+    target: http://localhost:20411
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20411", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NODE/EXPRESS — X-Powered-By fingerprint
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-express-header
+    type: command
+    expect:
+      command: "curl -sI http://localhost:20412/ | grep -qi 'X-Powered-By: Express'"
+      exit_code: 0
+
+  - name: express-service-identified
+    type: beacon
+    target: http://localhost:20412
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20412"]
+    expect:
+      min_findings: 0
+
+  - name: express-detected
+    type: beacon
+    target: http://localhost:20412
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20412"]
+    expect:
+      min_findings: 0
+
+  - name: express-deep-scan
+    type: beacon
+    target: http://localhost:20412
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20412", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-nginx-not-express
+    type: beacon
+    target: http://localhost:20410
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20410"]
+    expect:
+      not_min_findings: 0
+
+  - name: negative-apache-not-express
+    type: beacon
+    target: http://localhost:20411
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20411"]
+    expect:
+      not_min_findings: 0
+
+timeout: 5m

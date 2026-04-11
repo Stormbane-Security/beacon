@@ -57,4 +57,20 @@ assertions:
     expect:
       not_check_id: port.ftp_anonymous
 
+  # Deep mode: active SMTP probing
+  - name: deep-mode-smtp
+    type: beacon
+    target: localhost:19870
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--deep", "--yes", "--ports", "19870"]
+    expect:
+      min_findings: 0
+
+  # Exploit mode: postexploit smtp module fires
+  - name: exploit-mode-smtp
+    type: beacon
+    target: localhost:19870
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--exploit", "--yes", "--ports", "19870"]
+    expect:
+      min_findings: 0
+
 timeout: 5m
