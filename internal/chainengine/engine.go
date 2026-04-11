@@ -88,7 +88,10 @@ func (e *Engine) OnFinding(ctx context.Context, f finding.Finding) []finding.Fin
 	// If we know the affected range for this CVE and the version is outside
 	// it, skip chaining. If no version, proceed but mark chain findings
 	// as probable confidence.
-	triggerVersion, _ := f.Evidence["version"].(string)
+	var triggerVersion string
+	if v, ok := f.Evidence["version"].(string); ok {
+		triggerVersion = v
+	}
 	triggerHasVersion := triggerVersion != ""
 	if !triggerHasVersion {
 		// Some findings store version under service-specific keys.

