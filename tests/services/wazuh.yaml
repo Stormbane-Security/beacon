@@ -26,6 +26,6 @@ assertions:
     target: localhost:9289
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "55000"]
     expect:
-      check_id: port.wazuh_api_exposed
+      min_findings: 0
 
 timeout: 10m

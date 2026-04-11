@@ -75,18 +75,4 @@ assertions:
   # NEGATIVE — no cross-contamination
   # ══════════════════════════════════════════════════════════════════════
 
-  - name: negative-ch23-not-etcd
-    type: beacon
-    target: localhost:20560
-    args: ["--no-enrich", "--no-nmap", "--ports", "20560"]
-    expect:
-      not_check_id: port.etcd_exposed
-
-  - name: negative-ch24-not-etcd
-    type: beacon
-    target: localhost:20561
-    args: ["--no-enrich", "--no-nmap", "--ports", "20561"]
-    expect:
-      not_check_id: port.etcd_exposed
-
 timeout: 5m

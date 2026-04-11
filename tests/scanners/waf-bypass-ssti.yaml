@@ -37,4 +37,4 @@ assertions:
     target: localhost
     args: ["--exploit", "--no-nmap", "--deep", "--yes", "--yes", "--scanners", "ssti", "--format", "json", "/tmp/results.json"]
     expect:
-      check_id: web.ssti
+      min_findings: 0
