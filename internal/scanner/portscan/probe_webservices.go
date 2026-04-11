@@ -1520,9 +1520,15 @@ func wpFinding(host string, port int, useTLS bool, makeF findingMaker) []finding
 	}
 
 	// Check /xmlrpc.php accessibility.
+	// WordPress XML-RPC returns "XML-RPC server accepts POST requests only" or
+	// contains "xmlrpc" in a WordPress-specific context. Exclude S3-style XML
+	// error responses that contain the path name in <BucketName>.
 	if xmlBody, xmlOK := probeHTTPAnyBody(context.Background(), host, port, useTLS, "/xmlrpc.php"); xmlOK {
 		xmlLow := strings.ToLower(xmlBody)
-		if strings.Contains(xmlLow, "xml-rpc") || strings.Contains(xmlLow, "xmlrpc") {
+		isWPXMLRPC := (strings.Contains(xmlLow, "xml-rpc server accepts post requests only") ||
+			strings.Contains(xmlLow, "xml-rpc") && strings.Contains(xmlLow, "wordpress")) &&
+			!strings.Contains(xmlLow, "<bucketname>") // exclude S3 XML errors
+		if isWPXMLRPC {
 			ev["xmlrpc_accessible"] = true
 			findings = append(findings, makeF(
 				finding.CheckPortWordPressXMLRPCExposed,

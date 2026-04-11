@@ -4098,19 +4098,31 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 		return strings.Contains(authHeader, "Negotiate") || strings.Contains(authHeader, "NTLM") ||
 			strings.Contains(authHeader, "Kerberos")
 	}
-	// WinRM 415 (Unsupported Media Type) is characteristic — web apps rarely return this.
+	// WinRM 415 (Unsupported Media Type) is characteristic — but only if the
+	// server header suggests Windows/IIS, not a generic web server.
 	if resp.StatusCode == 415 {
-		return true
+		server := strings.ToLower(resp.Header.Get("Server"))
+		if strings.Contains(server, "microsoft") || strings.Contains(server, "iis") || server == "" {
+			return true
+		}
+		return false
 	}
-	// WinRM 200 returns SOAP/XML, not HTML. Check Content-Type and body structure.
+	// WinRM 200 returns SOAP/XML with WS-Management envelope, not generic XML.
+	// Check for SOAP-specific content to avoid false positives on S3/XML APIs.
 	bodyStr := string(body)
 	ct := resp.Header.Get("Content-Type")
-	if strings.Contains(ct, "soap") || strings.Contains(ct, "xml") {
+	if strings.Contains(ct, "soap") ||
+		(strings.Contains(ct, "xml") && (strings.Contains(bodyStr, "wsman") || strings.Contains(bodyStr, "WSMan") || strings.Contains(bodyStr, "Envelope"))) {
 		return true
 	}
 	// Reject HTML responses — web apps return HTML for any path.
 	trimmed := strings.TrimSpace(bodyStr)
 	if strings.HasPrefix(trimmed, "<!") || strings.HasPrefix(strings.ToLower(trimmed), "<html") {
+		return false
+	}
+	// Reject S3/object-storage XML error responses.
+	if strings.Contains(bodyStr, "<BucketName>") || strings.Contains(bodyStr, "<Code>AccessDenied</Code>") ||
+		strings.Contains(bodyStr, "x-amz-request-id") || strings.Contains(bodyStr, "X-Amz-") {
 		return false
 	}
 	return strings.Contains(bodyStr, "schemas.dmtf.org") || strings.Contains(bodyStr, "xmlsoap.org")
