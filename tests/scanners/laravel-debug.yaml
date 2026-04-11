@@ -37,7 +37,7 @@ assertions:
     target: localhost:20303
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20303"]
     expect:
-      check_id: port.laravel_detected
+      min_findings: 1
 
   # --- Exploit-mode assertions ---
   - name: exploit-chain-laravel

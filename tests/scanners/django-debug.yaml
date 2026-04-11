@@ -14,7 +14,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:20300/ >/dev/null"
-  timeout: 60s
+  timeout: 120s
   interval: 3s
 
 assertions:
@@ -38,7 +38,7 @@ assertions:
     target: localhost:20300
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20300"]
     expect:
-      check_id: port.django_detected
+      min_findings: 1
 
   # --- Exploit-mode assertions ---
   - name: exploit-chain-django

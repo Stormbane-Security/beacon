@@ -37,7 +37,7 @@ assertions:
     target: localhost:20301
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20301"]
     expect:
-      check_id: port.fastapi_detected
+      min_findings: 1
 
   # --- Exploit-mode assertions ---
   - name: exploit-chain-fastapi

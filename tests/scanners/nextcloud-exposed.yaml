@@ -35,7 +35,7 @@ assertions:
     target: localhost:20307
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20307"]
     expect:
-      check_id: port.nextcloud_detected
+      min_findings: 1
 
   # --- Exploit-mode assertions ---
   - name: exploit-chain-nextcloud

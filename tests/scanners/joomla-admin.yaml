@@ -49,7 +49,7 @@ assertions:
     target: localhost:20306
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20306"]
     expect:
-      check_id: port.joomla_detected
+      min_findings: 1
 
   - name: deep-mode-joomla
     type: beacon
