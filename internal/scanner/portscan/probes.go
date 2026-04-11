@@ -3,9 +3,12 @@ package portscan
 import (
 	"context"
 	"fmt"
+	"log"
+	"net"
+	"runtime/debug"
 	"strings"
 	"time"
-	"net"
+
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/scanlog"
 )
@@ -191,6 +194,13 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		sem := make(chan struct{}, maxProbeParallel)
 		for _, p := range protocolProbes {
 			go func(probe ServiceProbe) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("beacon: probe %s panic on %s:%d (recovered): %v", probe.Name, host, port, r)
+						debug.PrintStack()
+						resultCh <- probeResult{probe: probe}
+					}
+				}()
 				select {
 				case sem <- struct{}{}:
 					defer func() { <-sem }()
@@ -469,6 +479,11 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// Redis: send PING, expect +PONG
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
@@ -489,6 +504,11 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// MySQL: connect and read greeting packet (server sends it first)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
@@ -507,6 +527,11 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// PostgreSQL: send SSLRequest, check for 'N' or 'S' response
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
@@ -526,6 +551,11 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// SMTP: wait for 220 banner
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
@@ -544,6 +574,11 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// MongoDB: send isMaster command, check for valid BSON response
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
@@ -600,6 +635,11 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 
 	// SSH: wait for "SSH-" banner (some SSH servers are slow to send)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- checkResult{}
+			}
+		}()
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}

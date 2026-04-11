@@ -358,13 +358,20 @@ func detectCouchDB(ctx context.Context, host string, port int, banner string, ma
 	// Check unauthenticated access: /_all_dbs returns JSON array without credentials.
 	body, ok := probeHTTPBody(ctx, host, port, false, "/_all_dbs")
 	if ok && strings.HasPrefix(strings.TrimSpace(body), "[") {
+		ev := map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner}
+		// Extract CouchDB version from root / JSON response ({"couchdb":"Welcome","version":"3.3.2"}).
+		if rootBody, rootOk := probeHTTPBody(ctx, host, port, false, "/"); rootOk {
+			if ver := parseJSONStringField(rootBody, "version"); ver != "" {
+				ev["version"] = ver
+			}
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortCouchDBUnauth,
 			finding.SeverityCritical,
 			fmt.Sprintf("Unauthenticated CouchDB exposed on port %d", port),
 			"A CouchDB instance is accessible without authentication. "+
 				"All databases and their documents can be read, modified, or deleted.",
-			map[string]any{"port": port, "service": "couchdb", "authenticated": false, "banner": banner},
+			ev,
 		)}
 	}
 	// Fallback: CouchDB root / returns {"couchdb":"Welcome",...} even with auth enabled.
@@ -375,6 +382,10 @@ func detectCouchDB(ctx context.Context, host string, port int, banner string, ma
 	if !strings.Contains(rootBody, `"couchdb"`) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "couchdb", "banner": banner}
+	if ver := parseJSONStringField(rootBody, "version"); ver != "" {
+		ev["version"] = ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDatabaseExposed,
 		finding.SeverityHigh,
@@ -382,14 +393,14 @@ func detectCouchDB(ctx context.Context, host string, port int, banner string, ma
 		"A CouchDB database is publicly accessible. Although authentication may be configured, "+
 			"the CouchDB service is reachable from the network and may be subject to brute-force or "+
 			"exploitation of known CouchDB vulnerabilities. Restrict to trusted networks.",
-		map[string]any{"port": port, "service": "couchdb", "banner": banner},
+		ev,
 	)}
 }
 
 func detectInfluxDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// InfluxDB /ping returns 204 No Content. If the response has HTML body content,
 	// it's a SPA returning its shell, not InfluxDB.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/ping")
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/ping")
 	if !ok {
 		return nil
 	}
@@ -397,13 +408,20 @@ func detectInfluxDB(ctx context.Context, host string, port int, banner string, m
 	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "<!") {
 		return nil // HTML response — not InfluxDB
 	}
+	ev := map[string]any{"port": port, "service": "influxdb", "authenticated": false, "banner": banner}
+	// Extract InfluxDB version from X-Influxdb-Version header (returned on /ping).
+	if ver := hdrs.Get("X-Influxdb-Version"); ver != "" {
+		ev["version"] = ver
+	} else if ver := hdrs.Get("X-Influxdb-Build"); ver != "" {
+		ev["version"] = ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortInfluxDBExposed,
 		finding.SeverityHigh,
 		fmt.Sprintf("InfluxDB exposed on port %d", port),
 		"An InfluxDB time-series database is publicly accessible. Without authentication, "+
 			"all stored metrics data can be read, modified, or deleted.",
-		map[string]any{"port": port, "service": "influxdb", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 

@@ -15,10 +15,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -555,7 +557,15 @@ func isDeepOrAuthorized(t module.ScanType) bool {
 }
 
 // Run executes the full surface scan pipeline driven by playbooks.
-func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) ([]finding.Finding, error) {
+func (m *Module) Run(ctx context.Context, input module.Input, scanType module.ScanType) (allResults []finding.Finding, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: surface module panic (recovered): %v", r)
+			debug.PrintStack()
+			retErr = fmt.Errorf("surface module panicked: %v", r)
+		}
+	}()
+
 	rootDomain := input.Domain
 
 	// Store scanner filter and dry-run flag for use in runAsset.
@@ -758,6 +768,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		go func() {
 			defer wgStream.Done()
 			defer func() { <-streamSem }()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("beacon: launchAssetScan goroutine panic on %s (recovered): %v", asset, r)
+					debug.PrintStack()
+				}
+			}()
 			if input.Progress != nil {
 				input.Progress(module.ProgressEvent{
 					Phase:       "scanning",
@@ -1131,6 +1147,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			go func() {
 				defer wgCrawl.Done()
 				defer func() { <-streamSem }()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("beacon: crawl expansion goroutine panic on %s (recovered): %v", asset, r)
+						debug.PrintStack()
+					}
+				}()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1175,6 +1197,12 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 			go func() {
 				defer wgHarvester.Done()
 				defer func() { <-streamSem }()
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("beacon: harvester expansion goroutine panic on %s (recovered): %v", asset, r)
+						debug.PrintStack()
+					}
+				}()
 				fs := m.runAsset(ctx, asset, rootDomain, scanType, input.ScanRunID, 0, input.Progress, expandSeen, &expandSeenMu)
 				appendFindings(fs)
 			}()
@@ -1501,7 +1529,14 @@ func deduplicateFindings(findings []finding.Finding) []finding.Finding {
 // against a single asset. No evidence collection, playbook matching, or
 // convergence loops — just the bare scanner runs. Used by --scanners mode
 // for targeted testing (e.g. Drydock).
-func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) []finding.Finding {
+func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType module.ScanType, scanRunID string, progressFn module.ProgressFunc) (results []finding.Finding) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: runFilteredScanners panic on %s (recovered): %v", asset, r)
+			debug.PrintStack()
+		}
+	}()
+
 	// Inject auth context for filtered scanner runs (--scanners mode).
 	// The normal runAsset path does this after evidence collection, but the
 	// filtered path skips evidence — auth must be injected here.
@@ -1577,6 +1612,12 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("beacon: filtered scanner %s panic on %s (recovered): %v", name, asset, r)
+					debug.PrintStack()
+				}
+			}()
 			result := scan.Execute(scanner, ctx, asset, scanType)
 			mu.Lock()
 			findings = append(findings, result.Findings...)
@@ -1606,7 +1647,14 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 // expandSeen is a shared set (protected by expandSeenMu) that prevents two
 // concurrent runAsset goroutines from independently discovering and scanning
 // the same cert-SAN / port-service / body-subdomain child asset.
-func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanType module.ScanType, scanRunID string, depth int, progressFn module.ProgressFunc, expandSeen map[string]bool, expandSeenMu *sync.Mutex) []finding.Finding {
+func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanType module.ScanType, scanRunID string, depth int, progressFn module.ProgressFunc, expandSeen map[string]bool, expandSeenMu *sync.Mutex) (results []finding.Finding) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: runAsset panic on %s (recovered): %v", asset, r)
+			debug.PrintStack()
+		}
+	}()
+
 	// ── Fast path: --scanners filter ────────────────────────────────────────
 	// When a scanner filter is active, skip evidence collection, playbook
 	// matching, Phase A intelligence, and convergence loops. Just run the

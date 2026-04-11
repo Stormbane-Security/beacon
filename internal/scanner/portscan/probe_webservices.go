@@ -398,6 +398,16 @@ func detectConsul(ctx context.Context, host string, port int, banner string, mak
 			!strings.Contains(bodyLow, "datacenter")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "consul",
+		"url": fmt.Sprintf("http://%s:%d/v1/catalog/nodes", host, port)}
+	// Extract Consul version from /v1/agent/self (already unauthenticated if ACLs are off).
+	if selfBody, selfOK := probeHTTPBody(ctx, host, port, false, "/v1/agent/self"); selfOK {
+		if ver := parseJSONStringField(selfBody, "Version"); ver != "" {
+			ev["version"] = ver
+		} else if ver := parseJSONStringField(selfBody, "version"); ver != "" {
+			ev["version"] = ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortConsulNoACL,
 		finding.SeverityHigh,
@@ -408,8 +418,7 @@ func detectConsul(ctx context.Context, host string, port int, banner string, mak
 			"TLS certificates, and database credentials). An attacker can also register malicious "+
 			"services to redirect internal traffic. Enable Consul ACLs "+
 			"(acl { enabled = true }) and restrict the HTTP port to trusted networks.",
-		map[string]any{"port": port, "service": "consul",
-			"url": fmt.Sprintf("http://%s:%d/v1/catalog/nodes", host, port)},
+		ev,
 	)}
 }
 
@@ -1619,6 +1628,66 @@ func parseWPVersionFromBody(body string) string {
 	return ""
 }
 
+// parseGeneratorVersion extracts a version number from a <meta name="generator"> tag
+// whose content starts with the given product name (case-insensitive).
+// Example: <meta name="generator" content="Joomla! 4.3.2" /> → "4.3.2"
+func parseGeneratorVersion(body, product string) string {
+	bodyLow := strings.ToLower(body)
+	productLow := strings.ToLower(product)
+	// Look for generator meta tag containing the product name.
+	genIdx := strings.Index(bodyLow, "generator")
+	if genIdx < 0 {
+		return ""
+	}
+	// Find the product name after the generator tag.
+	rest := bodyLow[genIdx:]
+	pIdx := strings.Index(rest, productLow)
+	if pIdx < 0 {
+		return ""
+	}
+	after := body[genIdx+pIdx+len(product):]
+	// Skip non-digit prefix (e.g. "! " in "Joomla! 4.3.2").
+	ver := ""
+	started := false
+	for _, c := range after {
+		if (c >= '0' && c <= '9') || c == '.' {
+			ver += string(c)
+			started = true
+		} else if started {
+			break
+		}
+		// Stop scanning if we hit tag boundary.
+		if c == '"' || c == '<' || c == '>' {
+			break
+		}
+	}
+	if ver != "" && strings.Contains(ver, ".") {
+		return strings.TrimRight(ver, ".")
+	}
+	return ""
+}
+
+// parseXMLVersion extracts version from a <version>X.Y.Z</version> XML tag.
+func parseXMLVersion(body string) string {
+	bodyLow := strings.ToLower(body)
+	const tag = "<version>"
+	const endTag = "</version>"
+	idx := strings.Index(bodyLow, tag)
+	if idx < 0 {
+		return ""
+	}
+	rest := body[idx+len(tag):]
+	end := strings.Index(strings.ToLower(rest), endTag)
+	if end < 0 || end > 30 {
+		return ""
+	}
+	ver := strings.TrimSpace(rest[:end])
+	if strings.Contains(ver, ".") {
+		return ver
+	}
+	return ""
+}
+
 // detectDrupal identifies Drupal via X-Drupal-Cache header, Drupal.settings in body, or drupal.js.
 // Enhanced: extracts version from CHANGELOG.txt, X-Generator header, and checks /core/install.php.
 func detectDrupal(ctx context.Context, host string, port int, _ string, makeF findingMaker) []finding.Finding {
@@ -1756,6 +1825,23 @@ func detectJoomla(ctx context.Context, host string, port int, _ string, makeF fi
 	if !isJoomla {
 		return nil
 	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "joomla",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/administrator/", scheme(useTLS), host, port),
+	}
+	// Extract Joomla version from <meta name="generator" content="Joomla! X.Y.Z" />
+	// in the already-fetched homepage body.
+	if ver := parseGeneratorVersion(body, "joomla"); ver != "" {
+		ev["version"] = ver
+	} else {
+		// Try /administrator/manifests/files/joomla.xml which contains <version>X.Y.Z</version>.
+		if xmlBody, xmlOK := probeHTTPAnyBody(ctx, host, port, useTLS, "/administrator/manifests/files/joomla.xml"); xmlOK {
+			if v := parseXMLVersion(xmlBody); v != "" {
+				ev["version"] = v
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortJoomlaDetected,
 		finding.SeverityInfo,
@@ -1763,11 +1849,7 @@ func detectJoomla(ctx context.Context, host string, port int, _ string, makeF fi
 		"A Joomla installation is running. Check for outdated core/extensions and exposed "+
 			"/administrator/ login. CVE-2015-8562 (PHP object injection via User-Agent) and "+
 			"CVE-2023-23752 (unauthenticated info disclosure) are common Joomla attack vectors.",
-		map[string]any{
-			"port":    port,
-			"service": "joomla",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/administrator/", scheme(useTLS), host, port),
-		},
+		ev,
 	)}
 }
 
@@ -1830,6 +1912,7 @@ func detectNextcloud(ctx context.Context, host string, port int, _ string, makeF
 	}
 	if ver := parseJSONStringField(body, "versionstring"); ver != "" {
 		ev["nextcloud_version"] = ver
+		ev["version"] = ver
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNextcloudDetected,
@@ -1859,6 +1942,13 @@ func detectSpringBoot(ctx context.Context, host string, port int, _ string, make
 		"port":    port,
 		"service": "spring-boot-actuator",
 		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/actuator", scheme(useTLS), host, port),
+	}
+
+	// Extract Spring Boot version from /actuator/info if available.
+	if infoBody, infoOK := probeHTTPBody(ctx, host, port, useTLS, "/actuator/info"); infoOK {
+		if ver := parseJSONStringField(infoBody, "version"); ver != "" {
+			ev["version"] = ver
+		}
 	}
 
 	// Check which sensitive endpoints are exposed.
@@ -1900,6 +1990,29 @@ func detectDjango(ctx context.Context, host string, port int, _ string, makeF fi
 		// Django debug mode shows a distinctive page.
 		if strings.Contains(bodyLow, "you're seeing this message because") &&
 			strings.Contains(bodyLow, "django") {
+			ev := map[string]any{
+				"port":       port,
+				"service":    "django",
+				"debug_mode": true,
+				"proof":      fmt.Sprintf("curl -sk %s://%s:%d/", scheme(useTLS), host, port),
+			}
+			// Extract Django version from debug page text like "Django Version: 4.2.1"
+			if idx := strings.Index(bodyLow, "django version"); idx >= 0 {
+				after := body[idx:]
+				ver := ""
+				inVer := false
+				for _, c := range after {
+					if (c >= '0' && c <= '9') || c == '.' {
+						ver += string(c)
+						inVer = true
+					} else if inVer {
+						break
+					}
+				}
+				if ver != "" && strings.Contains(ver, ".") {
+					ev["version"] = strings.TrimRight(ver, ".")
+				}
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortDjangoDetected,
 				finding.SeverityMedium,
@@ -1907,12 +2020,7 @@ func detectDjango(ctx context.Context, host string, port int, _ string, makeF fi
 				"Django is running with DEBUG=True, exposing detailed error pages with settings, "+
 					"installed apps, middleware, URL patterns, and database configuration to any visitor. "+
 					"Set DEBUG=False in production immediately.",
-				map[string]any{
-					"port":       port,
-					"service":    "django",
-					"debug_mode": true,
-					"proof":      fmt.Sprintf("curl -sk %s://%s:%d/", scheme(useTLS), host, port),
-				},
+				ev,
 			)}
 		}
 	}

@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -171,6 +173,14 @@ func info(format string, args ...any) {
 }
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("beacon: internal error (recovered panic): %v", r)
+			debug.PrintStack()
+			os.Exit(1)
+		}
+	}()
+
 	if len(os.Args) < 2 {
 		// No subcommand — open the interactive scan history browser.
 		cfg, err := config.Load()
@@ -890,6 +900,14 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 	resultCh := make(chan scanResult, 1)
 	scanDone := make(chan struct{}) // closed when the scan goroutine exits
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("beacon: scan goroutine panic (recovered): %v", r)
+				debug.PrintStack()
+				resultCh <- scanResult{nil, fmt.Errorf("scan panicked: %v", r)}
+				close(scanDone)
+			}
+		}()
 		f, e := mod.Run(ctx, input, scanType)
 		resultCh <- scanResult{f, e}
 		close(scanDone)

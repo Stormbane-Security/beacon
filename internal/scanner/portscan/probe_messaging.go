@@ -91,6 +91,12 @@ func detectRabbitMQMgmt(ctx context.Context, host string, port int, banner strin
 		bodyLow := strings.ToLower(body)
 		if strings.Contains(bodyLow, "rabbitmq") {
 			ev := map[string]any{"port": port, "service": "rabbitmq-mgmt"}
+			// Try /api/overview for version (unauthenticated on older installs).
+			if overviewBody, overviewOK := probeHTTPBody(ctx, host, port, false, "/api/overview"); overviewOK {
+				if ver := parseJSONStringField(overviewBody, "rabbitmq_version"); ver != "" {
+					ev["version"] = ver
+				}
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortRabbitMQMgmtExposed,
 				finding.SeverityHigh,
@@ -108,6 +114,10 @@ func detectRabbitMQMgmt(ctx context.Context, host string, port int, banner strin
 	if body, ok := probeHTTPBodyWithAuth(ctx, host, port, false, "/api/overview", "guest", "guest"); ok {
 		bodyLow := strings.ToLower(body)
 		if strings.Contains(bodyLow, "rabbitmq_version") || strings.Contains(bodyLow, "cluster_name") {
+			ev := map[string]any{"port": port, "service": "rabbitmq-mgmt", "creds": "guest:guest", "authenticated": true}
+			if ver := parseJSONStringField(body, "rabbitmq_version"); ver != "" {
+				ev["version"] = ver
+			}
 			return []finding.Finding{makeF(
 				finding.CheckPortRabbitMQDefaultCreds,
 				finding.SeverityCritical,
@@ -116,7 +126,7 @@ func detectRabbitMQMgmt(ctx context.Context, host string, port int, banner strin
 					"An attacker can read all messages in transit, publish arbitrary messages, delete queues, "+
 					"reconfigure exchanges and virtual hosts, and manage user accounts. "+
 					"Delete the guest account and create named service accounts with minimal permissions.",
-				map[string]any{"port": port, "service": "rabbitmq-mgmt", "creds": "guest:guest", "authenticated": true},
+				ev,
 			)}
 		}
 	}
@@ -146,6 +156,7 @@ func detectNATSMonitoring(ctx context.Context, host string, port int, banner str
 	ev := map[string]any{"port": port, "service": "nats"}
 	if ver := parseJSONStringField(body, "version"); ver != "" {
 		ev["nats_version"] = ver
+		ev["version"] = ver
 	}
 	if !strings.Contains(body, "server_id") && !strings.Contains(body, "nats") {
 		return nil
@@ -184,6 +195,11 @@ func detectActiveMQ(ctx context.Context, host string, port int, banner string, m
 		)}
 	}
 	// ActiveMQ detected but version not determined or not vulnerable — still report exposure.
+	ev := map[string]any{"port": port, "service": "activemq", "banner": banner}
+	// Try to extract version from banner even if not in the CVE-vulnerable range.
+	if verStr != "" {
+		ev["version"] = verStr
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortActiveMQExposed,
 		finding.SeverityHigh,
@@ -193,7 +209,7 @@ func detectActiveMQ(ctx context.Context, host string, port int, banner string, m
 			"trusted application networks. Multiple critical CVEs affect ActiveMQ brokers "+
 			"including CVE-2023-46604 (CVSS 10.0, RCE). Verify the version and patch level, "+
 			"and restrict port 61616 to internal networks immediately.",
-		map[string]any{"port": port, "service": "activemq", "banner": banner},
+		ev,
 	)}
 }
 

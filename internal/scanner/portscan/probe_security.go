@@ -230,13 +230,18 @@ func detectKubelet(ctx context.Context, host string, port int, banner string, ma
 	if !ok || !strings.Contains(body, "PodList") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "kubelet", "authenticated": false, "banner": banner}
+	// Extract kubelet version from the /pods response (e.g. "kubeletVersion":"v1.28.2").
+	if ver := parseJSONStringField(body, "kubeletVersion"); ver != "" {
+		ev["version"] = ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortKubeletUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated Kubelet API exposed on port %d", port),
 		"The Kubernetes Kubelet API is reachable without authentication. "+
 			"An attacker can enumerate running pods and execute commands inside containers.",
-		map[string]any{"port": port, "service": "kubelet", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -345,6 +350,20 @@ func detectProxmox(ctx context.Context, host string, port int, banner string, ma
 	if !strings.Contains(bodyLow, "proxmox") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "proxmox",
+		"url": fmt.Sprintf("https://%s:%d", host, port)}
+	// Extract PVE version from the login page body (data-version or pvemanagerversion).
+	if ver := parseJSONStringField(body, "pvemanagerversion"); ver != "" {
+		ev["version"] = ver
+	} else if idx := strings.Index(bodyLow, "data-version="); idx >= 0 {
+		rest := body[idx+len("data-version="):]
+		if len(rest) > 1 && rest[0] == '"' {
+			end := strings.IndexByte(rest[1:], '"')
+			if end > 0 && end < 30 {
+				ev["version"] = rest[1 : end+1]
+			}
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortProxmoxExposed,
 		finding.SeverityHigh,
@@ -355,8 +374,7 @@ func detectProxmox(ctx context.Context, host string, port int, banner string, ma
 			"passwords combined with internet exposure create critical infrastructure risk. "+
 			"Proxmox management should be restricted to dedicated management VLANs "+
 			"accessible only via VPN. Enable 2FA and change default credentials immediately.",
-		map[string]any{"port": port, "service": "proxmox",
-			"url": fmt.Sprintf("https://%s:%d", host, port)},
+		ev,
 	)}
 }
 

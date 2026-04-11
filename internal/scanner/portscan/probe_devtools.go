@@ -167,6 +167,7 @@ func detectGradio(ctx context.Context, host string, port int, banner string, mak
 	ev := map[string]any{"port": port, "service": "gradio", "banner": banner}
 	if version != "" {
 		ev["gradio_version"] = version
+		ev["version"] = version
 	}
 	if predictNoAuth || noAuth {
 		ev["unauthenticated_predict"] = true
@@ -335,6 +336,9 @@ func detectOllama(ctx context.Context, host string, port int, banner string, mak
 	if vbody, ok := probeHTTPBody(ctx, host, port, false, "/api/version"); ok {
 		if strings.Contains(vbody, "version") {
 			ev["api_version_response"] = vbody
+			if ver := parseJSONStringField(vbody, "version"); ver != "" {
+				ev["version"] = ver
+			}
 			var findings []finding.Finding
 			if isVulnerableOllamaVersion(vbody) {
 				findings = append(findings, makeF(
