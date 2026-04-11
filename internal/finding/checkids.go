@@ -2884,6 +2884,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVESMBMS08067:        {CheckCVESMBMS08067, SeverityCritical, ModeDeep},
 	CheckCVEOpenSSLHeartbleed: {CheckCVEOpenSSLHeartbleed, SeverityCritical, ModeDeep},
 	CheckCVEBashShellshock:    {CheckCVEBashShellshock, SeverityCritical, ModeDeep},
+	CheckCVETFTPUnauthAccess: {CheckCVETFTPUnauthAccess, SeverityMedium, ModeDeep},
+	CheckCVEJaegerUnauthTraces: {CheckCVEJaegerUnauthTraces, SeverityHigh, ModeDeep},
 
 	// Non-HTTP protocol exposure
 	CheckPortMQTTExposed:    {CheckPortMQTTExposed, SeverityHigh, ModeSurface},

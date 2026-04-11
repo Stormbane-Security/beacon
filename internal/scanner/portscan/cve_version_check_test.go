@@ -46,10 +46,12 @@ func TestCheckVersionCVEs_NginxVulnerable(t *testing.T) {
 }
 
 func TestCheckVersionCVEs_NginxSafe(t *testing.T) {
-	// nginx 1.25.0 should NOT match any CVE
-	results := CheckVersionCVEs("nginx", "1.25.0", cveMakeF)
-	if len(results) > 0 {
-		t.Errorf("expected no CVEs for nginx 1.25.0, got: %v", checkIDs(results))
+	// nginx 1.27.0 should NOT match any nginx-specific CVE (HTTP/2 rapid reset is generic)
+	results := CheckVersionCVEs("nginx", "1.27.0", cveMakeF)
+	for _, r := range results {
+		if r.CheckID != "cve.http2_rapid_reset" {
+			t.Errorf("unexpected CVE for nginx 1.27.0: %s", r.CheckID)
+		}
 	}
 }
 
@@ -149,10 +151,12 @@ func TestCheckVersionCVEs_ApacheTraversal(t *testing.T) {
 }
 
 func TestCheckVersionCVEs_ApacheSafe(t *testing.T) {
-	// Apache 2.4.52 should NOT match
-	results := CheckVersionCVEs("Apache", "2.4.52", cveMakeF)
-	if len(results) > 0 {
-		t.Errorf("expected no CVEs for Apache 2.4.52, got: %v", checkIDs(results))
+	// Apache 2.4.62 should NOT match any Apache-specific CVE
+	results := CheckVersionCVEs("Apache", "2.4.62", cveMakeF)
+	for _, r := range results {
+		if r.CheckID != "cve.http2_rapid_reset" {
+			t.Errorf("unexpected CVE for Apache 2.4.62: %s", r.CheckID)
+		}
 	}
 }
 

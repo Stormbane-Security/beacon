@@ -1316,10 +1316,6 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 }
 
 // probeMemcached sends the ASCII stats command and checks for STAT in the response.
-func probeMemcached(ctx context.Context, host string, port int) bool {
-	_, ok := probeMemcachedStats(ctx, host, port)
-	return ok
-}
 
 // probeMemcachedStats sends "stats\r\n" and returns the raw response if it
 // contains STAT lines (indicating a valid Memcached instance).

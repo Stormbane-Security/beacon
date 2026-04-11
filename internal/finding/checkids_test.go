@@ -958,6 +958,8 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckCVEConfluenceAuthRCE:               true,
 		finding.CheckCVEVeeamAgentRCE:                   true,
 		finding.CheckCVECheckPointInfoLeak:              true,
+		finding.CheckCVETFTPUnauthAccess:                true,
+		finding.CheckCVEJaegerUnauthTraces:              true,
 		// WordPress plugin CVEs
 		finding.CheckCVEWPFileManagerRCE:                 true,
 		finding.CheckCVEWPDiscuzRCE:                      true,
