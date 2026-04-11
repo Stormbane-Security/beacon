@@ -1,0 +1,133 @@
+name: checkid-port-databases
+description: >
+  Grouped check ID coverage for database port.* findings: cassandra_exposed,
+  cassandra_no_auth, influxdb_exposed, mssql_exposed. Each service runs on a
+  dedicated port in the 20950-20970 range.
+tags: [checkid, database, portscan, cassandra, influxdb, mssql]
+
+services:
+  cassandra:
+    image: cassandra:4.1
+    ports: ["20950:9042"]
+    environment:
+      CASSANDRA_AUTHENTICATOR: AllowAllAuthenticator
+      MAX_HEAP_SIZE: 256M
+      HEAP_NEWSIZE: 64M
+
+  influxdb:
+    image: influxdb:1.8-alpine
+    ports: ["20951:8086"]
+    environment:
+      INFLUXDB_HTTP_AUTH_ENABLED: "false"
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    ports: ["20952:1433"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "BeaconTest1!"
+
+ready:
+  cmd: "curl -sf http://localhost:20951/ping >/dev/null && nc -z localhost 20952"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-influxdb-ping
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20951/ping"
+      exit_code: 0
+
+  - name: preflight-mssql-tcp
+    type: command
+    expect:
+      command: "nc -z localhost 20952"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CASSANDRA: port.cassandra_exposed + port.cassandra_no_auth
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Cassandra CQL is a binary protocol — the portscan probe does a CQL
+  # handshake to fingerprint the service.
+  - name: checkid-cassandra-exposed
+    type: beacon
+    target: localhost:20950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20950"]
+    expect:
+      check_id: port.cassandra_exposed
+
+  - name: checkid-cassandra-no-auth
+    type: beacon
+    target: localhost:20950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20950"]
+    expect:
+      check_id: port.cassandra_no_auth
+
+  - name: exploit-cassandra
+    type: beacon
+    target: localhost:20950
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20950", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # INFLUXDB: port.influxdb_exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-influxdb-exposed
+    type: beacon
+    target: localhost:20951
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20951"]
+    expect:
+      check_id: port.influxdb_exposed
+
+  - name: exploit-influxdb
+    type: beacon
+    target: localhost:20951
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20951", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # MSSQL: port.mssql_exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-mssql-exposed
+    type: beacon
+    target: localhost:20952
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20952"]
+    expect:
+      check_id: port.mssql_exposed
+
+  - name: exploit-mssql
+    type: beacon
+    target: localhost:20952
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20952", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination between services
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-influxdb-no-cassandra
+    type: beacon
+    target: localhost:20951
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20951"]
+    expect:
+      not_check_id: port.cassandra_exposed
+
+  - name: negative-mssql-no-influxdb
+    type: beacon
+    target: localhost:20952
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20952"]
+    expect:
+      not_check_id: port.influxdb_exposed
+
+timeout: 10m

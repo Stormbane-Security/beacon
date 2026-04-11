@@ -1,0 +1,138 @@
+name: checkid-web-vulns
+description: >
+  Grouped check ID coverage for web vulnerability findings. Uses nginx with
+  autoindex (directory listing), exposed Server header (headers.server_info_leak),
+  and PUT/DELETE methods (web.dangerous_method_enabled). Also tests the WordPress
+  XML-RPC check ID (port.wordpress_xmlrpc_exposed) using a real WordPress instance.
+tags: [checkid, web, httpmethods, headers, wordpress]
+
+services:
+  # ── Nginx with autoindex + dangerous methods + server header ────────
+  nginx-insecure:
+    image: nginx:alpine
+    ports: ["20967:80"]
+    volumes:
+      - ./httpmethods/nginx.conf:/etc/nginx/conf.d/methods.conf:ro
+
+  # ── WordPress with xmlrpc.php exposed ───────────────────────────────
+  wp-db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+
+  wordpress:
+    image: wordpress:latest
+    ports: ["20968:80"]
+    environment:
+      WORDPRESS_DB_HOST: wp-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    depends_on: [wp-db]
+
+ready:
+  cmd: "curl -sf http://localhost:20967/ >/dev/null && curl -sf http://localhost:20968/ 2>/dev/null | grep -qi 'wp-\\|wordpress'"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-nginx
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20967/"
+      exit_code: 0
+
+  - name: preflight-wordpress
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20968/ 2>/dev/null | grep -qi 'wp-\\|wordpress'"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NGINX: web.dangerous_method_enabled
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-put-works
+    type: command
+    expect:
+      command: "curl -s -X PUT http://localhost:20967/ | grep -q 'PUT accepted'"
+      exit_code: 0
+
+  - name: checkid-dangerous-method
+    type: beacon
+    target: localhost:20967
+    args: ["--no-enrich", "--no-nmap", "--scanners", "httpmethods", "--exploit", "--yes", "--ports", "20967"]
+    expect:
+      check_id: web.dangerous_method_enabled
+
+  - name: surface-nginx-headers
+    type: beacon
+    target: localhost:20967
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "20967"]
+    expect:
+      min_findings: 1
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NGINX: headers.server_info_leak
+  # The secheaders scanner detects Server: nginx/X.Y.Z in response.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-server-info-leak
+    type: beacon
+    target: localhost:20967
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "20967"]
+    expect:
+      check_id: headers.server_info_leak
+
+  # ══════════════════════════════════════════════════════════════════════
+  # WORDPRESS: port.wordpress_xmlrpc_exposed
+  # WordPress ships with xmlrpc.php enabled by default. The portscan
+  # probe fetches /xmlrpc.php and checks for XML-RPC method signatures.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-xmlrpc-accessible
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20968/xmlrpc.php | grep -qi 'XML-RPC server accepts POST requests only\\|xml'"
+      exit_code: 0
+
+  - name: checkid-wordpress-xmlrpc
+    type: beacon
+    target: localhost:20968
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20968"]
+    expect:
+      check_id: port.wordpress_xmlrpc_exposed
+
+  - name: exploit-wordpress
+    type: beacon
+    target: localhost:20968
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20968", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-nginx-no-wordpress
+    type: beacon
+    target: localhost:20967
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20967"]
+    expect:
+      not_check_id: port.wordpress_xmlrpc_exposed
+
+  - name: negative-wordpress-no-django
+    type: beacon
+    target: localhost:20968
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20968"]
+    expect:
+      not_check_id: port.django_detected
+
+timeout: 10m

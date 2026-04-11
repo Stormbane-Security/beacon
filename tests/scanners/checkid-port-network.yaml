@@ -1,0 +1,125 @@
+name: checkid-port-network
+description: >
+  Grouped check ID coverage for network service port.* findings.
+  Covers: port.smtp_vrfy_enabled (Postfix with VRFY enabled),
+  port.ldap_exposed (OpenLDAP with anonymous bind).
+tags: [checkid, network, portscan, smtp, ldap]
+
+services:
+  # ── Postfix SMTP with VRFY enabled ─────────────────────────────────
+  # MailHog does not support VRFY/EXPN. Use a real Postfix container
+  # configured with disable_vrfy_command=no (VRFY enabled by default).
+  smtp:
+    image: boky/postfix:latest
+    ports: ["20965:25"]
+    environment:
+      ALLOWED_SENDER_DOMAINS: "test.local"
+      HOSTNAME: "mail.test.local"
+
+  # ── OpenLDAP with anonymous bind ────────────────────────────────────
+  ldap:
+    image: osixia/openldap:1.5.0
+    ports: ["20966:389"]
+    environment:
+      LDAP_ORGANISATION: "Test Corp"
+      LDAP_DOMAIN: "test.local"
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_READONLY_USER: "true"
+      LDAP_READONLY_USER_USERNAME: "readonly"
+      LDAP_READONLY_USER_PASSWORD: "readonly"
+
+ready:
+  cmd: "nc -z localhost 20965 && nc -z localhost 20966"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-smtp-banner
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 20965"
+      exit_code: 0
+
+  - name: preflight-ldap-tcp
+    type: command
+    expect:
+      command: "nc -z -w 3 localhost 20966"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # SMTP: port.smtp_vrfy_enabled
+  # The native SMTP probe sends EHLO and tests VRFY even if not
+  # advertised. Postfix defaults to accepting VRFY (disable_vrfy_command=no).
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-smtp-vrfy-enabled
+    type: beacon
+    target: localhost:20965
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20965"]
+    expect:
+      check_id: port.smtp_vrfy_enabled
+
+  - name: surface-smtp-detection
+    type: beacon
+    target: localhost:20965
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20965"]
+    expect:
+      min_findings: 1
+
+  - name: exploit-smtp
+    type: beacon
+    target: localhost:20965
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20965", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # LDAP: port.ldap_exposed
+  # The native LDAP probe sends an anonymous rootDSE query. OpenLDAP
+  # with anonymous bind enabled responds with directory metadata.
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-ldap-exposed
+    type: beacon
+    target: localhost:20966
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20966"]
+    expect:
+      check_id: port.ldap_exposed
+
+  - name: surface-ldap-detection
+    type: beacon
+    target: localhost:20966
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20966"]
+    expect:
+      min_findings: 1
+
+  - name: exploit-ldap
+    type: beacon
+    target: localhost:20966
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20966", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-smtp-no-ldap
+    type: beacon
+    target: localhost:20965
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20965"]
+    expect:
+      not_check_id: port.ldap_exposed
+
+  - name: negative-ldap-no-smtp
+    type: beacon
+    target: localhost:20966
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20966"]
+    expect:
+      not_check_id: port.smtp_vrfy_enabled
+
+timeout: 8m

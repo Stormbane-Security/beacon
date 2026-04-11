@@ -1,0 +1,97 @@
+name: checkid-waf
+description: >
+  WAF check ID coverage verification. Uses ModSecurity-fronted nginx
+  (positive: waf.detected) and a plain nginx (negative: waf.not_detected).
+  The bypass and origin-exposure check IDs are in UNTESTABLE_CHECK_IDS.md.
+tags: [checkid, waf, detection, negative]
+
+services:
+  # ── ModSecurity WAF (nginx with WAF-like headers) ───────────────────
+  modsec:
+    image: nginx:alpine
+    ports: ["20969:80"]
+    volumes:
+      - ./wafdetect/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # ── Plain nginx (no WAF) ───────────────────────────────────────────
+  plain:
+    image: nginx:alpine
+    ports: ["20970:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:20969/ >/dev/null && curl -sf http://localhost:20970/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # PRE-FLIGHT
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: preflight-modsec
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20969/"
+      exit_code: 0
+
+  - name: preflight-plain
+    type: command
+    expect:
+      command: "curl -sf http://localhost:20970/"
+      exit_code: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # POSITIVE: waf.detected on ModSecurity
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-waf-detected
+    type: beacon
+    target: localhost:20969
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "20969"]
+    expect:
+      check_id: waf.detected
+
+  - name: surface-waf-findings
+    type: beacon
+    target: localhost:20969
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "20969"]
+    expect:
+      min_findings: 1
+
+  - name: exploit-waf
+    type: beacon
+    target: localhost:20969
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "20969", "--exploit", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE: waf.not_detected on plain nginx
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: checkid-waf-not-detected
+    type: beacon
+    target: localhost:20970
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "20970"]
+    expect:
+      check_id: waf.not_detected
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CROSS-VALIDATION
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-modsec-not-undetected
+    type: beacon
+    target: localhost:20969
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "20969"]
+    expect:
+      not_check_id: waf.not_detected
+
+  - name: negative-plain-not-detected
+    type: beacon
+    target: localhost:20970
+    args: ["--no-enrich", "--no-nmap", "--scanners", "wafdetect", "--ports", "20970"]
+    expect:
+      not_check_id: waf.detected
+
+timeout: 5m
