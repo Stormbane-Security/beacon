@@ -527,9 +527,29 @@ var cveVersionRules = []CVEVersionRule{
 		CheckID:     finding.CheckCVEErlangOTPSSH,
 		CVE:         "CVE-2025-32433",
 		Service:     "erlang",
-		Description: "Erlang/OTP SSH pre-auth unauthenticated RCE",
+		Description: "Erlang/OTP SSH pre-auth unauthenticated RCE (OTP 26.x)",
 		MinVersion:  "",
+		MaxVersion:  "26.2.5.11",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEErlangOTPSSH,
+		CVE:         "CVE-2025-32433",
+		Service:     "erlang",
+		Description: "Erlang/OTP SSH pre-auth unauthenticated RCE (OTP 27.x)",
+		MinVersion:  "27.0",
 		MaxVersion:  "27.3.3",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// Erlang/OTP auth bypass
+	{
+		CheckID:     finding.CheckCVEErlangOTPAuthBypass,
+		CVE:         "CVE-2022-37026",
+		Service:     "erlang",
+		Description: "Erlang/OTP client certificate validation bypass",
+		MinVersion:  "",
+		MaxVersion:  "24.3.4.5",
 		Severity:    finding.SeverityCritical,
 	},
 
@@ -609,6 +629,108 @@ var cveVersionRules = []CVEVersionRule{
 		MaxVersion:  "9.0.1",
 		Severity:    finding.SeverityCritical,
 	},
+
+	// ── ClickHouse ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEClickHouseHeapOverflow,
+		CVE:         "CVE-2023-47118",
+		Service:     "clickhouse",
+		Description: "ClickHouse native protocol heap buffer overflow via crafted query",
+		MinVersion:  "",
+		MaxVersion:  "23.8.7",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVEClickHouseCodeInjection,
+		CVE:         "CVE-2022-44013",
+		Service:     "clickhouse",
+		Description: "ClickHouse code injection via crafted query parameter",
+		MinVersion:  "",
+		MaxVersion:  "22.8.11",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── NATS ───────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVENATSAuthBypass,
+		CVE:         "CVE-2023-47090",
+		Service:     "nats",
+		Description: "NATS Server auth bypass on protected subjects",
+		MinVersion:  "",
+		MaxVersion:  "2.9.22",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVENATSAccountTakeover,
+		CVE:         "CVE-2022-29946",
+		Service:     "nats",
+		Description: "NATS Server account takeover via import/export validation flaw",
+		MinVersion:  "",
+		MaxVersion:  "2.8.2",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Nextcloud ──────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVENextcloudSSRFPreview,
+		CVE:         "CVE-2023-48239",
+		Service:     "nextcloud",
+		Description: "Nextcloud preview endpoint SSRF → cloud metadata/internal service access",
+		MinVersion:  "",
+		MaxVersion:  "27.1.1",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVENextcloudInfoLeak,
+		CVE:         "CVE-2023-25817",
+		Service:     "nextcloud",
+		Description: "Nextcloud server information leak via preview endpoint",
+		MinVersion:  "",
+		MaxVersion:  "24.0.8",
+		Severity:    finding.SeverityMedium,
+	},
+
+	// ── Gradio ─────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEGradioPathTraversal,
+		CVE:         "CVE-2024-6507",
+		Service:     "gradio",
+		Description: "Gradio arbitrary file read via path traversal on upload endpoint",
+		MinVersion:  "",
+		MaxVersion:  "4.20",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Veeam ──────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEVeeamBackupRCE,
+		CVE:         "CVE-2024-40711",
+		Service:     "veeam",
+		Description: "Veeam Backup & Replication unauthenticated RCE via deserialization",
+		MinVersion:  "",
+		MaxVersion:  "12.2",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEVeeamCredDisclosure,
+		CVE:         "CVE-2023-27532",
+		Service:     "veeam",
+		Description: "Veeam Backup credential disclosure via unprotected API endpoint",
+		MinVersion:  "",
+		MaxVersion:  "12.0",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache Tika ────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEApacheTikaRCE,
+		CVE:         "CVE-2018-1335",
+		Service:     "tika",
+		Description: "Apache Tika Server X-Tika-OCR* header command injection → RCE",
+		MinVersion:  "1.7",
+		MaxVersion:  "1.18",
+		Severity:    finding.SeverityCritical,
+	},
 }
 
 // serviceAliases maps common banner product names to our canonical service names.
@@ -660,6 +782,15 @@ var serviceAliases = map[string]string{
 	"kibana":              "kibana",
 	"openfire":            "openfire",
 	"workspace-one":       "workspace-one",
+	"clickhouse":          "clickhouse",
+	"nats":                "nats",
+	"nats-server":         "nats",
+	"nextcloud":           "nextcloud",
+	"gradio":              "gradio",
+	"veeam":               "veeam",
+	"veeam backup":        "veeam",
+	"tika":                "tika",
+	"apache tika":         "tika",
 	"erlang":              "erlang",
 	"erlang/otp":          "erlang",
 	"gitea":               "gitea",
