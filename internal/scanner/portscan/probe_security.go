@@ -332,12 +332,17 @@ func detectMikroTikWinbox(ctx context.Context, host string, port int, banner str
 }
 
 func detectProxmox(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	body, ok := probeHTTPBody(ctx, host, port, true, "/api2/json/version")
+	// Try the root page first (no auth required) — contains "Proxmox Virtual Environment".
+	body, ok := probeHTTPBody(ctx, host, port, true, "/")
+	if !ok {
+		// Fall back to plain HTTP (Proxmox redirects HTTP→HTTPS but some setups differ).
+		body, ok = probeHTTPBody(ctx, host, port, false, "/")
+	}
 	if !ok {
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
-	if !strings.Contains(bodyLow, "version") || !strings.Contains(bodyLow, "release") {
+	if !strings.Contains(bodyLow, "proxmox") {
 		return nil
 	}
 	return []finding.Finding{makeF(
