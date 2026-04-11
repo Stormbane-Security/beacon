@@ -24,21 +24,21 @@ assertions:
   - name: mongo5-detected
     type: beacon
     target: localhost:20504
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20504"]
     expect:
       check_id: port.database_exposed
 
   - name: mongo5-surface-mode
     type: beacon
     target: localhost:20504
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20504"]
     expect:
       min_findings: 1
 
   - name: mongo5-exploit-mode
     type: beacon
     target: localhost:20504
-    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20504", "--exploit", "--yes"]
     expect:
       min_findings: 0
 
@@ -46,21 +46,21 @@ assertions:
   - name: mongo7-detected
     type: beacon
     target: localhost:20505
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20505"]
     expect:
       check_id: port.database_exposed
 
   - name: mongo7-surface-mode
     type: beacon
     target: localhost:20505
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20505"]
     expect:
       min_findings: 1
 
   - name: mongo7-exploit-mode
     type: beacon
     target: localhost:20505
-    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20505", "--exploit", "--yes"]
     expect:
       min_findings: 0
 

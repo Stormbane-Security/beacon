@@ -22,14 +22,14 @@ assertions:
   - name: portainer219-exposed
     type: beacon
     target: http://localhost:20587
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20587", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: portainer219-service-identified
     type: beacon
     target: localhost:20587
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20587"]
     expect:
       check_id: port.service_identified
 
@@ -37,14 +37,14 @@ assertions:
   - name: portainer220-exposed
     type: beacon
     target: http://localhost:20588
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20588", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: portainer220-service-identified
     type: beacon
     target: localhost:20588
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20588"]
     expect:
       check_id: port.service_identified
 

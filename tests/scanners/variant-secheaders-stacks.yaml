@@ -20,33 +20,31 @@ ready:
   interval: 3s
 
 assertions:
-  # --- nginx missing headers ---
-  - name: nginx-missing-headers
-    type: beacon
-    target: http://localhost:20584
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
-    expect:
-      min_findings: 0
-
   - name: nginx-missing-hsts
     type: beacon
-    target: http://localhost:20584
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
+    target: localhost:20584
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "20584"]
     expect:
-      min_findings: 0
-
-  # --- Apache missing headers ---
-  - name: httpd-missing-headers
-    type: beacon
-    target: http://localhost:20585
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
-    expect:
-      min_findings: 0
+      check_id: headers.missing_hsts
 
   - name: httpd-missing-hsts
     type: beacon
-    target: http://localhost:20585
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
+    target: localhost:20585
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "20585"]
+    expect:
+      check_id: headers.missing_hsts
+
+  - name: nginx-exploit-mode
+    type: beacon
+    target: localhost:20584
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "20584", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  - name: httpd-exploit-mode
+    type: beacon
+    target: localhost:20585
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--ports", "20585", "--deep", "--yes"]
     expect:
       min_findings: 0
 

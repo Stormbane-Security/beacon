@@ -23,14 +23,14 @@ assertions:
   - name: drupal9-scan-completes
     type: beacon
     target: http://localhost:20572
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20572", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: drupal9-service-identified
     type: beacon
     target: localhost:20572
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20572"]
     expect:
       check_id: port.service_identified
 
@@ -38,14 +38,14 @@ assertions:
   - name: drupal10-scan-completes
     type: beacon
     target: http://localhost:20573
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20573", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: drupal10-service-identified
     type: beacon
     target: localhost:20573
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20573"]
     expect:
       check_id: port.service_identified
 

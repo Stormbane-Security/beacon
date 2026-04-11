@@ -22,14 +22,14 @@ assertions:
   - name: nc27-scan-completes
     type: beacon
     target: http://localhost:20574
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20574", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: nc27-service-identified
     type: beacon
     target: localhost:20574
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20574"]
     expect:
       check_id: port.service_identified
 
@@ -37,14 +37,14 @@ assertions:
   - name: nc28-scan-completes
     type: beacon
     target: http://localhost:20575
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20575", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: nc28-service-identified
     type: beacon
     target: localhost:20575
-    args: ["--no-enrich", "--no-nmap"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20575"]
     expect:
       check_id: port.service_identified
 

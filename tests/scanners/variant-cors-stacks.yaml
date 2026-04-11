@@ -32,7 +32,7 @@ assertions:
   - name: nginx-cors-misconfiguration
     type: beacon
     target: http://localhost:20580
-    args: ["--no-enrich", "--no-nmap", "--scanners", "cors"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20580", "--scanners", "cors"]
     expect:
       check_id: web.cors_misconfiguration
 
@@ -46,7 +46,7 @@ assertions:
   - name: node-cors-misconfiguration
     type: beacon
     target: http://localhost:20582
-    args: ["--no-enrich", "--no-nmap", "--scanners", "cors"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20582", "--scanners", "cors"]
     expect:
       check_id: web.cors_misconfiguration
 

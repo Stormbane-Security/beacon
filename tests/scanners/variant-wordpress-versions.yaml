@@ -37,14 +37,14 @@ assertions:
   - name: wp5-scan-completes
     type: beacon
     target: http://localhost:20570
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20570", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: wp5-exploit-mode
     type: beacon
     target: http://localhost:20570
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20570", "--scanners", "secheaders,cors,portscan", "--exploit", "--yes"]
     expect:
       min_findings: 1
 
@@ -52,14 +52,14 @@ assertions:
   - name: wp6-scan-completes
     type: beacon
     target: http://localhost:20571
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20571", "--scanners", "secheaders,cors,portscan"]
     expect:
       min_findings: 1
 
   - name: wp6-exploit-mode
     type: beacon
     target: http://localhost:20571
-    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan", "--exploit", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20571", "--scanners", "secheaders,cors,portscan", "--exploit", "--yes"]
     expect:
       min_findings: 1
 
