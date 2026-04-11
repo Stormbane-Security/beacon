@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -814,10 +815,19 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
-	// Set up structured logging if --log-file is specified.
+	// Set up structured logging. When --log-file is specified, logs go to that
+	// file. When --verbose is set or --log-level is "debug", logs go to stderr
+	// so developers can see the full execution chain in the terminal.
 	if logFile != "" {
 		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
 		defer func() { _ = sl.Close() }()
+		ctx = scanlog.WithLogger(ctx, sl)
+	} else if verbose || logLevel == "debug" {
+		level := scanlog.ParseLevel(logLevel)
+		if verbose && level > slog.LevelDebug {
+			level = slog.LevelDebug
+		}
+		sl := scanlog.New("", level) // "" → stderr
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 
@@ -1467,10 +1477,18 @@ file upload bypass, token forgery. Do you have written authorization? [y/N] `, l
 		ctx = postexploit.WithApproveFunc(ctx, func(string, string, int) bool { return true })
 	}
 
-	// Set up structured logging if --log-file is specified.
+	// Set up structured logging. When --log-file is specified, logs go to that
+	// file. When --verbose is set or --log-level is "debug", logs go to stderr.
 	if logFile != "" {
 		sl := scanlog.New(logFile, scanlog.ParseLevel(logLevel))
 		defer func() { _ = sl.Close() }()
+		ctx = scanlog.WithLogger(ctx, sl)
+	} else if verbose || logLevel == "debug" {
+		level := scanlog.ParseLevel(logLevel)
+		if verbose && level > slog.LevelDebug {
+			level = slog.LevelDebug
+		}
+		sl := scanlog.New("", level) // "" → stderr
 		ctx = scanlog.WithLogger(ctx, sl)
 	}
 

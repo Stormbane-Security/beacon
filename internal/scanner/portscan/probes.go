@@ -116,9 +116,17 @@ func isMySQLGreeting(banner string) bool {
 // runProbes iterates all registered probes against an open port and returns
 // the combined findings. Pre-filters by category to avoid pointless work.
 func runProbes(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	sl := scanlog.FromContext(ctx)
+
 	bannerHTTP := looksLikeHTTP(banner)
 	hasBanner := banner != ""
 	bannerProto := bannerProtocol(banner)
+
+	sl.Debug("probe.port_start",
+		"host", host, "port", port,
+		"has_banner", hasBanner, "banner_http", bannerHTTP, "banner_proto", bannerProto,
+		"probe_count", len(probeRegistry),
+	)
 
 	// When no banner was received, the service might be HTTP (which doesn't
 	// send data until a request arrives) or a protocol service that waits for
@@ -127,11 +135,15 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	if !hasBanner {
 		if quickHTTPCheck(ctx, host, port) {
 			bannerHTTP = true
+			sl.Debug("probe.quick_check", "host", host, "port", port, "result", "http")
 		} else if proto := quickProtocolCheck(ctx, host, port); proto != "" {
 			// Identified a non-HTTP protocol via quick handshake (Redis PING,
 			// MySQL greeting, etc.). This prevents 100+ protocol probes from
 			// timing out against an already-identified service.
 			bannerProto = proto
+			sl.Debug("probe.quick_check", "host", host, "port", port, "result", proto)
+		} else {
+			sl.Debug("probe.quick_check", "host", host, "port", port, "result", "unknown")
 		}
 		// Either way, we now know something about the port. Enable pre-filtering
 		// so HTTP probes are skipped on non-HTTP ports (and vice versa). Without
@@ -151,19 +163,28 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 
 	// Split probes into protocol (run in parallel) and non-protocol (run after).
 	var protocolProbes, otherProbes []ServiceProbe
+	skippedCount := 0
 	for _, probe := range probeRegistry {
 		// Skip TLS probes on non-TLS ports — avoids 5s handshake timeout per probe.
 		if probe.Category == ProbeCatTLS && !portIsTLS {
+			sl.ProbeSkipped(probe.Name, port, "non-TLS port")
+			skippedCount++
 			continue
 		}
 		if hasBanner {
 			if probe.Category == ProbeCatHTTP && !bannerHTTP {
+				sl.ProbeSkipped(probe.Name, port, "non-HTTP banner")
+				skippedCount++
 				continue
 			}
 			if probe.Category == ProbeCatProtocol && bannerHTTP {
+				sl.ProbeSkipped(probe.Name, port, "HTTP banner — skip protocol probe")
+				skippedCount++
 				continue
 			}
 			if probe.Category == ProbeCatProtocol && bannerProto != "" && !strings.Contains(probe.Name, bannerProto) {
+				sl.ProbeSkipped(probe.Name, port, fmt.Sprintf("banner identifies %s — probe name mismatch", bannerProto))
+				skippedCount++
 				continue
 			}
 		}
@@ -173,6 +194,11 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			otherProbes = append(otherProbes, probe)
 		}
 	}
+	sl.Debug("probe.filter_summary",
+		"host", host, "port", port,
+		"protocol_probes", len(protocolProbes), "other_probes", len(otherProbes),
+		"skipped", skippedCount,
+	)
 
 	var findings []finding.Finding
 	identified := false
@@ -220,6 +246,10 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				findings = append(findings, pr.findings...)
 				if !identified {
 					identified = true
+					sl.Debug("probe.service_identified",
+						"host", host, "port", port,
+						"probe", pr.probe.Name, "finding_count", len(pr.findings),
+					)
 					probeCancel() // cancel remaining protocol probes
 					service := pr.probe.Name
 					version := ""
@@ -415,7 +445,15 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	// Post-probe pass: check extracted service versions against the built-in
 	// CVE version database. This catches known-vulnerable versions without
 	// needing nuclei or nmap NSE scripts.
-	findings = appendVersionCVEs(findings, makeF)
+	preCVECount := len(findings)
+	findings = appendVersionCVEs(ctx, findings, makeF)
+
+	sl.Debug("probe.port_complete",
+		"host", host, "port", port,
+		"total_findings", len(findings),
+		"cve_findings_added", len(findings)-preCVECount,
+		"service_identified", identified,
+	)
 
 	return findings
 }
@@ -423,7 +461,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 // appendVersionCVEs scans existing findings for service+version evidence and
 // runs the CVE version-range checker against each. Deduplicates against CVE
 // findings already present in the list (e.g. from active probes).
-func appendVersionCVEs(findings []finding.Finding, makeF findingMaker) []finding.Finding {
+func appendVersionCVEs(ctx context.Context, findings []finding.Finding, makeF findingMaker) []finding.Finding {
 	// Collect CheckIDs already emitted so we don't duplicate active probe results.
 	existing := make(map[finding.CheckID]bool, len(findings))
 	for _, f := range findings {
@@ -439,7 +477,7 @@ func appendVersionCVEs(findings []finding.Finding, makeF findingMaker) []finding
 		if svc == "" || ver == "" {
 			continue
 		}
-		cveFindings := CheckVersionCVEs(svc, ver, makeF)
+		cveFindings := CheckVersionCVEsCtx(ctx, svc, ver, makeF)
 		for _, cf := range cveFindings {
 			if !existing[cf.CheckID] {
 				existing[cf.CheckID] = true
@@ -450,7 +488,7 @@ func appendVersionCVEs(findings []finding.Finding, makeF findingMaker) []finding
 		sp, _ := f.Evidence["server_product"].(string)
 		sv, _ := f.Evidence["server_version"].(string)
 		if sp != "" && sv != "" && (sp != svc || sv != ver) {
-			cveFindings2 := CheckVersionCVEs(sp, sv, makeF)
+			cveFindings2 := CheckVersionCVEsCtx(ctx, sp, sv, makeF)
 			for _, cf := range cveFindings2 {
 				if !existing[cf.CheckID] {
 					existing[cf.CheckID] = true

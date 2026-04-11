@@ -39,6 +39,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/scanner/classify"
 	"github.com/stormbane-security/beacon/internal/scanner/paramdiscovery"
 	"github.com/stormbane-security/beacon/internal/scan"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/vulndb"
 	sc "github.com/stormbane-security/beacon/internal/scanner"
 	"github.com/stormbane-security/beacon/internal/scanner/assetintel"
@@ -622,6 +623,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	}
 
 	// ── Phase 1: Asset Discovery ─────────────────────────────────────────────
+	sl := scanlog.FromContext(ctx)
 	var wgDiscover sync.WaitGroup
 
 	// Amass active mode performs DNS zone-walking and brute-force queries —
@@ -940,6 +942,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 		}
 	}
 	discDuration := time.Since(discStart)
+	sl.PhaseComplete("discovery", rootDomain, discDuration, fmt.Sprintf("%d assets", len(assets)))
 
 	// Update the discovery cache with all discovered subdomains.
 	if discoveryCache != nil {
@@ -1109,6 +1112,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 
 	wgStream.Wait()
 	scanDuration := time.Since(scanStart)
+	sl.PhaseComplete("scan_all_assets", rootDomain, scanDuration, fmt.Sprintf("%d assets", len(assets)))
 
 	// ── Crawler-discovered hostname expansion ──────────────────────────────────
 	// The katana crawler discovers URLs across the scanned assets. Any hostname
@@ -1663,6 +1667,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		return m.runFilteredScanners(ctx, asset, scanType, scanRunID, progressFn)
 	}
 
+	asl := scanlog.FromContext(ctx)
+	assetStart := time.Now()
+
 	// Collect evidence — emit fingerprint event when interesting signals are found
 	if progressFn != nil {
 		progressFn(module.ProgressEvent{
@@ -1672,7 +1679,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			ScannerCmd:  "HTTP probe + DNS + TLS fingerprint → " + asset,
 		})
 	}
+	classifyStart := time.Now()
 	ev := classify.Collect(ctx, asset)
+	asl.PhaseComplete("classify", asset, time.Since(classifyStart), "")
 
 	// AI fingerprint gap-filling + scanner suggestion.
 	// When deterministic rules leave key fields empty, the classifier fills them,
@@ -1911,6 +1920,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	//                  guessing defaults, reducing false negatives on non-standard paths
 	//   • authsurface:  login form detection → auth pipeline acquires session before
 	//                  Phase B so all subsequent scanners run authenticated
+	phaseAStart := time.Now()
 	phaseANames := []string{"wafdetect", "portscan", "aidetect", "authsurface"}
 	phaseADone := make(map[string]bool, len(phaseANames))
 	var phaseAMu sync.Mutex
@@ -1959,6 +1969,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 	// Now wait for the remaining Phase A scanners to finish.
 	phaseAWg.Wait()
+	asl.PhaseComplete("phaseA", asset, time.Since(phaseAStart), fmt.Sprintf("%d findings", len(phaseAFindings)))
 
 	// Extract WAF, origin IP, and AI endpoint intelligence from all Phase A results.
 	behindWAF, wafVendor := extractWAFInfo(phaseAFindings)
@@ -2226,6 +2237,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	ctx = context.WithValue(ctx, module.CrawlFeedCloserKey, closeCrawlFeed)
 
 	// ── Phase B: Remaining scanners (concurrent) ──────────────────────────────
+	phaseBStart := time.Now()
 	// httpDependentScanners produce zero useful findings on assets with no web
 	// server. All active HTTP probers are listed here to avoid wasted connections.
 	httpDependentScanners := map[string]bool{
@@ -2458,6 +2470,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	wg.Wait()
+	asl.PhaseComplete("phaseB", asset, time.Since(phaseBStart), fmt.Sprintf("%d findings so far", len(findings)))
 
 	// ── AI-classified unknown technology finding ──────────────────────────────
 	// Emitted when deterministic rules couldn't classify the asset and AI was
@@ -2527,6 +2540,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	// ── Evidence convergence loop ─────────────────────────────────────────────
+	convergenceStart := time.Now()
 	// After Phase B completes, extract new check IDs from findings and re-match
 	// playbooks. Run any newly matched scanners that haven't run yet. Also runs
 	// AI-suggested scanners on the first round.
@@ -2673,6 +2687,8 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	if monitorFindings := evasionMonitor.Findings(); len(monitorFindings) > 0 {
 		findings = append(findings, monitorFindings...)
 	}
+
+	asl.PhaseComplete("convergence", asset, time.Since(convergenceStart), "")
 
 	// ── Post-scan classify helpers (after wg.Wait — no concurrent writes) ─────
 	// Run after goroutines finish to avoid data races on the findings slice.
@@ -2960,6 +2976,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		}()
 	}
 
+	asl.PhaseComplete("asset_total", asset, time.Since(assetStart), fmt.Sprintf("%d findings", len(findings)))
 	return findings
 }
 

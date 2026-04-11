@@ -12,6 +12,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/exploit"
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 // nucleiTagToService maps nuclei template tags to the exploit playbook
@@ -1123,6 +1124,7 @@ var nucleiToExploitChain = Chain{
 		return f.Scanner == "nuclei" && isExploitableNucleiTemplate(f)
 	},
 	Execute: func(ctx context.Context, e *Engine, trigger finding.Finding) []finding.Finding {
+		sl := scanlog.FromContext(ctx)
 		moduleName := safetyModuleName("nuclei_to_exploit")
 		if err := exploit.CheckSafety(moduleName, e.maxSafety); err != nil {
 			log.Printf("[chain] safety gate blocked nuclei_to_exploit: %v", err)
@@ -1137,6 +1139,7 @@ var nucleiToExploitChain = Chain{
 		pb := lookupPlaybook(service)
 		if pb == nil {
 			log.Printf("[chain] nuclei_to_exploit: no playbook found for service %q", service)
+			sl.ChainEvaluate(string(trigger.CheckID), trigger.Asset, "nuclei_template", "", 0)
 			return nil
 		}
 
@@ -1152,6 +1155,7 @@ var nucleiToExploitChain = Chain{
 		}
 
 		templateID, _ := trigger.Evidence["template_id"].(string)
+		sl.ChainEvaluate(string(trigger.CheckID), trigger.Asset, "nuclei_template", pb.Service+".yaml", len(pb.CVEExploits))
 		log.Printf("[chain] WARNING: executing nuclei_to_exploit — routing %s to %s playbook against %s:%d",
 			templateID, service, host, port)
 

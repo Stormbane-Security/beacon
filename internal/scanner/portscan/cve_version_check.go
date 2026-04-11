@@ -1,10 +1,12 @@
 package portscan
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 // CVEVersionRule defines a version-range check for a specific CVE.
@@ -821,6 +823,15 @@ func normalizeService(raw string) string {
 // CheckVersionCVEs checks an extracted service version against the built-in
 // CVE version database and returns findings for all matching rules.
 func CheckVersionCVEs(service, version string, makeF findingMaker) []finding.Finding {
+	return CheckVersionCVEsCtx(context.Background(), service, version, makeF)
+}
+
+// CheckVersionCVEsCtx checks a service+version against the built-in CVE
+// version database and returns findings for matched rules. When a scanlog
+// logger is present in ctx, it emits detailed debug logs for each rule.
+func CheckVersionCVEsCtx(ctx context.Context, service, version string, makeF findingMaker) []finding.Finding {
+	sl := scanlog.FromContext(ctx)
+
 	if service == "" || version == "" {
 		return nil
 	}
@@ -832,20 +843,31 @@ func CheckVersionCVEs(service, version string, makeF findingMaker) []finding.Fin
 		return nil
 	}
 
+	sl.CVEVersionCheckStart(canonical, version)
+
 	var results []finding.Finding
 	seen := make(map[finding.CheckID]bool) // deduplicate: one finding per CheckID
+	rulesChecked := 0
+	matchedCount := 0
 
 	for _, rule := range cveVersionRules {
 		if rule.Service != canonical {
 			continue
 		}
+		rulesChecked++
 		if seen[rule.CheckID] {
+			sl.CVEVersionRuleEvaluated(canonical, version, rule.CVE, string(rule.CheckID), false, "duplicate check_id")
 			continue
 		}
 		if !versionInRange(version, rule.MinVersion, rule.MaxVersion) {
+			sl.CVEVersionRuleEvaluated(canonical, version, rule.CVE, string(rule.CheckID), false,
+				fmt.Sprintf("version %s not in range %s", version, formatRange(rule.MinVersion, rule.MaxVersion)))
 			continue
 		}
 
+		sl.CVEVersionRuleEvaluated(canonical, version, rule.CVE, string(rule.CheckID), true,
+			fmt.Sprintf("version %s in range %s", version, formatRange(rule.MinVersion, rule.MaxVersion)))
+		matchedCount++
 		seen[rule.CheckID] = true
 		f := makeF(
 			rule.CheckID,
@@ -864,6 +886,8 @@ func CheckVersionCVEs(service, version string, makeF findingMaker) []finding.Fin
 		f.Confidence = finding.ConfidenceProbable
 		results = append(results, f)
 	}
+
+	sl.CVEVersionCheckComplete(canonical, version, rulesChecked, matchedCount)
 	return results
 }
 

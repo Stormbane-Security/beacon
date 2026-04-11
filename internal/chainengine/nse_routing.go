@@ -9,6 +9,7 @@ import (
 
 	"github.com/stormbane-security/beacon/internal/exploit"
 	"github.com/stormbane-security/beacon/internal/finding"
+	"github.com/stormbane-security/beacon/internal/scanlog"
 )
 
 // nseScriptToServiceMap maps NSE (nmap script engine) script IDs to the
@@ -92,6 +93,7 @@ var nseToExploitChain = Chain{
 		return isNmapFinding(f) && isExploitableNSEScript(f)
 	},
 	Execute: func(ctx context.Context, e *Engine, trigger finding.Finding) []finding.Finding {
+		sl := scanlog.FromContext(ctx)
 		moduleName := safetyModuleName("nse_to_exploit")
 		if err := exploit.CheckSafety(moduleName, e.maxSafety); err != nil {
 			log.Printf("[chain] safety gate blocked nse_to_exploit: %v", err)
@@ -106,6 +108,7 @@ var nseToExploitChain = Chain{
 		pb := lookupPlaybook(service)
 		if pb == nil {
 			log.Printf("[chain] nse_to_exploit: no playbook found for service %q", service)
+			sl.ChainEvaluate(string(trigger.CheckID), trigger.Asset, "nse_script", "", 0)
 			return nil
 		}
 
@@ -122,6 +125,7 @@ var nseToExploitChain = Chain{
 
 		scriptName, _ := trigger.Evidence["script"].(string)
 		cveID, _ := trigger.Evidence["cve"].(string)
+		sl.ChainEvaluate(string(trigger.CheckID), trigger.Asset, "nse_script", pb.Service+".yaml", len(pb.CVEExploits))
 		log.Printf("[chain] WARNING: executing nse_to_exploit — routing NSE script %s to %s playbook against %s:%d",
 			scriptName, service, host, port)
 
