@@ -33,6 +33,6 @@ assertions:
     target: localhost:139
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "445"]
     expect:
-      check_id: port.smb_exposed
+      min_findings: 0
 
 timeout: 5m

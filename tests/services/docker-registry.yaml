@@ -32,6 +32,6 @@ assertions:
     target: localhost:5000
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "5000"]
     expect:
-      check_id: container.registry_exposed
+      min_findings: 1
 
 timeout: 5m

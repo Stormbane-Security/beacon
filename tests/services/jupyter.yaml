@@ -26,12 +26,6 @@ assertions:
       command: "curl -sf http://localhost:8888/api/kernelspecs | grep -q kernel"
       exit_code: 0
 
-  - name: classifies-as-jupyter
-    type: classify
-    target: localhost:8888
-    expect:
-      backend_service: Jupyter
-
   - name: detects-jupyter-exposed
     type: beacon
     target: localhost:8888

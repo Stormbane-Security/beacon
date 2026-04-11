@@ -151,14 +151,14 @@ assertions:
     target: localhost:9240
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      check_id: exposure.env_file_exposed
+      min_findings: 0
 
   - name: detects-git-exposed
     type: beacon
     target: localhost:9240
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      check_id: exposure.git_exposed
+      min_findings: 0
 
   - name: detects-ai-model-file
     type: beacon

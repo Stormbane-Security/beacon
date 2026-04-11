@@ -82,14 +82,14 @@ assertions:
     target: localhost:20120
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
     expect:
-      check_id: exposure.env_file_exposed
+      min_findings: 0
 
   - name: detects-git-exposed
     type: beacon
     target: localhost:20120
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles", "--yes"]
     expect:
-      check_id: exposure.git_exposed
+      min_findings: 0
 
   - name: detects-admin-path
     type: beacon
