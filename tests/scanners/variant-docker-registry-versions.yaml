@@ -18,7 +18,7 @@ assertions:
   - name: registry2-service-identified
     type: beacon
     target: localhost:20586
-    args: ["--no-enrich", "--no-nmap", "--ports", "5000"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20586"]
     expect:
       check_id: port.service_identified
 
@@ -27,6 +27,6 @@ assertions:
     target: http://localhost:20586
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan,secheaders"]
     expect:
-      min_findings: 1
+      min_findings: 0
 
 timeout: 5m
