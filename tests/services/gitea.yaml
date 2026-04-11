@@ -40,6 +40,6 @@ assertions:
     target: localhost:3000
     args: ["--no-enrich", "--no-nmap", "--scanners", "exposedfiles"]
     expect:
-      check_id: exposure.cicd_panel
+      check_id: port.gitea_no_auth
 
 timeout: 5m

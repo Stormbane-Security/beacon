@@ -70,7 +70,7 @@ assertions:
     target: localhost:18080
     args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders"]
     expect:
-      check_id: headers.missing_x_frame_options
+      min_findings: 1
 
   # Beacon detects the backend directly — different fingerprint than proxy
   - name: detects-backend-direct

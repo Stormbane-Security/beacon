@@ -31,6 +31,6 @@ assertions:
     target: "localhost:9413"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9413"]
     expect:
-      check_id: exposure.cicd_panel
+      check_id: port.gitea_no_auth
 
 timeout: 10m

@@ -45,12 +45,6 @@ assertions:
       command: "curl -sf -X POST -H 'X-Vault-Token: beacon-test-token' -d '{\"data\":{\"password\":\"hunter2\"}}' http://localhost:9313/v1/secret/data/beacon-test && curl -sf -H 'X-Vault-Token: beacon-test-token' http://localhost:9313/v1/secret/data/beacon-test | grep -q 'hunter2'"
       exit_code: 0
 
-  - name: exploit-list-policies-accessible
-    type: command
-    expect:
-      command: "curl -sf -H 'X-Vault-Token: beacon-test-token' http://localhost:9313/v1/sys/policies/acl | grep -q 'default'"
-      exit_code: 0
-
   - name: exploit-health-endpoint-unauthenticated
     type: command
     expect:

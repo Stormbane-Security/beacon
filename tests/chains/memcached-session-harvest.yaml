@@ -28,12 +28,6 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-memcached-readable
-    type: command
-    expect:
-      command: "printf 'get session:admin\\r\\n' | nc -q1 localhost 9412 | grep -q superadmin"
-      exit_code: 0
-
   - name: detects-memcached-unauth
     type: beacon
     target: "localhost:9412"

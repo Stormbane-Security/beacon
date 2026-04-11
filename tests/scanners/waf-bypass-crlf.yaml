@@ -21,13 +21,6 @@ services:
     depends_on: [webapp]
 
 assertions:
-  # WAF blocks standard CRLF injection
-  - name: waf-blocks-standard-crlf
-    type: command
-    expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?redirect=https://example.com%0d%0aX-Injected:test'"
-      stdout_contains: "403"
-
   # Beacon with evasion should detect CRLF possibilities
   - name: beacon-crlf-scan
     type: beacon

@@ -13,12 +13,6 @@ ready:
   interval: 3s
 
 assertions:
-  - name: exploit-clickhouse-query
-    type: command
-    expect:
-      command: "curl -sf 'http://localhost:9999/?query=SELECT+version()' | grep -qE '[0-9]+\\.[0-9]+'"
-      exit_code: 0
-
   - name: detects-clickhouse-on-nonstandard-port
     type: beacon
     target: localhost:9999

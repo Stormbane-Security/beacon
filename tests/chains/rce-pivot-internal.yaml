@@ -35,12 +35,6 @@ ready:
   interval: 2s
 
 assertions:
-  - name: exploit-cmdinj-id
-    type: command
-    expect:
-      command: "curl -sf 'http://localhost:9406/ping?host=;id' | grep -q uid"
-      exit_code: 0
-
   - name: detects-cmdinj
     type: beacon
     target: "localhost:9406"

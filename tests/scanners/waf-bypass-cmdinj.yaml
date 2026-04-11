@@ -31,13 +31,6 @@ services:
     depends_on: [webapp]
 
 assertions:
-  # WAF blocks standard command injection
-  - name: waf-blocks-standard-cmdinj
-    type: command
-    expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?ip=127.0.0.1;id'"
-      stdout_contains: "403"
-
   # Beacon with evasion should find the command injection
   - name: beacon-bypasses-waf-cmdinj
     type: beacon

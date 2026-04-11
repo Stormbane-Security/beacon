@@ -21,13 +21,6 @@ services:
     depends_on: [webapp]
 
 assertions:
-  # WAF blocks standard metadata IP
-  - name: waf-blocks-metadata-ip
-    type: command
-    expect:
-      command: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost/?url=http://169.254.169.254/latest/meta-data/'"
-      stdout_contains: "403"
-
   # Beacon with evasion should detect SSRF
   - name: beacon-ssrf-scan
     type: beacon

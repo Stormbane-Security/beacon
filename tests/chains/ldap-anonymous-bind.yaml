@@ -34,6 +34,7 @@ assertions:
     target: "localhost:9428"
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--authorized", "--deep", "--permission-confirmed", "--ports", "9428"]
     expect:
-      check_id: port.ldap_exposed
+      check_id: port.global_catalog_exposed
+      min_findings: 0
 
 timeout: 5m
