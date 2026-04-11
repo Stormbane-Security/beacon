@@ -98,6 +98,7 @@ SCAN FLAGS:
   --no-wpscan                Skip wpscan integration (no WordPress vulnerability scanning)
   --no-masscan               Skip masscan integration (no fast CIDR port scanning)
   --no-arjun                 Skip arjun integration (no external parameter discovery)
+  --strict                   Hard-fail if required tools (nmap, nuclei) are missing (exit 1)
   --dry-run                  Fingerprint target and output planned scanner list as JSON (no scanners execute)
   --dns-server <addr>        Use a custom DNS server (e.g. 127.0.0.1:53) for email/DNS lookups
   --wordlist <path>           Custom wordlist file for brute-force scanners (dirbust, subdomain, param discovery)
@@ -314,6 +315,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		// noWpscan            bool // TODO: wire when wpscan integration lands
 		noMasscan           bool
 		noArjun             bool
+		strict              bool
 		extraCIDRs          []string
 		cloudEnabled        bool
 		awsProfile          string
@@ -426,6 +428,8 @@ func cmdScan(cfg *config.Config, args []string) {
 			noMasscan = true
 		case "--no-arjun":
 			noArjun = true
+		case "--strict":
+			strict = true
 		case "--cidr":
 			i++
 			if i < len(args) {
@@ -578,6 +582,34 @@ func cmdScan(cfg *config.Config, args []string) {
 	// Check for external tool availability.
 	// Critical tools (nmap) cause a hard error; important tools warn with opt-out;
 	// optional tools warn only. All warnings are grouped together.
+	// --strict tool requirement check: nmap and nuclei are required tools.
+	// With --strict, beacon hard-fails (exit 1) if any required tool is missing.
+	// Without --strict, beacon warns and continues with reduced coverage.
+	if strict {
+		type requiredTool struct {
+			name    string
+			bin     string
+			optOut  bool
+			install string
+		}
+		strictRequired := []requiredTool{
+			{"nmap", cfg.NmapBin, noNmap, "https://nmap.org/download"},
+			{"nuclei", cfg.NucleiBin, noNuclei, "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+		}
+		var missingStrict []string
+		for _, rt := range strictRequired {
+			if rt.optOut {
+				continue
+			}
+			if _, err := exec.LookPath(rt.bin); err != nil {
+				missingStrict = append(missingStrict, fmt.Sprintf("  %-14s not found. Install: %s", rt.name, rt.install))
+			}
+		}
+		if len(missingStrict) > 0 {
+			fatalf("beacon: --strict mode: required tools missing:\n%s\n\nInstall the missing tools or use --no-nmap / --no-nuclei to opt out.", strings.Join(missingStrict, "\n"))
+		}
+	}
+
 	if noNmap {
 		cfg.NmapBin = ""
 	} else {
