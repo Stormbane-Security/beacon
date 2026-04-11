@@ -523,7 +523,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "ssl-heartbleed":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVEOpenSSLHeartbleed,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,
@@ -539,7 +539,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "ms17-010", "smb-vuln-ms17-010":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVESMBEternalBlue,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,
@@ -555,7 +555,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "smb-vuln-ms08-067":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVESMBMS08067,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,
@@ -571,7 +571,7 @@ func interpretNmapScript(asset string, port int, script nmapScript, proofCmd str
 	case "http-shellshock":
 		if strings.Contains(lower, "vulnerable") {
 			return []finding.Finding{{
-				CheckID:      finding.CheckNmapVulnScript,
+				CheckID:      finding.CheckCVEBashShellshock,
 				Module:       "surface",
 				Scanner:      scannerName,
 				Severity:     finding.SeverityCritical,

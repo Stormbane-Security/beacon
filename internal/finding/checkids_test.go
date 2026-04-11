@@ -723,6 +723,11 @@ func TestDeepChecksHaveCorrectMode(t *testing.T) {
 		finding.CheckNmapSMTPOpenRelay:   true,
 		finding.CheckNmapMySQLNoPassword: true,
 		finding.CheckNmapIPMICipherZero:  true,
+		// Nmap NSE CVE-specific vulnerability detections
+		finding.CheckCVESMBEternalBlue:    true,
+		finding.CheckCVESMBMS08067:        true,
+		finding.CheckCVEOpenSSLHeartbleed: true,
+		finding.CheckCVEBashShellshock:    true,
 		// CVE-2019-9193 PostgreSQL COPY RCE — requires authenticated superuser access
 		finding.CheckCVEPostgreSQLCopyRCE2019: true,
 		// New scanners added this session

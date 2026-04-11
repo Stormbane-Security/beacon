@@ -774,6 +774,12 @@ const (
 	CheckNmapMySQLNoPassword CheckID = "nmap.mysql_no_password"      // MySQL root with no password
 	CheckNmapIPMICipherZero  CheckID = "nmap.ipmi_cipher_zero"       // IPMI cipher 0 auth bypass
 
+	// Nmap — CVE-specific vulnerability detections (deep)
+	CheckCVESMBEternalBlue    CheckID = "cve.smb_eternalblue"       // CVE-2017-0144 EternalBlue SMB RCE (MS17-010)
+	CheckCVESMBMS08067        CheckID = "cve.smb_ms08_067"          // CVE-2008-4250 MS08-067 Conficker SMB RCE
+	CheckCVEOpenSSLHeartbleed CheckID = "cve.openssl_heartbleed"    // CVE-2014-0160 OpenSSL Heartbleed memory disclosure
+	CheckCVEBashShellshock    CheckID = "cve.bash_shellshock"       // CVE-2014-6271 Bash CGI Shellshock RCE
+
 	// External intelligence APIs (all optional — keys required)
 	CheckVirusTotalReputation CheckID = "intel.virustotal_reputation"
 	CheckCensysHostData       CheckID = "intel.censys_host"
@@ -2863,6 +2869,12 @@ var Registry = map[CheckID]CheckMeta{
 	CheckNmapSMTPOpenRelay:   {CheckNmapSMTPOpenRelay, SeverityCritical, ModeDeep},
 	CheckNmapMySQLNoPassword: {CheckNmapMySQLNoPassword, SeverityCritical, ModeDeep},
 	CheckNmapIPMICipherZero:  {CheckNmapIPMICipherZero, SeverityCritical, ModeDeep},
+
+	// nmap — CVE-specific vulnerability detections (deep)
+	CheckCVESMBEternalBlue:    {CheckCVESMBEternalBlue, SeverityCritical, ModeDeep},
+	CheckCVESMBMS08067:        {CheckCVESMBMS08067, SeverityCritical, ModeDeep},
+	CheckCVEOpenSSLHeartbleed: {CheckCVEOpenSSLHeartbleed, SeverityCritical, ModeDeep},
+	CheckCVEBashShellshock:    {CheckCVEBashShellshock, SeverityCritical, ModeDeep},
 
 	// Non-HTTP protocol exposure
 	CheckPortMQTTExposed:    {CheckPortMQTTExposed, SeverityHigh, ModeSurface},

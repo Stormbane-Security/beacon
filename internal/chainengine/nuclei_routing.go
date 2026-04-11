@@ -768,10 +768,14 @@ var nucleiTemplateToServiceMap = map[string]string{
 
 	// === SMB ===
 	"CVE-2017-0144":  "smb",              // EternalBlue SMBv1 RCE
+	"CVE-2008-4250":  "smb",              // MS08-067 Conficker SMB RCE
 	"CVE-2020-0796":  "smb",              // SMBGhost compression RCE
 
 	// === Adminer ===
 	"CVE-2021-21311": "adminer",          // Adminer SSRF via redirect
+
+	// === OpenSSL ===
+	"CVE-2014-0160":  "apache",           // Heartbleed OpenSSL memory disclosure
 
 	// === Intel AMT ===
 	"CVE-2017-5689":  "amt",              // Intel AMT empty-digest auth bypass
