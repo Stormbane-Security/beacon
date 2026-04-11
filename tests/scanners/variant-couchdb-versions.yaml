@@ -1,0 +1,72 @@
+name: variant-couchdb-versions
+description: >
+  CouchDB version variant test: CouchDB 2 vs 3. Both configured with
+  default admin credentials to verify beacon detects database_exposed
+  across major versions.
+tags: [variant, couchdb, database, portscan, integration]
+
+services:
+  couch2:
+    image: couchdb:2
+    ports: ["20516:5984"]
+    environment:
+      COUCHDB_USER: "admin"
+      COUCHDB_PASSWORD: "admin"
+  couch3:
+    image: couchdb:3
+    ports: ["20517:5984"]
+    environment:
+      COUCHDB_USER: "admin"
+      COUCHDB_PASSWORD: "admin"
+
+ready:
+  cmd: "curl -sf http://localhost:20516 >/dev/null && curl -sf http://localhost:20517 >/dev/null"
+  timeout: 90s
+  interval: 3s
+
+assertions:
+  # --- CouchDB 2 ---
+  - name: couch2-detected
+    type: beacon
+    target: localhost:20516
+    args: ["--no-enrich", "--no-nmap", "--ports", "5984"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: couch2-surface-mode
+    type: beacon
+    target: localhost:20516
+    args: ["--no-enrich", "--no-nmap", "--ports", "5984"]
+    expect:
+      min_findings: 1
+
+  - name: couch2-exploit-mode
+    type: beacon
+    target: localhost:20516
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "5984"]
+    expect:
+      min_findings: 0
+
+  # --- CouchDB 3 ---
+  - name: couch3-detected
+    type: beacon
+    target: localhost:20517
+    args: ["--no-enrich", "--no-nmap", "--ports", "5984"]
+    expect:
+      check_id: port.database_exposed
+
+  - name: couch3-surface-mode
+    type: beacon
+    target: localhost:20517
+    args: ["--no-enrich", "--no-nmap", "--ports", "5984"]
+    expect:
+      min_findings: 1
+
+  - name: couch3-exploit-mode
+    type: beacon
+    target: localhost:20517
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "5984"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

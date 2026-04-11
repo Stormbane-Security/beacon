@@ -1,0 +1,74 @@
+name: variant-elasticsearch-versions
+description: >
+  Elasticsearch version variant test: ES 7.17 vs 8.12. Both configured
+  with security disabled to verify beacon detects elasticsearch_unauthenticated
+  across major versions.
+tags: [variant, elasticsearch, database, portscan, integration]
+
+services:
+  es7:
+    image: elasticsearch:7.17.18
+    ports: ["20508:9200"]
+    environment:
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+  es8:
+    image: elasticsearch:8.12.0
+    ports: ["20509:9200"]
+    environment:
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+
+ready:
+  cmd: "curl -sf http://localhost:20508/_cluster/health >/dev/null && curl -sf http://localhost:20509/_cluster/health >/dev/null"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # --- Elasticsearch 7 ---
+  - name: es7-detected
+    type: beacon
+    target: localhost:20508
+    args: ["--no-enrich", "--no-nmap", "--ports", "9200"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  - name: es7-surface-mode
+    type: beacon
+    target: localhost:20508
+    args: ["--no-enrich", "--no-nmap", "--ports", "9200"]
+    expect:
+      min_findings: 1
+
+  - name: es7-exploit-mode
+    type: beacon
+    target: localhost:20508
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "9200"]
+    expect:
+      min_findings: 0
+
+  # --- Elasticsearch 8 ---
+  - name: es8-detected
+    type: beacon
+    target: localhost:20509
+    args: ["--no-enrich", "--no-nmap", "--ports", "9200"]
+    expect:
+      check_id: port.elasticsearch_unauthenticated
+
+  - name: es8-surface-mode
+    type: beacon
+    target: localhost:20509
+    args: ["--no-enrich", "--no-nmap", "--ports", "9200"]
+    expect:
+      min_findings: 1
+
+  - name: es8-exploit-mode
+    type: beacon
+    target: localhost:20509
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "9200"]
+    expect:
+      min_findings: 0
+
+timeout: 8m

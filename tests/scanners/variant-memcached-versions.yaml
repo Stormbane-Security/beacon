@@ -1,0 +1,65 @@
+name: variant-memcached-versions
+description: >
+  Memcached version variant test: 1.5 vs 1.6. Both run without auth
+  to verify beacon detects memcached_unauthenticated across versions.
+tags: [variant, memcached, database, portscan, integration]
+
+services:
+  mc15:
+    image: memcached:1.5-alpine
+    ports: ["20510:11211"]
+  mc16:
+    image: memcached:1.6-alpine
+    ports: ["20511:11211"]
+
+ready:
+  cmd: "echo stats | nc -w1 localhost 20510 | grep -q pid && echo stats | nc -w1 localhost 20511 | grep -q pid"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Memcached 1.5 ---
+  - name: mc15-detected
+    type: beacon
+    target: localhost:20510
+    args: ["--no-enrich", "--no-nmap", "--ports", "11211"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+  - name: mc15-surface-mode
+    type: beacon
+    target: localhost:20510
+    args: ["--no-enrich", "--no-nmap", "--ports", "11211"]
+    expect:
+      min_findings: 1
+
+  - name: mc15-exploit-mode
+    type: beacon
+    target: localhost:20510
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "11211"]
+    expect:
+      min_findings: 0
+
+  # --- Memcached 1.6 ---
+  - name: mc16-detected
+    type: beacon
+    target: localhost:20511
+    args: ["--no-enrich", "--no-nmap", "--ports", "11211"]
+    expect:
+      check_id: port.memcached_unauthenticated
+
+  - name: mc16-surface-mode
+    type: beacon
+    target: localhost:20511
+    args: ["--no-enrich", "--no-nmap", "--ports", "11211"]
+    expect:
+      min_findings: 1
+
+  - name: mc16-exploit-mode
+    type: beacon
+    target: localhost:20511
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "11211"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

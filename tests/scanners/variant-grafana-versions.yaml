@@ -1,0 +1,98 @@
+name: variant-grafana-versions
+description: >
+  Grafana version variant test: 9.5 vs 10.4 with anonymous auth enabled
+  as Admin. Verifies that beacon detects default credentials or monitoring
+  panel exposure across both major versions, catching regressions where
+  login flow or API changes break detection.
+tags: [variant, grafana, monitoring, default-creds, integration]
+
+services:
+  grafana9:
+    image: grafana/grafana:9.5.0
+    ports: ["20550:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+
+  grafana10:
+    image: grafana/grafana:10.4.0
+    ports: ["20551:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+
+ready:
+  cmd: "curl -sf http://localhost:20550/api/health >/dev/null && curl -sf http://localhost:20551/api/health >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # GRAFANA 9 — default credentials / monitoring panel
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: grafana9-surface-findings
+    type: beacon
+    target: http://localhost:20550
+    args: ["--no-enrich", "--no-nmap"]
+    expect:
+      min_findings: 1
+
+  - name: grafana9-default-creds
+    type: beacon
+    target: localhost:20550
+    args: ["--no-enrich", "--no-nmap", "--ports", "20550", "--deep", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  - name: exploit-grafana9-deep-scan
+    type: beacon
+    target: http://localhost:20550
+    args: ["--no-enrich", "--no-nmap", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # GRAFANA 10 — default credentials / monitoring panel
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: grafana10-surface-findings
+    type: beacon
+    target: http://localhost:20551
+    args: ["--no-enrich", "--no-nmap"]
+    expect:
+      min_findings: 1
+
+  - name: grafana10-default-creds
+    type: beacon
+    target: localhost:20551
+    args: ["--no-enrich", "--no-nmap", "--ports", "20551", "--deep", "--yes"]
+    expect:
+      check_id: port.grafana_default_credentials
+
+  - name: exploit-grafana10-deep-scan
+    type: beacon
+    target: http://localhost:20551
+    args: ["--no-enrich", "--no-nmap", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-grafana9-not-jenkins
+    type: beacon
+    target: localhost:20550
+    args: ["--no-enrich", "--no-nmap", "--ports", "20550"]
+    expect:
+      not_check_id: port.jenkins_no_auth
+
+  - name: negative-grafana10-not-jenkins
+    type: beacon
+    target: localhost:20551
+    args: ["--no-enrich", "--no-nmap", "--ports", "20551"]
+    expect:
+      not_check_id: port.jenkins_no_auth
+
+timeout: 5m

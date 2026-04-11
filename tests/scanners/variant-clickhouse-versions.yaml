@@ -1,0 +1,92 @@
+name: variant-clickhouse-versions
+description: >
+  ClickHouse version variant test: 23 vs 24. Verifies that beacon detects
+  exposed ClickHouse HTTP interface across both major versions, catching
+  regressions where response format or default behavior changes break
+  detection.
+tags: [variant, clickhouse, database, integration]
+
+services:
+  ch23:
+    image: clickhouse/clickhouse-server:23
+    ports: ["20560:8123"]
+
+  ch24:
+    image: clickhouse/clickhouse-server:24
+    ports: ["20561:8123"]
+
+ready:
+  cmd: "curl -sf http://localhost:20560/ping >/dev/null && curl -sf http://localhost:20561/ping >/dev/null"
+  timeout: 90s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # CLICKHOUSE 23 — exposed HTTP interface
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: ch23-exposed-detected
+    type: beacon
+    target: localhost:20560
+    args: ["--no-enrich", "--no-nmap", "--ports", "20560"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+  - name: ch23-service-identified
+    type: beacon
+    target: localhost:20560
+    args: ["--no-enrich", "--no-nmap", "--ports", "20560"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-ch23-deep-scan
+    type: beacon
+    target: localhost:20560
+    args: ["--no-enrich", "--no-nmap", "--ports", "20560", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # CLICKHOUSE 24 — exposed HTTP interface
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: ch24-exposed-detected
+    type: beacon
+    target: localhost:20561
+    args: ["--no-enrich", "--no-nmap", "--ports", "20561"]
+    expect:
+      check_id: port.clickhouse_exposed
+
+  - name: ch24-service-identified
+    type: beacon
+    target: localhost:20561
+    args: ["--no-enrich", "--no-nmap", "--ports", "20561"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-ch24-deep-scan
+    type: beacon
+    target: localhost:20561
+    args: ["--no-enrich", "--no-nmap", "--ports", "20561", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-ch23-not-etcd
+    type: beacon
+    target: localhost:20560
+    args: ["--no-enrich", "--no-nmap", "--ports", "20560"]
+    expect:
+      not_check_id: port.etcd_exposed
+
+  - name: negative-ch24-not-etcd
+    type: beacon
+    target: localhost:20561
+    args: ["--no-enrich", "--no-nmap", "--ports", "20561"]
+    expect:
+      not_check_id: port.etcd_exposed
+
+timeout: 5m

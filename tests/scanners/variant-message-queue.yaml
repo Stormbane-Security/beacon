@@ -42,28 +42,28 @@ assertions:
   - name: rabbitmq-amqp-exposed
     type: beacon
     target: localhost:20430
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20430"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20430"]
     expect:
       check_id: port.amqp_exposed
 
   - name: rabbitmq-amqp-service-identified
     type: beacon
     target: localhost:20430
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20430"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20430"]
     expect:
       check_id: port.service_identified
 
   - name: rabbitmq-mgmt-exposed
     type: beacon
     target: localhost:20431
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20431", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20431", "--yes"]
     expect:
       check_id: port.rabbitmq_mgmt_exposed
 
   - name: rabbitmq-default-creds
     type: beacon
     target: localhost:20431
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20431", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20431", "--deep", "--yes"]
     expect:
       check_id: port.rabbitmq_default_creds
 
@@ -92,21 +92,21 @@ assertions:
   - name: mqtt-exposed
     type: beacon
     target: localhost:20432
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20432", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
     expect:
       min_findings: 0
 
   - name: mqtt-service-identified
     type: beacon
     target: localhost:20432
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20432", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
     expect:
       check_id: port.service_identified
 
   - name: exploit-mqtt-deep-scan
     type: beacon
     target: localhost:20432
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20432", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--deep", "--yes"]
     expect:
       min_findings: 0
 
@@ -117,21 +117,21 @@ assertions:
   - name: negative-rabbitmq-not-mqtt
     type: beacon
     target: localhost:20430
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20430"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20430"]
     expect:
       not_min_findings: 0
 
   - name: negative-mqtt-not-rabbitmq
     type: beacon
     target: localhost:20432
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20432", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
     expect:
       not_check_id: port.rabbitmq_default_creds
 
   - name: negative-mqtt-not-redis
     type: beacon
     target: localhost:20432
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20432", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20432", "--yes"]
     expect:
       not_check_id: port.redis_unauthenticated
 

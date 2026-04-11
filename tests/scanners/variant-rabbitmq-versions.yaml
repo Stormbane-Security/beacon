@@ -1,0 +1,117 @@
+name: variant-rabbitmq-versions
+description: >
+  RabbitMQ version variant test: 3.12 vs 3.13 with management plugin
+  and default guest:guest credentials. Verifies that beacon detects
+  default credentials and AMQP exposure across both versions, catching
+  regressions where management API or AMQP handshake changes break
+  detection.
+tags: [variant, rabbitmq, messaging, default-creds, integration]
+
+services:
+  rmq312:
+    image: rabbitmq:3.12-management-alpine
+    ports:
+      - "20542:5672"
+      - "20543:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  rmq313:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "20544:5672"
+      - "20545:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+ready:
+  cmd: "curl -sf -u guest:guest http://localhost:20543/api/overview >/dev/null && curl -sf -u guest:guest http://localhost:20545/api/overview >/dev/null"
+  timeout: 120s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # RABBITMQ 3.12 — AMQP + management default creds
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: rmq312-amqp-exposed
+    type: beacon
+    target: localhost:20542
+    args: ["--no-enrich", "--no-nmap", "--ports", "20542"]
+    expect:
+      check_id: port.amqp_exposed
+
+  - name: rmq312-mgmt-default-creds
+    type: beacon
+    target: localhost:20543
+    args: ["--no-enrich", "--no-nmap", "--ports", "20543", "--deep", "--yes"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  - name: rmq312-service-identified
+    type: beacon
+    target: localhost:20542
+    args: ["--no-enrich", "--no-nmap", "--ports", "20542"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-rmq312-deep-scan
+    type: beacon
+    target: localhost:20543
+    args: ["--no-enrich", "--no-nmap", "--ports", "20543", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # RABBITMQ 3.13 — AMQP + management default creds
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: rmq313-amqp-exposed
+    type: beacon
+    target: localhost:20544
+    args: ["--no-enrich", "--no-nmap", "--ports", "20544"]
+    expect:
+      check_id: port.amqp_exposed
+
+  - name: rmq313-mgmt-default-creds
+    type: beacon
+    target: localhost:20545
+    args: ["--no-enrich", "--no-nmap", "--ports", "20545", "--deep", "--yes"]
+    expect:
+      check_id: port.rabbitmq_default_creds
+
+  - name: rmq313-service-identified
+    type: beacon
+    target: localhost:20544
+    args: ["--no-enrich", "--no-nmap", "--ports", "20544"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-rmq313-deep-scan
+    type: beacon
+    target: localhost:20545
+    args: ["--no-enrich", "--no-nmap", "--ports", "20545", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-rmq312-not-redis
+    type: beacon
+    target: localhost:20542
+    args: ["--no-enrich", "--no-nmap", "--ports", "20542"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+  - name: negative-rmq313-not-redis
+    type: beacon
+    target: localhost:20544
+    args: ["--no-enrich", "--no-nmap", "--ports", "20544"]
+    expect:
+      not_check_id: port.redis_unauthenticated
+
+timeout: 5m

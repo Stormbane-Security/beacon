@@ -1540,8 +1540,24 @@ func (m *Module) runFilteredScanners(ctx context.Context, asset string, scanType
 		}
 	}
 
+	// Always run portscan first as a prerequisite when it's not in the filter
+	// but other scanners need HTTP service discovery to function.
+	hasPortscan := false
+	for _, name := range m.scannerFilter {
+		if name == "portscan" {
+			hasPortscan = true
+			break
+		}
+	}
 	var findings []finding.Finding
 	var mu sync.Mutex
+	if !hasPortscan {
+		if ps, ok := m.scanners["portscan"]; ok {
+			result := scan.Execute(ps, ctx, asset, scanType)
+			findings = append(findings, result.Findings...)
+		}
+	}
+
 	var wg sync.WaitGroup
 
 	for _, name := range m.scannerFilter {

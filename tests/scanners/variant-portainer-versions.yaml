@@ -1,0 +1,51 @@
+name: variant-portainer-versions
+description: >
+  Portainer CE version variant test: 2.19 vs 2.20. Verifies beacon
+  detects exposed Portainer management interface across versions.
+tags: [variant, portainer, container, web, integration]
+
+services:
+  portainer219:
+    image: portainer/portainer-ce:2.19.0
+    ports: ["20587:9000"]
+  portainer220:
+    image: portainer/portainer-ce:2.20.0
+    ports: ["20588:9000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20587/ -o /dev/null -w '%{http_code}' | grep -qE '200|302' && curl -sf http://localhost:20588/ -o /dev/null -w '%{http_code}' | grep -qE '200|302'"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- Portainer 2.19 ---
+  - name: portainer219-exposed
+    type: beacon
+    target: http://localhost:20587
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    expect:
+      min_findings: 1
+
+  - name: portainer219-service-identified
+    type: beacon
+    target: localhost:20587
+    args: ["--no-enrich", "--no-nmap"]
+    expect:
+      check_id: port.service_identified
+
+  # --- Portainer 2.20 ---
+  - name: portainer220-exposed
+    type: beacon
+    target: http://localhost:20588
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    expect:
+      min_findings: 1
+
+  - name: portainer220-service-identified
+    type: beacon
+    target: localhost:20588
+    args: ["--no-enrich", "--no-nmap"]
+    expect:
+      check_id: port.service_identified
+
+timeout: 5m

@@ -1,0 +1,70 @@
+name: variant-postgres-versions
+description: >
+  PostgreSQL version variant test: PG 14 vs 16. Both configured with
+  trust authentication to verify beacon detects postgresql_trust across
+  major versions.
+tags: [variant, postgresql, database, portscan, integration]
+
+services:
+  pg14:
+    image: postgres:14-alpine
+    ports: ["20502:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+  pg16:
+    image: postgres:16-alpine
+    ports: ["20503:5432"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+
+ready:
+  cmd: "nc -zw2 localhost 20502 && nc -zw2 localhost 20503"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- PostgreSQL 14 ---
+  - name: pg14-detected
+    type: beacon
+    target: localhost:20502
+    args: ["--no-enrich", "--no-nmap", "--ports", "5432"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: pg14-surface-mode
+    type: beacon
+    target: localhost:20502
+    args: ["--no-enrich", "--no-nmap", "--ports", "5432"]
+    expect:
+      min_findings: 1
+
+  - name: pg14-exploit-mode
+    type: beacon
+    target: localhost:20502
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "5432"]
+    expect:
+      min_findings: 0
+
+  # --- PostgreSQL 16 ---
+  - name: pg16-detected
+    type: beacon
+    target: localhost:20503
+    args: ["--no-enrich", "--no-nmap", "--ports", "5432"]
+    expect:
+      check_id: port.postgresql_trust
+
+  - name: pg16-surface-mode
+    type: beacon
+    target: localhost:20503
+    args: ["--no-enrich", "--no-nmap", "--ports", "5432"]
+    expect:
+      min_findings: 1
+
+  - name: pg16-exploit-mode
+    type: beacon
+    target: localhost:20503
+    args: ["--no-enrich", "--no-nmap", "--exploit", "--yes", "--ports", "5432"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

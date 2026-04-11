@@ -1,0 +1,66 @@
+name: variant-wordpress-versions
+description: >
+  WordPress version variant test: WP 5.x vs 6.x on shared MariaDB.
+  Verifies beacon detects WordPress across major versions and finds
+  security issues in exploit mode.
+tags: [variant, wordpress, cms, web, integration]
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: test
+      MARIADB_DATABASE: wp
+  wp5:
+    image: wordpress:5-apache
+    ports: ["20570:80"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_PASSWORD: test
+    depends_on: [db]
+  wp6:
+    image: wordpress:6-apache
+    ports: ["20571:80"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_PASSWORD: test
+      WORDPRESS_DB_NAME: wp6
+    depends_on: [db]
+
+ready:
+  cmd: "curl -sf http://localhost:20570/ -o /dev/null -w '%{http_code}' | grep -qE '200|302|500' && curl -sf http://localhost:20571/ -o /dev/null -w '%{http_code}' | grep -qE '200|302|500'"
+  timeout: 180s
+  interval: 5s
+
+assertions:
+  # --- WordPress 5 ---
+  - name: wp5-scan-completes
+    type: beacon
+    target: http://localhost:20570
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    expect:
+      min_findings: 1
+
+  - name: wp5-exploit-mode
+    type: beacon
+    target: http://localhost:20570
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+  # --- WordPress 6 ---
+  - name: wp6-scan-completes
+    type: beacon
+    target: http://localhost:20571
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan"]
+    expect:
+      min_findings: 1
+
+  - name: wp6-exploit-mode
+    type: beacon
+    target: http://localhost:20571
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders,cors,portscan", "--exploit", "--yes"]
+    expect:
+      min_findings: 1
+
+timeout: 8m

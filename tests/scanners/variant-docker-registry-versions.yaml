@@ -1,0 +1,32 @@
+name: variant-docker-registry-versions
+description: >
+  Docker Registry 2.x variant test. Verifies beacon detects an exposed
+  Docker registry via the v2 API catalog endpoint.
+tags: [variant, docker, registry, container, integration]
+
+services:
+  registry2:
+    image: registry:2
+    ports: ["20586:5000"]
+
+ready:
+  cmd: "curl -sf http://localhost:20586/v2/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  - name: registry2-service-identified
+    type: beacon
+    target: localhost:20586
+    args: ["--no-enrich", "--no-nmap", "--ports", "5000"]
+    expect:
+      check_id: port.service_identified
+
+  - name: registry2-scan-completes
+    type: beacon
+    target: http://localhost:20586
+    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan,secheaders"]
+    expect:
+      min_findings: 1
+
+timeout: 5m

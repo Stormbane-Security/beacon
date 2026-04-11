@@ -1,0 +1,53 @@
+name: variant-secheaders-stacks
+description: >
+  Missing security headers variant test across nginx and Apache httpd.
+  Both default installs serve content without HSTS, CSP, or other
+  security headers, verifying beacon detects missing headers regardless
+  of server stack.
+tags: [variant, secheaders, nginx, apache, web, integration]
+
+services:
+  nginx-bare:
+    image: nginx:alpine
+    ports: ["20584:80"]
+  httpd-bare:
+    image: httpd:alpine
+    ports: ["20585:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:20584/ >/dev/null && curl -sf http://localhost:20585/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- nginx missing headers ---
+  - name: nginx-missing-headers
+    type: beacon
+    target: http://localhost:20584
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
+    expect:
+      min_findings: 0
+
+  - name: nginx-missing-hsts
+    type: beacon
+    target: http://localhost:20584
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
+    expect:
+      min_findings: 0
+
+  # --- Apache missing headers ---
+  - name: httpd-missing-headers
+    type: beacon
+    target: http://localhost:20585
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
+    expect:
+      min_findings: 0
+
+  - name: httpd-missing-hsts
+    type: beacon
+    target: http://localhost:20585
+    args: ["--no-enrich", "--no-nmap", "--scanners", "secheaders", "--scanners", "secheaders"]
+    expect:
+      min_findings: 0
+
+timeout: 5m

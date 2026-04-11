@@ -1,0 +1,98 @@
+name: variant-nats-versions
+description: >
+  NATS version variant test: 2.9 vs 2.10 with HTTP monitoring enabled.
+  Verifies that beacon detects exposed NATS monitoring API across both
+  versions, catching regressions where monitoring endpoint format or
+  response structure changes break detection.
+tags: [variant, nats, messaging, integration]
+
+services:
+  nats29:
+    image: nats:2.9-alpine
+    ports:
+      - "20556:4222"
+      - "20557:8222"
+    command: ["--http_port", "8222"]
+
+  nats210:
+    image: nats:2.10-alpine
+    ports:
+      - "20558:4222"
+      - "20559:8222"
+    command: ["--http_port", "8222"]
+
+ready:
+  cmd: "curl -sf http://localhost:20557/varz >/dev/null && curl -sf http://localhost:20559/varz >/dev/null"
+  timeout: 60s
+  interval: 5s
+
+assertions:
+  # ══════════════════════════════════════════════════════════════════════
+  # NATS 2.9 — monitoring API exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: nats29-monitoring-exposed
+    type: beacon
+    target: localhost:20557
+    args: ["--no-enrich", "--no-nmap", "--ports", "20557"]
+    expect:
+      check_id: port.nats_monitoring_exposed
+
+  - name: nats29-service-identified
+    type: beacon
+    target: localhost:20556
+    args: ["--no-enrich", "--no-nmap", "--ports", "20556"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-nats29-deep-scan
+    type: beacon
+    target: localhost:20557
+    args: ["--no-enrich", "--no-nmap", "--ports", "20557", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NATS 2.10 — monitoring API exposed
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: nats210-monitoring-exposed
+    type: beacon
+    target: localhost:20559
+    args: ["--no-enrich", "--no-nmap", "--ports", "20559"]
+    expect:
+      check_id: port.nats_monitoring_exposed
+
+  - name: nats210-service-identified
+    type: beacon
+    target: localhost:20558
+    args: ["--no-enrich", "--no-nmap", "--ports", "20558"]
+    expect:
+      check_id: port.service_identified
+
+  - name: exploit-nats210-deep-scan
+    type: beacon
+    target: localhost:20559
+    args: ["--no-enrich", "--no-nmap", "--ports", "20559", "--deep", "--yes"]
+    expect:
+      min_findings: 0
+
+  # ══════════════════════════════════════════════════════════════════════
+  # NEGATIVE — no cross-contamination
+  # ══════════════════════════════════════════════════════════════════════
+
+  - name: negative-nats29-not-rabbitmq
+    type: beacon
+    target: localhost:20556
+    args: ["--no-enrich", "--no-nmap", "--ports", "20556"]
+    expect:
+      not_check_id: port.rabbitmq_default_creds
+
+  - name: negative-nats210-not-rabbitmq
+    type: beacon
+    target: localhost:20558
+    args: ["--no-enrich", "--no-nmap", "--ports", "20558"]
+    expect:
+      not_check_id: port.rabbitmq_default_creds
+
+timeout: 5m

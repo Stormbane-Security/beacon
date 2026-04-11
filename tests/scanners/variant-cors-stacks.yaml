@@ -1,0 +1,53 @@
+name: variant-cors-stacks
+description: >
+  CORS misconfiguration variant test across nginx and Node.js. Both
+  services reflect the Origin header with credentials allowed, verifying
+  beacon detects web.cors_misconfiguration regardless of server stack.
+tags: [variant, cors, nginx, node, web, integration]
+
+services:
+  nginx-cors:
+    image: nginx:alpine
+    ports: ["20580:80"]
+    volumes: ["./variant-cors-stacks/nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+  node-cors:
+    image: node:20-alpine
+    ports: ["20582:3000"]
+    volumes: ["./variant-cors-stacks/server.js:/app/server.js:ro"]
+    command: ["node", "/app/server.js"]
+
+ready:
+  cmd: "curl -sf http://localhost:20580/ >/dev/null && curl -sf http://localhost:20582/ >/dev/null"
+  timeout: 60s
+  interval: 3s
+
+assertions:
+  # --- nginx CORS reflection ---
+  - name: preflight-nginx-cors-reflects
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:20580/ | grep -qi 'Access-Control-Allow-Origin: https://evil.com'"
+      exit_code: 0
+
+  - name: nginx-cors-misconfiguration
+    type: beacon
+    target: http://localhost:20580
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+  # --- Node CORS reflection ---
+  - name: preflight-node-cors-reflects
+    type: command
+    expect:
+      command: "curl -sI -H 'Origin: https://evil.com' http://localhost:20582/ | grep -qi 'Access-Control-Allow-Origin: https://evil.com'"
+      exit_code: 0
+
+  - name: node-cors-misconfiguration
+    type: beacon
+    target: http://localhost:20582
+    args: ["--no-enrich", "--no-nmap", "--scanners", "cors"]
+    expect:
+      check_id: web.cors_misconfiguration
+
+timeout: 5m

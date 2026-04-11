@@ -40,7 +40,7 @@ assertions:
   - name: nginx-service-identified
     type: beacon
     target: http://localhost:20410
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20410"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20410"]
     expect:
       min_findings: 0
 
@@ -53,7 +53,7 @@ assertions:
   - name: nginx-deep-scan
     type: beacon
     target: http://localhost:20410
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20410", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20410", "--deep", "--yes"]
     expect:
       min_findings: 0
 
@@ -70,7 +70,7 @@ assertions:
   - name: apache-service-identified
     type: beacon
     target: http://localhost:20411
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20411"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20411"]
     expect:
       min_findings: 0
 
@@ -83,7 +83,7 @@ assertions:
   - name: apache-deep-scan
     type: beacon
     target: http://localhost:20411
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20411", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20411", "--deep", "--yes"]
     expect:
       min_findings: 0
 
@@ -100,21 +100,21 @@ assertions:
   - name: express-service-identified
     type: beacon
     target: http://localhost:20412
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20412"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20412"]
     expect:
       min_findings: 0
 
   - name: express-detected
     type: beacon
     target: http://localhost:20412
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20412"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20412"]
     expect:
       min_findings: 0
 
   - name: express-deep-scan
     type: beacon
     target: http://localhost:20412
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20412", "--deep", "--yes"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20412", "--deep", "--yes"]
     expect:
       min_findings: 0
 
@@ -125,14 +125,14 @@ assertions:
   - name: negative-nginx-not-express
     type: beacon
     target: http://localhost:20410
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20410"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20410"]
     expect:
       not_min_findings: 0
 
   - name: negative-apache-not-express
     type: beacon
     target: http://localhost:20411
-    args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "20411"]
+    args: ["--no-enrich", "--no-nmap", "--ports", "20411"]
     expect:
       not_min_findings: 0
 
