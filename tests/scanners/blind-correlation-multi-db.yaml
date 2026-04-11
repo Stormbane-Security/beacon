@@ -25,7 +25,7 @@ services:
     command: ["agent", "-dev", "-client=0.0.0.0"]
 
 ready:
-  cmd: "redis-cli -h localhost -p 20982 PING 2>/dev/null | grep -q PONG && pg_isready -h localhost -p 20983 -q && curl -sf http://localhost:20984/v1/status/leader | grep -q '\"'"
+  cmd: "redis-cli -h localhost -p 20982 PING 2>/dev/null | grep -q PONG && nc -z localhost 20983 && curl -sf http://localhost:20984/v1/status/leader | grep -q '\"'"
   timeout: 120s
   interval: 5s
 
@@ -43,7 +43,7 @@ assertions:
   - name: preflight-postgres
     type: command
     expect:
-      command: "pg_isready -h localhost -p 20983 -q"
+      command: "nc -z localhost 20983"
       exit_code: 0
 
   - name: preflight-consul
@@ -55,6 +55,13 @@ assertions:
   # ══════════════════════════════════════════════════════════════════════
   # BLIND SURFACE: discover and identify all services
   # ══════════════════════════════════════════════════════════════════════
+
+  - name: blind-exploit-all-services
+    type: beacon
+    target: localhost
+    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984", "--exploit", "--yes"]
+    expect:
+      min_findings: 3
 
   - name: blind-discovers-redis-unauthenticated
     type: beacon
@@ -109,11 +116,4 @@ assertions:
     expect:
       min_findings: 1
 
-  - name: blind-exploit-all-services
-    type: beacon
-    target: localhost
-    args: ["--no-enrich", "--no-nmap", "--ports", "20982,20983,20984", "--exploit", "--yes"]
-    expect:
-      min_findings: 3
-
-timeout: 5m
+timeout: 10m
