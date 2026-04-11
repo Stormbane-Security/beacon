@@ -166,13 +166,13 @@ jobs:
         run: |
           case "${{ matrix.batch }}" in
             batch-lightweight)
-              TESTS=$(ls tests/scanners/secheaders*.yaml tests/scanners/cors-*.yaml tests/scanners/jwt-*.yaml tests/scanners/exposure-*.yaml tests/scanners/cookie-*.yaml tests/scanners/wellknown-*.yaml tests/scanners/headers-*.yaml tests/scanners/dlp-*.yaml tests/scanners/api-*.yaml 2>/dev/null | tr '\n' ' ')
+              TESTS=$(ls tests/scanners/secheaders*.yaml tests/scanners/cors-*.yaml tests/scanners/jwt-*.yaml tests/scanners/exposure-*.yaml tests/scanners/cookie-*.yaml tests/scanners/wellknown-*.yaml tests/scanners/headers-*.yaml tests/scanners/dlp-*.yaml tests/scanners/api-*.yaml tests/scanners/django-*.yaml tests/scanners/fastapi-*.yaml tests/scanners/express-*.yaml tests/scanners/laravel-*.yaml tests/scanners/rails-*.yaml tests/scanners/ghost-*.yaml tests/scanners/joomla-*.yaml tests/scanners/nextcloud-*.yaml tests/scanners/wordpress-*.yaml tests/scanners/vllm-*.yaml 2>/dev/null | tr '\n' ' ')
               ;;
             batch-databases)
               TESTS=$(ls tests/scanners/*redis*.yaml tests/scanners/*mongo*.yaml tests/scanners/*mysql*.yaml tests/scanners/*postgres*.yaml tests/scanners/*elasticsearch*.yaml tests/scanners/*couchdb*.yaml tests/scanners/*clickhouse*.yaml tests/scanners/*influxdb*.yaml tests/scanners/*neo4j*.yaml tests/scanners/*cassandra*.yaml 2>/dev/null | tr '\n' ' ')
               ;;
             batch-services)
-              TESTS=$(ls tests/scanners/*consul*.yaml tests/scanners/*vault*.yaml tests/scanners/*etcd*.yaml tests/scanners/*rabbitmq*.yaml tests/scanners/*mqtt*.yaml tests/scanners/*nats*.yaml tests/scanners/*prometheus*.yaml tests/scanners/*kibana*.yaml tests/scanners/*memcached*.yaml tests/scanners/*minio*.yaml tests/scanners/*docker-registry*.yaml 2>/dev/null | tr '\n' ' ')
+              TESTS=$(ls tests/scanners/*consul*.yaml tests/scanners/*vault*.yaml tests/scanners/*etcd*.yaml tests/scanners/*rabbitmq*.yaml tests/scanners/*mqtt*.yaml tests/scanners/*nats*.yaml tests/scanners/*prometheus*.yaml tests/scanners/*kibana*.yaml tests/scanners/*memcached*.yaml tests/scanners/*minio*.yaml tests/scanners/*docker-registry*.yaml tests/scanners/*splunk*.yaml tests/scanners/*zabbix*.yaml tests/scanners/*hazelcast*.yaml tests/scanners/*nacos*.yaml tests/scanners/*geoserver*.yaml tests/scanners/*pyload*.yaml tests/scanners/*rocketmq*.yaml tests/scanners/postexploit-*.yaml tests/scanners/*phpmyadmin*.yaml tests/scanners/*jboss*.yaml tests/scanners/*webmin*.yaml 2>/dev/null | tr '\n' ' ')
               ;;
             batch-web-vulns)
               TESTS=$(ls tests/scanners/rxss-*.yaml tests/scanners/hostheader-*.yaml tests/scanners/open-redirect*.yaml tests/scanners/dnsrebind-*.yaml tests/scanners/waf*.yaml tests/scanners/graphql-*.yaml tests/scanners/websocket-*.yaml tests/scanners/hpp-*.yaml tests/scanners/blind-sqli*.yaml tests/scanners/deserialization*.yaml tests/scanners/oob-*.yaml tests/scanners/racecondition*.yaml tests/scanners/secondorder*.yaml 2>/dev/null | tr '\n' ' ')
@@ -181,7 +181,7 @@ jobs:
               TESTS=$(ls tests/scanners/chain-*.yaml tests/scanners/*exploit-chain*.yaml tests/scanners/default-creds*.yaml tests/scanners/docker-api-exploit*.yaml 2>/dev/null | tr '\n' ' ')
               ;;
             batch-heavy)
-              TESTS=$(ls tests/scanners/*juiceshop*.yaml tests/scanners/keycloak*.yaml tests/scanners/*grafana*.yaml tests/scanners/*jenkins*.yaml tests/scanners/*tomcat*.yaml tests/scanners/e2e-blind-*.yaml tests/scanners/e2e-full-*.yaml tests/scanners/e2e-services-*.yaml tests/scanners/ics-*.yaml tests/scanners/*ollama*.yaml tests/scanners/*ssh-*.yaml tests/scanners/*vnc-*.yaml 2>/dev/null | tr '\n' ' ')
+              TESTS=$(ls tests/scanners/*juiceshop*.yaml tests/scanners/keycloak*.yaml tests/scanners/*grafana*.yaml tests/scanners/*jenkins*.yaml tests/scanners/*tomcat*.yaml tests/scanners/e2e-blind-*.yaml tests/scanners/e2e-full-*.yaml tests/scanners/e2e-services-*.yaml tests/scanners/ics-*.yaml tests/scanners/*ollama*.yaml tests/scanners/*ssh-*.yaml tests/scanners/*vnc-*.yaml tests/scanners/*mlflow*.yaml tests/scanners/*solr*.yaml tests/scanners/*jira*.yaml tests/scanners/cve-wordpress-plugins.yaml tests/scanners/*coldfusion*.yaml tests/scanners/*superset*.yaml tests/scanners/*nifi*.yaml 2>/dev/null | tr '\n' ' ')
               ;;
           esac
           echo "tests=$TESTS" >> "$GITHUB_OUTPUT"

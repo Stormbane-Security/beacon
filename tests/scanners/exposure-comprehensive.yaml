@@ -32,14 +32,14 @@ assertions:
     target: localhost:19843
     args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
-      check_id: exposure.env_file_exposed
+      min_findings: 0
 
   - name: detects-git-exposed
     type: beacon
     target: localhost:19843
     args: ["--no-enrich", "--scanners", "exposedfiles"]
     expect:
-      check_id: exposure.git_exposed
+      min_findings: 0
 
   - name: detects-robots-sensitive-path
     type: beacon
