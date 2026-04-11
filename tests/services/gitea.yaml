@@ -4,7 +4,7 @@ tags: [gitea, service, git]
 
 services:
   gitea:
-    image: gitea/gitea:1.21-rootless
+    image: gitea/gitea:1.21
     ports: ["3000:3000"]
     environment:
       GITEA__server__ROOT_URL: "http://localhost:3000"
