@@ -402,6 +402,53 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 		}
 	}
 
+	// Post-probe pass: check extracted service versions against the built-in
+	// CVE version database. This catches known-vulnerable versions without
+	// needing nuclei or nmap NSE scripts.
+	findings = appendVersionCVEs(findings, makeF)
+
+	return findings
+}
+
+// appendVersionCVEs scans existing findings for service+version evidence and
+// runs the CVE version-range checker against each. Deduplicates against CVE
+// findings already present in the list (e.g. from active probes).
+func appendVersionCVEs(findings []finding.Finding, makeF findingMaker) []finding.Finding {
+	// Collect CheckIDs already emitted so we don't duplicate active probe results.
+	existing := make(map[finding.CheckID]bool, len(findings))
+	for _, f := range findings {
+		existing[f.CheckID] = true
+	}
+
+	for _, f := range findings {
+		if f.Evidence == nil {
+			continue
+		}
+		svc, _ := f.Evidence["service"].(string)
+		ver, _ := f.Evidence["version"].(string)
+		if svc == "" || ver == "" {
+			continue
+		}
+		cveFindings := CheckVersionCVEs(svc, ver, makeF)
+		for _, cf := range cveFindings {
+			if !existing[cf.CheckID] {
+				existing[cf.CheckID] = true
+				findings = append(findings, cf)
+			}
+		}
+		// Also check server_product + server_version (HTTP enrichment).
+		sp, _ := f.Evidence["server_product"].(string)
+		sv, _ := f.Evidence["server_version"].(string)
+		if sp != "" && sv != "" && (sp != svc || sv != ver) {
+			cveFindings2 := CheckVersionCVEs(sp, sv, makeF)
+			for _, cf := range cveFindings2 {
+				if !existing[cf.CheckID] {
+					existing[cf.CheckID] = true
+					findings = append(findings, cf)
+				}
+			}
+		}
+	}
 	return findings
 }
 
