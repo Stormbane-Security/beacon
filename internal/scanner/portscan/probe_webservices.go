@@ -1773,9 +1773,12 @@ func detectGhost(ctx context.Context, host string, port int, _ string, makeF fin
 		return nil
 	}
 	bodyLow := strings.ToLower(body)
-	isGhost := strings.Contains(bodyLow, "ghost-") ||
-		strings.Contains(bodyLow, "content=\"ghost") ||
-		strings.Contains(bodyLow, "ghost.org")
+	// Require stronger Ghost CMS fingerprints to avoid false positives on
+	// pages that happen to contain "ghost-" in CSS class names.
+	isGhost := strings.Contains(bodyLow, "content=\"ghost") ||
+		strings.Contains(bodyLow, "ghost.org") ||
+		strings.Contains(bodyLow, "ghost-signup") ||
+		strings.Contains(bodyLow, "ghost-portal")
 
 	if !isGhost {
 		// Try the Ghost API endpoint.

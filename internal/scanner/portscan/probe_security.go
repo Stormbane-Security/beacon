@@ -205,9 +205,14 @@ func orDefault(s, def string) string {
 func detectDockerDaemon(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Validate response contains Docker version JSON (e.g. "ApiVersion").
 	// Prevents false positives from SPAs that return HTML for any path.
-	body, ok := probeHTTPBody(ctx, host, port, false, "/v1.24/version")
+	// Try unversioned path first (works on all Docker versions), then
+	// fall back to versioned path for older daemons.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/version")
 	if !ok || !strings.Contains(body, "ApiVersion") {
-		return nil
+		body, ok = probeHTTPBody(ctx, host, port, false, "/v1.24/version")
+		if !ok || !strings.Contains(body, "ApiVersion") {
+			return nil
+		}
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDockerUnauth,
