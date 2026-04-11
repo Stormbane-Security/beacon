@@ -1488,6 +1488,7 @@ const (
 	CheckPortNextcloudDefaultCreds   CheckID = "port.nextcloud_default_credentials" // Nextcloud accepts default admin credentials (admin/admin)
 	CheckPortNextcloudStatusExposed  CheckID = "port.nextcloud_status_exposed"     // Nextcloud /status.php exposes exact version
 	CheckCVENextcloudSSRFPreview     CheckID = "cve.nextcloud_ssrf_preview"        // CVE-2023-48239 Nextcloud preview SSRF → cloud metadata/internal service access (CVSS 6.1)
+	CheckCVENextcloudInfoLeak        CheckID = "cve.nextcloud_info_leak"           // CVE-2023-25817 Nextcloud server info leak via preview endpoint (CVSS 6.5)
 )
 
 // AI-driven adaptive recon — target profiling via Claude.
@@ -2236,6 +2237,8 @@ const (
 	CheckCVECassandraUDFEscape     CheckID = "cve.cassandra_udf_sandbox_escape" // CVE-2021-44521 Cassandra UDF sandbox escape via Nashorn (CVSS 9.1)
 	CheckCVEInfluxDBAuthBypass      CheckID = "cve.influxdb_auth_bypass"      // CVE-2019-20933 InfluxDB authentication bypass via JWT empty secret (CVSS 9.8)
 	CheckCVEClickHouseRBACBypass   CheckID = "cve.clickhouse_rbac_bypass"    // ClickHouse RBAC bypass via SYSTEM queries on unpatched versions
+	CheckCVEClickHouseHeapOverflow CheckID = "cve.clickhouse_heap_overflow" // CVE-2023-47118 ClickHouse native protocol heap buffer overflow (CVSS 7.5)
+	CheckCVEClickHouseCodeInjection CheckID = "cve.clickhouse_code_injection" // CVE-2022-44013 ClickHouse code injection via crafted query (CVSS 8.8)
 
 	// ── Infrastructure CVEs ─────────────────────────────────────────────
 	CheckCVEKubeletWindowsRCE      CheckID = "cve.kubelet_windows_rce"       // CVE-2024-9042 Kubelet Windows node command injection RCE (CVSS 9.8)
@@ -2301,6 +2304,12 @@ const (
 
 	// Superset
 	CheckCVESupersetAuthBypass       CheckID = "cve.superset_auth_bypass"         // CVE-2023-36388 Apache Superset REST API auth bypass on specific endpoints (CVSS 5.4)
+
+	// TFTP
+	CheckCVETFTPUnauthAccess         CheckID = "cve.tftp_unauth_access"           // TFTP unauthenticated file access — detection only (no CVE assigned, protocol has no auth by design)
+
+	// Jaeger
+	CheckCVEJaegerUnauthTraces       CheckID = "cve.jaeger_unauth_traces"         // Jaeger unauthenticated trace access — detection only (no CVE assigned)
 
 	// Telnet
 	CheckCVETelnetCredentialBrute    CheckID = "cve.telnet_credential_brute"      // Telnet credential brute-force — detection only (no CVE assigned)
@@ -4386,6 +4395,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckPortNextcloudDefaultCreds:   {CheckPortNextcloudDefaultCreds, SeverityCritical, ModeDeep},
 	CheckPortNextcloudStatusExposed:  {CheckPortNextcloudStatusExposed, SeverityLow, ModeSurface},
 	CheckCVENextcloudSSRFPreview:     {CheckCVENextcloudSSRFPreview, SeverityHigh, ModeDeep},
+	CheckCVENextcloudInfoLeak:        {CheckCVENextcloudInfoLeak, SeverityMedium, ModeSurface},
 
 	// Database CVEs — Neo4j, Cassandra, InfluxDB, ClickHouse
 	CheckCVENeo4jJavaDeserial:        {CheckCVENeo4jJavaDeserial, SeverityCritical, ModeDeep},
@@ -4393,6 +4403,8 @@ var Registry = map[CheckID]CheckMeta{
 	CheckCVECassandraUDFEscape:       {CheckCVECassandraUDFEscape, SeverityHigh, ModeDeep},
 	CheckCVEInfluxDBAuthBypass:        {CheckCVEInfluxDBAuthBypass, SeverityCritical, ModeDeep},
 	CheckCVEClickHouseRBACBypass:     {CheckCVEClickHouseRBACBypass, SeverityHigh, ModeDeep},
+	CheckCVEClickHouseHeapOverflow:  {CheckCVEClickHouseHeapOverflow, SeverityHigh, ModeSurface},
+	CheckCVEClickHouseCodeInjection: {CheckCVEClickHouseCodeInjection, SeverityHigh, ModeSurface},
 
 	// Infrastructure CVEs — Kubelet, Proxmox, MikroTik
 	CheckCVEKubeletWindowsRCE:        {CheckCVEKubeletWindowsRCE, SeverityCritical, ModeDeep},
