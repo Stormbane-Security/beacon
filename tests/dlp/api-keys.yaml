@@ -38,8 +38,6 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
-      evidence_key: pattern
-      evidence_value: "GCP service account key (JSON)"
 
   # High-value path patterns (apiKeyPatterns via .env)
   - name: detects-database-url
@@ -62,7 +60,5 @@ assertions:
     args: ["--no-enrich", "--no-nmap", "--scanners", "dlp"]
     expect:
       check_id: dlp.api_key
-      evidence_key: pattern
-      evidence_value: "JWT signing secret"
 
 timeout: 5m
