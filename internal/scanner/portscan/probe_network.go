@@ -158,6 +158,11 @@ func detectSSH(ctx context.Context, host string, port int, banner string, makeF 
 	if sv != "" {
 		ev["ssh_software"] = sv
 	}
+	// Extract structured version for CVE matching.
+	if product, ver := ExtractSSHVersion(banner); ver != "" {
+		ev["version"] = ver
+		ev["product"] = product + " " + ver
+	}
 	// Vendor detection via SSH banner.
 	var netDevFindings []finding.Finding
 	lsv := strings.ToLower(sv + " " + banner)
@@ -306,6 +311,11 @@ func detectFTP(ctx context.Context, host string, port int, banner string, makeF 
 	fv := parseFTPVersion(banner)
 	if fv != "" {
 		ev["ftp_software"] = fv
+	}
+	// Extract structured version for CVE matching.
+	if product, ver := ExtractFTPVersion(banner); ver != "" {
+		ev["version"] = ver
+		ev["product"] = product + " " + ver
 	}
 	// CVE-2011-2523: vsftpd 2.3.4 supply-chain backdoor.
 	if fv == "vsFTPd 2.3.4" {
@@ -615,6 +625,13 @@ func detectSMTP(ctx context.Context, host string, port int, banner string, makeF
 
 		// Build evidence with EHLO capabilities.
 		ev := map[string]any{"port": port, "service": "smtp", "banner": banner}
+		// Extract structured version for CVE matching.
+		if product, ver := ExtractSMTPVersion(banner); ver != "" {
+			ev["version"] = ver
+			ev["product"] = product + " " + ver
+		} else if product != "" {
+			ev["product"] = product
+		}
 		software := ""
 		if ehloInfo != nil {
 			software = ehloInfo.Software

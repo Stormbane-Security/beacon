@@ -100,6 +100,8 @@ func detectKubernetesAPI(ctx context.Context, host string, port int, banner stri
 	}
 	if k8sVer != "" {
 		ev["k8s_version"] = k8sVer
+		ev["version"] = k8sVer
+		ev["product"] = "Kubernetes " + k8sVer
 	}
 	if cloudProvider != "" {
 		ev["cloud_provider"] = cloudProvider
@@ -214,13 +216,22 @@ func detectDockerDaemon(ctx context.Context, host string, port int, banner strin
 			return nil
 		}
 	}
+	ev := map[string]any{"port": port, "service": "docker", "authenticated": false, "banner": banner}
+	// Extract Docker engine version from the /version JSON response ({"Version":"24.0.7",...}).
+	if ver := parseJSONStringField(body, "Version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Docker " + ver
+	}
+	if apiVer := parseJSONStringField(body, "ApiVersion"); apiVer != "" {
+		ev["api_version"] = apiVer
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDockerUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated Docker daemon exposed on port %d", port),
 		"The Docker daemon API is reachable over plain TCP without TLS or authentication. "+
 			"A remote attacker can spawn privileged containers and gain full host control.",
-		map[string]any{"port": port, "service": "docker", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 

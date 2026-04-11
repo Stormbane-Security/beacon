@@ -305,13 +305,21 @@ func detectJupyter(ctx context.Context, host string, port int, banner string, ma
 	if !exposed {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "jupyter", "authenticated": false, "banner": banner}
+	// Extract Jupyter version from /api endpoint (returns {"version":"7.0.6",...}).
+	if apiBody, apiOK := probeHTTPBody(ctx, host, port, false, "/api"); apiOK {
+		if ver := parseJSONStringField(apiBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Jupyter " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortJupyterExposed,
 		finding.SeverityCritical,
 		fmt.Sprintf("Jupyter Notebook exposed on port %d", port),
 		"A Jupyter Notebook server is publicly accessible. "+
 			"Jupyter provides arbitrary code execution and full filesystem access to the server.",
-		map[string]any{"port": port, "service": "jupyter", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -322,13 +330,21 @@ func detectPrometheus(ctx context.Context, host string, port int, banner string,
 	if !ok || !strings.Contains(body, "activeTargets") {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "prometheus", "authenticated": false, "banner": banner}
+	// Extract Prometheus version from /api/v1/status/buildinfo (already unauthenticated).
+	if buildBody, buildOK := probeHTTPBody(ctx, host, port, false, "/api/v1/status/buildinfo"); buildOK {
+		if ver := parseJSONStringField(buildBody, "version"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "Prometheus " + ver
+		}
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortPrometheusUnauth,
 		finding.SeverityCritical,
 		fmt.Sprintf("Unauthenticated Prometheus exposed on port %d", port),
 		"A Prometheus metrics server is accessible without authentication. "+
 			"Internal infrastructure topology, host names, and service metadata are exposed.",
-		map[string]any{"port": port, "service": "prometheus", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -344,6 +360,8 @@ func detectKibana(ctx context.Context, host string, port int, banner string, mak
 		return nil
 	}
 	ev["kibana_version"] = kibanaVer
+	ev["version"] = kibanaVer
+	ev["product"] = "Kibana " + kibanaVer
 	var findings []finding.Finding
 	// Always emit exposed dashboard finding — Kibana should never be public.
 	findings = append(findings, makeF(
@@ -425,6 +443,11 @@ func detectConsul(ctx context.Context, host string, port int, banner string, mak
 func detectEtcd(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Detect etcd by HTTP response content — /version returns etcd version info.
 	if body, ok := probeHTTPBody(ctx, host, port, false, "/version"); ok && strings.Contains(strings.ToLower(body), "etcd") {
+		ev := map[string]any{"port": port, "service": "etcd"}
+		if ver := parseJSONStringField(body, "etcdserver"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "etcd " + ver
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortEtcdExposed,
 			finding.SeverityCritical,
@@ -434,18 +457,23 @@ func detectEtcd(ctx context.Context, host string, port int, banner string, makeF
 				"Unauthenticated etcd access gives full read/write to the key-value store "+
 				"and their network endpoints, and the key-value store (which often contains secrets, "+
 				"TLS certificates, and database credentials).",
-			map[string]any{"port": port, "service": "etcd"},
+			ev,
 		)}
 	}
 	// Also try HTTPS — etcd may be configured with TLS.
 	if body, ok := probeHTTPBody(ctx, host, port, true, "/version"); ok && strings.Contains(strings.ToLower(body), "etcd") {
+		ev := map[string]any{"port": port, "service": "etcd"}
+		if ver := parseJSONStringField(body, "etcdserver"); ver != "" {
+			ev["version"] = ver
+			ev["product"] = "etcd " + ver
+		}
 		return []finding.Finding{makeF(
 			finding.CheckPortEtcdExposed,
 			finding.SeverityCritical,
 			fmt.Sprintf("etcd client API exposed on port %d", port),
 			"An etcd cluster member is publicly accessible via TLS. etcd stores all Kubernetes cluster "+
 				"state including secrets, service account tokens, and cluster configuration.",
-			map[string]any{"port": port, "service": "etcd"},
+			ev,
 		)}
 	}
 	// Fall back to port-based for well-known etcd ports when HTTP probes fail.
@@ -1447,6 +1475,8 @@ func detectJenkins(ctx context.Context, host string, port int, _ string, makeF f
 	ev := map[string]any{"port": port, "service": "jenkins"}
 	if jenkinsHeader != "" {
 		ev["jenkins_version"] = jenkinsHeader
+		ev["version"] = jenkinsHeader
+		ev["product"] = "Jenkins " + jenkinsHeader
 	}
 
 	// Check if unauthenticated access works — try /api/json which exposes job listing.
@@ -1880,17 +1910,23 @@ func detectGhost(ctx context.Context, host string, port int, _ string, makeF fin
 	if !isGhost {
 		return nil
 	}
+	ev := map[string]any{
+		"port":    port,
+		"service": "ghost",
+		"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i ghost", scheme(useTLS), host, port),
+	}
+	// Extract Ghost version from meta generator tag or API response body.
+	if ver := parseGhostVersion(body); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Ghost " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortGhostDetected,
 		finding.SeverityInfo,
 		fmt.Sprintf("Ghost CMS detected on port %d", port),
 		"A Ghost publishing platform is running. Verify the Ghost admin panel (/ghost/) is "+
 			"not publicly accessible without authentication and that the Ghost version is current.",
-		map[string]any{
-			"port":    port,
-			"service": "ghost",
-			"proof":   fmt.Sprintf("curl -sk %s://%s:%d/ | grep -i ghost", scheme(useTLS), host, port),
-		},
+		ev,
 	)}
 }
 

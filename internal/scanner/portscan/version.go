@@ -358,3 +358,33 @@ func enrichHTTPEvidence(ctx context.Context, host string, port int, ev map[strin
 		ev["http_title"] = title
 	}
 }
+
+// parseMemcachedVersion extracts the version from a Memcached stats response.
+// The response contains lines like "STAT version 1.6.22\r\n".
+func parseMemcachedVersion(statsResp string) string {
+	for _, line := range strings.Split(statsResp, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "STAT version ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "STAT version "))
+		}
+	}
+	return ""
+}
+
+// parseGhostVersion extracts the Ghost CMS version from a meta tag or API response.
+// Looks for content="Ghost X.Y.Z" in meta tags or "version":"X.Y.Z" in JSON.
+func parseGhostVersion(body string) string {
+	// Try meta tag: <meta name="generator" content="Ghost 5.82">
+	lower := strings.ToLower(body)
+	if idx := strings.Index(lower, "content=\"ghost "); idx >= 0 {
+		rest := body[idx+len("content=\"Ghost "):]
+		if end := strings.IndexByte(rest, '"'); end > 0 && end < 20 {
+			return strings.TrimSpace(rest[:end])
+		}
+	}
+	// Try JSON field from API response.
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		return ver
+	}
+	return ""
+}

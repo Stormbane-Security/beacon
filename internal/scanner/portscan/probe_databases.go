@@ -138,6 +138,11 @@ func detectMongoDB(ctx context.Context, host string, port int, banner string, ma
 		"authenticated": false, "auth_status": "no_auth",
 		"banner": banner,
 	}
+	// Extract MongoDB version from isMaster response (separate connection).
+	if ver := probeMongoDBVersion(ctx, host, port); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "MongoDB " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortDatabaseExposed,
 		finding.SeverityCritical,
@@ -340,9 +345,15 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 }
 
 func detectMemcached(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
-	unauth := probeMemcached(ctx, host, port)
-	if !unauth {
+	statsResp, ok := probeMemcachedStats(ctx, host, port)
+	if !ok {
 		return nil
+	}
+	ev := map[string]any{"port": port, "service": "memcached", "authenticated": false, "banner": banner}
+	// Extract version from "STAT version X.Y.Z\r\n" line in the stats response.
+	if ver := parseMemcachedVersion(statsResp); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Memcached " + ver
 	}
 	return []finding.Finding{makeF(
 		finding.CheckPortMemcachedUnauth,
@@ -350,7 +361,7 @@ func detectMemcached(ctx context.Context, host string, port int, banner string, 
 		fmt.Sprintf("Unauthenticated Memcached exposed on port %d", port),
 		"A Memcached instance is accessible without authentication. "+
 			"Cache contents (which may include session tokens or PII) can be read or poisoned.",
-		map[string]any{"port": port, "service": "memcached", "authenticated": false, "banner": banner},
+		ev,
 	)}
 }
 
@@ -487,6 +498,16 @@ func detectNeo4j(ctx context.Context, host string, port int, banner string, make
 	if !strings.Contains(lb, "neo4j") && (!strings.Contains(lb, "bolt") || !strings.Contains(lb, "transaction")) {
 		return nil
 	}
+	ev := map[string]any{"port": port, "service": "neo4j"}
+	// Extract Neo4j version from the root JSON response ({"neo4j_version":"5.18.0",...})
+	// or from "neo4j-version" field in the discovery response.
+	if ver := parseJSONStringField(body, "neo4j_version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Neo4j " + ver
+	} else if ver := parseJSONStringField(body, "neo4j-version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Neo4j " + ver
+	}
 	return []finding.Finding{makeF(
 		finding.CheckPortNeo4jExposed,
 		finding.SeverityHigh,
@@ -495,7 +516,7 @@ func detectNeo4j(ctx context.Context, host string, port int, banner string, make
 			"Unauthenticated access allows full read/write of all graph data. "+
 			"Enable authentication in neo4j.conf (dbms.security.auth_enabled=true) and "+
 			"restrict port 7474 to application server subnets only.",
-		map[string]any{"port": port, "service": "neo4j"},
+		ev,
 	)}
 }
 

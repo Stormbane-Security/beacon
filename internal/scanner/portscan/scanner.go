@@ -1317,21 +1317,32 @@ func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) st
 
 // probeMemcached sends the ASCII stats command and checks for STAT in the response.
 func probeMemcached(ctx context.Context, host string, port int) bool {
+	_, ok := probeMemcachedStats(ctx, host, port)
+	return ok
+}
+
+// probeMemcachedStats sends "stats\r\n" and returns the raw response if it
+// contains STAT lines (indicating a valid Memcached instance).
+func probeMemcachedStats(ctx context.Context, host string, port int) (string, bool) {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
 	_, err = conn.Write([]byte("stats\r\n"))
 	if err != nil {
-		return false
+		return "", false
 	}
-	buf := make([]byte, 256)
+	buf := make([]byte, 1024)
 	n, _ := conn.Read(buf)
-	return strings.Contains(string(buf[:n]), "STAT ")
+	resp := string(buf[:n])
+	if !strings.Contains(resp, "STAT ") {
+		return "", false
+	}
+	return resp, true
 }
 
 // probeJupyter does an HTTP GET / and checks for "jupyter" in the response body.
@@ -1416,6 +1427,55 @@ func probeMongoDB(ctx context.Context, host string, port int) bool {
 	//   \x01 "ok\0" \x00\x00\x00\x00\x00\x00\xF0\x3F
 	okPattern := []byte{0x01, 0x6f, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f}
 	return bytes.Contains(respBody, okPattern)
+}
+
+// probeMongoDBVersion sends an isMaster command and extracts the MongoDB version
+// from the BSON response. The isMaster response contains a "version" UTF-8 string
+// field (BSON type 0x02). Returns "" if version cannot be extracted.
+func probeMongoDBVersion(ctx context.Context, host string, port int) string {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	dialer := &net.Dialer{Timeout: dialTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(bannerTimeout))
+
+	const opMsg uint32 = 2013
+	isMasterBSON := []byte{
+		0x13, 0x00, 0x00, 0x00,
+		0x10,
+		0x69, 0x73, 0x4d, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00,
+		0x01, 0x00, 0x00, 0x00,
+		0x00,
+	}
+	if !sendMongoOPMsg(conn, opMsg, 100, isMasterBSON) {
+		return ""
+	}
+	_, respBody := readMongoOPMsgResponse(conn, opMsg)
+	return extractBSONStringField(respBody, "version")
+}
+
+// extractBSONStringField does a lightweight extraction of a UTF-8 string field
+// from raw BSON bytes. BSON UTF-8 strings are: type(0x02) + cstring_name + int32_len + string + \x00.
+func extractBSONStringField(data []byte, fieldName string) string {
+	needle := append([]byte{0x02}, append([]byte(fieldName), 0x00)...)
+	idx := bytes.Index(data, needle)
+	if idx < 0 {
+		return ""
+	}
+	offset := idx + len(needle)
+	if offset+4 > len(data) {
+		return ""
+	}
+	strLen := int(binary.LittleEndian.Uint32(data[offset : offset+4]))
+	offset += 4
+	if strLen <= 1 || offset+strLen > len(data) {
+		return ""
+	}
+	// strLen includes trailing \x00
+	return string(data[offset : offset+strLen-1])
 }
 
 // sendMongoOPMsg builds and sends an OP_MSG wire protocol message.

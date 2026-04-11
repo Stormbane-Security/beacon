@@ -34,6 +34,8 @@ func detectClickHouse(ctx context.Context, host string, port int, banner string,
 		ver := strings.TrimSpace(verBody)
 		if ver != "" && !strings.ContainsAny(ver, "<>{") {
 			ev["clickhouse_version"] = ver
+			ev["version"] = ver
+			ev["product"] = "ClickHouse " + ver
 		}
 	}
 
