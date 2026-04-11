@@ -31,6 +31,7 @@ import (
 	"github.com/stormbane-security/beacon/internal/modules/surface"
 	"github.com/stormbane-security/beacon/internal/postexploit"
 	"github.com/stormbane-security/beacon/internal/profiler"
+	"github.com/stormbane-security/beacon/internal/recon"
 	"github.com/stormbane-security/beacon/internal/report"
 	"github.com/stormbane-security/beacon/internal/scanlog"
 	"github.com/stormbane-security/beacon/internal/scanner/toolinstall"
@@ -60,11 +61,16 @@ USAGE:
   beacon classify    <target> [--format json|text]  Fingerprint a target without running scanners
   beacon retest      --id <scan-id>               Retest findings from a previous scan
   beacon diff        --baseline <id> --id <id>     Diff findings between two scans
+  beacon scope       --program <name>             Show in-scope domains for a bug bounty program
 
 SCAN FLAGS:
   --domain <domain>          Target domain (required unless --host or --targets is used)
   --host <target>            Add a target host; repeatable for multi-host sessions
   --targets <file>           File with one domain per line (enables multi-asset mode)
+  --stdin                    Read targets from stdin (pipe from subfinder, httpx, etc.)
+  --chaos <program>          Fetch targets from ProjectDiscovery Chaos for a bug bounty program
+  --scope <file>             Scope file (.scope.yaml) to filter targets in/out of scope
+  --new-only                 Only show findings not seen in previous scans of the same domain
   --deep                     Enable active probing (sends payloads — confirms permission interactively)
   --exploit                  Enable exploitation-class probes (active exploitation + post-exploit chains)
   --yes                      Skip all confirmation prompts (for CI/automation)
@@ -119,6 +125,11 @@ EXAMPLES:
   beacon scan --targets hosts.txt --deep
   beacon scan --domain example.com --output-raw findings.json
   beacon scan --domain example.com --scanners cors,jwt,tls
+  beacon scan --chaos uber                                                Scan Chaos program targets
+  beacon scan --stdin                                                     Pipe targets from subfinder/httpx
+  subfinder -d example.com | beacon scan --stdin
+  beacon scan --targets hosts.txt --new-only                              Only show new findings
+  beacon scope --program hackerone:uber                                   Show program scope
   beacon enrich --input findings.json --format json --out enriched.json
   beacon report --id <id> --format markdown
   beacon scan --domain example.com --format graph | dot -Tsvg -o topology.svg
@@ -309,6 +320,10 @@ func cmdScan(cfg *config.Config, args []string) {
 		logFile             string
 		logLevel            string
 		narratives          bool
+		chaosProgram        string
+		stdinTargets        bool
+		scopeFile           string
+		newOnly             bool
 	)
 
 	// --quiet can also be set via env var for automation.
@@ -483,6 +498,20 @@ func cmdScan(cfg *config.Config, args []string) {
 			if i < len(args) {
 				logLevel = args[i]
 			}
+		case "--chaos":
+			i++
+			if i < len(args) {
+				chaosProgram = args[i]
+			}
+		case "--stdin":
+			stdinTargets = true
+		case "--scope":
+			i++
+			if i < len(args) {
+				scopeFile = args[i]
+			}
+		case "--new-only":
+			newOnly = true
 		default:
 			if strings.HasPrefix(args[i], "--") {
 				_, _ = fmt.Fprintf(os.Stderr, "beacon: unknown flag %q\n", args[i])
@@ -621,7 +650,7 @@ func cmdScan(cfg *config.Config, args []string) {
 		cfg.ArjunBin = ""
 	}
 
-	// Build unified target list from --domain, --asset, and --targets file.
+	// Build unified target list from --domain, --asset, --targets, --stdin, and --chaos.
 	if domain != "" {
 		assets = append([]string{domain}, assets...)
 	}
@@ -632,6 +661,35 @@ func cmdScan(cfg *config.Config, args []string) {
 		}
 		assets = append(assets, lines...)
 	}
+	if stdinTargets {
+		stdinHosts, err := recon.ReadTargetsFromStdin()
+		if err != nil {
+			fatalf("read stdin: %v", err)
+		}
+		assets = append(assets, stdinHosts...)
+	}
+	if chaosProgram != "" {
+		chaosCtx, chaosCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		chaosDomains, err := recon.FetchChaosDomains(chaosCtx, chaosProgram)
+		chaosCancel()
+		if err != nil {
+			fatalf("chaos: %v", err)
+		}
+		info("beacon: loaded %d targets from Chaos program %q\n", len(chaosDomains), chaosProgram)
+		assets = append(assets, chaosDomains...)
+	}
+	// Apply scope filtering if a scope file is provided.
+	if scopeFile != "" {
+		sc, err := recon.LoadScopeFile(scopeFile)
+		if err != nil {
+			fatalf("load scope: %v", err)
+		}
+		before := len(assets)
+		assets = sc.FilterInScope(assets)
+		if filtered := before - len(assets); filtered > 0 {
+			info("beacon: scope filter removed %d out-of-scope targets (%d remaining)\n", filtered, len(assets))
+		}
+	}
 	assets = uniqueStrings(assets)
 
 	// GitHub-only mode (no domain targets) — delegate to the dedicated function.
@@ -641,7 +699,7 @@ func cmdScan(cfg *config.Config, args []string) {
 	}
 
 	if len(assets) == 0 && githubOrg == "" {
-		fatalf("--domain, --host, --targets, or --github is required\n\n%s", usageText)
+		fatalf("--domain, --host, --targets, --stdin, --chaos, or --github is required\n\n%s", usageText)
 	}
 
 	// Multi-asset mode: scan all targets in a single session.
@@ -1047,6 +1105,26 @@ Do you have written authorization to exploit %s? [y/N] `, domain, domain)
 
 	// Flag potential duplicates across scanners and overlapping assets.
 	dedup.FlagDuplicates(findings)
+
+	// Save scan history for cross-run dedup.
+	if !noDB {
+		if err := recon.SaveScanHistory(run.ID, domain, findings); err != nil {
+			info("beacon: save history: %v\n", err)
+		}
+	}
+
+	// --new-only: filter to findings not seen in the previous scan.
+	if newOnly {
+		prev, err := recon.LatestScanHistory(domain)
+		if err != nil {
+			info("beacon: load previous scan history: %v\n", err)
+		} else if prev != nil && prev.ScanID != run.ID {
+			beforeCount := len(findings)
+			findings = recon.FilterNewFindings(findings, prev.Findings)
+			info("beacon: --new-only filtered %d findings to %d new (baseline: %s)\n",
+				beforeCount, len(findings), prev.ScanID)
+		}
+	}
 
 	// --output-raw: write raw findings and exit before enrichment.
 	if outputRawPath != "" {
