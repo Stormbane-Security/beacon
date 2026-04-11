@@ -2883,6 +2883,1304 @@ var cveVersionRules = []CVEVersionRule{
 		MaxVersion:  "12.2",
 		Severity:    finding.SeverityCritical,
 	},
+
+	// ══════════════════════════════════════════════════════════════════
+	// Wave 6 — remaining CVEs with version data from checkids.go
+	// ══════════════════════════════════════════════════════════════════
+
+	// ── HPE OneView ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEHPEOneViewRCE,
+		CVE:         "CVE-2025-37164",
+		Service:     "hpe-oneview",
+		Description: "HPE OneView pre-auth RCE",
+		MinVersion:  "",
+		MaxVersion:  "9.10",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── TP-Link Omada ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVETPLinkOmadaRCE,
+		CVE:         "CVE-2023-1389",
+		Service:     "omada",
+		Description: "TP-Link Omada auth bypass + RCE",
+		MinVersion:  "",
+		MaxVersion:  "1.1.4",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Next.js ───────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVENextJSMiddlewareBypass,
+		CVE:         "CVE-2025-29927",
+		Service:     "nextjs",
+		Description: "Next.js middleware auth bypass via X-Middleware-Subrequest",
+		MinVersion:  "11.0.0",
+		MaxVersion:  "15.2.3",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── PHP CGI ───────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEPHPCGIArgInjection,
+		CVE:         "CVE-2024-4577",
+		Service:     "php",
+		Description: "PHP CGI on Windows Best-Fit arg injection → RCE",
+		MinVersion:  "8.1.0",
+		MaxVersion:  "8.1.29",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEPHPCGIArgInjection,
+		CVE:         "CVE-2024-4577",
+		Service:     "php",
+		Description: "PHP 8.2.x CGI arg injection → RCE",
+		MinVersion:  "8.2.0",
+		MaxVersion:  "8.2.20",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEPHPCGIArgInjection,
+		CVE:         "CVE-2024-4577",
+		Service:     "php",
+		Description: "PHP 8.3.x CGI arg injection → RCE",
+		MinVersion:  "8.3.0",
+		MaxVersion:  "8.3.8",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Check Point ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVECheckPointFileRead,
+		CVE:         "CVE-2024-24919",
+		Service:     "checkpoint",
+		Description: "Check Point CloudGuard arbitrary file read via /clients/MyCRL",
+		MinVersion:  "",
+		MaxVersion:  "R81.20",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVECheckPointInfoLeak,
+		CVE:         "CVE-2024-24919",
+		Service:     "checkpoint",
+		Description: "Check Point Quantum/CloudGuard arbitrary file read",
+		MinVersion:  "",
+		MaxVersion:  "R81.20",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── ownCloud ──────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEOwnCloudPhpInfo,
+		CVE:         "CVE-2023-49103",
+		Service:     "owncloud",
+		Description: "ownCloud graphapi phpinfo() leak — admin password in env vars",
+		MinVersion:  "",
+		MaxVersion:  "0.3.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Citrix ADC/Gateway ────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVECitrixADCRCE2023,
+		CVE:         "CVE-2023-3519",
+		Service:     "netscaler",
+		Description: "Citrix ADC/Gateway 13.1.x unauthenticated RCE",
+		MinVersion:  "13.1",
+		MaxVersion:  "13.1.49.15",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVECitrixADCRCE2023,
+		CVE:         "CVE-2023-3519",
+		Service:     "netscaler",
+		Description: "Citrix ADC/Gateway 13.0.x unauthenticated RCE",
+		MinVersion:  "13.0",
+		MaxVersion:  "13.0.91.13",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVECitrixADCRCE2023,
+		CVE:         "CVE-2023-3519",
+		Service:     "netscaler",
+		Description: "Citrix ADC/Gateway 12.1.x unauthenticated RCE",
+		MinVersion:  "12.1",
+		MaxVersion:  "12.1.65.25",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVECitrixADCInfo,
+		CVE:         "CVE-2019-19781",
+		Service:     "netscaler",
+		Description: "Citrix ADC/Gateway unauthenticated info disclosure",
+		MinVersion:  "10.5",
+		MaxVersion:  "13.0.47.24",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Juniper J-Web ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEJuniperJWeb,
+		CVE:         "CVE-2023-36844",
+		Service:     "junos",
+		Description: "Juniper J-Web PHP env injection → unauthenticated RCE",
+		MinVersion:  "",
+		MaxVersion:  "23.2R1",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEJuniperJWeb2024,
+		CVE:         "CVE-2024-21591",
+		Service:     "junos",
+		Description: "Juniper J-Web type confusion → pre-auth RCE as root",
+		MinVersion:  "",
+		MaxVersion:  "23.4R1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── SysAid ────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESysAid,
+		CVE:         "CVE-2023-47246",
+		Service:     "sysaid",
+		Description: "SysAid On-Prem path traversal → WAR upload → RCE",
+		MinVersion:  "",
+		MaxVersion:  "23.3.36",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── WSO2 ──────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEWSO2FileUpload,
+		CVE:         "CVE-2022-29464",
+		Service:     "wso2",
+		Description: "WSO2 API Manager/IS unrestricted file upload → RCE",
+		MinVersion:  "",
+		MaxVersion:  "5.11.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Sophos Firewall ───────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESophosFW,
+		CVE:         "CVE-2022-3236",
+		Service:     "sophos",
+		Description: "Sophos Firewall auth bypass/RCE — login fingerprint",
+		MinVersion:  "",
+		MaxVersion:  "19.5",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Magento / Adobe Commerce ──────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEMagentoRCE,
+		CVE:         "CVE-2022-24086",
+		Service:     "magento",
+		Description: "Adobe Commerce/Magento unauthenticated template injection",
+		MinVersion:  "2.3.0",
+		MaxVersion:  "2.4.4",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Oracle E-Business Suite ───────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEOracleEBS,
+		CVE:         "CVE-2022-21587",
+		Service:     "oracle-ebs",
+		Description: "Oracle E-Business Suite RF.jsp unauthenticated arbitrary file read",
+		MinVersion:  "12.2.3",
+		MaxVersion:  "12.2.12",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache httpd (2.4.49–2.4.50 combined) ─────────────────────────
+	{
+		CheckID:     finding.CheckCVEApacheHTTPTraversal,
+		CVE:         "CVE-2021-41773",
+		Service:     "apache",
+		Description: "Apache httpd 2.4.49–2.4.50 path traversal → RCE",
+		MinVersion:  "2.4.49",
+		MaxVersion:  "2.4.51",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Accellion FTA ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEAccellionFTA,
+		CVE:         "CVE-2021-27101",
+		Service:     "accellion",
+		Description: "Accellion FTA (EOL) — exploitation target for data extortion",
+		MinVersion:  "",
+		MaxVersion:  "9.12.416",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── ManageEngine ADSelfService Plus ───────────────────────────────
+	{
+		CheckID:     finding.CheckCVEManageEngineADSelfSvc,
+		CVE:         "CVE-2021-40539",
+		Service:     "manageengine",
+		Description: "ManageEngine ADSelfService Plus REST API auth bypass → RCE",
+		MinVersion:  "",
+		MaxVersion:  "6114",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── SolarWinds Orion ──────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESolarWindsOrion,
+		CVE:         "CVE-2020-10148",
+		Service:     "solarwinds",
+		Description: "SolarWinds Orion auth bypass — supply chain + direct login bypass",
+		MinVersion:  "",
+		MaxVersion:  "2020.2.6",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache Unomi ──────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEApacheUnomi,
+		CVE:         "CVE-2020-13942",
+		Service:     "unomi",
+		Description: "Apache Unomi RCE via MVEL/OGNL expression in context.json",
+		MinVersion:  "",
+		MaxVersion:  "1.5.2",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Liferay ───────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVELiferayRCE,
+		CVE:         "CVE-2020-7961",
+		Service:     "liferay",
+		Description: "Liferay Portal Java deserialization via /api/jsonws",
+		MinVersion:  "",
+		MaxVersion:  "7.2.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── MobileIron ────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEMobileIronRCE,
+		CVE:         "CVE-2020-15505",
+		Service:     "mobileiron",
+		Description: "MobileIron MDM RCE via /mifs/user/login.jsp",
+		MinVersion:  "",
+		MaxVersion:  "10.6.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── vBulletin ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEvBulletin5xRCE,
+		CVE:         "CVE-2020-17496",
+		Service:     "vbulletin",
+		Description: "vBulletin 5.5.4–5.6.2 widget PHP eval → unauthenticated RCE",
+		MinVersion:  "5.5.4",
+		MaxVersion:  "5.6.3",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEvBulletinPreAuthRCE2023,
+		CVE:         "CVE-2023-25135",
+		Service:     "vbulletin",
+		Description: "vBulletin pre-auth RCE via widget config deserialization",
+		MinVersion:  "5.6.7",
+		MaxVersion:  "5.6.10",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEvBulletinRoutestringRCE,
+		CVE:         "CVE-2019-16759",
+		Service:     "vbulletin",
+		Description: "vBulletin pre-auth RCE via routestring",
+		MinVersion:  "5.0.0",
+		MaxVersion:  "5.5.5",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Atlassian Crowd ───────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVECrowdPdkInstall,
+		CVE:         "CVE-2019-11580",
+		Service:     "crowd",
+		Description: "Atlassian Crowd pdkinstall plugin endpoint pre-auth accessible",
+		MinVersion:  "",
+		MaxVersion:  "3.4.4",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Telerik ───────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVETelerikRAU,
+		CVE:         "CVE-2019-18935",
+		Service:     "telerik",
+		Description: "Telerik RadAsyncUpload pre-auth deserialization",
+		MinVersion:  "",
+		MaxVersion:  "2019.3.917",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVETelerikDialogKey,
+		CVE:         "CVE-2017-9248",
+		Service:     "telerik",
+		Description: "Telerik DialogHandler encryption key brute force",
+		MinVersion:  "",
+		MaxVersion:  "2017.2.621",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVETelerikReportServerRCE,
+		CVE:         "CVE-2024-6327",
+		Service:     "telerik",
+		Description: "Telerik Report Server deserialization → unauthenticated RCE",
+		MinVersion:  "",
+		MaxVersion:  "2024.2.514",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache Solr ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESolrAdminExposed,
+		CVE:         "CVE-2019-17558",
+		Service:     "solr",
+		Description: "Apache Solr unauthenticated admin API — SSTI via Velocity template",
+		MinVersion:  "5.0.0",
+		MaxVersion:  "8.3.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── D-Link ────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEDLinkHNAP,
+		CVE:         "CVE-2019-16920",
+		Service:     "dlink",
+		Description: "D-Link HNAP API unauthenticated remote command injection",
+		MinVersion:  "",
+		MaxVersion:  "3.10",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEDLinkNASCmdInjection,
+		CVE:         "CVE-2024-10914",
+		Service:     "dlink",
+		Description: "D-Link NAS unauthenticated command injection via cgi_user_add",
+		MinVersion:  "",
+		MaxVersion:  "1.10",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEDLinkNASRCE,
+		CVE:         "CVE-2024-3273",
+		Service:     "dlink",
+		Description: "D-Link NAS hardcoded backdoor + command injection",
+		MinVersion:  "",
+		MaxVersion:  "1.10",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── ManageEngine Desktop Central ──────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEManageEngineDesktopCVE,
+		CVE:         "CVE-2020-10189",
+		Service:     "manageengine",
+		Description: "ManageEngine Desktop Central pre-auth file upload → RCE",
+		MinVersion:  "",
+		MaxVersion:  "10.0.479",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Adobe ColdFusion ──────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEColdFusionFCKEditor,
+		CVE:         "CVE-2018-15961",
+		Service:     "coldfusion",
+		Description: "Adobe ColdFusion FCKEditor unrestricted file upload → RCE",
+		MinVersion:  "",
+		MaxVersion:  "2018.0.0.308227",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionFileRead,
+		CVE:         "CVE-2024-20767",
+		Service:     "coldfusion",
+		Description: "Adobe ColdFusion 2023.x arbitrary file read via admin API",
+		MinVersion:  "2023.0",
+		MaxVersion:  "2023.6",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionFileRead,
+		CVE:         "CVE-2024-20767",
+		Service:     "coldfusion",
+		Description: "Adobe ColdFusion 2021.x arbitrary file read via admin API",
+		MinVersion:  "2021.0",
+		MaxVersion:  "2021.12",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionDeserial,
+		CVE:         "CVE-2023-26360",
+		Service:     "coldfusion",
+		Description: "Adobe ColdFusion 2018.x deserialization → RCE",
+		MinVersion:  "2018.0",
+		MaxVersion:  "2018.16",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionDeserial,
+		CVE:         "CVE-2023-26360",
+		Service:     "coldfusion",
+		Description: "Adobe ColdFusion 2021.x deserialization → RCE",
+		MinVersion:  "2021.0",
+		MaxVersion:  "2021.6",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionWDDXDeserRCE,
+		CVE:         "CVE-2023-29300",
+		Service:     "coldfusion",
+		Description: "ColdFusion pre-auth WDDX deserialization RCE",
+		MinVersion:  "2018.0",
+		MaxVersion:  "2018.17",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionWDDXDeserRCE,
+		CVE:         "CVE-2023-29300",
+		Service:     "coldfusion",
+		Description: "ColdFusion 2021.x WDDX deserialization RCE",
+		MinVersion:  "2021.0",
+		MaxVersion:  "2021.7",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionWDDXDeserRCE,
+		CVE:         "CVE-2023-29300",
+		Service:     "coldfusion",
+		Description: "ColdFusion 2023.x WDDX deserialization RCE",
+		MinVersion:  "2023.0",
+		MaxVersion:  "2023.1",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionDeserUntrusted,
+		CVE:         "CVE-2023-38203",
+		Service:     "coldfusion",
+		Description: "ColdFusion deserialization of untrusted data RCE",
+		MinVersion:  "2018.0",
+		MaxVersion:  "2018.18",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionDeserUntrusted,
+		CVE:         "CVE-2023-38203",
+		Service:     "coldfusion",
+		Description: "ColdFusion 2021.x deserialization of untrusted data RCE",
+		MinVersion:  "2021.0",
+		MaxVersion:  "2021.8",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionDeserUntrusted,
+		CVE:         "CVE-2023-38203",
+		Service:     "coldfusion",
+		Description: "ColdFusion 2023.x deserialization of untrusted data RCE",
+		MinVersion:  "2023.0",
+		MaxVersion:  "2023.2",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionWDDXGadgets,
+		CVE:         "CVE-2023-44353",
+		Service:     "coldfusion",
+		Description: "ColdFusion WDDX deserialization gadget chains",
+		MinVersion:  "2018.0",
+		MaxVersion:  "2018.19",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionWDDXGadgets,
+		CVE:         "CVE-2023-44353",
+		Service:     "coldfusion",
+		Description: "ColdFusion 2021.x WDDX deserialization gadget chains",
+		MinVersion:  "2021.0",
+		MaxVersion:  "2021.9",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionWDDXGadgets,
+		CVE:         "CVE-2023-44353",
+		Service:     "coldfusion",
+		Description: "ColdFusion 2023.x WDDX deserialization gadget chains",
+		MinVersion:  "2023.0",
+		MaxVersion:  "2023.4",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEColdFusionDirTraversal,
+		CVE:         "CVE-2010-2861",
+		Service:     "coldfusion",
+		Description: "ColdFusion 8/9 directory traversal → admin hash extraction",
+		MinVersion:  "8.0",
+		MaxVersion:  "9.1",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Apache Struts 2 ───────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEStruts2OGNL,
+		CVE:         "CVE-2017-5638",
+		Service:     "struts",
+		Description: "Apache Struts 2 OGNL injection via Content-Type → unauthenticated RCE",
+		MinVersion:  "2.3.5",
+		MaxVersion:  "2.3.32",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2OGNL,
+		CVE:         "CVE-2017-5638",
+		Service:     "struts",
+		Description: "Apache Struts 2.5.x OGNL injection → unauthenticated RCE",
+		MinVersion:  "2.5.0",
+		MaxVersion:  "2.5.10.1",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2048,
+		CVE:         "CVE-2017-9791",
+		Service:     "struts",
+		Description: "Struts2 S2-048 OGNL via ActionMessage",
+		MinVersion:  "2.3.0",
+		MaxVersion:  "2.3.33",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2053,
+		CVE:         "CVE-2017-12611",
+		Service:     "struts",
+		Description: "Struts2 S2-053 Freemarker RCE",
+		MinVersion:  "2.0.0",
+		MaxVersion:  "2.3.33",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2053,
+		CVE:         "CVE-2017-12611",
+		Service:     "struts",
+		Description: "Struts2 2.5.x S2-053 Freemarker RCE",
+		MinVersion:  "2.5.0",
+		MaxVersion:  "2.5.12",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2061,
+		CVE:         "CVE-2020-17530",
+		Service:     "struts",
+		Description: "Struts2 S2-061 forced OGNL double eval",
+		MinVersion:  "2.0.0",
+		MaxVersion:  "2.5.26",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2062,
+		CVE:         "CVE-2021-31805",
+		Service:     "struts",
+		Description: "Struts2 S2-062 OGNL via tag attributes",
+		MinVersion:  "2.0.0",
+		MaxVersion:  "2.5.30",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2066,
+		CVE:         "CVE-2023-50164",
+		Service:     "struts",
+		Description: "Apache Struts S2-066 file upload path traversal → pre-auth RCE",
+		MinVersion:  "2.0.0",
+		MaxVersion:  "2.5.33",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEStruts2S2066,
+		CVE:         "CVE-2023-50164",
+		Service:     "struts",
+		Description: "Apache Struts 6.x S2-066 file upload path traversal → RCE",
+		MinVersion:  "6.0.0",
+		MaxVersion:  "6.3.0.2",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Hikvision ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEHikvisionISAPI,
+		CVE:         "CVE-2017-7921",
+		Service:     "hikvision",
+		Description: "Hikvision IP camera unauthenticated ISAPI access",
+		MinVersion:  "",
+		MaxVersion:  "5.4.5",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── DotNetNuke ────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEDotNetNukeTraversal,
+		CVE:         "CVE-2017-0929",
+		Service:     "dotnetnuke",
+		Description: "DotNetNuke DnnImageHandler path traversal → machineKey leak → RCE",
+		MinVersion:  "",
+		MaxVersion:  "9.2.0",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Primefaces ────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEPrimefacesEL,
+		CVE:         "CVE-2017-1000486",
+		Service:     "primefaces",
+		Description: "Primefaces EL injection via default hardcoded secret key",
+		MinVersion:  "",
+		MaxVersion:  "5.2.21",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache Shiro ──────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEShiroRememberMe,
+		CVE:         "CVE-2016-4437",
+		Service:     "shiro",
+		Description: "Apache Shiro remember-me deserialization — rememberMe=deleteMe oracle",
+		MinVersion:  "",
+		MaxVersion:  "1.2.5",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── IBM WebSphere ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEWebSphereConsole,
+		CVE:         "CVE-2016-5983",
+		Service:     "websphere",
+		Description: "IBM WebSphere admin console exposed — deserialization RCE",
+		MinVersion:  "7.0",
+		MaxVersion:  "9.0.0.2",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEWebSphereSoapDeser,
+		CVE:         "CVE-2015-7450",
+		Service:     "websphere",
+		Description: "IBM WebSphere SOAP connector Java deserialization RCE",
+		MinVersion:  "6.1",
+		MaxVersion:  "9.0.0.2",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Spring Security OAuth ─────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESpringOAuthSpEL,
+		CVE:         "CVE-2016-4977",
+		Service:     "spring",
+		Description: "Spring Security OAuth2 SpEL injection via redirect_uri error page",
+		MinVersion:  "2.0.0",
+		MaxVersion:  "2.0.10",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Open-Xchange ──────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEOXAppSuiteSSRF,
+		CVE:         "CVE-2016-4047",
+		Service:     "ox-appsuite",
+		Description: "Open-Xchange AppSuite SSRF via unvalidated proxy URL",
+		MinVersion:  "",
+		MaxVersion:  "7.8.1",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── JBoss ─────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEJBossJMXConsole,
+		CVE:         "CVE-2010-0738",
+		Service:     "jboss",
+		Description: "JBoss JMX HTTP Console unauthenticated access → RCE",
+		MinVersion:  "",
+		MaxVersion:  "6.0.0",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVEJBossJMXInvoker,
+		CVE:         "CVE-2015-7501",
+		Service:     "jboss",
+		Description: "JBoss JMXInvokerServlet pre-auth Java deserialization RCE",
+		MinVersion:  "",
+		MaxVersion:  "6.4.5",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEJBossDeserializationRCE,
+		CVE:         "CVE-2017-12149",
+		Service:     "jboss",
+		Description: "JBoss EAP/AS 5.x/6.x unauthenticated RCE via /invoker/readonly deserialization",
+		MinVersion:  "5.0.0",
+		MaxVersion:  "7.0.0",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── IIS ───────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEIISHTTPSys,
+		CVE:         "CVE-2015-1635",
+		Service:     "iis",
+		Description: "IIS HTTP.sys Range header integer overflow → DoS/RCE",
+		MinVersion:  "7.5",
+		MaxVersion:  "8.6",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── PHP CGI (2012) ────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEPHPCGIArgInjection2012,
+		CVE:         "CVE-2012-1823",
+		Service:     "php",
+		Description: "PHP-CGI query string argument injection → source disclosure / RCE",
+		MinVersion:  "5.3.0",
+		MaxVersion:  "5.3.13",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVEPHPCGIArgInjection2012,
+		CVE:         "CVE-2012-1823",
+		Service:     "php",
+		Description: "PHP 5.4.x CGI argument injection → source disclosure / RCE",
+		MinVersion:  "5.4.0",
+		MaxVersion:  "5.4.3",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Ruby on Rails ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVERailsXMLRCE,
+		CVE:         "CVE-2013-0156",
+		Service:     "rails",
+		Description: "Ruby on Rails XML parameter parsing RCE",
+		MinVersion:  "",
+		MaxVersion:  "3.2.11",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVERailsFileReadAccept,
+		CVE:         "CVE-2019-5418",
+		Service:     "rails",
+		Description: "Rails Action View file read via Accept header path traversal",
+		MinVersion:  "",
+		MaxVersion:  "5.2.2.1",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVERailsRenderRCE,
+		CVE:         "CVE-2020-8163",
+		Service:     "rails",
+		Description: "Rails render() injection RCE via user-controlled locals",
+		MinVersion:  "5.0.0",
+		MaxVersion:  "5.2.4.3",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Rejetto HFS ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEHFSRejetto,
+		CVE:         "CVE-2014-6287",
+		Service:     "hfs",
+		Description: "Rejetto HFS 2.3x HTTP File Server RCE",
+		MinVersion:  "2.3",
+		MaxVersion:  "2.4",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Bash ShellShock ───────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEShellShock,
+		CVE:         "CVE-2014-6271",
+		Service:     "bash",
+		Description: "Bash CGI ShellShock — User-Agent/Referer injection",
+		MinVersion:  "",
+		MaxVersion:  "4.3.25",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Log4j 1.x ────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVELog4j1xTCPDeser,
+		CVE:         "CVE-2017-5645",
+		Service:     "log4j",
+		Description: "Log4j 1.x SocketServer Java deserialization RCE",
+		MinVersion:  "1.0",
+		MaxVersion:  "2.0.0",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache Spark ──────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESparkRESTAuthBypass,
+		CVE:         "CVE-2020-9480",
+		Service:     "spark",
+		Description: "Apache Spark REST API auth bypass → RCE",
+		MinVersion:  "",
+		MaxVersion:  "2.4.6",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache APISIX ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEAPISIXBatchRequests,
+		CVE:         "CVE-2022-24112",
+		Service:     "apisix",
+		Description: "Apache APISIX batch-requests RCE",
+		MinVersion:  "1.3",
+		MaxVersion:  "2.12.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Apache OFBiz (screen widget) ──────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEOFBizScreenWidgetRCE,
+		CVE:         "CVE-2024-45507",
+		Service:     "ofbiz",
+		Description: "OFBiz screen widget RCE",
+		MinVersion:  "",
+		MaxVersion:  "18.12.16",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Citrix XenMobile ──────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVECitrixXenMobileTraversal,
+		CVE:         "CVE-2020-8209",
+		Service:     "xenmobile",
+		Description: "Citrix XenMobile/Endpoint Mgmt path traversal",
+		MinVersion:  "10.9",
+		MaxVersion:  "10.12.1",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── ManageEngine ServiceDesk Plus ──────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEManageEngineServiceDesk,
+		CVE:         "CVE-2021-44077",
+		Service:     "manageengine",
+		Description: "ManageEngine ServiceDesk Plus unauthenticated file upload → RCE",
+		MinVersion:  "",
+		MaxVersion:  "11305",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Memcached ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEMemcachedUDPAmplify,
+		CVE:         "CVE-2021-22890",
+		Service:     "memcached",
+		Description: "Memcached UDP amplification — 51000x DDoS reflection factor",
+		MinVersion:  "",
+		MaxVersion:  "1.5.6",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Kibana (security info leak) ───────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEKibanaSecurityInfoLeak,
+		CVE:         "CVE-2021-22145",
+		Service:     "kibana",
+		Description: "Kibana/ES 7.x _security API info disclosure",
+		MinVersion:  "7.0.0",
+		MaxVersion:  "7.13.4",
+		Severity:    finding.SeverityMedium,
+	},
+
+	// ── WooCommerce Payments ──────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEWooCommercePayments,
+		CVE:         "CVE-2023-28121",
+		Service:     "woocommerce-payments",
+		Description: "WooCommerce Payments auth bypass via X-WCPAY-PLATFORM-CHECKOUT-USER header",
+		MinVersion:  "4.8.0",
+		MaxVersion:  "5.6.2",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Elementor Pro ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEElementorProRCE,
+		CVE:         "CVE-2023-32243",
+		Service:     "elementor-pro",
+		Description: "Elementor Pro broken access control → RCE via file upload",
+		MinVersion:  "3.0.0",
+		MaxVersion:  "3.11.7",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── glibc iconv ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEGlibcIconvOverflow,
+		CVE:         "CVE-2024-2961",
+		Service:     "glibc",
+		Description: "glibc iconv ISO-2022-CN-EXT buffer overflow → RCE via PHP filters",
+		MinVersion:  "",
+		MaxVersion:  "2.39",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── WinRAR ────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEWinRARRecoveryRCE,
+		CVE:         "CVE-2023-40477",
+		Service:     "winrar",
+		Description: "WinRAR recovery volume RCE",
+		MinVersion:  "",
+		MaxVersion:  "6.23",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── HTTP/2 ────────────────────────────────────────────────────────
+	// Note: this is protocol-level, any server with HTTP/2 support may be affected.
+	// We use nginx as a representative — the CVE affects all.
+	{
+		CheckID:     finding.CheckCVEHTTP2RapidReset,
+		CVE:         "CVE-2023-44487",
+		Service:     "nginx",
+		Description: "HTTP/2 rapid reset DoS (nginx — all servers affected)",
+		MinVersion:  "",
+		MaxVersion:  "1.25.3",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVEHTTP2RapidReset,
+		CVE:         "CVE-2023-44487",
+		Service:     "apache",
+		Description: "HTTP/2 rapid reset DoS (Apache httpd — all servers affected)",
+		MinVersion:  "",
+		MaxVersion:  "2.4.58",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Telesquare ────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVETelesquareFirmwareRCE,
+		CVE:         "CVE-2024-29269",
+		Service:     "telesquare",
+		Description: "Telesquare TLR-2005KSH firmware command injection",
+		MinVersion:  "",
+		MaxVersion:  "1.1.4",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── VMware ESXi ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEVMwareESXiADBypass,
+		CVE:         "CVE-2024-37085",
+		Service:     "esxi",
+		Description: "VMware ESXi AD integration auth bypass via group manipulation",
+		MinVersion:  "7.0",
+		MaxVersion:  "8.0.3",
+		Severity:    finding.SeverityHigh,
+	},
+	{
+		CheckID:     finding.CheckCVEVMwareUHCIUAF,
+		CVE:         "CVE-2024-22252",
+		Service:     "esxi",
+		Description: "VMware ESXi/Workstation/Fusion UHCI USB use-after-free → VM escape",
+		MinVersion:  "7.0",
+		MaxVersion:  "8.0.3",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── VMware vRealize ───────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEVMwareVRealizeRCE,
+		CVE:         "CVE-2023-20887",
+		Service:     "vrealize",
+		Description: "vRealize Network Insight pre-auth command injection",
+		MinVersion:  "6.0",
+		MaxVersion:  "6.10",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Cleo Harmony/VLTrader ─────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVECleoHarmonyUpload,
+		CVE:         "CVE-2024-50623",
+		Service:     "cleo",
+		Description: "Cleo Harmony/VLTrader/LexiCom unrestricted file upload → RCE",
+		MinVersion:  "",
+		MaxVersion:  "5.8.0.21",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVECleoHarmonyExec,
+		CVE:         "CVE-2024-55956",
+		Service:     "cleo",
+		Description: "Cleo Harmony/VLTrader arbitrary file execution via autorun",
+		MinVersion:  "",
+		MaxVersion:  "5.8.0.24",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── PyArrow ───────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEPyArrowDeserial,
+		CVE:         "CVE-2023-47248",
+		Service:     "pyarrow",
+		Description: "PyArrow IPC/Feather deserialization → arbitrary code execution",
+		MinVersion:  "",
+		MaxVersion:  "14.0.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── js2py ─────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEJs2pySandboxEscape,
+		CVE:         "CVE-2024-28397",
+		Service:     "js2py",
+		Description: "js2py sandbox escape → arbitrary code execution",
+		MinVersion:  "",
+		MaxVersion:  "0.74",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Confluence (hardcoded creds) ──────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEConfluenceHardcodedCreds,
+		CVE:         "CVE-2022-26138",
+		Service:     "confluence",
+		Description: "Questions for Confluence hardcoded credentials",
+		MinVersion:  "2.7.34",
+		MaxVersion:  "3.0.5",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── FastAPI / python-multipart ────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEFastAPIMultipartReDoS,
+		CVE:         "CVE-2024-24762",
+		Service:     "fastapi",
+		Description: "python-multipart ReDoS via crafted Content-Disposition filename",
+		MinVersion:  "",
+		MaxVersion:  "0.0.7",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Jira SSTI ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEJiraSSTIContactAdmin,
+		CVE:         "CVE-2019-11581",
+		Service:     "jira",
+		Description: "Jira SSTI via contact administrators form",
+		MinVersion:  "4.4.0",
+		MaxVersion:  "8.4.0",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Cisco IOS ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVECiscoIOSClusterRCE,
+		CVE:         "CVE-2017-3881",
+		Service:     "ios",
+		Description: "IOS CMP telnet buffer overflow RCE (Vault 7)",
+		MinVersion:  "",
+		MaxVersion:  "16.6.1",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Drupal REST deser ─────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEDrupalRESTDeserRCE,
+		CVE:         "CVE-2019-6340",
+		Service:     "drupal",
+		Description: "Drupal 8 REST module deserialization RCE",
+		MinVersion:  "8.5.0",
+		MaxVersion:  "8.6.10",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── PaperCut ──────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEPaperCutRCE,
+		CVE:         "CVE-2023-27350",
+		Service:     "papercut",
+		Description: "PaperCut NG/MF SetupCompleted unauthenticated RCE",
+		MinVersion:  "",
+		MaxVersion:  "22.0.9",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVEPaperCutPathTraversal,
+		CVE:         "CVE-2023-39143",
+		Service:     "papercut",
+		Description: "PaperCut NG/MF path traversal",
+		MinVersion:  "",
+		MaxVersion:  "22.1.3",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Zimbra (additional) ───────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEZimbraXSSChain,
+		CVE:         "CVE-2023-37580",
+		Service:     "zimbra",
+		Description: "Zimbra XSS in calendar → session theft → RCE chain",
+		MinVersion:  "8.8.0",
+		MaxVersion:  "8.8.15.41",
+		Severity:    finding.SeverityMedium,
+	},
+	{
+		CheckID:     finding.CheckCVEZimbraPreAuthSSRF,
+		CVE:         "CVE-2022-27926",
+		Service:     "zimbra",
+		Description: "Zimbra preauth SSRF via proxy servlet",
+		MinVersion:  "8.8.0",
+		MaxVersion:  "9.0.1",
+		Severity:    finding.SeverityMedium,
+	},
+
+	// ── ClickHouse RBAC bypass ────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEClickHouseRBACBypass,
+		CVE:         "CVE-2024-22412",
+		Service:     "clickhouse",
+		Description: "ClickHouse RBAC bypass via SYSTEM queries on unpatched versions",
+		MinVersion:  "",
+		MaxVersion:  "23.12.3",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Kubelet Windows ───────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEKubeletWindowsRCE,
+		CVE:         "CVE-2024-9042",
+		Service:     "kubernetes",
+		Description: "Kubelet Windows node command injection RCE",
+		MinVersion:  "1.27.0",
+		MaxVersion:  "1.28.12",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── MikroTik IPv6 ─────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEMikroTikIPv6RCE,
+		CVE:         "CVE-2023-32154",
+		Service:     "mikrotik",
+		Description: "MikroTik RouterOS IPv6 RA RCE",
+		MinVersion:  "",
+		MaxVersion:  "6.49.8",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Windows DNS (SigRed) ──────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVESigRedDNSRCE,
+		CVE:         "CVE-2020-1350",
+		Service:     "windows-dns",
+		Description: "Windows DNS Server SIGRed integer overflow → RCE",
+		MinVersion:  "",
+		MaxVersion:  "10.0.17763.1339",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── BIND 9 ────────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEBindGSSTSIGOverflow,
+		CVE:         "CVE-2021-25216",
+		Service:     "bind",
+		Description: "BIND 9 GSS-TSIG buffer overflow → RCE",
+		MinVersion:  "9.5.0",
+		MaxVersion:  "9.16.16",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Kubernetes log sanitization ───────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEK8sLogSanitize,
+		CVE:         "CVE-2020-8565",
+		Service:     "kubernetes",
+		Description: "Kubernetes incomplete log sanitization — tokens in logs",
+		MinVersion:  "",
+		MaxVersion:  "1.20.0",
+		Severity:    finding.SeverityLow,
+	},
+
+	// ── OpenLDAP ──────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEOpenLDAPDoS,
+		CVE:         "CVE-2023-2136",
+		Service:     "openldap",
+		Description: "OpenLDAP slapd assertion failure DoS",
+		MinVersion:  "",
+		MaxVersion:  "2.5.14",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Mosquitto ─────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEMosquittoAuthBypass,
+		CVE:         "CVE-2023-3028",
+		Service:     "mosquitto",
+		Description: "Eclipse Mosquitto auth bypass via custom plugin flaw",
+		MinVersion:  "",
+		MaxVersion:  "2.0.16",
+		Severity:    finding.SeverityHigh,
+	},
+
+	// ── Windows RDP ───────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVERDPBlueKeep,
+		CVE:         "CVE-2019-0708",
+		Service:     "rdp",
+		Description: "Windows RDP BlueKeep pre-auth RCE",
+		MinVersion:  "",
+		MaxVersion:  "6.2",
+		Severity:    finding.SeverityCritical,
+	},
+	{
+		CheckID:     finding.CheckCVERDPDejaBlue,
+		CVE:         "CVE-2019-1181",
+		Service:     "rdp",
+		Description: "Windows RDP DejaBlue pre-auth RCE",
+		MinVersion:  "",
+		MaxVersion:  "10.0.18362",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Net-SNMP ──────────────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVENetSNMPAgentXDoS,
+		CVE:         "CVE-2012-6151",
+		Service:     "net-snmp",
+		Description: "Net-SNMP AgentX subagent timeout DoS",
+		MinVersion:  "",
+		MaxVersion:  "5.7.3",
+		Severity:    finding.SeverityMedium,
+	},
+
+	// ── GitLab SAML bypass ────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEGitLabSAMLBypass,
+		CVE:         "CVE-2024-45409",
+		Service:     "gitlab",
+		Description: "GitLab SAML authentication bypass",
+		MinVersion:  "16.0.0",
+		MaxVersion:  "17.4.2",
+		Severity:    finding.SeverityCritical,
+	},
+
+	// ── Atlassian Bamboo ──────────────────────────────────────────────
+	{
+		CheckID:     finding.CheckCVEBambooRCE,
+		CVE:         "CVE-2023-22506",
+		Service:     "bamboo",
+		Description: "Atlassian Bamboo arbitrary Java code execution",
+		MinVersion:  "8.0.0",
+		MaxVersion:  "9.2.3",
+		Severity:    finding.SeverityHigh,
+	},
 }
 
 // serviceAliases maps common banner product names to our canonical service names.
@@ -3054,6 +4352,101 @@ var serviceAliases = map[string]string{
 	"qlik sense":          "qlik",
 	"cups":                "cups",
 	"cups-browsed":        "cups",
+	"hpe oneview":         "hpe-oneview",
+	"hpe-oneview":         "hpe-oneview",
+	"oneview":             "hpe-oneview",
+	"omada":               "omada",
+	"tp-link omada":       "omada",
+	"nextjs":              "nextjs",
+	"next.js":             "nextjs",
+	"next":                "nextjs",
+	"php":                 "php",
+	"php-cgi":             "php",
+	"php-fpm":             "php",
+	"checkpoint":          "checkpoint",
+	"check point":         "checkpoint",
+	"owncloud":            "owncloud",
+	"junos":               "junos",
+	"juniper":             "junos",
+	"sysaid":              "sysaid",
+	"wso2":                "wso2",
+	"sophos":              "sophos",
+	"sophos firewall":     "sophos",
+	"magento":             "magento",
+	"adobe commerce":      "magento",
+	"oracle-ebs":          "oracle-ebs",
+	"oracle ebs":          "oracle-ebs",
+	"accellion":           "accellion",
+	"accellion fta":       "accellion",
+	"solarwinds":          "solarwinds",
+	"solarwinds orion":    "solarwinds",
+	"unomi":               "unomi",
+	"apache unomi":        "unomi",
+	"liferay":             "liferay",
+	"liferay portal":      "liferay",
+	"mobileiron":          "mobileiron",
+	"vbulletin":           "vbulletin",
+	"crowd":               "crowd",
+	"atlassian crowd":     "crowd",
+	"telerik":             "telerik",
+	"dlink":               "dlink",
+	"d-link":              "dlink",
+	"coldfusion":          "coldfusion",
+	"adobe coldfusion":    "coldfusion",
+	"struts":              "struts",
+	"apache struts":       "struts",
+	"hikvision":           "hikvision",
+	"dotnetnuke":          "dotnetnuke",
+	"dnn":                 "dotnetnuke",
+	"primefaces":          "primefaces",
+	"shiro":               "shiro",
+	"apache shiro":        "shiro",
+	"websphere":           "websphere",
+	"ibm websphere":       "websphere",
+	"ox-appsuite":         "ox-appsuite",
+	"open-xchange":        "ox-appsuite",
+	"rails":               "rails",
+	"ruby on rails":       "rails",
+	"hfs":                 "hfs",
+	"rejetto hfs":         "hfs",
+	"bash":                "bash",
+	"spark":               "spark",
+	"apache spark":        "spark",
+	"apisix":              "apisix",
+	"apache apisix":       "apisix",
+	"xenmobile":           "xenmobile",
+	"woocommerce-payments": "woocommerce-payments",
+	"elementor-pro":       "elementor-pro",
+	"elementor pro":       "elementor-pro",
+	"glibc":               "glibc",
+	"winrar":              "winrar",
+	"telesquare":          "telesquare",
+	"esxi":                "esxi",
+	"vmware esxi":         "esxi",
+	"vrealize":            "vrealize",
+	"vmware vrealize":     "vrealize",
+	"cleo":                "cleo",
+	"cleo harmony":        "cleo",
+	"cleo vltrader":       "cleo",
+	"pyarrow":             "pyarrow",
+	"js2py":               "js2py",
+	"fastapi":             "fastapi",
+	"ios":                 "ios",
+	"cisco ios":           "ios",
+	"papercut":            "papercut",
+	"papercut ng":         "papercut",
+	"papercut mf":         "papercut",
+	"windows-dns":         "windows-dns",
+	"bind":                "bind",
+	"bind9":               "bind",
+	"named":               "bind",
+	"openldap":            "openldap",
+	"slapd":               "openldap",
+	"rdp":                 "rdp",
+	"net-snmp":            "net-snmp",
+	"snmpd":               "net-snmp",
+	"bamboo":              "bamboo",
+	"atlassian bamboo":    "bamboo",
 }
 
 // normalizeService maps a raw service/product name to the canonical form
