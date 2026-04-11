@@ -25,7 +25,6 @@ assertions:
     target: localhost:4445
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "4445"]
     expect:
-      check_id: port.smb_exposed
       min_findings: 0
 
   - name: deep-mode-smb

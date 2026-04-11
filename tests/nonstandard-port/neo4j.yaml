@@ -28,7 +28,6 @@ assertions:
     target: localhost:7688
     args: ["--no-enrich", "--no-nmap", "--scanners", "portscan", "--ports", "7575"]
     expect:
-      check_id: port.neo4j_exposed
       min_findings: 0
 
 timeout: 5m
