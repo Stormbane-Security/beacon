@@ -1104,6 +1104,16 @@ const (
 	CheckWellKnownOIDC            CheckID = "wellknown.oidc_discovery"      // OIDC discovery document exposed — reveals auth infrastructure (info)
 	CheckWellKnownJWKS            CheckID = "wellknown.jwks_exposed"        // JWKS endpoint exposed — public key enumeration (info)
 
+	// ── Passive injection signals (surface-mode safe) ───────────────────
+	CheckWebParamReflected    CheckID = "web.param_reflected"      // URL parameter value reflected unescaped in HTML response — XSS candidate
+	CheckWebSQLErrorDisclosed CheckID = "web.sql_error_disclosed"  // SQL error message in response — injection point or error handling gap
+	CheckWebStackTrace        CheckID = "web.stack_trace_disclosed" // Application stack trace in response — debug mode or unhandled exception
+
+	// ── Attack chain correlation ─────────────────────────────────────────
+	CheckChainSessionHijack   CheckID = "chain.session_hijack"     // Missing HSTS + cookie without Secure flag = session hijack via SSL strip
+	CheckChainAccountTakeover CheckID = "chain.account_takeover"   // Open redirect + OAuth misconfiguration = token theft
+	CheckChainDataExfil       CheckID = "chain.data_exfiltration"  // Reflected param + missing CSP = data exfiltration via XSS
+
 	// ── New service exposure checks ──────────────────────────────────────
 	CheckPortCassandraExposed     CheckID = "port.cassandra_exposed"        // Cassandra CQL native transport exposed without auth (port 9042)
 	CheckPortCassandraNoAuth      CheckID = "port.cassandra_no_auth"        // Cassandra AllowAllAuthenticator — no authentication required
@@ -4095,6 +4105,16 @@ var Registry = map[CheckID]CheckMeta{
 	// Meta — internal operational findings (always surface-safe)
 	CheckMetaDryRunPlan:      {CheckMetaDryRunPlan, SeverityInfo, ModeSurface},
 	CheckMetaHostTimeoutBail: {CheckMetaHostTimeoutBail, SeverityInfo, ModeSurface},
+
+	// Passive injection signals — Surface (no payloads, just observation)
+	CheckWebParamReflected:    {CheckWebParamReflected, SeverityHigh, ModeSurface},
+	CheckWebSQLErrorDisclosed: {CheckWebSQLErrorDisclosed, SeverityHigh, ModeSurface},
+	CheckWebStackTrace:        {CheckWebStackTrace, SeverityMedium, ModeSurface},
+
+	// Attack chain correlation — Surface (derived from other findings)
+	CheckChainSessionHijack:   {CheckChainSessionHijack, SeverityHigh, ModeSurface},
+	CheckChainAccountTakeover: {CheckChainAccountTakeover, SeverityCritical, ModeSurface},
+	CheckChainDataExfil:       {CheckChainDataExfil, SeverityHigh, ModeSurface},
 
 	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
 	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},

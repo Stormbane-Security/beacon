@@ -120,7 +120,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/nextjs"
 	_ "github.com/stormbane-security/beacon/internal/scanner/wifi"
 	_ "github.com/stormbane-security/beacon/internal/scanner/idor"
-	_ "github.com/stormbane-security/beacon/internal/scanner/correlation"
+	"github.com/stormbane-security/beacon/internal/scanner/correlation"
 	_ "github.com/stormbane-security/beacon/internal/scanner/accesscontrol"
 	_ "github.com/stormbane-security/beacon/internal/scanner/privesc"
 	_ "github.com/stormbane-security/beacon/internal/scanner/statemachine"
@@ -152,6 +152,7 @@ import (
 	_ "github.com/stormbane-security/beacon/internal/scanner/mcpscan"
 	_ "github.com/stormbane-security/beacon/internal/scanner/h2c"
 	_ "github.com/stormbane-security/beacon/internal/scanner/secheaders"
+	_ "github.com/stormbane-security/beacon/internal/scanner/passiveinject"
 	_ "github.com/stormbane-security/beacon/internal/scanner/proxychain"
 	_ "github.com/stormbane-security/beacon/internal/scanner/cacheprobe"
 	_ "github.com/stormbane-security/beacon/internal/scanner/cookie"
@@ -1486,6 +1487,18 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 
 	// ── Active attack path chaining (ScanAuthorized only) ───────────────────
 	// The chain engine takes completed findings and actively exploits one to
+	// ── Correlation engine: detect compound vulnerabilities ──────────────
+	// Runs after all scanners complete. Analyzes the full findings set to
+	// identify dangerous combinations (e.g., missing HSTS + insecure cookie
+	// = session hijack chain).
+	{
+		corrScanner := correlation.New()
+		corrScanner.SetFindings(allFindings)
+		if corrFindings, err := corrScanner.Run(ctx, rootDomain, scanType); err == nil {
+			allFindings = append(allFindings, corrFindings...)
+		}
+	}
+
 	// discover the next. Only runs in ScanAuthorized mode — New() enforces this.
 	if chainEng, err := chainengine.New(scanType); err == nil {
 		for _, f := range allFindings {
@@ -4509,7 +4522,7 @@ func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, ope
 			"crawler", "swagger", "jsendpoints", "apiversions",
 			"depconf", "cspaudit", "dlp", "autoprobe", "cacheprobe",
 			"h2c", "http2", "verbtamper", "vhost", "smuggling",
-			"cms-plugins",
+			"cms-plugins", "passiveinject",
 		} {
 			relevant[name] = true
 		}
