@@ -127,8 +127,11 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	// scripts against HTTP ports or SMB scripts against Redis.
 	var surfaceScripts []string
 
-	// Always run these lightweight scripts
-	surfaceScripts = append(surfaceScripts, "banner")
+	// Always run these lightweight, universal scripts that work on any service
+	surfaceScripts = append(surfaceScripts, "banner", "redis-info",
+		"ssh-auth-methods", "ssh2-enum-algos",
+		"http-title", "http-server-header",
+		"ssl-cert")
 
 	// Add service-specific scripts based on what portscan identified
 	for _, svc := range openPorts {
@@ -225,14 +228,10 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	nmapCtx, cancel := context.WithTimeout(ctx, nmapTimeout)
 	defer cancel()
 
-	// nmap benefits from root — enables SYN scan, OS detection, UDP scanning.
+	// nmap works for TCP connect scans and NSE scripts without root.
+	// Only use sudo when root IS available (enables SYN scan, OS detection).
 	var cmd *exec.Cmd
-	if os.Geteuid() != 0 {
-		sudoArgs := append([]string{s.nmapBin}, args...)
-		cmd = exec.CommandContext(nmapCtx, "sudo", sudoArgs...)
-	} else {
-		cmd = exec.CommandContext(nmapCtx, s.nmapBin, args...)
-	}
+	cmd = exec.CommandContext(nmapCtx, s.nmapBin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

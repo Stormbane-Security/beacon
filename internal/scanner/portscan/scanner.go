@@ -465,7 +465,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		findings []finding.Finding
 	}
 	nmapDone := make(chan nmapResult, 1)
-	if len(s.Ports) == 0 && s.nmapBin != "" && len(open) > 0 {
+	if s.nmapBin != "" && len(open) > 0 {
 		// Build the full open port map for nmap (before probes identify services).
 		nmapAllPorts := make(map[int]string, len(open))
 		for _, op := range open {
