@@ -1,13 +1,13 @@
-name: env-file-exposed
-description: "Web server with .env file accessible at the document root"
-tags: [exposure, env, sensitive-file]
+name: source-map-exposed
+description: "Web server with JavaScript source map (.js.map) accessible"
+tags: [exposure, source-map, sensitive-file]
 
 services:
   nginx:
     image: nginx:alpine
     ports: ["80:80"]
     volumes:
-      - ./env-file/html:/usr/share/nginx/html:ro
+      - ./source-map/html:/usr/share/nginx/html:ro
 
 ready:
   cmd: "curl -sf http://localhost:80/ >/dev/null"
@@ -15,12 +15,12 @@ ready:
   interval: 2s
 
 assertions:
-  - name: detects-env-file-exposed
+  - name: detects-source-map-exposed
     type: beacon
     target: localhost:80
     args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
     expect:
       min_findings: 1
-      has_check_id: "exposure.env_file_exposed"
+      has_check_id: "exposure.source_maps_exposed"
 
 timeout: 5m

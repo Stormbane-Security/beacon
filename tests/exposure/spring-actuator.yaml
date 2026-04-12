@@ -1,0 +1,34 @@
+name: spring-actuator-exposed
+description: "Web server with Spring Boot Actuator endpoints accessible"
+tags: [spring, java, actuator, exposure]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./spring-actuator/html:/usr/share/nginx/html:ro
+      - ./spring-actuator/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/actuator/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-actuator-exposed
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+      has_check_id: "exposure.spring_actuator"
+
+  - name: detects-actuator-env-exposed
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      has_check_id: "exposure.spring_actuator"
+
+timeout: 5m

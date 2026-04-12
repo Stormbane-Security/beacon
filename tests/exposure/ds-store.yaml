@@ -1,13 +1,13 @@
-name: env-file-exposed
-description: "Web server with .env file accessible at the document root"
-tags: [exposure, env, sensitive-file]
+name: ds-store-exposed
+description: "Web server with .DS_Store file accessible — leaks directory listing info"
+tags: [exposure, ds-store, sensitive-file]
 
 services:
   nginx:
     image: nginx:alpine
     ports: ["80:80"]
     volumes:
-      - ./env-file/html:/usr/share/nginx/html:ro
+      - ./ds-store/html:/usr/share/nginx/html:ro
 
 ready:
   cmd: "curl -sf http://localhost:80/ >/dev/null"
@@ -15,12 +15,12 @@ ready:
   interval: 2s
 
 assertions:
-  - name: detects-env-file-exposed
+  - name: detects-ds-store
     type: beacon
     target: localhost:80
     args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
     expect:
       min_findings: 1
-      has_check_id: "exposure.env_file_exposed"
+      has_check_id: "exposure.sensitive_file"
 
 timeout: 5m

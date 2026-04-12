@@ -1,0 +1,31 @@
+name: secheaders-missing
+description: "Web server with no security headers — should flag CSP, HSTS, X-Frame-Options, etc."
+tags: [headers, security, surface]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-missing-csp
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 4
+      has_check_id: "headers.missing_csp"
+
+  - name: detects-missing-hsts
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      has_check_id: "headers.missing_x_frame_options"
+
+timeout: 5m
