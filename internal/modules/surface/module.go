@@ -1948,7 +1948,9 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	//   • authsurface:  login form detection → auth pipeline acquires session before
 	//                  Phase B so all subsequent scanners run authenticated
 	phaseAStart := time.Now()
-	phaseANames := []string{"wafdetect", "portscan", "aidetect", "authsurface"}
+	// aidetect is conditionally launched after portscan — only if AI-related
+	// ports are open. This avoids wasting time on every asset.
+	phaseANames := []string{"wafdetect", "portscan", "authsurface"}
 	phaseADone := make(map[string]bool, len(phaseANames))
 	var phaseAMu sync.Mutex
 	var phaseAFindings []finding.Finding
@@ -1984,7 +1986,7 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	}
 
 	// Stream portscan results: extract open ports as soon as portscan finishes,
-	// overlapping with wafdetect/aidetect/authsurface still running.
+	// overlapping with wafdetect/authsurface still running.
 	if ch, ok := phaseADoneCh["portscan"]; ok {
 		<-ch
 	}
@@ -1993,6 +1995,29 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	phaseAMu.Lock()
 	openPorts := extractOpenPorts(phaseAFindings)
 	phaseAMu.Unlock()
+
+	// Conditionally launch aidetect only if AI-related ports are open.
+	// This avoids running AI endpoint probing on every asset when the vast
+	// majority have no AI services.
+	if planContains(plan.Scanners, "aidetect") {
+		if portInSet(openPorts, 11434, 7860, 8000, 5000) || ev.LLMProvider != "" || len(ev.AIEndpoints) > 0 {
+			if aiSc, ok := m.scanners["aidetect"]; ok {
+				phaseADone["aidetect"] = true
+				doneCh := make(chan struct{})
+				phaseADoneCh["aidetect"] = doneCh
+				phaseAWg.Add(1)
+				go func() {
+					defer phaseAWg.Done()
+					result := scan.Execute(aiSc, ctx, asset, scanType)
+					phaseAMu.Lock()
+					phaseAFindings = append(phaseAFindings, result.Findings...)
+					phaseAMu.Unlock()
+					close(doneCh)
+					m.saveScanMetricElapsed(ctx, scanRunID, asset, "aidetect", result.Metrics.Duration, result.Findings, result.Error)
+				}()
+			}
+		}
+	}
 
 	// Now wait for the remaining Phase A scanners to finish.
 	phaseAWg.Wait()
@@ -2634,6 +2659,38 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 
 		if len(allParams) > 0 {
 			ctx = paramdiscovery.WithDiscoveredParams(ctx, allParams)
+		}
+	}
+
+	// ── Post-crawler re-evaluation ───────────────────────────────────────────
+	// The crawler discovers URLs that may reveal services invisible to Phase A
+	// (GraphQL endpoints, API versions, WebSocket, admin panels). Expand the
+	// relevant scanner set so the convergence loop can pick them up.
+	{
+		var postCrawlURLs []string
+		mu.Lock()
+		crawlFindings := make([]finding.Finding, 0)
+		for _, f := range findings {
+			if f.CheckID == finding.CheckAssetCrawlEndpoints {
+				crawlFindings = append(crawlFindings, f)
+				switch v := f.Evidence["endpoints"].(type) {
+				case []string:
+					postCrawlURLs = append(postCrawlURLs, v...)
+				case []interface{}:
+					for _, item := range v {
+						if s, ok := item.(string); ok {
+							postCrawlURLs = append(postCrawlURLs, s)
+						}
+					}
+				}
+			}
+		}
+		mu.Unlock()
+
+		if expanded := expandScannersFromCrawl(crawlFindings, postCrawlURLs); len(expanded) > 0 {
+			for name := range expanded {
+				relevantScanners[name] = true
+			}
 		}
 	}
 
@@ -4409,13 +4466,21 @@ func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, ope
 
 	// Phase A scanners — always relevant (they already ran, but mark them
 	// so they pass through any "is this relevant?" check).
-	for _, name := range []string{"portscan", "wafdetect", "aidetect", "authsurface"} {
+	for _, name := range []string{"portscan", "wafdetect", "authsurface"} {
 		relevant[name] = true
+	}
+	// aidetect is only relevant when AI signals exist (ports, evidence).
+	if hasAI || portInSet(openPorts, 11434, 7860, 8000, 5000) {
+		relevant["aidetect"] = true
 	}
 
 	// Always run (truly universal, no service dependency).
-	for _, name := range []string{"tls", "testssl", "dns", "nuclei"} {
-		relevant[name] = true
+	// DNS is skipped for bare IPs — no DNS records to query.
+	relevant["tls"] = true
+	relevant["testssl"] = true
+	relevant["nuclei"] = true
+	if !isIP {
+		relevant["dns"] = true
 	}
 
 	// Domain-only scanners (skip for bare IPs).
@@ -4432,11 +4497,15 @@ func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, ope
 	// Basic HTTP — lightweight checks for any web server.
 	if hasHTTP {
 		for _, name := range []string{
-			"secheaders", "cors", "cookie", "wellknown", "screenshot",
+			"secheaders", "cors", "cookie", "wellknown",
 			"httpmethods", "clickjacking", "hostheader", "webcontent",
 			"exposedfiles", "robotsmap", "errordisclosure", "ratelimit",
 		} {
 			relevant[name] = true
+		}
+		// Screenshots are only useful for domain-based targets, not bare IPs.
+		if !isIP {
+			relevant["screenshot"] = true
 		}
 	}
 
@@ -4468,8 +4537,12 @@ func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, ope
 		relevant["grpcreflect"] = true
 	}
 	if ev.IsReverseProxy || ev.InfraLayer != "" {
-		relevant["gateway"] = true
 		relevant["cdnbypass"] = true
+	}
+	// gateway and proxychain are expensive — only run when InfraLayer is
+	// specifically identified (e.g., "kong", "envoy"), not just any nginx.
+	if ev.InfraLayer != "" {
+		relevant["gateway"] = true
 		relevant["proxychain"] = true
 	}
 	if ev.HTTP2Enabled {
@@ -4565,4 +4638,82 @@ func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, ope
 	}
 
 	return relevant
+}
+
+// portInSet returns true if any of the given ports appear in the openPorts map.
+func portInSet(openPorts map[int]string, ports ...int) bool {
+	for _, p := range ports {
+		if _, ok := openPorts[p]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// expandScannersFromCrawl examines crawler findings and discovered URLs to
+// identify new scanner signals that weren't visible during Phase A. Returns
+// a set of ADDITIONAL scanner names that should be enabled.
+//
+// This closes the gap where crawl-discovered endpoints reveal services
+// (GraphQL, WebSocket, admin panels, API versions) that Phase A couldn't detect.
+func expandScannersFromCrawl(crawlFindings []finding.Finding, crawlURLs []string) map[string]bool {
+	extra := make(map[string]bool)
+
+	// Check finding evidence for GraphQL signals.
+	for _, f := range crawlFindings {
+		title := strings.ToLower(f.Title)
+		desc := strings.ToLower(f.Description)
+		if strings.Contains(title, "graphql") || strings.Contains(desc, "graphql") {
+			extra["graphql"] = true
+		}
+	}
+
+	// Scan discovered URLs for service signals.
+	for _, u := range crawlURLs {
+		lower := strings.ToLower(u)
+
+		// GraphQL endpoints
+		if strings.Contains(lower, "graphql") || strings.Contains(lower, "graphiql") {
+			extra["graphql"] = true
+		}
+
+		// API versioned paths → API schema discovery
+		if strings.Contains(lower, "/api/") || strings.Contains(lower, "/v1/") ||
+			strings.Contains(lower, "/v2/") || strings.Contains(lower, "/v3/") {
+			extra["apischema"] = true
+		}
+
+		// WebSocket signals
+		if strings.Contains(lower, "ws://") || strings.Contains(lower, "wss://") ||
+			strings.Contains(lower, "websocket") || strings.Contains(lower, "socket.io") {
+			extra["websocket"] = true
+			extra["wsfuzz"] = true
+		}
+
+		// Admin / auth paths → enable auth scanners
+		if strings.Contains(lower, "/admin") || strings.Contains(lower, "/login") ||
+			strings.Contains(lower, "/signin") || strings.Contains(lower, "/auth/") ||
+			strings.Contains(lower, "/oauth") || strings.Contains(lower, "/sso") ||
+			strings.Contains(lower, "/saml") {
+			extra["jwt"] = true
+			extra["oauth"] = true
+			extra["saml"] = true
+			extra["authfuzz"] = true
+			extra["csrf"] = true
+			extra["accesscontrol"] = true
+		}
+	}
+
+	// If crawler found any URLs at all, there are endpoints to fuzz —
+	// enable injection scanners (they rely on discovered params).
+	if len(crawlURLs) > 0 {
+		for _, name := range []string{
+			"sqli", "nosqli", "ssti", "crlf", "openredir", "rxss",
+			"xxe", "hpp", "ssrf", "pathtraversal", "cmdinj",
+		} {
+			extra[name] = true
+		}
+	}
+
+	return extra
 }
