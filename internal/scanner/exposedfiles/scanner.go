@@ -1054,8 +1054,7 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 
 	log := scanlog.FromContext(ctx)
 
-	scheme := detectScheme(ctx, client, asset)
-	base := scheme + "://" + asset
+	base := detectBase(ctx, asset)
 
 	// Wildcard / catch-all detection: use the shared baseline to filter
 	// individual responses instead of bailing entirely.
@@ -6095,15 +6094,34 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 	}
 }
 
-func detectScheme(ctx context.Context, client *http.Client, asset string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+asset, nil)
-	if err != nil {
-		return "http"
+// detectBase finds the canonical base URL for an asset by checking HTTPS
+// first, then HTTP, following any scheme/host redirects (e.g. apex→www).
+func detectBase(ctx context.Context, asset string) string {
+	// Use a redirect-following client just for base detection.
+	followClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: scan.SharedTransport(),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "http"
+
+	for _, scheme := range []string{"https", "http"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+asset+"/", nil)
+		if err != nil {
+			continue
+		}
+		resp, err := followClient.Do(req)
+		if err != nil {
+			continue
+		}
+		_ = resp.Body.Close()
+		// Use the final URL after redirects as the base.
+		final := resp.Request.URL
+		return fmt.Sprintf("%s://%s", final.Scheme, final.Host)
 	}
-	_ = resp.Body.Close()
-	return "https"
+	return "https://" + asset
 }
