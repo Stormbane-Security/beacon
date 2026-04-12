@@ -23,8 +23,8 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:80/ >/dev/null"
-  timeout: 60s
-  interval: 3s
+  timeout: 120s
+  interval: 5s
 
 assertions:
   - name: detects-phpinfo

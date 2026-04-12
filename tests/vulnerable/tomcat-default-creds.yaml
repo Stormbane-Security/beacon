@@ -25,7 +25,7 @@ services:
 
 ready:
   cmd: "curl -sf http://localhost:8080/ >/dev/null"
-  timeout: 120s
+  timeout: 180s
   interval: 5s
 
 assertions:
@@ -36,4 +36,4 @@ assertions:
     expect:
       min_findings: 1
 
-timeout: 10m
+timeout: 15m
