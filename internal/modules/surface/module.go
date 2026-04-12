@@ -4377,6 +4377,10 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 		{"rancher", "rancher"}, {"verdaccio", "verdaccio"},
 		{"redmine", "redmine"}, {"mantis", "mantis"},
 		{"odoo", "odoo"}, {"prestashop", "prestashop"},
+		{"verdaccio", "verdaccio"}, {"loki", "loki"},
+		{"cadvisor", "cadvisor"}, {"clickhouse", "clickhouse"},
+		{"mattermost", "mattermost"}, {"rocketchat", "rocketchat"},
+		{"metabase", "metabase"}, {"superset", "superset"},
 	} {
 		if strings.Contains(fw, mapping.keyword) {
 			tags[mapping.tag] = true
@@ -4416,7 +4420,7 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 		svcLow := strings.ToLower(svc)
 		for _, mapping := range []struct{ keyword, tag string }{
 			{"elasticsearch", "elasticsearch"}, {"elastic", "elastic"},
-			{"redis", "redis"}, {"mongodb", "mongodb"}, {"mongo", "mongodb"},
+			{"redis", "redis"}, {"valkey", "redis"}, {"mongodb", "mongodb"}, {"mongo", "mongodb"},
 			{"mysql", "mysql"}, {"postgres", "postgres"}, {"mssql", "mssql"},
 			{"couchdb", "couchdb"}, {"memcached", "memcached"},
 			{"rabbitmq", "rabbitmq"}, {"amqp", "rabbitmq"},
@@ -4455,6 +4459,9 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 			{"rancher", "rancher"}, {"airflow", "airflow"},
 			{"moodle", "moodle"}, {"roundcube", "roundcube"},
 			{"vault", "vault"}, {"consul", "consul"},
+			{"cadvisor", "cadvisor"}, {"clickhouse", "clickhouse"},
+			{"loki", "loki"}, {"mattermost", "mattermost"},
+			{"verdaccio", "verdaccio"}, {"metabase", "metabase"},
 		} {
 			if strings.Contains(titleLow, mapping.keyword) {
 				tags[mapping.tag] = true
