@@ -1110,9 +1110,10 @@ const (
 	CheckWebStackTrace        CheckID = "web.stack_trace_disclosed" // Application stack trace in response — debug mode or unhandled exception
 
 	// ── Attack chain correlation ─────────────────────────────────────────
-	CheckChainSessionHijack   CheckID = "chain.session_hijack"     // Missing HSTS + cookie without Secure flag = session hijack via SSL strip
-	CheckChainAccountTakeover CheckID = "chain.account_takeover"   // Open redirect + OAuth misconfiguration = token theft
-	CheckChainDataExfil       CheckID = "chain.data_exfiltration"  // Reflected param + missing CSP = data exfiltration via XSS
+	CheckChainSessionHijack    CheckID = "chain.session_hijack"      // Missing HSTS + cookie without Secure flag = session hijack via SSL strip
+	CheckChainAccountTakeover  CheckID = "chain.account_takeover"    // Open redirect + OAuth misconfiguration = token theft
+	CheckChainDataExfil        CheckID = "chain.data_exfiltration"   // Reflected param + missing CSP = data exfiltration via XSS
+	CheckChainCVEResponseSplit CheckID = "chain.cve_response_split"  // Known CRLF CVE + missing CSP + cache = response splitting → cache poison / XSS
 
 	// ── New service exposure checks ──────────────────────────────────────
 	CheckPortCassandraExposed     CheckID = "port.cassandra_exposed"        // Cassandra CQL native transport exposed without auth (port 9042)
@@ -4112,9 +4113,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckWebStackTrace:        {CheckWebStackTrace, SeverityMedium, ModeSurface},
 
 	// Attack chain correlation — Surface (derived from other findings)
-	CheckChainSessionHijack:   {CheckChainSessionHijack, SeverityHigh, ModeSurface},
-	CheckChainAccountTakeover: {CheckChainAccountTakeover, SeverityCritical, ModeSurface},
-	CheckChainDataExfil:       {CheckChainDataExfil, SeverityHigh, ModeSurface},
+	CheckChainSessionHijack:    {CheckChainSessionHijack, SeverityHigh, ModeSurface},
+	CheckChainAccountTakeover:  {CheckChainAccountTakeover, SeverityCritical, ModeSurface},
+	CheckChainDataExfil:        {CheckChainDataExfil, SeverityHigh, ModeSurface},
+	CheckChainCVEResponseSplit: {CheckChainCVEResponseSplit, SeverityCritical, ModeSurface},
 
 	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
 	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},

