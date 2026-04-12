@@ -502,6 +502,26 @@ func (s *Scanner) probe(ctx context.Context, baseURL, path string, baseline *sca
 			if resp.StatusCode == http.StatusOK && !baseline.IsDifferentFromBaseline(resp, body) {
 				return nil, false // soft-404 — skip
 			}
+
+			// For redirects (301/302/308): follow the redirect and check if
+			// the destination returns 404. Apex→www redirects preserve the path
+			// but the path may not exist on the destination.
+			if resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 308 {
+				loc := resp.Header.Get("Location")
+				if loc != "" {
+					followReq, err := http.NewRequestWithContext(ctx, http.MethodHead, loc, nil)
+					if err == nil {
+						followResp, err := s.client.Do(followReq)
+						if err == nil {
+							_ = followResp.Body.Close()
+							if followResp.StatusCode == 404 || followResp.StatusCode == 410 {
+								return nil, false // redirect → 404 = path doesn't exist
+							}
+						}
+					}
+				}
+			}
+
 			return &Result{Path: path, StatusCode: resp.StatusCode}, false
 		}
 
