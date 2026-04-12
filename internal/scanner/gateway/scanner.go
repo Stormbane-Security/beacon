@@ -119,10 +119,14 @@ func probeKongAdmin(ctx context.Context, client *http.Client, asset string) []fi
 			continue
 		}
 
-		bodyStr := string(body)
-		// Kong admin root returns JSON with "version" and "tagline" fields
-		if !strings.Contains(bodyStr, `"tagline"`) && !strings.Contains(bodyStr, `"version"`) &&
-			!strings.Contains(bodyStr, "kong") {
+		bodyStr := strings.ToLower(string(body))
+		// Kong admin root returns JSON with "tagline":"Welcome to kong" and "version".
+		// Require "kong" in the response — "version" alone matches any JSON API.
+		if !strings.Contains(bodyStr, "kong") {
+			continue
+		}
+		// Additional check: must have tagline or "welcome to kong"
+		if !strings.Contains(bodyStr, "tagline") && !strings.Contains(bodyStr, "welcome to kong") {
 			continue
 		}
 
