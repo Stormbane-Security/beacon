@@ -4669,8 +4669,16 @@ func probeMikroTikAPI(ctx context.Context, host string, port int) bool {
 	return strings.Contains(resp, "!done") || strings.Contains(resp, "!trap") || strings.Contains(resp, "!fatal")
 }
 
-// probeMikroTikWinbox sends discovery bytes and checks for response.
+// probeMikroTikWinbox sends discovery bytes and checks for a Winbox protocol response.
+// Winbox responses start with a length byte matching the payload, followed by 0x00 0xFF.
+// Previously this matched any 4+ byte non-HTTP/SSH response, causing false positives
+// on Kerberos (port 88), IMAP, and other services.
 func probeMikroTikWinbox(ctx context.Context, host string, port int) bool {
+	// Only probe ports where Winbox could realistically run.
+	// Port 88 = Kerberos, 143 = IMAP — these produce false positives.
+	if port != 8291 && port != 8292 && port != 80 && port != 443 {
+		return false
+	}
 	addr := fmt.Sprintf("%s:%d", host, port)
 	conn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -4683,10 +4691,27 @@ func probeMikroTikWinbox(ctx context.Context, host string, port int) bool {
 	}
 	buf := make([]byte, 64)
 	n, _ := conn.Read(buf)
-	if n < 4 || buf[0] == 'H' || buf[0] == 'S' {
+	if n < 4 {
 		return false
 	}
-	return true
+	// Reject well-known protocol responses that aren't Winbox.
+	switch {
+	case buf[0] == 'H': // HTTP
+		return false
+	case buf[0] == 'S': // SSH
+		return false
+	case n >= 2 && buf[0] == '*' && buf[1] == ' ': // IMAP untagged
+		return false
+	case n >= 5 && buf[0] == 0x30: // ASN.1/Kerberos
+		return false
+	case n >= 4 && buf[0] == '+': // POP3
+		return false
+	}
+	// Winbox response: first byte is length, bytes 1-2 should be 0x00 0xFF.
+	if n >= 3 && buf[1] == 0x00 && buf[2] == 0xFF {
+		return true
+	}
+	return false
 }
 
 // probeBGP sends a BGP OPEN and checks for OPEN or NOTIFICATION response.
