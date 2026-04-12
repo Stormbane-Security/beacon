@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -224,7 +225,14 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 	nmapCtx, cancel := context.WithTimeout(ctx, nmapTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(nmapCtx, s.nmapBin, args...)
+	// nmap benefits from root — enables SYN scan, OS detection, UDP scanning.
+	var cmd *exec.Cmd
+	if os.Geteuid() != 0 {
+		sudoArgs := append([]string{s.nmapBin}, args...)
+		cmd = exec.CommandContext(nmapCtx, "sudo", sudoArgs...)
+	} else {
+		cmd = exec.CommandContext(nmapCtx, s.nmapBin, args...)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -261,7 +269,12 @@ func (s *Scanner) runNmap(ctx context.Context, asset string, openPorts map[int]s
 			udpCtx, udpCancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer udpCancel()
 
-			udpCmd := exec.CommandContext(udpCtx, s.nmapBin, udpArgs...)
+			var udpCmd *exec.Cmd
+			if os.Geteuid() != 0 {
+				udpCmd = exec.CommandContext(udpCtx, "sudo", append([]string{s.nmapBin}, udpArgs...)...)
+			} else {
+				udpCmd = exec.CommandContext(udpCtx, s.nmapBin, udpArgs...)
+			}
 			var udpStdout bytes.Buffer
 			udpCmd.Stdout = &udpStdout
 
