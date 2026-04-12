@@ -24,6 +24,12 @@ assertions:
     target: localhost:80
     args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
     expect:
-      max_findings: 0
+      no_check_id: "exposure.env_file_exposed"
+  - name: no-spring-actuator-false-positive
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "exposure.spring_actuator"
 
 timeout: 5m

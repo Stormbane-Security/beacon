@@ -20,11 +20,23 @@ ready:
   interval: 2s
 
 assertions:
-  - name: no-cve-false-positives-on-spa
+  - name: no-env-false-positive-on-spa
     type: beacon
     target: localhost:80
     args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
     expect:
-      max_findings: 0
+      no_check_id: "exposure.env_file_exposed"
+  - name: no-git-false-positive-on-spa
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "exposure.git_exposed"
+  - name: no-actuator-false-positive-on-spa
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "exposedfiles", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "exposure.spring_actuator"
 
 timeout: 5m

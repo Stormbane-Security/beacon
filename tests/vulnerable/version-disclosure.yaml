@@ -1,0 +1,25 @@
+name: version-disclosure
+description: "Server leaking version info via Server and X-Powered-By headers"
+tags: [vulnerable, headers, fingerprint]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./version-disclosure/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-server-version
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      has_check_id: "headers.server_info_leak"
+
+timeout: 5m

@@ -1,0 +1,26 @@
+name: http2-detection
+description: "HTTPS server with HTTP/2 enabled — verify protocol detection"
+tags: [vulnerable, http2, protocol]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["443:443"]
+    volumes:
+      - ./http2-enabled/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./http2-enabled/certs:/etc/nginx/certs:ro
+
+ready:
+  cmd: "curl -sk https://localhost:443/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-http2
+    type: beacon
+    target: localhost:443
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "443", "--verbose"]
+    expect:
+      min_findings: 1
+
+timeout: 5m

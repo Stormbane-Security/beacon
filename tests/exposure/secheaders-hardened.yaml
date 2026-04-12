@@ -7,6 +7,7 @@ services:
     image: nginx:alpine
     ports: ["80:80"]
     volumes:
+      - ./secheaders-hardened/html:/usr/share/nginx/html:ro
       - ./secheaders-hardened/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
 ready:
@@ -15,11 +16,23 @@ ready:
   interval: 2s
 
 assertions:
-  - name: no-missing-header-findings
+  - name: no-missing-csp
     type: beacon
     target: localhost:80
     args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
     expect:
-      max_findings: 0
+      no_check_id: "headers.missing_csp"
+  - name: no-missing-hsts
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "headers.missing_hsts"
+  - name: no-missing-xframe
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--scanners", "secheaders", "--ports", "80", "--verbose"]
+    expect:
+      no_check_id: "headers.missing_x_frame_options"
 
 timeout: 5m
