@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -175,9 +176,15 @@ func info(format string, args ...any) {
 }
 
 func main() {
+	// Suppress Go's default logger noise (e.g., "Unsolicited response received
+	// on idle HTTP channel" from net/http keep-alive connections). Beacon uses
+	// its own structured logger (scanlog) for all meaningful output.
+	// Re-enabled by --verbose.
+	log.SetOutput(io.Discard)
+
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("beacon: internal error (recovered panic): %v", r)
+			fmt.Fprintf(os.Stderr, "beacon: internal error (recovered panic): %v\n", r)
 			debug.PrintStack()
 			os.Exit(1)
 		}
