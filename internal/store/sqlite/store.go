@@ -271,7 +271,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path+"?_journal=WAL&_timeout=5000")
+	db, err := sql.Open("sqlite", path+"?_journal=WAL&_timeout=30000&_busy_timeout=30000")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
