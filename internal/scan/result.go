@@ -70,9 +70,60 @@ func (f *funcScanner) Run(ctx context.Context, asset string, scanType module.Sca
 	return f.fn(ctx, asset, scanType)
 }
 
-// Execute runs a scanner with panic recovery and timing, returning a Result.
-// This is the standard way module.go should call scanners — it never lets
-// a scanner panic crash the scan, and it always captures duration.
+// ScannerTimeout returns the per-scanner execution timeout for the given
+// scanner name. When a scanner exceeds its time budget on a single asset,
+// the context is cancelled and it returns whatever findings it has so far.
+//
+// Default timeouts by scanner category:
+//   - Injection scanners (cmdinj, sqli, ssti, crlf, openredir, hpp, xxe, etc.): 5 min
+//   - Port scan: 3 min
+//   - Nuclei: 10 min (runs many templates internally)
+//   - All other scanners: 2 min
+func ScannerTimeout(name string) time.Duration {
+	if injectionScanners[name] {
+		return 5 * time.Minute
+	}
+	switch name {
+	case "portscan":
+		return 3 * time.Minute
+	case "nuclei":
+		return 10 * time.Minute
+	}
+	return 2 * time.Minute
+}
+
+// injectionScanners enumerates scanners that perform parameter fuzzing
+// and need a longer timeout due to the combinatorial probe space.
+var injectionScanners = map[string]bool{
+	"cmdinj":        true,
+	"sqli":          true,
+	"nosqli":        true,
+	"ssti":          true,
+	"crlf":          true,
+	"openredir":     true,
+	"hpp":           true,
+	"xxe":           true,
+	"rxss":          true,
+	"ssrf":          true,
+	"pathtraversal": true,
+	"elinjection":   true,
+	"pdfssrf":       true,
+	"apifuzz":       true,
+	"authfuzz":      true,
+}
+
+// IsInjectionScanner reports whether the named scanner is an injection/fuzzing
+// scanner. Exported for use by the module layer.
+func IsInjectionScanner(name string) bool {
+	return injectionScanners[name]
+}
+
+// Execute runs a scanner with panic recovery, per-scanner timeout, and timing,
+// returning a Result. This is the standard way module.go should call scanners
+// — it never lets a scanner panic crash the scan, and it always captures duration.
+//
+// Each scanner gets a context with a timeout derived from ScannerTimeout(). If
+// the parent context already has a tighter deadline, that deadline wins.
 func Execute(s Scanner, ctx context.Context, asset string, scanType module.ScanType) (result *Result) {
 	result = &Result{
 		Metrics: Metrics{
@@ -92,14 +143,28 @@ func Execute(s Scanner, ctx context.Context, asset string, scanType module.ScanT
 		}
 	}()
 
+	// Per-scanner timeout — the scanner's context is cancelled when the
+	// budget expires, and whatever findings have been collected so far are
+	// returned. Scanners that check ctx.Err() in their probe loops will
+	// exit cleanly; others will be interrupted on the next HTTP request.
+	timeout := ScannerTimeout(s.Name())
+	scanCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	log.ScannerStart(s.Name(), asset)
 	start := time.Now()
-	findings, err := s.Run(ctx, asset, scanType)
+	findings, err := s.Run(scanCtx, asset, scanType)
 	result.Metrics.Duration = time.Since(start)
 	result.Findings = findings
 	result.Error = err
 
-	if err != nil {
+	// If the scanner was interrupted by the per-scanner timeout (not the
+	// parent context), downgrade to a warning rather than a hard error so
+	// partial findings are still included in the report.
+	if scanCtx.Err() != nil && ctx.Err() == nil {
+		result.Error = fmt.Errorf("scanner %s timed out after %s on %s (%d findings collected)", s.Name(), timeout, asset, len(findings))
+		log.ScannerError(s.Name(), asset, result.Error)
+	} else if err != nil {
 		log.ScannerError(s.Name(), asset, err)
 	}
 	log.ScannerComplete(s.Name(), asset, len(findings), result.Metrics.Duration)

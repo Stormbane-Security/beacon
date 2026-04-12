@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stormbane-security/beacon/internal/finding"
 	"github.com/stormbane-security/beacon/internal/module"
@@ -73,5 +74,41 @@ func TestExecutePanicRecovery(t *testing.T) {
 	}
 	if !strings.Contains(r.Error.Error(), "panicked") {
 		t.Errorf("error should mention panic: %v", r.Error)
+	}
+}
+
+func TestScannerTimeout_InjectionScanners(t *testing.T) {
+	for _, name := range []string{"cmdinj", "sqli", "ssti", "crlf", "openredir", "hpp", "xxe", "rxss", "ssrf"} {
+		got := ScannerTimeout(name)
+		if got != 5*time.Minute {
+			t.Errorf("ScannerTimeout(%q) = %v, want 5m", name, got)
+		}
+	}
+}
+
+func TestScannerTimeout_SpecialScanners(t *testing.T) {
+	if got := ScannerTimeout("portscan"); got != 3*time.Minute {
+		t.Errorf("ScannerTimeout(portscan) = %v, want 3m", got)
+	}
+	if got := ScannerTimeout("nuclei"); got != 10*time.Minute {
+		t.Errorf("ScannerTimeout(nuclei) = %v, want 10m", got)
+	}
+}
+
+func TestScannerTimeout_DefaultScanners(t *testing.T) {
+	for _, name := range []string{"cors", "jwt", "secheaders", "tls", "dns"} {
+		got := ScannerTimeout(name)
+		if got != 2*time.Minute {
+			t.Errorf("ScannerTimeout(%q) = %v, want 2m", name, got)
+		}
+	}
+}
+
+func TestIsInjectionScanner(t *testing.T) {
+	if !IsInjectionScanner("cmdinj") {
+		t.Error("cmdinj should be an injection scanner")
+	}
+	if IsInjectionScanner("cors") {
+		t.Error("cors should not be an injection scanner")
 	}
 }

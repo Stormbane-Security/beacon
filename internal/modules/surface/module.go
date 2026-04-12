@@ -2272,6 +2272,12 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 		"clickjacking": true, "autoprobe": true, "websocket": true,
 		"exposedfiles": true, "apiversions": true,
 		"proxychain": true, "cacheprobe": true,
+		// Injection/fuzzing scanners — require a web server to probe.
+		"cmdinj": true, "sqli": true, "nosqli": true, "ssti": true,
+		"crlf": true, "openredir": true, "hpp": true, "xxe": true,
+		"rxss": true, "ssrf": true, "pathtraversal": true,
+		"elinjection": true, "pdfssrf": true, "apifuzz": true,
+		"authfuzz": true,
 	}
 
 	var findings []finding.Finding
@@ -2534,6 +2540,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 			}
 		}
 		if len(crawlURLs) > 0 {
+			// Filter out static assets (CSS, JS, images, fonts, etc.) before
+			// extracting parameters — these are never injectable and just waste
+			// time in downstream injection scanners.
+			crawlURLs = paramdiscovery.FilterFuzzTargets(crawlURLs)
 			for path, params := range paramdiscovery.ExtractFromURLs(crawlURLs) {
 				allParams[path] = params
 			}
