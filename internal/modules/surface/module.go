@@ -3180,8 +3180,8 @@ func expandPattern(pattern, domain string) string {
 // maxIPsPerScan IPs, and HTTP-probes each one. Returns IPs that respond on
 // port 80 or 443.
 func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
-	const maxIPs = 4096
-	const concurrency = 50
+	const maxIPs = 16384
+	const concurrency = 200
 
 	var mu sync.Mutex
 	var liveIPs []string
