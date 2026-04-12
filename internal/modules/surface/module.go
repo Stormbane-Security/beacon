@@ -1147,7 +1147,7 @@ func (m *Module) Run(ctx context.Context, input module.Input, scanType module.Sc
 	// they were already crawled from their parent asset).
 	// Cap at 20 new hosts to avoid runaway expansion from link-rich pages.
 	const maxCrawlExpansion = 50
-	if len(assets) < m.maxAssets {
+	if len(assets) < m.maxAssets && !skipDiscovery {
 		crawlCandidates := extractCrawlHostnames(rootDomain, allFindings, seen)
 		if len(crawlCandidates) > maxCrawlExpansion {
 			crawlCandidates = crawlCandidates[:maxCrawlExpansion]
@@ -2889,7 +2889,10 @@ func (m *Module) runAsset(ctx context.Context, asset, rootDomain string, scanTyp
 	// All candidates are dispatched concurrently (bounded by expandSem) so a
 	// cert with 20 SANs doesn't block behind a sequential 120-second scan chain.
 	// Only runs at depth 0 to prevent infinite recursion.
-	if depth == 0 {
+	// Skip for IP/localhost targets — expansion creates synthetic subdomains
+	// like admin.localhost, api.localhost that all resolve to 127.0.0.1 and
+	// produce duplicate findings against the same service.
+	if depth == 0 && !isIPOrLocalhost(rootDomain) {
 		// Collect candidates, claiming each in the shared expandSeen map atomically
 		// so concurrent parent goroutines don't double-scan the same child asset.
 		claimExpand := func(candidate string) bool {

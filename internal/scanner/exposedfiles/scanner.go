@@ -1153,10 +1153,11 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		// Reject clearly wrong content for probes without body validation.
-		// Shell scripts (#!/), PDFs (%PDF), images, and archives are never
+		// Shell scripts, PDFs, images, JSON APIs, and PHP catch-alls are never
 		// the application endpoint a CVE probe is looking for.
 		if t.bodyContains == "" && len(body) > 4 {
 			prefix := string(body[:4])
+			trimmed := strings.TrimSpace(string(body))
 			switch {
 			case strings.HasPrefix(prefix, "#!/"):  // shell script
 				continue
@@ -1169,6 +1170,10 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			case strings.HasPrefix(prefix, "PK"): // ZIP/JAR
 				continue
 			case body[0] == 0xFF && body[1] == 0xD8: // JPEG
+				continue
+			case strings.HasPrefix(trimmed, "{"): // JSON API response (Elasticsearch, Traefik, MinIO)
+				continue
+			case strings.HasPrefix(trimmed, "<?xml"): // XML API response (S3, SOAP services)
 				continue
 			}
 		}
