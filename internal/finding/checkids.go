@@ -2527,7 +2527,7 @@ var Registry = map[CheckID]CheckMeta{
 	CheckSubdomainNSDelegationStale:     {CheckSubdomainNSDelegationStale, SeverityHigh, ModeSurface},
 	CheckSubdomainsDiscovered:           {CheckSubdomainsDiscovered, SeverityInfo, ModeSurface},
 	// Typosquat — DNS lookups only → Surface
-	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityHigh, ModeSurface},
+	CheckDomainTyposquat:      {CheckDomainTyposquat, SeverityMedium, ModeSurface},
 
 	// Web — passive fingerprinting from normal responses → Surface
 	// Active payload injection (XSS/SQLi/SSRF/traversal) and credential
