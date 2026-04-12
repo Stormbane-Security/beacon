@@ -3091,7 +3091,7 @@ func expandPattern(pattern, domain string) string {
 // port 80 or 443.
 func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 	const maxIPs = 4096
-	const concurrency = 20
+	const concurrency = 50 // higher concurrency — TCP connect is cheap
 
 	var mu sync.Mutex
 	var liveIPs []string
@@ -3100,34 +3100,34 @@ func enumerateAndProbeRanges(ctx context.Context, cidrs []string) []string {
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	// Probe ALL known ports via TCP connect — not just HTTP.
+	// Uses the same port list as the portscan scanner so we find SSH,
+	// databases, message queues, etc. Any open port = live host.
+	// The full portscan runs later on each live IP for thorough coverage.
+	probePorts := portscan.AllKnownPorts()
 
 	probe := func(ip string) {
-		for _, scheme := range []string{"https", "http"} {
-			url := scheme + "://" + ip
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-			if err != nil {
-				continue
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				continue
-			}
-			_ = resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode <= 599 {
-				mu.Lock()
-				if !seen[ip] {
-					seen[ip] = true
-					liveIPs = append(liveIPs, ip)
-				}
-				mu.Unlock()
+		dialer := &net.Dialer{Timeout: 2 * time.Second}
+		for _, port := range probePorts {
+			select {
+			case <-ctx.Done():
 				return
+			default:
 			}
+			addr := fmt.Sprintf("%s:%d", ip, port)
+			conn, err := dialer.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				continue
+			}
+			_ = conn.Close()
+			// Any open port = live host
+			mu.Lock()
+			if !seen[ip] {
+				seen[ip] = true
+				liveIPs = append(liveIPs, ip)
+			}
+			mu.Unlock()
+			return // found one open port, no need to check more
 		}
 	}
 
