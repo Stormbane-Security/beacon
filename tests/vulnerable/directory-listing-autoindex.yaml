@@ -1,0 +1,27 @@
+name: directory-listing-autoindex
+description: "Nginx with autoindex enabled and no index.html — should detect directory listing"
+tags: [vulnerable, nginx, directory-listing, regression]
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./directory-listing-autoindex/html:/usr/share/nginx/html:ro
+      - ./directory-listing-autoindex/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+ready:
+  cmd: "curl -sf http://localhost:80/ >/dev/null"
+  timeout: 30s
+  interval: 2s
+
+assertions:
+  - name: detects-directory-listing
+    type: beacon
+    target: localhost:80
+    args: ["--no-enrich", "--no-nmap", "--no-nuclei", "--ports", "80", "--verbose"]
+    expect:
+      min_findings: 1
+      has_check_id: "exposure.directory_listing"
+
+timeout: 5m

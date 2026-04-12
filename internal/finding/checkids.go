@@ -1116,6 +1116,9 @@ const (
 	CheckChainCVEResponseSplit CheckID = "chain.cve_response_split"  // Known CRLF CVE + missing CSP + cache = response splitting → cache poison / XSS
 
 	// ── New service exposure checks ──────────────────────────────────────
+	CheckExposureDirListing       CheckID = "exposure.directory_listing"    // Directory listing enabled — reveals file names, sizes, timestamps
+	CheckExposureAliasTraversal   CheckID = "exposure.alias_traversal"     // Nginx alias misconfiguration allows reading files outside web root
+
 	CheckPortCassandraExposed     CheckID = "port.cassandra_exposed"        // Cassandra CQL native transport exposed without auth (port 9042)
 	CheckPortCassandraNoAuth      CheckID = "port.cassandra_no_auth"        // Cassandra AllowAllAuthenticator — no authentication required
 	CheckPortMSSQLExposed         CheckID = "port.mssql_exposed"            // Microsoft SQL Server TDS prelogin responded — instance reachable
@@ -4117,6 +4120,10 @@ var Registry = map[CheckID]CheckMeta{
 	CheckChainAccountTakeover:  {CheckChainAccountTakeover, SeverityCritical, ModeSurface},
 	CheckChainDataExfil:        {CheckChainDataExfil, SeverityHigh, ModeSurface},
 	CheckChainCVEResponseSplit: {CheckChainCVEResponseSplit, SeverityCritical, ModeSurface},
+
+	// Directory/path exposure — Surface
+	CheckExposureDirListing:     {CheckExposureDirListing, SeverityMedium, ModeSurface},
+	CheckExposureAliasTraversal: {CheckExposureAliasTraversal, SeverityHigh, ModeSurface},
 
 	// Advanced fingerprinting and discovery — Surface (passive HTTP/DNS probes)
 	CheckExposureVCSExposed:  {CheckExposureVCSExposed, SeverityCritical, ModeSurface},

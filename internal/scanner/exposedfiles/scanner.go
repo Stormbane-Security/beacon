@@ -1245,6 +1245,79 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 	}
 
+	// ── Directory listing detection ──────────────────────────────────────
+	// Check common paths for "Index of /" response (nginx autoindex, Apache).
+	dirPaths := []string{"/", "/images/", "/css/", "/js/", "/static/", "/uploads/", "/assets/"}
+	for _, dp := range dirPaths {
+		u := base + dp
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		if resp.StatusCode == 200 && strings.Contains(string(b), "<title>Index of") {
+			findings = append(findings, finding.Finding{
+				CheckID:     finding.CheckExposureDirListing,
+				Module:      "surface",
+				Scanner:     scannerName,
+				Severity:    finding.SeverityMedium,
+				Title:       fmt.Sprintf("Directory listing enabled at %s", dp),
+				Description: fmt.Sprintf("The web server at %s has directory listing enabled on %s. This reveals file names, sizes, and modification timestamps, helping attackers map the application structure and discover sensitive files.", asset, dp),
+				Asset:       asset,
+				Evidence:    map[string]any{"url": u, "path": dp},
+				ProofCommand: fmt.Sprintf("curl -s '%s' | grep 'Index of'", u),
+				DiscoveredAt: time.Now(),
+			})
+			break // one finding is enough
+		}
+	}
+
+	// ── Nginx alias traversal detection ──────────────────────────────────
+	// Misconfigured alias directives (location /files/ { alias /etc/; })
+	// allow reading files outside the web root. Test by requesting a known
+	// file through the path.
+	if scanType == module.ScanDeep || scanType == module.ScanAuthorized {
+		aliasPaths := []string{
+			"/files../etc/passwd",
+			"/img../etc/passwd",
+			"/static../etc/passwd",
+			"/assets../etc/passwd",
+		}
+		for _, ap := range aliasPaths {
+			u := base + ap
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				continue
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				continue
+			}
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = resp.Body.Close()
+			if resp.StatusCode == 200 && strings.Contains(string(b), "root:") {
+				findings = append(findings, finding.Finding{
+					CheckID:     finding.CheckExposureAliasTraversal,
+					Module:      "surface",
+					Scanner:     scannerName,
+					Severity:    finding.SeverityHigh,
+					Title:       fmt.Sprintf("Nginx alias traversal — /etc/passwd readable via %s", ap),
+					Description: fmt.Sprintf("A misconfigured nginx alias directive allows reading files outside the web root. The path %s on %s returned /etc/passwd. An attacker can read arbitrary files from the server filesystem.", ap, asset),
+					Asset:       asset,
+					Evidence:    map[string]any{"url": u, "path": ap, "file_read": "/etc/passwd"},
+					ProofCommand: fmt.Sprintf("curl -s '%s'", u),
+					DiscoveredAt: time.Now(),
+				})
+				break
+			}
+		}
+	}
+
 	// ── Catch-all detection for custom CVE probes ───────────────────────
 	// Applications like Adminer, phpMyAdmin, and SPAs return 200+HTML for
 	// every URL path. Custom CVE probes below make their own HTTP requests
