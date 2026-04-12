@@ -2,13 +2,13 @@ package portscan
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/stormbane-security/beacon/internal/scan"
 )
 
 // Version extraction helpers for common service banners.
@@ -305,27 +305,13 @@ func ExtractHTTPTitle(body string) string {
 // "http_title", "server_product", and "server_version" to the evidence map
 // when available. Called for HTTP service_identified findings to provide
 // useful fingerprint data without a dedicated probe match.
-func enrichHTTPEvidence(ctx context.Context, host string, port int, ev map[string]any) {
-	// Try HTTPS first if port is TLS-capable, otherwise plain HTTP.
-	useTLS := isTLSCapable(ctx, host, port)
+func enrichHTTPEvidence(ctx context.Context, host string, port int, useTLS bool, ev map[string]any) {
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
 	}
 	u := fmt.Sprintf("%s://%s:%d/", scheme, host, port)
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

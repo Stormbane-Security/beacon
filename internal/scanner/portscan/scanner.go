@@ -942,17 +942,7 @@ func looksLikeHTTP(banner string) bool {
 // serially (~175s of timeouts) against an HTTP service.
 func quickHTTPCheck(ctx context.Context, host string, port int) bool {
 	url := fmt.Sprintf("http://%s:%d/", host, port)
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   dialTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(dialTimeout)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -1106,18 +1096,7 @@ func probeHTTPBody(ctx context.Context, host string, port int, useTLS bool, path
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", false
@@ -1154,18 +1133,7 @@ func getCatchAllBaseline(ctx context.Context, host string, port int, useTLS bool
 		scheme = "https"
 	}
 	baseURL := fmt.Sprintf("%s://%s:%d", scheme, host, port)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 
 	baseline := scan.DetectCatchAll(ctx, client, baseURL)
 	catchAllCacheMu.Lock()
@@ -1192,18 +1160,7 @@ func probeHTTPBodyNotCatchAll(ctx context.Context, host string, port int, useTLS
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", false
@@ -1250,18 +1207,7 @@ func probeHTTPBodyAndHeaders(ctx context.Context, host string, port int, useTLS 
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", nil, false
@@ -1285,18 +1231,7 @@ func probeHTTPBodyAndServer(ctx context.Context, host string, port int, useTLS b
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", "", false
@@ -1328,18 +1263,7 @@ func probeHTTPAnyBody(ctx context.Context, host string, port int, useTLS bool, p
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", false
@@ -1365,20 +1289,7 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for security probe
-		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		// Do not follow redirects — a 302 to /login means auth is required.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -1399,18 +1310,7 @@ func probeHTTP(ctx context.Context, host string, port int, useTLS bool, path str
 // or "admission.k8s.io"). Returns "" when no webhook is detected.
 func probeIngressAdmissionWebhook(ctx context.Context, host string, port int) string {
 	url := fmt.Sprintf("https://%s:%d/admission", host, port)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	body := `{"apiVersion":"admission.k8s.io/v1","kind":"AdmissionReview","request":{}}`
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
 		strings.NewReader(body))
@@ -1464,14 +1364,7 @@ func probeMemcachedStats(ctx context.Context, host string, port int) (string, bo
 // probeJupyter does an HTTP GET / and checks for "jupyter" in the response body.
 func probeJupyter(ctx context.Context, host string, port int) bool {
 	url := fmt.Sprintf("http://%s:%d/", host, port)
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
@@ -2984,18 +2877,7 @@ func probeHTTPBodyWithAuth(ctx context.Context, host string, port int, useTLS bo
 		scheme = "https"
 	}
 	u := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   httpTimeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", false
@@ -4251,12 +4133,7 @@ func probeWinRM(ctx context.Context, host string, port int) bool {
 		scheme = "https"
 	}
 	u := fmt.Sprintf("%s://%s:%d/wsman", scheme, host, port)
-	transport := &http.Transport{
-		DialContext:     (&net.Dialer{Timeout: dialTimeout}).DialContext,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Timeout: httpTimeout, Transport: transport}
+	client := scan.SharedClient(httpTimeout)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(""))
 	if err != nil {
 		return false

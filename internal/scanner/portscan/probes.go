@@ -216,8 +216,13 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 	}
 
 	// Check if port speaks TLS (cached — one handshake per host:port).
-	// TLS probes are skipped entirely on non-TLS ports, saving 5s+ per probe.
-	portIsTLS := isTLSCapable(ctx, host, port)
+	// Skip TLS check entirely for protocols known to be plaintext —
+	// saves 2s per non-TLS port (the TLS handshake timeout).
+	portIsTLS := false
+	knownPlaintext := bannerProto != "" && !strings.Contains(bannerProto, "http")
+	if !knownPlaintext {
+		portIsTLS = isTLSCapable(ctx, host, port)
+	}
 
 	// Capture JA3S fingerprint for TLS-enabled ports (uses cache, no extra handshake).
 	var ja3s *JA3SResult
@@ -431,7 +436,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 				}
 				// For HTTP-category probes, enrich with Server header and page title.
 				if probe.Category == ProbeCatHTTP {
-					enrichHTTPEvidence(ctx, host, port, ev)
+					enrichHTTPEvidence(ctx, host, port, portIsTLS, ev)
 				}
 				title := fmt.Sprintf("%s identified on port %d", service, port)
 				if version != "" {
@@ -463,7 +468,7 @@ func runProbes(ctx context.Context, host string, port int, banner string, makeF 
 			ev["banner"] = banner
 		}
 		// Extract HTTP title and Server header version for the fallback HTTP finding.
-		enrichHTTPEvidence(ctx, host, port, ev)
+		enrichHTTPEvidence(ctx, host, port, portIsTLS, ev)
 		findings = append(findings, makeF(
 			finding.CheckPortServiceIdentified,
 			finding.SeverityInfo,
@@ -596,6 +601,11 @@ func appendVersionCVEs(ctx context.Context, findings []finding.Finding, makeF fi
 func quickProtocolCheck(ctx context.Context, host string, port int) string {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	const quickTimeout = 1500 * time.Millisecond
+	// Use a cancellable context so remaining goroutines abort as soon as
+	// one identifies the protocol — avoids holding 5 TCP connections open
+	// until timeout when the first goroutine already answered.
+	qctx, cancel := context.WithTimeout(ctx, quickTimeout)
+	defer cancel()
 	dialer := &net.Dialer{Timeout: quickTimeout}
 
 	type checkResult struct {
@@ -610,7 +620,7 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 				ch <- checkResult{}
 			}
 		}()
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -635,7 +645,7 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 				ch <- checkResult{}
 			}
 		}()
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -658,7 +668,7 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 				ch <- checkResult{}
 			}
 		}()
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -682,7 +692,7 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 				ch <- checkResult{}
 			}
 		}()
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -705,7 +715,7 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 				ch <- checkResult{}
 			}
 		}()
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -766,7 +776,7 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 				ch <- checkResult{}
 			}
 		}()
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		conn, err := dialer.DialContext(qctx, "tcp", addr)
 		if err != nil {
 			ch <- checkResult{}
 			return
@@ -782,7 +792,8 @@ func quickProtocolCheck(ctx context.Context, host string, port int) string {
 		ch <- checkResult{}
 	}()
 
-	// Collect results — return first positive match, or "" after all finish
+	// Collect results — return first positive match, or "" after all finish.
+	// cancel() fires on return, aborting in-flight dials in remaining goroutines.
 	for i := 0; i < 6; i++ {
 		r := <-ch
 		if r.proto != "" {
