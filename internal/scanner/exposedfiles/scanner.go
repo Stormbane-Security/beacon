@@ -6082,9 +6082,21 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
 		bodyLow := strings.ToLower(string(body))
-		if strings.Contains(bodyLow, "sap netweaver") || strings.Contains(bodyLow, "sap ag") ||
-			strings.Contains(bodyLow, "sap se") || strings.Contains(bodyLow, "sap portal") ||
-			resp.Header.Get("SAP-Perf-FESRec") != "" || resp.Header.Get("x-sap-") != "" {
+		// Check SAP-specific headers first (most reliable).
+		hasSAPHeader := resp.Header.Get("SAP-Perf-FESRec") != ""
+		for k := range resp.Header {
+			if strings.HasPrefix(strings.ToLower(k), "x-sap-") || strings.HasPrefix(strings.ToLower(k), "sap-") {
+				hasSAPHeader = true
+				break
+			}
+		}
+		// Body checks: require SAP-specific phrases, not substring "sap"
+		// which matches "msapplication" in HTML meta tags.
+		hasSAPBody := strings.Contains(bodyLow, "sap netweaver") ||
+			strings.Contains(bodyLow, "sap ag") || strings.Contains(bodyLow, "sap se") ||
+			strings.Contains(bodyLow, "sap portal") || strings.Contains(bodyLow, "sap logon") ||
+			strings.Contains(bodyLow, "/sap/bc/") || strings.Contains(bodyLow, "sapui5")
+		if hasSAPHeader || hasSAPBody {
 			isSAP = true
 			break
 		}
@@ -6105,8 +6117,9 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 			bodyLow := strings.ToLower(string(body))
 			// A 200 with upload-related content confirms the vulnerable endpoint is accessible.
 			if resp.StatusCode == http.StatusOK &&
-				(strings.Contains(bodyLow, "upload") || strings.Contains(bodyLow, "metadata") ||
-					strings.Contains(bodyLow, "visual composer")) {
+				(strings.Contains(bodyLow, "visual composer") ||
+					strings.Contains(bodyLow, "metadatauploader") ||
+					(strings.Contains(bodyLow, "upload") && strings.Contains(bodyLow, "sap"))) {
 				return &finding.Finding{
 					CheckID:  finding.CheckCVESAPNetWeaver2025,
 					Module:   scannerName,
@@ -6130,7 +6143,8 @@ func probeSAPNetWeaver2025(ctx context.Context, client *http.Client, base, asset
 					DiscoveredAt: time.Now(),
 				}
 			}
-			if strings.Contains(bodyLow, "sap") || strings.Contains(bodyLow, "netweaver") {
+			if strings.Contains(bodyLow, "sap netweaver") || strings.Contains(bodyLow, "sap ag") ||
+				strings.Contains(bodyLow, "/sap/bc/") || strings.Contains(bodyLow, "sapui5") {
 				isSAP = true
 			}
 		}

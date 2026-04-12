@@ -1009,14 +1009,24 @@ func detectViteDev(ctx context.Context, host string, port int, banner string, ma
 		return nil
 	}
 	trimmed := strings.TrimSpace(body)
-	// Reject HTML, shell scripts, and long responses (Vite returns < 20 bytes).
-	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "#!") || len(trimmed) > 50 {
+	// Reject HTML, shell scripts, JSON, and long responses.
+	if strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "#!") ||
+		strings.HasPrefix(trimmed, "{") || len(trimmed) > 50 {
 		return nil
 	}
-	// Require a Vite-specific signal: the response should NOT have a Server
-	// header from known non-Vite servers.
+	// Require a positive Vite signal. Vite dev server sets specific headers
+	// or returns an empty body with no Server header. Known non-Vite servers
+	// that return short responses on /__vite_ping (Gitea, Express, etc.)
+	// are rejected by checking for their Server headers.
 	server := strings.ToLower(hdrs.Get("Server"))
-	if server != "" && !strings.Contains(server, "vite") {
+	isViteServer := strings.Contains(server, "vite")
+	isKnownNonVite := server != "" && !isViteServer
+	if isKnownNonVite {
+		return nil
+	}
+	// Without a Server header, require the body to be empty or exactly "pong"
+	// (Vite's actual /__vite_ping response).
+	if !isViteServer && trimmed != "" && trimmed != "pong" {
 		return nil
 	}
 	now := time.Now()

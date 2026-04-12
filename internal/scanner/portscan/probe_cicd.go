@@ -49,7 +49,15 @@ func detectGitLab(ctx context.Context, host string, port int, _ string, makeF fi
 		return nil
 	}
 	lower := strings.ToLower(body)
-	if !strings.Contains(lower, "gitlab") {
+	// Require GitLab-specific indicators, not just the word "gitlab" which
+	// appears in other git hosting tools (Gitea, Gogs) as comparison text.
+	isGitLab := strings.Contains(lower, "gon.gitlab") ||
+		strings.Contains(lower, "gitlab-ce") || strings.Contains(lower, "gitlab-ee") ||
+		strings.Contains(lower, "gitlab_workhorse") ||
+		strings.Contains(body, "GitLab Community Edition") ||
+		strings.Contains(body, "GitLab Enterprise Edition") ||
+		(strings.Contains(lower, "gitlab") && strings.Contains(lower, "sign in to gitlab"))
+	if !isGitLab {
 		return nil
 	}
 
