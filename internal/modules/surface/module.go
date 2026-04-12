@@ -4397,6 +4397,21 @@ func selectScanners(phaseAFindings []finding.Finding, ev *playbook.Evidence, ope
 		case cid == "port.vault_exposed",
 			cid == "port.vault_unsealed_no_auth":
 			hasDocker = true // infrastructure — same bucket
+
+		// HTTP from portscan: if portscan identified an HTTP service, enable
+		// HTTP scanners even if the classify probe failed (e.g. slow server).
+		case cid == "port.service_identified":
+			if svc, ok := f.Evidence["service"].(string); ok {
+				svcLower := strings.ToLower(svc)
+				if strings.Contains(svcLower, "http") || strings.Contains(svcLower, "nginx") ||
+					strings.Contains(svcLower, "apache") || strings.Contains(svcLower, "tomcat") ||
+					strings.Contains(svcLower, "iis") || strings.Contains(svcLower, "caddy") ||
+					strings.Contains(svcLower, "lighthttp") || strings.Contains(svcLower, "gunicorn") ||
+					strings.Contains(svcLower, "express") || strings.Contains(svcLower, "flask") ||
+					strings.Contains(svcLower, "django") || strings.Contains(svcLower, "rails") {
+					hasHTTP = true
+				}
+			}
 		}
 	}
 
