@@ -1146,9 +1146,16 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 		}
 
 		// Heuristic: if the body is an HTML page, it's almost certainly a soft 404
-		// or SPA catch-all route (Next.js, React, Vue return 200+HTML for any path).
+		// or SPA/PHP catch-all. CVE endpoint probes should never return HTML
+		// (they return JSON, XML, or specific file content). Exclude .env and
+		// admin paths which legitimately serve HTML.
 		ct := resp.Header.Get("Content-Type")
-		if strings.Contains(ct, "text/html") && t.bodyContains == "" {
+		isHTML := strings.Contains(ct, "text/html")
+		isHTMLExpected := isEnvFile(t.path) || t.path == "/admin/" || t.path == "/admin" ||
+			t.path == "/wp-admin/" || t.path == "/wp-login.php" || t.path == "/administrator/" ||
+			t.path == "/phpmyadmin/" || t.path == "/adminer/" || t.path == "/dashboard/" ||
+			t.path == "/manager/html"
+		if isHTML && !isHTMLExpected {
 			continue
 		}
 
@@ -1236,6 +1243,28 @@ func (s *Scanner) Run(ctx context.Context, asset string, scanType module.ScanTyp
 			vulnFindings := analyzeDependenciesCtx(ctx, asset, t.path, body)
 			findings = append(findings, vulnFindings...)
 		}
+	}
+
+	// ── Catch-all detection for custom CVE probes ───────────────────────
+	// Applications like Adminer, phpMyAdmin, and SPAs return 200+HTML for
+	// every URL path. Custom CVE probes below make their own HTTP requests
+	// and bypass the generic filter. Detect this and skip all CVE probes.
+	skipCVEProbes := baseline.IsCatchAll
+	if !skipCVEProbes {
+		// Probe a nonexistent path — if the server returns 200+HTML, it's a catch-all.
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/beacon-catchall-9x7k.nonexistent", nil)
+		if reqErr == nil {
+			if resp, respErr := client.Do(req); respErr == nil {
+				ct := resp.Header.Get("Content-Type")
+				_ = resp.Body.Close()
+				if resp.StatusCode == 200 && strings.Contains(ct, "text/html") {
+					skipCVEProbes = true
+				}
+			}
+		}
+	}
+	if skipCVEProbes {
+		return findings, nil
 	}
 
 	// CVE-2024-27198 (TeamCity auth bypass, CVSS 9.8, KEV):
