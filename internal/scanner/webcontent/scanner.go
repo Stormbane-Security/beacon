@@ -196,6 +196,16 @@ func checkAPIKeyInURLs(body string) []apiKeyMatch {
 			continue
 		}
 
+		// Skip template variable references — these are build-time
+		// placeholders, not actual leaked keys.
+		if strings.Contains(fullURL, "${") ||
+			strings.Contains(fullURL, "process.env.") ||
+			strings.Contains(fullURL, "import.meta.env.") ||
+			strings.Contains(fullURL, "window.__ENV") ||
+			strings.Contains(fullURL, "process.env[") {
+			continue
+		}
+
 		// Extract the parameter name.
 		paramMatch := apiKeyParamNameRe.FindStringSubmatch(fullURL)
 		paramName := "key"
