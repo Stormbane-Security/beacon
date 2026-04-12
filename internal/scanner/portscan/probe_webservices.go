@@ -137,6 +137,24 @@ func init() {
 		Detect:       detectViteDev,
 	})
 	registerProbe(ServiceProbe{
+		Name:         "docker-registry",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{5000, 5001},
+		Detect:       detectDockerRegistry,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "traefik-dashboard",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8080, 8443},
+		Detect:       detectTraefikDashboard,
+	})
+	registerProbe(ServiceProbe{
+		Name:         "vault-unsealed",
+		Category:     ProbeCatHTTP,
+		DefaultPorts: []int{8200},
+		Detect:       detectVaultUnsealed,
+	})
+	registerProbe(ServiceProbe{
 		Name:         "ingress-nginx-admission",
 		Category:     ProbeCatTLS,
 		DefaultPorts: []int{8443},
@@ -2762,3 +2780,124 @@ func isGoAnywhereVulnerable(ver string) bool {
 	}
 	return false
 }
+
+// ── Docker Registry v2 ─────────────────────────────────────────────────
+
+func detectDockerRegistry(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Docker Registry v2 API: GET /v2/ returns {"repositories": ...} or empty JSON.
+	body, hdrs, ok := probeHTTPBodyAndHeaders(ctx, host, port, false, "/v2/")
+	if !ok {
+		return nil
+	}
+	// Registry returns Docker-Distribution-Api-Version header.
+	apiVer := hdrs.Get("Docker-Distribution-Api-Version")
+	bodyLow := strings.ToLower(body)
+	if apiVer == "" && !strings.Contains(bodyLow, "docker") && !strings.Contains(bodyLow, "registry") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "docker-registry", "api_version": apiVer}
+
+	// Try to list repositories via catalog.
+	if catBody, catOK := probeHTTPBody(ctx, host, port, false, "/v2/_catalog"); catOK {
+		if strings.Contains(catBody, "repositories") {
+			ev["catalog_accessible"] = true
+		}
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckContainerRegistryExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("Docker Registry v2 API exposed on port %d", port),
+		"A Docker container registry is publicly accessible without authentication. "+
+			"An attacker can list all repositories via /v2/_catalog, pull any image "+
+			"(including those containing source code, secrets, and credentials), and "+
+			"potentially push malicious images if write access is enabled.",
+		ev,
+	)}
+}
+
+// ── Traefik Dashboard ───────────────────────────────────────────────────
+
+func detectTraefikDashboard(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Traefik API returns JSON with version info at /api/version.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/api/version")
+	if !ok {
+		return nil
+	}
+	ver := parseJSONStringField(body, "Version")
+	if ver == "" {
+		// Also check /api/rawdata for Traefik v2.
+		body, ok = probeHTTPBody(ctx, host, port, false, "/api/overview")
+		if !ok || !strings.Contains(strings.ToLower(body), "http") {
+			return nil
+		}
+	}
+
+	ev := map[string]any{"port": port, "service": "traefik"}
+	if ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Traefik " + ver
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckExposureMonitoringPanel,
+		finding.SeverityHigh,
+		fmt.Sprintf("Traefik dashboard/API exposed on port %d", port),
+		"The Traefik reverse proxy dashboard and API are publicly accessible without "+
+			"authentication. An attacker can enumerate all backend services, routes, "+
+			"middleware configurations, and TLS certificates. The API may also allow "+
+			"dynamic configuration changes to reroute traffic.",
+		ev,
+	)}
+}
+
+// ── Vault unsealed / dev mode ───────────────────────────────────────────
+
+func detectVaultUnsealed(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
+	// Vault /v1/sys/health returns seal status without auth.
+	body, ok := probeHTTPBody(ctx, host, port, false, "/v1/sys/health")
+	if !ok {
+		// Try HTTPS.
+		body, ok = probeHTTPBody(ctx, host, port, true, "/v1/sys/health")
+		if !ok {
+			return nil
+		}
+	}
+	if !strings.Contains(body, "sealed") || !strings.Contains(body, "initialized") {
+		return nil
+	}
+
+	ev := map[string]any{"port": port, "service": "vault"}
+	if ver := parseJSONStringField(body, "version"); ver != "" {
+		ev["version"] = ver
+		ev["product"] = "Vault " + ver
+	}
+
+	// Parse seal status.
+	sealed := strings.Contains(body, `"sealed":true`)
+	ev["sealed"] = sealed
+
+	if !sealed {
+		return []finding.Finding{makeF(
+			finding.CheckPortVaultUnsealedNoAuth,
+			finding.SeverityCritical,
+			fmt.Sprintf("HashiCorp Vault unsealed and accessible on port %d", port),
+			"Vault is unsealed and its API is publicly accessible. An attacker with a valid "+
+				"token (or if no auth is configured, as in dev mode) can read all secrets, "+
+				"create new tokens, and modify policies. Dev mode uses a well-known root token.",
+			ev,
+		)}
+	}
+
+	return []finding.Finding{makeF(
+		finding.CheckPortVaultExposed,
+		finding.SeverityHigh,
+		fmt.Sprintf("HashiCorp Vault API exposed on port %d (sealed)", port),
+		"Vault's API is publicly accessible. While currently sealed, an attacker can "+
+			"attempt to unseal it if unseal keys are weak or were leaked. Vault should "+
+			"never be directly internet-accessible.",
+		ev,
+	)}
+}
+
