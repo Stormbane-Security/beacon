@@ -748,6 +748,11 @@ func cmdScan(cfg *config.Config, args []string) {
 		return
 	}
 
+	// If --cidr is provided without --domain, use the CIDR as the target label.
+	if len(assets) == 0 && len(extraCIDRs) > 0 {
+		assets = append(assets, extraCIDRs[0])
+	}
+
 	if len(assets) == 0 && githubOrg == "" {
 		fatalf("--domain, --host, --targets, --stdin, --chaos, or --github is required\n\n%s", usageText)
 	}
