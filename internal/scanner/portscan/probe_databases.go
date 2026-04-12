@@ -155,8 +155,15 @@ func detectMongoDB(ctx context.Context, host string, port int, banner string, ma
 
 func detectRelationalDB(ctx context.Context, host string, port int, banner string, makeF findingMaker) []finding.Finding {
 	// Try each database protocol probe — detect by wire protocol, not port number.
-	// MySQL: greeting packet starts with protocol version 0x0a/0x09
-	if probeMySQL(ctx, host, port) {
+	// MySQL/MariaDB: greeting packet starts with protocol version 0x0a/0x09.
+	// The banner from quickProtocolCheck contains the version string (e.g.
+	// "11.8.6-MariaDB-ubu2404"). Use it as a fallback when probeMySQL fails
+	// (e.g. connection pool exhaustion under concurrent probing).
+	bannerLow := strings.ToLower(banner)
+	mysqlFromBanner := strings.Contains(bannerLow, "mysql") ||
+		strings.Contains(bannerLow, "mariadb") ||
+		strings.Contains(bannerLow, "percona")
+	if mysqlFromBanner || probeMySQL(ctx, host, port) {
 		dbName := "MySQL"
 		// Enhanced probe: parse full greeting for version, capabilities, auth plugin.
 		greetingInfo := probeMySQLGreeting(ctx, host, port)
@@ -189,17 +196,19 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 			dbEv["character_set"] = fmt.Sprintf("0x%02x", greetingInfo.CharacterSet)
 			dbEv["capabilities"] = fmt.Sprintf("0x%08x", greetingInfo.Capabilities)
 		}
-		return []finding.Finding{
-			makeF(
-				finding.CheckPortDatabaseExposed,
-				finding.SeverityHigh,
-				fmt.Sprintf("%s database exposed on port %d", dbName, port),
-				fmt.Sprintf("A %s database is directly accessible from the internet. "+
-					"Databases should never be exposed publicly; this enables brute-force attacks and "+
-					"exploitation of database-engine vulnerabilities.", dbName),
-				dbEv,
-			),
-			makeF(
+		results := []finding.Finding{makeF(
+			finding.CheckPortDatabaseExposed,
+			finding.SeverityHigh,
+			fmt.Sprintf("%s database exposed on port %d", dbName, port),
+			fmt.Sprintf("A %s database is directly accessible from the internet. "+
+				"Databases should never be exposed publicly; this enables brute-force attacks and "+
+				"exploitation of database-engine vulnerabilities.", dbName),
+			dbEv,
+		)}
+		// Only emit no-auth finding if empty password login actually succeeds.
+		// probeMySQL() already tests root+empty_password auth — use it directly.
+		if probeMySQL(ctx, host, port) {
+			results = append(results, makeF(
 				finding.CheckPortMySQLNoAuth,
 				finding.SeverityCritical,
 				fmt.Sprintf("MySQL/MariaDB accepts root login with empty password on port %d", port),
@@ -209,8 +218,9 @@ func detectRelationalDB(ctx context.Context, host string, port int, banner strin
 					"achieve RCE via SELECT INTO OUTFILE or UDF injection. "+
 					"Set a strong root password immediately: ALTER USER 'root'@'%' IDENTIFIED BY '...'",
 				noAuthEv,
-			),
+			))
 		}
+		return results
 	}
 	// PostgreSQL: responds to SSLRequest or StartupMessage
 	if probePostgreSQL(ctx, host, port) {

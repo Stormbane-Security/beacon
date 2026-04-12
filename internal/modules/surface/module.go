@@ -4375,6 +4375,8 @@ func buildNucleiTags(ev *playbook.Evidence, phaseAFindings []finding.Finding) []
 		{"splunk", "splunk"}, {"elastic", "elastic"},
 		{"opensearch", "opensearch"}, {"argocd", "argocd"},
 		{"rancher", "rancher"}, {"verdaccio", "verdaccio"},
+		{"redmine", "redmine"}, {"mantis", "mantis"},
+		{"odoo", "odoo"}, {"prestashop", "prestashop"},
 	} {
 		if strings.Contains(fw, mapping.keyword) {
 			tags[mapping.tag] = true
